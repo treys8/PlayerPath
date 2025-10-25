@@ -7,26 +7,27 @@
 	objects = {
 
 /* Begin PBXFileReference section */
-		2D3C65892EAB1CC900BC2B9C /* DT3.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = DT3.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		2D3C65892EAB1CC900BC2B9C /* PlayerPath.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PlayerPath.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		2D3C65962EAB1CCA00BC2B9C /* Exceptions for "DT3" folder in "DT3" target */ = {
+		2D9F74412EAD0E5C00E42977 /* Exceptions for "PlayerPath" folder in "PlayerPath" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
+				Untitled.swift,
 			);
-			target = 2D3C65882EAB1CC900BC2B9C /* DT3 */;
+			target = 2D3C65882EAB1CC900BC2B9C /* PlayerPath */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		2D3C658B2EAB1CC900BC2B9C /* DT3 */ = {
+		2D3C658B2EAB1CC900BC2B9C /* PlayerPath */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				2D3C65962EAB1CCA00BC2B9C /* Exceptions for "DT3" folder in "DT3" target */,
+				2D9F74412EAD0E5C00E42977 /* Exceptions for "PlayerPath" folder in "PlayerPath" target */,
 			);
-			path = DT3;
+			path = PlayerPath;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -45,7 +46,7 @@
 		2D3C65802EAB1CC900BC2B9C = {
 			isa = PBXGroup;
 			children = (
-				2D3C658B2EAB1CC900BC2B9C /* DT3 */,
+				2D3C658B2EAB1CC900BC2B9C /* PlayerPath */,
 				2D3C658A2EAB1CC900BC2B9C /* Products */,
 			);
 			sourceTree = "<group>";
@@ -53,7 +54,7 @@
 		2D3C658A2EAB1CC900BC2B9C /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				2D3C65892EAB1CC900BC2B9C /* DT3.app */,
+				2D3C65892EAB1CC900BC2B9C /* PlayerPath.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -61,9 +62,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		2D3C65882EAB1CC900BC2B9C /* DT3 */ = {
+		2D3C65882EAB1CC900BC2B9C /* PlayerPath */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 2D3C65972EAB1CCA00BC2B9C /* Build configuration list for PBXNativeTarget "DT3" */;
+			buildConfigurationList = 2D3C65972EAB1CCA00BC2B9C /* Build configuration list for PBXNativeTarget "PlayerPath" */;
 			buildPhases = (
 				2D3C65852EAB1CC900BC2B9C /* Sources */,
 				2D3C65862EAB1CC900BC2B9C /* Frameworks */,
@@ -74,13 +75,13 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				2D3C658B2EAB1CC900BC2B9C /* DT3 */,
+				2D3C658B2EAB1CC900BC2B9C /* PlayerPath */,
 			);
-			name = DT3;
+			name = PlayerPath;
 			packageProductDependencies = (
 			);
 			productName = DT3;
-			productReference = 2D3C65892EAB1CC900BC2B9C /* DT3.app */;
+			productReference = 2D3C65892EAB1CC900BC2B9C /* PlayerPath.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -98,7 +99,7 @@
 					};
 				};
 			};
-			buildConfigurationList = 2D3C65842EAB1CC900BC2B9C /* Build configuration list for PBXProject "DT3" */;
+			buildConfigurationList = 2D3C65842EAB1CC900BC2B9C /* Build configuration list for PBXProject "PlayerPath" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -112,7 +113,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				2D3C65882EAB1CC900BC2B9C /* DT3 */,
+				2D3C65882EAB1CC900BC2B9C /* PlayerPath */,
 			);
 		};
 /* End PBXProject section */
@@ -143,13 +144,12 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = DT3/DT3.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = GW6V623MC7;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = DT3/Info.plist;
+				INFOPLIST_FILE = PlayerPath/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -177,13 +177,12 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = DT3/DT3.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = GW6V623MC7;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = DT3/Info.plist;
+				INFOPLIST_FILE = PlayerPath/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -330,7 +329,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		2D3C65842EAB1CC900BC2B9C /* Build configuration list for PBXProject "DT3" */ = {
+		2D3C65842EAB1CC900BC2B9C /* Build configuration list for PBXProject "PlayerPath" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				2D3C659A2EAB1CCA00BC2B9C /* Debug */,
@@ -339,7 +338,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		2D3C65972EAB1CCA00BC2B9C /* Build configuration list for PBXNativeTarget "DT3" */ = {
+		2D3C65972EAB1CCA00BC2B9C /* Build configuration list for PBXNativeTarget "PlayerPath" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				2D3C65982EAB1CCA00BC2B9C /* Debug */,

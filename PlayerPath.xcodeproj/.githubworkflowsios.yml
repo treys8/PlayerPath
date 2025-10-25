@@ -1,0 +1,39 @@
+name: iOS CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-test:
+    runs-on: macos-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Select Xcode Version
+      run: sudo xcode-select -switch /Applications/Xcode_15.0.app/Contents/Developer
+    
+    - name: Show Xcode Version
+      run: xcodebuild -version
+    
+    - name: Show Available SDKs
+      run: xcodebuild -showsdks
+    
+    - name: Build Project
+      run: |
+        xcodebuild clean build \
+          -project YourProject.xcodeproj \
+          -scheme YourScheme \
+          -destination 'platform=iOS Simulator,name=iPhone 15,OS=17.0' \
+          CODE_SIGNING_ALLOWED=NO
+    
+    - name: Run Tests
+      run: |
+        xcodebuild test \
+          -project YourProject.xcodeproj \
+          -scheme YourScheme \
+          -destination 'platform=iOS Simulator,name=iPhone 15,OS=17.0' \
+          CODE_SIGNING_ALLOWED=NO
