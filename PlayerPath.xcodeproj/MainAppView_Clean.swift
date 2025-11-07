@@ -3,6 +3,7 @@
 //  PlayerPath
 //
 //  Created by Trey Schilling on 10/23/25.
+//  Updated with comprehensive authentication system
 //
 
 import SwiftUI
@@ -10,162 +11,88 @@ import SwiftData
 
 struct MainAppView: View {
     @Environment(\.modelContext) private var modelContext
+    @StateObject private var authManager = ComprehensiveAuthManager()
     @Query private var users: [User]
     @State private var currentUser: User?
-    @State private var showingAuth = true
     @State private var selectedAthlete: Athlete?
     
     var body: some View {
         Group {
-            if showingAuth || currentUser == nil {
-                AuthenticationView(
-                    currentUser: $currentUser,
-                    showingAuth: $showingAuth
-                )
-            } else if let user = currentUser {
-                if user.athletes.isEmpty {
-                    AthleteSelectionView(
-                        user: user,
-                        selectedAthlete: $selectedAthlete
-                    )
+            if !authManager.isSignedIn {
+                // Show comprehensive sign-in screen
+                ComprehensiveSignInView()
+            } else {
+                // User is signed in
+                if let user = currentUser {
+                    if user.athletes.isEmpty {
+                        AthleteSelectionView(
+                            user: user,
+                            selectedAthlete: $selectedAthlete,
+                            authManager: authManager
+                        )
+                    } else {
+                        MainTabView(
+                            user: user,
+                            selectedAthlete: $selectedAthlete
+                        )
+                        .overlay(alignment: .top) {
+                            // Show trial status
+                            TrialStatusView(authManager: authManager)
+                                .padding()
+                        }
+                    }
                 } else {
-                    MainTabView(
-                        user: user,
-                        selectedAthlete: $selectedAthlete
-                    )
+                    // Loading or creating user profile
+                    VStack(spacing: 20) {
+                        ProgressView()
+                            .scaleEffect(1.5)
+                        Text("Setting up your profile...")
+                            .font(.headline)
+                    }
+                    .onAppear {
+                        createOrFindLocalUser()
+                    }
                 }
             }
         }
-        .onAppear {
-            // Check if we have a user
-            if let existingUser = users.first {
-                currentUser = existingUser
-                showingAuth = false
-                selectedAthlete = existingUser.athletes.first
+        .environmentObject(authManager)
+        .onChange(of: authManager.isSignedIn) { _, isSignedIn in
+            if isSignedIn {
+                createOrFindLocalUser()
+            } else {
+                currentUser = nil
+                selectedAthlete = nil
             }
         }
     }
-}
-
-// MARK: - Authentication View
-struct AuthenticationView: View {
-    @Environment(\.modelContext) private var modelContext
-    @Binding var currentUser: User?
-    @Binding var showingAuth: Bool
     
-    @State private var isLogin = true
-    @State private var username = ""
-    @State private var email = ""
-    @State private var password = ""
-    @State private var confirmPassword = ""
-    @State private var showingAlert = false
-    @State private var alertMessage = ""
-    
-    var body: some View {
-        NavigationStack {
-            VStack(spacing: 30) {
-                // App Logo
-                VStack {
-                    Image(systemName: "diamond.fill")
-                        .font(.system(size: 80))
-                        .foregroundColor(.blue)
-                    
-                    Text("PlayerPath")
-                        .font(.largeTitle)
-                        .fontWeight(.bold)
-                        .foregroundColor(.primary)
-                    
-                    Text("Your Baseball Journey Starts Here")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                }
-                .padding(.bottom, 20)
-                
-                VStack(spacing: 20) {
-                    if !isLogin {
-                        TextField("Username", text: $username)
-                            .textFieldStyle(RoundedBorderTextFieldStyle())
-                    }
-                    
-                    TextField("Email", text: $email)
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                        .keyboardType(.emailAddress)
-                        .autocapitalization(.none)
-                    
-                    SecureField("Password", text: $password)
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                    
-                    if !isLogin {
-                        SecureField("Confirm Password", text: $confirmPassword)
-                            .textFieldStyle(RoundedBorderTextFieldStyle())
-                    }
-                }
-                
-                VStack(spacing: 15) {
-                    Button(action: authenticateUser) {
-                        Text(isLogin ? "Sign In" : "Sign Up")
-                            .frame(maxWidth: .infinity)
-                            .padding()
-                            .background(Color.blue)
-                            .foregroundColor(.white)
-                            .cornerRadius(10)
-                    }
-                    .disabled(email.isEmpty || password.isEmpty)
-                    
-                    Button(action: { isLogin.toggle() }) {
-                        Text(isLogin ? "Don't have an account? Sign Up" : "Already have an account? Sign In")
-                            .foregroundColor(.blue)
-                    }
-                }
-                
-                Spacer()
-            }
-            .padding()
-            .navigationBarHidden(true)
-        }
-        .alert("Authentication", isPresented: $showingAlert) {
-            Button("OK") { }
-        } message: {
-            Text(alertMessage)
-        }
-    }
-    
-    private func authenticateUser() {
-        // Basic validation
-        guard !email.isEmpty, !password.isEmpty else {
-            showAlert("Please fill in all fields")
-            return
+    private func createOrFindLocalUser() {
+        guard let authUser = authManager.currentUser else { return }
+        
+        // Try to find existing user by email
+        let existingUser = users.first { user in
+            user.email == authUser.email
         }
         
-        if !isLogin {
-            guard !username.isEmpty else {
-                showAlert("Please enter a username")
-                return
-            }
+        if let existingUser = existingUser {
+            currentUser = existingUser
+            selectedAthlete = existingUser.athletes.first
+        } else {
+            // Create new local user to match authenticated user
+            let newUser = User(
+                username: authUser.displayName,
+                email: authUser.email
+            )
             
-            guard password == confirmPassword else {
-                showAlert("Passwords don't match")
-                return
+            modelContext.insert(newUser)
+            
+            do {
+                try modelContext.save()
+                currentUser = newUser
+            } catch {
+                print("Failed to create local user: \(error)")
             }
         }
-        
-        // For demo purposes, we'll create a user directly
-        // In a real app, you'd integrate with Firebase Auth, etc.
-        let user = User(username: isLogin ? email : username, email: email)
-        modelContext.insert(user)
-        
-        do {
-            try modelContext.save()
-            currentUser = user
-            showingAuth = false
-        } catch {
-            showAlert("Failed to create account: \(error.localizedDescription)")
-        }
-    }
-    
-    private func showAlert(_ message: String) {
-        alertMessage = message
-        showingAlert = true
     }
 }
 
@@ -174,11 +101,16 @@ struct AthleteSelectionView: View {
     @Environment(\.modelContext) private var modelContext
     let user: User
     @Binding var selectedAthlete: Athlete?
+    let authManager: ComprehensiveAuthManager
     @State private var showingAddAthlete = false
     
     var body: some View {
         NavigationStack {
             VStack {
+                // Trial status banner
+                TrialStatusView(authManager: authManager)
+                    .padding(.horizontal)
+                
                 if user.athletes.isEmpty {
                     VStack(spacing: 30) {
                         Image(systemName: "person.crop.circle.badge.plus")
@@ -202,6 +134,18 @@ struct AthleteSelectionView: View {
                                 .foregroundColor(.white)
                                 .cornerRadius(10)
                         }
+                        
+                        // Show sync status
+                        HStack {
+                            Image(systemName: "icloud")
+                                .foregroundColor(.green)
+                            Text("Videos will sync across devices")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        .padding()
+                        .background(Color.green.opacity(0.1))
+                        .cornerRadius(8)
                     }
                     .padding()
                 } else {
@@ -216,6 +160,27 @@ struct AthleteSelectionView: View {
             }
             .navigationTitle("Select Athlete")
             .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Menu {
+                        Button("Sign Out") {
+                            authManager.signOut()
+                        }
+                        
+                        if !authManager.isPremiumUser {
+                            Button("Upgrade to Premium") {
+                                Task {
+                                    await authManager.upgradeToPremium()
+                                }
+                            }
+                        }
+                    } label: {
+                        HStack {
+                            Image(systemName: "person.circle")
+                            Text(authManager.currentUser?.displayName ?? "User")
+                        }
+                    }
+                }
+                
                 if !user.athletes.isEmpty {
                     ToolbarItem(placement: .navigationBarTrailing) {
                         Button(action: { showingAddAthlete = true }) {
@@ -332,13 +297,4 @@ struct AddAthleteView: View {
             print("Failed to save athlete: \(error)")
         }
     }
-}
-
-// Helper extension for date formatting
-extension DateFormatter {
-    static let shortDate: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .short
-        return formatter
-    }()
 }
