@@ -193,6 +193,7 @@ final class UnifiedVideoManager {
     var selectedTags: Set<String> = []
     var showHighlightsOnly = false
     var sortOption: SortOption = .dateCreated
+    private var customVideoOrder: [String: Int] = [:]
     
     // MARK: - Configuration
     
@@ -201,7 +202,7 @@ final class UnifiedVideoManager {
     private var uploadTasks: [String: Task<Void, Never>] = [:]
     
     enum SortOption: CaseIterable {
-        case dateCreated, dateModified, title, duration, fileSize
+        case dateCreated, dateModified, title, duration, fileSize, custom
         
         var displayName: String {
             switch self {
@@ -210,6 +211,7 @@ final class UnifiedVideoManager {
             case .title: return "Title"
             case .duration: return "Duration"
             case .fileSize: return "File Size"
+            case .custom: return "Custom Order"
             }
         }
     }
@@ -253,6 +255,14 @@ final class UnifiedVideoManager {
                     return video1.duration > video2.duration
                 case .fileSize:
                     return video1.fileSize > video2.fileSize
+                case .custom:
+                    // Use custom order if available, fallback to creation date
+                    let order1 = customVideoOrder[video1.id] ?? Int.max
+                    let order2 = customVideoOrder[video2.id] ?? Int.max
+                    if order1 == order2 {
+                        return video1.createdDate > video2.createdDate
+                    }
+                    return order1 < order2
                 }
             }
     }
@@ -288,6 +298,7 @@ final class UnifiedVideoManager {
     }
     
     private init() {
+        loadCustomOrder()
         loadLocalVideos()
         setupAutoSync()
     }
@@ -517,6 +528,45 @@ final class UnifiedVideoManager {
         
         saveLocalVideos()
         logger.info("Marked \(videoIds.count) videos as highlights")
+    }
+    
+    /// Move video to new position in custom order
+    func moveVideo(from sourceId: String, to destinationId: String) async {
+        guard sortOption == .custom else { return }
+        
+        let currentVideos = filteredVideos
+        guard let sourceIndex = currentVideos.firstIndex(where: { $0.id == sourceId }),
+              let destinationIndex = currentVideos.firstIndex(where: { $0.id == destinationId }) else {
+            return
+        }
+        
+        // Update custom order for all videos
+        for (index, video) in currentVideos.enumerated() {
+            if video.id == sourceId {
+                customVideoOrder[video.id] = destinationIndex
+            } else if index < destinationIndex && sourceIndex > destinationIndex {
+                // Moving up: shift items down
+                customVideoOrder[video.id] = (customVideoOrder[video.id] ?? index) + 1
+            } else if index > destinationIndex && sourceIndex < destinationIndex {
+                // Moving down: shift items up
+                customVideoOrder[video.id] = (customVideoOrder[video.id] ?? index) - 1
+            } else {
+                customVideoOrder[video.id] = customVideoOrder[video.id] ?? index
+            }
+        }
+        
+        saveCustomOrder()
+        logger.info("Moved video \(sourceId) to position of \(destinationId)")
+    }
+    
+    /// Save custom video order to UserDefaults
+    private func saveCustomOrder() {
+        UserDefaults.standard.set(customVideoOrder, forKey: "CustomVideoOrder")
+    }
+    
+    /// Load custom video order from UserDefaults
+    private func loadCustomOrder() {
+        customVideoOrder = UserDefaults.standard.object(forKey: "CustomVideoOrder") as? [String: Int] ?? [:]
     }
     
     // MARK: - Sync Management

@@ -10,6 +10,7 @@ import SwiftUI
 struct VideoRecordingOptionsView: View {
     let onRecordVideo: () -> Void
     let onUploadVideo: () -> Void
+    var tipText: String? = "Tip: Position camera to capture the full swing and follow-through"
     
     var body: some View {
         VStack(spacing: 20) {
@@ -18,48 +19,64 @@ struct VideoRecordingOptionsView: View {
                 .fontWeight(.semibold)
                 .foregroundColor(.white)
             
-            VStack(spacing: 16) {
-                recordVideoButton
-                uploadVideoButton
+            GlassEffectContainer(spacing: 16) {
+                VStack(spacing: 16) {
+                    recordVideoButton
+                    uploadVideoButton
+                }
             }
             
-            helpfulTip
+            if let tipText {
+                helpfulTip(text: tipText)
+            }
         }
     }
     
     private var recordVideoButton: some View {
-        Button(action: onRecordVideo) {
+        Button {
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            onRecordVideo()
+        } label: {
             RecordingOptionButtonContent(
                 icon: "camera.fill",
                 iconColor: .red,
                 title: "Record Video",
                 subtitle: "Use device camera"
             )
+            .accessibilityElement(children: .combine)
         }
+        .buttonStyle(.plain)
         .accessibilityLabel("Record new video using device camera")
         .accessibilityHint("Opens camera to record a new video")
+        .contentShape(Rectangle())
     }
     
     private var uploadVideoButton: some View {
-        Button(action: onUploadVideo) {
+        Button {
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            onUploadVideo()
+        } label: {
             RecordingOptionButtonContent(
                 icon: "photo.on.rectangle",
                 iconColor: .blue,
                 title: "Upload Video",
                 subtitle: "Choose from library"
             )
+            .accessibilityElement(children: .combine)
         }
+        .buttonStyle(.plain)
         .accessibilityLabel("Upload video from photo library")
         .accessibilityHint("Opens photo library to select an existing video")
+        .contentShape(Rectangle())
     }
     
-    private var helpfulTip: some View {
+    private func helpfulTip(text: String) -> some View {
         HStack(spacing: 8) {
             Image(systemName: "lightbulb")
                 .font(.system(size: 14))
                 .foregroundColor(.yellow)
             
-            Text("Tip: Position camera to capture the full swing and follow-through")
+            Text(text)
                 .font(.caption)
                 .foregroundColor(.white.opacity(0.8))
                 .multilineTextAlignment(.leading)
@@ -74,6 +91,7 @@ struct VideoRecordingOptionsView: View {
                         .strokeBorder(Color.yellow.opacity(0.3), lineWidth: 1)
                 )
         )
+        .accessibilityLabel(text)
     }
 }
 
@@ -109,7 +127,7 @@ struct RecordingOptionButtonContent: View {
             
             Image(systemName: "chevron.right")
                 .font(.system(size: 16, weight: .medium))
-                .foregroundColor(.white.opacity(0.6))
+                .foregroundColor(.secondary)
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 16)
@@ -117,11 +135,11 @@ struct RecordingOptionButtonContent: View {
     }
     
     private var buttonBackground: some View {
-        RoundedRectangle(cornerRadius: 16)
-            .fill(.ultraThinMaterial)
+        RoundedRectangle(cornerRadius: 16, style: .continuous)
+            .fill(Color.white.opacity(0.08))
             .overlay(
-                RoundedRectangle(cornerRadius: 16)
-                    .strokeBorder(Color.white.opacity(0.1), lineWidth: 1)
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
             )
     }
 }

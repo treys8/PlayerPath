@@ -1,0 +1,2954 @@
+//
+//  MainAppView.swift
+//  PlayerPath
+//
+//  Created by Trey Schilling on 10/23/25.
+//
+
+import SwiftUI
+import SwiftData
+import FirebaseAuth
+
+extension View {
+    /// Lightweight glass effect wrapper fallback when glassEffect is not available everywhere
+    func appGlass(cornerRadius: CGFloat = 12, overlayOpacity: Double = 0.1) -> some View {
+        self
+            .background(
+                RoundedRectangle(cornerRadius: cornerRadius)
+                    .fill(.ultraThinMaterial)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: cornerRadius)
+                            .fill(Color.white.opacity(overlayOpacity))
+                            .blendMode(.overlay)
+                    )
+            )
+    }
+}
+
+extension View {
+    func appCard(cornerRadius: CGFloat = 12) -> some View {
+        self
+            .background(
+                RoundedRectangle(cornerRadius: cornerRadius)
+                    .fill(Color(.systemBackground))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius)
+                    .stroke(Color(.systemGray5), lineWidth: 1)
+            )
+            .shadow(color: .black.opacity(0.06), radius: 4, x: 0, y: 2)
+    }
+}
+
+struct StatusChip: View {
+    let text: String
+    let color: Color
+    var body: some View {
+        Text(text)
+            .font(.caption)
+            .fontWeight(.bold)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(color)
+            .foregroundColor(.white)
+            .cornerRadius(4)
+    }
+}
+
+struct EmptyStateView: View {
+    let systemImage: String
+    let title: String
+    let message: String
+    let actionTitle: String?
+    let action: (() -> Void)?
+    
+    init(systemImage: String, title: String, message: String, actionTitle: String? = nil, action: (() -> Void)? = nil) {
+        self.systemImage = systemImage
+        self.title = title
+        self.message = message
+        self.actionTitle = actionTitle
+        self.action = action
+    }
+    
+    var body: some View {
+        VStack(spacing: 30) {
+            Image(systemName: systemImage)
+                .font(.system(size: 80))
+                .foregroundColor(.secondary)
+            Text(title)
+                .font(.title)
+                .fontWeight(.bold)
+            Text(message)
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+            if let actionTitle, let action {
+                Button(actionTitle, action: action)
+                    .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding()
+    }
+}
+
+/// App-wide notifications used for cross-feature coordination.
+/// - switchTab: Pass an Int tab index as object to switch the main TabView.
+/// - presentVideoRecorder: Ask Videos module to present its recorder UI.
+/// - showAthleteSelection: Request athlete selection UI to be shown.
+/// - recordedHitResult: Post with object ["hitType": String] to update highlights and stats.
+
+
+// MARK: - Main Tab Enum
+enum MainTab: Int {
+    case home = 0
+    case tournaments = 1
+    case games = 2
+    case stats = 3
+    case practice = 4
+    case videos = 5
+    case highlights = 6
+    case profile = 7
+}
+
+// Convenience helper to switch tabs via NotificationCenter
+@inline(__always)
+func postSwitchTab(_ tab: MainTab) {
+    NotificationCenter.default.post(name: .switchTab, object: tab.rawValue)
+}
+
+// MARK: - App-wide Notifications
+// Post this to present the video recorder from anywhere (Videos module should observe and present its recorder UI)
+// Notification.Name("PresentVideoRecorder")
+//
+// Post this when a recording determines a hit result. The object should be a dictionary:
+// ["hitType": String] where hitType is one of: "single", "double", "triple", "homeRun".
+// Videos/Highlights should move the clip into Highlights, and Statistics should update counts accordingly.
+// Notification.Name("RecordedHitResult")
+
+
+
+// MARK: - Helper Views
+
+struct FeatureHighlight: View {
+    let icon: String
+    let title: String
+    let description: String
+    
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.title3)
+                .foregroundColor(.blue)
+                .frame(width: 30, height: 30)
+            
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                    .foregroundColor(.primary)
+                
+                Text(description)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.leading)
+            }
+            
+            Spacer()
+        }
+    }
+}
+
+
+
+// MARK: - Main App Root
+struct PlayerPathMainView: View {
+    @StateObject private var authManager = ComprehensiveAuthManager()
+    
+    var body: some View {
+        Group {
+            if authManager.isSignedIn {
+                AuthenticatedFlow()
+            } else {
+                WelcomeFlow()
+            }
+        }
+        .environmentObject(authManager)
+        .tint(.blue)
+        .dynamicTypeSize(...DynamicTypeSize.accessibility5)
+    }
+}
+
+// MARK: - Welcome Flow
+struct WelcomeFlow: View {
+    private enum AuthSheet: Identifiable {
+        case signIn
+        case signUp
+        var id: String { self == .signIn ? "signIn" : "signUp" }
+    }
+    
+    @State private var activeSheet: AuthSheet? = nil
+    
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 40) {
+                Spacer()
+                
+                // App Logo and Branding
+                VStack(spacing: 24) {
+                    Image(systemName: "baseball.fill")
+                        .font(.system(size: 100))
+                        .foregroundStyle(
+                            LinearGradient(
+                                colors: [.red, .white],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .shadow(color: .red.opacity(0.3), radius: 10, x: 0, y: 5)
+                    
+                    VStack(spacing: 12) {
+                        Text("PlayerPath")
+                            .font(.largeTitle)
+                            .fontWeight(.bold)
+                            .foregroundColor(.primary)
+                            .accessibilityAddTraits(.isHeader)
+                        
+                        Text("Your Baseball Journey Starts Here")
+                            .font(.title3)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                }
+                
+                // Feature highlights
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("Track Your Performance")
+                        .font(.headline)
+                        .fontWeight(.semibold)
+                        .padding(.bottom, 8)
+                        .accessibilityAddTraits(.isHeader)
+                    
+                    FeatureHighlight(
+                        icon: "video.circle.fill",
+                        title: "Record & Analyze",
+                        description: "Capture practice sessions and games with smart analysis"
+                    )
+                    
+                    FeatureHighlight(
+                        icon: "chart.line.uptrend.xyaxis.circle.fill",
+                        title: "Track Statistics",
+                        description: "Monitor batting averages and performance metrics"
+                    )
+                    
+                    FeatureHighlight(
+                        icon: "arrow.triangle.2.circlepath.circle.fill",
+                        title: "Sync Everywhere",
+                        description: "Your data syncs securely across all devices"
+                    )
+                }
+                .padding(.horizontal)
+                
+                Spacer()
+                
+                // Action buttons
+                VStack(spacing: 16) {
+                    Button(action: { activeSheet = .signUp }) {
+                        HStack {
+                            Image(systemName: "person.crop.circle.badge.plus")
+                                .font(.headline)
+                            Text("Get Started")
+                                .font(.headline)
+                                .fontWeight(.semibold)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 54)
+                        .background(
+                            LinearGradient(
+                                colors: [.blue, .blue.opacity(0.8)],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                        .foregroundColor(.white)
+                        .cornerRadius(12)
+                    }
+                    .accessibilityLabel("Sign up to get started")
+                    .accessibilityHint("Creates a new account and begins onboarding")
+                    .accessibilityIdentifier("welcome_get_started")
+                    .accessibilitySortPriority(1)
+                    
+                    Button(action: { activeSheet = .signIn }) {
+                        HStack {
+                            Image(systemName: "arrow.right.circle")
+                                .font(.headline)
+                            Text("Sign In")
+                                .font(.headline)
+                                .fontWeight(.medium)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 54)
+                        .background(Color.clear)
+                        .foregroundColor(.blue)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(Color.blue, lineWidth: 2)
+                        )
+                    }
+                    .accessibilityLabel("Sign in to existing account")
+                    .accessibilityHint("Sign in with your existing credentials")
+                    .accessibilityIdentifier("welcome_sign_in")
+                }
+                .padding(.horizontal)
+                
+                Spacer()
+            }
+            .padding()
+            .toolbar(.hidden, for: .navigationBar)
+        }
+        .sheet(item: $activeSheet) { sheet in
+            switch sheet {
+            case .signIn:
+                ComprehensiveSignInView(isSignUpMode: false)
+            case .signUp:
+                ComprehensiveSignInView(isSignUpMode: true)
+            }
+        }
+    }
+}
+
+
+
+// MARK: - ComprehensiveSignInView
+struct ComprehensiveSignInView: View {
+    @EnvironmentObject private var authManager: ComprehensiveAuthManager
+    @Environment(\.dismiss) private var dismiss
+    
+    let isSignUpMode: Bool
+    
+    @State private var email = ""
+    @State private var password = ""
+    @State private var displayName = ""
+    @State private var showingForgotPassword = false
+    
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 30) {
+                // Header
+                VStack(spacing: 16) {
+                    Text(isSignUpMode ? "Create Account" : "Sign In")
+                        .font(.title)
+                        .fontWeight(.bold)
+                    
+                    Text(isSignUpMode ? "Join PlayerPath to track your baseball journey" : "Welcome back to PlayerPath")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+                .padding(.top)
+                
+                VStack(spacing: 20) {
+                    if isSignUpMode {
+                        TextField("Display Name", text: $displayName)
+                            .textFieldStyle(RoundedBorderTextFieldStyle())
+                            .accessibilityLabel("Display name")
+                            .accessibilityHint("Enter your preferred display name")
+                        
+                        // Display name validation
+                        if !displayName.isEmpty {
+                            HStack {
+                                Image(systemName: isValidDisplayName(displayName) ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                                    .foregroundColor(isValidDisplayName(displayName) ? .green : .orange)
+                                    .font(.caption)
+                                Text(getDisplayNameValidationMessage(displayName))
+                                    .font(.caption2)
+                                    .foregroundColor(isValidDisplayName(displayName) ? .green : .orange)
+                                Spacer()
+                            }
+                            .padding(.horizontal)
+                        }
+                    }
+                    
+                    TextField("Email", text: $email)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                        .keyboardType(.emailAddress)
+                        .textContentType(.emailAddress)
+                        .textInputAutocapitalization(.never)
+                        .disableAutocorrection(true)
+                        .accessibilityLabel("Email address")
+                        .accessibilityHint("Enter your email address")
+                        .onSubmit {
+                            if canSubmitForm() && !authManager.isLoading {
+                                performAuth()
+                            }
+                        }
+                        .submitLabel(isSignUpMode ? .next : .go)
+                    
+                    // Email validation feedback
+                    if !email.isEmpty {
+                        HStack {
+                            Image(systemName: isValidEmail(email) ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                                .foregroundColor(isValidEmail(email) ? .green : .orange)
+                                .font(.caption)
+                            Text(isValidEmail(email) ? "Valid email format" : "Please enter a valid email address")
+                                .font(.caption2)
+                                .foregroundColor(isValidEmail(email) ? .green : .orange)
+                            Spacer()
+                        }
+                        .padding(.horizontal)
+                    }
+                    
+                    SecureField("Password", text: $password)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                        .textContentType(.password)
+                        .textInputAutocapitalization(.never)
+                        .disableAutocorrection(true)
+                        .keyboardType(.asciiCapable)
+                        .accessibilityLabel("Password")
+                        .accessibilityHint("Enter your password")
+                        .onSubmit {
+                            if canSubmitForm() && !authManager.isLoading {
+                                performAuth()
+                            }
+                        }
+                        .submitLabel(.go)
+                    
+                    // Password validation feedback
+                    if !password.isEmpty {
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Image(systemName: isValidPassword(password) ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                                    .foregroundColor(isValidPassword(password) ? .green : .orange)
+                                    .font(.caption)
+                                Text(isValidPassword(password) ? "Strong password" : "Password requirements:")
+                                    .font(.caption2)
+                                    .foregroundColor(isValidPassword(password) ? .green : .orange)
+                                Spacer()
+                            }
+                            
+                            if !isValidPassword(password) && isSignUpMode {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    ValidationRequirement(
+                                        text: "At least 8 characters",
+                                        isMet: password.count >= 8
+                                    )
+                                    ValidationRequirement(
+                                        text: "Contains uppercase letter",
+                                        isMet: password.range(of: "[A-Z]", options: .regularExpression) != nil
+                                    )
+                                    ValidationRequirement(
+                                        text: "Contains lowercase letter",
+                                        isMet: password.range(of: "[a-z]", options: .regularExpression) != nil
+                                    )
+                                    ValidationRequirement(
+                                        text: "Contains number",
+                                        isMet: password.range(of: "[0-9]", options: .regularExpression) != nil
+                                    )
+                                }
+                            }
+                        }
+                        .padding(.horizontal)
+                    }
+                }
+                
+                // Form validation summary
+                if !email.isEmpty || !password.isEmpty || (isSignUpMode && !displayName.isEmpty) {
+                    HStack {
+                        Image(systemName: canSubmitForm() ? "checkmark.circle.fill" : "info.circle.fill")
+                            .foregroundColor(canSubmitForm() ? .green : .blue)
+                            .font(.caption)
+                        
+                        Text(getFormValidationSummary())
+                            .font(.caption2)
+                            .foregroundColor(canSubmitForm() ? .green : .blue)
+                        
+                        Spacer()
+                    }
+                    .padding(.horizontal)
+                }
+                
+                VStack(spacing: 15) {
+                    Button(action: { Haptics.light(); performAuth() }) {
+                        HStack {
+                            if authManager.isLoading {
+                                ProgressView()
+                                    .scaleEffect(0.8)
+                                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                            }
+                            Text(authManager.isLoading ? (isSignUpMode ? "Creating Account..." : "Signing In...") : (isSignUpMode ? "Create Account" : "Sign In"))
+                        }
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 50)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!canSubmitForm() || authManager.isLoading)
+                    
+                    if !isSignUpMode {
+                        Button("Forgot Password?") {
+                            showingForgotPassword = true
+                        }
+                        .foregroundColor(.gray)
+                    }
+                }
+                
+                if let errorMessage = authManager.errorMessage {
+                    VStack(spacing: 8) {
+                        HStack {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundColor(.red)
+                                .font(.caption)
+                            Text("Authentication Error")
+                                .font(.caption)
+                                .fontWeight(.medium)
+                                .foregroundColor(.red)
+                            Spacer()
+                            
+                            Button("Dismiss") {
+                                authManager.errorMessage = nil
+                            }
+                            .font(.caption2)
+                            .foregroundColor(.red)
+                        }
+                        
+                        Text(errorMessage)
+                            .font(.caption2)
+                            .foregroundColor(.red)
+                            .multilineTextAlignment(.leading)
+                    }
+                    .padding(.horizontal)
+                    .padding(.vertical, 8)
+                    .background(Color.red.opacity(0.1))
+                    .cornerRadius(8)
+                    .padding(.horizontal)
+                }
+                
+                Spacer()
+            }
+            .padding()
+            .navigationTitle(isSignUpMode ? "Create Account" : "Sign In")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+        .alert("Reset Password", isPresented: $showingForgotPassword) {
+            TextField("Email", text: $email)
+            Button("Send Reset Email") {
+                Task {
+                    await authManager.resetPassword(email: email)
+                }
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("Enter your email address to receive a password reset link.")
+        }
+        // Auto-dismiss on successful authentication
+        .onChange(of: authManager.isSignedIn) { _, isSignedIn in
+            if isSignedIn {
+                dismiss()
+            }
+        }
+    }
+    
+    private func performAuth() {
+        Task {
+            let normalizedEmail = email.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+            let trimmedDisplayName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+            
+            #if DEBUG
+            print("🔵 Attempting authentication:")
+            print("  - Email: \(normalizedEmail.isEmpty ? "EMPTY" : "***@***")")
+            print("  - Password length: \(password.count)")
+            print("  - Is sign up: \(isSignUpMode)")
+            #endif
+            
+            if isSignUpMode {
+                await authManager.signUp(
+                    email: normalizedEmail,
+                    password: password,
+                    displayName: trimmedDisplayName.isEmpty ? nil : trimmedDisplayName
+                )
+            } else {
+                await authManager.signIn(email: normalizedEmail, password: password)
+            }
+            
+            // Add haptic feedback on successful authentication
+            if authManager.isSignedIn {
+                Haptics.light()
+            }
+        }
+    }
+    
+    // MARK: - Validation Functions
+    
+    private func isValidEmail(_ email: String) -> Bool {
+        Validation.isValidEmail(email)
+    }
+    
+    private func isValidPassword(_ password: String) -> Bool {
+        if isSignUpMode {
+            return password.count >= 8 &&
+                   password.range(of: "[A-Z]", options: .regularExpression) != nil &&
+                   password.range(of: "[a-z]", options: .regularExpression) != nil &&
+                   password.range(of: "[0-9]", options: .regularExpression) != nil
+        } else {
+            return !password.isEmpty
+        }
+    }
+    
+    private func isValidDisplayName(_ name: String) -> Bool {
+        Validation.isValidPersonName(name, min: 2, max: 30)
+    }
+    
+    private func getDisplayNameValidationMessage(_ name: String) -> String {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        if trimmedName.isEmpty {
+            return "Name cannot be empty"
+        } else if trimmedName.count < 2 {
+            return "Name must be at least 2 characters"
+        } else if trimmedName.count > 30 {
+            return "Name must be 30 characters or less"
+        } else if Validation.isValidPersonName(trimmedName, min: 2, max: 30) {
+            return "Valid display name"
+        } else {
+            return "Name can only contain letters, spaces, periods, hyphens, and apostrophes"
+        }
+    }
+    
+    private func canSubmitForm() -> Bool {
+        let emailValid = isValidEmail(email)
+        let passwordValid = isValidPassword(password)
+        let displayNameValid = isSignUpMode ? (displayName.isEmpty || isValidDisplayName(displayName)) : true
+        
+        return emailValid && passwordValid && displayNameValid
+    }
+    
+    private func getFormValidationSummary() -> String {
+        var requirements: [(String, Bool)] = [
+            ("Valid email", isValidEmail(email)),
+            ("Valid password", isValidPassword(password))
+        ]
+        
+        if isSignUpMode {
+            requirements.append(("Valid display name", displayName.isEmpty || isValidDisplayName(displayName)))
+        }
+        
+        let metCount = requirements.filter { $0.1 }.count
+        let totalCount = requirements.count
+        
+        if metCount == totalCount {
+            return "Ready to \(isSignUpMode ? "create account" : "sign in")!"
+        } else {
+            return "\(metCount) of \(totalCount) requirements met"
+        }
+    }
+}
+
+// MARK: - TrialStatusView
+struct TrialStatusView: View {
+    let authManager: ComprehensiveAuthManager
+    @State private var showingUpgrade = false
+    
+    var body: some View {
+        if !authManager.isPremiumUser {
+            HStack(spacing: 12) {
+                statusIcon
+                statusText
+                Spacer()
+                upgradeButton
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(statusBackgroundColor)
+            .cornerRadius(12)
+            .animation(.easeInOut(duration: 0.3), value: authManager.trialDaysRemaining)
+        }
+    }
+    
+    private var statusIcon: some View {
+        Image(systemName: authManager.trialDaysRemaining > 0 ? "clock.badge.exclamationmark" : "exclamationmark.triangle.fill")
+            .foregroundColor(authManager.trialDaysRemaining > 0 ? .orange : .red)
+            .font(.title3)
+    }
+    
+    private var statusText: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            if authManager.trialDaysRemaining > 0 {
+                Text("Free Trial")
+                    .font(.caption)
+                    .fontWeight(.medium)
+                    .foregroundColor(.primary)
+                
+                Text("\(authManager.trialDaysRemaining) days remaining")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .contentTransition(.numericText())
+            } else {
+                Text("Trial Expired")
+                    .font(.caption)
+                    .fontWeight(.medium)
+                    .foregroundColor(.red)
+                
+                Text("Upgrade to continue using all features")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+        }
+    }
+    
+    private var upgradeButton: some View {
+        Button(action: { Haptics.light(); showingUpgrade = true }) {
+            Text("Upgrade")
+                .font(.caption)
+                .fontWeight(.semibold)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(Color.blue)
+                .foregroundColor(.white)
+                .cornerRadius(8)
+        }
+        .sheet(isPresented: $showingUpgrade) {
+            // TODO: Create a proper premium upgrade view
+            NavigationStack {
+                VStack {
+                    Text("Premium Features")
+                        .font(.title)
+                    Text("Coming Soon...")
+                        .foregroundColor(.secondary)
+                }
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") {
+                            showingUpgrade = false
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    private var statusBackgroundColor: Color {
+        authManager.trialDaysRemaining > 0
+            ? Color.orange.opacity(0.1)
+            : Color.red.opacity(0.1)
+    }
+}
+
+// MARK: - Onboarding Flow
+struct OnboardingFlow: View {
+    @Environment(\.modelContext) private var modelContext
+    @EnvironmentObject private var authManager: ComprehensiveAuthManager
+    let user: User
+    @State private var selectedAthlete: Athlete?
+    
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 40) {
+                Spacer()
+                
+                VStack(spacing: 24) {
+                    Image(systemName: "hand.wave.fill")
+                        .font(.system(size: 100))
+                        .foregroundStyle(
+                            LinearGradient(
+                                colors: [.orange, .yellow],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .shadow(color: .orange.opacity(0.3), radius: 10, x: 0, y: 5)
+                    
+                    VStack(spacing: 16) {
+                        Text("Welcome to PlayerPath!")
+                            .font(.largeTitle)
+                            .fontWeight(.bold)
+                            .multilineTextAlignment(.center)
+                            .accessibilityAddTraits(.isHeader)
+                        
+                        Text("Let's get you set up to start tracking your baseball journey")
+                            .font(.title3)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal)
+                    }
+                }
+                
+                // Onboarding benefits
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("What You Can Do:")
+                        .font(.headline)
+                        .fontWeight(.semibold)
+                        .padding(.bottom, 8)
+                        .accessibilityAddTraits(.isHeader)
+                    
+                    FeatureHighlight(
+                        icon: "person.crop.circle.badge.plus",
+                        title: "Create Athlete Profiles",
+                        description: "Track multiple players and their individual progress"
+                    )
+                    
+                    FeatureHighlight(
+                        icon: "video.circle.fill",
+                        title: "Record & Analyze",
+                        description: "Capture practice sessions and games with smart analysis"
+                    )
+                    
+                    FeatureHighlight(
+                        icon: "chart.line.uptrend.xyaxis.circle.fill",
+                        title: "Track Statistics",
+                        description: "Monitor batting averages and performance over time"
+                    )
+                    
+                    FeatureHighlight(
+                        icon: "arrow.triangle.2.circlepath.circle.fill",
+                        title: "Sync Everywhere",
+                        description: "Access your data on all your devices automatically"
+                    )
+                }
+                .padding(.horizontal)
+                
+                Spacer()
+                
+                Button(action: completeOnboarding) {
+                    HStack {
+                        Image(systemName: "arrow.right.circle.fill")
+                            .font(.headline)
+                        Text("Get Started")
+                            .font(.headline)
+                            .fontWeight(.semibold)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 54)
+                    .background(
+                        LinearGradient(
+                            colors: [.blue, .blue.opacity(0.8)],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .foregroundColor(.white)
+                    .cornerRadius(12)
+                }
+                .padding(.horizontal)
+                .accessibilityLabel("Complete onboarding and get started")
+                .accessibilityHint("Completes the setup process and takes you to create your first athlete")
+                .accessibilitySortPriority(1)
+                
+                Spacer()
+            }
+            .padding()
+            .toolbar(.hidden, for: .navigationBar)
+        }
+    }
+    
+    private func completeOnboarding() {
+        print("🟡 Completing onboarding for new user...")
+        
+        Task {
+            do {
+                // Create onboarding progress record
+                let progress = OnboardingProgress()
+                progress.markCompleted()
+                modelContext.insert(progress)
+                
+                try modelContext.save()
+                print("🟢 Successfully saved onboarding progress")
+                
+                // Reset the new user flag after successful onboarding
+                await MainActor.run {
+                    authManager.resetNewUserFlag()
+                    print("🟢 Reset new user flag, onboarding completed")
+                    
+                    // Provide haptic feedback
+                    Haptics.medium()
+                }
+            } catch {
+                print("🔴 Failed to save onboarding progress: \(error)")
+            }
+        }
+    }
+}
+
+// MARK: - Authenticated Flow
+struct AuthenticatedFlow: View {
+    @Environment(\.modelContext) private var modelContext
+    @EnvironmentObject private var authManager: ComprehensiveAuthManager
+    @Query private var users: [User]
+    @Query(sort: \OnboardingProgress.createdAt, order: .forward) private var onboardingProgress: [OnboardingProgress]
+    
+    @State private var currentUser: User?
+    @State private var isLoading = true
+    
+    var body: some View {
+        Group {
+            if isLoading {
+                LoadingView(title: "Setting up your profile...", subtitle: "This will only take a moment")
+            } else if let user = currentUser {
+                UserMainFlow(
+                    user: user,
+                    isNewUserFlag: authManager.isNewUser,
+                    hasCompletedOnboarding: hasCompletedOnboarding
+                )
+            } else {
+                ErrorView(message: "Unable to load user profile") {
+                    Task {
+                        await authManager.signOut()
+                    }
+                }
+            }
+        }
+        .task {
+            await loadUser()
+        }
+    }
+    
+    // Computed property to check if onboarding has been completed
+    private var hasCompletedOnboarding: Bool {
+        onboardingProgress.contains { $0.hasCompletedOnboarding }
+    }
+    
+    private func loadUser() async {
+        guard let authUser = authManager.currentFirebaseUser,
+              let rawEmail = authUser.email else {
+            print("🔴 No authenticated user found")
+            isLoading = false
+            return
+        }
+        
+        // Attach model context to auth manager for consistency
+        authManager.attachModelContext(modelContext)
+        
+        let email = rawEmail.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        #if DEBUG
+        print("🟢 Looking up user with email: \(email)")
+        #endif
+        
+        // Find or create user
+        if let existingUser = users.first(where: { $0.email == email }) {
+            #if DEBUG
+            print("🟢 Found existing user: \(existingUser.username) (ID: \(existingUser.id))")
+            print("🟢 User has \(existingUser.athletes.count) athletes")
+            #endif
+            currentUser = existingUser
+            
+            await MainActor.run {
+                if let refreshedByEmail = users.first(where: { $0.email == email }) {
+                    currentUser = refreshedByEmail
+                    #if DEBUG
+                    print("🟢 Using persisted user by email: \(refreshedByEmail.username) | athletes: \(refreshedByEmail.athletes.count)")
+                    #endif
+                } else if let refreshedByID = users.first(where: { $0.id == existingUser.id }) {
+                    currentUser = refreshedByID
+                    #if DEBUG
+                    print("🟢 Fallback persisted user by id: \(refreshedByID.username) | athletes: \(refreshedByID.athletes.count)")
+                    #endif
+                } else {
+                    #if DEBUG
+                    print("🟠 Could not re-fetch persisted user; using in-memory instance")
+                    #endif
+                }
+            }
+        } else {
+            #if DEBUG
+            print("🟡 Creating new user")
+            #endif
+            await createNewUser(authUser: authUser, email: email)
+        }
+        
+        isLoading = false
+    }
+    
+    private func createNewUser(authUser: FirebaseAuth.User, email: String) async {
+        let normalizedEmail = email.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        let newUser = User(
+            username: authUser.displayName ?? normalizedEmail,
+            email: normalizedEmail
+        )
+        
+        modelContext.insert(newUser)
+        
+        do {
+            try modelContext.save()
+            #if DEBUG
+            print("🟢 Successfully created new user with ID: \(newUser.id)")
+            #endif
+            
+            // Attach the model context to auth manager for future use
+            authManager.attachModelContext(modelContext)
+            
+            // Re-fetch the newly created user from the store using normalized email to ensure we use the persisted instance
+            await MainActor.run {
+                if let refreshed = users.first(where: { $0.email == normalizedEmail }) {
+                    currentUser = refreshed
+                    #if DEBUG
+                    print("🟢 Using refreshed user: \(refreshed.id)")
+                    #endif
+                } else {
+                    currentUser = newUser
+                    #if DEBUG
+                    print("🟠 Using original user instance: \(newUser.id)")
+                    #endif
+                }
+            }
+        } catch {
+            print("🔴 Failed to create user: \(error)")
+        }
+    }
+}
+
+// MARK: - User Main Flow
+struct UserMainFlow: View {
+    let user: User
+    let isNewUserFlag: Bool
+    let hasCompletedOnboarding: Bool
+    @Query var athletesForUser: [Athlete]
+    @EnvironmentObject private var authManager: ComprehensiveAuthManager
+    @State private var selectedAthlete: Athlete?
+    @State private var showCreationToast = false
+    private let userID: UUID
+    
+    init(user: User, isNewUserFlag: Bool, hasCompletedOnboarding: Bool) {
+        self.user = user
+        self.isNewUserFlag = isNewUserFlag
+        self.hasCompletedOnboarding = hasCompletedOnboarding
+        self.userID = user.id
+        // Compare concrete UUIDs to avoid OptionalFlatMap issues in the predicate.
+        self._athletesForUser = Query(filter: #Predicate<Athlete> { athlete in
+            (athlete.user?.id) == userID
+        }, sort: \Athlete.createdAt)
+    }
+    
+    private var resolvedAthlete: Athlete? {
+        selectedAthlete ?? athletesForUser.first
+    }
+    
+    var body: some View {
+        Group {
+            if let athlete = resolvedAthlete {
+                MainTabView(
+                    user: user,
+                    selectedAthlete: Binding(
+                        get: { selectedAthlete ?? athlete },
+                        set: { selectedAthlete = $0 }
+                    )
+                )
+            } else if athletesForUser.count > 1 {
+                AthleteSelectionView(
+                    user: user,
+                    selectedAthlete: $selectedAthlete,
+                    authManager: authManager
+                )
+            } else if athletesForUser.isEmpty && isNewUserFlag && !hasCompletedOnboarding {
+                FirstAthleteCreationView(
+                    user: user,
+                    selectedAthlete: $selectedAthlete,
+                    authManager: authManager
+                )
+            } else {
+                AthleteSelectionView(
+                    user: user,
+                    selectedAthlete: $selectedAthlete,
+                    authManager: authManager
+                )
+            }
+        }
+        .overlay(alignment: .top) {
+            if showCreationToast {
+                Text("Athlete created")
+                    .font(.subheadline).bold()
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .padding(.top, 12)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .animation(.spring(response: 0.4, dampingFraction: 0.8), value: showCreationToast)
+            }
+        }
+        .onChange(of: athletesForUser) { _, newValue in
+            #if DEBUG
+            print("🟡 Athletes changed for user \(user.id) (\(user.email)): \(newValue.count) athletes")
+            for athlete in newValue {
+                print("  - \(athlete.name) (ID: \(athlete.id), User: \(athlete.user?.email ?? "None"))")
+            }
+            #endif
+            
+            // If exactly one athlete exists and none is selected, select it.
+            if selectedAthlete == nil, newValue.count == 1, let only = newValue.first {
+                #if DEBUG
+                print("🟢 Auto-selecting athlete: \(only.name) (ID: \(only.id))")
+                #endif
+                selectedAthlete = only
+                showCreationToast = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                    showCreationToast = false
+                }
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .showAthleteSelection)) { _ in
+            selectedAthlete = nil
+        }
+        .task {
+            #if DEBUG
+            print("🟡 UserMainFlow task - User: \(user.id), Athletes: \(athletesForUser.count)")
+            #endif
+            if selectedAthlete == nil, athletesForUser.count == 1, let only = athletesForUser.first {
+                #if DEBUG
+                print("🟢 Task auto-selecting athlete: \(only.name) (ID: \(only.id))")
+                #endif
+                selectedAthlete = only
+            }
+        }
+    }
+}
+
+
+
+
+// MARK: - Helper Views
+struct CustomLoadingView: View {
+    let message: String
+    
+    var body: some View {
+        VStack(spacing: 20) {
+            ProgressView()
+                .scaleEffect(1.5)
+            
+            Text(message)
+                .font(.headline)
+        }
+    }
+}
+
+struct ErrorView: View {
+    let message: String
+    let onSignOut: () -> Void
+    
+    var body: some View {
+        VStack(spacing: 20) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 50))
+                .foregroundColor(.orange)
+            
+            Text(message)
+                .font(.headline)
+                .multilineTextAlignment(.center)
+            
+            Button("Sign Out", action: onSignOut)
+                .buttonStyle(.borderedProminent)
+        }
+        .padding()
+    }
+}
+
+// MARK: - First Athlete Creation View
+struct FirstAthleteCreationView: View {
+    @Environment(\.modelContext) private var modelContext
+    let user: User
+    @Binding var selectedAthlete: Athlete?
+    let authManager: ComprehensiveAuthManager
+    @State private var showingAddAthlete = false
+    @State private var showingSecuritySettings = false
+    
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 40) {
+                Spacer()
+                
+                VStack(spacing: 24) {
+                    Image(systemName: "person.crop.circle.badge.plus")
+                        .font(.system(size: 100))
+                        .foregroundStyle(
+                            LinearGradient(
+                                colors: [.blue, .green],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .shadow(color: .blue.opacity(0.3), radius: 10, x: 0, y: 5)
+                    
+                    VStack(spacing: 16) {
+                        Text("Ready to Start Tracking!")
+                            .font(.largeTitle)
+                            .fontWeight(.bold)
+                            .multilineTextAlignment(.center)
+                        
+                        Text("Create your first athlete profile to begin tracking baseball performance, recording videos, and analyzing gameplay.")
+                            .font(.title3)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal)
+                    }
+                }
+                
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("What You Can Track:")
+                        .font(.headline)
+                        .fontWeight(.semibold)
+                        .padding(.bottom, 8)
+                    
+                    FeatureHighlight(
+                        icon: "video.circle.fill",
+                        title: "Record & Analyze",
+                        description: "Capture practice sessions and games with smart analysis"
+                    )
+                    
+                    FeatureHighlight(
+                        icon: "chart.line.uptrend.xyaxis.circle.fill",
+                        title: "Track Statistics",
+                        description: "Monitor batting averages and performance metrics"
+                    )
+                    
+                    FeatureHighlight(
+                        icon: "arrow.triangle.2.circlepath.circle.fill",
+                        title: "Sync Everywhere",
+                        description: "Your data syncs securely across all devices"
+                    )
+                }
+                .padding(.horizontal)
+                
+                Spacer()
+                
+                Button(action: { showingAddAthlete = true }) {
+                    HStack {
+                        Image(systemName: "plus.circle.fill")
+                            .font(.title2)
+                        Text("Create First Athlete")
+                            .font(.headline)
+                            .fontWeight(.semibold)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 54)
+                    .background(
+                        LinearGradient(
+                            colors: [.blue, .blue.opacity(0.8)],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .foregroundColor(.white)
+                    .cornerRadius(12)
+                }
+                .accessibilityLabel("Create first athlete profile")
+                .accessibilityHint("Creates a new athlete profile to start tracking performance")
+                .accessibilityIdentifier("create_first_athlete")
+                .accessibilitySortPriority(1)
+                
+                Spacer()
+                
+                Text("You can add more athletes later in your profile settings")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            .padding()
+            .navigationTitle("Get Started")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Menu {
+                        Button("Security Settings") {
+                            showingSecuritySettings = true
+                        }
+                        
+                        Button("Athletes") {
+                            NotificationCenter.default.post(name: .showAthleteSelection, object: nil)
+                        }
+                        
+                        Divider()
+                        
+                        Button("Sign Out", role: .destructive) {
+                            Task {
+                                await authManager.signOut()
+                            }
+                        }
+                    } label: {
+                        Label("Profile", systemImage: "person.circle")
+                    }
+                    .accessibilityLabel("Profile menu")
+                    .accessibilityHint("Open profile options including sign out and security settings")
+                }
+            }
+        }
+        .sheet(isPresented: $showingAddAthlete) {
+            AddAthleteView(user: user, selectedAthlete: $selectedAthlete, isFirstAthlete: true)
+        }
+        .sheet(isPresented: $showingSecuritySettings) {
+            NavigationStack {
+                SecuritySettingsView(authManager: authManager)
+            }
+        }
+    }
+}
+
+// MARK: - Athlete Selection View
+struct AthleteSelectionView: View {
+    @Environment(\.modelContext) private var modelContext
+    @Environment(\.dismiss) private var dismiss
+    let user: User
+    @Binding var selectedAthlete: Athlete?
+    let authManager: ComprehensiveAuthManager
+    @State private var showingAddAthlete = false
+    @State private var showingSecuritySettings = false
+    
+    @State private var searchText: String = ""
+    
+    private var filteredAthletes: [Athlete] {
+        let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !q.isEmpty else { return user.athletes }
+        return user.athletes.filter { $0.name.lowercased().contains(q) }
+    }
+    
+    var body: some View {
+        NavigationStack {
+            VStack {
+                if user.athletes.isEmpty {
+                    // This shouldn't happen with the new flow, but keeping as fallback
+                    VStack(spacing: 30) {
+                        Image(systemName: "person.crop.circle.badge.plus")
+                            .font(.system(size: 80))
+                            .foregroundColor(.blue)
+                        
+                        Text("Add Your First Athlete")
+                            .font(.title)
+                            .fontWeight(.bold)
+                        
+                        Text("Create a profile to start tracking baseball performance")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                        
+                        Button(action: { showingAddAthlete = true }) {
+                            Text("Add Athlete")
+                                .frame(maxWidth: .infinity)
+                                .padding()
+                                .background(Color.blue)
+                                .foregroundColor(.white)
+                                .cornerRadius(10)
+                        }
+                        .accessibilityLabel("Add new athlete")
+                        .accessibilityHint("Creates a new athlete profile to start tracking performance")
+                        
+                        HStack {
+                            Image(systemName: "icloud")
+                                .foregroundColor(.green)
+                            Text("Videos will sync across devices")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        .padding()
+                        .background(Color.green.opacity(0.1))
+                        .cornerRadius(8)
+                    }
+                    .padding()
+                } else {
+                    VStack(spacing: 20) {
+                        // Header for multiple athletes
+                        VStack(spacing: 8) {
+                            Text("Select Athlete")
+                                .font(.title)
+                                .fontWeight(.bold)
+                            
+                            Text("Choose which athlete's profile to view")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(.top)
+                        
+                        ScrollView {
+                            LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), spacing: 16)], spacing: 16) {
+                                ForEach(filteredAthletes) { athlete in
+                                    AthleteCard(athlete: athlete) {
+                                        selectedAthlete = athlete
+                                    }
+                                }
+                            }
+                            .padding(.horizontal)
+                        }
+                    }
+                }
+            }
+            .navigationTitle(user.athletes.count > 1 ? "Choose Athlete" : "Athletes")
+            .navigationBarTitleDisplayMode(user.athletes.count > 1 ? .inline : .large)
+            .navigationBarBackButtonHidden(true)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Menu {
+                        Button("Security Settings") {
+                            showingSecuritySettings = true
+                        }
+                        
+                        Button("Athletes") {
+                            // No direct action here; parent flow can handle navigation by resetting selection if supported
+                        }
+                        
+                        Divider()
+                        
+                        Button("Sign Out", role: .destructive) {
+                            Task {
+                                await authManager.signOut()
+                            }
+                        }
+                    } label: {
+                        Label("Profile", systemImage: "person.circle")
+                    }
+                    .accessibilityLabel("Profile menu")
+                    .accessibilityHint("Open profile options including sign out and security settings")
+                }
+                
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button(action: { showingAddAthlete = true }) {
+                        Image(systemName: "plus")
+                    }
+                    .accessibilityLabel("Add athlete")
+                    .accessibilityHint("Add a new athlete to your roster")
+                }
+            }
+            .searchable(text: $searchText)
+        }
+        .sheet(isPresented: $showingAddAthlete) {
+            AddAthleteView(user: user, selectedAthlete: $selectedAthlete, isFirstAthlete: false)
+        }
+        .sheet(isPresented: $showingSecuritySettings) {
+            NavigationStack {
+                SecuritySettingsView(authManager: authManager)
+            }
+        }
+    }
+}
+
+// MARK: - Athlete Card View
+struct AthleteCard: View {
+    let athlete: Athlete
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 16) {
+                // Profile icon with background
+                ZStack {
+                    Circle()
+                        .fill(
+                            LinearGradient(
+                                colors: [.blue.opacity(0.8), .blue],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .frame(width: 60, height: 60)
+                    
+                    Image(systemName: "person.crop.circle.fill")
+                        .font(.largeTitle)
+                        .foregroundColor(.white)
+                }
+                
+                VStack(spacing: 6) {
+                    Text(athlete.name)
+                        .font(.headline)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.primary)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.8)
+                    
+                    if let created = athlete.createdAt {
+                        Text("Created \(created, format: .dateTime.day().month().year())")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    } else {
+                        Text("Created —")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                
+                // Quick stats if available
+                HStack(spacing: 16) {
+                    StatBadge(
+                        icon: "video.fill",
+                        count: athlete.videoClips.count,
+                        label: "Videos"
+                    )
+                    
+                    StatBadge(
+                        icon: "sportscourt.fill",
+                        count: athlete.games.count,
+                        label: "Games"
+                    )
+                }
+            }
+            .padding()
+            .frame(maxWidth: .infinity)
+            .frame(height: 200)
+            .appCard(cornerRadius: 16)
+            .contextMenu {
+                Button {
+                    // Open
+                } label: {
+                    Label("Open", systemImage: "arrow.right.circle")
+                }
+                Button {
+                    // Toggle live (stub)
+                } label: {
+                    Label(athlete.games.first?.isLive == true ? "End Live" : "Mark Live", systemImage: athlete.games.first?.isLive == true ? "stop.circle" : "record.circle")
+                }
+            }
+        }
+        .buttonStyle(ScaleButtonStyle())
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Select athlete \(athlete.name)")
+        .accessibilityHint("Opens this athlete’s dashboard")
+    }
+}
+
+struct StatBadge: View {
+    let icon: String
+    let count: Int
+    let label: String
+    
+    var body: some View {
+        VStack(spacing: 2) {
+            HStack(spacing: 4) {
+                Image(systemName: icon)
+                    .font(.caption2)
+                Text("\(count)")
+                    .font(.caption)
+                    .fontWeight(.medium)
+            }
+            .foregroundColor(.blue)
+            
+            Text(label)
+                .font(.caption2)
+                .foregroundColor(.secondary)
+        }
+    }
+}
+
+struct ScaleButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.96 : 1.0)
+            .animation(.easeInOut(duration: 0.1), value: configuration.isPressed)
+    }
+}
+
+struct AthleteRow: View {
+    let athlete: Athlete
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            HStack {
+                Image(systemName: "person.circle.fill")
+                    .font(.title2)
+                    .foregroundColor(.blue)
+                
+                VStack(alignment: .leading) {
+                    Text(athlete.name)
+                        .font(.headline)
+                        .foregroundColor(.primary)
+                    
+                    if let created = athlete.createdAt {
+                        Text("Created \(created, format: .dateTime.day().month().year())")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    } else {
+                        Text("Created —")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                
+                Spacer()
+                
+                Image(systemName: "chevron.right")
+                    .foregroundColor(.gray)
+            }
+            .padding(.vertical, 5)
+        }
+    }
+}
+
+struct AddAthleteView: View {
+    @Environment(\.modelContext) private var modelContext
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var authManager: ComprehensiveAuthManager
+    let user: User
+    @Binding var selectedAthlete: Athlete?
+    let isFirstAthlete: Bool
+    @State private var athleteName = ""
+    @State private var showingSuccessAlert = false
+    @State private var isCreatingAthlete = false
+    @State private var showingValidationError = false
+    @State private var validationErrorMessage = ""
+    @State private var successMessage = ""
+    
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 30) {
+                VStack(spacing: 16) {
+                    Image(systemName: isFirstAthlete ? "person.crop.circle.badge.plus" : "person.2.crop.square.stack.fill")
+                        .font(.system(size: 60))
+                        .foregroundStyle(
+                            LinearGradient(
+                                colors: [.blue, .green],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                    
+                    VStack(spacing: 8) {
+                        Text(isFirstAthlete ? "Create Your First Athlete" : "Add New Athlete")
+                            .font(.title)
+                            .fontWeight(.bold)
+                        
+                        Text(isFirstAthlete
+                             ? "Start your baseball journey by creating your athlete profile"
+                             : "Add another athlete to track their performance"
+                        )
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                    }
+                }
+                
+                VStack(spacing: 16) {
+                    TextField("Athlete Name", text: $athleteName)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                        .font(.body)
+                        .accessibilityLabel("Athlete name input field")
+                        .accessibilityHint("Enter the name of the athlete you want to add")
+                        .onSubmit {
+                            // Auto-save if valid
+                            if isValidAthleteName(athleteName) && !isCreatingAthlete {
+                                saveAthlete()
+                            }
+                        }
+                        .submitLabel(.done)
+                        .onChange(of: athleteName) { _, newValue in
+                            // Clear validation errors when user starts typing
+                            if showingValidationError {
+                                showingValidationError = false
+                            }
+                        }
+                    
+                    // Show validation feedback
+                    if !athleteName.isEmpty {
+                        HStack {
+                            Image(systemName: isValidAthleteName(athleteName) ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                                .foregroundColor(isValidAthleteName(athleteName) ? .green : .orange)
+                            Text(getNameValidationMessage(athleteName))
+                                .font(.caption)
+                                .foregroundColor(isValidAthleteName(athleteName) ? .green : .orange)
+                            Spacer()
+                        }
+                        .padding(.horizontal, 4)
+                    }
+                }
+                
+                if isFirstAthlete {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("What you can do:")
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                            .foregroundColor(.primary)
+                        
+                        FeatureHighlight(
+                            icon: "video.circle.fill",
+                            title: "Record Videos",
+                            description: "Capture practice sessions and games"
+                        )
+                        
+                        FeatureHighlight(
+                            icon: "chart.bar.fill",
+                            title: "Track Statistics",
+                            description: "Monitor batting averages and performance metrics"
+                        )
+                        
+                        FeatureHighlight(
+                            icon: "star.circle.fill",
+                            title: "Create Highlights",
+                            description: "Save your best plays automatically"
+                        )
+                    }
+                    .padding()
+                    .background(Color(.systemGray6))
+                    .cornerRadius(12)
+                }
+                
+                Spacer()
+            }
+            .padding()
+            .navigationTitle(isFirstAthlete ? "Get Started" : "New Athlete")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+                
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button(action: saveAthlete) {
+                        HStack {
+                            if isCreatingAthlete {
+                                ProgressView()
+                                    .scaleEffect(0.8)
+                                    .progressViewStyle(CircularProgressViewStyle())
+                            }
+                            Text(isCreatingAthlete ? "Saving..." : "Save")
+                        }
+                    }
+                    .disabled(!isValidAthleteName(athleteName) || isCreatingAthlete)
+                    .accessibilityLabel("Save athlete")
+                    .accessibilityHint("Creates the new athlete profile")
+                }
+            }
+        }
+        .alert("Success! 🎉", isPresented: $showingSuccessAlert) {
+            Button("Continue") {
+                // Add a small delay for better UX
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    dismiss()
+                }
+            }
+        } message: {
+            Text(successMessage)
+        }
+        .alert("Unable to Save Athlete", isPresented: $showingValidationError) {
+            Button("OK") { }
+        } message: {
+            Text(validationErrorMessage)
+        }
+    }
+    
+    // MARK: - Validation Functions
+    
+    private func isValidAthleteName(_ name: String) -> Bool {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return Validation.isValidPersonName(trimmedName, min: 2, max: 50) && !isDuplicateAthleteName(trimmedName)
+    }
+    
+    private func getNameValidationMessage(_ name: String) -> String {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if trimmedName.isEmpty {
+            return "Name cannot be empty"
+        } else if trimmedName.count < 2 {
+            return "Name must be at least 2 characters"
+        } else if trimmedName.count > 50 {
+            return "Name must be 50 characters or less"
+        } else if !Validation.isValidPersonName(trimmedName, min: 2, max: 50) {
+            return "Name can only contain letters, spaces, periods, hyphens, and apostrophes"
+        } else if isDuplicateAthleteName(trimmedName) {
+            return "An athlete with this name already exists"
+        } else {
+            return "Valid name"
+        }
+    }
+    
+    private func isDuplicateAthleteName(_ name: String) -> Bool {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return user.athletes.contains { athlete in
+            athlete.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == trimmedName
+        }
+    }
+    
+    private func saveAthlete() {
+        // Final validation before saving
+        let trimmedName = athleteName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isValidAthleteName(trimmedName) else {
+            validationErrorMessage = getNameValidationMessage(trimmedName)
+            showingValidationError = true
+            return
+        }
+        isCreatingAthlete = true
+
+        Task {
+            let athlete = Athlete(name: trimmedName)
+            // let statistics = Statistics()
+            
+            // Set up all relationships explicitly
+            athlete.user = user
+            // athlete.statistics = statistics
+            // statistics.athlete = athlete
+            
+            // Add to user's athletes array
+            user.athletes.append(athlete)
+            
+            // Insert in correct order: user first (should already exist), then athlete, then statistics
+            modelContext.insert(athlete)
+            // modelContext.insert(statistics)
+            
+            #if DEBUG
+            print("🟡 Attempting to save athlete '\(trimmedName)' for user: \(user.id)")
+            print("🟡 User email: \(user.email)")
+            print("🟡 User currently has \(user.athletes.count) athletes")
+            print("🟡 Firebase user: \(authManager.currentFirebaseUser?.email ?? "None")")
+            #endif
+
+            do {
+                try modelContext.save()
+                #if DEBUG
+                print("🟢 Successfully saved athlete '\(trimmedName)' with ID: \(athlete.id)")
+                print("🟢 User now has \(user.athletes.count) athletes")
+                #endif
+                
+                // Auto-select the new athlete
+                await MainActor.run {
+                    selectedAthlete = athlete
+                    #if DEBUG
+                    print("🟢 Selected new athlete: \(athlete.id)")
+                    #endif
+                }
+                
+                // If this was the first athlete, clear the new user flag so onboarding won't reappear
+                if isFirstAthlete {
+                    await MainActor.run {
+                        authManager.resetNewUserFlag()
+                        #if DEBUG
+                        print("🟢 Reset new user flag")
+                        #endif
+                    }
+                }
+                
+                // Haptics
+                Haptics.medium()
+
+                // Success messaging
+                let message = isFirstAthlete
+                    ? "Welcome to PlayerPath! Athlete '\(trimmedName)' has been created and you're ready to start tracking performance."
+                    : "Athlete '\(trimmedName)' has been added successfully! You can now start tracking their performance."
+                await MainActor.run {
+                    successMessage = message
+                    isCreatingAthlete = false
+                    // Slight delay before alert for better UX
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        showingSuccessAlert = true
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    // Remove from user's athletes array if save failed
+                    if let index = user.athletes.firstIndex(where: { $0.id == athlete.id }) {
+                        user.athletes.remove(at: index)
+                    }
+                    
+                    isCreatingAthlete = false
+                    if error.localizedDescription.contains("unique") || error.localizedDescription.contains("duplicate") {
+                        validationErrorMessage = "An athlete with this name already exists. Please choose a different name."
+                    } else if error.localizedDescription.contains("network") || error.localizedDescription.contains("connection") {
+                        validationErrorMessage = "Unable to save due to connection issues. Please check your internet and try again."
+                    } else {
+                        validationErrorMessage = "Unable to save athlete. Please try again in a moment."
+                    }
+                    showingValidationError = true
+                }
+                print("🔴 Failed to save athlete: \(error)")
+            }
+        }
+    }
+}
+
+// MARK: - Validation Requirement View
+struct ValidationRequirement: View {
+    let text: String
+    let isMet: Bool
+    
+    var body: some View {
+        HStack {
+            Image(systemName: isMet ? "checkmark.circle.fill" : "circle")
+                .foregroundColor(isMet ? .green : .gray)
+                .font(.caption2)
+            Text(text)
+                .font(.caption2)
+                .foregroundColor(isMet ? .green : .gray)
+        }
+    }
+}
+
+// MARK: - Security Settings View
+struct SecuritySettingsView: View {
+    @Environment(\.dismiss) private var dismiss
+    let authManager: ComprehensiveAuthManager
+    @State private var showingChangePassword = false
+    @State private var showingConfirmSignOut = false
+    
+    var body: some View {
+        List {
+            Section("Account Security") {
+                Button("Change Password") {
+                    showingChangePassword = true
+                }
+                .foregroundColor(.primary)
+                
+                HStack {
+                    Text("Email")
+                    Spacer()
+                    Text(authManager.userEmail ?? "Not available")
+                        .foregroundColor(.secondary)
+                }
+            }
+            
+            Section {
+                Button("Sign Out", role: .destructive) {
+                    showingConfirmSignOut = true
+                }
+            }
+        }
+        .navigationTitle("Security Settings")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button("Done") {
+                    dismiss()
+                }
+            }
+        }
+        .alert("Change Password", isPresented: $showingChangePassword) {
+            Button("Send Reset Email") {
+                Task {
+                    if let email = authManager.userEmail {
+                        await authManager.resetPassword(email: email)
+                    }
+                }
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("We'll send a password reset link to your email address.")
+        }
+        .alert("Sign Out", isPresented: $showingConfirmSignOut) {
+            Button("Sign Out", role: .destructive) {
+                print("🔴 Confirming sign out") // Debug log
+                Task {
+                    await authManager.signOut()
+                    dismiss()
+                }
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("Are you sure you want to sign out?")
+        }
+    }
+}
+
+// MARK: - MainTabView
+struct MainTabView: View {
+    let user: User
+    @Binding var selectedAthlete: Athlete
+    @EnvironmentObject private var authManager: ComprehensiveAuthManager
+    @State private var selectedTab: Int = MainTab.home.rawValue
+    @State private var hideFloatingRecordButton = false
+    @Environment(\.modelContext) private var modelContext
+
+    private func applyRecordedHitResult(_ info: [String: Any]) {
+        guard let hitType = info["hitType"] as? String else { return }
+        StatisticsHelpers.record(hitType: hitType, for: selectedAthlete, in: modelContext)
+    }
+    
+    // MARK: - Dashboard actions
+    private func toggleGameLive(_ game: Game) {
+        Haptics.light()
+        game.isLive.toggle()
+        do { try modelContext.save() } catch { print("Failed to toggle game live: \(error)") }
+    }
+
+    private func toggleTournamentActive(_ tournament: Tournament) {
+        Haptics.light()
+        tournament.isActive.toggle()
+        do { try modelContext.save() } catch { print("Failed to toggle tournament active: \(error)") }
+    }
+    
+    var body: some View {
+        TabView(selection: $selectedTab) {
+            // Home Tab
+            NavigationStack {
+                DashboardView(user: user, athlete: selectedAthlete, authManager: authManager)
+            }
+            .tabItem {
+                Image(systemName: "house.fill")
+                Text("Home")
+            }
+            .tag(MainTab.home.rawValue)
+            
+            // Tournaments Tab (inserted after Home)
+            NavigationStack {
+                TournamentsView(athlete: selectedAthlete)
+            }
+            .tabItem {
+                Image(systemName: "trophy.fill")
+                Text("Tournaments")
+            }
+            .tag(MainTab.tournaments.rawValue)
+            
+            // Games Tab (shifted tag from 1 to 2)
+            NavigationStack {
+                GamesView(athlete: selectedAthlete)
+            }
+            .tabItem {
+                Image(systemName: "baseball.fill")
+                Text("Games")
+            }
+            .tag(MainTab.games.rawValue)
+            
+            // Stats Tab (shifted tag from 2 to 3)
+            NavigationStack {
+                StatisticsView(athlete: selectedAthlete)
+            }
+            .tabItem {
+                Image(systemName: "chart.bar.fill")
+                Text("Stats")
+            }
+            .tag(MainTab.stats.rawValue)
+            
+            // Practice Tab (inserted after Stats) replaced to use PracticesView
+            NavigationStack {
+                PracticesView(athlete: selectedAthlete)
+            }
+            .tabItem {
+                Image(systemName: "figure.run")
+                Text("Practice")
+            }
+            .tag(MainTab.practice.rawValue)
+            
+            // Videos Tab (shifted tag from 3 to 5)
+            NavigationStack {
+                VideoClipsView(athlete: selectedAthlete)
+            }
+            .tabItem {
+                Image(systemName: "video.fill")
+                Text("Videos")
+            }
+            .tag(MainTab.videos.rawValue)
+            
+            // Highlights Tab (new)
+            NavigationStack {
+                HighlightsView(athlete: selectedAthlete)
+            }
+            .tabItem {
+                Image(systemName: "star.fill")
+                Text("Highlights")
+            }
+            .tag(MainTab.highlights.rawValue)
+            
+            // Profile Tab updated icon and tag
+            NavigationStack {
+                MoreView(user: user, selectedAthlete: Binding(
+                    get: { selectedAthlete },
+                    set: { selectedAthlete = $0 ?? selectedAthlete }
+                ))
+            }
+            .tabItem {
+                Image(systemName: "person.crop.circle")
+                Text("Profile")
+            }
+            .tag(MainTab.profile.rawValue)
+        }
+        .tint(.blue)
+        .onReceive(NotificationCenter.default.publisher(for: .switchTab)) { notification in
+            if let index = notification.object as? Int {
+                selectedTab = index
+                Haptics.light()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .presentVideoRecorder)) { _ in
+            // Ensure the Videos tab becomes active so its view can present the recorder
+            selectedTab = MainTab.videos.rawValue
+            Haptics.light()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .recordedHitResult)) { notification in
+            if let info = notification.object as? [String: Any] {
+                applyRecordedHitResult(info)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .videosManageOwnControls)) { notification in
+            if let flag = notification.object as? Bool {
+                hideFloatingRecordButton = flag
+            }
+        }
+        .onChange(of: selectedTab) { _, newValue in
+            // Reset when leaving Videos tab
+            if newValue != MainTab.videos.rawValue { hideFloatingRecordButton = false }
+        }
+    }
+}
+
+// MARK: - Dashboard View
+struct DashboardView: View {
+    let user: User
+    let athlete: Athlete
+    let authManager: ComprehensiveAuthManager
+    @Environment(\.modelContext) private var modelContext
+    @Environment(\.dismiss) private var dismiss
+    
+    @State private var showingRecorderDirectly = false
+    @State private var selectedLiveGameForRecording: Game?
+    
+    var liveGames: [Game] {
+        athlete.games
+            .filter { $0.isLive }
+            .sorted { lhs, rhs in
+                switch (lhs.date, rhs.date) {
+                case let (l?, r?):
+                    return l > r
+                case (nil, _?):
+                    return false // nils last
+                case (_?, nil):
+                    return true  // non-nil first
+                case (nil, nil):
+                    return false
+                }
+            }
+    }
+    
+    var liveTournaments: [Tournament] {
+        athlete.tournaments
+            .filter { $0.isActive }
+            .sorted { lhs, rhs in
+                let l = lhs.startDate ?? .distantPast
+                let r = rhs.startDate ?? .distantPast
+                return l > r
+            }
+    }
+    
+    var recentGames: [Game] {
+        let now = Date()
+        let pastGames = athlete.games.filter { game in
+            if let d = game.date { return d <= now }
+            return false
+        }
+        return pastGames
+            .sorted { lhs, rhs in
+                switch (lhs.date, rhs.date) {
+                case let (l?, r?):
+                    return l > r
+                case (nil, _?):
+                    return false
+                case (_?, nil):
+                    return true
+                case (nil, nil):
+                    return false
+                }
+            }
+            .prefix(3)
+            .map { $0 }
+    }
+    
+    var upcomingGames: [Game] {
+        let now = Date()
+        let futureGames = athlete.games.filter { game in
+            if let d = game.date { return d > now }
+            return false
+        }
+        return futureGames
+            .sorted { lhs, rhs in
+                switch (lhs.date, rhs.date) {
+                case let (l?, r?):
+                    return l < r
+                case (nil, _?):
+                    return false
+                case (_?, nil):
+                    return true
+                case (nil, nil):
+                    return false
+                }
+            }
+            .prefix(3)
+            .map { $0 }
+    }
+    
+    var recentVideos: [VideoClip] {
+        athlete.videoClips
+            .sorted { (lhs: VideoClip, rhs: VideoClip) in
+                switch (lhs.createdAt, rhs.createdAt) {
+                case let (l?, r?):
+                    return l > r // newer first
+                case (nil, _?):
+                    return false // nils last
+                case (_?, nil):
+                    return true  // non-nil first
+                case (nil, nil):
+                    return false
+                }
+            }
+            .prefix(3)
+            .map { $0 }
+    }
+    
+    // MARK: - Dashboard actions
+    private func toggleGameLive(_ game: Game) {
+        Haptics.light()
+        game.isLive.toggle()
+        do { try modelContext.save() } catch { print("Failed to toggle game live: \(error)") }
+    }
+
+    private func toggleTournamentActive(_ tournament: Tournament) {
+        Haptics.light()
+        tournament.isActive.toggle()
+        do { try modelContext.save() } catch { print("Failed to toggle tournament active: \(error)") }
+    }
+    
+    var body: some View {
+        ScrollView {
+            LazyVStack(spacing: 24) {
+                
+                // Live Section (Games and Tournaments)
+                if !liveGames.isEmpty || !liveTournaments.isEmpty {
+                    VStack(spacing: 16) {
+                        HStack {
+                            Text("Live")
+                                .font(.headline)
+                                .fontWeight(.semibold)
+                            Spacer()
+                        }
+                        .padding(.horizontal)
+                        
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 12) {
+                                ForEach(liveGames, id: \.id) { game in
+                                    NavigationLink {
+                                        GameDetailView(game: game)
+                                    } label: {
+                                        DashboardGameCard(
+                                            game: game,
+                                            onOpen: { /* Navigation handled by NavigationLink automatically */ },
+                                            onToggleLive: { toggleGameLive(game) }
+                                        )
+                                    }
+                                }
+                                ForEach(liveTournaments, id: \.id) { tournament in
+                                    NavigationLink {
+                                        TournamentDetailView(tournament: tournament)
+                                    } label: {
+                                        DashboardTournamentCard(
+                                            tournament: tournament,
+                                            onOpen: { /* Navigation handled by NavigationLink automatically */ },
+                                            onToggleActive: { toggleTournamentActive(tournament) }
+                                        )
+                                    }
+                                }
+                            }
+                            .padding(.horizontal)
+                        }
+                    }
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .animation(.easeInOut(duration: 0.25), value: liveGames.count + liveTournaments.count)
+                    .animation(.easeInOut(duration: 0.25), value: liveGames.count + liveTournaments.count) // Animation already there, no change needed
+                }
+                
+                // Quick Actions Section
+                VStack(spacing: 16) {
+                    HStack {
+                        Text("Quick Actions")
+                            .font(.headline)
+                            .fontWeight(.semibold)
+                        Spacer()
+                    }
+                    
+                    HStack(spacing: 12) {
+                        QuickActionButton(
+                            icon: "plus.circle.fill",
+                            title: "New Game",
+                            color: .blue
+                        ) {
+                            Task { @MainActor in
+                                postSwitchTab(.games)
+                                #if DEBUG
+                                print("🎮 New Game quick action - switching to Games tab")
+                                #endif
+                                
+                                // Give the Games tab a moment to mount and attach observers
+                                try? await Task.sleep(nanoseconds: 250_000_000) // 0.25s
+                                
+                                // Ask the Games module to present its Add Game UI immediately
+                                NotificationCenter.default.post(name: .presentAddGame, object: selectedLiveGameForRecording)
+                                #if DEBUG
+                                print("📣 Posted .presentAddGame notification")
+                                #endif
+                                Haptics.light()
+                            }
+                        }
+                        QuickActionButton(
+                            icon: liveGames.isEmpty ? "video.badge.plus" : "record.circle",
+                            title: liveGames.isEmpty ? "Quick Record" : "Record Live",
+                            color: .red
+                        ) {
+                            Task { @MainActor in
+                                #if DEBUG
+                                print("🎬 Quick Record tapped - Live games: \(liveGames.count)")
+                                #endif
+                                
+                                // Set the live game context for recording
+                                if let liveGame = liveGames.first {
+                                    selectedLiveGameForRecording = liveGame
+                                    #if DEBUG
+                                    print("🎮 Recording for live game: \(liveGame.opponent)")
+                                    #endif
+                                } else {
+                                    selectedLiveGameForRecording = nil
+                                    #if DEBUG
+                                    print("🎬 No live games - quick record mode")
+                                    #endif
+                                }
+                                
+                                let status = await RecorderPermissions.ensureCapturePermissions(context: "VideoRecorder")
+                                guard status == .granted else {
+                                    #if DEBUG
+                                    print("🛑 Permissions not granted for recording")
+                                    #endif
+                                    return
+                                }
+                                
+                                // Ensure Videos tab is active so the recorder host can present
+                                postSwitchTab(.videos)
+                                #if DEBUG
+                                print("🔀 Switched to Videos tab, waiting for view to mount observers…")
+                                #endif
+                                
+                                // Give the Videos tab a short moment to mount and attach observers
+                                try? await Task.sleep(nanoseconds: 250_000_000) // 0.25s
+                                
+                                // Ask Videos module to present its recorder UI with the live game context
+                                NotificationCenter.default.post(name: .presentVideoRecorder, object: selectedLiveGameForRecording)
+                                #if DEBUG
+                                if let game = selectedLiveGameForRecording {
+                                    print("📣 Posted .presentVideoRecorder notification for live game: \(game.opponent)")
+                                } else {
+                                    print("📣 Posted .presentVideoRecorder notification for quick record")
+                                }
+                                #endif
+                                Haptics.light()
+                            }
+                        }
+                    }
+                }
+                .padding(.horizontal)
+                
+                // Management Section
+                VStack(spacing: 16) {
+                    HStack {
+                        Text("Management")
+                            .font(.headline)
+                            .fontWeight(.semibold)
+                        Spacer()
+                    }
+
+                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                        DashboardFeatureCard(
+                            icon: "trophy.fill",
+                            title: "Tournaments",
+                            subtitle: "\(athlete.tournaments.count) Total",
+                            color: .orange
+                        ) {
+                            postSwitchTab(.tournaments)
+                        }
+
+                        DashboardFeatureCard(
+                            icon: "sportscourt.fill",
+                            title: "Games",
+                            subtitle: "\(athlete.games.count) Total",
+                            color: .blue
+                        ) {
+                            postSwitchTab(.games)
+                        }
+
+                        DashboardFeatureCard(
+                            icon: "figure.run",
+                            title: "Practice",
+                            subtitle: "0 Sessions",
+                            color: .green
+                        ) {
+                            postSwitchTab(.practice)
+                        }
+
+                        DashboardFeatureCard(
+                            icon: "video.fill",
+                            title: "Video Clips",
+                            subtitle: "\(athlete.videoClips.count) Recorded",
+                            color: .purple
+                        ) {
+                            postSwitchTab(.videos)
+                        }
+
+                        DashboardFeatureCard(
+                            icon: "star.fill",
+                            title: "Highlights",
+                            subtitle: "\(athlete.videoClips.filter { $0.isHighlight }.count) Highlights",
+                            color: .yellow
+                        ) {
+                            // For now, route to Highlights tab
+                            postSwitchTab(.highlights)
+                        }
+
+                        DashboardFeatureCard(
+                            icon: "chart.bar.fill",
+                            title: "Statistics",
+                            subtitle: (athlete.statistics.map { String(format: "%.3f AVG", $0.battingAverage) }) ?? "0.000 AVG",
+                            color: .blue
+                        ) {
+                            postSwitchTab(.stats)
+                        }
+                    }
+                }
+                .padding(.horizontal)
+                
+                // Quick Stats Section
+                VStack(spacing: 16) {
+                    HStack {
+                        Text("Quick Stats")
+                            .font(.headline)
+                            .fontWeight(.semibold)
+                        Spacer()
+                    }
+
+                    HStack(spacing: 12) {
+                        DashboardStatCard(
+                            title: "AVG",
+                            value: athlete.statistics.map { String(format: "%.3f", $0.battingAverage) } ?? "0.000",
+                            icon: "square.grid.2x2.fill",
+                            color: .blue
+                        )
+                        DashboardStatCard(
+                            title: "SLG",
+                            value: athlete.statistics.map { String(format: "%.3f", $0.sluggingPercentage) } ?? "0.000",
+                            icon: "chart.bar.fill",
+                            color: .purple
+                        )
+                        DashboardStatCard(
+                            title: "Hits",
+                            value: athlete.statistics.map { String($0.hits) } ?? "0",
+                            icon: "hand.tap.fill",
+                            color: .green
+                        )
+                    }
+                }
+                .padding(.horizontal)
+                
+                // Recent Videos Section
+                if !recentVideos.isEmpty {
+                    VStack(spacing: 16) {
+                        HStack {
+                            Text("Recent Videos")
+                                .font(.headline)
+                                .fontWeight(.semibold)
+                            Spacer()
+                            NavigationLink {
+                                VideoClipsView(athlete: athlete)
+                            } label: {
+                                Text("See All")
+                                    .font(.subheadline)
+                                    .foregroundColor(.blue)
+                            }
+                            .simultaneousGesture(TapGesture().onEnded { Haptics.light() })
+                        }
+                        .padding(.horizontal)
+                        
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 12) {
+                                ForEach(recentVideos, id: \.id) { video in
+                                    DashboardVideoCard(video: video)
+                                }
+                            }
+                            .padding(.horizontal)
+                        }
+                    }
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .animation(.easeInOut(duration: 0.25), value: recentVideos.count)
+                }
+            }
+            .padding(.vertical)
+        }
+        .scrollBounceBehavior(.basedOnSize)
+        .navigationTitle("Dashboard")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Menu {
+                    Section("Navigate") {
+                        Button("Tournaments") { postSwitchTab(.tournaments) }
+                        Button("Games") { postSwitchTab(.games) }
+                        Button("Practice") { postSwitchTab(.practice) }
+                        Button("Videos") { postSwitchTab(.videos) }
+                        Button("Highlights") { postSwitchTab(.highlights) }
+                        Button("Stats") { postSwitchTab(.stats) }
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Text("Dashboard")
+                        Image(systemName: "chevron.down")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button {
+                    NotificationCenter.default.post(name: .showAthleteSelection, object: nil)
+                } label: {
+                    Image(systemName: "person.2.fill")
+                }
+                .accessibilityLabel("Switch athlete")
+            }
+        }
+    }
+}
+
+// MARK: - Dashboard Helper Views
+
+struct DashboardStatCard: View {
+    let title: String
+    let value: String
+    let icon: String
+    let color: Color
+    
+    var body: some View {
+        VStack(spacing: 8) {
+            Image(systemName: icon)
+                .font(.title2)
+                .foregroundColor(color)
+            
+            Text(value)
+                .font(.title3)
+                .fontWeight(.bold)
+                .foregroundColor(.primary)
+                .contentTransition(.numericText())
+            
+            Text(title)
+                .font(.caption)
+                .foregroundColor(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding()
+        .appCard()
+        .accessibilityElement(children: .combine)
+    }
+}
+
+struct DashboardGameCard: View {
+    let game: Game
+    var onOpen: (() -> Void)? = nil
+    var onToggleLive: (() -> Void)? = nil
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Live indicator at the top if game is live
+            if game.isLive {
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(Color.red)
+                        .frame(width: 8, height: 8)
+                        .overlay(
+                            Circle()
+                                .fill(Color.red.opacity(0.3))
+                                .scaleEffect(1.5)
+                        )
+                        .symbolEffect(.pulse, options: .repeating)
+                    
+                    Text("LIVE")
+                        .font(.caption2)
+                        .fontWeight(.bold)
+                        .foregroundColor(.red)
+                        .textCase(.uppercase)
+                    
+                    Spacer()
+                }
+                .padding(.bottom, 12)
+                .accessibilityLabel("Live game in progress")
+            }
+            
+            // Opponent name
+            Text(game.opponent)
+                .font(.headline)
+                .fontWeight(.semibold)
+                .foregroundColor(.primary)
+                .lineLimit(2)
+                .minimumScaleFactor(0.85)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.bottom, 8)
+            
+            Spacer()
+            
+            // Date information at bottom
+            if let date = game.date {
+                HStack(spacing: 4) {
+                    Image(systemName: "calendar")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                    Text(date, format: .dateTime.month(.abbreviated).day())
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            } else {
+                HStack(spacing: 4) {
+                    Image(systemName: "calendar.badge.clock")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                    Text("Date TBD")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+        .padding(16)
+        .frame(width: 180, height: 140)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(game.isLive ? Color.red.opacity(0.03) : Color(.systemBackground))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(game.isLive ? Color.red.opacity(0.2) : Color(.systemGray5), lineWidth: game.isLive ? 2 : 1)
+        )
+        .shadow(color: game.isLive ? Color.red.opacity(0.1) : Color.black.opacity(0.06), radius: game.isLive ? 8 : 4, x: 0, y: 2)
+        .contextMenu {
+            Button {
+                Haptics.light()
+                onOpen?()
+            } label: {
+                Label("Open", systemImage: "arrow.right.circle")
+                    .accessibilityLabel("Open game")
+            }
+            Button {
+                toggleHapticThen(onToggleLive)
+            } label: {
+                Label(game.isLive ? "End Live" : "Mark Live", systemImage: game.isLive ? "stop.circle" : "record.circle")
+                    .accessibilityLabel("Toggle live status")
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+    
+    private func toggleHapticThen(_ action: (() -> Void)?) { Haptics.light(); action?() }
+}
+
+struct DashboardTournamentCard: View {
+    let tournament: Tournament
+    var onOpen: (() -> Void)? = nil
+    var onToggleActive: (() -> Void)? = nil
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Live indicator at the top if tournament is active
+            if tournament.isActive {
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(Color.orange)
+                        .frame(width: 8, height: 8)
+                        .overlay(
+                            Circle()
+                                .fill(Color.orange.opacity(0.3))
+                                .scaleEffect(1.5)
+                        )
+                        .symbolEffect(.pulse, options: .repeating)
+                    
+                    Text("LIVE")
+                        .font(.caption2)
+                        .fontWeight(.bold)
+                        .foregroundColor(.orange)
+                        .textCase(.uppercase)
+                    
+                    Spacer()
+                }
+                .padding(.bottom, 12)
+                .accessibilityLabel("Live tournament in progress")
+            }
+            
+            // Tournament name
+            Text(tournament.name)
+                .font(.headline)
+                .fontWeight(.semibold)
+                .foregroundColor(.primary)
+                .lineLimit(2)
+                .minimumScaleFactor(0.85)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.bottom, 8)
+            
+            Spacer()
+            
+            // Date information at bottom
+            if let start = tournament.startDate {
+                HStack(spacing: 4) {
+                    Image(systemName: "calendar")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                    Text(start, format: .dateTime.month(.abbreviated).day())
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            } else {
+                HStack(spacing: 4) {
+                    Image(systemName: "calendar.badge.clock")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                    Text("Date TBD")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+        .padding(16)
+        .frame(width: 180, height: 140)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(tournament.isActive ? Color.orange.opacity(0.03) : Color(.systemBackground))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(tournament.isActive ? Color.orange.opacity(0.2) : Color(.systemGray5), lineWidth: tournament.isActive ? 2 : 1)
+        )
+        .shadow(color: tournament.isActive ? Color.orange.opacity(0.1) : Color.black.opacity(0.06), radius: tournament.isActive ? 8 : 4, x: 0, y: 2)
+        .contextMenu {
+            Button {
+                Haptics.light()
+                onOpen?()
+            } label: {
+                Label("Open", systemImage: "arrow.right.circle")
+                    .accessibilityLabel("Open tournament")
+            }
+            Button {
+                Haptics.light()
+                onToggleActive?()
+            } label: {
+                Label(tournament.isActive ? "End" : "Mark Active", systemImage: tournament.isActive ? "stop.circle" : "record.circle")
+                    .accessibilityLabel("Toggle tournament active status")
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
+// MARK: - DashboardVideoThumbnail (new reusable thumbnail view)
+struct DashboardVideoThumbnail: View {
+    let video: VideoClip
+    @State private var image: UIImage?
+    @State private var isLoading = false
+
+    var body: some View {
+        ZStack {
+            if let ui = image {
+                Image(uiImage: ui)
+                    .resizable()
+                    .scaledToFill()
+                    .clipped()
+                    .transition(.opacity.combined(with: .scale))
+            } else {
+                LinearGradient(colors: [.gray.opacity(0.35), .gray.opacity(0.2)], startPoint: .topLeading, endPoint: .bottomTrailing)
+                    .transition(.opacity)
+            }
+
+            Image(systemName: "play.circle.fill")
+                .font(.title)
+                .foregroundColor(.white)
+                .shadow(radius: 2)
+                .symbolEffect(.bounce, options: .speed(0.5))
+        }
+        .aspectRatio(16/9, contentMode: .fit)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .task { await load() }
+    }
+
+    private func load() async {
+        guard !isLoading, image == nil else { return }
+        isLoading = true
+        if let path = video.thumbnailPath {
+            do {
+                let img = try await ThumbnailCache.shared.loadThumbnail(at: path)
+                await MainActor.run { withAnimation(.easeInOut(duration: 0.2)) { image = img } }
+            } catch {
+                // Fallback stays as gradient
+            }
+        } else {
+            // Optionally trigger generation elsewhere if desired
+        }
+        isLoading = false
+    }
+}
+
+struct DashboardVideoCard: View {
+    let video: VideoClip
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            // Video thumbnail placeholder replaced by DashboardVideoThumbnail
+            DashboardVideoThumbnail(video: video)
+                .accessibilityLabel("Video thumbnail")
+            
+            Text(video.playResult?.type.displayName ?? video.fileName)
+                .font(.subheadline)
+                .fontWeight(.medium)
+                .lineLimit(2)
+                .minimumScaleFactor(0.8)
+            
+            if let created = video.createdAt {
+                Text(created, format: .dateTime.month().day())
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            } else {
+                Text("—")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .frame(width: 140)
+        .padding(8)
+        .appCard()
+        .accessibilityElement(children: .combine)
+        .contextMenu {
+            Button {
+                Haptics.light()
+                NotificationCenter.default.post(name: .presentFullscreenVideo, object: video)
+            } label: {
+                Label("Play", systemImage: "play.fill")
+            }
+            if FileManager.default.fileExists(atPath: video.filePath) {
+                ShareLink(item: URL(fileURLWithPath: video.filePath)) {
+                    Label("Share", systemImage: "square.and.arrow.up")
+                }
+            } else {
+                Button {
+                    Haptics.light()
+                    // File missing, handle gracefully
+                } label: {
+                    Label("Share", systemImage: "square.and.arrow.up")
+                }
+            }
+        }
+    }
+}
+
+struct QuickActionButton: View {
+    let icon: String
+    let title: String
+    let color: Color
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: { Haptics.light(); action() }) {
+            VStack(spacing: 8) {
+                Image(systemName: icon)
+                    .font(.title2)
+                    .foregroundColor(color)
+                
+                Text(title)
+                    .font(.caption)
+                    .fontWeight(.medium)
+                    .multilineTextAlignment(.center)
+            }
+            .frame(maxWidth: .infinity)
+            .padding()
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(color.opacity(0.1))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(color.opacity(0.3), lineWidth: 1)
+            )
+        }
+        .contentShape(RoundedRectangle(cornerRadius: 12))
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - PracticeView (New placeholder view added at end)
+struct PracticeView: View {
+    let athlete: Athlete
+    var body: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "figure.run")
+                .font(.system(size: 60))
+                .foregroundColor(.green)
+            Text("Practice")
+                .font(.title)
+                .fontWeight(.bold)
+            Text("Practice tracking coming soon for \(athlete.name)")
+                .foregroundColor(.secondary)
+        }
+        .padding()
+        .navigationTitle("Practice")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+// MARK: - DashboardFeatureCard (New reusable component added)
+
+struct DashboardFeatureCard: View {
+    let icon: String
+    let title: String
+    let subtitle: String
+    let color: Color
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 12) {
+                Image(systemName: icon)
+                    .font(.system(size: 28, weight: .regular))
+                    .foregroundColor(color)
+                    .frame(maxWidth: .infinity, alignment: .center)
+
+                Text(title)
+                    .font(.headline)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.primary)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.9)
+
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 16)
+        }
+        .appCard()
+        .accessibilityElement(children: .combine)
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
+        .accessibilityHint("Opens \(title)")
+    }
+}
+
+
+// MARK: - Live Game Recording Flow Documentation
+// 
+// Complete flow for "Record Live" when a game is live:
+// 1. Dashboard detects live games and shows "Record Live" quick action
+// 2. User taps "Record Live" → DashboardView sets selectedLiveGameForRecording to first live game
+// 3. Dashboard switches to Videos tab and posts .presentVideoRecorder with game object
+// 4. VideoClipsView receives notification and opens VideoRecorderView_Refactored with live game context
+// 5. VideoRecorderView_Refactored shows "LIVE GAME vs [opponent]" header and auto-opens camera
+// 6. User records video → PlayResultOverlayView links video to the live game
+// 7. Video is saved with game context and statistics are updated automatically
+//
+// MARK: - TODO Integration Notes
+// Elsewhere in your project:
+// - Videos feature should observe Notification.Name("PresentVideoRecorder") to present the recorder UI.
+// - When analysis determines a hit result, post Notification.Name("RecordedHitResult") with object ["hitType": String].
+// - Highlights feature should, upon receiving RecordedHitResult, move the associated clip to a Highlights collection/folder.
+// - Statistics feature should, upon receiving RecordedHitResult, increment the appropriate stat (1B/2B/3B/HR) and recompute AVG/SLG.
+// - Games feature should observe Notification.Name("PresentAddGame") to present the Add Game sheet immediately when arriving on the Games tab.
+// - GameDetailView can post Notification.Name("ReactivateGame") with the game ID/object to mark a game live again if it was ended by mistake.
+// - Videos feature should observe Notification.Name("PresentFullscreenVideo") to present the player in full screen for a given clip.
+
+#Preview {
+    PlayerPathMainView()
+        .environmentObject(ComprehensiveAuthManager())
+        .dynamicTypeSize(.large ... .accessibility3)
+}
+
+// Integration: In VideoClipsView or its recorder container, post .videosManageOwnControls with true when showing its own Record/Upload buttons, and false when dismissed:
+// NotificationCenter.default.post(name: .videosManageOwnControls, object: true)
+// NotificationCenter.default.post(name: .videosManageOwnControls, object: false)
+
+// To play a video fullscreen from anywhere:
+// NotificationCenter.default.post(name: .presentFullscreenVideo, object: videoClip)
+

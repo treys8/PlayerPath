@@ -23,6 +23,16 @@ final class PushNotificationService: NSObject {
     private(set) var deviceToken: String?
     private(set) var isRegisteredForRemoteNotifications = false
     
+    // Whether we should prompt the user to enable notifications (used by UI)
+    var shouldPromptForNotifications: Bool {
+        switch authorizationStatus {
+        case .notDetermined, .denied:
+            return true
+        default:
+            return false
+        }
+    }
+    
     // MARK: - Notification Categories
     private let notificationCategories: Set<UNNotificationCategory> = [
         // Premium welcome category
@@ -152,11 +162,11 @@ final class PushNotificationService: NSObject {
     
     // MARK: - Authorization
     
-    /// Request notification permissions
+    /// Prompts the user for notification permissions and updates internal state.
     func requestAuthorization() async -> Bool {
         do {
             let granted = try await notificationCenter.requestAuthorization(
-                options: [.alert, .badge, .sound, .provisional]
+                options: [.alert, .badge, .sound]
             )
             
             await updateAuthorizationStatus()
@@ -175,6 +185,55 @@ final class PushNotificationService: NSObject {
         }
     }
     
+    /// Request authorization (if needed) and register for remote notifications in one step.
+    /// - Returns: true if authorization is granted and registration was attempted.
+    func ensureAuthorizationAndRegister() async -> Bool {
+        let granted = await requestAuthorization()
+        if granted {
+            await registerForRemoteNotifications()
+        }
+        return granted
+    }
+    
+    /// Presents a pre-permission rationale via a provided closure, then requests authorization and registers.
+    /// - Parameters:
+    ///   - presentRationale: A closure that presents UI explaining why notifications are useful. Call the provided completion with `true` to proceed or `false` to cancel.
+    /// - Returns: true if authorization was granted.
+    func promptWithRationale(presentRationale: @escaping (@escaping (Bool) -> Void) -> Void) async -> Bool {
+        // If we shouldn't prompt (already authorized/limited), just proceed to ensure
+        if !shouldPromptForNotifications {
+            return await ensureAuthorizationAndRegister()
+        }
+        
+        // Bridge async/await with callback-based rationale UI
+        let shouldProceed: Bool = await withCheckedContinuation { continuation in
+            presentRationale { proceed in
+                continuation.resume(returning: proceed)
+            }
+        }
+        
+        guard shouldProceed else {
+            logger.info("User declined notification rationale prompt")
+            return false
+        }
+        
+        let granted = await ensureAuthorizationAndRegister()
+        if !granted && authorizationStatus == .denied {
+            logger.info("Authorization denied; suggesting user to open settings")
+        }
+        return granted
+    }
+    
+    /// If notifications are denied, open Settings; otherwise, no-op. Returns true if Settings was opened.
+    @discardableResult
+    func openSettingsIfDenied() -> Bool {
+        if authorizationStatus == .denied {
+            openNotificationSettings()
+            return true
+        }
+        return false
+    }
+    
     private func updateAuthorizationStatus() async {
         let settings = await notificationCenter.notificationSettings()
         self.authorizationStatus = settings.authorizationStatus
@@ -182,9 +241,9 @@ final class PushNotificationService: NSObject {
         logger.info("Notification authorization status: \(self.authorizationStatus.rawValue)")
     }
     
-    /// Register for remote notifications
+    /// Registers with APNs if authorization allows; updates app state on AppDelegate callbacks.
     private func registerForRemoteNotifications() async {
-        guard authorizationStatus == .authorized || authorizationStatus == .provisional else {
+        guard authorizationStatus == .authorized || authorizationStatus == .provisional || authorizationStatus == .ephemeral else {
             logger.warning("Cannot register for remote notifications - not authorized")
             return
         }
@@ -199,6 +258,8 @@ final class PushNotificationService: NSObject {
         let tokenString = deviceToken.map { String(format: "%02.2hhx", $0) }.joined()
         self.deviceToken = tokenString
         self.isRegisteredForRemoteNotifications = true
+        
+        Task { await updateAuthorizationStatus() }
         
         logger.info("Registered for remote notifications with token: \(tokenString.prefix(10))...")
         
@@ -412,7 +473,7 @@ final class PushNotificationService: NSObject {
     
     // MARK: - Notification Settings
     
-    /// Open the app's notification settings
+    /// Open the app's notification settings (use when user previously denied permissions).
     func openNotificationSettings() {
         guard let settingsUrl = URL(string: UIApplication.openSettingsURLString) else { return }
         
@@ -450,7 +511,7 @@ extension PushNotificationService: UNUserNotificationCenterDelegate {
         logger.info("Received notification while app in foreground: \(notification.request.identifier)")
         
         // Show notification even when app is in foreground
-        completionHandler([.alert, .sound, .badge])
+        completionHandler([.banner, .list, .sound, .badge])
     }
     
     /// Handle notification tap
@@ -556,3 +617,4 @@ extension Notification.Name {
     static let startRecordingForGame = Notification.Name("startRecordingForGame")
     static let startRecordingForPractice = Notification.Name("startRecordingForPractice")
 }
+

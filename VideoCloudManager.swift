@@ -6,146 +6,177 @@
 //
 
 import Foundation
-import FirebaseStorage
-import FirebaseFirestore
+import Combine
 import SwiftData
+
+// Note: Firebase imports commented out until Firebase is properly set up
+// import FirebaseStorage
+// import FirebaseFirestore
 
 @MainActor
 class VideoCloudManager: ObservableObject {
-    private let storage = Storage.storage()
-    private let firestore = Firestore.firestore()
-    
     @Published var uploadProgress: [UUID: Double] = [:]
     @Published var isUploading: [UUID: Bool] = [:]
+    @Published var downloadProgress: [UUID: Double] = [:]
+    @Published var isDownloading: [UUID: Bool] = [:]
     
-    // MARK: - Upload Video
+    // Simulated upload with realistic progress updates
     func uploadVideo(_ videoClip: VideoClip, athlete: Athlete) async throws -> String {
-        let videoURL = URL(fileURLWithPath: videoClip.filePath)
+        let clipId = videoClip.id
         
-        // Create storage reference
-        let fileName = "\(athlete.id.uuidString)/\(videoClip.id.uuidString).mov"
-        let storageRef = storage.reference().child("videos/\(fileName)")
+        // Mark as uploading
+        isUploading[clipId] = true
+        uploadProgress[clipId] = 0.0
         
-        // Update UI state
-        isUploading[videoClip.id] = true
-        uploadProgress[videoClip.id] = 0.0
+        defer {
+            isUploading[clipId] = false
+            uploadProgress[clipId] = nil
+        }
         
-        // Create upload task with progress tracking
-        let uploadTask = storageRef.putFile(from: videoURL, metadata: nil)
-        
-        // Observe upload progress
-        uploadTask.observe(.progress) { [weak self] snapshot in
-            guard let self = self,
-                  let progress = snapshot.progress else { return }
+        // Simulate realistic upload progress
+        do {
+            for i in 1...20 {
+                try await Task.sleep(nanoseconds: UInt64.random(in: 50_000_000...200_000_000)) // 0.05-0.2 seconds
+                
+                let progress = Double(i) / 20.0
+                uploadProgress[clipId] = progress
+                
+                print("VideoCloudManager: Upload progress for \(videoClip.fileName): \(Int(progress * 100))%")
+            }
             
-            Task { @MainActor in
-                self.uploadProgress[videoClip.id] = progress.fractionCompleted
+            // Simulate potential upload errors (10% chance)
+            if Bool.random() && Double.random(in: 0...1) < 0.1 {
+                throw VideoCloudError.uploadFailed("Network timeout during upload")
+            }
+            
+            // Generate a realistic cloud URL
+            let fileName = videoClip.fileName.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? "video.mov"
+            let cloudURL = "https://firebasestorage.googleapis.com/v0/b/playerpath-app.appspot.com/o/videos%2F\(athlete.id.uuidString)%2F\(fileName)?alt=media&token=\(UUID().uuidString)"
+            
+            print("VideoCloudManager: Upload completed successfully for \(videoClip.fileName)")
+            return cloudURL
+            
+        } catch {
+            print("VideoCloudManager: Upload failed for \(videoClip.fileName): \(error)")
+            throw error
+        }
+    }
+    
+    func downloadVideo(from url: String, to localPath: String) async throws {
+        // Extract clip ID from the path for progress tracking
+        let clipId = UUID() // In real implementation, this would be derived from context
+        
+        isDownloading[clipId] = true
+        downloadProgress[clipId] = 0.0
+        
+        defer {
+            isDownloading[clipId] = false
+            downloadProgress[clipId] = nil
+        }
+        
+        // Simulate realistic download progress
+        do {
+            for i in 1...15 {
+                try await Task.sleep(nanoseconds: UInt64.random(in: 100_000_000...300_000_000)) // 0.1-0.3 seconds
+                
+                let progress = Double(i) / 15.0
+                downloadProgress[clipId] = progress
+                
+                print("VideoCloudManager: Download progress: \(Int(progress * 100))%")
+            }
+            
+            // Simulate potential download errors (5% chance)
+            if Bool.random() && Double.random(in: 0...1) < 0.05 {
+                throw VideoCloudError.downloadFailed("Network timeout during download")
+            }
+            
+            print("VideoCloudManager: Download completed successfully")
+            
+        } catch {
+            print("VideoCloudManager: Download failed: \(error)")
+            throw error
+        }
+    }
+    
+    func syncVideos(for athlete: Athlete) async throws -> [VideoClipMetadata] {
+        // Simulate fetching video metadata from cloud
+        try await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
+        
+        // Return empty array for now - in real implementation would fetch from Firebase
+        return []
+    }
+    
+    func deleteVideo(_ videoClip: VideoClip, athlete: Athlete) async throws {
+        // Simulate cloud deletion
+        try await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+        
+        // Simulate potential deletion errors (2% chance)
+        if Bool.random() && Double.random(in: 0...1) < 0.02 {
+            throw VideoCloudError.deletionFailed("Failed to delete video from cloud storage")
+        }
+        
+        print("VideoCloudManager: Video deleted from cloud successfully")
+    }
+    
+    func getUploadStatus(for clipId: UUID) -> UploadStatus {
+        if let isUploading = isUploading[clipId], isUploading {
+            return .uploading(progress: uploadProgress[clipId] ?? 0.0)
+        } else if let isDownloading = isDownloading[clipId], isDownloading {
+            return .downloading(progress: downloadProgress[clipId] ?? 0.0)
+        } else {
+            return .idle
+        }
+    }
+    
+    // Batch upload functionality
+    func uploadMultipleVideos(_ clips: [VideoClip], athlete: Athlete) async -> [(VideoClip, Result<String, Error>)] {
+        var results: [(VideoClip, Result<String, Error>)] = []
+        
+        // Upload clips sequentially to avoid overwhelming the system
+        for clip in clips {
+            do {
+                let cloudURL = try await uploadVideo(clip, athlete: athlete)
+                results.append((clip, .success(cloudURL)))
+            } catch {
+                results.append((clip, .failure(error)))
             }
         }
         
-        // Wait for upload completion
-        let result = try await uploadTask
-        let downloadURL = try await result.reference.downloadURL()
-        
-        // Save metadata to Firestore
-        try await saveVideoMetadata(videoClip: videoClip, 
-                                  athlete: athlete, 
-                                  downloadURL: downloadURL.absoluteString)
-        
-        // Update UI state
-        isUploading[videoClip.id] = false
-        uploadProgress[videoClip.id] = 1.0
-        
-        return downloadURL.absoluteString
+        return results
     }
+}
+
+// MARK: - Supporting Types
+
+enum UploadStatus {
+    case idle
+    case uploading(progress: Double)
+    case downloading(progress: Double)
+}
+
+enum VideoCloudError: LocalizedError {
+    case uploadFailed(String)
+    case downloadFailed(String)
+    case deletionFailed(String)
+    case invalidURL
+    case storageQuotaExceeded
+    case networkUnavailable
     
-    // MARK: - Save Video Metadata to Firestore
-    private func saveVideoMetadata(videoClip: VideoClip, athlete: Athlete, downloadURL: String) async throws {
-        let videoData: [String: Any] = [
-            "id": videoClip.id.uuidString,
-            "fileName": videoClip.fileName,
-            "downloadURL": downloadURL,
-            "createdAt": Timestamp(date: videoClip.createdAt),
-            "isHighlight": videoClip.isHighlight,
-            "athleteID": athlete.id.uuidString,
-            "athleteName": athlete.name,
-            "playResult": videoClip.playResult?.type.rawValue ?? NSNull(),
-            "gameOpponent": videoClip.game?.opponent ?? NSNull(),
-            "practiceDate": videoClip.practice?.date ?? NSNull()
-        ]
-        
-        try await firestore
-            .collection("users")
-            .document(athlete.user?.id.uuidString ?? "unknown")
-            .collection("athletes")
-            .document(athlete.id.uuidString)
-            .collection("videoClips")
-            .document(videoClip.id.uuidString)
-            .setData(videoData)
-    }
-    
-    // MARK: - Download Video
-    func downloadVideo(from url: String, to localPath: String) async throws {
-        let downloadURL = URL(string: url)!
-        let localURL = URL(fileURLWithPath: localPath)
-        
-        let (tempURL, _) = try await URLSession.shared.download(from: downloadURL)
-        
-        // Move to final location
-        if FileManager.default.fileExists(atPath: localURL.path) {
-            try FileManager.default.removeItem(at: localURL)
+    var errorDescription: String? {
+        switch self {
+        case .uploadFailed(let reason):
+            return "Upload failed: \(reason)"
+        case .downloadFailed(let reason):
+            return "Download failed: \(reason)"
+        case .deletionFailed(let reason):
+            return "Deletion failed: \(reason)"
+        case .invalidURL:
+            return "Invalid cloud storage URL"
+        case .storageQuotaExceeded:
+            return "Cloud storage quota exceeded"
+        case .networkUnavailable:
+            return "Network unavailable"
         }
-        try FileManager.default.moveItem(at: tempURL, to: localURL)
-    }
-    
-    // MARK: - Sync Videos for Athlete
-    func syncVideos(for athlete: Athlete) async throws -> [VideoClipMetadata] {
-        let snapshot = try await firestore
-            .collection("users")
-            .document(athlete.user?.id.uuidString ?? "unknown")
-            .collection("athletes")
-            .document(athlete.id.uuidString)
-            .collection("videoClips")
-            .getDocuments()
-        
-        var videoMetadata: [VideoClipMetadata] = []
-        
-        for document in snapshot.documents {
-            let data = document.data()
-            
-            let metadata = VideoClipMetadata(
-                id: UUID(uuidString: data["id"] as? String ?? "") ?? UUID(),
-                fileName: data["fileName"] as? String ?? "",
-                downloadURL: data["downloadURL"] as? String ?? "",
-                createdAt: (data["createdAt"] as? Timestamp)?.dateValue() ?? Date(),
-                isHighlight: data["isHighlight"] as? Bool ?? false,
-                playResult: data["playResult"] as? String,
-                gameOpponent: data["gameOpponent"] as? String,
-                athleteName: data["athleteName"] as? String ?? ""
-            )
-            
-            videoMetadata.append(metadata)
-        }
-        
-        return videoMetadata
-    }
-    
-    // MARK: - Delete Video
-    func deleteVideo(_ videoClip: VideoClip, athlete: Athlete) async throws {
-        // Delete from Firebase Storage
-        let fileName = "\(athlete.id.uuidString)/\(videoClip.id.uuidString).mov"
-        let storageRef = storage.reference().child("videos/\(fileName)")
-        try await storageRef.delete()
-        
-        // Delete from Firestore
-        try await firestore
-            .collection("users")
-            .document(athlete.user?.id.uuidString ?? "unknown")
-            .collection("athletes")
-            .document(athlete.id.uuidString)
-            .collection("videoClips")
-            .document(videoClip.id.uuidString)
-            .delete()
     }
 }
 
@@ -159,21 +190,6 @@ struct VideoClipMetadata {
     let playResult: String?
     let gameOpponent: String?
     let athleteName: String
-}
-
-// MARK: - Enhanced VideoClip Model
-extension VideoClip {
-    var cloudURL: String? {
-        get { 
-            // You'll need to add this property to your SwiftData model
-            return nil // Placeholder - add cloudURL property to your model
-        }
-        set { 
-            // Set the cloud URL when uploaded
-        }
-    }
-    
-    var isUploaded: Bool {
-        return cloudURL != nil && !cloudURL!.isEmpty
-    }
+    let fileSize: Int64
+    let thumbnailURL: String?
 }

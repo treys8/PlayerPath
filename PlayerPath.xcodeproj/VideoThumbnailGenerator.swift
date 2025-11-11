@@ -43,7 +43,13 @@ class VideoThumbnailGenerator {
             
             print("VideoThumbnailGenerator: Using time: \(CMTimeGetSeconds(thumbnailTime)) seconds")
             
-            let cgImage = try imageGenerator.copyCGImage(at: thumbnailTime, actualTime: nil)
+            // Use the new async method for iOS 18+ or fallback to the old method
+            let cgImage: CGImage
+            if #available(iOS 18.0, *) {
+                cgImage = try await imageGenerator.image(at: thumbnailTime).image
+            } else {
+                cgImage = try imageGenerator.copyCGImage(at: thumbnailTime, actualTime: nil)
+            }
             let image = UIImage(cgImage: cgImage)
             
             // Save thumbnail to documents directory

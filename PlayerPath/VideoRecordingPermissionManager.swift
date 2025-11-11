@@ -7,6 +7,7 @@
 
 import AVFoundation
 import UIKit
+import Combine
 
 @MainActor
 class VideoRecordingPermissionManager: ObservableObject {

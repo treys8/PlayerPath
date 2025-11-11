@@ -7,6 +7,7 @@
 
 import LocalAuthentication
 import Foundation
+import Combine
 
 @MainActor
 final class BiometricAuthenticationManager: ObservableObject {
@@ -26,7 +27,7 @@ final class BiometricAuthenticationManager: ObservableObject {
         let context = LAContext()
         var error: NSError?
         
-        if context.canEvaluatePolicy(.biometryAny, error: &error) {
+        if context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error) {
             biometricType = context.biometryType
         } else {
             biometricType = .none
@@ -75,7 +76,7 @@ final class BiometricAuthenticationManager: ObservableObject {
         let context = LAContext()
         context.localizedFallbackTitle = "Use Password"
         
-        return try await context.evaluatePolicy(.biometryAny, localizedReason: reason)
+        return try await context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: reason)
     }
     
     func getBiometricCredentials() async -> (email: String, password: String)? {
@@ -95,25 +96,27 @@ final class BiometricAuthenticationManager: ObservableObject {
 
 private class KeychainManager {
     private let biometricEnabledKey = "biometric_enabled"
-    private let emailKey = "biometric_email"
-    private let passwordKey = "biometric_password"
+    private let emailKey = "com.playerpath.biometric.email"
+    private let passwordKey = "com.playerpath.biometric.password"
     
     func isBiometricEnabled() -> Bool {
         return UserDefaults.standard.bool(forKey: biometricEnabledKey)
     }
     
     func saveBiometricCredentials(email: String, password: String) {
-        // In a real implementation, you'd use Keychain Services
-        // For now, using UserDefaults (NOT recommended for production)
+        // Save biometric enabled flag
         UserDefaults.standard.set(true, forKey: biometricEnabledKey)
-        UserDefaults.standard.set(email, forKey: emailKey)
-        // NOTE: Never store passwords in UserDefaults in production!
-        // Use Keychain Services instead
+        
+        // Save email in Keychain
+        saveToKeychain(key: emailKey, value: email)
+        
+        // Save password in Keychain
+        saveToKeychain(key: passwordKey, value: password)
     }
     
     func getBiometricCredentials() -> (email: String, password: String)? {
-        guard let email = UserDefaults.standard.string(forKey: emailKey),
-              let password = UserDefaults.standard.string(forKey: passwordKey) else {
+        guard let email = loadFromKeychain(key: emailKey),
+              let password = loadFromKeychain(key: passwordKey) else {
             return nil
         }
         return (email, password)
@@ -121,7 +124,58 @@ private class KeychainManager {
     
     func removeBiometricCredentials() {
         UserDefaults.standard.removeObject(forKey: biometricEnabledKey)
-        UserDefaults.standard.removeObject(forKey: emailKey)
-        UserDefaults.standard.removeObject(forKey: passwordKey)
+        deleteFromKeychain(key: emailKey)
+        deleteFromKeychain(key: passwordKey)
+    }
+    
+    // MARK: - Keychain Operations
+    
+    private func saveToKeychain(key: String, value: String) {
+        guard let data = value.data(using: .utf8) else { return }
+        
+        // Delete any existing item
+        deleteFromKeychain(key: key)
+        
+        // Create new keychain item
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrAccount as String: key,
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        ]
+        
+        let status = SecItemAdd(query as CFDictionary, nil)
+        if status != errSecSuccess {
+            print("Error saving to keychain: \(status)")
+        }
+    }
+    
+    private func loadFromKeychain(key: String) -> String? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrAccount as String: key,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        
+        guard status == errSecSuccess,
+              let data = result as? Data,
+              let value = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+        
+        return value
+    }
+    
+    private func deleteFromKeychain(key: String) {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrAccount as String: key
+        ]
+        
+        SecItemDelete(query as CFDictionary)
     }
 }

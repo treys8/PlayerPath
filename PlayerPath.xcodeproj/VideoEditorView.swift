@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import SwiftData
 import AVFoundation
 import AVKit
 
@@ -189,6 +190,7 @@ struct VideoEditorView: View {
     
     private func setupEditor() async {
         let videoURL = URL(fileURLWithPath: clip.filePath)
+        editor.setClip(clip)
         await editor.setupEditor(with: videoURL)
         
         await MainActor.run {
@@ -500,6 +502,7 @@ class VideoEditor: ObservableObject {
     
     private var originalStartTime: Double = 0.0
     private var originalEndTime: Double = 0.0
+    private var clip: VideoClip?
     
     var hasTrimChanges: Bool {
         return startTime != originalStartTime || endTime != originalEndTime
@@ -526,6 +529,10 @@ class VideoEditor: ObservableObject {
         }
     }
     
+    func setClip(_ clip: VideoClip) {
+        self.clip = clip
+    }
+    
     func resetTrim() {
         startTime = originalStartTime
         endTime = originalEndTime
@@ -533,7 +540,11 @@ class VideoEditor: ObservableObject {
     }
     
     func exportTrimmedVideo(to outputURL: URL, progressHandler: @escaping (Double) -> Void) async -> Bool {
-        let asset = AVURLAsset(url: URL(fileURLWithPath: outputURL.path.replacingOccurrences(of: outputURL.lastPathComponent, with: "")))
+        guard let clip = self.clip else { return false }
+        
+        // Get the source video URL from the clip
+        let sourceURL = URL(fileURLWithPath: clip.filePath)
+        let asset = AVURLAsset(url: sourceURL)
         
         // Create export session
         guard let exportSession = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetHighestQuality) else {

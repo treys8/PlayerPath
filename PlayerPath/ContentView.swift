@@ -1,20 +1,12 @@
-//
-//  ContentView.swift
-//  PlayerPath
-//
-//  Created by Trey Schilling on 10/23/25.
-//
+// This file is no longer needed - the main app flow now starts with PlayerPathRootView
+// Keep this file for backward compatibility but redirect to the new flow
 
 import SwiftUI
 import SwiftData
 
-// This is now mainly used as a fallback or for previews
-// The main app flow starts with MainAppView
 struct ContentView: View {
-    @Environment(\.modelContext) private var modelContext
-    
     var body: some View {
-        MainAppView()
+        PlayerPathMainView()
     }
 }
 
@@ -29,7 +21,7 @@ struct ContentView: View {
             PracticeNote.self,
             VideoClip.self,
             PlayResult.self,
-            Statistics.self,
-            GameStatistics.self
+            GameStatistics.self,
+            OnboardingProgress.self
         ], inMemory: true)
 }

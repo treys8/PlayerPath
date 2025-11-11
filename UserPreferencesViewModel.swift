@@ -1,35 +1,36 @@
 import SwiftUI
 import SwiftData
+import Combine
 
 @MainActor
-public final class UserPreferencesViewModel: ObservableObject {
+final class UserPreferencesViewModel: ObservableObject {
     
-    public struct SyncAlert: Identifiable {
-        public let id = UUID()
-        public let title: String
-        public let message: String
-        public let recoverySuggestion: String?
+    struct SyncAlert: Identifiable {
+        let id = UUID()
+        let title: String
+        let message: String
+        let recoverySuggestion: String?
     }
     
-    public var modelContext: ModelContext?
-    public func attach(modelContext: ModelContext?) {
+    var modelContext: ModelContext?
+    func attach(modelContext: ModelContext?) {
         self.modelContext = modelContext
     }
     
     private let cloudKitManager = CloudKitManager.shared
     
-    @Published public var preferences: UserPreferences?
-    @Published public var hasUnsavedChanges = false
-    @Published public var syncStatus: CloudKitManager.SyncStatus = .idle
-    @Published public var alert: SyncAlert?
+    @Published var preferences: UserPreferences?
+    @Published var hasUnsavedChanges = false
+    @Published var syncStatus: CloudKitManager.SyncStatus = .idle
+    @Published var alert: SyncAlert?
     
-    public var canSync: Bool {
+    var canSync: Bool {
         cloudKitManager.isCloudKitAvailable
     }
     
     private var remoteChangeObserver: Any?
     
-    public func startObservingRemoteChanges() {
+    func startObservingRemoteChanges() {
         stopObservingRemoteChanges()
         remoteChangeObserver = NotificationCenter.default.addObserver(
             forName: .userPreferencesDidChangeRemotely,
@@ -42,14 +43,14 @@ public final class UserPreferencesViewModel: ObservableObject {
         }
     }
     
-    public func stopObservingRemoteChanges() {
+    func stopObservingRemoteChanges() {
         if let observer = remoteChangeObserver {
             NotificationCenter.default.removeObserver(observer)
             remoteChangeObserver = nil
         }
     }
     
-    public func load() async {
+    func load() async {
         guard let context = modelContext else { return }
         
         let fetchDescriptor = FetchDescriptor<UserPreferences>()
@@ -75,11 +76,11 @@ public final class UserPreferencesViewModel: ObservableObject {
         hasUnsavedChanges = false
     }
     
-    public func save() async throws {
+    func save() async throws {
         try saveLocal()
     }
     
-    public func saveAndSync() async {
+    func saveAndSync() async {
         guard let prefs = preferences else { return }
         
         try? saveLocal()
@@ -101,16 +102,17 @@ public final class UserPreferencesViewModel: ObservableObject {
                 recoverySuggestion: error.recoverySuggestion
             )
         } catch {
-            syncStatus = .failed(error)
+            let categorized = cloudKitManager.categorizeError(error)
+            syncStatus = .failed(categorized)
             alert = SyncAlert(
                 title: "Sync Failed",
-                message: error.localizedDescription,
-                recoverySuggestion: "Please try again later."
+                message: categorized.localizedDescription,
+                recoverySuggestion: categorized.recoverySuggestion
             )
         }
     }
     
-    public func loadFromCloudKit() async {
+    func loadFromCloudKit() async {
         guard cloudKitManager.isCloudKitAvailable,
               cloudKitManager.isSignedInToiCloud else { return }
         
@@ -124,17 +126,13 @@ public final class UserPreferencesViewModel: ObservableObject {
         }
     }
     
-    public func updateLocalPreferences(with remote: UserPreferences) {
-        guard let current = preferences else { return }
+    func updateLocalPreferences(with remote: UserPreferences) {
+        guard preferences != nil else { return }
         
         // Copy all fields exactly as in original view's updateLocalPreferences
         // Assuming UserPreferences has properties that we just copy one by one.
         // Since we don't have actual properties here, we just do a generic copy:
         // This must be replaced with actual properties if known.
-        // Example:
-        // current.someField = remote.someField
-        // current.otherField = remote.otherField
-        // As no properties are given, we assume a full copy method is implemented or do nothing.
         
         // Hypothetical example:
         // current.preferenceA = remote.preferenceA
@@ -149,18 +147,21 @@ public final class UserPreferencesViewModel: ObservableObject {
         // To avoid compile errors, leaving this empty.
     }
     
-    public func update<T>(_ keyPath: WritableKeyPath<UserPreferences, T>, to newValue: T) {
+    func update<T>(_ keyPath: WritableKeyPath<UserPreferences, T>, to newValue: T) {
         guard preferences != nil else { return }
         preferences![keyPath: keyPath] = newValue
         hasUnsavedChanges = true
     }
     
     deinit {
-        stopObservingRemoteChanges()
+        if let observer = remoteChangeObserver {
+            NotificationCenter.default.removeObserver(observer)
+            remoteChangeObserver = nil
+        }
     }
     
     // Convenience computed property for toolbar
-    public var showsSyncButton: Bool {
+    var showsSyncButton: Bool {
         canSync
     }
 }
@@ -175,3 +176,4 @@ extension UserPreferences {
     }
 }
 #endif
+

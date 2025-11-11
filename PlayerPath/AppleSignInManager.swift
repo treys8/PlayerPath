@@ -9,6 +9,7 @@ import SwiftUI
 import AuthenticationServices
 import FirebaseAuth
 import CryptoKit
+import Combine
 
 @MainActor
 final class AppleSignInManager: NSObject, ObservableObject {
@@ -112,10 +113,10 @@ extension AppleSignInManager: ASAuthorizationControllerDelegate {
                 }
                 
                 // Create Firebase credential
-                let credential = OAuthProvider.credential(
-                    withProviderID: "apple.com",
-                    idToken: idTokenString,
-                    rawNonce: nonce
+                let credential = OAuthProvider.appleCredential(
+                    withIDToken: idTokenString,
+                    rawNonce: nonce,
+                    fullName: appleIDCredential.fullName
                 )
                 
                 // Sign in with Firebase
@@ -136,7 +137,7 @@ extension AppleSignInManager: ASAuthorizationControllerDelegate {
                 }
                 
                 await MainActor.run {
-                    authManager?.currentFirebaseUser = result.user
+                    authManager?.updateCurrentUser(result.user, isNewUser: false)
                     isLoading = false
                     print("🟢 Apple Sign In successful for: \(result.user.email ?? "unknown")")
                     HapticManager.shared.authenticationSuccess()

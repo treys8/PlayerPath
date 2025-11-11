@@ -17,13 +17,43 @@ struct HighlightsView: View {
     @State private var showingDeleteAlert = false
     @State private var clipToDelete: VideoClip?
     @State private var editMode: EditMode = .inactive
+
+    @State private var searchText: String = ""
+    enum Filter: String, CaseIterable, Identifiable { case all, game, practice; var id: String { rawValue } }
+    @State private var filter: Filter = .all
+    enum SortOrder: String, CaseIterable, Identifiable { case newest, oldest; var id: String { rawValue } }
+    @State private var sortOrder: SortOrder = .newest
+    @State private var selection = Set<VideoClip.ID>()
+    @State private var recentlyDeleted: [VideoClip] = []
+    @State private var showingUndoAlert = false
     
     var highlights: [VideoClip] {
-        athlete?.videoClips.filter { $0.isHighlight }.sorted { (lhs, rhs) in
-            let lhsDate = lhs.createdAt ?? .distantPast
-            let rhsDate = rhs.createdAt ?? .distantPast
-            return lhsDate > rhsDate
-        } ?? []
+        let base = athlete?.videoClips.filter { $0.isHighlight } ?? []
+        let filteredByType: [VideoClip] = base.filter { clip in
+            switch filter {
+            case .all: return true
+            case .game: return clip.game != nil
+            case .practice: return clip.game == nil
+            }
+        }
+        let filteredBySearch: [VideoClip]
+        if searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            filteredBySearch = filteredByType
+        } else {
+            let q = searchText.lowercased()
+            filteredBySearch = filteredByType.filter { clip in
+                let opponent = clip.game?.opponent.lowercased() ?? ""
+                let result = clip.playResult?.type.displayName.lowercased() ?? ""
+                let fileName = clip.fileName.lowercased()
+                return opponent.contains(q) || result.contains(q) || fileName.contains(q)
+            }
+        }
+        let sorted = filteredBySearch.sorted { lhs, rhs in
+            let l = lhs.createdAt ?? .distantPast
+            let r = rhs.createdAt ?? .distantPast
+            return sortOrder == .newest ? (l > r) : (l < r)
+        }
+        return sorted
     }
     
     var body: some View {
@@ -33,30 +63,59 @@ struct HighlightsView: View {
                     EmptyHighlightsView()
                 } else {
                     ScrollView {
-                        LazyVGrid(columns: [
-                            GridItem(.flexible()),
-                            GridItem(.flexible())
-                        ], spacing: 15) {
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), spacing: 15, alignment: .top)], spacing: 15) {
                             ForEach(highlights) { clip in
-                                VStack(spacing: 8) {
-                                    HighlightCard(
-                                        clip: clip,
-                                        editMode: editMode,
-                                        onTap: {
-                                            if editMode == .inactive {
+                                ZStack(alignment: .topLeading) {
+                                    VStack(spacing: 8) {
+                                        HighlightCard(
+                                            clip: clip,
+                                            editMode: editMode,
+                                            onTap: {
+                                                if editMode == .inactive {
+                                                    selectedClip = clip
+                                                    showingVideoPlayer = true
+                                                } else {
+                                                    toggleSelection(clip)
+                                                }
+                                            },
+                                            onDelete: {
+                                                clipToDelete = clip
+                                                showingDeleteAlert = true
+                                            }
+                                        )
+                                        .contextMenu {
+                                            Button {
                                                 selectedClip = clip
                                                 showingVideoPlayer = true
+                                            } label: {
+                                                Label("Play", systemImage: "play.fill")
                                             }
-                                        },
-                                        onDelete: {
-                                            clipToDelete = clip
-                                            showingDeleteAlert = true
+                                            Button {
+                                                // Toggle highlight flag if supported
+                                                clip.isHighlight.toggle()
+                                                try? modelContext.save()
+                                            } label: {
+                                                Label(clip.isHighlight ? "Remove Highlight" : "Mark as Highlight", systemImage: "star")
+                                            }
+                                            Button(role: .destructive) {
+                                                clipToDelete = clip
+                                                showingDeleteAlert = true
+                                            } label: {
+                                                Label("Delete", systemImage: "trash")
+                                            }
                                         }
-                                    )
-                                    
-                                    // Cloud progress for highlights
-                                    if editMode == .inactive {
-                                        SimpleCloudProgressView(clip: clip)
+                                        if editMode == .inactive {
+                                            SimpleCloudProgressView(clip: clip)
+                                        }
+                                    }
+                                    if editMode == .active {
+                                        Button(action: { toggleSelection(clip) }) {
+                                            Image(systemName: selection.contains(clip.id) ? "checkmark.circle.fill" : "circle")
+                                                .symbolRenderingMode(.hierarchical)
+                                                .font(.title2)
+                                                .foregroundStyle(selection.contains(clip.id) ? .blue : .secondary)
+                                                .padding(8)
+                                        }
                                     }
                                 }
                             }
@@ -66,19 +125,54 @@ struct HighlightsView: View {
                 }
             }
             .navigationTitle("Highlights")
+            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always))
+            .navigationBarBackButtonHidden(true)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     NavigationLink(destination: SimpleCloudStorageView()) {
                         Image(systemName: "icloud.and.arrow.up")
                     }
                 }
-                
+                ToolbarItem(placement: .principal) {
+                    Menu {
+                        Picker("Filter", selection: $filter) {
+                            Text("All").tag(Filter.all)
+                            Text("Games").tag(Filter.game)
+                            Text("Practice").tag(Filter.practice)
+                        }
+                        Picker("Sort", selection: $sortOrder) {
+                            Text("Newest").tag(SortOrder.newest)
+                            Text("Oldest").tag(SortOrder.oldest)
+                        }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Text("Highlights")
+                            Image(systemName: "chevron.down")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
                 if !highlights.isEmpty {
                     ToolbarItem(placement: .navigationBarTrailing) {
-                        Button(editMode == .inactive ? "Edit" : "Done") {
-                            withAnimation {
-                                editMode = editMode == .inactive ? .active : .inactive
-                            }
+                        Button(editMode == .inactive ? "Select" : (selection.isEmpty ? "Done" : "Done (\(selection.count))")) {
+                            withAnimation { toggleEditMode() }
+                        }
+                    }
+                }
+                ToolbarItemGroup(placement: .bottomBar) {
+                    if editMode == .active {
+                        Button(role: .destructive) {
+                            batchDeleteSelected()
+                        } label: {
+                            Label("Delete", systemImage: "trash")
+                        }
+                        .disabled(selection.isEmpty)
+                        Spacer()
+                        Button {
+                            selection.removeAll()
+                        } label: {
+                            Label("Clear", systemImage: "xmark.circle")
                         }
                     }
                 }
@@ -86,7 +180,7 @@ struct HighlightsView: View {
             .environment(\.editMode, $editMode)
         }
         .sheet(isPresented: $showingVideoPlayer) {
-            if let clip = selectedClip {
+            if let clip: VideoClip = selectedClip {
                 VideoPlayerView(clip: clip)
             }
         }
@@ -96,12 +190,20 @@ struct HighlightsView: View {
             }
             Button("Delete", role: .destructive) {
                 if let clip = clipToDelete {
-                    deleteHighlight(clip)
+                    stageDelete(clip)
                 }
                 clipToDelete = nil
             }
         } message: {
             Text("Are you sure you want to delete this highlight? This action cannot be undone.")
+        }
+        .alert("Highlight deleted", isPresented: $showingUndoAlert) {
+            Button("Undo", role: .cancel) {
+                undoRecentDelete()
+            }
+            Button("OK", role: .none) { finalizeStagedDeletes() }
+        } message: {
+            Text("You can undo this action.")
         }
     }
     
@@ -161,6 +263,66 @@ struct HighlightsView: View {
                 print("Failed to delete highlight: \(error)")
             }
         }
+    }
+
+    private func toggleEditMode() {
+        if editMode == .inactive {
+            editMode = .active
+        } else {
+            editMode = .inactive
+            selection.removeAll()
+        }
+    }
+
+    private func toggleSelection(_ clip: VideoClip) {
+        if selection.contains(clip.id) {
+            selection.remove(clip.id)
+        } else {
+            selection.insert(clip.id)
+        }
+    }
+
+    private func batchDeleteSelected() {
+        let clips = highlights.filter { selection.contains($0.id) }
+        guard !clips.isEmpty else { return }
+        for clip in clips { stageDelete(clip) }
+        selection.removeAll()
+        withAnimation { editMode = .inactive }
+    }
+    
+    private func stageDelete(_ clip: VideoClip) {
+        // Remove from UI immediately but delay file/model deletion to allow undo
+        recentlyDeleted.append(clip)
+        // Remove references so it disappears from lists
+        if let athlete = athlete, let idx = athlete.videoClips.firstIndex(of: clip) { athlete.videoClips.remove(at: idx) }
+        if let game = clip.game, let idx = game.videoClips.firstIndex(of: clip) { game.videoClips.remove(at: idx) }
+        if let practice = clip.practice, let idx = practice.videoClips.firstIndex(of: clip) { practice.videoClips.remove(at: idx) }
+        // Show undo alert
+        showingUndoAlert = true
+    }
+
+    private func undoRecentDelete() {
+        // Reinsert staged items back to their relationships
+        for clip in recentlyDeleted {
+            if let athlete = athlete {
+                if !athlete.videoClips.contains(clip) { athlete.videoClips.append(clip) }
+            }
+            if let game = clip.game {
+                if !game.videoClips.contains(clip) { game.videoClips.append(clip) }
+            }
+            if let practice = clip.practice {
+                if !practice.videoClips.contains(clip) { practice.videoClips.append(clip) }
+            }
+        }
+        recentlyDeleted.removeAll()
+    }
+
+    private func finalizeStagedDeletes() {
+        guard !recentlyDeleted.isEmpty else { return }
+        for clip in recentlyDeleted {
+            deleteHighlight(clip)
+        }
+        recentlyDeleted.removeAll()
     }
 }
 
@@ -261,6 +423,8 @@ struct HighlightCard: View {
                                     .font(.title3)
                                     .foregroundColor(.white)
                             )
+                            .transition(.scale.combined(with: .opacity))
+                            .animation(.easeInOut(duration: 0.15), value: editMode)
                     }
                     
                     // Play result badge in top-right corner (always visible)
@@ -311,7 +475,7 @@ struct HighlightCard: View {
                 // Info overlay at bottom
                 VStack(alignment: .leading, spacing: 4) {
                     if let playResult = clip.playResult {
-                        Text(playResult.type.rawValue)
+                        Text(playResult.type.displayName)
                             .font(.headline)
                             .fontWeight(.bold)
                             .foregroundColor(.primary)
@@ -337,6 +501,9 @@ struct HighlightCard: View {
             }
         }
         .buttonStyle(PlainButtonStyle())
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(accessibilityLabel)
+        .accessibilityHint(editMode == .active ? "Tap to select. Use bottom toolbar to delete." : "Tap to play the highlight.")
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .shadow(color: .black.opacity(0.1), radius: 5, x: 0, y: 2)
         .scaleEffect(editMode == .active ? 0.95 : 1.0) // Slightly smaller in edit mode
@@ -344,14 +511,16 @@ struct HighlightCard: View {
         .task {
             await loadThumbnail()
         }
-        .onAppear {
-            // If we already have the image loaded, don't reload
-            if thumbnailImage == nil {
-                Task {
-                    await loadThumbnail()
-                }
-            }
-        }
+    }
+    
+    private var accessibilityLabel: String {
+        var parts: [String] = []
+        if let pr = clip.playResult { parts.append(pr.type.displayName) }
+        if let game = clip.game { parts.append("vs \(game.opponent)") }
+        else { parts.append("Practice") }
+        let dateText = DateFormatter.pp_shortDate.string(from: (clip.createdAt ?? Date()))
+        parts.append(dateText)
+        return parts.joined(separator: ", ")
     }
     
     @MainActor
@@ -598,7 +767,7 @@ struct SimpleCloudStorageView: View {
                                 
                                 VStack(alignment: .leading, spacing: 4) {
                                     if let playResult = clip.playResult {
-                                        Text(playResult.type.rawValue)
+                                        Text(playResult.type.displayName)
                                             .font(.subheadline)
                                             .fontWeight(.medium)
                                     } else {
@@ -657,4 +826,3 @@ extension DateFormatter {
 #Preview {
     HighlightsView(athlete: nil)
 }
-

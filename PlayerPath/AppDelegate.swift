@@ -7,17 +7,28 @@
 
 import UIKit
 import UserNotifications
-import StoreKit
+import FirebaseCore
+import OSLog
 
-class AppDelegate: NSObject, UIApplicationDelegate {
+private let appLog = Logger(subsystem: "com.playerpath.app", category: "AppDelegate")
+
+class PlayerPathAppDelegate: NSObject, UIApplicationDelegate {
     
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+        
+        // Configure Firebase when the app starts
+        if FirebaseApp.app() == nil {
+            appLog.info("Configuring Firebase on launch")
+            FirebaseApp.configure()
+        } else {
+            appLog.info("Firebase already configured")
+        }
         
         // Set up push notifications
         setupPushNotifications(application)
         
-        // Set up StoreKit transaction observer
-        setupStoreKit()
+        // Prepare for future background processing (no-op for now)
+        registerBackgroundTasks()
         
         return true
     }
@@ -25,20 +36,28 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     // MARK: - Push Notifications Setup
     
     private func setupPushNotifications(_ application: UIApplication) {
-        // Request notification permissions on app launch
+        // Request notification permissions on app launch and register for remote notifications on grant
         Task {
-            await PushNotificationService.shared.requestAuthorization()
+            let granted = await PushNotificationService.shared.requestAuthorization()
+            appLog.info("Push authorization granted: \(granted, privacy: .public)")
+            if granted {
+                await MainActor.run {
+                    application.registerForRemoteNotifications()
+                }
+            }
         }
     }
     
-    // MARK: - StoreKit Setup
+    // MARK: - Remote Notification Keys & Types
+    private enum RemoteNotificationKey {
+        static let type = "type"
+        static let athleteId = "athleteId"
+    }
     
-    private func setupStoreKit() {
-        // This ensures transaction updates are processed even when the app launches
-        Task {
-            // Start listening for transaction updates immediately
-            await PremiumFeatureManager().refreshStatus()
-        }
+    private enum RemoteNotificationType: String {
+        case performanceInsights = "performance_insights"
+        case gameReminder = "game_reminder"
+        case practiceReminder = "practice_reminder"
     }
     
     // MARK: - Remote Notifications
@@ -60,36 +79,34 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     // Handle incoming push notifications when app is not running
     func application(_ application: UIApplication, didReceiveRemoteNotification userInfo: [AnyHashable : Any], fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
         
-        // Process the notification
-        handleRemoteNotification(userInfo: userInfo)
-        
-        // Complete with appropriate result
-        completionHandler(.newData)
+        // Process the notification and then call completion handler with a meaningful result
+        Task {
+            // Await any CloudKit processing; ignore return value if it's Void
+            _ = await CloudKitManager.shared.handleRemoteNotification(userInfo)
+            let handled = handleRemoteNotification(userInfo: userInfo)
+            completionHandler(handled ? .newData : .noData)
+        }
     }
     
-    private func handleRemoteNotification(userInfo: [AnyHashable: Any]) {
+    @discardableResult private func handleRemoteNotification(userInfo: [AnyHashable: Any]) -> Bool {
+        var handled = false
         // Handle different types of remote notifications
-        if let notificationType = userInfo["type"] as? String {
-            switch notificationType {
-            case "premium_welcome":
-                // Handle premium welcome notification
-                break
-            case "performance_insights":
-                // Handle performance insights notification
-                break
-            case "cloud_backup_complete":
-                // Handle cloud backup completion
-                break
-            case "game_reminder":
-                // Handle game reminder
-                break
-            case "practice_reminder": 
-                // Handle practice reminder
-                break
-            default:
-                print("Unknown remote notification type: \(notificationType)")
+        if let typeString = userInfo[RemoteNotificationKey.type] as? String,
+           let type = RemoteNotificationType(rawValue: typeString) {
+            switch type {
+            case .performanceInsights:
+                handled = true
+            case .gameReminder:
+                handled = true
+            case .practiceReminder:
+                handled = true
             }
+        } else if let unknown = userInfo[RemoteNotificationKey.type] {
+            appLog.info("Unknown remote notification type: \(String(describing: unknown), privacy: .public)")
+        } else {
+            appLog.info("Remote notification missing 'type' key")
         }
+        return handled
     }
     
     // MARK: - Background Processing
@@ -103,18 +120,14 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     }
     
     private func performBackgroundRefresh() async {
-        // Refresh premium status
-        await PremiumFeatureManager().refreshStatus()
-        
-        // Check for pending cloud uploads (if premium)
-        // Process any queued analytics (if premium)
-        // Update notification badges
+        // Background refresh tasks can be added here later
+        // For now, just a placeholder for future functionality
     }
 }
 
 // MARK: - Scene Configuration
 
-extension AppDelegate {
+extension PlayerPathAppDelegate {
     func application(_ application: UIApplication, configurationForConnecting connectingSceneSession: UISceneSession, options: UIScene.ConnectionOptions) -> UISceneConfiguration {
         let configuration = UISceneConfiguration(name: nil, sessionRole: connectingSceneSession.role)
         configuration.delegateClass = SceneDelegate.self
@@ -124,7 +137,7 @@ extension AppDelegate {
 
 // MARK: - Scene Delegate
 
-class SceneDelegate: NSObject, UIWindowSceneDelegate {
+@MainActor class SceneDelegate: NSObject, UIWindowSceneDelegate {
     
     func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {
         // Handle scene connection
@@ -147,13 +160,11 @@ class SceneDelegate: NSObject, UIWindowSceneDelegate {
         let actionIdentifier = response.actionIdentifier
         
         // Process notification launch
-        print("App launched from notification: \(actionIdentifier)")
+        appLog.info("App launched from notification: \(actionIdentifier, privacy: .public)")
         
         // You can post notifications to coordinate with your SwiftUI views
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
             switch actionIdentifier {
-            case "EXPLORE_FEATURES":
-                NotificationCenter.default.post(name: .navigateToPremiumFeatures, object: nil)
             case "VIEW_STATS":
                 if let athleteId = userInfo["athleteId"] as? String {
                     NotificationCenter.default.post(name: .navigateToStatistics, object: athleteId)
@@ -166,52 +177,32 @@ class SceneDelegate: NSObject, UIWindowSceneDelegate {
     
     private func handleURL(_ url: URL) {
         // Handle custom URL schemes for deep linking
-        print("Handling URL: \(url)")
+        appLog.info("Handling URL: \(url.absoluteString, privacy: .public)")
         
-        // Example: playerpath://record/game/123
-        // Example: playerpath://premium/upgrade
+        // Example: playerpath://record/game/123  
         // Example: playerpath://stats/athlete/456
     }
 }
 
 // MARK: - Background Tasks
 
-extension AppDelegate {
+extension PlayerPathAppDelegate {
     
     func registerBackgroundTasks() {
-        // Register background tasks for premium features
+        // Background tasks can be registered here for future functionality
         // This would be called during app initialization
         
         /*
-        BGTaskScheduler.shared.register(forTaskWithIdentifier: "com.playerpath.cloud-sync", using: nil) { task in
-            self.handleCloudSyncBackgroundTask(task as! BGProcessingTask)
-        }
-        
-        BGTaskScheduler.shared.register(forTaskWithIdentifier: "com.playerpath.analytics-processing", using: nil) { task in
-            self.handleAnalyticsBackgroundTask(task as! BGProcessingTask)
+        BGTaskScheduler.shared.register(forTaskWithIdentifier: "com.playerpath.data-sync", using: nil) { task in
+            self.handleDataSyncBackgroundTask(task as! BGProcessingTask)
         }
         */
     }
     
     /*
-    private func handleCloudSyncBackgroundTask(_ task: BGProcessingTask) {
-        // Handle cloud synchronization in background for premium users
-        let operation = CloudSyncOperation()
-        
-        task.expirationHandler = {
-            operation.cancel()
-        }
-        
-        operation.completionBlock = {
-            task.setTaskCompleted(success: !operation.isCancelled)
-        }
-        
-        OperationQueue().addOperation(operation)
-    }
-    
-    private func handleAnalyticsBackgroundTask(_ task: BGProcessingTask) {
-        // Process analytics in background for premium users
-        let operation = AnalyticsProcessingOperation()
+    private func handleDataSyncBackgroundTask(_ task: BGProcessingTask) {
+        // Handle data synchronization in background
+        let operation = DataSyncOperation()
         
         task.expirationHandler = {
             operation.cancel()
@@ -225,3 +216,4 @@ extension AppDelegate {
     }
     */
 }
+

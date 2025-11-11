@@ -8,8 +8,10 @@
 import SwiftUI
 import FirebaseAuth
 
+// This view provides a simplified authentication interface
+// that delegates to SignInView for the actual implementation
 struct AuthenticationView: View {
-    @Environment(AuthenticationManager.self) private var authManager
+    @EnvironmentObject private var authManager: ComprehensiveAuthManager
     
     var body: some View {
         SignInView()
@@ -17,26 +19,10 @@ struct AuthenticationView: View {
     }
 }
 
-// MARK: - Loading View
-struct LoadingView: View {
-    let title: String
-    
-    var body: some View {
-        VStack(spacing: 20) {
-            ProgressView()
-                .scaleEffect(1.2)
-                .progressViewStyle(CircularProgressViewStyle())
-            
-            Text(title)
-                .font(.headline)
-                .foregroundColor(.secondary)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(.systemBackground))
-    }
-}
+// Keep the old name as an alias for compatibility
+typealias SimpleAuthenticationView = AuthenticationView
 
 #Preview {
     AuthenticationView()
-        .environment(AuthenticationManager())
+        .environmentObject(ComprehensiveAuthManager())
 }

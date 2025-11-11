@@ -7,17 +7,18 @@
 
 import SwiftUI
 import SwiftData
+import FirebaseAuth
 
 /// Test view to verify authentication manager works correctly
 struct AuthenticationTestView: View {
-    @StateObject private var authManager = AppAuthManager()
+    @StateObject private var authManager = ComprehensiveAuthManager()
     
     var body: some View {
         VStack(spacing: 20) {
             Text("Authentication Test")
                 .font(.largeTitle)
             
-            Text("Authenticated: \(authManager.isAuthenticated ? "✅" : "❌")")
+            Text("Authenticated: \(authManager.isSignedIn ? "✅" : "❌")")
             Text("Loading: \(authManager.isLoading ? "⏳" : "✅")")
             
             if let errorMessage = authManager.errorMessage {
@@ -25,8 +26,8 @@ struct AuthenticationTestView: View {
                     .foregroundColor(.red)
             }
             
-            if let user = authManager.currentUser {
-                Text("User: \(user.username)")
+            if let user = authManager.currentFirebaseUser {
+                Text("User: \(user.email ?? "Unknown")")
                     .foregroundColor(.green)
             }
             
@@ -37,7 +38,9 @@ struct AuthenticationTestView: View {
             }
             
             Button("Test Sign Out") {
-                authManager.signOut()
+                Task {
+                    await authManager.signOut()
+                }
             }
             
             // Test both authentication views work
@@ -46,11 +49,6 @@ struct AuthenticationTestView: View {
                 
                 NavigationLink("Test AuthenticationView") {
                     AuthenticationView()
-                        .environmentObject(authManager)
-                }
-                
-                NavigationLink("Test SimpleAuthenticationView") {
-                    SimpleAuthenticationView()
                         .environmentObject(authManager)
                 }
             }
@@ -63,5 +61,17 @@ struct AuthenticationTestView: View {
     NavigationStack {
         AuthenticationTestView()
     }
-    .modelContainer(for: [User.self, Athlete.self, Statistics.self])
+    .modelContainer(for: [
+        User.self,
+        Athlete.self,
+        AthleteStatistics.self,
+        Game.self,
+        GameStatistics.self,
+        Tournament.self,
+        Practice.self,
+        PracticeNote.self,
+        VideoClip.self,
+        PlayResult.self,
+        OnboardingProgress.self
+    ])
 }

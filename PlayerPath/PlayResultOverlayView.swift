@@ -8,6 +8,7 @@
 import SwiftUI
 import SwiftData
 import AVKit
+import UIKit
 
 struct PlayResultOverlayView: View {
     let videoURL: URL
@@ -17,8 +18,18 @@ struct PlayResultOverlayView: View {
     let onSave: (PlayResultType?) -> Void
     let onCancel: () -> Void
     
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.horizontalSizeClass) private var hSizeClass
+    
     @State private var selectedResult: PlayResultType?
     @State private var showingConfirmation = false
+    @State private var player = AVPlayer()
+    
+    @State private var isSaving = false
+    @State private var showSavedToast = false
+    @State private var showConfirmationDialog = false
+    @State private var isPlaying = true
+    @State private var videoMetadata: VideoMetadata?
     
     init(videoURL: URL, athlete: Athlete?, game: Game? = nil, practice: Practice? = nil, onSave: @escaping (PlayResultType?) -> Void, onCancel: @escaping () -> Void) {
         self.videoURL = videoURL
@@ -27,129 +38,332 @@ struct PlayResultOverlayView: View {
         self.practice = practice
         self.onSave = onSave
         self.onCancel = onCancel
+        self._player = State(initialValue: AVPlayer(url: videoURL))
     }
     
     var body: some View {
         NavigationStack {
             ZStack {
-                // Video Player Background
-                VideoPlayer(player: AVPlayer(url: videoURL))
-                    .disabled(true)
-                    .overlay(Color.black.opacity(0.3))
+                // Video Player Background with Play/Pause Button
+                ZStack(alignment: .bottomLeading) {
+                    ZStack(alignment: .topTrailing) {
+                        VideoPlayer(player: player)
+                            .allowsHitTesting(false)
+                            .overlay(Color.black.opacity(0.25))
+                            .onAppear {
+                                player.play()
+                                isPlaying = true
+                                loadVideoMetadata()
+                            }
+                            .onDisappear {
+                                player.pause()
+                                isPlaying = false
+                            }
+                        
+                        // Video metadata badge
+                        if let metadata = videoMetadata {
+                            VideoMetadataView(metadata: metadata)
+                                .padding(12)
+                                .padding(.top, 50) // Make room for Done button
+                        }
+                    }
+                    
+                    Button {
+                        if isPlaying {
+                            player.pause()
+                        } else {
+                            player.play()
+                        }
+                        isPlaying.toggle()
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    } label: {
+                        Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundColor(.white)
+                            .padding(10)
+                            .background(.ultraThinMaterial)
+                            .clipShape(Circle())
+                            .shadow(radius: 4)
+                    }
+                    .padding(12)
+                    .accessibilityLabel(isPlaying ? "Pause video" : "Play video")
+                }
                 
                 // Play Result Selection Overlay
                 VStack {
                     Spacer()
                     
+                    let minWidth: CGFloat = (hSizeClass == .compact) ? 110 : 120
+                    
                     VStack(spacing: 20) {
                         if practice != nil {
-                            Text("Add play result for statistics tracking?")
+                            Text("Select Play Result")
                                 .font(.title3)
                                 .fontWeight(.bold)
                                 .foregroundColor(.white)
                                 .multilineTextAlignment(.center)
+                                .minimumScaleFactor(0.8)
+                                .lineLimit(1)
+                                .accessibilityAddTraits(.isHeader)
+                            
+                            Text("Add a result to track statistics")
+                                .font(.subheadline)
+                                .foregroundColor(.white.opacity(0.8))
+                                .multilineTextAlignment(.center)
                         } else {
-                            Text("What was the result of this play?")
+                            Text("Select Play Result")
                                 .font(.title2)
                                 .fontWeight(.bold)
                                 .foregroundColor(.white)
                                 .multilineTextAlignment(.center)
+                                .minimumScaleFactor(0.8)
+                                .lineLimit(1)
+                                .accessibilityAddTraits(.isHeader)
+                            
+                            Text("Choose what happened on this play")
+                                .font(.subheadline)
+                                .foregroundColor(.white.opacity(0.8))
+                                .multilineTextAlignment(.center)
                         }
                         
-                        // Play Result Grid
-                        LazyVGrid(columns: [
-                            GridItem(.flexible()),
-                            GridItem(.flexible()),
-                            GridItem(.flexible()),
-                            GridItem(.flexible())
-                        ], spacing: 15) {
-                            ForEach(PlayResultType.allCases, id: \.self) { result in
+                        // Play Result Grid - Improved Layout
+                        VStack(spacing: 12) {
+                            // Hits Section
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Hits")
+                                    .font(.caption)
+                                    .fontWeight(.bold)
+                                    .foregroundColor(.white.opacity(0.7))
+                                    .padding(.horizontal, 4)
+                                    .accessibilityAddTraits(.isHeader)
+                                
+                                LazyVGrid(columns: [
+                                    GridItem(.flexible(), spacing: 8),
+                                    GridItem(.flexible(), spacing: 8)
+                                ], spacing: 8) {
+                                    ForEach([PlayResultType.single, .double, .triple, .homeRun], id: \.self) { result in
+                                        PlayResultButton(
+                                            result: result,
+                                            isSelected: selectedResult == result
+                                        ) {
+                                            selectedResult = result
+                                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                                            player.pause()
+                                            isPlaying = false
+                                            showingConfirmation = true
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            Divider()
+                                .background(Color.white.opacity(0.3))
+                                .padding(.vertical, 4)
+                            
+                            // Walk Section
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Walk")
+                                    .font(.caption)
+                                    .fontWeight(.bold)
+                                    .foregroundColor(.white.opacity(0.7))
+                                    .padding(.horizontal, 4)
+                                    .accessibilityAddTraits(.isHeader)
+                                
                                 PlayResultButton(
-                                    result: result,
-                                    isSelected: selectedResult == result
+                                    result: .walk,
+                                    isSelected: selectedResult == .walk,
+                                    fullWidth: true
                                 ) {
-                                    selectedResult = result
+                                    selectedResult = .walk
+                                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                                    player.pause()
+                                    isPlaying = false
                                     showingConfirmation = true
+                                }
+                            }
+                            
+                            Divider()
+                                .background(Color.white.opacity(0.3))
+                                .padding(.vertical, 4)
+                            
+                            // Outs Section
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Outs")
+                                    .font(.caption)
+                                    .fontWeight(.bold)
+                                    .foregroundColor(.white.opacity(0.7))
+                                    .padding(.horizontal, 4)
+                                    .accessibilityAddTraits(.isHeader)
+                                
+                                LazyVGrid(columns: [
+                                    GridItem(.flexible(), spacing: 8),
+                                    GridItem(.flexible(), spacing: 8)
+                                ], spacing: 8) {
+                                    ForEach([PlayResultType.strikeout, .groundOut, .flyOut], id: \.self) { result in
+                                        PlayResultButton(
+                                            result: result,
+                                            isSelected: selectedResult == result
+                                        ) {
+                                            selectedResult = result
+                                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                                            player.pause()
+                                            isPlaying = false
+                                            showingConfirmation = true
+                                        }
+                                    }
                                 }
                             }
                         }
                         
                         // Action Buttons
-                        HStack(spacing: 20) {
-                            Button("Cancel") {
+                        HStack(spacing: 12) {
+                            Button {
+                                UINotificationFeedbackGenerator().notificationOccurred(.warning)
                                 onCancel()
+                            } label: {
+                                Label("Cancel", systemImage: "xmark")
+                                    .font(.body.weight(.semibold))
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 16)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 12)
+                                            .fill(Color.white.opacity(0.15))
+                                    )
+                                    .foregroundColor(.white)
                             }
-                            .padding()
-                            .frame(maxWidth: .infinity)
-                            .background(Color.gray.opacity(0.3))
-                            .foregroundColor(.white)
-                            .cornerRadius(10)
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Cancel")
+                            .accessibilityHint("Dismiss without saving a play result")
                             
-                            Button(practice != nil ? "Save Video Only" : "Skip & Save") {
-                                // Save without play result
+                            Button {
+                                UINotificationFeedbackGenerator().notificationOccurred(.success)
                                 onSave(nil)
+                            } label: {
+                                Label(practice != nil ? "Save Video Only" : "Skip & Save", systemImage: "checkmark")
+                                    .font(.body.weight(.semibold))
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 16)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 12)
+                                            .fill(Color.blue)
+                                    )
+                                    .foregroundColor(.white)
                             }
-                            .padding()
-                            .frame(maxWidth: .infinity)
-                            .background(Color.blue.opacity(0.8))
-                            .foregroundColor(.white)
-                            .cornerRadius(10)
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(practice != nil ? "Save Video Only" : "Skip and Save")
+                            .accessibilityHint("Save without a play result")
                         }
+                        .disabled(isSaving)
                     }
-                    .padding()
+                    .padding(20)
                     .background(
-                        RoundedRectangle(cornerRadius: 20)
-                            .fill(Color.black.opacity(0.8))
-                            .background(.ultraThinMaterial)
+                        RoundedRectangle(cornerRadius: 24)
+                            .fill(.ultraThinMaterial)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 24)
+                                    .fill(
+                                        LinearGradient(
+                                            colors: [
+                                                Color.black.opacity(0.3),
+                                                Color.black.opacity(0.5)
+                                            ],
+                                            startPoint: .top,
+                                            endPoint: .bottom
+                                        )
+                                    )
+                            )
+                            .shadow(color: .black.opacity(0.5), radius: 20, y: 10)
                     )
-                    .padding()
+                    .padding(.horizontal, 16)
+                    .accessibilitySortPriority(1)
+                    .disabled(isSaving)
                     
                     Spacer().frame(height: 50)
                 }
                 
-                // Info Header
+                // Info Header - Improved Design
                 VStack {
                     HStack {
-                        VStack(alignment: .leading, spacing: 5) {
+                        VStack(alignment: .leading, spacing: 6) {
                             if let game = game {
-                                Text("vs \(game.opponent)")
-                                    .font(.headline)
-                                    .fontWeight(.bold)
-                                    .foregroundColor(.white)
+                                HStack(spacing: 8) {
+                                    Image(systemName: "sportscourt.fill")
+                                        .font(.caption)
+                                        .foregroundColor(.white.opacity(0.8))
+                                    
+                                    Text("vs \(game.opponent)")
+                                        .font(.headline)
+                                        .fontWeight(.bold)
+                                        .foregroundColor(.white)
+                                }
                                 
-                                Text(game.date, formatter: DateFormatter.shortDate)
-                                    .font(.subheadline)
-                                    .foregroundColor(.white.opacity(0.8))
+                                if let date = game.date {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: "calendar")
+                                            .font(.caption2)
+                                            .foregroundColor(.white.opacity(0.6))
+                                        Text(date, style: .date)
+                                            .font(.subheadline)
+                                            .foregroundColor(.white.opacity(0.8))
+                                    }
+                                } else {
+                                    Text("Date TBA")
+                                        .font(.subheadline)
+                                        .foregroundColor(.white.opacity(0.6))
+                                }
                             } else if let practice = practice {
-                                Text("Practice Session")
-                                    .font(.headline)
-                                    .fontWeight(.bold)
-                                    .foregroundColor(.white)
+                                HStack(spacing: 8) {
+                                    Image(systemName: "figure.baseball")
+                                        .font(.caption)
+                                        .foregroundColor(.white.opacity(0.8))
+                                    
+                                    Text("Practice Session")
+                                        .font(.headline)
+                                        .fontWeight(.bold)
+                                        .foregroundColor(.white)
+                                }
                                 
-                                Text(practice.date, formatter: DateFormatter.shortDate)
-                                    .font(.subheadline)
-                                    .foregroundColor(.white.opacity(0.8))
+                                if let date = practice.date {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: "calendar")
+                                            .font(.caption2)
+                                            .foregroundColor(.white.opacity(0.6))
+                                        Text(date, style: .date)
+                                            .font(.subheadline)
+                                            .foregroundColor(.white.opacity(0.8))
+                                    }
+                                } else {
+                                    Text("Date TBA")
+                                        .font(.subheadline)
+                                        .foregroundColor(.white.opacity(0.6))
+                                }
                             }
                             
                             if let athlete = athlete {
-                                Text(athlete.name)
-                                    .font(.caption)
-                                    .foregroundColor(.white.opacity(0.6))
+                                HStack(spacing: 6) {
+                                    Image(systemName: "person.fill")
+                                        .font(.caption2)
+                                        .foregroundColor(.white.opacity(0.5))
+                                    Text(athlete.name)
+                                        .font(.caption)
+                                        .foregroundColor(.white.opacity(0.7))
+                                }
                             }
                         }
                         
                         Spacer()
-                        
-                        Button("Done") {
-                            // This will be handled by individual result selection
-                        }
-                        .foregroundColor(.white)
-                        .opacity(0) // Hidden for now
                     }
-                    .padding()
+                    .padding(.horizontal, 20)
+                    .padding(.top, 16)
+                    .padding(.bottom, 20)
+                    .accessibilitySortPriority(2)
                     .background(
                         LinearGradient(
-                            colors: [Color.black.opacity(0.6), Color.clear],
+                            colors: [
+                                Color.black.opacity(0.7),
+                                Color.black.opacity(0.5),
+                                Color.clear
+                            ],
                             startPoint: .top,
                             endPoint: .bottom
                         )
@@ -157,86 +371,326 @@ struct PlayResultOverlayView: View {
                     
                     Spacer()
                 }
+                
+                // Saved Toast
+                VStack {
+                    if showSavedToast {
+                        Text("Saved")
+                            .font(.subheadline.weight(.semibold))
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(.ultraThinMaterial)
+                            .clipShape(Capsule())
+                            .shadow(radius: 4)
+                            .transition(.opacity.combined(with: .move(edge: .top)))
+                            .accessibilityHidden(true)
+                    }
+                    Spacer()
+                }
+                .animation(.easeInOut(duration: 0.25), value: showSavedToast)
             }
             .ignoresSafeArea()
-            .navigationBarHidden(true)
-        }
-        .alert("Confirm Play Result", isPresented: $showingConfirmation) {
-            Button("Cancel", role: .cancel) {
-                selectedResult = nil
-            }
-            Button("Save") {
-                if let result = selectedResult {
-                    onSave(result)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        UINotificationFeedbackGenerator().notificationOccurred(.warning)
+                        onCancel()
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "chevron.left")
+                                .font(.body.weight(.semibold))
+                            Text("Back")
+                                .font(.body)
+                        }
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(
+                            Capsule()
+                                .fill(.ultraThinMaterial)
+                        )
+                    }
+                    .accessibilityLabel("Go back")
+                }
+                
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                            .font(.title3)
+                            .foregroundColor(.white)
+                            .padding(8)
+                            .background(
+                                Circle()
+                                    .fill(.ultraThinMaterial)
+                            )
+                    }
+                    .accessibilityLabel("More options")
+                    .disabled(true) // Placeholder for future features
+                    .opacity(0.5)
                 }
             }
-        } message: {
-            if let result = selectedResult {
-                Text("Save this play as a \(result.rawValue)?")
+            .toolbarBackground(.hidden, for: .navigationBar)
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active {
+                    if !showingConfirmation && !isSaving {
+                        player.play()
+                        isPlaying = true
+                    }
+                } else {
+                    player.pause()
+                    isPlaying = false
+                }
+            }
+            .confirmationDialog(
+                "Confirm Play Result",
+                isPresented: $showingConfirmation,
+                titleVisibility: .visible
+            ) {
+                Button("Save", role: .none) {
+                    guard let result = selectedResult else { return }
+                    isSaving = true
+                    UINotificationFeedbackGenerator().notificationOccurred(.success)
+                    onSave(result)
+                    isSaving = false
+                    showSavedToast = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+                        showSavedToast = false
+                    }
+                    selectedResult = nil
+                    player.play()
+                    isPlaying = true
+                }
+                Button("Cancel", role: .cancel) {
+                    selectedResult = nil
+                    player.play()
+                    isPlaying = true
+                }
+            } message: {
+                Text("Save this play as a \(selectedResult?.displayName ?? "play")?")
+            }
+            .onChange(of: showingConfirmation) { _, isShowing in
+                if isShowing {
+                    player.pause()
+                    isPlaying = false
+                }
             }
         }
     }
 }
 
+extension PlayResultType {
+    var iconName: String {
+        switch self {
+        case .single: return "1.circle.fill"
+        case .double: return "2.circle.fill"
+        case .triple: return "3.circle.fill"
+        case .homeRun: return "4.circle.fill"
+        case .walk: return "figure.walk"
+        case .strikeout: return "k.circle.fill"
+        case .groundOut: return "arrow.down.circle.fill"
+        case .flyOut: return "arrow.up.circle.fill"
+        }
+    }
+    
+    var uiColor: Color {
+        switch self {
+        case .single, .double, .triple, .homeRun: return .green
+        case .walk: return .blue
+        case .strikeout, .groundOut, .flyOut: return .red
+        }
+    }
+    
+    var accessibilityLabel: String { displayName }
+}
+
 struct PlayResultButton: View {
     let result: PlayResultType
     let isSelected: Bool
+    var fullWidth: Bool = false
     let action: () -> Void
-    
-    private var backgroundColor: Color {
-        switch result {
-        case .single, .double, .triple, .homeRun:
-            return .green
-        case .walk:
-            return .blue
-        case .strikeout, .groundOut, .flyOut:
-            return .red
-        }
-    }
-    
-    private var icon: String {
-        switch result {
-        case .single:
-            return "1.circle.fill"
-        case .double:
-            return "2.circle.fill"
-        case .triple:
-            return "3.circle.fill"
-        case .homeRun:
-            return "4.circle.fill"
-        case .walk:
-            return "figure.walk"
-        case .strikeout:
-            return "k.circle.fill"
-        case .groundOut:
-            return "arrow.down.circle.fill"
-        case .flyOut:
-            return "arrow.up.circle.fill"
-        }
-    }
     
     var body: some View {
         Button(action: action) {
-            VStack(spacing: 8) {
-                Image(systemName: icon)
-                    .font(.system(size: 24))
-                    .foregroundColor(.white)
+            HStack(spacing: 12) {
+                // Icon with circular background
+                ZStack {
+                    Circle()
+                        .fill(Color.white.opacity(0.2))
+                        .frame(width: 44, height: 44)
+                    
+                    Image(systemName: result.iconName)
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundColor(.white)
+                }
                 
-                Text(result.rawValue)
-                    .font(.caption)
+                // Label
+                Text(result.displayName)
+                    .font(.body)
                     .fontWeight(.semibold)
                     .foregroundColor(.white)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+                
+                Spacer()
+                
+                // Selection indicator
+                if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.title3)
+                        .foregroundColor(.white)
+                        .transition(.scale.combined(with: .opacity))
+                }
             }
-            .frame(height: 80)
-            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .frame(maxWidth: fullWidth ? .infinity : nil)
+            .frame(height: 60)
             .background(
-                backgroundColor.opacity(isSelected ? 1.0 : 0.8)
+                RoundedRectangle(cornerRadius: 14)
+                    .fill(result.uiColor)
+                    .shadow(color: result.uiColor.opacity(0.4), radius: isSelected ? 8 : 4, y: 2)
             )
-            .cornerRadius(12)
-            .scaleEffect(isSelected ? 1.05 : 1.0)
-            .animation(.spring(response: 0.3), value: isSelected)
+            .overlay(
+                RoundedRectangle(cornerRadius: 14)
+                    .strokeBorder(Color.white.opacity(isSelected ? 0.4 : 0.15), lineWidth: isSelected ? 2 : 1)
+            )
+            .scaleEffect(isSelected ? 1.02 : 1.0)
+            .brightness(isSelected ? 0.1 : 0)
+        }
+        .buttonStyle(.plain)
+        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isSelected)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(Text(result.accessibilityLabel))
+        .accessibilityHint(Text("Selects this play result and asks for confirmation"))
+        .accessibilityAddTraits(.isButton)
+        .if(isSelected) { view in
+            view.accessibilityAddTraits(.isSelected)
+        }
+    }
+}
+
+struct OverlayButtonStyle: ButtonStyle {
+    let background: Color
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .padding()
+            .frame(maxWidth: .infinity)
+            .background(background.opacity(configuration.isPressed ? 0.7 : 0.8))
+            .foregroundColor(.white)
+            .cornerRadius(10)
+            .animation(.easeInOut(duration: 0.15), value: configuration.isPressed)
+    }
+}
+
+// MARK: - Video Metadata Extension
+struct VideoMetadata {
+    let duration: TimeInterval
+    let fileSize: Int64
+    let resolution: String?
+    
+    var formattedDuration: String {
+        let minutes = Int(duration) / 60
+        let seconds = Int(duration) % 60
+        return String(format: "%d:%02d", minutes, seconds)
+    }
+    
+    var formattedFileSize: String {
+        let mb = Double(fileSize) / 1_048_576
+        if mb < 1 {
+            let kb = Double(fileSize) / 1024
+            return String(format: "%.0f KB", kb)
+        }
+        return String(format: "%.1f MB", mb)
+    }
+}
+
+struct VideoMetadataView: View {
+    let metadata: VideoMetadata
+    
+    var body: some View {
+        HStack(spacing: 12) {
+            MetadataBadge(icon: "clock.fill", text: metadata.formattedDuration, color: .blue)
+            MetadataBadge(icon: "doc.fill", text: metadata.formattedFileSize, color: .green)
+            if let resolution = metadata.resolution {
+                MetadataBadge(icon: "video.fill", text: resolution, color: .purple)
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Video info: \(metadata.formattedDuration), \(metadata.formattedFileSize)")
+    }
+}
+
+struct MetadataBadge: View {
+    let icon: String
+    let text: String
+    let color: Color
+    
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: icon)
+                .font(.system(size: 10))
+            Text(text)
+                .font(.system(size: 11, weight: .semibold))
+        }
+        .foregroundColor(.white)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(
+            Capsule()
+                .fill(color.opacity(0.8))
+        )
+        .shadow(radius: 2)
+    }
+}
+
+extension PlayResultOverlayView {
+    private func loadVideoMetadata() {
+        Task {
+            let asset = AVURLAsset(url: videoURL)
+            
+            // Get duration
+            let duration = try? await asset.load(.duration)
+            let durationSeconds = duration?.seconds ?? 0
+            
+            // Get file size
+            let attributes = try? FileManager.default.attributesOfItem(atPath: videoURL.path)
+            let fileSize = attributes?[.size] as? Int64 ?? 0
+            
+            // Get resolution
+            var resolutionString: String?
+            if let track = try? await asset.loadTracks(withMediaType: .video).first {
+                let size = try? await track.load(.naturalSize)
+                if let size = size {
+                    let width = Int(size.width)
+                    let height = Int(size.height)
+                    
+                    // Common resolution names
+                    switch (width, height) {
+                    case (3840, 2160), (2160, 3840):
+                        resolutionString = "4K"
+                    case (1920, 1080), (1080, 1920):
+                        resolutionString = "1080p"
+                    case (1280, 720), (720, 1280):
+                        resolutionString = "720p"
+                    case (640, 480), (480, 640):
+                        resolutionString = "480p"
+                    default:
+                        resolutionString = "\(width)×\(height)"
+                    }
+                }
+            }
+            
+            await MainActor.run {
+                videoMetadata = VideoMetadata(
+                    duration: durationSeconds,
+                    fileSize: fileSize,
+                    resolution: resolutionString
+                )
+            }
         }
     }
 }

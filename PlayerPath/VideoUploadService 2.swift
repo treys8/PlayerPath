@@ -5,9 +5,9 @@ import SwiftData
 /// A minimal skeleton for handling video uploads with retry integration.
 /// Replace the `performUpload` body with your actual upload mechanism (CloudKit assets, backend, etc.).
 @MainActor
-final class VideoUploadService {
-    static let shared = VideoUploadService()
-    private let logger = Logger(subsystem: "PlayerPath", category: "VideoUploadService")
+final class VideoUploadServiceMock {
+    static let shared = VideoUploadServiceMock()
+    private let logger = Logger(subsystem: "PlayerPath", category: "VideoUploadServiceMock")
 
     private init() {}
 
@@ -97,8 +97,9 @@ final class VideoUploadService {
         // - Upload to server/CloudKit
         // - Update clip state upon success
 
-        // Simulate file presence check
-        guard clip.localFileURL != nil else {
+        // Placeholder presence check: ensure the clip has a non-empty filename.
+        // If your model exposes a URL/path property (e.g., `fileURL`), swap this check accordingly.
+        guard !clip.fileName.isEmpty else {
             throw UploadError.processing
         }
 

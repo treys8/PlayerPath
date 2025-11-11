@@ -57,6 +57,13 @@ actor GameService {
         
         // Delete all video clips and their files
         for clip in game.videoClips {
+            if let athlete = clip.athlete,
+               let clipIndex = athlete.videoClips.firstIndex(of: clip) {
+                athlete.videoClips.remove(at: clipIndex)
+            }
+            if let playResult = clip.playResult {
+                modelContext.delete(playResult)
+            }
             await deleteFiles(for: clip)
             modelContext.delete(clip)
         }
@@ -73,13 +80,8 @@ actor GameService {
             }
         }
         
-        // Delete playResult if exists
-        if let playResult = game.playResult {
-            modelContext.delete(playResult)
-        }
-        
         // Delete gameStats if exists
-        if let gameStats = game.statistics {
+        if let gameStats = game.gameStats {
             modelContext.delete(gameStats)
         }
         
@@ -101,7 +103,8 @@ actor GameService {
         let calendar = Calendar.current
         for existingGame in athlete.games {
             if existingGame.opponent == opponent,
-               calendar.isDate(existingGame.date, inSameDayAs: date) {
+               let gameDate = existingGame.date,
+               calendar.isDate(gameDate, inSameDayAs: date) {
                 print("Duplicate game found for opponent \(opponent) on the same day.")
                 return
             }
@@ -115,18 +118,17 @@ actor GameService {
         }
         
         // Create new game
-        let game = Game()
-        game.opponent = opponent
-        game.date = date
+        let game = Game(date: date, opponent: opponent)
         game.isLive = isLive
         
-        // Create GameStatistics and assign
+        // Create and link GameStatistics
         let stats = GameStatistics()
-        game.statistics = stats
-        
-        // Insert into context
-        modelContext.insert(game)
+        game.gameStats = stats
+        stats.game = game
         modelContext.insert(stats)
+        
+        // Insert game into context
+        modelContext.insert(game)
         
         // Assign tournament
         if let providedTournament = tournament {
@@ -179,9 +181,41 @@ actor GameService {
         game.isLive = false
         game.isComplete = true
         
-        if let athlete = game.athlete, let statistics = athlete.statistics {
-            statistics.addCompletedGame()
-            print("Added completed game to athlete's statistics.")
+        if let athlete = game.athlete {
+            // Create athlete statistics if they don't exist
+            if athlete.statistics == nil {
+                let newStats = AthleteStatistics()
+                newStats.athlete = athlete
+                athlete.statistics = newStats
+                modelContext.insert(newStats)
+                print("Created new AthleteStatistics for athlete.")
+            }
+            
+            // Aggregate game statistics into athlete's overall statistics
+            if let athleteStats = athlete.statistics, let gameStats = game.gameStats {
+                athleteStats.atBats += gameStats.atBats
+                athleteStats.hits += gameStats.hits
+                athleteStats.singles += gameStats.singles
+                athleteStats.doubles += gameStats.doubles
+                athleteStats.triples += gameStats.triples
+                athleteStats.homeRuns += gameStats.homeRuns
+                athleteStats.runs += gameStats.runs
+                athleteStats.rbis += gameStats.rbis
+                athleteStats.strikeouts += gameStats.strikeouts
+                athleteStats.walks += gameStats.walks
+                athleteStats.updatedAt = Date()
+                
+                print("Aggregated game stats into athlete stats:")
+                print("  - Added \(gameStats.hits) hits, \(gameStats.atBats) at-bats")
+                print("  - New totals: \(athleteStats.hits) hits, \(athleteStats.atBats) at-bats")
+                print("  - Batting Average: \(athleteStats.battingAverage)")
+            }
+            
+            // Increment total games
+            if let athleteStats = athlete.statistics {
+                athleteStats.addCompletedGame()
+                print("Added completed game to athlete's statistics.")
+            }
         }
         
         do {
@@ -198,7 +232,7 @@ actor GameService {
         // Set of games that athlete currently references
         let relationshipSet = Set(athlete.games)
         // Set of games that query found for this athlete
-        let querySet = Set(allGames.filter { $0.athlete == athlete })
+        let querySet = Set(allGames.filter { $0.athlete?.id == athlete.id })
         
         let orphanedGames = querySet.subtracting(relationshipSet)
         let gamesWithWrongAthlete = athlete.games.filter { $0.athlete != athlete }
@@ -230,3 +264,4 @@ actor GameService {
         }
     }
 }
+

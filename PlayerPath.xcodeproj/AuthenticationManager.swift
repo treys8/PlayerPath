@@ -7,7 +7,7 @@
 
 import Foundation
 import FirebaseAuth
-import GoogleSignIn
+// import GoogleSignIn // Temporarily commented out
 import SwiftUI
 
 @MainActor
@@ -27,7 +27,8 @@ class AuthenticationManager: ObservableObject {
         }
     }
     
-    // MARK: - Google Sign In
+    // MARK: - Google Sign In (Temporarily disabled - need to add GoogleSignIn package)
+    /*
     func signInWithGoogle() async {
         guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
               let rootViewController = windowScene.windows.first?.rootViewController else {
@@ -61,6 +62,7 @@ class AuthenticationManager: ObservableObject {
         
         isLoading = false
     }
+    */
     
     // MARK: - Email/Password Sign In
     func signInWithEmail(_ email: String, password: String) async {
@@ -105,7 +107,7 @@ class AuthenticationManager: ObservableObject {
     func signOut() {
         do {
             try Auth.auth().signOut()
-            GIDSignIn.sharedInstance.signOut()
+            // GIDSignIn.sharedInstance.signOut() // Commented out until GoogleSignIn is added
             print("Successfully signed out")
         } catch {
             errorMessage = "Sign out failed: \(error.localizedDescription)"

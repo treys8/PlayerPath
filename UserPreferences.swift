@@ -9,56 +9,129 @@ import SwiftUI
 import SwiftData
 import CloudKit
 
+// MARK: - Model
 @Model
-class UserPreferences {
-    var id: UUID = UUID()
-    
-    // Video Recording Preferences
-    var defaultVideoQuality: VideoQuality = .high
-    var autoUploadToCloud: Bool = true
-    var saveToPhotosLibrary: Bool = false
-    var enableHapticFeedback: Bool = true
-    
-    // UI Preferences
-    var preferredTheme: AppTheme = .system
-    var showOnboardingTips: Bool = true
-    var enableDebugMode: Bool = false
-    
-    // Cloud Sync Preferences
-    var syncHighlightsOnly: Bool = false
-    var maxVideoFileSize: Int = 500 // MB
-    var autoDeleteAfterUpload: Bool = false
-    
-    // Analytics Preferences
-    var enableAnalytics: Bool = true
-    var shareUsageData: Bool = false
-    
-    // Notification Preferences
-    var enableUploadNotifications: Bool = true
-    var enableGameReminders: Bool = true
-    
+final class UserPreferences {
+    // Immutable identity for stability
+    @Attribute(.unique) private(set) var id: UUID
+
+    // MARK: - Video Recording Preferences
+    var defaultVideoQuality: VideoQuality { didSet { markAsModified() } }
+    var autoUploadToCloud: Bool { didSet { markAsModified() } }
+    var saveToPhotosLibrary: Bool { didSet { markAsModified() } }
+    var enableHapticFeedback: Bool { didSet { markAsModified() } }
+
+    // MARK: - UI Preferences
+    var preferredTheme: AppTheme { didSet { markAsModified() } }
+    var showOnboardingTips: Bool { didSet { markAsModified() } }
+    var enableDebugMode: Bool { didSet { markAsModified() } }
+
+    // MARK: - Cloud Sync Preferences
+    var syncHighlightsOnly: Bool { didSet { markAsModified() } }
+    // Clamped in MB to a reasonable range (50MB–10GB)
+    var maxVideoFileSize: Int { didSet { maxVideoFileSize = max(50, min(maxVideoFileSize, 10_000)); markAsModified() } }
+    var autoDeleteAfterUpload: Bool { didSet { markAsModified() } }
+
+    // MARK: - Analytics Preferences
+    var enableAnalytics: Bool { didSet { markAsModified() } }
+    var shareUsageData: Bool { didSet { markAsModified() } }
+    var canSendAnalytics: Bool { enableAnalytics && shareUsageData }
+    var canSendNotifications: Bool { enableUploadNotifications }
+
+    // MARK: - Notification Preferences
+    var enableUploadNotifications: Bool { didSet { markAsModified() } }
+    var enableGameReminders: Bool { didSet { markAsModified() } }
+
+    // MARK: - Sync metadata
+    var lastModified: Date
+
+    // MARK: - Init
     init() {
-        // Initialize with default values
+        self.id = UUID()
+
+        // Defaults
+        self.defaultVideoQuality = .high
+        self.autoUploadToCloud = true
+        self.saveToPhotosLibrary = false
+        self.enableHapticFeedback = true
+
+        self.preferredTheme = .system
+        self.showOnboardingTips = true
+        self.enableDebugMode = false
+
+        self.syncHighlightsOnly = false
+        self.maxVideoFileSize = 500 // MB
+        self.autoDeleteAfterUpload = false
+
+        self.enableAnalytics = true
+        self.shareUsageData = false
+
+        self.enableUploadNotifications = true
+        self.enableGameReminders = true
+
+        self.lastModified = Date()
     }
-    
-    // Convenience method to get shared preferences
-    static func shared(from context: ModelContext) -> UserPreferences {
-        let descriptor = FetchDescriptor<UserPreferences>()
-        do {
-            let preferences = try context.fetch(descriptor)
-            return preferences.first ?? UserPreferences()
-        } catch {
-            print("Error fetching user preferences: \(error)")
-            return UserPreferences()
+
+    // MARK: - Mutation helpers
+    func markAsModified() {
+        self.lastModified = Date()
+    }
+
+    /// Safely set the maximum video file size in MB with clamping (50MB–10GB)
+    func setMaxVideoFileSize(_ mb: Int) {
+        let clamped = max(50, min(mb, 10_000))
+        if clamped != maxVideoFileSize {
+            maxVideoFileSize = clamped
+            markAsModified()
         }
+    }
+
+    /// Combine two preference objects by preferring the most recently modified values.
+    /// Returns a new instance with fields chosen from `newer` where appropriate.
+    static func resolveConflict(local: UserPreferences, remote: UserPreferences) -> UserPreferences {
+        // Prefer the more recently modified object wholesale for simplicity.
+        // If you want field-by-field merge, implement it here.
+        return (local.lastModified >= remote.lastModified) ? local : remote
+    }
+
+    // Convenience method to get shared preferences (fetch-or-create persisted singleton)
+    static func shared(in context: ModelContext) -> UserPreferences {
+        // Fetch all and enforce single-instance semantics by keeping the newest
+        let descriptor = FetchDescriptor<UserPreferences>()
+        if let all = try? context.fetch(descriptor), let first = all.first {
+            if all.count > 1 {
+                // Keep the most recently modified, delete the rest
+                let sorted = all.sorted { $0.lastModified > $1.lastModified }
+                let keep = sorted.first!
+                for extra in sorted.dropFirst() {
+                    context.delete(extra)
+                }
+                return keep
+            }
+            return first
+        }
+        let prefs = UserPreferences()
+        context.insert(prefs)
+        return prefs
     }
 }
 
+/// Represents capture/export quality; raw values are stable storage keys, not UI strings.
 enum VideoQuality: String, CaseIterable, Codable {
-    case low = "Low (720p)"
-    case medium = "Medium (1080p)"
-    case high = "High (4K)"
-    
+    // Stable storage values independent of UI strings
+    case low = "low"
+    case medium = "medium"
+    case high = "high"
+
+    // UI-facing text
+    var displayName: String {
+        switch self {
+        case .low: return "Low (720p)"
+        case .medium: return "Medium (1080p)"
+        case .high: return "High (4K)"
+        }
+    }
+
     var resolution: String {
         switch self {
         case .low: return "720p"
@@ -68,8 +141,17 @@ enum VideoQuality: String, CaseIterable, Codable {
     }
 }
 
+/// App theme preference; raw values are stable storage keys, not UI strings.
 enum AppTheme: String, CaseIterable, Codable {
-    case light = "Light"
-    case dark = "Dark"
-    case system = "System"
+    case light = "light"
+    case dark = "dark"
+    case system = "system"
+
+    var displayName: String {
+        switch self {
+        case .light: return "Light"
+        case .dark: return "Dark"
+        case .system: return "System"
+        }
+    }
 }

@@ -49,21 +49,37 @@ struct RecorderPermissions {
 
     /// Request microphone permission if needed, or return current status.
     static func requestMicrophonePermission() async -> PermissionStatus {
-        let status = AVAudioSession.sharedInstance().recordPermission
-        switch status {
-        case .granted:
-            return .granted
-        case .undetermined:
-            let granted = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
-                AVAudioSession.sharedInstance().requestRecordPermission { allowed in
-                    continuation.resume(returning: allowed)
-                }
+        // Use AVAudioApplication for iOS 17.0+, fall back to AVAudioSession for earlier versions.
+        if #available(iOS 17.0, *) {
+            let recordPermission = AVAudioApplication.shared.recordPermission
+            switch recordPermission {
+            case .granted:
+                return .granted
+            case .undetermined:
+                let granted = await AVAudioApplication.requestRecordPermission()
+                return granted ? .granted : .denied
+            case .denied:
+                return .denied
+            @unknown default:
+                return .denied
             }
-            return granted ? .granted : .denied
-        case .denied:
-            return .denied
-        @unknown default:
-            return .denied
+        } else {
+            let recordPermission = AVAudioSession.sharedInstance().recordPermission
+            switch recordPermission {
+            case .granted:
+                return .granted
+            case .undetermined:
+                let granted: Bool = await withCheckedContinuation { continuation in
+                    AVAudioSession.sharedInstance().requestRecordPermission { allowed in
+                        continuation.resume(returning: allowed)
+                    }
+                }
+                return granted ? .granted : .denied
+            case .denied:
+                return .denied
+            @unknown default:
+                return .denied
+            }
         }
     }
 
@@ -90,3 +106,4 @@ struct RecorderPermissions {
         )
     }
 }
+

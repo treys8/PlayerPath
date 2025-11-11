@@ -6,6 +6,8 @@
 //
 
 import SwiftUI
+import SwiftData
+import Foundation
 
 struct CloudProgressIndicatorView: View {
     let clip: VideoClip

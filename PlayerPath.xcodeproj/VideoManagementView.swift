@@ -16,6 +16,8 @@ struct VideoManagementView: View {
     @State private var showingVideoPlayer: VideoRecord?
     @State private var showingBatchActions = false
     @State private var viewMode: ViewMode = .grid
+    @State private var draggedVideo: VideoRecord?
+    @State private var isReorderMode = false
     
     enum ViewMode: CaseIterable {
         case grid, list
@@ -46,6 +48,17 @@ struct VideoManagementView: View {
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {
+                    if videoManager.sortOption == .custom {
+                        Button(isReorderMode ? "Done" : "Reorder") {
+                            withAnimation(.easeInOut(duration: 0.3)) {
+                                isReorderMode.toggle()
+                            }
+                            if !isReorderMode {
+                                clearSelection()
+                            }
+                        }
+                        .foregroundColor(isReorderMode ? .blue : .primary)
+                    }
                     viewModeButton
                     addVideoButton
                 }
@@ -168,6 +181,11 @@ struct VideoManagementView: View {
     private var videoContent: some View {
         ScrollView {
             LazyVStack(spacing: 16) {
+                // Show reorder instructions when in reorder mode
+                if isReorderMode {
+                    reorderModeIndicator
+                }
+                
                 if videoManager.isLoading {
                     loadingView
                 } else if videoManager.filteredVideos.isEmpty {
@@ -196,9 +214,25 @@ struct VideoManagementView: View {
                 VideoGridCard(
                     video: video,
                     isSelected: selectedVideos.contains(video.id),
+                    isReorderMode: isReorderMode,
+                    isDragTarget: draggedVideo?.id != video.id,
                     onTap: { handleVideoTap(video) },
                     onLongPress: { toggleSelection(video.id) }
                 )
+                .scaleEffect(draggedVideo?.id == video.id ? 0.95 : 1.0)
+                .opacity(draggedVideo?.id == video.id ? 0.8 : 1.0)
+                .onDrag {
+                    if videoManager.sortOption == .custom {
+                        self.draggedVideo = video
+                        return NSItemProvider(object: video.id as NSString)
+                    }
+                    return NSItemProvider()
+                }
+                .onDrop(of: [.text], delegate: VideoDropDelegate(
+                    destinationVideo: video,
+                    draggedVideo: $draggedVideo,
+                    videoManager: videoManager
+                ))
             }
         }
     }
@@ -209,9 +243,25 @@ struct VideoManagementView: View {
                 VideoListRow(
                     video: video,
                     isSelected: selectedVideos.contains(video.id),
+                    isReorderMode: isReorderMode,
+                    isDragTarget: draggedVideo?.id != video.id,
                     onTap: { handleVideoTap(video) },
                     onToggleSelection: { toggleSelection(video.id) }
                 )
+                .scaleEffect(draggedVideo?.id == video.id ? 0.98 : 1.0)
+                .opacity(draggedVideo?.id == video.id ? 0.8 : 1.0)
+                .onDrag {
+                    if videoManager.sortOption == .custom {
+                        self.draggedVideo = video
+                        return NSItemProvider(object: video.id as NSString)
+                    }
+                    return NSItemProvider()
+                }
+                .onDrop(of: [.text], delegate: VideoDropDelegate(
+                    destinationVideo: video,
+                    draggedVideo: $draggedVideo,
+                    videoManager: videoManager
+                ))
             }
         }
     }
@@ -394,8 +444,19 @@ struct FilterChip: View {
 struct VideoGridCard: View {
     let video: VideoRecord
     let isSelected: Bool
+    let isReorderMode: Bool
+    let isDragTarget: Bool
     let onTap: () -> Void
     let onLongPress: () -> Void
+    
+    init(video: VideoRecord, isSelected: Bool, isReorderMode: Bool = false, isDragTarget: Bool = true, onTap: @escaping () -> Void, onLongPress: @escaping () -> Void) {
+        self.video = video
+        self.isSelected = isSelected
+        self.isReorderMode = isReorderMode
+        self.isDragTarget = isDragTarget
+        self.onTap = onTap
+        self.onLongPress = onLongPress
+    }
     
     var body: some View {
         Button(action: onTap) {
@@ -461,7 +522,13 @@ struct VideoGridCard: View {
                             
                             Spacer()
                             
-                            syncStatusIcon(video.syncStatus)
+                            if isReorderMode {
+                                Image(systemName: "line.3.horizontal")
+                                    .foregroundColor(.blue)
+                                    .padding(4)
+                            } else {
+                                syncStatusIcon(video.syncStatus)
+                            }
                         }
                         Spacer()
                     }
@@ -483,8 +550,22 @@ struct VideoGridCard: View {
         .buttonStyle(.plain)
         .overlay(
             RoundedRectangle(cornerRadius: 12)
-                .stroke(isSelected ? .blue : .clear, lineWidth: 2)
+                .stroke(
+                    isSelected ? .blue : 
+                    (isReorderMode && isDragTarget ? .blue.opacity(0.3) : .clear), 
+                    lineWidth: isSelected ? 2 : (isReorderMode && isDragTarget ? 1 : 0)
+                )
         )
+        .overlay {
+            if isReorderMode && !isDragTarget {
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(.blue.opacity(0.1))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(.blue, style: StrokeStyle(lineWidth: 2, dash: [5]))
+                    )
+            }
+        }
         .onLongPressGesture {
             onLongPress()
         }
@@ -526,8 +607,19 @@ struct VideoGridCard: View {
 struct VideoListRow: View {
     let video: VideoRecord
     let isSelected: Bool
+    let isReorderMode: Bool
+    let isDragTarget: Bool
     let onTap: () -> Void
     let onToggleSelection: () -> Void
+    
+    init(video: VideoRecord, isSelected: Bool, isReorderMode: Bool = false, isDragTarget: Bool = true, onTap: @escaping () -> Void, onToggleSelection: @escaping () -> Void) {
+        self.video = video
+        self.isSelected = isSelected
+        self.isReorderMode = isReorderMode
+        self.isDragTarget = isDragTarget
+        self.onTap = onTap
+        self.onToggleSelection = onToggleSelection
+    }
     
     var body: some View {
         Button(action: onTap) {
@@ -591,7 +683,13 @@ struct VideoListRow: View {
                         
                         Spacer()
                         
-                        syncStatusIcon(video.syncStatus)
+                        if isReorderMode {
+                            Image(systemName: "line.3.horizontal")
+                                .foregroundColor(.blue)
+                                .font(.caption)
+                        } else {
+                            syncStatusIcon(video.syncStatus)
+                        }
                     }
                 }
             }
@@ -600,6 +698,16 @@ struct VideoListRow: View {
         }
         .buttonStyle(.plain)
         .background(isSelected ? .blue.opacity(0.1) : .clear)
+        .overlay {
+            if isReorderMode && !isDragTarget {
+                Rectangle()
+                    .fill(.blue.opacity(0.05))
+                    .overlay(
+                        Rectangle()
+                            .stroke(.blue, style: StrokeStyle(lineWidth: 1, dash: [3]))
+                    )
+            }
+        }
     }
     
     @ViewBuilder
@@ -765,4 +873,59 @@ struct VideoPlayerView: View {
 
 #Preview {
     VideoManagementView()
+}
+
+// MARK: - Video Drop Delegate
+
+struct VideoDropDelegate: DropDelegate {
+    let destinationVideo: VideoRecord
+    @Binding var draggedVideo: VideoRecord?
+    let videoManager: UnifiedVideoManager
+    
+    func performDrop(info: DropInfo) -> Bool {
+        guard let draggedVideo = draggedVideo,
+              draggedVideo.id != destinationVideo.id else {
+            return false
+        }
+        
+        Task {
+            await videoManager.moveVideo(from: draggedVideo.id, to: destinationVideo.id)
+        }
+        
+        self.draggedVideo = nil
+        return true
+    }
+    
+    func dropEntered(info: DropInfo) {
+        guard let draggedVideo = draggedVideo,
+              draggedVideo.id != destinationVideo.id else { return }
+        
+        withAnimation(.easeInOut(duration: 0.2)) {
+            // Visual feedback can be added here
+        }
+    }
+    
+    func dropExited(info: DropInfo) {
+        // Reset visual feedback
+    }
+}
+
+// MARK: - Reorder Mode Extensions
+
+extension VideoManagementView {
+    private var reorderModeIndicator: some View {
+        HStack {
+            Image(systemName: "arrow.up.arrow.down")
+                .foregroundColor(.blue)
+            
+            Text("Drag videos to reorder")
+                .font(.subheadline)
+                .foregroundColor(.blue)
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 8)
+        .background(.blue.opacity(0.1))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .padding(.horizontal)
+    }
 }

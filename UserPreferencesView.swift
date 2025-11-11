@@ -10,249 +10,242 @@ import SwiftData
 
 struct UserPreferencesView: View {
     @Environment(\.modelContext) private var modelContext
-    @StateObject private var cloudKitManager = CloudKitManager.shared
-    
-    @State private var preferences: UserPreferences
-    @State private var showingSyncAlert = false
-    @State private var syncAlertMessage = ""
-    @State private var hasUnsavedChanges = false
-    
-    init() {
-        // Initialize with default preferences
-        _preferences = State(initialValue: UserPreferences())
-    }
+    @StateObject private var viewModel = UserPreferencesViewModel()
     
     var body: some View {
         NavigationStack {
-            Form {
-                // CloudKit Status Section
-                Section {
-                    HStack {
-                        Image(systemName: cloudKitManager.isCloudKitAvailable ? "icloud" : "icloud.slash")
-                            .foregroundColor(cloudKitManager.isCloudKitAvailable ? .green : .red)
-                        
-                        VStack(alignment: .leading) {
-                            Text("iCloud Sync")
-                                .font(.headline)
-                            Text(cloudKitManager.isCloudKitAvailable ? "Available" : "Not Available")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                        
-                        Spacer()
-                        
-                        if case .syncing = cloudKitManager.syncStatus {
-                            ProgressView()
-                                .scaleEffect(0.8)
-                        }
+            Group {
+                if let prefs = viewModel.preferences {
+                    Form {
+                        cloudKitStatusSection
+                        videoRecordingSection(preferences: prefs)
+                        uiPreferencesSection(preferences: prefs)
+                        cloudSyncSection(preferences: prefs)
+                        privacyAnalyticsSection(preferences: prefs)
+                        notificationsSection(preferences: prefs)
                     }
-                    
-                    if !cloudKitManager.isCloudKitAvailable {
-                        Text("Sign in to iCloud to sync your preferences across devices.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                } header: {
-                    Text("Cloud Sync")
-                }
-                
-                // Video Recording Preferences
-                Section {
-                    Picker("Video Quality", selection: $preferences.defaultVideoQuality) {
-                        ForEach(VideoQuality.allCases, id: \.self) { quality in
-                            Text(quality.rawValue).tag(quality)
-                        }
-                    }
-                    .onChange(of: preferences.defaultVideoQuality) { _, _ in
-                        hasUnsavedChanges = true
-                    }
-                    
-                    Toggle("Auto-upload to Cloud", isOn: $preferences.autoUploadToCloud)
-                        .onChange(of: preferences.autoUploadToCloud) { _, _ in
-                            hasUnsavedChanges = true
-                        }
-                    
-                    Toggle("Save to Photos Library", isOn: $preferences.saveToPhotosLibrary)
-                        .onChange(of: preferences.saveToPhotosLibrary) { _, _ in
-                            hasUnsavedChanges = true
-                        }
-                    
-                    Toggle("Haptic Feedback", isOn: $preferences.enableHapticFeedback)
-                        .onChange(of: preferences.enableHapticFeedback) { _, _ in
-                            hasUnsavedChanges = true
-                        }
-                } header: {
-                    Text("Video Recording")
-                }
-                
-                // UI Preferences
-                Section {
-                    Picker("App Theme", selection: $preferences.preferredTheme) {
-                        ForEach(AppTheme.allCases, id: \.self) { theme in
-                            Text(theme.rawValue).tag(theme)
-                        }
-                    }
-                    .onChange(of: preferences.preferredTheme) { _, _ in
-                        hasUnsavedChanges = true
-                    }
-                    
-                    Toggle("Show Onboarding Tips", isOn: $preferences.showOnboardingTips)
-                        .onChange(of: preferences.showOnboardingTips) { _, _ in
-                            hasUnsavedChanges = true
-                        }
-                    
-                    Toggle("Debug Mode", isOn: $preferences.enableDebugMode)
-                        .onChange(of: preferences.enableDebugMode) { _, _ in
-                            hasUnsavedChanges = true
-                        }
-                } header: {
-                    Text("Interface")
-                }
-                
-                // Cloud Sync Preferences
-                Section {
-                    Toggle("Sync Highlights Only", isOn: $preferences.syncHighlightsOnly)
-                        .onChange(of: preferences.syncHighlightsOnly) { _, _ in
-                            hasUnsavedChanges = true
-                        }
-                    
-                    HStack {
-                        Text("Max File Size")
-                        Spacer()
-                        Text("\(preferences.maxVideoFileSize) MB")
-                            .foregroundColor(.secondary)
-                    }
-                    
-                    Slider(value: Binding(
-                        get: { Double(preferences.maxVideoFileSize) },
-                        set: { preferences.maxVideoFileSize = Int($0); hasUnsavedChanges = true }
-                    ), in: 100...1000, step: 50)
-                    
-                    Toggle("Auto-delete After Upload", isOn: $preferences.autoDeleteAfterUpload)
-                        .onChange(of: preferences.autoDeleteAfterUpload) { _, _ in
-                            hasUnsavedChanges = true
-                        }
-                } header: {
-                    Text("Cloud Storage")
-                }
-                
-                // Privacy & Analytics
-                Section {
-                    Toggle("Enable Analytics", isOn: $preferences.enableAnalytics)
-                        .onChange(of: preferences.enableAnalytics) { _, _ in
-                            hasUnsavedChanges = true
-                        }
-                    
-                    Toggle("Share Usage Data", isOn: $preferences.shareUsageData)
-                        .onChange(of: preferences.shareUsageData) { _, _ in
-                            hasUnsavedChanges = true
-                        }
-                } header: {
-                    Text("Privacy & Analytics")
-                } footer: {
-                    Text("Help improve PlayerPath by sharing anonymous usage data.")
-                }
-                
-                // Notifications
-                Section {
-                    Toggle("Upload Notifications", isOn: $preferences.enableUploadNotifications)
-                        .onChange(of: preferences.enableUploadNotifications) { _, _ in
-                            hasUnsavedChanges = true
-                        }
-                    
-                    Toggle("Game Reminders", isOn: $preferences.enableGameReminders)
-                        .onChange(of: preferences.enableGameReminders) { _, _ in
-                            hasUnsavedChanges = true
-                        }
-                } header: {
-                    Text("Notifications")
-                }
-                
-                // Save & Sync Actions
-                if hasUnsavedChanges {
-                    Section {
-                        Button(action: savePreferences) {
-                            HStack {
-                                Image(systemName: "checkmark.circle")
-                                Text("Save Changes")
-                            }
-                        }
-                        .foregroundColor(.green)
-                        
-                        if cloudKitManager.isCloudKitAvailable {
-                            Button(action: saveAndSync) {
-                                HStack {
-                                    Image(systemName: "icloud.and.arrow.up")
-                                    Text("Save & Sync to iCloud")
-                                }
-                            }
-                            .foregroundColor(.blue)
-                        }
-                    }
+                } else {
+                    ProgressView("Loading preferences...")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
-            .onAppear {
-                loadPreferences()
+            .task {
+                viewModel.attach(modelContext: modelContext)
+                await viewModel.load()
+                viewModel.startObservingRemoteChanges()
             }
-            .alert("Sync Status", isPresented: $showingSyncAlert) {
-                Button("OK", role: .cancel) { }
-            } message: {
-                Text(syncAlertMessage)
+            .alert(item: $viewModel.alert) { alert in
+                Alert(
+                    title: Text(alert.title),
+                    message: alert.recoverySuggestion != nil
+                        ? Text("\(alert.message)\n\n\(alert.recoverySuggestion!)")
+                        : Text(alert.message),
+                    dismissButton: .default(Text("OK"))
+                )
             }
-        }
-    }
-    
-    // MARK: - Data Management
-    
-    private func loadPreferences() {
-        let descriptor = FetchDescriptor<UserPreferences>()
-        do {
-            let savedPreferences = try modelContext.fetch(descriptor)
-            if let existingPreferences = savedPreferences.first {
-                preferences = existingPreferences
-            } else {
-                // Create new preferences with defaults
-                preferences = UserPreferences()
-                modelContext.insert(preferences)
-                try modelContext.save()
-            }
-        } catch {
-            print("Error loading preferences: \(error)")
-        }
-    }
-    
-    private func savePreferences() {
-        do {
-            try modelContext.save()
-            hasUnsavedChanges = false
-            print("Preferences saved locally")
-        } catch {
-            print("Error saving preferences: \(error)")
-            syncAlertMessage = "Failed to save preferences: \(error.localizedDescription)"
-            showingSyncAlert = true
-        }
-    }
-    
-    private func saveAndSync() {
-        // First save locally
-        savePreferences()
-        
-        // Then sync to CloudKit
-        Task {
-            do {
-                try await cloudKitManager.syncUserPreferences(preferences)
-                await MainActor.run {
-                    syncAlertMessage = "Preferences successfully synced to iCloud"
-                    showingSyncAlert = true
-                }
-            } catch {
-                await MainActor.run {
-                    syncAlertMessage = "Failed to sync to iCloud: \(error.localizedDescription)"
-                    showingSyncAlert = true
+            .toolbar {
+                ToolbarItemGroup(placement: .navigationBarTrailing) {
+                    if viewModel.hasUnsavedChanges {
+                        Button("Save") {
+                            Task { try? await viewModel.save() }
+                        }
+                    }
+                    if viewModel.showsSyncButton {
+                        Button {
+                            Task { await viewModel.saveAndSync() }
+                        } label: {
+                            Image(systemName: "icloud.and.arrow.up")
+                        }
+                    }
                 }
             }
+        }
+    }
+    
+    // MARK: - View Sections
+    
+    private var cloudKitStatusSection: some View {
+        Section {
+            HStack {
+                Image(systemName: viewModel.canSync ? "icloud" : "icloud.slash")
+                    .foregroundColor(viewModel.canSync ? .green : .red)
+                
+                VStack(alignment: .leading) {
+                    Text("iCloud Sync").font(.headline)
+                    Text(viewModel.canSync ? "Available" : "Not Available")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                
+                Spacer()
+                
+                switch viewModel.syncStatus {
+                case .idle:
+                    EmptyView()
+                case .syncing:
+                    HStack {
+                        ProgressView()
+                            .scaleEffect(0.8)
+                        Text("Syncing...")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                case .success:
+                    HStack {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                        Text("Synced")
+                            .font(.caption)
+                            .foregroundColor(.green)
+                    }
+                case .failed(let error):
+                    HStack {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundColor(.orange)
+                        Text("Sync Failed")
+                            .font(.caption)
+                            .foregroundColor(.orange)
+                    }
+                    .onTapGesture {
+                        viewModel.alert = UserPreferencesViewModel.SyncAlert(
+                            title: "Sync Error",
+                            message: error.localizedDescription,
+                            recoverySuggestion: error.recoverySuggestion
+                        )
+                    }
+                }
+            }
+            
+            if !viewModel.canSync {
+                Text("Sign in to iCloud to sync your preferences across devices.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        } header: {
+            Text("Cloud Sync")
+        }
+    }
+    
+    private func videoRecordingSection(preferences: UserPreferences) -> some View {
+        Section {
+            Picker("Video Quality", selection: Binding<VideoQuality>(
+                get: { viewModel.preferences?.defaultVideoQuality ?? VideoQuality.medium },
+                set: { viewModel.update(\.defaultVideoQuality, to: $0) }
+            )) {
+                ForEach(VideoQuality.allCases, id: \.self) { quality in
+                    Text(quality.rawValue).tag(quality)
+                }
+            }
+            
+            Toggle("Auto-upload to Cloud", isOn: Binding(
+                get: { viewModel.preferences?.autoUploadToCloud ?? false },
+                set: { viewModel.update(\.autoUploadToCloud, to: $0) }
+            ))
+            
+            Toggle("Save to Photos Library", isOn: Binding(
+                get: { viewModel.preferences?.saveToPhotosLibrary ?? false },
+                set: { viewModel.update(\.saveToPhotosLibrary, to: $0) }
+            ))
+            
+            Toggle("Haptic Feedback", isOn: Binding(
+                get: { viewModel.preferences?.enableHapticFeedback ?? false },
+                set: { viewModel.update(\.enableHapticFeedback, to: $0) }
+            ))
+        } header: {
+            Text("Video Recording")
+        }
+    }
+    
+    private func uiPreferencesSection(preferences: UserPreferences) -> some View {
+        Section {
+            Picker("App Theme", selection: Binding<AppTheme>(
+                get: { viewModel.preferences?.preferredTheme ?? AppTheme.system },
+                set: { viewModel.update(\.preferredTheme, to: $0) }
+            )) {
+                ForEach(AppTheme.allCases, id: \.self) { theme in
+                    Text(theme.rawValue).tag(theme)
+                }
+            }
+            
+            Toggle("Show Onboarding Tips", isOn: Binding(
+                get: { viewModel.preferences?.showOnboardingTips ?? false },
+                set: { viewModel.update(\.showOnboardingTips, to: $0) }
+            ))
+            
+            Toggle("Debug Mode", isOn: Binding(
+                get: { viewModel.preferences?.enableDebugMode ?? false },
+                set: { viewModel.update(\.enableDebugMode, to: $0) }
+            ))
+        } header: {
+            Text("Interface")
+        }
+    }
+    
+    private func cloudSyncSection(preferences: UserPreferences) -> some View {
+        Section {
+            Toggle("Sync Highlights Only", isOn: Binding(
+                get: { viewModel.preferences?.syncHighlightsOnly ?? false },
+                set: { viewModel.update(\.syncHighlightsOnly, to: $0) }
+            ))
+            
+            HStack {
+                Text("Max File Size")
+                Spacer()
+                Text("\(preferences.maxVideoFileSize) MB")
+                    .foregroundColor(.secondary)
+            }
+            
+            Slider(
+                value: Binding<Double>(
+                    get: { Double(viewModel.preferences?.maxVideoFileSize ?? 100) },
+                    set: { viewModel.update(\.maxVideoFileSize, to: Int($0)) }
+                ),
+                in: 100...1000,
+                step: 50
+            )
+            
+            Toggle("Auto-delete After Upload", isOn: Binding(
+                get: { viewModel.preferences?.autoDeleteAfterUpload ?? false },
+                set: { viewModel.update(\.autoDeleteAfterUpload, to: $0) }
+            ))
+        } header: {
+            Text("Cloud Storage")
+        }
+    }
+    
+    private func privacyAnalyticsSection(preferences: UserPreferences) -> some View {
+        Section {
+            Toggle("Enable Analytics", isOn: Binding(
+                get: { viewModel.preferences?.enableAnalytics ?? false },
+                set: { viewModel.update(\.enableAnalytics, to: $0) }
+            ))
+            
+            Toggle("Share Usage Data", isOn: Binding(
+                get: { viewModel.preferences?.shareUsageData ?? false },
+                set: { viewModel.update(\.shareUsageData, to: $0) }
+            ))
+        } header: {
+            Text("Privacy & Analytics")
+        } footer: {
+            Text("Help improve PlayerPath by sharing anonymous usage data.")
+        }
+    }
+    
+    private func notificationsSection(preferences: UserPreferences) -> some View {
+        Section {
+            Toggle("Upload Notifications", isOn: Binding(
+                get: { viewModel.preferences?.enableUploadNotifications ?? false },
+                set: { viewModel.update(\.enableUploadNotifications, to: $0) }
+            ))
+            
+            Toggle("Game Reminders", isOn: Binding(
+                get: { viewModel.preferences?.enableGameReminders ?? false },
+                set: { viewModel.update(\.enableGameReminders, to: $0) }
+            ))
+        } header: {
+            Text("Notifications")
         }
     }
 }

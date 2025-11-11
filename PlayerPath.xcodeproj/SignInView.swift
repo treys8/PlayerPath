@@ -34,7 +34,8 @@ struct SignInView: View {
                 }
                 
                 VStack(spacing: 20) {
-                    // Google Sign In Button
+                    // Google Sign In Button (Temporarily disabled)
+                    /*
                     Button(action: {
                         Task {
                             await authManager.signInWithGoogle()
@@ -66,6 +67,7 @@ struct SignInView: View {
                             .frame(height: 1)
                             .foregroundColor(.gray.opacity(0.3))
                     }
+                    */
                     
                     // Email/Password Form
                     VStack(spacing: 15) {

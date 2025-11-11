@@ -12,14 +12,14 @@ struct TournamentsView: View {
     let athlete: Athlete?
     @Environment(\.modelContext) private var modelContext
     
-    // Tournament creation states
-    @State private var newTournamentName = ""
-    @State private var newTournamentLocation = ""
-    @State private var newTournamentDate = Date()
-    @State private var showingTournamentAlert = false
+    // Tournament creation state
+    @State private var showingAddTournament = false
+    @State private var showDeleteConfirm = false
+    @State private var pendingDeleteOffsets: IndexSet?
+    @State private var saveErrorMessage: String?
     
     var tournaments: [Tournament] {
-        athlete?.tournaments.sorted { $0.date > $1.date } ?? []
+        athlete?.tournaments.sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) } ?? []
     }
     
     var body: some View {
@@ -27,7 +27,7 @@ struct TournamentsView: View {
             Group {
                 if tournaments.isEmpty {
                     EmptyTournamentsView {
-                        showingTournamentAlert = true
+                        showingAddTournament = true
                     }
                 } else {
                     List {
@@ -36,65 +36,47 @@ struct TournamentsView: View {
                                 TournamentRow(tournament: tournament)
                             }
                         }
-                        .onDelete(perform: deleteTournaments)
+                        .onDelete { offsets in
+                            pendingDeleteOffsets = offsets
+                            showDeleteConfirm = true
+                        }
                     }
                 }
             }
             .navigationTitle("Tournaments")
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(action: { showingTournamentAlert = true }) {
+                    Button(action: { showingAddTournament = true }) {
                         Image(systemName: "plus")
                     }
+                    .accessibilityLabel("Add tournament")
+                    .controlSize(.regular)
                 }
                 
                 if !tournaments.isEmpty {
                     ToolbarItem(placement: .navigationBarLeading) {
                         EditButton()
+                            .accessibilityLabel("Edit tournaments")
                     }
                 }
             }
         }
-        .alert("New Tournament", isPresented: $showingTournamentAlert, actions: {
-            TextField("Tournament Name", text: $newTournamentName)
-            TextField("Location", text: $newTournamentLocation)
-            Button("Cancel", role: .cancel) {
-                resetTournamentFields()
+        .sheet(isPresented: $showingAddTournament) {
+            AddTournamentView(athlete: athlete)
+        }
+        .alert("Delete Tournaments", isPresented: $showDeleteConfirm, presenting: pendingDeleteOffsets) { offsets in
+            Button("Cancel", role: .cancel) { pendingDeleteOffsets = nil }
+            Button("Delete", role: .destructive) {
+                if let offsets = pendingDeleteOffsets { deleteTournaments(offsets: offsets) }
+                pendingDeleteOffsets = nil
             }
-            Button("Create") {
-                createTournament()
-            }
-            .disabled(newTournamentName.isEmpty || newTournamentLocation.isEmpty)
-        }, message: {
-            Text("Enter tournament name and location")
-        })
-    }
-    
-    private func resetTournamentFields() {
-        newTournamentName = ""
-        newTournamentLocation = ""
-        newTournamentDate = Date()
-    }
-    
-    private func createTournament() {
-        guard let athlete = athlete else { return }
-        
-        let tournament = Tournament(
-            name: newTournamentName,
-            date: newTournamentDate,
-            location: newTournamentLocation
-        )
-        tournament.athlete = athlete
-        tournament.isActive = true  // Automatically make new tournaments active
-        
-        athlete.tournaments.append(tournament)
-        modelContext.insert(tournament)
-        
-        do {
-            try modelContext.save()
-            resetTournamentFields()
-        } catch {
-            print("Failed to save tournament: \(error)")
+        } message: { _ in
+            Text("Are you sure you want to delete the selected tournaments? This action cannot be undone.")
+        }
+        .alert("Error", isPresented: .constant(saveErrorMessage != nil)) {
+            Button("OK", role: .cancel) { saveErrorMessage = nil }
+        } message: {
+            Text(saveErrorMessage ?? "Unknown error")
         }
     }
     
@@ -104,11 +86,10 @@ struct TournamentsView: View {
                 let tournament = tournaments[index]
                 modelContext.delete(tournament)
             }
-            
             do {
                 try modelContext.save()
             } catch {
-                print("Failed to delete tournaments: \(error)")
+                saveErrorMessage = "Failed to delete tournaments: \(error.localizedDescription)"
             }
         }
     }
@@ -134,14 +115,38 @@ struct EmptyTournamentsView: View {
             
             Button(action: onAddTournament) {
                 Text("Add Tournament")
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(Color.orange)
-                    .foregroundColor(.white)
-                    .cornerRadius(10)
             }
+            .buttonStyle(.borderedProminent)
+            .tint(.orange)
+            .controlSize(.regular)
         }
         .padding()
+    }
+}
+
+struct PPStatusChip: View {
+    enum Style { case active, inactive, live, final }
+    let style: Style
+    var body: some View {
+        let config: (text: String, fg: Color, bg: Color) = {
+            switch style {
+            case .active: return ("ACTIVE", .green, Color.green.opacity(0.1))
+            case .inactive: return ("INACTIVE", .gray, Color.gray.opacity(0.1))
+            case .live: return ("LIVE", .white, .red)
+            case .final: return ("FINAL", .white, .gray)
+            }
+        }()
+        return Text(config.text)
+            .font(.caption)
+            .fontWeight(.bold)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .foregroundColor(config.fg)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(config.bg)
+            )
+            .accessibilityLabel(config.text.capitalized)
     }
 }
 
@@ -158,29 +163,7 @@ struct TournamentRow: View {
                 Spacer()
                 
                 if tournament.isActive {
-                    HStack(spacing: 4) {
-                        Image(systemName: "circle.fill")
-                            .font(.system(size: 8))
-                            .foregroundColor(.green)
-                        
-                        Text("ACTIVE")
-                            .font(.caption)
-                            .fontWeight(.bold)
-                            .foregroundColor(.green)
-                    }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Color.green.opacity(0.1))
-                    .cornerRadius(8)
-                } else {
-                    Text("INACTIVE")
-                        .font(.caption)
-                        .fontWeight(.bold)
-                        .foregroundColor(.gray)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(Color.gray.opacity(0.1))
-                        .cornerRadius(8)
+                    PPStatusChip(style: .active)
                 }
             }
             
@@ -189,20 +172,24 @@ struct TournamentRow: View {
                 .foregroundColor(.secondary)
             
             HStack {
-                Text(tournament.date, formatter: DateFormatter.shortDate)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                if let date = tournament.date {
+                    Text(date.formatted(date: .abbreviated, time: .omitted))
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                } else {
+                    Text("Date TBA")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
                 
                 Spacer()
                 
-                Text("\(tournament.games.count) games")
+                Text("\(tournament.games.count) \(tournament.games.count == 1 ? "game" : "games")")
                     .font(.caption)
                     .foregroundColor(.blue)
             }
         }
         .padding(.vertical, 4)
-        .background(tournament.isActive ? Color.green.opacity(0.02) : Color.clear)
-        .cornerRadius(8)
     }
 }
 
@@ -229,8 +216,13 @@ struct TournamentDetailView: View {
                         Text("Date")
                             .fontWeight(.semibold)
                         Spacer()
-                        Text(tournament.date, formatter: DateFormatter.shortDate)
-                            .foregroundColor(.secondary)
+                        if let date = tournament.date {
+                            Text(date.formatted(date: .abbreviated, time: .omitted))
+                                .foregroundColor(.secondary)
+                        } else {
+                            Text("Date TBA")
+                                .foregroundColor(.secondary)
+                        }
                     }
                     
                     if !tournament.info.isEmpty {
@@ -256,11 +248,32 @@ struct TournamentDetailView: View {
                             showingAddGame = true
                         }
                         .buttonStyle(.bordered)
+                        .controlSize(.regular)
                     }
                 } else {
-                    ForEach(tournament.games.sorted { $0.date > $1.date }) { game in
+                    ForEach(tournament.games.sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }) { game in
                         NavigationLink(destination: GameDetailView(game: game)) {
                             GameRow(game: game)
+                        }
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            if !game.isComplete {
+                                if !game.isLive {
+                                    Button {
+                                        game.isLive = true
+                                        try? modelContext.save()
+                                    } label: {
+                                        Label("Go Live", systemImage: "dot.radiowaves.left.and.right")
+                                    }
+                                    .tint(.red)
+                                }
+                                Button(role: .destructive) {
+                                    game.isLive = false
+                                    game.isComplete = true
+                                    try? modelContext.save()
+                                } label: {
+                                    Label("End", systemImage: "stop.circle")
+                                }
+                            }
                         }
                     }
                 }
@@ -271,8 +284,8 @@ struct TournamentDetailView: View {
                 if tournament.isActive {
                     Button(action: { showingEndTournament = true }) {
                         Label("End Tournament", systemImage: "stop.circle.fill")
-                            .foregroundColor(.red)
                     }
+                    .tint(.red)
                     
                     Text("This tournament is currently active")
                         .font(.caption)
@@ -282,7 +295,7 @@ struct TournamentDetailView: View {
                         tournament.isActive = true
                         try? modelContext.save()
                     }
-                    .foregroundColor(.green)
+                    .tint(.green)
                     
                     Text("This tournament is inactive")
                         .font(.caption)
@@ -297,10 +310,12 @@ struct TournamentDetailView: View {
                 Button("Add Game") {
                     showingAddGame = true
                 }
+                .accessibilityLabel("Add game")
+                .controlSize(.regular)
             }
         }
         .sheet(isPresented: $showingAddGame) {
-            AddGameView(athlete: tournament.athlete, tournament: tournament)
+            AddGameView(athlete: tournament.athletes.first, tournament: tournament)
         }
         .alert("End Tournament", isPresented: $showingEndTournament) {
             Button("Cancel", role: .cancel) { }
@@ -374,7 +389,7 @@ struct AddTournamentView: View {
             info: info
         )
         tournament.isActive = startActive
-        tournament.athlete = athlete
+        tournament.athletes.append(athlete)
         
         athlete.tournaments.append(tournament)
         modelContext.insert(tournament)
@@ -402,30 +417,22 @@ struct GameRow: View {
                 Spacer()
                 
                 if game.isLive {
-                    Text("LIVE")
-                        .font(.caption)
-                        .fontWeight(.bold)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Color.red)
-                        .foregroundColor(.white)
-                        .cornerRadius(4)
+                    PPStatusChip(style: PPStatusChip.Style.live)
                 } else if game.isComplete {
-                    Text("FINAL")
-                        .font(.caption)
-                        .fontWeight(.bold)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Color.gray)
-                        .foregroundColor(.white)
-                        .cornerRadius(4)
+                    PPStatusChip(style: PPStatusChip.Style.final)
                 }
             }
             
             HStack {
-                Text(game.date, formatter: DateFormatter.shortDate)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                if let date = game.date {
+                    Text(date.formatted(date: .abbreviated, time: .omitted))
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                } else {
+                    Text("Date TBA")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
                 
                 Spacer()
                 

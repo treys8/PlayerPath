@@ -7,11 +7,19 @@
 
 import SwiftUI
 import SwiftData
+import Foundation
+import Combine
+
 
 struct GamesView: View {
     let athlete: Athlete?
     @Environment(\.modelContext) private var modelContext
     @Query private var allGames: [Game]
+    @StateObject private var viewModelHolder = ViewModelHolder()
+
+    final class ViewModelHolder: ObservableObject {
+        @Published var viewModel: GamesViewModel?
+    }
     
     // Game creation states
     @State private var showingGameCreation = false
@@ -20,475 +28,160 @@ struct GamesView: View {
     @State private var selectedTournament: Tournament?
     @State private var makeGameLive = false
     
-    var games: [Game] {
-        guard let athlete = athlete else { return [] }
-        
-        // Get games from both the athlete's games array AND by querying for games that belong to this athlete
-        let relationshipGames = Set(athlete.games)
-        let queryGames = Set(allGames.filter { $0.athlete?.id == athlete.id })
-        
-        // Combine both sets to catch any inconsistencies
-        let allAthleteGames = relationshipGames.union(queryGames)
-        
-        return Array(allAthleteGames).sorted { $0.date > $1.date }
-    }
-    
-    var liveGames: [Game] {
-        games.filter { $0.isLive }
-    }
-    
-    var completedGames: [Game] {
-        games.filter { $0.isComplete }
-    }
-    
-    var upcomingGames: [Game] {
-        games.filter { !$0.isComplete && !$0.isLive && $0.date > Date() }
-    }
-    
-    var pastGames: [Game] {
-        games.filter { !$0.isComplete && !$0.isLive && $0.date <= Date() }
-    }
-    
-    var availableTournaments: [Tournament] {
-        athlete?.tournaments.filter { $0.isActive } ?? []
-    }
-    
     var body: some View {
-        NavigationStack {
-            Group {
-                if games.isEmpty {
-                    EmptyGamesView {
-                        showingGameCreation = true
+        Group {
+            if (viewModelHolder.viewModel?.liveGames.isEmpty ?? true)
+                && (viewModelHolder.viewModel?.upcomingGames.isEmpty ?? true)
+                && (viewModelHolder.viewModel?.pastGames.isEmpty ?? true)
+                && (viewModelHolder.viewModel?.completedGames.isEmpty ?? true) {
+                EmptyGamesView {
+                    showingGameCreation = true
+                }
+            } else {
+                List {
+                    // Live Games Section
+                    if !(viewModelHolder.viewModel?.liveGames.isEmpty ?? true) {
+                        Section("Live") {
+                            ForEach(viewModelHolder.viewModel?.liveGames ?? []) { game in
+                                NavigationLink(destination: GameDetailView(game: game)) {
+                                    GameRow(game: game)
+                                }
+                                .swipeActions(edge: .trailing) {
+                                    Button("End") {
+                                        viewModelHolder.viewModel?.end(game)
+                                        viewModelHolder.viewModel?.update(allGames: allGames)
+                                    }
+                                    .tint(.red)
+                                }
+                            }
+                            .onDelete { indexSet in
+                                let items = viewModelHolder.viewModel?.liveGames ?? []
+                                for index in indexSet { viewModelHolder.viewModel?.deleteDeep(items[index]) }
+                                viewModelHolder.viewModel?.update(allGames: allGames)
+                            }
+                        }
                     }
-                } else {
-                    List {
-                        // Live Games Section
-                        if !liveGames.isEmpty {
-                            Section("Live Games") {
-                                ForEach(liveGames) { game in
-                                    NavigationLink(destination: GameDetailView(game: game)) {
-                                        GameRow(game: game)
-                                    }
-                                    .swipeActions(edge: .trailing) {
-                                        Button("End") {
-                                            endGameFromList(game)
-                                        }
-                                        .tint(.red)
-                                    }
+                    
+                    // Upcoming Games Section
+                    if !(viewModelHolder.viewModel?.upcomingGames.isEmpty ?? true) {
+                        Section("Upcoming") {
+                            ForEach(viewModelHolder.viewModel?.upcomingGames ?? []) { game in
+                                NavigationLink(destination: GameDetailView(game: game)) {
+                                    GameRow(game: game)
                                 }
-                                .onDelete { indexSet in
-                                    deleteLiveGames(offsets: indexSet)
+                                .swipeActions(edge: .trailing) {
+                                    Button("Start") {
+                                        viewModelHolder.viewModel?.start(game)
+                                        viewModelHolder.viewModel?.update(allGames: allGames)
+                                    }
+                                    .tint(.green)
                                 }
-                            }
-                        }
-                        
-                        // Upcoming Games Section
-                        if !upcomingGames.isEmpty {
-                            Section("Upcoming") {
-                                ForEach(upcomingGames) { game in
-                                    NavigationLink(destination: GameDetailView(game: game)) {
-                                        GameRow(game: game)
+                                .swipeActions(edge: .leading) {
+                                    Button(role: .destructive) {
+                                        viewModelHolder.viewModel?.deleteDeep(game)
+                                        viewModelHolder.viewModel?.update(allGames: allGames)
+                                    } label: {
+                                        Text("Delete")
                                     }
-                                    .swipeActions(edge: .trailing) {
-                                        Button("Start") {
-                                            startGameFromList(game)
-                                        }
-                                        .tint(.green)
-                                    }
-                                    .swipeActions(edge: .leading) {
-                                        Button("Delete") {
-                                            deleteGameFromList(game)
-                                        }
-                                        .tint(.red)
-                                    }
-                                }
-                                .onDelete { indexSet in
-                                    deleteUpcomingGames(offsets: indexSet)
                                 }
                             }
-                        }
-                        
-                        // Past Games Section (games that happened but weren't marked as complete)
-                        if !pastGames.isEmpty {
-                            Section("Past Games") {
-                                ForEach(pastGames) { game in
-                                    NavigationLink(destination: GameDetailView(game: game)) {
-                                        GameRow(game: game)
-                                    }
-                                    .swipeActions(edge: .trailing) {
-                                        Button("Complete") {
-                                            markGameComplete(game)
-                                        }
-                                        .tint(.blue)
-                                    }
-                                    .swipeActions(edge: .leading) {
-                                        Button("Delete") {
-                                            deleteGameFromList(game)
-                                        }
-                                        .tint(.red)
-                                    }
-                                }
-                                .onDelete { indexSet in
-                                    deletePastGames(offsets: indexSet)
-                                }
+                            .onDelete { indexSet in
+                                let items = viewModelHolder.viewModel?.upcomingGames ?? []
+                                for index in indexSet { viewModelHolder.viewModel?.deleteDeep(items[index]) }
+                                viewModelHolder.viewModel?.update(allGames: allGames)
                             }
                         }
-                        
-                        // Completed Games Section
-                        if !completedGames.isEmpty {
-                            Section("Completed") {
-                                ForEach(completedGames) { game in
-                                    NavigationLink(destination: GameDetailView(game: game)) {
-                                        GameRow(game: game)
+                    }
+                    
+                    // Past Games Section (games that happened but weren't marked as complete)
+                    if !(viewModelHolder.viewModel?.pastGames.isEmpty ?? true) {
+                        Section("Past Games") {
+                            ForEach(viewModelHolder.viewModel?.pastGames ?? []) { game in
+                                NavigationLink(destination: GameDetailView(game: game)) {
+                                    GameRow(game: game)
+                                }
+                                .swipeActions(edge: .trailing) {
+                                    Button("Complete") {
+                                        game.isComplete = true
+                                        do {
+                                            try modelContext.save()
+                                        } catch {
+                                            print("Failed to mark game as complete: \(error)")
+                                        }
+                                    }
+                                    .tint(.blue)
+                                }
+                                .swipeActions(edge: .leading) {
+                                    Button(role: .destructive) {
+                                        viewModelHolder.viewModel?.deleteDeep(game)
+                                        viewModelHolder.viewModel?.update(allGames: allGames)
+                                    } label: {
+                                        Text("Delete")
                                     }
                                 }
-                                .onDelete(perform: deleteCompletedGames)
+                            }
+                            .onDelete { indexSet in
+                                let items = viewModelHolder.viewModel?.pastGames ?? []
+                                for index in indexSet { viewModelHolder.viewModel?.deleteDeep(items[index]) }
+                                viewModelHolder.viewModel?.update(allGames: allGames)
+                            }
+                        }
+                    }
+                    
+                    // Completed Games Section
+                    if !(viewModelHolder.viewModel?.completedGames.isEmpty ?? true) {
+                        Section("Completed") {
+                            ForEach(viewModelHolder.viewModel?.completedGames ?? []) { game in
+                                NavigationLink(destination: GameDetailView(game: game)) {
+                                    GameRow(game: game)
+                                }
+                            }
+                            .onDelete { indexSet in
+                                let items = viewModelHolder.viewModel?.completedGames ?? []
+                                for index in indexSet { viewModelHolder.viewModel?.deleteDeep(items[index]) }
+                                viewModelHolder.viewModel?.update(allGames: allGames)
                             }
                         }
                     }
                 }
             }
-            .navigationTitle("Games")
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(action: { showingGameCreation = true }) {
-                        Image(systemName: "plus")
-                    }
-                }
-                
-                if !games.isEmpty {
-                    ToolbarItem(placement: .navigationBarLeading) {
-                        EditButton()
-                    }
+        }
+        .navigationTitle("Games")
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button(action: { showingGameCreation = true }) {
+                    Image(systemName: "plus")
                 }
             }
-            .onAppear {
-                repairDataConsistency()
+            
+            if !((viewModelHolder.viewModel?.liveGames.isEmpty ?? true)
+                 && (viewModelHolder.viewModel?.upcomingGames.isEmpty ?? true)
+                 && (viewModelHolder.viewModel?.pastGames.isEmpty ?? true)
+                 && (viewModelHolder.viewModel?.completedGames.isEmpty ?? true)) {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    EditButton()
+                }
             }
+        }
+        .onAppear {
+            if viewModelHolder.viewModel == nil {
+                viewModelHolder.viewModel = GamesViewModel(modelContext: modelContext, athlete: athlete, allGames: allGames)
+            } else {
+                viewModelHolder.viewModel?.update(allGames: allGames)
+            }
+        }
+        .onChange(of: allGames) { _, newValue in
+            viewModelHolder.viewModel?.update(allGames: newValue)
         }
         .sheet(isPresented: $showingGameCreation) {
             GameCreationView(
                 athlete: athlete,
-                availableTournaments: availableTournaments,
+                availableTournaments: viewModelHolder.viewModel?.availableTournaments ?? [],
                 onSave: { opponent, date, tournament, isLive in
-                    createGame(opponent: opponent, date: date, tournament: tournament, isLive: isLive)
+                    viewModelHolder.viewModel?.create(opponent: opponent, date: date, tournament: tournament, isLive: isLive)
+                    viewModelHolder.viewModel?.update(allGames: allGames)
                 }
             )
-        }
-    }
-    
-    private func repairDataConsistency() {
-        guard let athlete = athlete else { return }
-        
-        print("Repairing data consistency for athlete: \(athlete.name)")
-        
-        let relationshipGames = Set(athlete.games)
-        let queryGames = Set(allGames.filter { $0.athlete?.id == athlete.id })
-        
-        // Find games that are in the query but not in the relationship
-        let orphanedGames = queryGames.subtracting(relationshipGames)
-        
-        if !orphanedGames.isEmpty {
-            print("Found \(orphanedGames.count) orphaned games, adding to athlete's games array")
-            
-            for game in orphanedGames {
-                if !athlete.games.contains(game) {
-                    athlete.games.append(game)
-                    print("Added orphaned game: \(game.opponent)")
-                }
-            }
-            
-            do {
-                try modelContext.save()
-                print("Successfully repaired data consistency")
-            } catch {
-                print("Failed to repair data consistency: \(error)")
-            }
-        }
-        
-        // Also check for games in the relationship that don't have proper athlete reference
-        for game in relationshipGames {
-            if game.athlete?.id != athlete.id {
-                print("Fixing game with incorrect athlete reference: \(game.opponent)")
-                game.athlete = athlete
-            }
-        }
-        
-        do {
-            try modelContext.save()
-        } catch {
-            print("Failed to save athlete reference fixes: \(error)")
-        }
-    }
-    
-    private func createGame(opponent: String, date: Date, tournament: Tournament?, isLive: Bool) {
-        guard let athlete = athlete else { return }
-        
-        // Check for existing game with same opponent and date
-        let existingGame = athlete.games.first { game in
-            game.opponent == opponent && Calendar.current.isDate(game.date, inSameDayAs: date)
-        }
-        
-        if existingGame != nil {
-            print("Game already exists: \(opponent) on \(date)")
-            return
-        }
-        
-        print("Creating new game: \(opponent) for athlete: \(athlete.name)")
-        
-        // If making live, end any other live games
-        if isLive {
-            athlete.games.forEach { $0.isLive = false }
-        }
-        
-        let game = Game(date: date, opponent: opponent)
-        game.isLive = isLive
-        game.athlete = athlete
-        
-        // Create and link game statistics
-        let gameStats = GameStatistics()
-        game.gameStats = gameStats
-        gameStats.game = game
-        modelContext.insert(gameStats)
-        
-        // Set tournament relationship
-        if let tournament = tournament {
-            game.tournament = tournament
-            tournament.games.append(game)
-        }
-        
-        athlete.games.append(game)
-        modelContext.insert(game)
-        
-        do {
-            try modelContext.save()
-            print("Successfully saved game: \(opponent)")
-        } catch {
-            print("Failed to save game: \(error)")
-        }
-    }
-    
-    private func deleteCompletedGames(offsets: IndexSet) {
-        withAnimation {
-            for index in offsets {
-                let game = completedGames[index]
-                
-                print("Deleting completed game: \(game.opponent)")
-                
-                // Remove from athlete's games array
-                if let athlete = game.athlete,
-                   let gameIndex = athlete.games.firstIndex(of: game) {
-                    athlete.games.remove(at: gameIndex)
-                    print("Removed game from athlete's array")
-                }
-                
-                // Remove from tournament's games array if applicable
-                if let tournament = game.tournament,
-                   let gameIndex = tournament.games.firstIndex(of: game) {
-                    tournament.games.remove(at: gameIndex)
-                    print("Removed game from tournament's array")
-                }
-                
-                // Delete associated video clips
-                for videoClip in game.videoClips {
-                    // Remove from athlete's video clips array
-                    if let athlete = videoClip.athlete,
-                       let clipIndex = athlete.videoClips.firstIndex(of: videoClip) {
-                        athlete.videoClips.remove(at: clipIndex)
-                    }
-                    
-                    // Delete any associated play results
-                    if let playResult = videoClip.playResult {
-                        modelContext.delete(playResult)
-                    }
-                    
-                    modelContext.delete(videoClip)
-                    print("Deleted associated video clip: \(videoClip.fileName)")
-                }
-                
-                // Delete associated game statistics
-                if let gameStats = game.gameStats {
-                    modelContext.delete(gameStats)
-                    print("Deleted game statistics")
-                }
-                
-                // Delete the game itself
-                modelContext.delete(game)
-                print("Deleted game from context")
-            }
-            
-            do {
-                try modelContext.save()
-                print("Successfully saved game deletions")
-            } catch {
-                print("Failed to delete games: \(error)")
-            }
-        }
-    }
-    
-    private func deleteLiveGames(offsets: IndexSet) {
-        withAnimation {
-            for index in offsets {
-                let game = liveGames[index]
-                deleteGameCompletely(game)
-            }
-        }
-    }
-    
-    private func deleteUpcomingGames(offsets: IndexSet) {
-        withAnimation {
-            for index in offsets {
-                let game = upcomingGames[index]
-                deleteGameCompletely(game)
-            }
-        }
-    }
-    
-    private func deletePastGames(offsets: IndexSet) {
-        withAnimation {
-            for index in offsets {
-                let game = pastGames[index]
-                deleteGameCompletely(game)
-            }
-        }
-    }
-    
-    private func deleteGameCompletely(_ game: Game) {
-        print("Deleting game: \(game.opponent)")
-        
-        // Remove from athlete's games array
-        if let athlete = game.athlete,
-           let gameIndex = athlete.games.firstIndex(of: game) {
-            athlete.games.remove(at: gameIndex)
-            print("Removed game from athlete's array")
-        }
-        
-        // Remove from tournament's games array if applicable
-        if let tournament = game.tournament,
-           let gameIndex = tournament.games.firstIndex(of: game) {
-            tournament.games.remove(at: gameIndex)
-            print("Removed game from tournament's array")
-        }
-        
-        // Delete associated video clips
-        for videoClip in game.videoClips {
-            // Remove from athlete's video clips array
-            if let athlete = videoClip.athlete,
-               let clipIndex = athlete.videoClips.firstIndex(of: videoClip) {
-                athlete.videoClips.remove(at: clipIndex)
-            }
-            
-            // Delete any associated play results
-            if let playResult = videoClip.playResult {
-                modelContext.delete(playResult)
-            }
-            
-            modelContext.delete(videoClip)
-            print("Deleted associated video clip: \(videoClip.fileName)")
-        }
-        
-        // Delete associated game statistics
-        if let gameStats = game.gameStats {
-            modelContext.delete(gameStats)
-            print("Deleted game statistics")
-        }
-        
-        // Delete the game from context
-        modelContext.delete(game)
-        print("Deleted game from context")
-        
-        do {
-            try modelContext.save()
-            print("Successfully saved game deletion")
-        } catch {
-            print("Failed to delete game: \(error)")
-        }
-    }
-    
-    private func startGameFromList(_ game: Game) {
-        // End any other live games for this athlete
-        athlete?.games.forEach { $0.isLive = false }
-        
-        // Start this game
-        game.isLive = true
-        
-        do {
-            try modelContext.save()
-        } catch {
-            print("Failed to start game: \(error)")
-        }
-    }
-    
-    private func endGameFromList(_ game: Game) {
-        game.isLive = false
-        game.isComplete = true
-        
-        do {
-            try modelContext.save()
-        } catch {
-            print("Failed to end game: \(error)")
-        }
-    }
-    
-    private func markGameComplete(_ game: Game) {
-        game.isComplete = true
-        
-        do {
-            try modelContext.save()
-        } catch {
-            print("Failed to mark game as complete: \(error)")
-        }
-    }
-    
-    private func deleteGameFromList(_ game: Game) {
-        print("Deleting game from list: \(game.opponent)")
-        
-        // Remove from athlete's games array
-        if let athlete = game.athlete,
-           let index = athlete.games.firstIndex(of: game) {
-            athlete.games.remove(at: index)
-            print("Removed game from athlete's array")
-        }
-        
-        // Remove from tournament's games array if applicable
-        if let tournament = game.tournament,
-           let index = tournament.games.firstIndex(of: game) {
-            tournament.games.remove(at: index)
-            print("Removed game from tournament's array")
-        }
-        
-        // Delete associated video clips
-        for videoClip in game.videoClips {
-            // Remove from athlete's video clips array
-            if let athlete = videoClip.athlete,
-               let clipIndex = athlete.videoClips.firstIndex(of: videoClip) {
-                athlete.videoClips.remove(at: clipIndex)
-            }
-            
-            // Delete any associated play results
-            if let playResult = videoClip.playResult {
-                modelContext.delete(playResult)
-            }
-            
-            modelContext.delete(videoClip)
-            print("Deleted associated video clip: \(videoClip.fileName)")
-        }
-        
-        // Delete associated game statistics
-        if let gameStats = game.gameStats {
-            modelContext.delete(gameStats)
-            print("Deleted game statistics")
-        }
-        
-        // Delete the game from context
-        modelContext.delete(game)
-        print("Deleted game from context")
-        
-        do {
-            try modelContext.save()
-            print("Successfully saved game deletion")
-        } catch {
-            print("Failed to delete game: \(error)")
         }
     }
 }
@@ -514,11 +207,9 @@ struct EmptyGamesView: View {
             Button(action: onAddGame) {
                 Text("Add Game")
                     .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(Color.green)
-                    .foregroundColor(.white)
-                    .cornerRadius(10)
             }
+            .buttonStyle(.borderedProminent)
+            .tint(.green)
         }
         .padding()
     }
@@ -532,9 +223,10 @@ struct GameDetailView: View {
     @State private var showingVideoRecorder = false
     @State private var showingDeleteConfirmation = false
     @State private var showingManualStats = false
+    @State private var gameService: GameService? = nil
     
     var videoClips: [VideoClip] {
-        game.videoClips.sorted { $0.createdAt > $1.createdAt }
+        game.videoClips.sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
     }
     
     var body: some View {
@@ -554,8 +246,13 @@ struct GameDetailView: View {
                         Text("Date")
                             .fontWeight(.semibold)
                         Spacer()
-                        Text(game.date, formatter: DateFormatter.shortDateTime)
-                            .foregroundColor(.secondary)
+                        if let date = game.date {
+                            Text(date, format: .dateTime.month().day().hour().minute())
+                                .foregroundColor(.secondary)
+                        } else {
+                            Text("Unknown Date")
+                                .foregroundColor(.secondary)
+                        }
                     }
                     
                     HStack {
@@ -782,90 +479,32 @@ struct GameDetailView: View {
             Text("Are you sure you want to delete this game? This action cannot be undone.")
         }
         .sheet(isPresented: $showingVideoRecorder) {
-            VideoRecorderView(athlete: game.athlete, game: game)
+            VideoRecorderView_Refactored(athlete: game.athlete, game: game)
         }
         .sheet(isPresented: $showingManualStats) {
             ManualStatisticsEntryView(game: game)
         }
+        .onAppear {
+            if gameService == nil { gameService = GameService(modelContext: modelContext) }
+        }
     }
     
+    @MainActor
     private func startGame() {
-        // End any other live games for this athlete
-        game.athlete?.games.forEach { $0.isLive = false }
-        
-        // Start this game
-        game.isLive = true
-        
-        do {
-            try modelContext.save()
-        } catch {
-            print("Failed to start game: \(error)")
-        }
+        Task { await gameService?.start(game) }
     }
     
+    @MainActor
     private func endGame() {
-        game.isLive = false
-        game.isComplete = true
-        
-        do {
-            try modelContext.save()
-        } catch {
-            print("Failed to end game: \(error)")
-        }
+        Task { await gameService?.end(game) }
     }
     
+    @MainActor
     private func deleteGame() {
         print("Deleting game from detail view: \(game.opponent)")
-        
-        // Remove from athlete's games array
-        if let athlete = game.athlete,
-           let index = athlete.games.firstIndex(of: game) {
-            athlete.games.remove(at: index)
-            print("Removed game from athlete's array")
-        }
-        
-        // Remove from tournament's games array if applicable
-        if let tournament = game.tournament,
-           let index = tournament.games.firstIndex(of: game) {
-            tournament.games.remove(at: index)
-            print("Removed game from tournament's array")
-        }
-        
-        // Delete associated video clips
-        for videoClip in game.videoClips {
-            // Remove from athlete's video clips array
-            if let athlete = videoClip.athlete,
-               let clipIndex = athlete.videoClips.firstIndex(of: videoClip) {
-                athlete.videoClips.remove(at: clipIndex)
-            }
-            
-            // Delete any associated play results
-            if let playResult = videoClip.playResult {
-                modelContext.delete(playResult)
-            }
-            
-            modelContext.delete(videoClip)
-            print("Deleted associated video clip: \(videoClip.fileName)")
-        }
-        
-        // Delete associated game statistics
-        if let gameStats = game.gameStats {
-            modelContext.delete(gameStats)
-            print("Deleted game statistics")
-        }
-        
-        // Delete the game from context
-        modelContext.delete(game)
-        print("Deleted game from context")
-        
-        do {
-            try modelContext.save()
-            print("Successfully saved game deletion")
-            // Dismiss the view after successful deletion
-            dismiss()
-        } catch {
-            print("Failed to delete game: \(error)")
-        }
+        Task { await gameService?.deleteGameDeep(game) }
+        // Dismiss the view after deletion attempt
+        dismiss()
     }
 }
 
@@ -895,6 +534,8 @@ struct AddGameView: View {
             Form {
                 Section("Game Details") {
                     TextField("Opponent", text: $opponent)
+                        .textInputAutocapitalization(.words)
+                        .autocorrectionDisabled()
                     DatePicker("Date & Time", selection: $date)
                 }
                 
@@ -929,7 +570,12 @@ struct AddGameView: View {
                     Button("Save") {
                         saveGame()
                     }
-                    .disabled(opponent.isEmpty)
+                    .disabled(opponent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+            .onAppear {
+                if selectedTournament == nil {
+                    selectedTournament = availableTournaments.first(where: { $0.isActive })
                 }
             }
         }
@@ -940,7 +586,10 @@ struct AddGameView: View {
         
         // Check for existing game with same opponent and date
         let existingGame = athlete.games.first { game in
-            game.opponent == opponent && Calendar.current.isDate(game.date, inSameDayAs: date)
+            if let gameDate = game.date {
+                return game.opponent == opponent && Calendar.current.isDate(gameDate, inSameDayAs: date)
+            }
+            return false
         }
         
         if existingGame != nil {
@@ -970,6 +619,9 @@ struct AddGameView: View {
         if let tournament = selectedTournament ?? tournament {
             game.tournament = tournament
             tournament.games.append(game)
+        } else if let activeTournament = athlete.tournaments.first(where: { $0.isActive }) {
+            game.tournament = activeTournament
+            activeTournament.games.append(game)
         }
         
         athlete.games.append(game)
@@ -987,79 +639,183 @@ struct AddGameView: View {
 
 struct VideoClipRow: View {
     let clip: VideoClip
+    @State private var showingVideoPlayer = false
+    @State private var thumbnailImage: UIImage?
+    @State private var isLoadingThumbnail = false
     
     var body: some View {
-        HStack {
-            // Enhanced thumbnail with overlay
-            ZStack(alignment: .bottomLeading) {
-                Rectangle()
-                    .fill(Color.gray.opacity(0.3))
-                    .frame(width: 50, height: 35)
+        Button(action: { showingVideoPlayer = true }) {
+            HStack {
+                // Enhanced thumbnail with overlay - using the same logic as VideoClipListItem
+                ZStack(alignment: .bottomLeading) {
+                    // Thumbnail Image
+                    Group {
+                        if let thumbnail = thumbnailImage {
+                            Image(uiImage: thumbnail)
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                                .frame(width: 50, height: 35)
+                                .clipped()
+                        } else {
+                            Rectangle()
+                                .fill(Color.gray.opacity(0.3))
+                                .frame(width: 50, height: 35)
+                                .overlay(
+                                    VStack(spacing: 2) {
+                                        if isLoadingThumbnail {
+                                            ProgressView()
+                                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                                .scaleEffect(0.5)
+                                        } else {
+                                            Image(systemName: "video")
+                                                .foregroundColor(.white)
+                                                .font(.caption)
+                                        }
+                                        
+                                        if !isLoadingThumbnail {
+                                            Text("No Preview")
+                                                .font(.system(size: 8))
+                                                .foregroundColor(.white)
+                                        }
+                                    }
+                                )
+                        }
+                    }
                     .cornerRadius(6)
                     .overlay(
-                        Image(systemName: "play.fill")
-                            .foregroundColor(.white)
-                            .font(.caption)
-                            .shadow(color: .black.opacity(0.3), radius: 1)
+                        // Play button overlay
+                        Circle()
+                            .fill(Color.black.opacity(0.6))
+                            .frame(width: 16, height: 16)
+                            .overlay(
+                                Image(systemName: "play.fill")
+                                    .foregroundColor(.white)
+                                    .font(.system(size: 8))
+                            )
                     )
-                
-                // Play result badge
-                if let playResult = clip.playResult {
-                    Text(playResultAbbreviation(for: playResult.type))
-                        .font(.caption2)
-                        .fontWeight(.bold)
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 1)
-                        .background(playResultColor(for: playResult.type))
-                        .cornerRadius(3)
-                        .offset(x: 2, y: -2)
-                } else {
-                    Text("?")
-                        .font(.caption2)
-                        .fontWeight(.bold)
-                        .foregroundColor(.white)
-                        .frame(width: 12, height: 12)
-                        .background(Color.gray)
-                        .clipShape(Circle())
-                        .offset(x: 2, y: -2)
+                    
+                    // Play result badge
+                    if let playResult = clip.playResult {
+                        Text(playResultAbbreviation(for: playResult.type))
+                            .font(.caption2)
+                            .fontWeight(.bold)
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(playResultColor(for: playResult.type))
+                            .cornerRadius(3)
+                            .offset(x: 2, y: -2)
+                    } else {
+                        Text("?")
+                            .font(.caption2)
+                            .fontWeight(.bold)
+                            .foregroundColor(.white)
+                            .frame(width: 12, height: 12)
+                            .background(Color.gray)
+                            .clipShape(Circle())
+                            .offset(x: 2, y: -2)
+                    }
+                    
+                    // Highlight indicator
+                    if clip.isHighlight {
+                        Image(systemName: "star.fill")
+                            .foregroundColor(.yellow)
+                            .font(.system(size: 8))
+                            .background(Circle().fill(Color.black.opacity(0.6)).frame(width: 12, height: 12))
+                            .offset(x: -2, y: 2)
+                    }
                 }
                 
-                // Highlight indicator
+                VStack(alignment: .leading, spacing: 4) {
+                    if let playResult = clip.playResult {
+                        Text(String(describing: playResult.type))
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                            .foregroundColor(.primary)
+                    } else {
+                        Text("Unrecorded Play")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    }
+                    
+                    if let createdAt = clip.createdAt {
+                        Text(createdAt, formatter: DateFormatter.shortTime)
+                    } else {
+                        Text("Unknown Time")
+                    }
+                }
+                
+                Spacer()
+                
                 if clip.isHighlight {
                     Image(systemName: "star.fill")
                         .foregroundColor(.yellow)
-                        .font(.system(size: 10))
-                        .background(Circle().fill(Color.black.opacity(0.6)).frame(width: 14, height: 14))
-                        .offset(x: -2, y: 2)
-                }
-            }
-            
-            VStack(alignment: .leading, spacing: 4) {
-                if let playResult = clip.playResult {
-                    Text(playResult.type.rawValue)
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
-                } else {
-                    Text("Unrecorded Play")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
+                        .font(.caption)
                 }
                 
-                Text(clip.createdAt, formatter: DateFormatter.shortTime)
+                Image(systemName: "chevron.right")
+                    .foregroundColor(.gray)
                     .font(.caption)
-                    .foregroundColor(.secondary)
             }
-            
-            Spacer()
-            
-            if clip.isHighlight {
-                Image(systemName: "star.fill")
-                    .foregroundColor(.yellow)
-                    .font(.caption)
+            .padding(.vertical, 4)
+        }
+        .buttonStyle(PlainButtonStyle())
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(clip.playResult?.type.displayName ?? "Unrecorded Play")
+        .accessibilityHint("Opens the video")
+        .task {
+            await loadThumbnail()
+        }
+        .sheet(isPresented: $showingVideoPlayer) {
+            VideoPlayerView(clip: clip)
+        }
+    }
+    
+    @MainActor
+    private func loadThumbnail() async {
+        // Skip if already loading or already have image
+        guard !isLoadingThumbnail, thumbnailImage == nil else { return }
+        
+        // Check if we have a thumbnail path
+        guard let thumbnailPath = clip.thumbnailPath else {
+            // Generate thumbnail if none exists
+            await generateMissingThumbnail()
+            return
+        }
+        
+        isLoadingThumbnail = true
+        
+        do {
+            // Load thumbnail asynchronously using the same cache system
+            let image = try await ThumbnailCache.shared.loadThumbnail(at: thumbnailPath)
+            thumbnailImage = image
+        } catch {
+            print("Failed to load thumbnail in VideoClipRow: \(error)")
+            // Try to regenerate thumbnail
+            await generateMissingThumbnail()
+        }
+        
+        isLoadingThumbnail = false
+    }
+    
+    private func generateMissingThumbnail() async {
+        print("Generating missing thumbnail for clip in game: \(clip.fileName)")
+        
+        let videoURL = URL(fileURLWithPath: clip.filePath)
+        let result = await VideoFileManager.generateThumbnail(from: videoURL)
+        
+        await MainActor.run {
+            switch result {
+            case .success(let thumbnailPath):
+                clip.thumbnailPath = thumbnailPath
+                Task {
+                    await loadThumbnail()
+                }
+            case .failure(let error):
+                print("Failed to generate thumbnail in VideoClipRow: \(error)")
+                isLoadingThumbnail = false
             }
         }
-        .padding(.vertical, 4)
     }
     
     // Helper functions for styling
@@ -1105,6 +861,8 @@ struct GameCreationView: View {
             Form {
                 Section("Game Details") {
                     TextField("Opponent", text: $opponent)
+                        .textInputAutocapitalization(.words)
+                        .autocorrectionDisabled()
                     DatePicker("Date & Time", selection: $date)
                 }
                 
@@ -1147,7 +905,12 @@ struct GameCreationView: View {
                         onSave(opponent, date, selectedTournament, makeGameLive)
                         dismiss()
                     }
-                    .disabled(opponent.isEmpty)
+                    .disabled(opponent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+            .onAppear {
+                if selectedTournament == nil {
+                    selectedTournament = availableTournaments.first(where: { $0.isActive })
                 }
             }
         }
@@ -1220,8 +983,13 @@ struct ManualStatisticsEntryView: View {
                         Text("Date:")
                             .fontWeight(.semibold)
                         Spacer()
-                        Text(game.date, formatter: DateFormatter.shortDate)
-                            .foregroundColor(.secondary)
+                        if let date = game.date {
+                            Text(date, style: .date)
+                                .foregroundColor(.secondary)
+                        } else {
+                            Text("Unknown Date")
+                                .foregroundColor(.secondary)
+                        }
                     }
                 }
                 
@@ -1451,3 +1219,4 @@ struct PreviewStatRow: View {
         }
     }
 }
+

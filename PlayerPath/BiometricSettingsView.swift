@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import LocalAuthentication
 
 /// A view for managing biometric authentication settings
 /// Can be integrated into a settings/profile screen

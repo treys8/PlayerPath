@@ -6,19 +6,18 @@
 //
 
 import SwiftUI
+import Combine
 import SwiftData
 import FirebaseAuth
-import Combine
 
 /// Simplified, unified authentication manager
 @MainActor
-@Observable
-final class AuthenticationManager {
+final class AuthenticationManager: ObservableObject {
     // MARK: - Published State
-    var isAuthenticated = false
-    var currentFirebaseUser: FirebaseAuth.User?
-    var isLoading = false
-    var errorMessage: String?
+    @Published var isAuthenticated = false
+    @Published var currentFirebaseUser: FirebaseAuth.User?
+    @Published var isLoading = false
+    @Published var errorMessage: String?
     
     // MARK: - Private State
     private var authStateListener: AuthStateDidChangeListenerHandle?
@@ -30,6 +29,7 @@ final class AuthenticationManager {
     deinit {
         if let listener = authStateListener {
             Auth.auth().removeStateDidChangeListener(listener)
+            authStateListener = nil
         }
     }
     
@@ -38,13 +38,13 @@ final class AuthenticationManager {
     private func startAuthStateListener() {
         authStateListener = Auth.auth().addStateDidChangeListener { _, user in
             Task { @MainActor [weak self] in
-                await self?.updateAuthState(user)
+                self?.updateAuthState(user)
             }
         }
         
         // Set initial state on main actor
         Task { @MainActor [weak self] in
-            await self?.updateAuthState(Auth.auth().currentUser)
+            self?.updateAuthState(Auth.auth().currentUser)
         }
     }
     
@@ -81,6 +81,7 @@ final class AuthenticationManager {
     }
     
     func signOut() {
+        errorMessage = nil
         do {
             try Auth.auth().signOut()
         } catch {
@@ -91,18 +92,13 @@ final class AuthenticationManager {
     func sendPasswordReset(email: String) async {
         isLoading = true
         errorMessage = nil
+        defer { isLoading = false }
         
         do {
             try await Auth.auth().sendPasswordReset(withEmail: email)
         } catch {
-            errorMessage = "Failed to send password reset: \(error.localizedDescription)"
+            errorMessage = AuthManagerError.fromFirebaseError(error).userMessage
         }
-        
-        isLoading = false
-    }
-    
-    func clearError() {
-        errorMessage = nil
     }
     
     // MARK: - Private Helpers
@@ -110,32 +106,37 @@ final class AuthenticationManager {
     private func performAuthAction(_ action: @escaping () async throws -> FirebaseAuth.User) async {
         isLoading = true
         errorMessage = nil
+        defer { isLoading = false }
         
         do {
             _ = try await action()
             // Auth state will be updated automatically via listener
         } catch {
-            errorMessage = AuthError.fromFirebaseError(error).userMessage
+            errorMessage = AuthManagerError.fromFirebaseError(error).userMessage
         }
-        
-        isLoading = false
     }
 }
 
 // MARK: - Simplified Error Handling
 
-enum AuthError {
+enum AuthManagerError {
     case invalidEmail
     case emailInUse
     case weakPassword
     case wrongPassword
     case userNotFound
     case networkError
+    case tooManyRequests
+    case operationNotAllowed
+    case requiresRecentLogin
+    case userDisabled
+    case accountExistsWithDifferentCredential
     case unknown(String)
     
-    static func fromFirebaseError(_ error: Error) -> AuthError {
-        guard let authError = error as NSError?,
-              let errorCode = AuthErrorCode(rawValue: authError.code) else {
+    static func fromFirebaseError(_ error: Error) -> AuthManagerError {
+        let nsError = error as NSError
+        guard nsError.domain == AuthErrorDomain,
+              let errorCode = AuthErrorCode(rawValue: nsError.code) else {
             return .unknown(error.localizedDescription)
         }
         
@@ -152,6 +153,16 @@ enum AuthError {
             return .userNotFound
         case .networkError:
             return .networkError
+        case .tooManyRequests:
+            return .tooManyRequests
+        case .operationNotAllowed:
+            return .operationNotAllowed
+        case .requiresRecentLogin:
+            return .requiresRecentLogin
+        case .userDisabled:
+            return .userDisabled
+        case .accountExistsWithDifferentCredential:
+            return .accountExistsWithDifferentCredential
         default:
             return .unknown(error.localizedDescription)
         }
@@ -171,8 +182,19 @@ enum AuthError {
             return "No account found with this email address."
         case .networkError:
             return "Network error. Please check your connection."
+        case .tooManyRequests:
+            return "Too many attempts. Please wait a moment before trying again."
+        case .operationNotAllowed:
+            return "This sign-in method is not enabled for this app."
+        case .requiresRecentLogin:
+            return "For your security, please sign out and sign back in, then try again."
+        case .userDisabled:
+            return "This account has been disabled. Please contact support."
+        case .accountExistsWithDifferentCredential:
+            return "An account already exists with a different sign-in method for this email."
         case .unknown(let message):
             return message
         }
     }
 }
+

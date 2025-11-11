@@ -7,40 +7,36 @@
 
 import UIKit
 
-// MARK: - Haptic Manager
 @MainActor
-final class HapticManager: ObservableObject {
+final class HapticManager {
     static let shared = HapticManager()
     
     private init() {}
     
-    // MARK: - Impact Feedback
-    
-    func light() {
-        let impactFeedback = UIImpactFeedbackGenerator(style: .light)
-        impactFeedback.impactOccurred()
-    }
-    
-    func medium() {
+    func authenticationSuccess() {
         let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
         impactFeedback.impactOccurred()
     }
     
-    func heavy() {
-        let impactFeedback = UIImpactFeedbackGenerator(style: .heavy)
+    func authenticationError() {
+        let notificationFeedback = UINotificationFeedbackGenerator()
+        notificationFeedback.notificationOccurred(.error)
+    }
+    
+    func buttonTap() {
+        let impactFeedback = UIImpactFeedbackGenerator(style: .light)
         impactFeedback.impactOccurred()
     }
     
-    // MARK: - Notification Feedback
-    
-    func success() {
+    func successAction() {
         let notificationFeedback = UINotificationFeedbackGenerator()
         notificationFeedback.notificationOccurred(.success)
     }
     
-    func warning() {
+    // Additional haptic methods
+    func success() {
         let notificationFeedback = UINotificationFeedbackGenerator()
-        notificationFeedback.notificationOccurred(.warning)
+        notificationFeedback.notificationOccurred(.success)
     }
     
     func error() {
@@ -48,32 +44,20 @@ final class HapticManager: ObservableObject {
         notificationFeedback.notificationOccurred(.error)
     }
     
-    // MARK: - Selection Feedback
+    func warning() {
+        let notificationFeedback = UINotificationFeedbackGenerator()
+        notificationFeedback.notificationOccurred(.warning)
+    }
     
-    func selection() {
+    func selectionChanged() {
         let selectionFeedback = UISelectionFeedbackGenerator()
         selectionFeedback.selectionChanged()
     }
     
-    // MARK: - Contextual Feedback
-    
-    func authenticationSuccess() {
-        success()
-    }
-    
-    func authenticationError() {
-        error()
-    }
-    
-    func athleteCreated() {
-        success()
-    }
-    
-    func formValidation() {
-        light()
-    }
-    
-    func buttonTap() {
-        light()
+    func impact(style: UIImpactFeedbackGenerator.FeedbackStyle = .medium) {
+        let impactFeedback = UIImpactFeedbackGenerator(style: style)
+        impactFeedback.impactOccurred()
     }
 }
+
+

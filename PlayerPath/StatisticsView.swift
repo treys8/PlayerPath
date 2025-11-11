@@ -11,12 +11,22 @@ import Charts
 
 struct StatisticsView: View {
     let athlete: Athlete?
-    @Environment(\.modelContext) private var modelContext
-    @State private var showingManualEntry = false
-    @State private var showingGameSelection = false
-    @Query private var allGames: [Game]
     
-    var statistics: Statistics? {
+    enum ActiveSheet: Identifiable {
+        case quickEntry(Game)
+        case gameSelection
+        var id: String {
+            switch self {
+            case .quickEntry(let game):
+                return "quickEntry_\(game.id.uuidString)"
+            case .gameSelection:
+                return "gameSelection"
+            }
+        }
+    }
+    @State private var activeSheet: ActiveSheet?
+    
+    var statistics: AthleteStatistics? {
         athlete?.statistics
     }
     
@@ -24,56 +34,62 @@ struct StatisticsView: View {
         athlete?.games.first { $0.isLive }
     }
     
+    var hasLiveGame: Bool { currentLiveGame != nil }
+    
     var body: some View {
-        NavigationStack {
-            Group {
-                if let stats = statistics {
-                    ScrollView {
-                        LazyVStack(spacing: 20) {
-                            // Manual Entry Section
-                            ManualEntrySection(
-                                currentLiveGame: currentLiveGame,
-                                showingManualEntry: $showingManualEntry,
-                                showingGameSelection: $showingGameSelection
-                            )
-                            
-                            // Key Statistics Cards
-                            KeyStatsSection(statistics: stats)
-                            
-                            // Batting Chart
-                            BattingChartSection(statistics: stats)
-                            
-                            // Detailed Statistics
-                            DetailedStatsSection(statistics: stats)
-                            
-                            // Play Results Breakdown
-                            PlayResultsSection(statistics: stats)
-                        }
-                        .padding()
+        Group {
+            if let stats = statistics {
+                ScrollView {
+                    LazyVStack(spacing: 20) {
+                        // Manual Entry Section
+                        ManualEntrySection(
+                            currentLiveGame: currentLiveGame,
+                            showQuickEntry: {
+                                if let game = currentLiveGame { activeSheet = .quickEntry(game) }
+                            },
+                            showGameSelection: { activeSheet = .gameSelection }
+                        )
+                        
+                        // Key Statistics Cards
+                        KeyStatsSection(statistics: stats)
+                        
+                        // Batting Chart
+                        BattingChartSection(statistics: stats)
+                        
+                        // Detailed Statistics
+                        DetailedStatsSection(statistics: stats)
+                        
+                        // Play Results Breakdown
+                        PlayResultsSection(statistics: stats)
                     }
-                } else {
-                    EmptyStatisticsView(
-                        showingManualEntry: $showingManualEntry,
-                        showingGameSelection: $showingGameSelection
-                    )
+                    .padding()
                 }
+            } else {
+                EmptyStatisticsView(
+                    isQuickEntryEnabled: hasLiveGame,
+                    showQuickEntry: {
+                        if let game = currentLiveGame { activeSheet = .quickEntry(game) }
+                    },
+                    showGameSelection: { activeSheet = .gameSelection }
+                )
             }
-            .navigationTitle("Statistics")
         }
-        .sheet(isPresented: $showingManualEntry) {
-            if let game = currentLiveGame {
+        .navigationTitle("Statistics")
+        .sheet(item: $activeSheet) { item in
+            switch item {
+            case .quickEntry(let game):
                 QuickStatisticsEntryView(game: game, athlete: athlete)
+            case .gameSelection:
+                GameSelectionForStatsView(athlete: athlete)
             }
-        }
-        .sheet(isPresented: $showingGameSelection) {
-            GameSelectionForStatsView(athlete: athlete)
         }
     }
 }
 
 struct EmptyStatisticsView: View {
-    @Binding var showingManualEntry: Bool
-    @Binding var showingGameSelection: Bool
+    let isQuickEntryEnabled: Bool
+    let showQuickEntry: () -> Void
+    let showGameSelection: () -> Void
     
     var body: some View {
         VStack(spacing: 30) {
@@ -91,23 +107,25 @@ struct EmptyStatisticsView: View {
                 .multilineTextAlignment(.center)
             
             VStack(spacing: 15) {
-                Button(action: { showingGameSelection = true }) {
+                Button(action: { showGameSelection() }) {
                     Label("Add Past Game Statistics", systemImage: "plus.circle.fill")
                         .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(Color.blue)
-                        .foregroundColor(.white)
-                        .cornerRadius(12)
                 }
+                .buttonStyle(.borderedProminent)
+                .tint(.blue)
+                .accessibilityLabel("Add past game statistics")
+                .accessibilityHint("Select a previous game to record statistics")
                 
-                Button(action: { showingManualEntry = true }) {
+                Button(action: { showQuickEntry() }) {
                     Label("Record Current Game Stats", systemImage: "chart.bar.doc.horizontal.fill")
                         .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(Color.green)
-                        .foregroundColor(.white)
-                        .cornerRadius(12)
                 }
+                .buttonStyle(.borderedProminent)
+                .tint(.green)
+                .accessibilityLabel("Record current game statistics")
+                .accessibilityHint("Record plays for the ongoing game")
+                .disabled(!isQuickEntryEnabled)
+                .opacity(isQuickEntryEnabled ? 1.0 : 0.5)
             }
             .padding(.horizontal)
         }
@@ -118,8 +136,8 @@ struct EmptyStatisticsView: View {
 // MARK: - Manual Entry Section
 struct ManualEntrySection: View {
     let currentLiveGame: Game?
-    @Binding var showingManualEntry: Bool
-    @Binding var showingGameSelection: Bool
+    let showQuickEntry: () -> Void
+    let showGameSelection: () -> Void
     
     var body: some View {
         VStack(alignment: .leading, spacing: 15) {
@@ -130,7 +148,7 @@ struct ManualEntrySection: View {
             VStack(spacing: 12) {
                 // Current Live Game Option
                 if let game = currentLiveGame {
-                    Button(action: { showingManualEntry = true }) {
+                    Button(action: { showQuickEntry() }) {
                         HStack {
                             VStack(alignment: .leading) {
                                 HStack {
@@ -159,14 +177,11 @@ struct ManualEntrySection: View {
                                 .foregroundColor(.blue)
                         }
                         .padding()
-                        .background(Color(.systemGray6))
-                        .cornerRadius(12)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12)
-                                .stroke(Color.red.opacity(0.3), lineWidth: 2)
-                        )
+                        .statCardBackground()
                     }
-                    .buttonStyle(PlainButtonStyle())
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Record statistics for live game")
+                    .accessibilityHint("Add at-bats, hits, and results for the current game")
                 } else {
                     // No Live Game Available
                     VStack {
@@ -179,13 +194,14 @@ struct ManualEntrySection: View {
                             Spacer()
                         }
                         .padding()
-                        .background(Color(.systemGray6))
-                        .cornerRadius(12)
+                        .statCardBackground()
+                        .accessibilityElement(children: .combine)
+                        .accessibilityLabel("No active game. Start a live game to record current game stats.")
                     }
                 }
                 
                 // Add Past Game Option
-                Button(action: { showingGameSelection = true }) {
+                Button(action: { showGameSelection() }) {
                     HStack {
                         VStack(alignment: .leading) {
                             Text("Add Past Game Statistics")
@@ -204,17 +220,18 @@ struct ManualEntrySection: View {
                             .foregroundColor(.blue)
                     }
                     .padding()
-                    .background(Color(.systemGray6))
-                    .cornerRadius(12)
+                    .statCardBackground()
                 }
-                .buttonStyle(PlainButtonStyle())
+                .buttonStyle(.plain)
+                .accessibilityLabel("Add past game statistics")
+                .accessibilityHint("Select a previous game to record statistics")
             }
         }
     }
 }
 
 struct KeyStatsSection: View {
-    let statistics: Statistics
+    let statistics: AthleteStatistics
     
     var body: some View {
         VStack(alignment: .leading, spacing: 15) {
@@ -228,21 +245,21 @@ struct KeyStatsSection: View {
             ], spacing: 15) {
                 StatCard(
                     title: "Batting Average",
-                    value: String(format: "%.3f", statistics.battingAverage),
+                    value: formatBattingAverage(statistics.battingAverage),
                     color: .blue,
                     subtitle: "\(statistics.hits)/\(statistics.atBats)"
                 )
                 
                 StatCard(
                     title: "On-Base %",
-                    value: String(format: "%.3f", statistics.onBasePercentage),
+                    value: formatThreeDecimal(statistics.onBasePercentage),
                     color: .green,
                     subtitle: "Walks: \(statistics.walks)"
                 )
                 
                 StatCard(
                     title: "Slugging %",
-                    value: String(format: "%.3f", statistics.sluggingPercentage),
+                    value: formatBattingAverage(statistics.sluggingPercentage),
                     color: .orange,
                     subtitle: "Total Bases"
                 )
@@ -282,6 +299,8 @@ struct StatCard: View {
                 .font(.title)
                 .fontWeight(.bold)
                 .foregroundColor(color)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
             
             if let subtitle = subtitle {
                 Text(subtitle)
@@ -291,13 +310,14 @@ struct StatCard: View {
         }
         .frame(height: 100)
         .frame(maxWidth: .infinity)
-        .background(Color(.systemGray6))
-        .cornerRadius(12)
+        .statCardBackground()
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(title), \(value)\(subtitle != nil ? ", \(subtitle!)" : "")")
     }
 }
 
 struct BattingChartSection: View {
-    let statistics: Statistics
+    let statistics: AthleteStatistics
     
     private var chartData: [PlayTypeData] {
         [
@@ -317,23 +337,31 @@ struct BattingChartSection: View {
             if !chartData.isEmpty {
                 Chart(chartData, id: \.type) { data in
                     BarMark(
-                        x: .value("Type", data.type),
-                        y: .value("Count", data.count)
+                        x: .value("Count", data.count),
+                        y: .value("Type", data.type)
                     )
                     .foregroundStyle(data.color)
+                    .annotation(position: .trailing) {
+                        Text("\(data.count)")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
                 }
+                .chartXScale(domain: 0...max(1, chartData.map(\.count).max() ?? 1))
+                .chartXAxisLabel("Count")
+                .chartYAxisLabel("Hit Type")
                 .frame(height: 200)
                 .padding()
-                .background(Color(.systemGray6))
-                .cornerRadius(12)
+                .statCardBackground()
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel("Hit distribution chart")
             } else {
                 Text("No hits recorded yet")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
                     .frame(height: 100)
                     .frame(maxWidth: .infinity)
-                    .background(Color(.systemGray6))
-                    .cornerRadius(12)
+                    .statCardBackground()
             }
         }
     }
@@ -346,7 +374,7 @@ struct PlayTypeData {
 }
 
 struct DetailedStatsSection: View {
-    let statistics: Statistics
+    let statistics: AthleteStatistics
     
     var body: some View {
         VStack(alignment: .leading, spacing: 15) {
@@ -362,9 +390,26 @@ struct DetailedStatsSection: View {
                 DetailedStatRow(label: "Ground Outs", value: "\(statistics.groundOuts)")
                 DetailedStatRow(label: "Fly Outs", value: "\(statistics.flyOuts)", isLast: true)
             }
-            .background(Color(.systemGray6))
-            .cornerRadius(12)
+            .statCardBackground()
         }
+    }
+}
+
+struct LabelValueRow: View {
+    let label: String
+    let value: String
+    var body: some View {
+        HStack {
+            Text(label)
+                .font(.subheadline)
+            Spacer()
+            Text(value)
+                .font(.subheadline)
+                .fontWeight(.semibold)
+                .foregroundColor(.blue)
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 12)
     }
 }
 
@@ -381,20 +426,7 @@ struct DetailedStatRow: View {
     
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Text(label)
-                    .font(.subheadline)
-                
-                Spacer()
-                
-                Text(value)
-                    .font(.subheadline)
-                    .fontWeight(.semibold)
-                    .foregroundColor(.blue)
-            }
-            .padding(.horizontal)
-            .padding(.vertical, 12)
-            
+            LabelValueRow(label: label, value: value)
             if !isLast {
                 Divider()
                     .padding(.horizontal)
@@ -404,7 +436,7 @@ struct DetailedStatRow: View {
 }
 
 struct PlayResultsSection: View {
-    let statistics: Statistics
+    let statistics: AthleteStatistics
     
     private var playResults: [PlayResultData] {
         [
@@ -435,6 +467,8 @@ struct PlayResultsSection: View {
                     PlayResultCard(data: data)
                 }
             }
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Play results summary")
         }
     }
 }
@@ -451,29 +485,38 @@ struct PlayResultCard: View {
     
     var body: some View {
         VStack(spacing: 8) {
-            Image(systemName: data.icon)
-                .font(.title2)
-                .foregroundColor(data.color)
-            
             Text("\(data.count)")
-                .font(.title2)
+                .font(.title)
                 .fontWeight(.bold)
-                .foregroundColor(.primary)
+                .foregroundColor(data.color)
             
             Text(data.type)
                 .font(.caption)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
         }
-        .frame(height: 80)
+        .frame(height: 70)
         .frame(maxWidth: .infinity)
-        .background(Color(.systemGray6))
-        .cornerRadius(10)
+        .statCardBackground()
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(data.type): \(data.count)")
     }
 }
 
 #Preview {
-    StatisticsView(athlete: nil)
+    let mockAthlete: Athlete = {
+        let athlete = Athlete(name: "Sample Player")
+        let stats = AthleteStatistics()
+        stats.hits = 45
+        stats.atBats = 130
+        stats.walks = 20
+        stats.doubles = 10
+        stats.triples = 2
+        stats.homeRuns = 5
+        athlete.statistics = stats
+        return athlete
+    }()
+    return NavigationStack { StatisticsView(athlete: mockAthlete) }
 }
 
 // MARK: - Quick Statistics Entry View
@@ -487,6 +530,7 @@ struct QuickStatisticsEntryView: View {
     @State private var numberOfPlays: String = "1"
     @State private var showingAlert = false
     @State private var alertMessage = ""
+    @FocusState private var isPlaysFieldFocused: Bool
     
     var body: some View {
         NavigationStack {
@@ -516,7 +560,7 @@ struct QuickStatisticsEntryView: View {
                 Section("Record Play Result") {
                     Picker("Play Result", selection: $playResultType) {
                         ForEach(PlayResultType.allCases, id: \.self) { playType in
-                            Text(playType.rawValue).tag(playType)
+                            Text(playType.displayName).tag(playType)
                         }
                     }
                     .pickerStyle(.menu)
@@ -528,6 +572,7 @@ struct QuickStatisticsEntryView: View {
                             .keyboardType(.numberPad)
                             .textFieldStyle(RoundedBorderTextFieldStyle())
                             .frame(width: 80)
+                            .focused($isPlaysFieldFocused)
                     }
                 }
                 
@@ -535,7 +580,7 @@ struct QuickStatisticsEntryView: View {
                     HStack {
                         Text("Result Type:")
                         Spacer()
-                        Text(playResultType.rawValue)
+                        Text(playResultType.displayName)
                             .fontWeight(.semibold)
                             .foregroundColor(playResultType.isHit ? .green : .orange)
                     }
@@ -576,6 +621,11 @@ struct QuickStatisticsEntryView: View {
                     }
                     .disabled(numberOfPlays.isEmpty)
                 }
+                
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") { isPlaysFieldFocused = false }
+                }
             }
         }
         .alert("Statistics Recorded", isPresented: $showingAlert) {
@@ -607,7 +657,7 @@ struct QuickStatisticsEntryView: View {
             }
         } else {
             // Create statistics if they don't exist
-            let newStats = Statistics()
+            let newStats = AthleteStatistics()
             athlete.statistics = newStats
             newStats.athlete = athlete
             modelContext.insert(newStats)
@@ -662,7 +712,19 @@ struct GameSelectionForStatsView: View {
     @State private var showingCreateGame = false
     
     var availableGames: [Game] {
-        athlete?.games.sorted { $0.date > $1.date } ?? []
+        // Safely sort by date, placing games with no date at the end
+        (athlete?.games ?? []).sorted { lhs, rhs in
+            switch (lhs.date, rhs.date) {
+            case let (l?, r?):
+                return l > r // newest first
+            case (nil, _?):
+                return false // nil goes after any non-nil
+            case (_?, nil):
+                return true  // non-nil comes before nil
+            case (nil, nil):
+                return false // maintain relative order for two nils
+            }
+        }
     }
     
     var body: some View {
@@ -689,7 +751,7 @@ struct GameSelectionForStatsView: View {
                             }) {
                                 GameRowForStats(game: game)
                             }
-                            .buttonStyle(PlainButtonStyle())
+                            .buttonStyle(.plain)
                         }
                     }
                 }
@@ -732,9 +794,15 @@ struct GameRowForStats: View {
                     .font(.headline)
                     .fontWeight(.semibold)
                 
-                Text(game.date, formatter: DateFormatter.shortDate)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                if let date = game.date {
+                    Text(date, style: .date)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                } else {
+                    Text("Date TBD")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
                 
                 HStack {
                     if game.isLive {
@@ -798,3 +866,30 @@ struct GameRowForStats: View {
         .padding(.vertical, 4)
     }
 }
+
+// MARK: - Helper Functions
+
+/// Formats batting average and slugging percentage without leading zero
+private func formatBattingAverage(_ value: Double) -> String {
+    let formatted = String(format: "%.3f", value)
+    if formatted.hasPrefix("0.") {
+        return String(formatted.dropFirst()) // Remove the leading "0"
+    }
+    return formatted
+}
+
+private func formatThreeDecimal(_ value: Double) -> String {
+    String(format: "%.3f", value)
+}
+
+extension View {
+    func statCardBackground() -> some View {
+        self
+            .padding(12)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color(uiColor: .secondarySystemGroupedBackground))
+            )
+    }
+}
+

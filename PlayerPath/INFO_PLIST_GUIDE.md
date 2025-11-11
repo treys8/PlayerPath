@@ -1,6 +1,6 @@
 # Info.plist Privacy Configuration
 
-To make video recording work properly in your PlayerPath app, you need to add the following privacy usage descriptions to your Info.plist file:
+To make video recording and profile picture features work properly in your PlayerPath app, you need to add the following privacy usage descriptions to your Info.plist file:
 
 ## Required Privacy Keys
 
@@ -9,7 +9,7 @@ Add these keys to your `Info.plist` file (you can edit it as Source Code or use 
 ### Camera Usage Description
 ```xml
 <key>NSCameraUsageDescription</key>
-<string>PlayerPath needs camera access to record videos of your athletic performance for analysis and improvement.</string>
+<string>PlayerPath needs camera access to record videos of your athletic performance and take profile pictures.</string>
 ```
 
 ### Microphone Usage Description  
@@ -18,10 +18,10 @@ Add these keys to your `Info.plist` file (you can edit it as Source Code or use 
 <string>PlayerPath needs microphone access to record audio along with videos for complete performance analysis.</string>
 ```
 
-### Photo Library Usage Description (for video uploads)
+### Photo Library Usage Description (for video uploads and profile pictures)
 ```xml
 <key>NSPhotoLibraryUsageDescription</key>
-<string>PlayerPath needs photo library access to allow you to upload existing videos for analysis.</string>
+<string>PlayerPath needs photo library access to allow you to upload existing videos and choose profile pictures.</string>
 ```
 
 ## Complete Info.plist Example
@@ -37,7 +37,7 @@ Here's how your privacy section should look in Info.plist:
     
     <!-- Privacy - Camera Usage Description -->
     <key>NSCameraUsageDescription</key>
-    <string>PlayerPath needs camera access to record videos of your athletic performance for analysis and improvement.</string>
+    <string>PlayerPath needs camera access to record videos of your athletic performance and take profile pictures.</string>
     
     <!-- Privacy - Microphone Usage Description -->
     <key>NSMicrophoneUsageDescription</key>
@@ -45,7 +45,7 @@ Here's how your privacy section should look in Info.plist:
     
     <!-- Privacy - Photo Library Usage Description -->
     <key>NSPhotoLibraryUsageDescription</key>
-    <string>PlayerPath needs photo library access to allow you to upload existing videos for analysis.</string>
+    <string>PlayerPath needs photo library access to allow you to upload existing videos and choose profile pictures.</string>
     
     <!-- Your other app configuration keys... -->
 </dict>
