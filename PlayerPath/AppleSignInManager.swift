@@ -1,0 +1,209 @@
+//
+//  AppleSignInManager.swift
+//  PlayerPath
+//
+//  Created by Assistant on 11/10/25.
+//
+
+import SwiftUI
+import AuthenticationServices
+import FirebaseAuth
+import CryptoKit
+
+@MainActor
+final class AppleSignInManager: NSObject, ObservableObject {
+    @Published var isLoading = false
+    @Published var errorMessage: String?
+    
+    private var currentNonce: String?
+    private var authManager: ComprehensiveAuthManager?
+    
+    func configure(with authManager: ComprehensiveAuthManager) {
+        self.authManager = authManager
+    }
+    
+    // MARK: - Sign in with Apple
+    
+    func signInWithApple() {
+        isLoading = true
+        errorMessage = nil
+        
+        let nonce = randomNonceString()
+        currentNonce = nonce
+        
+        let appleIDProvider = ASAuthorizationAppleIDProvider()
+        let request = appleIDProvider.createRequest()
+        request.requestedScopes = [.fullName, .email]
+        request.nonce = sha256(nonce)
+        
+        let authorizationController = ASAuthorizationController(authorizationRequests: [request])
+        authorizationController.delegate = self
+        authorizationController.presentationContextProvider = self
+        authorizationController.performRequests()
+    }
+    
+    // MARK: - Helper Methods
+    
+    private func randomNonceString(length: Int = 32) -> String {
+        precondition(length > 0)
+        var randomBytes = [UInt8](repeating: 0, count: length)
+        let errorCode = SecRandomCopyBytes(kSecRandomDefault, randomBytes.count, &randomBytes)
+        if errorCode != errSecSuccess {
+            fatalError("Unable to generate nonce. SecRandomCopyBytes failed with OSStatus \(errorCode)")
+        }
+        
+        let charset: [Character] =
+            Array("0123456789ABCDEFGHIJKLMNOPQRSTUVXYZabcdefghijklmnopqrstuvwxyz-._")
+        
+        let nonce = randomBytes.map { byte in
+            charset[Int(byte) % charset.count]
+        }
+        
+        return String(nonce)
+    }
+    
+    private func sha256(_ input: String) -> String {
+        let inputData = Data(input.utf8)
+        let hashedData = SHA256.hash(data: inputData)
+        let hashString = hashedData.compactMap {
+            String(format: "%02x", $0)
+        }.joined()
+        
+        return hashString
+    }
+}
+
+// MARK: - ASAuthorizationControllerDelegate
+
+extension AppleSignInManager: ASAuthorizationControllerDelegate {
+    func authorizationController(controller: ASAuthorizationController, didCompleteWithAuthorization authorization: ASAuthorization) {
+        Task {
+            do {
+                guard let appleIDCredential = authorization.credential as? ASAuthorizationAppleIDCredential else {
+                    await MainActor.run {
+                        errorMessage = "Invalid Apple ID credential"
+                        isLoading = false
+                    }
+                    return
+                }
+                
+                guard let nonce = currentNonce else {
+                    await MainActor.run {
+                        errorMessage = "Invalid state: A login callback was received, but no login request was sent."
+                        isLoading = false
+                    }
+                    return
+                }
+                
+                guard let appleIDToken = appleIDCredential.identityToken else {
+                    await MainActor.run {
+                        errorMessage = "Unable to fetch identity token"
+                        isLoading = false
+                    }
+                    return
+                }
+                
+                guard let idTokenString = String(data: appleIDToken, encoding: .utf8) else {
+                    await MainActor.run {
+                        errorMessage = "Unable to serialize token string from data"
+                        isLoading = false
+                    }
+                    return
+                }
+                
+                // Create Firebase credential
+                let credential = OAuthProvider.credential(
+                    withProviderID: "apple.com",
+                    idToken: idTokenString,
+                    rawNonce: nonce
+                )
+                
+                // Sign in with Firebase
+                let result = try await Auth.auth().signIn(with: credential)
+                
+                // Update display name if available and not already set
+                if let fullName = appleIDCredential.fullName,
+                   result.user.displayName == nil || result.user.displayName?.isEmpty == true {
+                    let displayName = [fullName.givenName, fullName.familyName]
+                        .compactMap { $0 }
+                        .joined(separator: " ")
+                    
+                    if !displayName.isEmpty {
+                        let changeRequest = result.user.createProfileChangeRequest()
+                        changeRequest.displayName = displayName
+                        try await changeRequest.commitChanges()
+                    }
+                }
+                
+                await MainActor.run {
+                    authManager?.currentFirebaseUser = result.user
+                    isLoading = false
+                    print("🟢 Apple Sign In successful for: \(result.user.email ?? "unknown")")
+                    HapticManager.shared.authenticationSuccess()
+                }
+                
+            } catch {
+                await MainActor.run {
+                    errorMessage = "Apple Sign In failed: \(error.localizedDescription)"
+                    isLoading = false
+                    print("🔴 Apple Sign In error: \(error.localizedDescription)")
+                }
+            }
+        }
+    }
+    
+    func authorizationController(controller: ASAuthorizationController, didCompleteWithError error: Error) {
+        Task { @MainActor in
+            let authError = error as NSError
+            
+            // Don't show error if user cancelled
+            if authError.code == ASAuthorizationError.canceled.rawValue {
+                print("User cancelled Apple Sign In")
+            } else {
+                errorMessage = "Apple Sign In failed: \(error.localizedDescription)"
+                print("🔴 Apple Sign In error: \(error.localizedDescription)")
+            }
+            
+            isLoading = false
+        }
+    }
+}
+
+// MARK: - ASAuthorizationControllerPresentationContextProviding
+
+extension AppleSignInManager: ASAuthorizationControllerPresentationContextProviding {
+    func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
+        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+              let window = windowScene.windows.first else {
+            fatalError("No window found")
+        }
+        return window
+    }
+}
+
+// MARK: - SwiftUI Button Wrapper
+
+struct SignInWithAppleButton: View {
+    let action: () -> Void
+    
+    @Environment(\.colorScheme) private var colorScheme
+    
+    var body: some View {
+        Button(action: action) {
+            HStack {
+                Image(systemName: "apple.logo")
+                    .font(.system(size: 18, weight: .medium))
+                
+                Text("Continue with Apple")
+                    .font(.system(size: 17, weight: .medium))
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 50)
+            .foregroundColor(colorScheme == .dark ? .black : .white)
+            .background(colorScheme == .dark ? Color.white : Color.black)
+            .cornerRadius(10)
+        }
+        .accessibilityLabel("Sign in with Apple")
+        .accessibilityHint("Use your Apple ID to sign in")
+    }
+}
