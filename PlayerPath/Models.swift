@@ -13,18 +13,30 @@ import SwiftData
  Inverse relationships mapping for CloudKit/SwiftData:
 
  User.athletes <-> Athlete.user
+ Athlete.seasons <-> Season.athlete
  Athlete.tournaments <-> Tournament.athletes
  Athlete.games <-> Game.athlete
  Athlete.practices <-> Practice.athlete
  Athlete.videoClips <-> VideoClip.athlete
  Athlete.statistics <-> AthleteStatistics.athlete (to-one)
 
+ Season.games <-> Game.season
+ Season.practices <-> Practice.season
+ Season.videoClips <-> VideoClip.season
+ Season.tournaments <-> Tournament.season
+ Season.seasonStatistics <-> AthleteStatistics (to-one)
+
  Tournament.games <-> Game.tournament
+ Tournament.season <-> Season.tournaments
  Game.videoClips <-> VideoClip.game
  Game.gameStats <-> GameStatistics.game (to-one)
+ Game.season <-> Season.games
 
  Practice.videoClips <-> VideoClip.practice
  Practice.notes <-> PracticeNote.practice
+ Practice.season <-> Season.practices
+ 
+ VideoClip.season <-> Season.videoClips
  PlayResult.videoClip <-> VideoClip.playResult (to-one)
 */
 
@@ -52,15 +64,159 @@ final class Athlete {
     var name: String = ""
     var createdAt: Date?
     var user: User?
+    var seasons: [Season] = []
     var tournaments: [Tournament] = []
     var games: [Game] = []
     var practices: [Practice] = []
     var videoClips: [VideoClip] = []
     var statistics: AthleteStatistics?
     
+    /// The currently active season for this athlete (only one can be active at a time)
+    var activeSeason: Season? {
+        seasons.first(where: { $0.isActive })
+    }
+    
+    /// All archived (completed) seasons, sorted by start date descending
+    var archivedSeasons: [Season] {
+        seasons
+            .filter { !$0.isActive }
+            .sorted { ($0.startDate ?? Date.distantPast) > ($1.startDate ?? Date.distantPast) }
+    }
+    
     init(name: String) {
         self.id = UUID()
         self.name = name
+    }
+}
+
+// MARK: - Season Model
+@Model
+final class Season {
+    var id: UUID
+    var name: String = ""
+    var startDate: Date?
+    var endDate: Date?
+    var isActive: Bool = false
+    var createdAt: Date?
+    var athlete: Athlete?
+    var games: [Game] = []
+    var practices: [Practice] = []
+    var videoClips: [VideoClip] = []
+    var tournaments: [Tournament] = []
+    
+    /// Season-specific statistics (calculated when season is archived)
+    var seasonStatistics: AthleteStatistics?
+    
+    /// Notes about the season (goals, achievements, etc.)
+    var notes: String = ""
+    
+    /// Sport for this season (baseball or softball)
+    var sport: SportType = SportType.baseball
+    
+    /// Computed display name with year range
+    var displayName: String {
+        // If name already contains a year (4 digits), just return it
+        let yearPattern = #"\b\d{4}\b"#
+        if let _ = name.range(of: yearPattern, options: .regularExpression) {
+            return name
+        }
+        
+        // Otherwise, append year from dates
+        if let start = startDate, let end = endDate {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "yyyy"
+            let startYear = formatter.string(from: start)
+            let endYear = formatter.string(from: end)
+            
+            if startYear == endYear {
+                return "\(name) \(startYear)"
+            } else {
+                return "\(name) \(startYear)-\(endYear)"
+            }
+        } else if let start = startDate {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "yyyy"
+            return "\(name) \(formatter.string(from: start))"
+        }
+        return name
+    }
+    
+    /// Is this season archived (ended)?
+    var isArchived: Bool {
+        return !isActive && endDate != nil
+    }
+    
+    /// Total number of games played in this season
+    var totalGames: Int {
+        games.filter { $0.isComplete }.count
+    }
+    
+    /// Total videos recorded during this season
+    var totalVideos: Int {
+        videoClips.count
+    }
+    
+    /// All highlight videos from this season
+    var highlights: [VideoClip] {
+        videoClips.filter { $0.isHighlight }
+    }
+    
+    enum SportType: String, Codable, CaseIterable {
+        case baseball = "Baseball"
+        case softball = "Softball"
+        
+        var displayName: String { rawValue }
+        
+        var icon: String {
+            switch self {
+            case .baseball: return "figure.baseball"
+            case .softball: return "figure.softball"
+            }
+        }
+    }
+    
+    init(name: String, startDate: Date, sport: SportType = .baseball) {
+        self.id = UUID()
+        self.name = name
+        self.startDate = startDate
+        self.sport = sport
+        self.isActive = false
+    }
+    
+    /// End this season and archive it
+    func archive(endDate: Date? = nil) {
+        self.endDate = endDate ?? Date()
+        self.isActive = false
+        
+        // Calculate and save season statistics
+        if seasonStatistics == nil {
+            seasonStatistics = AthleteStatistics()
+        }
+        
+        // Aggregate all game stats into season stats
+        for game in games where game.isComplete {
+            if let gameStats = game.gameStats {
+                seasonStatistics?.singles += gameStats.singles
+                seasonStatistics?.doubles += gameStats.doubles
+                seasonStatistics?.triples += gameStats.triples
+                seasonStatistics?.homeRuns += gameStats.homeRuns
+                seasonStatistics?.runs += gameStats.runs
+                seasonStatistics?.rbis += gameStats.rbis
+                seasonStatistics?.walks += gameStats.walks
+                seasonStatistics?.strikeouts += gameStats.strikeouts
+                seasonStatistics?.atBats += gameStats.atBats
+                seasonStatistics?.hits += gameStats.hits
+            }
+        }
+        
+        seasonStatistics?.totalGames = totalGames
+        seasonStatistics?.updatedAt = Date()
+    }
+    
+    /// Activate this season (deactivates other seasons for this athlete)
+    func activate() {
+        self.isActive = true
+        self.endDate = nil
     }
 }
 
@@ -76,6 +232,7 @@ final class Tournament {
     var createdAt: Date?
     var athletes: [Athlete] = []
     var games: [Game] = []
+    var season: Season?
     
     // Backward-compatibility shim for older code paths
     var isLive: Bool {
@@ -108,6 +265,7 @@ final class Game {
     var createdAt: Date?
     var tournament: Tournament?
     var athlete: Athlete?
+    var season: Season?
     var videoClips: [VideoClip] = []
     var gameStats: GameStatistics?
     
@@ -125,6 +283,7 @@ final class Practice {
     var date: Date?
     var createdAt: Date?
     var athlete: Athlete?
+    var season: Season?
     var videoClips: [VideoClip] = []
     var notes: [PracticeNote] = []
     
@@ -163,6 +322,7 @@ final class VideoClip {
     var game: Game?
     var practice: Practice?
     var athlete: Athlete?
+    var season: Season?
     
     init(fileName: String, filePath: String) {
         self.id = UUID()

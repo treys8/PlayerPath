@@ -151,6 +151,9 @@ actor GameService {
         } catch {
             print("Error saving context after creating game: \(error.localizedDescription)")
         }
+        
+        // ✅ Link game to active season (must be done after save, on MainActor)
+        await SeasonManager.linkGameToActiveSeason(game, for: athlete, in: modelContext)
     }
     
     // MARK: - Game Lifecycle Management

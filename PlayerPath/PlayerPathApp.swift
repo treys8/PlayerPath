@@ -125,6 +125,7 @@ struct PlayerPathApp: App {
         .modelContainer(for: [
             User.self,
             Athlete.self,
+            Season.self,
             Tournament.self,
             Game.self,
             Practice.self,

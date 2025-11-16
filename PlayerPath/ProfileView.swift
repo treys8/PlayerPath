@@ -9,6 +9,17 @@ import SwiftUI
 import SwiftData
 import UIKit
 
+// MARK: - Navigation Bar Fix Extension
+// This helps prevent double back buttons in deeply nested navigation
+extension View {
+    func standardNavigationBar(title: String, displayMode: NavigationBarItem.TitleDisplayMode = .automatic) -> some View {
+        self
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(displayMode)
+            .navigationBarBackButtonHidden(false)
+    }
+}
+
 struct ProfileView: View {
     let user: User
     @Binding var selectedAthlete: Athlete?
@@ -21,6 +32,10 @@ struct ProfileView: View {
     @State private var isSigningOut = false
     @State private var showDeleteError = false
     @State private var deleteErrorMessage = ""
+    @State private var showingPaywall = false
+    
+    // Premium limits
+    private let freeAthleteLimit = 3
 
     var body: some View {
         List {
@@ -29,10 +44,12 @@ struct ProfileView: View {
             settingsSection
             accountSection
         }
-        .navigationTitle("Profile")
-        .navigationBarTitleDisplayMode(.large)
+        .standardNavigationBar(title: "Profile", displayMode: .large)
         .sheet(isPresented: $showingAddAthlete) {
             AddAthleteView(user: user, selectedAthlete: $selectedAthlete, isFirstAthlete: user.athletes.isEmpty)
+        }
+        .sheet(isPresented: $showingPaywall) {
+            PaywallView(user: user)
         }
         .alert("Sign Out", isPresented: $showingSignOutAlert) {
             Button("Cancel", role: .cancel) { }
@@ -70,6 +87,10 @@ struct ProfileView: View {
         user.athletes.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
     
+    private var canAddMoreAthletes: Bool {
+        user.isPremium || user.athletes.count < freeAthleteLimit
+    }
+    
     // MARK: - View Components
 
     private var userProfileSection: some View {
@@ -81,6 +102,10 @@ struct ProfileView: View {
 
     private var athletesSection: some View {
         Section("Athletes") {
+            NavigationLink(destination: AthleteManagementView(user: user, selectedAthlete: $selectedAthlete)) {
+                Label("Manage Athletes", systemImage: "person.2.fill")
+            }
+            
             ForEach(sortedAthletes) { athlete in
                 AthleteProfileRow(
                     athlete: athlete,
@@ -96,10 +121,33 @@ struct ProfileView: View {
                 }
             }
 
-            Button(action: { showingAddAthlete = true }) {
+            Button(action: {
+                if canAddMoreAthletes {
+                    showingAddAthlete = true
+                } else {
+                    UINotificationFeedbackGenerator().notificationOccurred(.warning)
+                    showingPaywall = true
+                }
+            }) {
                 Label("Add Athlete", systemImage: "person.badge.plus")
             }
             .tint(.blue)
+            
+            if !user.isPremium && user.athletes.count >= freeAthleteLimit {
+                HStack {
+                    Image(systemName: "crown.fill")
+                        .foregroundColor(.yellow)
+                        .font(.caption)
+                    Text("Upgrade to Premium for unlimited athletes")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .padding(.vertical, 4)
+            } else if !user.isPremium {
+                Text("\(user.athletes.count) of \(freeAthleteLimit) free athletes used")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
         }
         .accessibilityAddTraits(.isHeader)
     }
@@ -110,12 +158,16 @@ struct ProfileView: View {
                 Label("Settings", systemImage: "gearshape")
             }
 
+            NavigationLink(destination: SecuritySettingsView(authManager: authManager)) {
+                Label("Security Settings", systemImage: "lock.shield")
+            }
+
             NavigationLink(destination: NotificationSettingsView()) {
                 Label("Notifications", systemImage: "bell")
             }
 
             #if DEBUG
-            // TEMPORARY: CloudKit test - remove after testing
+            // CloudKit sync testing - monitors iCloud availability and sync status
             NavigationLink(destination: CloudKitTestView()) {
                 Label("CloudKit Test", systemImage: "icloud")
                     .foregroundColor(.blue)
@@ -156,20 +208,9 @@ struct ProfileView: View {
             try modelContext.save()
         } catch {
             print("Failed to delete athlete: \(error)")
-            deleteErrorMessage = error.localizedDescription
+            deleteErrorMessage = "Failed to delete athlete: \(error.localizedDescription)"
             showDeleteError = true
         }
-    }
-
-    private func signOut() {
-        // Sign out from Firebase - this will trigger the auth state change
-        // which will automatically update the app's state
-        Task {
-            await authManager.signOut()
-        }
-
-        // The PlayerPathMainView will handle navigation back to sign-in screen
-        // based on the authManager.isSignedIn property change
     }
 }
 
@@ -261,6 +302,8 @@ struct SettingsView: View {
     let user: User
     @State private var notificationsEnabled = true
     @State private var dataBackupEnabled = true
+    @State private var showComingSoonAlert = false
+    @State private var comingSoonFeature = ""
 
     var body: some View {
         Form {
@@ -282,31 +325,33 @@ struct SettingsView: View {
                 NavigationLink(destination: EditAccountView(user: user)) {
                     Label("Edit Information", systemImage: "pencil")
                 }
-
-                Button("Change Password") {
-                    // TODO: Implement password change
-                }
-                .foregroundColor(.blue)
             }
 
             Section("Preferences") {
                 Toggle("Push Notifications", isOn: $notificationsEnabled)
+                    .disabled(true)
+                    .opacity(0.6)
+                
                 Toggle("Auto Backup Data", isOn: $dataBackupEnabled)
+                    .disabled(true)
+                    .opacity(0.6)
+                
+                Text("Notification and backup preferences are coming soon")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
             }
-
-            Section("Data") {
-                Button("Export Data") {
-                    // TODO: Implement data export
-                }
-
-                Button("Delete Account") {
-                    // TODO: Implement account deletion
-                }
-                .foregroundColor(.red)
-            }
+            
+            // Removed unimplemented features for now:
+            // - Change Password
+            // - Export Data  
+            // - Delete Account
         }
-        .navigationTitle("Settings")
-        .navigationBarTitleDisplayMode(.inline)
+        .standardNavigationBar(title: "Settings", displayMode: .inline)
+        .alert("Coming Soon", isPresented: $showComingSoonAlert) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text("\(comingSoonFeature) will be available in a future update.")
+        }
     }
 }
 
@@ -317,11 +362,24 @@ struct EditAccountView: View {
     @State private var email: String
     let user: User
     @State private var showSaveError = false
+    @State private var saveErrorMessage = ""
 
     init(user: User) {
         self.user = user
         _username = State(initialValue: user.username)
         _email = State(initialValue: user.email)
+    }
+    
+    private var isValidEmail: Bool {
+        let emailRegex = "^[A-Z0-9a-z._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,64}$"
+        let emailPredicate = NSPredicate(format: "SELF MATCHES %@", emailRegex)
+        return emailPredicate.evaluate(with: email.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+    
+    private var canSave: Bool {
+        let trimmedUsername = username.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !trimmedUsername.isEmpty && !trimmedEmail.isEmpty && isValidEmail
     }
 
     var body: some View {
@@ -345,33 +403,62 @@ struct EditAccountView: View {
 
             Section("Account Information") {
                 TextField("Username", text: $username)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled(true)
+                
                 TextField("Email", text: $email)
                     .keyboardType(.emailAddress)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled(true)
+                
+                if !email.isEmpty && !isValidEmail {
+                    Label("Please enter a valid email address", systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundColor(.orange)
+                }
             }
 
             Section {
                 Button("Save Changes") {
                     save()
                 }
-                .disabled(username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(!canSave)
             }
         }
-        .navigationTitle("Edit Information")
-        .navigationBarTitleDisplayMode(.inline)
+        .standardNavigationBar(title: "Edit Information", displayMode: .inline)
         .alert("Unable to Save", isPresented: $showSaveError) {
             Button("OK") { }
         } message: {
-            Text("Please try again in a moment.")
+            Text(saveErrorMessage.isEmpty ? "Please try again in a moment." : saveErrorMessage)
         }
     }
 
     private func save() {
-        user.username = username.trimmingCharacters(in: .whitespacesAndNewlines)
-        user.email = email.trimmingCharacters(in: .whitespacesAndNewlines)
-        do { try modelContext.save(); dismiss() } catch {
+        let trimmedUsername = username.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        guard !trimmedUsername.isEmpty else {
+            saveErrorMessage = "Username cannot be empty"
+            showSaveError = true
+            return
+        }
+        
+        guard isValidEmail else {
+            saveErrorMessage = "Please enter a valid email address"
+            showSaveError = true
+            return
+        }
+        
+        user.username = trimmedUsername
+        user.email = trimmedEmail
+        
+        do {
+            try modelContext.save()
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            dismiss()
+        } catch {
             print("Failed to save user: \(error)")
+            saveErrorMessage = "Failed to save changes: \(error.localizedDescription)"
             showSaveError = true
         }
     }
@@ -404,8 +491,7 @@ struct NotificationSettingsView: View {
                 Toggle("Milestone Alerts", isOn: $milestoneAlerts)
             }
         }
-        .navigationTitle("Notifications")
-        .navigationBarTitleDisplayMode(.inline)
+        .standardNavigationBar(title: "Notifications", displayMode: .inline)
     }
 }
 
@@ -425,8 +511,12 @@ struct HelpSupportView: View {
             }
 
             Section("Contact") {
-                Link("Email Support", destination: URL(string: "mailto:support@diamondtrack.app")!)
-                Link("Visit Website", destination: URL(string: "https://diamondtrack.app")!)
+                if let emailURL = URL(string: "mailto:support@playerpath.app") {
+                    Link("Email Support", destination: emailURL)
+                }
+                if let websiteURL = URL(string: "https://playerpath.app") {
+                    Link("Visit Website", destination: websiteURL)
+                }
             }
 
             Section("Legal") {
@@ -438,8 +528,7 @@ struct HelpSupportView: View {
                 }
             }
         }
-        .navigationTitle("Help & Support")
-        .navigationBarTitleDisplayMode(.inline)
+        .standardNavigationBar(title: "Help & Support", displayMode: .inline)
     }
 }
 
@@ -473,8 +562,7 @@ struct AboutView: View {
                 .foregroundColor(.secondary)
         }
         .padding()
-        .navigationTitle("About")
-        .navigationBarTitleDisplayMode(.inline)
+        .standardNavigationBar(title: "About", displayMode: .inline)
     }
 }
 
@@ -570,7 +658,7 @@ struct PaywallView: View {
                 }
             }
         }
-        .navigationBarTitleDisplayMode(.inline)
+        .standardNavigationBar(title: "", displayMode: .inline)
     }
 
     private func upgradeToPremium() {
@@ -655,6 +743,91 @@ struct PricingCard: View {
     }
 }
 
+// MARK: - Athlete Management View
+
+struct AthleteManagementView: View {
+    let user: User
+    @Binding var selectedAthlete: Athlete?
+    @Environment(\.modelContext) private var modelContext
+    @State private var showingAddAthlete = false
+    @State private var athletePendingDelete: Athlete?
+    @State private var showingDeleteAthleteAlert = false
+    @State private var showDeleteError = false
+    @State private var deleteErrorMessage = ""
+    
+    private var sortedAthletes: [Athlete] {
+        user.athletes.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+    
+    var body: some View {
+        List {
+            Section {
+                ForEach(sortedAthletes) { athlete in
+                    AthleteProfileRow(
+                        athlete: athlete,
+                        isSelected: athlete.id == selectedAthlete?.id
+                    ) {
+                        selectedAthlete = athlete
+                    }
+                }
+                .onDelete { offsets in
+                    if let index = offsets.first, index < sortedAthletes.count {
+                        athletePendingDelete = sortedAthletes[index]
+                        showingDeleteAthleteAlert = true
+                    }
+                }
+            }
+            
+            Section {
+                Button(action: { showingAddAthlete = true }) {
+                    Label("Add Athlete", systemImage: "person.badge.plus")
+                }
+                .tint(.blue)
+            }
+        }
+        .standardNavigationBar(title: "Manage Athletes", displayMode: .inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                EditButton()
+            }
+        }
+        .sheet(isPresented: $showingAddAthlete) {
+            AddAthleteView(user: user, selectedAthlete: $selectedAthlete, isFirstAthlete: user.athletes.isEmpty)
+        }
+        .alert("Delete Athlete", isPresented: $showingDeleteAthleteAlert) {
+            Button("Cancel", role: .cancel) { athletePendingDelete = nil }
+            Button("Delete", role: .destructive) {
+                if let athlete = athletePendingDelete {
+                    delete(athlete: athlete)
+                }
+                athletePendingDelete = nil
+            }
+        } message: {
+            Text("This will delete the athlete and related data. This action cannot be undone.")
+        }
+        .alert("Failed to Delete", isPresented: $showDeleteError) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(deleteErrorMessage.isEmpty ? "Please try again." : deleteErrorMessage)
+        }
+    }
+    
+    private func delete(athlete: Athlete) {
+        // If deleting the selected athlete, select another or none
+        if athlete.id == selectedAthlete?.id {
+            selectedAthlete = user.athletes.first { $0.id != athlete.id }
+        }
+        modelContext.delete(athlete)
+        do {
+            try modelContext.save()
+        } catch {
+            print("Failed to delete athlete: \(error)")
+            deleteErrorMessage = "Failed to delete athlete: \(error.localizedDescription)"
+            showDeleteError = true
+        }
+    }
+}
+
 #Preview {
     ProfileView(user: User(username: "test", email: "test@example.com"), selectedAthlete: .constant(nil))
         .environmentObject(ComprehensiveAuthManager())
@@ -674,86 +847,122 @@ struct MoreView: View {
 
     var body: some View {
         List {
-            // Profile Section
-            Section("Profile") {
-                NavigationLink(destination: ProfileView(user: user, selectedAthlete: $selectedAthlete)) {
-                        HStack {
-                            EditableProfileImageView(user: user, size: 40) {
-                                do {
-                                    try modelContext.save()
-                                } catch {
-                                    print("Failed to save profile image: \(error)")
-                                }
+            // Profile Header (tappable to edit)
+            Section {
+                Button {
+                    // Navigate to edit profile - using notification to avoid nested NavigationStack issues
+                    NotificationCenter.default.post(name: .presentProfileEditor, object: user)
+                } label: {
+                    HStack(spacing: 12) {
+                        EditableProfileImageView(user: user, size: 60) {
+                            do {
+                                try modelContext.save()
+                            } catch {
+                                print("Failed to save profile image: \(error)")
                             }
-                            .clipShape(Circle())
+                        }
+                        .clipShape(Circle())
 
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(user.username)
-                                    .font(.headline)
-                                Text(user.email)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(user.username)
+                                .font(.title3)
+                                .fontWeight(.semibold)
+                                .foregroundColor(.primary)
+                            Text(user.email)
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                        }
+                        
+                        Spacer()
+                        
+                        Image(systemName: "chevron.right")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.vertical, 8)
+                }
+                .buttonStyle(.plain)
+            }
+
+            // Subscription Section
+            Section("Subscription") {
+                NavigationLink(destination: SubscriptionView(user: user)) {
+                    HStack(spacing: 12) {
+                        Image(systemName: user.isPremium ? "crown.fill" : "crown")
+                            .font(.title3)
+                            .foregroundColor(.yellow)
+                            .frame(width: 28)
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(user.isPremium ? "Premium Member" : "Upgrade to Premium")
+                                .fontWeight(.semibold)
+                            if !user.isPremium {
+                                Text("Unlock all features")
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                             }
                         }
-                    }
-                }
 
-                // Subscription Section
-                Section("Subscription") {
-                    NavigationLink(destination: SubscriptionView(user: user)) {
-                        HStack {
-                            Image(systemName: user.isPremium ? "crown.fill" : "crown")
-                                .foregroundColor(.yellow)
+                        Spacer()
 
-                            VStack(alignment: .leading) {
-                                Text(user.isPremium ? "Premium Member" : "Upgrade to Premium")
-                                    .fontWeight(.semibold)
-                                if !user.isPremium {
-                                    Text("Unlimited athletes, advanced stats, and more")
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                } else {
-                                    Text("Active")
-                                        .font(.caption)
-                                        .foregroundColor(.green)
-                                }
-                            }
-
-                            Spacer()
-
-                            if user.isPremium {
-                                Text("Active")
-                                    .font(.caption)
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 4)
-                                    .background(Color.green)
-                                    .foregroundColor(.white)
-                                    .cornerRadius(4)
-                            }
+                        if user.isPremium {
+                            Text("Active")
+                                .font(.caption)
+                                .fontWeight(.medium)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(Color.green.opacity(0.15))
+                                .foregroundColor(.green)
+                                .cornerRadius(6)
                         }
                     }
                 }
+            }
 
-                // Settings Section
-                Section("Settings") {
-                    NavigationLink(destination: SettingsView(user: user)) {
-                        Label("Settings", systemImage: "gearshape")
+            // Management Section - Only show when athlete is selected
+            if let athlete = selectedAthlete {
+                Section("Management") {
+                    NavigationLink(destination: SeasonsView(athlete: athlete)) {
+                        Label("Seasons", systemImage: "calendar")
                     }
-
-                    NavigationLink(destination: NotificationSettingsView()) {
-                        Label("Notifications", systemImage: "bell")
-                    }
-
-                    NavigationLink(destination: HelpSupportView()) {
-                        Label("Help & Support", systemImage: "questionmark.circle")
-                    }
-
-                    NavigationLink(destination: AboutView()) {
-                        Label("About PlayerPath", systemImage: "info.circle")
+                    
+                    NavigationLink(destination: CoachesView(athlete: athlete)) {
+                        Label("Coaches", systemImage: "person.3.fill")
                     }
                 }
+            }
 
-                // Account Section
+            // Settings Section
+            Section("Settings") {
+                NavigationLink(destination: SettingsView(user: user)) {
+                    Label("App Settings", systemImage: "gearshape")
+                }
+                
+                NavigationLink(destination: VideoRecordingSettingsView()) {
+                    Label("Video Recording", systemImage: "video.fill")
+                }
+
+                NavigationLink(destination: SecuritySettingsView(authManager: authManager)) {
+                    Label("Account & Security", systemImage: "lock.shield")
+                }
+
+                NavigationLink(destination: NotificationSettingsView()) {
+                    Label("Notifications", systemImage: "bell")
+                }
+            }
+            
+            // Support Section
+            Section("Support") {
+                NavigationLink(destination: HelpSupportView()) {
+                    Label("Help & Support", systemImage: "questionmark.circle")
+                }
+
+                NavigationLink(destination: AboutView()) {
+                    Label("About PlayerPath", systemImage: "info.circle")
+                }
+            }
+
+            // Account Section
                 Section {
                     Button("Sign Out") {
                         showingSignOutAlert = true
@@ -762,7 +971,7 @@ struct MoreView: View {
                     .foregroundColor(.red)
                 }
             }
-            .navigationTitle("More")
+            .standardNavigationBar(title: "More", displayMode: .large)
             .alert("Sign Out", isPresented: $showingSignOutAlert) {
             Button("Cancel", role: .cancel) { }
             Button("Sign Out", role: .destructive) {
@@ -797,8 +1006,7 @@ struct SubscriptionView: View {
                 pricingSection
             }
         }
-        .navigationTitle("Subscription")
-        .navigationBarTitleDisplayMode(.large)
+        .standardNavigationBar(title: "Subscription", displayMode: .large)
         .sheet(isPresented: $showingPaywall) {
             PaywallView(user: user)
         }

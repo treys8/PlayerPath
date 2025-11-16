@@ -6,12 +6,13 @@
 //
 
 import AVFoundation
+import UIKit
 import os
 
 private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.app", category: "CameraPermissionManager")
 
 @MainActor
-final class CameraPermissionManager: ObservableObject {
+final class CameraPermissionManager {
     
     enum PermissionStatus {
         case authorized

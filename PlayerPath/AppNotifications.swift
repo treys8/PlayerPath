@@ -13,6 +13,9 @@ enum AppEvent {
     case presentAddGame(Any?)
     case presentFullscreenVideo(Any?)
     case reactivateGame(Any?)
+    case presentSeasons(Athlete)
+    case presentCoaches(Athlete)
+    case presentProfileEditor(User)
 }
 
 extension Notification.Name {
@@ -24,6 +27,9 @@ extension Notification.Name {
     static let presentAddGame = Notification.Name("presentAddGame")
     static let presentFullscreenVideo = Notification.Name("presentFullscreenVideo")
     static let reactivateGame = Notification.Name("reactivateGame")
+    static let presentSeasons = Notification.Name("presentSeasons")
+    static let presentCoaches = Notification.Name("presentCoaches")
+    static let presentProfileEditor = Notification.Name("presentProfileEditor")
 }
 
 @inline(__always)
@@ -45,6 +51,12 @@ func post(_ event: AppEvent) {
         NotificationCenter.default.post(name: .presentFullscreenVideo, object: payload)
     case .reactivateGame(let payload):
         NotificationCenter.default.post(name: .reactivateGame, object: payload)
+    case .presentSeasons(let athlete):
+        NotificationCenter.default.post(name: .presentSeasons, object: athlete)
+    case .presentCoaches(let athlete):
+        NotificationCenter.default.post(name: .presentCoaches, object: athlete)
+    case .presentProfileEditor(let user):
+        NotificationCenter.default.post(name: .presentProfileEditor, object: user)
     }
 }
 

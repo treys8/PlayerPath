@@ -1154,7 +1154,6 @@ struct FirstAthleteCreationView: View {
     @Binding var selectedAthlete: Athlete?
     let authManager: ComprehensiveAuthManager
     @State private var showingAddAthlete = false
-    @State private var showingSecuritySettings = false
     
     var body: some View {
         NavigationStack {
@@ -1252,37 +1251,18 @@ struct FirstAthleteCreationView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    Menu {
-                        Button("Security Settings") {
-                            showingSecuritySettings = true
+                    Button("Sign Out", role: .destructive) {
+                        Task {
+                            await authManager.signOut()
                         }
-                        
-                        Button("Athletes") {
-                            NotificationCenter.default.post(name: .showAthleteSelection, object: nil)
-                        }
-                        
-                        Divider()
-                        
-                        Button("Sign Out", role: .destructive) {
-                            Task {
-                                await authManager.signOut()
-                            }
-                        }
-                    } label: {
-                        Label("Profile", systemImage: "person.circle")
                     }
-                    .accessibilityLabel("Profile menu")
-                    .accessibilityHint("Open profile options including sign out and security settings")
+                    .accessibilityLabel("Sign out")
+                    .accessibilityHint("Sign out of your account")
                 }
             }
         }
         .sheet(isPresented: $showingAddAthlete) {
             AddAthleteView(user: user, selectedAthlete: $selectedAthlete, isFirstAthlete: true)
-        }
-        .sheet(isPresented: $showingSecuritySettings) {
-            NavigationStack {
-                SecuritySettingsView(authManager: authManager)
-            }
         }
     }
 }
@@ -1295,7 +1275,6 @@ struct AthleteSelectionView: View {
     @Binding var selectedAthlete: Athlete?
     let authManager: ComprehensiveAuthManager
     @State private var showingAddAthlete = false
-    @State private var showingSecuritySettings = false
     
     @State private var searchText: String = ""
     
@@ -1379,27 +1358,13 @@ struct AthleteSelectionView: View {
             .navigationBarBackButtonHidden(true)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    Menu {
-                        Button("Security Settings") {
-                            showingSecuritySettings = true
+                    Button("Sign Out", role: .destructive) {
+                        Task {
+                            await authManager.signOut()
                         }
-                        
-                        Button("Athletes") {
-                            // No direct action here; parent flow can handle navigation by resetting selection if supported
-                        }
-                        
-                        Divider()
-                        
-                        Button("Sign Out", role: .destructive) {
-                            Task {
-                                await authManager.signOut()
-                            }
-                        }
-                    } label: {
-                        Label("Profile", systemImage: "person.circle")
                     }
-                    .accessibilityLabel("Profile menu")
-                    .accessibilityHint("Open profile options including sign out and security settings")
+                    .accessibilityLabel("Sign out")
+                    .accessibilityHint("Sign out of your account")
                 }
                 
                 ToolbarItem(placement: .navigationBarTrailing) {
@@ -1414,11 +1379,6 @@ struct AthleteSelectionView: View {
         }
         .sheet(isPresented: $showingAddAthlete) {
             AddAthleteView(user: user, selectedAthlete: $selectedAthlete, isFirstAthlete: false)
-        }
-        .sheet(isPresented: $showingSecuritySettings) {
-            NavigationStack {
-                SecuritySettingsView(authManager: authManager)
-            }
         }
     }
 }
@@ -1470,13 +1430,13 @@ struct AthleteCard: View {
                 
                 // Quick stats if available
                 HStack(spacing: 16) {
-                    StatBadge(
+                    AthleteStatBadge(
                         icon: "video.fill",
                         count: athlete.videoClips.count,
                         label: "Videos"
                     )
                     
-                    StatBadge(
+                    AthleteStatBadge(
                         icon: "sportscourt.fill",
                         count: athlete.games.count,
                         label: "Games"
@@ -1507,7 +1467,7 @@ struct AthleteCard: View {
     }
 }
 
-struct StatBadge: View {
+struct AthleteStatBadge: View {
     let icon: String
     let count: Int
     let label: String
@@ -1779,10 +1739,7 @@ struct AddAthleteView: View {
             // athlete.statistics = statistics
             // statistics.athlete = athlete
             
-            // Add to user's athletes array
-            user.athletes.append(athlete)
-            
-            // Insert in correct order: user first (should already exist), then athlete, then statistics
+            // Insert in model context first
             modelContext.insert(athlete)
             // modelContext.insert(statistics)
             
@@ -1797,8 +1754,16 @@ struct AddAthleteView: View {
                 try modelContext.save()
                 #if DEBUG
                 print("🟢 Successfully saved athlete '\(trimmedName)' with ID: \(athlete.id)")
-                print("🟢 User now has \(user.athletes.count) athletes")
                 #endif
+                
+                // Add to user's athletes array AFTER successful save
+                // This prevents the duplicate check from seeing the athlete before it's actually saved
+                await MainActor.run {
+                    user.athletes.append(athlete)
+                    #if DEBUG
+                    print("🟢 User now has \(user.athletes.count) athletes")
+                    #endif
+                }
                 
                 // Auto-select the new athlete
                 await MainActor.run {
@@ -1828,6 +1793,8 @@ struct AddAthleteView: View {
                 await MainActor.run {
                     successMessage = message
                     isCreatingAthlete = false
+                    // Clear the text field to prevent duplicate validation warnings
+                    athleteName = ""
                     // Slight delay before alert for better UX
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                         showingSuccessAlert = true
@@ -1835,11 +1802,6 @@ struct AddAthleteView: View {
                 }
             } catch {
                 await MainActor.run {
-                    // Remove from user's athletes array if save failed
-                    if let index = user.athletes.firstIndex(where: { $0.id == athlete.id }) {
-                        user.athletes.remove(at: index)
-                    }
-                    
                     isCreatingAthlete = false
                     if error.localizedDescription.contains("unique") || error.localizedDescription.contains("duplicate") {
                         validationErrorMessage = "An athlete with this name already exists. Please choose a different name."
@@ -1870,6 +1832,296 @@ struct ValidationRequirement: View {
                 .font(.caption2)
                 .foregroundColor(isMet ? .green : .gray)
         }
+    }
+}
+
+// MARK: - Modern Video Quality Picker
+
+/// Modern segmented picker for video quality selection with detailed information
+struct VideoQualityPickerView: View {
+    @Binding var selectedQuality: UIImagePickerController.QualityType
+    @Environment(\.dismiss) private var dismiss
+    
+    // Quality mapping
+    private let qualities: [UIImagePickerController.QualityType] = [
+        .typeHigh, .typeMedium, .typeLow, .type640x480
+    ]
+    
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                // Segmented picker section
+                VStack(alignment: .leading, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Select Quality")
+                            .font(.headline)
+                            .foregroundStyle(.primary)
+                        
+                        Text("Choose the video quality for your recordings")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    
+                    Picker("Quality", selection: $selectedQuality) {
+                        ForEach(qualities, id: \.self) { quality in
+                            Text(qualityShortName(for: quality)).tag(quality)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                }
+                .padding()
+                .background(Color(.systemBackground))
+                
+                Divider()
+                
+                // Detail card section
+                ScrollView {
+                    VStack(spacing: 20) {
+                        QualityDetailCard(quality: selectedQuality)
+                            .transition(.opacity.combined(with: .scale(scale: 0.95)))
+                        
+                        // Additional information
+                        VStack(alignment: .leading, spacing: 12) {
+                            Label("Storage Impact", systemImage: "internaldrive")
+                                .font(.subheadline)
+                                .fontWeight(.semibold)
+                                .foregroundStyle(.primary)
+                            
+                            Text("Higher quality produces larger files. Choose based on your available storage and intended use.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                            
+                            // Quick comparison
+                            VStack(alignment: .leading, spacing: 8) {
+                                QualityComparisonRow(
+                                    quality: .typeHigh,
+                                    isSelected: selectedQuality == .typeHigh
+                                )
+                                QualityComparisonRow(
+                                    quality: .typeMedium,
+                                    isSelected: selectedQuality == .typeMedium
+                                )
+                                QualityComparisonRow(
+                                    quality: .typeLow,
+                                    isSelected: selectedQuality == .typeLow
+                                )
+                                QualityComparisonRow(
+                                    quality: .type640x480,
+                                    isSelected: selectedQuality == .type640x480
+                                )
+                            }
+                            .padding(.top, 4)
+                        }
+                        .padding()
+                        .background(Color(.secondarySystemBackground))
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                    }
+                    .padding()
+                }
+                .background(Color(.systemGroupedBackground))
+            }
+            .navigationTitle("Video Quality")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") {
+                        // Save preference
+                        UserDefaults.standard.set(selectedQuality.rawValue, forKey: "selectedVideoQuality")
+                        Haptics.light()
+                        dismiss()
+                    }
+                    .fontWeight(.semibold)
+                }
+            }
+        }
+        .animation(.spring(response: 0.35, dampingFraction: 0.8), value: selectedQuality)
+    }
+    
+    private func qualityShortName(for quality: UIImagePickerController.QualityType) -> String {
+        switch quality {
+        case .typeHigh: return "High"
+        case .typeMedium: return "Med"
+        case .typeLow: return "Low"
+        case .type640x480: return "SD"
+        default: return "High"
+        }
+    }
+}
+
+// MARK: - Quality Detail Card
+
+struct QualityDetailCard: View {
+    let quality: UIImagePickerController.QualityType
+    
+    private var qualityInfo: (name: String, resolution: String, mbPerMinute: Double, maxSize: String, icon: String, color: Color, description: String) {
+        switch quality {
+        case .typeHigh:
+            return ("High Quality", "1080p", 60.0, "600MB", "sparkles.tv.fill", .purple, "Best quality for sharing and editing")
+        case .typeMedium:
+            return ("Medium Quality", "720p", 25.0, "250MB", "tv.fill", .blue, "Good balance of quality and file size")
+        case .typeLow:
+            return ("Low Quality", "480p", 10.0, "100MB", "tv", .green, "Smaller files, faster uploads")
+        case .type640x480:
+            return ("SD Quality", "480p", 8.0, "80MB", "tv.and.mediabox", .orange, "Minimum quality for quick sharing")
+        default:
+            return ("High Quality", "1080p", 60.0, "600MB", "sparkles.tv.fill", .purple, "Best quality")
+        }
+    }
+    
+    var body: some View {
+        let info = qualityInfo
+        
+        VStack(spacing: 0) {
+            // Header
+            HStack(spacing: 12) {
+                Image(systemName: info.icon)
+                    .font(.title2)
+                    .foregroundStyle(info.color)
+                    .frame(width: 36, height: 36)
+                    .background(
+                        Circle()
+                            .fill(info.color.opacity(0.15))
+                    )
+                
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(info.name)
+                        .font(.headline)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(.primary)
+                    
+                    Text(info.resolution)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                
+                Spacer()
+                
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+                    .font(.title3)
+                    .symbolEffect(.bounce, value: quality)
+            }
+            .padding()
+            
+            Divider()
+            
+            // Stats
+            HStack(spacing: 0) {
+                QualityStatItem(
+                    icon: "arrow.down.circle.fill",
+                    label: "Per Minute",
+                    value: "~\(Int(info.mbPerMinute))MB",
+                    color: info.color
+                )
+                
+                Divider()
+                    .frame(height: 50)
+                
+                QualityStatItem(
+                    icon: "doc.fill",
+                    label: "Max Size",
+                    value: info.maxSize,
+                    color: info.color
+                )
+            }
+            .padding(.vertical, 12)
+            
+            Divider()
+            
+            // Description
+            HStack(spacing: 8) {
+                Image(systemName: "info.circle.fill")
+                    .font(.caption)
+                    .foregroundStyle(info.color)
+                
+                Text(info.description)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                
+                Spacer()
+            }
+            .padding()
+            .background(info.color.opacity(0.05))
+        }
+        .background(Color(.secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(info.color.opacity(0.3), lineWidth: 1.5)
+        )
+    }
+}
+
+// MARK: - Quality Stat Item
+
+struct QualityStatItem: View {
+    let icon: String
+    let label: String
+    let value: String
+    let color: Color
+    
+    var body: some View {
+        VStack(spacing: 6) {
+            Image(systemName: icon)
+                .font(.title3)
+                .foregroundStyle(color)
+            
+            Text(value)
+                .font(.subheadline)
+                .fontWeight(.semibold)
+                .foregroundStyle(.primary)
+            
+            Text(label)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+    }
+}
+
+// MARK: - Quality Comparison Row
+
+struct QualityComparisonRow: View {
+    let quality: UIImagePickerController.QualityType
+    let isSelected: Bool
+    
+    private var qualityInfo: (name: String, size: String, color: Color) {
+        switch quality {
+        case .typeHigh:
+            return ("High (1080p)", "~60MB/min", .purple)
+        case .typeMedium:
+            return ("Medium (720p)", "~25MB/min", .blue)
+        case .typeLow:
+            return ("Low (480p)", "~10MB/min", .green)
+        case .type640x480:
+            return ("SD (480p)", "~8MB/min", .orange)
+        default:
+            return ("High", "~60MB/min", .purple)
+        }
+    }
+    
+    var body: some View {
+        let info = qualityInfo
+        
+        HStack(spacing: 12) {
+            Circle()
+                .fill(isSelected ? info.color : Color(.systemGray4))
+                .frame(width: 8, height: 8)
+            
+            Text(info.name)
+                .font(.caption)
+                .foregroundStyle(isSelected ? .primary : .secondary)
+                .fontWeight(isSelected ? .medium : .regular)
+            
+            Spacer()
+            
+            Text(info.size)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+        }
+        .padding(.vertical, 2)
     }
 }
 
@@ -1904,13 +2156,7 @@ struct SecuritySettingsView: View {
         }
         .navigationTitle("Security Settings")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button("Done") {
-                    dismiss()
-                }
-            }
-        }
+        .navigationBarBackButtonHidden(false)
         .alert("Change Password", isPresented: $showingChangePassword) {
             Button("Send Reset Email") {
                 Task {
@@ -1945,7 +2191,13 @@ struct MainTabView: View {
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @State private var selectedTab: Int = MainTab.home.rawValue
     @State private var hideFloatingRecordButton = false
+    @State private var showingSeasons = false
+    @State private var showingCoaches = false
     @Environment(\.modelContext) private var modelContext
+    
+    // Swipe gesture tracking
+    @GestureState private var dragOffset: CGFloat = 0
+    @State private var tabTransition: AnyTransition = .identity
 
     private func applyRecordedHitResult(_ info: [String: Any]) {
         guard let hitType = info["hitType"] as? String else { return }
@@ -1965,117 +2217,224 @@ struct MainTabView: View {
         do { try modelContext.save() } catch { print("Failed to toggle tournament active: \(error)") }
     }
     
-    var body: some View {
-        TabView(selection: $selectedTab) {
-            // Home Tab
-            NavigationStack {
-                DashboardView(user: user, athlete: selectedAthlete, authManager: authManager)
-            }
-            .tabItem {
-                Image(systemName: "house.fill")
-                Text("Home")
-            }
-            .tag(MainTab.home.rawValue)
-            
-            // Tournaments Tab (inserted after Home)
-            NavigationStack {
-                TournamentsView(athlete: selectedAthlete)
-            }
-            .tabItem {
-                Image(systemName: "trophy.fill")
-                Text("Tournaments")
-            }
-            .tag(MainTab.tournaments.rawValue)
-            
-            // Games Tab (shifted tag from 1 to 2)
-            NavigationStack {
-                GamesView(athlete: selectedAthlete)
-            }
-            .tabItem {
-                Image(systemName: "baseball.fill")
-                Text("Games")
-            }
-            .tag(MainTab.games.rawValue)
-            
-            // Stats Tab (shifted tag from 2 to 3)
-            NavigationStack {
-                StatisticsView(athlete: selectedAthlete)
-            }
-            .tabItem {
-                Image(systemName: "chart.bar.fill")
-                Text("Stats")
-            }
-            .tag(MainTab.stats.rawValue)
-            
-            // Practice Tab (inserted after Stats) replaced to use PracticesView
-            NavigationStack {
-                PracticesView(athlete: selectedAthlete)
-            }
-            .tabItem {
-                Image(systemName: "figure.run")
-                Text("Practice")
-            }
-            .tag(MainTab.practice.rawValue)
-            
-            // Videos Tab (shifted tag from 3 to 5)
-            NavigationStack {
-                VideoClipsView(athlete: selectedAthlete)
-            }
-            .tabItem {
-                Image(systemName: "video.fill")
-                Text("Videos")
-            }
-            .tag(MainTab.videos.rawValue)
-            
-            // Highlights Tab (new)
-            NavigationStack {
-                HighlightsView(athlete: selectedAthlete)
-            }
-            .tabItem {
-                Image(systemName: "star.fill")
-                Text("Highlights")
-            }
-            .tag(MainTab.highlights.rawValue)
-            
-            // Profile Tab updated icon and tag
-            NavigationStack {
-                MoreView(user: user, selectedAthlete: Binding(
-                    get: { selectedAthlete },
-                    set: { selectedAthlete = $0 ?? selectedAthlete }
-                ))
-            }
-            .tabItem {
-                Image(systemName: "person.crop.circle")
-                Text("Profile")
-            }
-            .tag(MainTab.profile.rawValue)
+    // MARK: - Tab Navigation Helpers
+    
+    private func navigateToTab(_ direction: SwipeDirection) {
+        let maxTab = MainTab.profile.rawValue
+        var newTab = selectedTab
+        
+        switch direction {
+        case .left:
+            // Swipe left = next tab
+            newTab = min(selectedTab + 1, maxTab)
+        case .right:
+            // Swipe right = previous tab
+            newTab = max(selectedTab - 1, 0)
         }
-        .tint(.blue)
-        .onReceive(NotificationCenter.default.publisher(for: .switchTab)) { notification in
-            if let index = notification.object as? Int {
-                selectedTab = index
+        
+        if newTab != selectedTab {
+            Haptics.selection()
+            withAnimation(.easeInOut(duration: 0.3)) {
+                selectedTab = newTab
+            }
+        }
+    }
+    
+    private enum SwipeDirection {
+        case left, right
+    }
+    
+    var body: some View {
+        tabViewContent
+            .tint(.blue)
+            .onAppear {
+                restoreSelectedTab()
+            }
+            .onChange(of: selectedTab) { _, newValue in
+                saveSelectedTab(newValue)
+                // Reset when leaving Videos tab
+                if newValue != MainTab.videos.rawValue { 
+                    hideFloatingRecordButton = false 
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .switchTab)) { notification in
+                if let index = notification.object as? Int {
+                    selectedTab = index
+                    Haptics.light()
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .presentVideoRecorder)) { _ in
+                selectedTab = MainTab.videos.rawValue
                 Haptics.light()
             }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .presentVideoRecorder)) { _ in
-            // Ensure the Videos tab becomes active so its view can present the recorder
-            selectedTab = MainTab.videos.rawValue
-            Haptics.light()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .recordedHitResult)) { notification in
-            if let info = notification.object as? [String: Any] {
-                applyRecordedHitResult(info)
+            .onReceive(NotificationCenter.default.publisher(for: .recordedHitResult)) { notification in
+                if let info = notification.object as? [String: Any] {
+                    applyRecordedHitResult(info)
+                }
             }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .videosManageOwnControls)) { notification in
-            if let flag = notification.object as? Bool {
-                hideFloatingRecordButton = flag
+            .onReceive(NotificationCenter.default.publisher(for: .videosManageOwnControls)) { notification in
+                if let flag = notification.object as? Bool {
+                    hideFloatingRecordButton = flag
+                }
             }
+            .onReceive(NotificationCenter.default.publisher(for: .presentSeasons)) { _ in
+                showingSeasons = true
+                Haptics.light()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .presentCoaches)) { _ in
+                showingCoaches = true
+                Haptics.light()
+            }
+            .sheet(isPresented: $showingSeasons) {
+                SeasonsView(athlete: selectedAthlete)
+            }
+            .sheet(isPresented: $showingCoaches) {
+                CoachesView(athlete: selectedAthlete)
+            }
+            .addKeyboardShortcuts()
+    }
+    
+    @ViewBuilder
+    private var tabViewContent: some View {
+        TabView(selection: $selectedTab) {
+            homeTab
+            tournamentsTab
+            gamesTab
+            statsTab
+            practiceTab
+            videosTab
+            highlightsTab
+            moreTab
         }
-        .onChange(of: selectedTab) { _, newValue in
-            // Reset when leaving Videos tab
-            if newValue != MainTab.videos.rawValue { hideFloatingRecordButton = false }
+    }
+    
+    private var homeTab: some View {
+        NavigationStack {
+            DashboardView(user: user, athlete: selectedAthlete, authManager: authManager)
         }
+        .tabItem {
+            Label("Home", systemImage: "house.fill")
+        }
+        .tag(MainTab.home.rawValue)
+        .accessibilityLabel("Home tab")
+        .accessibilityHint("View your dashboard and quick actions")
+    }
+    
+    private var tournamentsTab: some View {
+        NavigationStack {
+            TournamentsView(athlete: selectedAthlete)
+        }
+        .tabItem {
+            Label("Tournaments", systemImage: "trophy.fill")
+        }
+        .tag(MainTab.tournaments.rawValue)
+        .accessibilityLabel("Tournaments tab")
+        .accessibilityHint("View and manage tournaments")
+    }
+    
+    private var gamesTab: some View {
+        NavigationStack {
+            GamesView(athlete: selectedAthlete)
+        }
+        .tabItem {
+            Label("Games", systemImage: "baseball.fill")
+        }
+        .tag(MainTab.games.rawValue)
+        .accessibilityLabel("Games tab")
+        .accessibilityHint("View and manage games")
+    }
+    
+    private var statsTab: some View {
+        NavigationStack {
+            StatisticsView(athlete: selectedAthlete)
+        }
+        .tabItem {
+            Label("Stats", systemImage: "chart.bar.fill")
+        }
+        .tag(MainTab.stats.rawValue)
+        .accessibilityLabel("Statistics tab")
+        .accessibilityHint("View batting statistics and performance metrics")
+    }
+    
+    private var practiceTab: some View {
+        NavigationStack {
+            PracticesView(athlete: selectedAthlete)
+        }
+        .tabItem {
+            Label("Practice", systemImage: "figure.run")
+        }
+        .tag(MainTab.practice.rawValue)
+        .accessibilityLabel("Practice tab")
+        .accessibilityHint("View and manage practice sessions")
+    }
+    
+    private var videosTab: some View {
+        NavigationStack {
+            VideoClipsView(athlete: selectedAthlete)
+        }
+        .tabItem {
+            Label("Videos", systemImage: "video.fill")
+        }
+        .tag(MainTab.videos.rawValue)
+        .accessibilityLabel("Videos tab")
+        .accessibilityHint("View and record video clips")
+    }
+    
+    private var highlightsTab: some View {
+        NavigationStack {
+            HighlightsView(athlete: selectedAthlete)
+        }
+        .tabItem {
+            Label("Highlights", systemImage: "star.fill")
+        }
+        .tag(MainTab.highlights.rawValue)
+        .accessibilityLabel("Highlights tab")
+        .accessibilityHint("View your best plays and highlight reels")
+    }
+    
+    private var moreTab: some View {
+        NavigationStack {
+            MoreView(user: user, selectedAthlete: Binding(
+                get: { selectedAthlete },
+                set: { selectedAthlete = $0 ?? selectedAthlete }
+            ))
+        }
+        .tabItem {
+            Label("More", systemImage: "line.3.horizontal")
+        }
+        .tag(MainTab.profile.rawValue)
+        .accessibilityLabel("More tab")
+        .accessibilityHint("Access settings, profile, and additional features")
+    }
+    
+    // MARK: - State Restoration
+    
+    private func saveSelectedTab(_ tab: Int) {
+        UserDefaults.standard.set(tab, forKey: "LastSelectedTab")
+    }
+    
+    private func restoreSelectedTab() {
+        let savedTab = UserDefaults.standard.integer(forKey: "LastSelectedTab")
+        // Only restore if it's a valid tab index
+        if (0...MainTab.profile.rawValue).contains(savedTab) {
+            selectedTab = savedTab
+        }
+    }
+}
+
+// MARK: - Keyboard Shortcuts Extension
+extension View {
+    @ViewBuilder
+    func addKeyboardShortcuts() -> some View {
+        self
+            .keyboardShortcut("1", modifiers: .command)
+            .keyboardShortcut("2", modifiers: .command)
+            .keyboardShortcut("3", modifiers: .command)
+            .keyboardShortcut("4", modifiers: .command)
+            .keyboardShortcut("5", modifiers: .command)
+            .keyboardShortcut("6", modifiers: .command)
+            .keyboardShortcut("7", modifiers: .command)
+            .keyboardShortcut("8", modifiers: .command)
     }
 }
 
@@ -2088,7 +2447,7 @@ struct DashboardView: View {
     @Environment(\.dismiss) private var dismiss
     
     @State private var showingRecorderDirectly = false
-    @State private var selectedLiveGameForRecording: Game?
+    @State private var isRefreshing = false
     
     var liveGames: [Game] {
         athlete.games
@@ -2200,46 +2559,46 @@ struct DashboardView: View {
                 
                 // Live Section (Games and Tournaments)
                 if !liveGames.isEmpty || !liveTournaments.isEmpty {
-                    VStack(spacing: 16) {
+                    VStack(spacing: 12) {
                         HStack {
                             Text("Live")
                                 .font(.headline)
                                 .fontWeight(.semibold)
                             Spacer()
                         }
-                        .padding(.horizontal)
                         
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 12) {
-                                ForEach(liveGames, id: \.id) { game in
-                                    NavigationLink {
-                                        GameDetailView(game: game)
-                                    } label: {
-                                        DashboardGameCard(
-                                            game: game,
-                                            onOpen: { /* Navigation handled by NavigationLink automatically */ },
-                                            onToggleLive: { toggleGameLive(game) }
-                                        )
-                                    }
+                        // Display as vertical list for compactness
+                        VStack(spacing: 8) {
+                            ForEach(liveGames, id: \.id) { game in
+                                NavigationLink {
+                                    GameDetailView(game: game)
+                                } label: {
+                                    DashboardGameCard(
+                                        game: game,
+                                        onOpen: { /* Navigation handled by NavigationLink automatically */ },
+                                        onToggleLive: { toggleGameLive(game) }
+                                    )
                                 }
-                                ForEach(liveTournaments, id: \.id) { tournament in
-                                    NavigationLink {
-                                        TournamentDetailView(tournament: tournament)
-                                    } label: {
-                                        DashboardTournamentCard(
-                                            tournament: tournament,
-                                            onOpen: { /* Navigation handled by NavigationLink automatically */ },
-                                            onToggleActive: { toggleTournamentActive(tournament) }
-                                        )
-                                    }
-                                }
+                                .buttonStyle(.plain)
                             }
-                            .padding(.horizontal)
+                            
+                            ForEach(liveTournaments, id: \.id) { tournament in
+                                NavigationLink {
+                                    TournamentDetailView(tournament: tournament)
+                                } label: {
+                                    DashboardTournamentCard(
+                                        tournament: tournament,
+                                        onOpen: { /* Navigation handled by NavigationLink automatically */ },
+                                        onToggleActive: { toggleTournamentActive(tournament) }
+                                    )
+                                }
+                                .buttonStyle(.plain)
+                            }
                         }
                     }
+                    .padding(.horizontal)
                     .transition(.move(edge: .top).combined(with: .opacity))
                     .animation(.easeInOut(duration: 0.25), value: liveGames.count + liveTournaments.count)
-                    .animation(.easeInOut(duration: 0.25), value: liveGames.count + liveTournaments.count) // Animation already there, no change needed
                 }
                 
                 // Quick Actions Section
@@ -2258,18 +2617,24 @@ struct DashboardView: View {
                             color: .blue
                         ) {
                             Task { @MainActor in
+                                // Switch to Games tab
                                 postSwitchTab(.games)
                                 #if DEBUG
                                 print("🎮 New Game quick action - switching to Games tab")
                                 #endif
                                 
-                                // Give the Games tab a moment to mount and attach observers
-                                try? await Task.sleep(nanoseconds: 250_000_000) // 0.25s
+                                // Check if there's a live tournament to associate with the new game
+                                let tournamentContext = liveTournaments.first
                                 
-                                // Ask the Games module to present its Add Game UI immediately
-                                NotificationCenter.default.post(name: .presentAddGame, object: selectedLiveGameForRecording)
+                                // Ask the Games module to present its Add Game UI
+                                // Pass the live tournament as context if available
+                                NotificationCenter.default.post(name: .presentAddGame, object: tournamentContext)
                                 #if DEBUG
-                                print("📣 Posted .presentAddGame notification")
+                                if let tournament = tournamentContext {
+                                    print("📣 Posted .presentAddGame notification with live tournament: \(tournament.name)")
+                                } else {
+                                    print("📣 Posted .presentAddGame notification with no tournament context")
+                                }
                                 #endif
                                 Haptics.light()
                             }
@@ -2284,19 +2649,7 @@ struct DashboardView: View {
                                 print("🎬 Quick Record tapped - Live games: \(liveGames.count)")
                                 #endif
                                 
-                                // Set the live game context for recording
-                                if let liveGame = liveGames.first {
-                                    selectedLiveGameForRecording = liveGame
-                                    #if DEBUG
-                                    print("🎮 Recording for live game: \(liveGame.opponent)")
-                                    #endif
-                                } else {
-                                    selectedLiveGameForRecording = nil
-                                    #if DEBUG
-                                    print("🎬 No live games - quick record mode")
-                                    #endif
-                                }
-                                
+                                // Check permissions first (before any UI changes)
                                 let status = await RecorderPermissions.ensureCapturePermissions(context: "VideoRecorder")
                                 guard status == .granted else {
                                     #if DEBUG
@@ -2305,23 +2658,28 @@ struct DashboardView: View {
                                     return
                                 }
                                 
-                                // Ensure Videos tab is active so the recorder host can present
-                                postSwitchTab(.videos)
+                                // Set the live game context for recording
+                                let gameContext: Game? = liveGames.first
                                 #if DEBUG
-                                print("🔀 Switched to Videos tab, waiting for view to mount observers…")
+                                if let game = gameContext {
+                                    print("🎮 Recording for live game: \(game.opponent)")
+                                } else {
+                                    print("🎬 No live games - quick record mode")
+                                }
                                 #endif
                                 
-                                // Give the Videos tab a short moment to mount and attach observers
-                                try? await Task.sleep(nanoseconds: 250_000_000) // 0.25s
+                                // Switch to Videos tab
+                                postSwitchTab(.videos)
                                 
-                                // Ask Videos module to present its recorder UI with the live game context
-                                NotificationCenter.default.post(name: .presentVideoRecorder, object: selectedLiveGameForRecording)
+                                // Add a small delay to ensure the Videos tab is ready before posting notification
+                                // This ensures VideoClipsView has mounted and is listening for the notification
+                                try? await Task.sleep(nanoseconds: 150_000_000) // 0.15 seconds
+                                
+                                // Post notification with game context
+                                // The Videos tab will handle this when it appears
+                                NotificationCenter.default.post(name: .presentVideoRecorder, object: gameContext)
                                 #if DEBUG
-                                if let game = selectedLiveGameForRecording {
-                                    print("📣 Posted .presentVideoRecorder notification for live game: \(game.opponent)")
-                                } else {
-                                    print("📣 Posted .presentVideoRecorder notification for quick record")
-                                }
+                                print("📣 Posted .presentVideoRecorder notification with game context")
                                 #endif
                                 Haptics.light()
                             }
@@ -2394,6 +2752,32 @@ struct DashboardView: View {
                         ) {
                             postSwitchTab(.stats)
                         }
+                        
+                        DashboardFeatureCard(
+                            icon: "calendar",
+                            title: "Seasons",
+                            subtitle: "\(athlete.seasons.count) Total",
+                            color: .teal
+                        ) {
+                            // Switch to home tab first, then present sheet
+                            postSwitchTab(.home)
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                NotificationCenter.default.post(name: .presentSeasons, object: athlete)
+                            }
+                        }
+                        
+                        DashboardFeatureCard(
+                            icon: "person.3.fill",
+                            title: "Coaches",
+                            subtitle: "0 Coaches",
+                            color: .indigo
+                        ) {
+                            // Switch to home tab first, then present sheet
+                            postSwitchTab(.home)
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                NotificationCenter.default.post(name: .presentCoaches, object: athlete)
+                            }
+                        }
                     }
                 }
                 .padding(.horizontal)
@@ -2464,6 +2848,9 @@ struct DashboardView: View {
             }
             .padding(.vertical)
         }
+        .refreshable {
+            await refreshDashboard()
+        }
         .scrollBounceBehavior(.basedOnSize)
         .navigationTitle("Dashboard")
         .navigationBarTitleDisplayMode(.inline)
@@ -2495,6 +2882,31 @@ struct DashboardView: View {
                 }
                 .accessibilityLabel("Switch athlete")
             }
+        }
+    }
+    
+    // MARK: - Refresh Handler
+    
+    func refreshDashboard() async {
+        guard !isRefreshing else { return }
+        isRefreshing = true
+        
+        // Haptic feedback for refresh
+        await MainActor.run {
+            Haptics.light()
+        }
+        
+        // Simulate data refresh with a small delay for better UX
+        try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+        
+        // Trigger model context refresh to get latest data
+        await MainActor.run {
+            // SwiftData will automatically refresh on next query
+            // No need to manually refresh - just provide visual feedback
+            
+            // Success haptic
+            Haptics.light()
+            isRefreshing = false
         }
     }
 }
@@ -2536,76 +2948,81 @@ struct DashboardGameCard: View {
     var onToggleLive: (() -> Void)? = nil
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // Live indicator at the top if game is live
-            if game.isLive {
-                HStack(spacing: 6) {
+        HStack(spacing: 12) {
+            // Game icon indicator
+            Image(systemName: "baseball.fill")
+                .font(.title3)
+                .foregroundColor(game.isLive ? .red : .blue)
+                .frame(width: 32, height: 32)
+                .background(
                     Circle()
-                        .fill(Color.red)
-                        .frame(width: 8, height: 8)
-                        .overlay(
+                        .fill(game.isLive ? Color.red.opacity(0.1) : Color.blue.opacity(0.1))
+                )
+            
+            // Content
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    if game.isLive {
+                        HStack(spacing: 3) {
                             Circle()
-                                .fill(Color.red.opacity(0.3))
-                                .scaleEffect(1.5)
-                        )
-                        .symbolEffect(.pulse, options: .repeating)
+                                .fill(Color.red)
+                                .frame(width: 6, height: 6)
+                                .symbolEffect(.pulse, options: .repeating)
+                            Text("LIVE")
+                                .font(.caption2)
+                                .fontWeight(.bold)
+                                .foregroundColor(.red)
+                                .textCase(.uppercase)
+                        }
+                    }
                     
-                    Text("LIVE")
+                    Text("GAME")
                         .font(.caption2)
-                        .fontWeight(.bold)
-                        .foregroundColor(.red)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.secondary)
                         .textCase(.uppercase)
-                    
-                    Spacer()
                 }
-                .padding(.bottom, 12)
-                .accessibilityLabel("Live game in progress")
-            }
-            
-            // Opponent name
-            Text(game.opponent)
-                .font(.headline)
-                .fontWeight(.semibold)
-                .foregroundColor(.primary)
-                .lineLimit(2)
-                .minimumScaleFactor(0.85)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.bottom, 8)
-            
-            Spacer()
-            
-            // Date information at bottom
-            if let date = game.date {
-                HStack(spacing: 4) {
-                    Image(systemName: "calendar")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                    Text(date, format: .dateTime.month(.abbreviated).day())
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-            } else {
-                HStack(spacing: 4) {
-                    Image(systemName: "calendar.badge.clock")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
+                
+                // Opponent name
+                Text("vs \(game.opponent)")
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                
+                // Date information
+                if let date = game.date {
+                    HStack(spacing: 4) {
+                        Image(systemName: "calendar")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                        Text(date, format: .dateTime.month(.abbreviated).day())
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                } else {
                     Text("Date TBD")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
             }
+            
+            Spacer()
+            
+            Image(systemName: "chevron.right")
+                .font(.caption)
+                .foregroundColor(.secondary)
         }
-        .padding(16)
-        .frame(width: 180, height: 140)
+        .padding(12)
+        .frame(maxWidth: .infinity)
         .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(game.isLive ? Color.red.opacity(0.03) : Color(.systemBackground))
+            RoundedRectangle(cornerRadius: 10)
+                .fill(game.isLive ? Color.red.opacity(0.05) : Color(.systemBackground))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(game.isLive ? Color.red.opacity(0.2) : Color(.systemGray5), lineWidth: game.isLive ? 2 : 1)
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(game.isLive ? Color.red.opacity(0.3) : Color(.systemGray5), lineWidth: game.isLive ? 1.5 : 1)
         )
-        .shadow(color: game.isLive ? Color.red.opacity(0.1) : Color.black.opacity(0.06), radius: game.isLive ? 8 : 4, x: 0, y: 2)
         .contextMenu {
             Button {
                 Haptics.light()
@@ -2622,6 +3039,7 @@ struct DashboardGameCard: View {
             }
         }
         .accessibilityElement(children: .combine)
+        .accessibilityLabel(game.isLive ? "Live game against \(game.opponent)" : "Game against \(game.opponent)")
     }
     
     private func toggleHapticThen(_ action: (() -> Void)?) { Haptics.light(); action?() }
@@ -2633,76 +3051,81 @@ struct DashboardTournamentCard: View {
     var onToggleActive: (() -> Void)? = nil
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // Live indicator at the top if tournament is active
-            if tournament.isActive {
-                HStack(spacing: 6) {
+        HStack(spacing: 12) {
+            // Tournament icon indicator
+            Image(systemName: "trophy.fill")
+                .font(.title3)
+                .foregroundColor(tournament.isActive ? .orange : .orange.opacity(0.6))
+                .frame(width: 32, height: 32)
+                .background(
                     Circle()
-                        .fill(Color.orange)
-                        .frame(width: 8, height: 8)
-                        .overlay(
+                        .fill(tournament.isActive ? Color.orange.opacity(0.15) : Color.orange.opacity(0.08))
+                )
+            
+            // Content
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    if tournament.isActive {
+                        HStack(spacing: 3) {
                             Circle()
-                                .fill(Color.orange.opacity(0.3))
-                                .scaleEffect(1.5)
-                        )
-                        .symbolEffect(.pulse, options: .repeating)
+                                .fill(Color.orange)
+                                .frame(width: 6, height: 6)
+                                .symbolEffect(.pulse, options: .repeating)
+                            Text("LIVE")
+                                .font(.caption2)
+                                .fontWeight(.bold)
+                                .foregroundColor(.orange)
+                                .textCase(.uppercase)
+                        }
+                    }
                     
-                    Text("LIVE")
+                    Text("TOURNAMENT")
                         .font(.caption2)
-                        .fontWeight(.bold)
-                        .foregroundColor(.orange)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.secondary)
                         .textCase(.uppercase)
-                    
-                    Spacer()
                 }
-                .padding(.bottom, 12)
-                .accessibilityLabel("Live tournament in progress")
-            }
-            
-            // Tournament name
-            Text(tournament.name)
-                .font(.headline)
-                .fontWeight(.semibold)
-                .foregroundColor(.primary)
-                .lineLimit(2)
-                .minimumScaleFactor(0.85)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.bottom, 8)
-            
-            Spacer()
-            
-            // Date information at bottom
-            if let start = tournament.startDate {
-                HStack(spacing: 4) {
-                    Image(systemName: "calendar")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                    Text(start, format: .dateTime.month(.abbreviated).day())
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-            } else {
-                HStack(spacing: 4) {
-                    Image(systemName: "calendar.badge.clock")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
+                
+                // Tournament name
+                Text(tournament.name)
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                
+                // Date information
+                if let start = tournament.startDate {
+                    HStack(spacing: 4) {
+                        Image(systemName: "calendar")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                        Text(start, format: .dateTime.month(.abbreviated).day())
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                } else {
                     Text("Date TBD")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
             }
+            
+            Spacer()
+            
+            Image(systemName: "chevron.right")
+                .font(.caption)
+                .foregroundColor(.secondary)
         }
-        .padding(16)
-        .frame(width: 180, height: 140)
+        .padding(12)
+        .frame(maxWidth: .infinity)
         .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(tournament.isActive ? Color.orange.opacity(0.03) : Color(.systemBackground))
+            RoundedRectangle(cornerRadius: 10)
+                .fill(tournament.isActive ? Color.orange.opacity(0.05) : Color(.systemBackground))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(tournament.isActive ? Color.orange.opacity(0.2) : Color(.systemGray5), lineWidth: tournament.isActive ? 2 : 1)
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(tournament.isActive ? Color.orange.opacity(0.3) : Color(.systemGray5), lineWidth: tournament.isActive ? 1.5 : 1)
         )
-        .shadow(color: tournament.isActive ? Color.orange.opacity(0.1) : Color.black.opacity(0.06), radius: tournament.isActive ? 8 : 4, x: 0, y: 2)
         .contextMenu {
             Button {
                 Haptics.light()
@@ -2720,6 +3143,7 @@ struct DashboardTournamentCard: View {
             }
         }
         .accessibilityElement(children: .combine)
+        .accessibilityLabel(tournament.isActive ? "Live tournament: \(tournament.name)" : "Tournament: \(tournament.name)")
     }
 }
 
@@ -2922,8 +3346,8 @@ struct DashboardFeatureCard: View {
 // 
 // Complete flow for "Record Live" when a game is live:
 // 1. Dashboard detects live games and shows "Record Live" quick action
-// 2. User taps "Record Live" → DashboardView sets selectedLiveGameForRecording to first live game
-// 3. Dashboard switches to Videos tab and posts .presentVideoRecorder with game object
+// 2. User taps "Record Live" → Dashboard gets first live game
+// 3. Dashboard checks permissions, switches to Videos tab, and posts .presentVideoRecorder with game object
 // 4. VideoClipsView receives notification and opens VideoRecorderView_Refactored with live game context
 // 5. VideoRecorderView_Refactored shows "LIVE GAME vs [opponent]" header and auto-opens camera
 // 6. User records video → PlayResultOverlayView links video to the live game
@@ -2939,10 +3363,22 @@ struct DashboardFeatureCard: View {
 // - GameDetailView can post Notification.Name("ReactivateGame") with the game ID/object to mark a game live again if it was ended by mistake.
 // - Videos feature should observe Notification.Name("PresentFullscreenVideo") to present the player in full screen for a given clip.
 
-#Preview {
+#Preview("Main App") {
     PlayerPathMainView()
         .environmentObject(ComprehensiveAuthManager())
         .dynamicTypeSize(.large ... .accessibility3)
+}
+
+#Preview("Video Quality Picker") {
+    struct PreviewWrapper: View {
+        @State private var quality: UIImagePickerController.QualityType = .typeHigh
+        
+        var body: some View {
+            VideoQualityPickerView(selectedQuality: $quality)
+        }
+    }
+    
+    return PreviewWrapper()
 }
 
 // Integration: In VideoClipsView or its recorder container, post .videosManageOwnControls with true when showing its own Record/Upload buttons, and false when dismissed:

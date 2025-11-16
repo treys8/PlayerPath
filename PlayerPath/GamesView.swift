@@ -10,12 +10,18 @@ import SwiftData
 import Foundation
 import Combine
 
-
 struct GamesView: View {
     let athlete: Athlete?
     @Environment(\.modelContext) private var modelContext
     @Query private var allGames: [Game]
     @StateObject private var viewModelHolder = ViewModelHolder()
+    
+    // Error handling
+    @State private var showingError = false
+    @State private var errorMessage = ""
+    
+    // Loading states
+    @State private var isLoading = false
 
     final class ViewModelHolder: ObservableObject {
         @Published var viewModel: GamesViewModel?
@@ -28,136 +34,129 @@ struct GamesView: View {
     @State private var selectedTournament: Tournament?
     @State private var makeGameLive = false
     
+    // Computed properties for cleaner code
+    private var hasGames: Bool {
+        guard let vm = viewModelHolder.viewModel else { return false }
+        return !vm.liveGames.isEmpty || !vm.upcomingGames.isEmpty || 
+               !vm.pastGames.isEmpty || !vm.completedGames.isEmpty
+    }
+    
+    private var liveGames: [Game] { viewModelHolder.viewModel?.liveGames ?? [] }
+    private var upcomingGames: [Game] { viewModelHolder.viewModel?.upcomingGames ?? [] }
+    private var pastGames: [Game] { viewModelHolder.viewModel?.pastGames ?? [] }
+    private var completedGames: [Game] { viewModelHolder.viewModel?.completedGames ?? [] }
+    
     var body: some View {
         Group {
-            if (viewModelHolder.viewModel?.liveGames.isEmpty ?? true)
-                && (viewModelHolder.viewModel?.upcomingGames.isEmpty ?? true)
-                && (viewModelHolder.viewModel?.pastGames.isEmpty ?? true)
-                && (viewModelHolder.viewModel?.completedGames.isEmpty ?? true) {
+            if isLoading {
+                ProgressView("Loading games...")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if !hasGames {
                 EmptyGamesView {
                     showingGameCreation = true
                 }
             } else {
                 List {
                     // Live Games Section
-                    if !(viewModelHolder.viewModel?.liveGames.isEmpty ?? true) {
+                    if !liveGames.isEmpty {
                         Section("Live") {
-                            ForEach(viewModelHolder.viewModel?.liveGames ?? []) { game in
+                            ForEach(liveGames) { game in
                                 NavigationLink(destination: GameDetailView(game: game)) {
                                     GameRow(game: game)
                                 }
                                 .swipeActions(edge: .trailing) {
                                     Button("End") {
-                                        viewModelHolder.viewModel?.end(game)
-                                        viewModelHolder.viewModel?.update(allGames: allGames)
+                                        endGame(game)
                                     }
                                     .tint(.red)
                                 }
                             }
                             .onDelete { indexSet in
-                                let items = viewModelHolder.viewModel?.liveGames ?? []
-                                for index in indexSet { viewModelHolder.viewModel?.deleteDeep(items[index]) }
-                                viewModelHolder.viewModel?.update(allGames: allGames)
+                                deleteGames(from: liveGames, at: indexSet)
                             }
                         }
                     }
                     
                     // Upcoming Games Section
-                    if !(viewModelHolder.viewModel?.upcomingGames.isEmpty ?? true) {
+                    if !upcomingGames.isEmpty {
                         Section("Upcoming") {
-                            ForEach(viewModelHolder.viewModel?.upcomingGames ?? []) { game in
+                            ForEach(upcomingGames) { game in
                                 NavigationLink(destination: GameDetailView(game: game)) {
                                     GameRow(game: game)
                                 }
                                 .swipeActions(edge: .trailing) {
                                     Button("Start") {
-                                        viewModelHolder.viewModel?.start(game)
-                                        viewModelHolder.viewModel?.update(allGames: allGames)
+                                        startGame(game)
                                     }
                                     .tint(.green)
                                 }
                                 .swipeActions(edge: .leading) {
                                     Button(role: .destructive) {
-                                        viewModelHolder.viewModel?.deleteDeep(game)
-                                        viewModelHolder.viewModel?.update(allGames: allGames)
+                                        deleteGame(game)
                                     } label: {
                                         Text("Delete")
                                     }
                                 }
                             }
                             .onDelete { indexSet in
-                                let items = viewModelHolder.viewModel?.upcomingGames ?? []
-                                for index in indexSet { viewModelHolder.viewModel?.deleteDeep(items[index]) }
-                                viewModelHolder.viewModel?.update(allGames: allGames)
+                                deleteGames(from: upcomingGames, at: indexSet)
                             }
                         }
                     }
                     
                     // Past Games Section (games that happened but weren't marked as complete)
-                    if !(viewModelHolder.viewModel?.pastGames.isEmpty ?? true) {
+                    if !pastGames.isEmpty {
                         Section("Past Games") {
-                            ForEach(viewModelHolder.viewModel?.pastGames ?? []) { game in
+                            ForEach(pastGames) { game in
                                 NavigationLink(destination: GameDetailView(game: game)) {
                                     GameRow(game: game)
                                 }
                                 .swipeActions(edge: .trailing) {
                                     Button("Complete") {
-                                        game.isComplete = true
-                                        do {
-                                            try modelContext.save()
-                                        } catch {
-                                            print("Failed to mark game as complete: \(error)")
-                                        }
+                                        completeGame(game)
                                     }
                                     .tint(.blue)
                                 }
                                 .swipeActions(edge: .leading) {
                                     Button(role: .destructive) {
-                                        viewModelHolder.viewModel?.deleteDeep(game)
-                                        viewModelHolder.viewModel?.update(allGames: allGames)
+                                        deleteGame(game)
                                     } label: {
                                         Text("Delete")
                                     }
                                 }
                             }
                             .onDelete { indexSet in
-                                let items = viewModelHolder.viewModel?.pastGames ?? []
-                                for index in indexSet { viewModelHolder.viewModel?.deleteDeep(items[index]) }
-                                viewModelHolder.viewModel?.update(allGames: allGames)
+                                deleteGames(from: pastGames, at: indexSet)
                             }
                         }
                     }
                     
                     // Completed Games Section
-                    if !(viewModelHolder.viewModel?.completedGames.isEmpty ?? true) {
+                    if !completedGames.isEmpty {
                         Section("Completed") {
-                            ForEach(viewModelHolder.viewModel?.completedGames ?? []) { game in
+                            ForEach(completedGames) { game in
                                 NavigationLink(destination: GameDetailView(game: game)) {
                                     GameRow(game: game)
                                 }
                             }
                             .onDelete { indexSet in
-                                let items = viewModelHolder.viewModel?.completedGames ?? []
-                                for index in indexSet { viewModelHolder.viewModel?.deleteDeep(items[index]) }
-                                viewModelHolder.viewModel?.update(allGames: allGames)
+                                deleteGames(from: completedGames, at: indexSet)
                             }
                         }
                     }
                 }
             }
         }
-        .navigationTitle("Games")
+        .standardNavigationBar(title: "Games", displayMode: .large)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button(action: { showingGameCreation = true }) {
                     Image(systemName: "plus")
                 }
+                .accessibilityLabel("Add new game")
             }
             
-            if !((viewModelHolder.viewModel?.liveGames.isEmpty ?? true)
-                 && (viewModelHolder.viewModel?.upcomingGames.isEmpty ?? true)
-                 && (viewModelHolder.viewModel?.pastGames.isEmpty ?? true)
-                 && (viewModelHolder.viewModel?.completedGames.isEmpty ?? true)) {
+            if hasGames {
                 ToolbarItem(placement: .navigationBarLeading) {
                     EditButton()
                 }
@@ -178,10 +177,151 @@ struct GamesView: View {
                 athlete: athlete,
                 availableTournaments: viewModelHolder.viewModel?.availableTournaments ?? [],
                 onSave: { opponent, date, tournament, isLive in
-                    viewModelHolder.viewModel?.create(opponent: opponent, date: date, tournament: tournament, isLive: isLive)
-                    viewModelHolder.viewModel?.update(allGames: allGames)
+                    createGame(opponent: opponent, date: date, tournament: tournament, isLive: isLive)
                 }
             )
+        }
+        .alert("Error", isPresented: $showingError) {
+            Button("OK") { }
+        } message: {
+            Text(errorMessage)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .presentAddGame)) { _ in
+            showingGameCreation = true
+        }
+    }
+    
+    // MARK: - Helper Methods
+    
+    private func startGame(_ game: Game) {
+        viewModelHolder.viewModel?.start(game)
+        refreshGames()
+    }
+    
+    private func endGame(_ game: Game) {
+        viewModelHolder.viewModel?.end(game)
+        refreshGames()
+    }
+    
+    private func completeGame(_ game: Game) {
+        game.isComplete = true
+        do {
+            try modelContext.save()
+            refreshGames()
+        } catch {
+            showError("Failed to mark game as complete: \(error.localizedDescription)")
+        }
+    }
+    
+    private func deleteGame(_ game: Game) {
+        viewModelHolder.viewModel?.deleteDeep(game)
+        refreshGames()
+    }
+    
+    private func deleteGames(from games: [Game], at indexSet: IndexSet) {
+        for index in indexSet {
+            guard index < games.count else { continue }
+            viewModelHolder.viewModel?.deleteDeep(games[index])
+        }
+        refreshGames()
+    }
+    
+    private func createGame(opponent: String, date: Date, tournament: Tournament?, isLive: Bool) {
+        viewModelHolder.viewModel?.create(opponent: opponent, date: date, tournament: tournament, isLive: isLive)
+        refreshGames()
+    }
+    
+    private func refreshGames() {
+        viewModelHolder.viewModel?.update(allGames: allGames)
+    }
+    
+    private func showError(_ message: String) {
+        errorMessage = message
+        showingError = true
+    }
+}
+
+// MARK: - Game Row View
+struct GameRow: View {
+    let game: Game
+    
+    var body: some View {
+        HStack(spacing: 12) {
+            // Status indicator
+            Circle()
+                .fill(statusColor)
+                .frame(width: 8, height: 8)
+            
+            VStack(alignment: .leading, spacing: 4) {
+                // Opponent name
+                Text("vs \(game.opponent)")
+                    .font(.headline)
+                    .foregroundColor(.primary)
+                
+                // Date and status
+                HStack(spacing: 8) {
+                    if let date = game.date {
+                        Text(date, style: .date)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    
+                    if let tournament = game.tournament {
+                        Text("•")
+                            .foregroundColor(.secondary)
+                        Text(tournament.name)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+            }
+            
+            Spacer()
+            
+            // Status badge
+            if game.isLive {
+                Text("LIVE")
+                    .font(.caption2)
+                    .fontWeight(.bold)
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Color.red)
+                    .cornerRadius(4)
+            } else if game.isComplete {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundColor(.green)
+            }
+            
+            // Stats summary (if available)
+            if let stats = game.gameStats, stats.atBats > 0 {
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text("\(stats.hits)-\(stats.atBats)")
+                        .font(.caption)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.blue)
+                    Text(String(format: "%.3f", Double(stats.hits) / Double(stats.atBats)))
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+        .padding(.vertical, 4)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Game against \(game.opponent)")
+        .accessibilityValue(game.isLive ? "Live" : game.isComplete ? "Completed" : "Scheduled")
+    }
+    
+    private var statusColor: Color {
+        if game.isLive {
+            return .red
+        } else if game.isComplete {
+            return .green
+        } else if let date = game.date, date < Date() {
+            return .orange
+        } else {
+            return .blue
         }
     }
 }
@@ -409,8 +549,7 @@ struct GameDetailView: View {
                 }
             }
         }
-        .navigationTitle("vs \(game.opponent)")
-        .navigationBarTitleDisplayMode(.inline)
+        .standardNavigationBar(title: "vs \(game.opponent)", displayMode: .inline)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Menu {
@@ -518,6 +657,8 @@ struct AddGameView: View {
     @State private var date = Date()
     @State private var selectedTournament: Tournament?
     @State private var startAsLive = false
+    @State private var showingError = false
+    @State private var errorMessage = ""
     
     init(athlete: Athlete? = nil, tournament: Tournament? = nil) {
         self.athlete = athlete
@@ -529,6 +670,11 @@ struct AddGameView: View {
         athlete?.tournaments.filter { $0.isActive } ?? []
     }
     
+    private var isValidOpponent: Bool {
+        let trimmed = opponent.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.count >= 2 && trimmed.count <= 50
+    }
+    
     var body: some View {
         NavigationStack {
             Form {
@@ -536,6 +682,18 @@ struct AddGameView: View {
                     TextField("Opponent", text: $opponent)
                         .textInputAutocapitalization(.words)
                         .autocorrectionDisabled()
+                        .accessibilityLabel("Opponent name")
+                    
+                    if !opponent.isEmpty && !isValidOpponent {
+                        Label {
+                            Text("Opponent name must be 2-50 characters")
+                                .font(.caption)
+                        } icon: {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundColor(.orange)
+                        }
+                    }
+                    
                     DatePicker("Date & Time", selection: $date)
                 }
                 
@@ -570,7 +728,7 @@ struct AddGameView: View {
                     Button("Save") {
                         saveGame()
                     }
-                    .disabled(opponent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(!isValidOpponent)
                 }
             }
             .onAppear {
@@ -579,33 +737,51 @@ struct AddGameView: View {
                 }
             }
         }
+        .alert("Error", isPresented: $showingError) {
+            Button("OK") { }
+        } message: {
+            Text(errorMessage)
+        }
     }
     
     private func saveGame() {
-        guard let athlete = athlete else { return }
+        guard let athlete = athlete else {
+            errorMessage = "No athlete selected"
+            showingError = true
+            return
+        }
+        
+        guard isValidOpponent else {
+            errorMessage = "Please enter a valid opponent name (2-50 characters)"
+            showingError = true
+            return
+        }
+        
+        let trimmedOpponent = opponent.trimmingCharacters(in: .whitespacesAndNewlines)
         
         // Check for existing game with same opponent and date
         let existingGame = athlete.games.first { game in
             if let gameDate = game.date {
-                return game.opponent == opponent && Calendar.current.isDate(gameDate, inSameDayAs: date)
+                return game.opponent.lowercased() == trimmedOpponent.lowercased() && 
+                       Calendar.current.isDate(gameDate, inSameDayAs: date)
             }
             return false
         }
         
         if existingGame != nil {
-            print("Game already exists: \(opponent) on \(date)")
-            dismiss()
+            errorMessage = "A game against \(trimmedOpponent) already exists on this date"
+            showingError = true
             return
         }
         
-        print("Creating new game via AddGameView: \(opponent) for athlete: \(athlete.name)")
+        print("Creating new game via AddGameView: \(trimmedOpponent) for athlete: \(athlete.name)")
         
         // If starting as live, end any other live games
         if startAsLive {
             athlete.games.forEach { $0.isLive = false }
         }
         
-        let game = Game(date: date, opponent: opponent)
+        let game = Game(date: date, opponent: trimmedOpponent)
         game.isLive = startAsLive
         game.athlete = athlete
         
@@ -615,13 +791,34 @@ struct AddGameView: View {
         gameStats.game = game
         modelContext.insert(gameStats)
         
+        // Link to active season
+        if let activeSeason = athlete.activeSeason {
+            game.season = activeSeason
+            activeSeason.games.append(game)
+            print("✅ Linked game to active season: \(activeSeason.displayName)")
+        } else {
+            print("⚠️ Warning: No active season found for game")
+        }
+        
         // Set tournament relationship
         if let tournament = selectedTournament ?? tournament {
             game.tournament = tournament
             tournament.games.append(game)
+            // Also link tournament to active season if not already linked
+            if let activeSeason = athlete.activeSeason, tournament.season == nil {
+                tournament.season = activeSeason
+                activeSeason.tournaments.append(tournament)
+                print("✅ Linked tournament to active season: \(activeSeason.displayName)")
+            }
         } else if let activeTournament = athlete.tournaments.first(where: { $0.isActive }) {
             game.tournament = activeTournament
             activeTournament.games.append(game)
+            // Also link tournament to active season if not already linked
+            if let activeSeason = athlete.activeSeason, activeTournament.season == nil {
+                activeTournament.season = activeSeason
+                activeSeason.tournaments.append(activeTournament)
+                print("✅ Linked tournament to active season: \(activeSeason.displayName)")
+            }
         }
         
         athlete.games.append(game)
@@ -629,10 +826,12 @@ struct AddGameView: View {
         
         do {
             try modelContext.save()
-            print("Successfully saved game via AddGameView: \(opponent)")
+            print("Successfully saved game via AddGameView: \(trimmedOpponent)")
             dismiss()
         } catch {
             print("Failed to save game: \(error)")
+            errorMessage = "Failed to save game: \(error.localizedDescription)"
+            showingError = true
         }
     }
 }
@@ -855,6 +1054,18 @@ struct GameCreationView: View {
     @State private var date = Date()
     @State private var selectedTournament: Tournament?
     @State private var makeGameLive = false
+    @State private var showingValidationError = false
+    @State private var validationMessage = ""
+    
+    // Validation
+    private var isValidOpponent: Bool {
+        let trimmed = opponent.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.count >= 2 && trimmed.count <= 50
+    }
+    
+    private var canSave: Bool {
+        isValidOpponent
+    }
     
     var body: some View {
         NavigationStack {
@@ -863,6 +1074,18 @@ struct GameCreationView: View {
                     TextField("Opponent", text: $opponent)
                         .textInputAutocapitalization(.words)
                         .autocorrectionDisabled()
+                    
+                    // Show validation feedback
+                    if !opponent.isEmpty && !isValidOpponent {
+                        Label {
+                            Text("Opponent name must be 2-50 characters")
+                                .font(.caption)
+                        } icon: {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundColor(.orange)
+                        }
+                    }
+                    
                     DatePicker("Date & Time", selection: $date)
                 }
                 
@@ -885,9 +1108,25 @@ struct GameCreationView: View {
                     Toggle("Start as Live Game", isOn: $makeGameLive)
                     
                     if makeGameLive {
-                        Text("This game will become the active game for recording videos")
+                        Label {
+                            Text("This game will become the active game for recording videos")
+                                .font(.caption)
+                        } icon: {
+                            Image(systemName: "info.circle")
+                                .foregroundColor(.blue)
+                        }
+                    }
+                }
+                
+                // Quick tips section
+                Section {
+                    Label {
+                        Text("You can add statistics and videos after creating the game")
                             .font(.caption)
                             .foregroundColor(.secondary)
+                    } icon: {
+                        Image(systemName: "lightbulb.fill")
+                            .foregroundColor(.yellow)
                     }
                 }
             }
@@ -902,10 +1141,9 @@ struct GameCreationView: View {
                 
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Save") {
-                        onSave(opponent, date, selectedTournament, makeGameLive)
-                        dismiss()
+                        saveGame()
                     }
-                    .disabled(opponent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(!canSave)
                 }
             }
             .onAppear {
@@ -914,6 +1152,39 @@ struct GameCreationView: View {
                 }
             }
         }
+        .alert("Invalid Input", isPresented: $showingValidationError) {
+            Button("OK") { }
+        } message: {
+            Text(validationMessage)
+        }
+    }
+    
+    private func saveGame() {
+        // Final validation
+        guard isValidOpponent else {
+            validationMessage = "Please enter a valid opponent name (2-50 characters)"
+            showingValidationError = true
+            return
+        }
+        
+        // Check for reasonable date (not too far in past/future)
+        let yearFromNow = Calendar.current.date(byAdding: .year, value: 1, to: Date()) ?? Date()
+        let yearAgo = Calendar.current.date(byAdding: .year, value: -1, to: Date()) ?? Date()
+        
+        if date > yearFromNow {
+            validationMessage = "Game date cannot be more than 1 year in the future"
+            showingValidationError = true
+            return
+        }
+        
+        if date < yearAgo {
+            validationMessage = "Game date cannot be more than 1 year in the past"
+            showingValidationError = true
+            return
+        }
+        
+        onSave(opponent.trimmingCharacters(in: .whitespacesAndNewlines), date, selectedTournament, makeGameLive)
+        dismiss()
     }
 }
 
@@ -1058,6 +1329,7 @@ struct ManualStatisticsEntryView: View {
             }
             .navigationTitle("Enter Statistics")
             .navigationBarTitleDisplayMode(.inline)
+            .navigationBarBackButtonHidden(false)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button("Cancel") {

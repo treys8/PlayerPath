@@ -88,8 +88,8 @@ struct StorageManager {
             let estimatedMinutes = Int(availableMB / mbPerMinuteVideo)
             
             return StorageInfo(
-                availableBytes: available,
-                totalBytes: total,
+                availableBytes: Int64(available),
+                totalBytes: Int64(total),
                 availableGB: availableGB,
                 percentageAvailable: percentageAvailable,
                 estimatedMinutesOfVideo: estimatedMinutes

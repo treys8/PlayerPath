@@ -16,48 +16,58 @@ struct TournamentsView: View {
     @State private var showingAddTournament = false
     @State private var showDeleteConfirm = false
     @State private var pendingDeleteOffsets: IndexSet?
-    @State private var saveErrorMessage: String?
+    @State private var errorMessage: String?
+    @State private var showingError = false
     
-    var tournaments: [Tournament] {
+    // Cached sorted tournaments to avoid repeated sorting
+    private var tournaments: [Tournament] {
         athlete?.tournaments.sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) } ?? []
     }
     
     var body: some View {
-        NavigationStack {
-            Group {
-                if tournaments.isEmpty {
-                    EmptyTournamentsView {
-                        showingAddTournament = true
-                    }
-                } else {
-                    List {
-                        ForEach(tournaments) { tournament in
-                            NavigationLink(destination: TournamentDetailView(tournament: tournament)) {
-                                TournamentRow(tournament: tournament)
+        Group {
+            if tournaments.isEmpty {
+                EmptyTournamentsView {
+                    showingAddTournament = true
+                }
+            } else {
+                List {
+                    ForEach(tournaments) { tournament in
+                        NavigationLink(destination: TournamentDetailView(tournament: tournament)) {
+                            TournamentRow(tournament: tournament)
+                        }
+                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                            Button(role: .destructive) {
+                                if let index = tournaments.firstIndex(where: { $0.id == tournament.id }) {
+                                    pendingDeleteOffsets = IndexSet([index])
+                                    showDeleteConfirm = true
+                                }
+                            } label: {
+                                Label("Delete", systemImage: "trash")
                             }
                         }
-                        .onDelete { offsets in
-                            pendingDeleteOffsets = offsets
-                            showDeleteConfirm = true
-                        }
+                    }
+                    .onDelete { offsets in
+                        pendingDeleteOffsets = offsets
+                        showDeleteConfirm = true
                     }
                 }
             }
-            .navigationTitle("Tournaments")
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(action: { showingAddTournament = true }) {
-                        Image(systemName: "plus")
-                    }
-                    .accessibilityLabel("Add tournament")
-                    .controlSize(.regular)
+        }
+        .navigationTitle("Tournaments")
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button(action: { showingAddTournament = true }) {
+                    Image(systemName: "plus")
                 }
-                
-                if !tournaments.isEmpty {
-                    ToolbarItem(placement: .navigationBarLeading) {
-                        EditButton()
-                            .accessibilityLabel("Edit tournaments")
-                    }
+                .accessibilityLabel("Add tournament")
+                .controlSize(.regular)
+            }
+            
+            if !tournaments.isEmpty {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    EditButton()
+                        .accessibilityLabel("Edit tournaments")
                 }
             }
         }
@@ -73,10 +83,13 @@ struct TournamentsView: View {
         } message: { _ in
             Text("Are you sure you want to delete the selected tournaments? This action cannot be undone.")
         }
-        .alert("Error", isPresented: .constant(saveErrorMessage != nil)) {
-            Button("OK", role: .cancel) { saveErrorMessage = nil }
+        .alert("Error", isPresented: $showingError) {
+            Button("OK", role: .cancel) {
+                errorMessage = nil
+                showingError = false
+            }
         } message: {
-            Text(saveErrorMessage ?? "Unknown error")
+            Text(errorMessage ?? "An unknown error occurred")
         }
     }
     
@@ -89,7 +102,8 @@ struct TournamentsView: View {
             do {
                 try modelContext.save()
             } catch {
-                saveErrorMessage = "Failed to delete tournaments: \(error.localizedDescription)"
+                errorMessage = "Failed to delete tournaments: \(error.localizedDescription)"
+                showingError = true
             }
         }
     }
@@ -198,6 +212,13 @@ struct TournamentDetailView: View {
     @Environment(\.modelContext) private var modelContext
     @State private var showingAddGame = false
     @State private var showingEndTournament = false
+    @State private var errorMessage: String?
+    @State private var showingError = false
+    
+    // Get the athlete from the tournament's athletes relationship
+    private var athlete: Athlete? {
+        tournament.athletes.first
+    }
     
     var body: some View {
         List {
@@ -253,23 +274,20 @@ struct TournamentDetailView: View {
                 } else {
                     ForEach(tournament.games.sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }) { game in
                         NavigationLink(destination: GameDetailView(game: game)) {
-                            GameRow(game: game)
+                            TournamentGameRow(game: game)
                         }
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             if !game.isComplete {
                                 if !game.isLive {
                                     Button {
-                                        game.isLive = true
-                                        try? modelContext.save()
+                                        setGameLive(game)
                                     } label: {
                                         Label("Go Live", systemImage: "dot.radiowaves.left.and.right")
                                     }
                                     .tint(.red)
                                 }
                                 Button(role: .destructive) {
-                                    game.isLive = false
-                                    game.isComplete = true
-                                    try? modelContext.save()
+                                    endGame(game)
                                 } label: {
                                     Label("End", systemImage: "stop.circle")
                                 }
@@ -292,8 +310,7 @@ struct TournamentDetailView: View {
                         .foregroundColor(.green)
                 } else {
                     Button("Reactivate Tournament") {
-                        tournament.isActive = true
-                        try? modelContext.save()
+                        reactivateTournament()
                     }
                     .tint(.green)
                     
@@ -315,18 +332,89 @@ struct TournamentDetailView: View {
             }
         }
         .sheet(isPresented: $showingAddGame) {
-            AddGameView(athlete: tournament.athletes.first, tournament: tournament)
+            if let athlete = athlete {
+                AddGameView(athlete: athlete, tournament: tournament)
+            } else {
+                // Fallback view if no athlete is associated
+                Text("Cannot add game: No athlete associated with this tournament")
+                    .padding()
+                    .onAppear {
+                        // Auto-dismiss after a moment
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                            showingAddGame = false
+                        }
+                    }
+            }
         }
         .alert("End Tournament", isPresented: $showingEndTournament) {
             Button("Cancel", role: .cancel) { }
             Button("End", role: .destructive) {
-                tournament.isActive = false
-                // End all live games in this tournament
-                tournament.games.forEach { $0.isLive = false }
-                try? modelContext.save()
+                endTournament()
             }
         } message: {
             Text("Are you sure you want to end this tournament? All live games will be stopped.")
+        }
+        .alert("Error", isPresented: $showingError) {
+            Button("OK", role: .cancel) {
+                errorMessage = nil
+                showingError = false
+            }
+        } message: {
+            Text(errorMessage ?? "An unknown error occurred")
+        }
+    }
+    
+    // MARK: - Helper Methods
+    
+    private func setGameLive(_ game: Game) {
+        game.isLive = true
+        do {
+            try modelContext.save()
+        } catch {
+            errorMessage = "Failed to start game: \(error.localizedDescription)"
+            showingError = true
+            // Revert the change
+            game.isLive = false
+        }
+    }
+    
+    private func endGame(_ game: Game) {
+        game.isLive = false
+        game.isComplete = true
+        do {
+            try modelContext.save()
+        } catch {
+            errorMessage = "Failed to end game: \(error.localizedDescription)"
+            showingError = true
+            // Revert the changes
+            game.isLive = false
+            game.isComplete = false
+        }
+    }
+    
+    private func reactivateTournament() {
+        tournament.isActive = true
+        do {
+            try modelContext.save()
+        } catch {
+            errorMessage = "Failed to reactivate tournament: \(error.localizedDescription)"
+            showingError = true
+            // Revert the change
+            tournament.isActive = false
+        }
+    }
+    
+    private func endTournament() {
+        tournament.isActive = false
+        // End all live games in this tournament
+        tournament.games.forEach { $0.isLive = false }
+        do {
+            try modelContext.save()
+        } catch {
+            errorMessage = "Failed to end tournament: \(error.localizedDescription)"
+            showingError = true
+            // Revert the changes
+            tournament.isActive = true
         }
     }
 }
@@ -341,6 +429,8 @@ struct AddTournamentView: View {
     @State private var info = ""
     @State private var date = Date()
     @State private var startActive = false
+    @State private var errorMessage: String?
+    @State private var showingError = false
     
     var body: some View {
         NavigationStack {
@@ -377,10 +467,22 @@ struct AddTournamentView: View {
                 }
             }
         }
+        .alert("Error", isPresented: $showingError) {
+            Button("OK", role: .cancel) {
+                errorMessage = nil
+                showingError = false
+            }
+        } message: {
+            Text(errorMessage ?? "An unknown error occurred")
+        }
     }
     
     private func saveTournament() {
-        guard let athlete = athlete else { return }
+        guard let athlete = athlete else {
+            errorMessage = "No athlete selected. Cannot create tournament."
+            showingError = true
+            return
+        }
         
         let tournament = Tournament(
             name: name,
@@ -398,13 +500,14 @@ struct AddTournamentView: View {
             try modelContext.save()
             dismiss()
         } catch {
-            print("Failed to save tournament: \(error)")
+            errorMessage = "Failed to save tournament: \(error.localizedDescription)"
+            showingError = true
         }
     }
 }
 
 // MARK: - Game Row Component
-struct GameRow: View {
+struct TournamentGameRow: View {
     let game: Game
     
     var body: some View {

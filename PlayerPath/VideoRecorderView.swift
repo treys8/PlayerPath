@@ -83,12 +83,30 @@ struct VideoRecorderView: View {
     // MARK: - View Components
     
     var body: some View {
+        navigationContent
+            .fullScreenCover(isPresented: $showingNativeCamera, onDismiss: cameraDismissed, content: cameraView)
+            .sheet(isPresented: $showingPlayResultOverlay, content: playResultSheet)
+            .photosPicker(isPresented: $showingPhotoPicker, selection: $selectedVideoItem, matching: .videos)
+            .onChange(of: selectedVideoItem) { _, newItem in
+                handleSelectedVideo(newItem)
+            }
+            .onChange(of: showingPlayResultOverlay) { _, newValue in
+                if newValue {
+                    UIAccessibility.post(notification: .announcement, argument: "Play result options")
+                }
+            }
+            .alert("Permission Required", isPresented: $showingPermissionAlert, actions: permissionAlertActions, message: permissionAlertContent)
+            .alert("Error", isPresented: $showingErrorAlert, actions: errorAlertActions, message: errorAlertContent)
+            .alert("Low Storage Space", isPresented: $showingLowStorageAlert, actions: lowStorageAlertActions, message: lowStorageAlertContent)
+    }
+    
+    // MARK: - Body Subviews
+    
+    private var navigationContent: some View {
         NavigationStack {
             ZStack {
                 Color.black.ignoresSafeArea()
-                
                 mainContent
-                
                 loadingOverlays
             }
             .navigationTitle(navigationTitleText)
@@ -96,122 +114,138 @@ struct VideoRecorderView: View {
             .navigationBarBackButtonHidden(true)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Cancel") {
-                        logger.info("Cancel button tapped")
-                        cleanupAndDismiss()
-                        hapticTap(.light)
-                    }
-                    .foregroundColor(.white)
-                    .fontWeight(.semibold)
-                    .accessibilityLabel("Cancel recording")
-                    .accessibilityHint("Dismiss and discard current recording flow")
+                    cancelButton
                 }
             }
             .toolbarBackground(.black, for: .navigationBar)
             .toolbarColorScheme(.dark, for: .navigationBar)
-            .confirmationDialog("Video Quality", isPresented: $showingQualityPicker, titleVisibility: .visible) {
-                Button("High Quality (Recommended)") {
-                    selectedVideoQuality = .typeHigh
+            .confirmationDialog("Video Quality", isPresented: $showingQualityPicker, titleVisibility: .visible, actions: qualityPickerActions, message: qualityPickerMessage)
+        }
+    }
+    
+    private var cancelButton: some View {
+        Button("Cancel") {
+            logger.info("Cancel button tapped")
+            cleanupAndDismiss()
+            hapticTap(.light)
+        }
+        .foregroundColor(.white)
+        .fontWeight(.semibold)
+        .accessibilityLabel("Cancel recording")
+        .accessibilityHint("Dismiss and discard current recording flow")
+    }
+    
+    @ViewBuilder
+    private func qualityPickerActions() -> some View {
+        Button("High Quality (Recommended)") {
+            selectedVideoQuality = .typeHigh
+            hapticTap(.light)
+        }
+        Button("Medium Quality") {
+            selectedVideoQuality = .typeMedium
+            hapticTap(.light)
+        }
+        Button("Low Quality (Smaller file)") {
+            selectedVideoQuality = .typeLow
+            hapticTap(.light)
+        }
+        Button("Cancel", role: .cancel) {
+            hapticTap(.light)
+        }
+    }
+    
+    private func qualityPickerMessage() -> some View {
+        Text("Choose video quality. Higher quality produces larger files.")
+    }
+    
+    private func cameraDismissed() {
+        print("VideoRecorder: fullScreenCover onDismiss called")
+    }
+    
+    private func cameraView() -> some View {
+        logger.info("Creating UIImagePickerController")
+        return NativeCameraView(videoQuality: selectedVideoQuality) { videoURL in
+            logger.info("onVideoRecorded called with URL: \(videoURL)")
+            hapticTap()
+            recordedVideoURL = videoURL
+            showingNativeCamera = false
+            showingPlayResultOverlay = true
+        } onCancel: {
+            logger.info("onCancel called from NativeCameraView")
+            hapticTap(.light)
+            showingNativeCamera = false
+        }
+        .accessibilityLabel("Camera")
+        .accessibilityHint("Record a new video")
+    }
+    
+    @ViewBuilder
+    private func playResultSheet() -> some View {
+        if let videoURL = recordedVideoURL {
+            PlayResultOverlayView(
+                videoURL: videoURL,
+                athlete: athlete,
+                game: game,
+                practice: practice,
+                onSave: { result in
+                    hapticTap()
+                    saveVideoWithResult(videoURL: videoURL, playResult: result)
+                    dismiss()
+                },
+                onCancel: {
                     hapticTap(.light)
+                    // Delete the temporary video
+                    try? FileManager.default.removeItem(at: videoURL)
+                    recordedVideoURL = nil
+                    showingPlayResultOverlay = false
                 }
-                Button("Medium Quality") {
-                    selectedVideoQuality = .typeMedium
-                    hapticTap(.light)
-                }
-                Button("Low Quality (Smaller file)") {
-                    selectedVideoQuality = .typeLow
-                    hapticTap(.light)
-                }
-                Button("Cancel", role: .cancel) {
-                    hapticTap(.light)
-                }
-            } message: {
-                Text("Choose video quality. Higher quality produces larger files.")
-            }
+            )
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+            .presentationCornerRadius(20)
         }
-        .fullScreenCover(isPresented: $showingNativeCamera) {
-            print("VideoRecorder: fullScreenCover onDismiss called")
-        } content: {
-            cameraLogger.info("Creating UIImagePickerController")
-            return NativeCameraView(videoQuality: selectedVideoQuality) { videoURL in
-                cameraLogger.info("onVideoRecorded called with URL: \(videoURL)")
-                hapticTap()
-                recordedVideoURL = videoURL
-                showingNativeCamera = false
-                showingPlayResultOverlay = true
-            } onCancel: {
-                cameraLogger.info("onCancel called from NativeCameraView")
-                hapticTap(.light)
-                showingNativeCamera = false
-            }
-            .accessibilityLabel("Camera")
-            .accessibilityHint("Record a new video")
+    }
+    
+    @ViewBuilder
+    private func permissionAlertActions() -> some View {
+        Button("Settings") {
+            CameraPermissionManager.openSettings()
         }
-        .sheet(isPresented: $showingPlayResultOverlay) {
-            if let videoURL = recordedVideoURL {
-                PlayResultOverlayView(
-                    videoURL: videoURL,
-                    athlete: athlete,
-                    game: game,
-                    practice: practice,
-                    onSave: { result in
-                        hapticTap()
-                        saveVideoWithResult(videoURL: videoURL, playResult: result)
-                        dismiss()
-                    },
-                    onCancel: {
-                        hapticTap(.light)
-                        // Delete the temporary video
-                        try? FileManager.default.removeItem(at: videoURL)
-                        recordedVideoURL = nil
-                        showingPlayResultOverlay = false
-                    }
-                )
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
-                .presentationCornerRadius(20)
-            }
+        .accessibilityHint("Open Settings to grant permissions")
+        
+        Button("Cancel", role: .cancel) {
+            dismiss()
         }
-        .photosPicker(isPresented: $showingPhotoPicker, selection: $selectedVideoItem, matching: .videos)
-        .onChange(of: selectedVideoItem) { _, newItem in
-            handleSelectedVideo(newItem)
+        .accessibilityHint("Close and return to the previous screen")
+    }
+    
+    private func permissionAlertContent() -> some View {
+        Text(permissionAlertMessage)
+    }
+    
+    @ViewBuilder
+    private func errorAlertActions() -> some View {
+        Button("OK", role: .cancel) { }
+            .accessibilityHint("Dismiss error")
+    }
+    
+    private func errorAlertContent() -> some View {
+        Text(errorMessage)
+    }
+    
+    @ViewBuilder
+    private func lowStorageAlertActions() -> some View {
+        Button("Continue Anyway", role: .none) {
+            // Proceed with recording despite low storage
+            showingPhotoPicker = false
+            selectedVideoItem = nil
+            showingNativeCamera = true
         }
-        .onChange(of: showingPlayResultOverlay) { _, newValue in
-            if newValue {
-                UIAccessibility.post(notification: .announcement, argument: "Play result options")
-            }
-        }
-        .alert("Permission Required", isPresented: $showingPermissionAlert) {
-            Button("Settings") {
-                if let settingsURL = URL(string: UIApplication.openSettingsURLString) {
-                    UIApplication.shared.open(settingsURL)
-                }
-            }
-            .accessibilityHint("Open Settings to grant permissions")
-            Button("Cancel", role: .cancel) {
-                dismiss()
-            }
-            .accessibilityHint("Close and return to the previous screen")
-        } message: {
-            Text(permissionAlertMessage)
-        }
-        .alert("Error", isPresented: $showingErrorAlert) {
-            Button("OK", role: .cancel) { }
-                .accessibilityHint("Dismiss error")
-        } message: {
-            Text(errorMessage)
-        }
-        .alert("Low Storage Space", isPresented: $showingLowStorageAlert) {
-            Button("Continue Anyway", role: .none) {
-                // Proceed with recording despite low storage
-                showingPhotoPicker = false
-                selectedVideoItem = nil
-                showingNativeCamera = true
-            }
-            Button("Cancel", role: .cancel) { }
-        } message: {
-            Text("Your device is running low on storage space. Recording may fail or produce poor quality video. Consider freeing up space before recording.")
-        }
+        Button("Cancel", role: .cancel) { }
+    }
+    
+    private func lowStorageAlertContent() -> some View {
+        Text(StorageManager.getLowStorageMessage())
     }
     
     private var mainContent: some View {
@@ -636,17 +670,15 @@ struct VideoRecorderView: View {
     private func checkCameraPermission() {
         logger.info("Checking camera and microphone permissions…")
         
-        let cameraStatus = AVCaptureDevice.authorizationStatus(for: .video)
-        let microphoneStatus = AVCaptureDevice.authorizationStatus(for: .audio)
-        
-        print("VideoRecorder: Camera status: \(cameraStatus.rawValue), Microphone status: \(microphoneStatus.rawValue)")
+        let cameraStatus = CameraPermissionManager.cameraStatus()
+        let microphoneStatus = CameraPermissionManager.microphoneStatus()
         
         // If both permissions are already granted, check storage before proceeding
-        if cameraStatus == .authorized && microphoneStatus == .authorized {
+        if case .authorized = cameraStatus, case .authorized = microphoneStatus {
             print("VideoRecorder: Both permissions authorized, checking storage")
             
             // Check storage before opening camera
-            if shouldWarnAboutLowStorage() {
+            if StorageManager.shouldWarnAboutLowStorage() {
                 showingLowStorageAlert = true
                 return
             }
@@ -661,13 +693,23 @@ struct VideoRecorderView: View {
         }
         
         // If any permission is denied, show alert
-        if cameraStatus == .denied || cameraStatus == .restricted {
-            showPermissionAlert(message: "Camera access is required to record videos. Please enable camera access in Settings.")
+        if case .denied(let message) = cameraStatus {
+            showPermissionAlert(message: message)
             return
         }
         
-        if microphoneStatus == .denied || microphoneStatus == .restricted {
-            showPermissionAlert(message: "Microphone access is required to record videos with audio. Please enable microphone access in Settings.")
+        if case .restricted(let message) = cameraStatus {
+            showPermissionAlert(message: message)
+            return
+        }
+        
+        if case .denied(let message) = microphoneStatus {
+            showPermissionAlert(message: message)
+            return
+        }
+        
+        if case .restricted(let message) = microphoneStatus {
+            showPermissionAlert(message: message)
             return
         }
         
@@ -681,40 +723,17 @@ struct VideoRecorderView: View {
         isRequestingPermissions = true
         
         Task {
-            var cameraGranted = false
-            var microphoneGranted = false
+            let result = await CameraPermissionManager.checkAndRequestAllPermissions()
             
-            // Request camera permission first
-            let cameraStatus = AVCaptureDevice.authorizationStatus(for: .video)
-            if cameraStatus == .notDetermined {
-                logger.info("Requesting camera permission…")
-                cameraGranted = await AVCaptureDevice.requestAccess(for: .video)
-                logger.info("Camera permission result: \(cameraGranted)")
-            } else {
-                cameraGranted = (cameraStatus == .authorized)
-            }
-            
-            // Request microphone permission
-            let microphoneStatus = AVCaptureDevice.authorizationStatus(for: .audio)
-            if microphoneStatus == .notDetermined {
-                logger.info("Requesting microphone permission…")
-                microphoneGranted = await AVCaptureDevice.requestAccess(for: .audio)
-                logger.info("Microphone permission result: \(microphoneGranted)")
-            } else {
-                microphoneGranted = (microphoneStatus == .authorized)
-            }
-            
-            // Handle results on main thread
             await MainActor.run {
-                logger.info("Final permission results - Camera: \(cameraGranted), Microphone: \(microphoneGranted)")
-                
                 isRequestingPermissions = false
                 
-                if cameraGranted && microphoneGranted {
+                switch result {
+                case .success:
                     logger.info("All permissions granted, checking storage before showing camera")
                     
                     // Check storage before proceeding
-                    if self.shouldWarnAboutLowStorage() {
+                    if StorageManager.shouldWarnAboutLowStorage() {
                         self.showingLowStorageAlert = true
                         return
                     }
@@ -730,10 +749,9 @@ struct VideoRecorderView: View {
                         logger.info("Actually setting showingNativeCamera = true")
                         self.showingNativeCamera = true
                     }
-                } else if !cameraGranted {
-                    self.showPermissionAlert(message: "Camera access is required to record videos. Please enable camera access in Settings.")
-                } else if !microphoneGranted {
-                    self.showPermissionAlert(message: "Microphone access is required to record videos with audio. Please enable microphone access in Settings.")
+                    
+                case .failure(let message):
+                    self.showPermissionAlert(message: message)
                 }
             }
         }
@@ -743,122 +761,6 @@ struct VideoRecorderView: View {
     private func showPermissionAlert(message: String) {
         permissionAlertMessage = message
         showingPermissionAlert = true
-    }
-    
-    private func shouldWarnAboutLowStorage() -> Bool {
-        guard let documentDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
-            return false
-        }
-        
-        do {
-            let values = try documentDirectory.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
-            if let available = values.volumeAvailableCapacityForImportantUsage {
-                // Warn if less than 500 MB available
-                let minimumBytes: Int64 = 500_000_000 // 500 MB
-                return available < minimumBytes
-            }
-        } catch {
-            logger.error("Failed to check storage: \(error.localizedDescription)")
-        }
-        
-        return false
-    }
-}
-
-// MARK: - Native Camera View
-private let cameraLogger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.app", category: "NativeCameraView")
-
-struct NativeCameraView: UIViewControllerRepresentable {
-    let videoQuality: UIImagePickerController.QualityType
-    let onVideoRecorded: (URL) -> Void
-    let onCancel: () -> Void
-    
-    func makeUIViewController(context: Context) -> UIImagePickerController {
-        cameraLogger.info("Creating UIImagePickerController")
-        
-        let picker = UIImagePickerController()
-        
-        // Check if camera is available
-        guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
-            cameraLogger.error("Camera not available")
-            DispatchQueue.main.async {
-                self.onCancel()
-            }
-            return picker
-        }
-        
-        // Check if video recording is available
-        guard let mediaTypes = UIImagePickerController.availableMediaTypes(for: .camera),
-              mediaTypes.contains(UTType.movie.identifier) else {
-            cameraLogger.error("Video recording not available")
-            DispatchQueue.main.async {
-                self.onCancel()
-            }
-            return picker
-        }
-        
-        picker.sourceType = .camera
-        picker.mediaTypes = [UTType.movie.identifier]
-        picker.videoQuality = videoQuality
-        picker.videoMaximumDuration = 300 // 5 minutes max
-        picker.cameraCaptureMode = .video
-        picker.delegate = context.coordinator
-        
-        cameraLogger.info("UIImagePickerController configured successfully")
-        return picker
-    }
-    
-    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
-    
-    func makeCoordinator() -> Coordinator {
-        Coordinator(self)
-    }
-    
-    class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
-        let parent: NativeCameraView
-        
-        init(_ parent: NativeCameraView) {
-            self.parent = parent
-            super.init()
-            cameraLogger.info("Coordinator initialized")
-        }
-        
-        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey : Any]) {
-            cameraLogger.info("didFinishPickingMediaWithInfo called")
-            cameraLogger.debug("Info keys: \(String(describing: info.keys))")
-            
-            if let videoURL = info[.mediaURL] as? URL {
-                cameraLogger.info("Video URL found: \(videoURL.absoluteString)")
-                
-                // Verify the file exists
-                if FileManager.default.fileExists(atPath: videoURL.path) {
-                    cameraLogger.info("Video file exists, calling onVideoRecorded")
-                    DispatchQueue.main.async {
-                        self.parent.onVideoRecorded(videoURL)
-                    }
-                } else {
-                    cameraLogger.error("Video file doesn't exist at path")
-                    DispatchQueue.main.async {
-                        self.parent.onCancel()
-                    }
-                }
-            } else {
-                cameraLogger.error("No video URL found in info")
-                DispatchQueue.main.async {
-                    self.parent.onCancel()
-                }
-            }
-            
-            picker.dismiss(animated: true)
-        }
-        
-        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
-            cameraLogger.info("User cancelled camera")
-            picker.dismiss(animated: true)
-            DispatchQueue.main.async {
-                self.parent.onCancel()
-            }
-        }
     }
 }
 
@@ -1004,9 +906,7 @@ extension CameraPreview: AVCaptureFileOutputRecordingDelegate {
 
 // MARK: - Storage Indicator View
 struct StorageIndicatorView: View {
-    @State private var availableSpace: String = "Calculating..."
-    @State private var estimatedMinutes: Int = 0
-    @State private var storagePercentage: Double = 0
+    @State private var storageInfo: StorageInfo?
     
     var body: some View {
         HStack(spacing: 10) {
@@ -1015,12 +915,12 @@ struct StorageIndicatorView: View {
                 .foregroundColor(storageColor)
             
             VStack(alignment: .leading, spacing: 2) {
-                Text("Available: \(availableSpace)")
+                Text("Available: \(availableSpaceText)")
                     .font(.caption2)
                     .foregroundColor(.white.opacity(0.9))
                 
-                if estimatedMinutes > 0 {
-                    Text("~\(estimatedMinutes) min of video")
+                if let info = storageInfo, info.estimatedMinutesOfVideo > 0 {
+                    Text("~\(info.estimatedMinutesOfVideo) min of video")
                         .font(.caption2)
                         .foregroundColor(.white.opacity(0.6))
                 }
@@ -1056,59 +956,54 @@ struct StorageIndicatorView: View {
                 )
         )
         .onAppear {
-            calculateStorage()
+            refreshStorage()
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Storage available: \(availableSpace), approximately \(estimatedMinutes) minutes of video")
+        .accessibilityLabel("Storage available: \(availableSpaceText), approximately \(storageInfo?.estimatedMinutesOfVideo ?? 0) minutes of video")
+    }
+    
+    private var availableSpaceText: String {
+        storageInfo?.formattedAvailableSpace ?? "Calculating..."
+    }
+    
+    private var storagePercentage: Double {
+        storageInfo?.percentageAvailable ?? 0
     }
     
     private var storageIcon: String {
-        if storagePercentage > 0.7 {
+        guard let info = storageInfo else {
             return "internaldrive"
-        } else if storagePercentage > 0.3 {
+        }
+        
+        switch info.storageLevel {
+        case .good:
+            return "internaldrive"
+        case .moderate:
             return "internaldrive.fill"
-        } else {
+        case .low, .critical:
             return "exclamationmark.triangle.fill"
         }
     }
     
     private var storageColor: Color {
-        if storagePercentage > 0.5 {
+        guard let info = storageInfo else {
+            return .gray
+        }
+        
+        switch info.storageLevel {
+        case .good:
             return .green
-        } else if storagePercentage > 0.2 {
+        case .moderate:
             return .orange
-        } else {
+        case .low:
+            return .red
+        case .critical:
             return .red
         }
     }
     
-    private func calculateStorage() {
-        // Get available storage space
-        if let documentDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
-            do {
-                let values = try documentDirectory.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey, .volumeTotalCapacityKey])
-                
-                if let available = values.volumeAvailableCapacityForImportantUsage,
-                   let total = values.volumeTotalCapacity {
-                    
-                    // Format available space
-                    let availableGB = Double(available) / 1_073_741_824 // Convert to GB
-                    availableSpace = String(format: "%.1f GB", availableGB)
-                    
-                    // Calculate percentage of space available
-                    storagePercentage = Double(available) / Double(total)
-                    
-                    // Estimate recording time
-                    // Assume ~150MB per minute for high quality video (iPhone average)
-                    let mbPerMinute: Double = 150
-                    let availableMB = Double(available) / 1_048_576 // Convert to MB
-                    estimatedMinutes = Int(availableMB / mbPerMinute)
-                }
-            } catch {
-                availableSpace = "Unknown"
-                logger.error("Failed to get storage info: \(error.localizedDescription)")
-            }
-        }
+    private func refreshStorage() {
+        storageInfo = StorageManager.getStorageInfo()
     }
 }
 

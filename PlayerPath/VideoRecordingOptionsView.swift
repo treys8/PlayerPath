@@ -19,11 +19,9 @@ struct VideoRecordingOptionsView: View {
                 .fontWeight(.semibold)
                 .foregroundColor(.white)
             
-            GlassEffectContainer(spacing: 16) {
-                VStack(spacing: 16) {
-                    recordVideoButton
-                    uploadVideoButton
-                }
+            VStack(spacing: 16) {
+                recordVideoButton
+                uploadVideoButton
             }
             
             if let tipText {

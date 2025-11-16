@@ -20,132 +20,92 @@ struct VideoPlayerView: View {
     @State private var shouldResumeOnActive = false
     @State private var videoAspect: CGFloat? // width / height
     @State private var showingTrimmer = false
+    @State private var setupTask: Task<Void, Never>?
     @Environment(\.scenePhase) private var scenePhase
+    
+    // MARK: - Computed Properties
+    
+    @ViewBuilder
+    private var videoPlayerContent: some View {
+        if isLoading {
+            loadingView
+        } else if let player = player, isPlayerReady {
+            activePlayerView(player: player)
+        } else if !errorMessage.isEmpty {
+            errorView
+        }
+    }
+    
+    private var loadingView: some View {
+        Rectangle()
+            .fill(Color.black)
+            .aspectRatio(videoAspect ?? (16.0/9.0), contentMode: .fit)
+            .overlay(
+                VStack(spacing: 12) {
+                    ProgressView()
+                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                        .scaleEffect(1.5)
+                    Text("Loading video...")
+                        .font(.headline)
+                        .foregroundColor(.white)
+                }
+            )
+    }
+    
+    private func activePlayerView(player: AVPlayer) -> some View {
+        VideoPlayer(player: player)
+            .aspectRatio(videoAspect ?? (16.0/9.0), contentMode: .fit)
+            .accessibilityLabel("Video player")
+            .onAppear {
+                print("VideoPlayerView: VideoPlayer appeared, starting playback")
+                player.play()
+            }
+            .onDisappear {
+                print("VideoPlayerView: VideoPlayer disappeared, pausing playback")
+                player.pause()
+            }
+    }
+    
+    private var errorView: some View {
+        Rectangle()
+            .fill(Color.black)
+            .aspectRatio(videoAspect ?? (16.0/9.0), contentMode: .fit)
+            .overlay(
+                VStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.largeTitle)
+                        .foregroundColor(.yellow)
+                    Text("Video Unavailable")
+                        .font(.headline)
+                        .foregroundColor(.white)
+                    Text(errorMessage)
+                        .font(.caption)
+                        .foregroundColor(.white.opacity(0.8))
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+                        .accessibilityLabel("Error: \(errorMessage)")
+                    Button("Try Again") {
+                        Task { await setupPlayer() }
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 8)
+                    .background(Color.blue)
+                    .foregroundColor(.white)
+                    .cornerRadius(8)
+                    .padding(.top)
+                    .accessibilityLabel("Try loading the video again")
+                }
+            )
+    }
     
     var body: some View {
         NavigationStack {
             VStack {
-                if isLoading {
-                    Rectangle()
-                        .fill(Color.black)
-                        .aspectRatio(videoAspect ?? (16.0/9.0), contentMode: .fit)
-                        .overlay(
-                            VStack(spacing: 12) {
-                                ProgressView()
-                                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                                    .scaleEffect(1.5)
-                                Text("Loading video...")
-                                    .font(.headline)
-                                    .foregroundColor(.white)
-                            }
-                        )
-                } else if let player = player, isPlayerReady {
-                    VideoPlayer(player: player)
-                        .aspectRatio(videoAspect ?? (16.0/9.0), contentMode: .fit)
-                        .accessibilityLabel("Video player")
-                        .onAppear {
-                            print("VideoPlayerView: VideoPlayer appeared, starting playback")
-                            player.play()
-                        }
-                        .onDisappear {
-                            print("VideoPlayerView: VideoPlayer disappeared, pausing playback")
-                            player.pause()
-                        }
-                } else if !errorMessage.isEmpty {
-                    Rectangle()
-                        .fill(Color.black)
-                        .aspectRatio(videoAspect ?? (16.0/9.0), contentMode: .fit)
-                        .overlay(
-                            VStack(spacing: 8) {
-                                Image(systemName: "exclamationmark.triangle")
-                                    .font(.largeTitle)
-                                    .foregroundColor(.yellow)
-                                Text("Video Unavailable")
-                                    .font(.headline)
-                                    .foregroundColor(.white)
-                                Text(errorMessage)
-                                    .font(.caption)
-                                    .foregroundColor(.white.opacity(0.8))
-                                    .multilineTextAlignment(.center)
-                                    .padding(.horizontal)
-                                    .accessibilityLabel("Error: \(errorMessage)")
-                                Button("Try Again") {
-                                    Task { await setupPlayer() }
-                                }
-                                .padding(.horizontal, 20)
-                                .padding(.vertical, 8)
-                                .background(Color.blue)
-                                .foregroundColor(.white)
-                                .cornerRadius(8)
-                                .padding(.top)
-                                .accessibilityLabel("Try loading the video again")
-                            }
-                        )
-                }
+                // Video Player
+                videoPlayerContent
                 
                 // Video Info
-                VStack(alignment: .leading, spacing: 15) {
-                    HStack {
-                        VStack(alignment: .leading) {
-                            if let playResult = clip.playResult {
-                                Text(playResult.type.displayName)
-                                    .font(.title2)
-                                    .fontWeight(.bold)
-                            } else {
-                                Text("Unrecorded Play")
-                                    .font(.title2)
-                                    .foregroundColor(.secondary)
-                            }
-                            
-                            if let game = clip.game {
-                                Text("vs \(game.opponent)")
-                                    .font(.subheadline)
-                                    .foregroundColor(.blue)
-                                if let date = game.date {
-                                    Text(date, style: .date)
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                }
-                            } else if let practice = clip.practice {
-                                Text("Practice Session")
-                                    .font(.subheadline)
-                                    .foregroundColor(.green)
-                                if let date = practice.date {
-                                    Text(date, formatter: DateFormatter.pp_shortDate)
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                }
-                            }
-                        }
-                        
-                        Spacer()
-                        
-                        if clip.isHighlight {
-                            VStack {
-                                Image(systemName: "star.fill")
-                                    .foregroundColor(.yellow)
-                                    .font(.title2)
-                                Text("Highlight")
-                                    .font(.caption)
-                                    .fontWeight(.semibold)
-                            }
-                        }
-                    }
-                    
-                    if let createdAt = clip.createdAt {
-                        Text("Recorded: \(createdAt, format: .dateTime.month().day().hour().minute())")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    } else {
-                        Text("Recorded date unavailable")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                }
-                .padding()
-                .background(Color(uiColor: .systemGray6))
-                .cornerRadius(12)
-                .padding()
+                VideoClipInfoCard(clip: clip)
             }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -182,11 +142,13 @@ struct VideoPlayerView: View {
             if !hasAppeared {
                 hasAppeared = true
                 print("VideoPlayerView: View appeared, setting up player")
-                Task { await setupPlayer() }
+                setupTask = Task { await setupPlayer() }
             }
         }
         .onDisappear {
             print("VideoPlayerView: View disappeared")
+            setupTask?.cancel()
+            setupTask = nil
             player?.pause()
             player = nil
             isPlayerReady = false
@@ -235,23 +197,7 @@ struct VideoPlayerView: View {
         
         print("VideoPlayerView: File path: \(clip.filePath)")
         
-        let primaryURL = URL(fileURLWithPath: clip.filePath)
-        var videoURL: URL?
-        
-        if FileManager.default.fileExists(atPath: clip.filePath) {
-            print("VideoPlayerView: File exists at primary path")
-            videoURL = primaryURL
-        } else {
-            print("VideoPlayerView: File not found at primary path, trying alternate")
-            let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
-            let alternateURL = documentsPath.appendingPathComponent(clip.fileName)
-            if FileManager.default.fileExists(atPath: alternateURL.path) {
-                print("VideoPlayerView: File found at alternate path: \(alternateURL.path)")
-                videoURL = alternateURL
-            }
-        }
-        
-        guard let url = videoURL else {
+        guard let url = findVideoURL() else {
             print("VideoPlayerView: No valid video file found")
             await MainActor.run {
                 isLoading = false
@@ -260,23 +206,43 @@ struct VideoPlayerView: View {
             return
         }
         
+        await loadPlayer(from: url)
+    }
+    
+    private func findVideoURL() -> URL? {
+        let primaryURL = URL(fileURLWithPath: clip.filePath)
+        
+        if FileManager.default.fileExists(atPath: clip.filePath) {
+            print("VideoPlayerView: File exists at primary path")
+            return primaryURL
+        }
+        
+        print("VideoPlayerView: File not found at primary path, trying alternate")
+        let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        let alternateURL = documentsPath.appendingPathComponent(clip.fileName)
+        
+        if FileManager.default.fileExists(atPath: alternateURL.path) {
+            print("VideoPlayerView: File found at alternate path: \(alternateURL.path)")
+            return alternateURL
+        }
+        
+        return nil
+    }
+    
+    private func loadPlayer(from url: URL) async {
         print("VideoPlayerView: Creating AVPlayer with URL: \(url)")
         let newPlayer = AVPlayer(url: url)
         let asset = AVURLAsset(url: url)
         
         do {
             let (isPlayable, _, tracks) = try await asset.load(.isPlayable, .duration, .tracks)
-            let videoTrack = tracks.first(where: { $0.mediaType == .video })
-            var computedAspect: CGFloat?
-            if let vt = videoTrack {
-                if let size = try? await vt.load(.naturalSize), size.height > 0 {
-                    computedAspect = size.width / size.height
+            let computedAspect = await calculateVideoAspect(from: tracks)
+            
+            await MainActor.run {
+                if let aspect = computedAspect {
+                    self.videoAspect = aspect
                 }
-            }
-            await MainActor.run {
-                if let a = computedAspect { self.videoAspect = a }
-            }
-            await MainActor.run {
+                
                 if isPlayable {
                     self.player = newPlayer
                     self.isPlayerReady = true
@@ -288,15 +254,22 @@ struct VideoPlayerView: View {
                     print("VideoPlayerView: Player setup failed: Video is not playable")
                 }
             }
-            return
         } catch {
             await MainActor.run {
                 self.isLoading = false
                 self.errorMessage = "Unable to load video: \(error.localizedDescription)"
                 print("VideoPlayerView: Player setup failed: \(self.errorMessage)")
             }
-            return
         }
+    }
+    
+    private func calculateVideoAspect(from tracks: [AVAssetTrack]) async -> CGFloat? {
+        guard let videoTrack = tracks.first(where: { $0.mediaType == .video }),
+              let size = try? await videoTrack.load(.naturalSize),
+              size.height > 0 else {
+            return nil
+        }
+        return size.width / size.height
     }
     
     private func reloadPlayer(with url: URL) async {
@@ -305,33 +278,7 @@ struct VideoPlayerView: View {
             isPlayerReady = false
             errorMessage = ""
         }
-        let newPlayer = AVPlayer(url: url)
-        let asset = AVURLAsset(url: url)
-        do {
-            let (isPlayable, duration, tracks) = try await asset.load(.isPlayable, .duration, .tracks)
-            _ = duration
-            var computedAspect: CGFloat?
-            let videoTrack = tracks.first(where: { $0.mediaType == .video })
-            if let vt = videoTrack, let size = try? await vt.load(.naturalSize), size.height > 0 {
-                computedAspect = size.width / size.height
-            }
-            await MainActor.run {
-                if let a = computedAspect { self.videoAspect = a }
-                if isPlayable {
-                    self.player = newPlayer
-                    self.isPlayerReady = true
-                    self.isLoading = false
-                } else {
-                    self.isLoading = false
-                    self.errorMessage = "Trimmed video is not playable"
-                }
-            }
-        } catch {
-            await MainActor.run {
-                self.isLoading = false
-                self.errorMessage = "Unable to load trimmed video: \(error.localizedDescription)"
-            }
-        }
+        await loadPlayer(from: url)
     }
 }
 
@@ -341,6 +288,77 @@ struct VideoPlayerView: View {
     return VideoPlayerView(clip: mock)
 }
 
+// MARK: - Video Clip Info Card
+struct VideoClipInfoCard: View {
+    let clip: VideoClip
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 15) {
+            HStack {
+                VStack(alignment: .leading) {
+                    if let playResult = clip.playResult {
+                        Text(playResult.type.displayName)
+                            .font(.title2)
+                            .fontWeight(.bold)
+                    } else {
+                        Text("Unrecorded Play")
+                            .font(.title2)
+                            .foregroundColor(.secondary)
+                    }
+                    
+                    if let game = clip.game {
+                        Text("vs \(game.opponent)")
+                            .font(.subheadline)
+                            .foregroundColor(.blue)
+                        if let date = game.date {
+                            Text(date, style: .date)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    } else if let practice = clip.practice {
+                        Text("Practice Session")
+                            .font(.subheadline)
+                            .foregroundColor(.green)
+                        if let date = practice.date {
+                            Text(date, formatter: DateFormatter.pp_shortDate)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+                
+                Spacer()
+                
+                if clip.isHighlight {
+                    VStack {
+                        Image(systemName: "star.fill")
+                            .foregroundColor(.yellow)
+                            .font(.title2)
+                        Text("Highlight")
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                    }
+                }
+            }
+            
+            if let createdAt = clip.createdAt {
+                Text("Recorded: \(createdAt, format: .dateTime.month().day().hour().minute())")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            } else {
+                Text("Recorded date unavailable")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding()
+        .background(Color(uiColor: .systemGray6))
+        .cornerRadius(12)
+        .padding()
+    }
+}
+
+// MARK: - Video Trimmer Sheet
 struct VideoTrimmerSheet: View {
     let player: AVPlayer
     let sourceURL: URL

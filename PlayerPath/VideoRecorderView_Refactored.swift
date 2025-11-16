@@ -111,26 +111,10 @@ struct VideoRecorderView_Refactored: View {
             } message: {
                 Text("You have less than \(String(format: "%.1f", availableStorageGB)) GB of storage available. Free up space before recording to avoid issues.")
             }
-            .confirmationDialog(
-                "Video Quality",
-                isPresented: $showingQualityPicker,
-                titleVisibility: .visible
-            ) {
-                ForEach([UIImagePickerController.QualityType.typeHigh, .typeMedium, .typeLow, .type640x480], id: \.self) { quality in
-                    Button {
-                        selectedVideoQuality = quality
-                        UserDefaults.standard.set(quality.rawValue, forKey: "selectedVideoQuality")
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    } label: {
-                        if let estimate = qualityEstimates[quality] {
-                            let maxSize = estimate.mbPerMinute * (maxRecordingDuration / 60.0)
-                            Text("\(estimate.name) • ~\(Int(estimate.mbPerMinute))MB/min • Max \(Int(maxSize))MB")
-                        }
-                    }
-                }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("Higher quality produces larger files. Choose based on your storage and network conditions.")
+            .sheet(isPresented: $showingQualityPicker) {
+                VideoQualityPickerView(selectedQuality: $selectedVideoQuality)
+                    .presentationDetents([.medium, .large])
+                    .presentationDragIndicator(.visible)
             }
             .task {
                 // Load saved quality preference
@@ -187,7 +171,7 @@ struct VideoRecorderView_Refactored: View {
                 HStack(spacing: 4) {
                     Image(systemName: "video.badge.waveform")
                         .font(.caption)
-                    if let estimate = qualityEstimates[selectedVideoQuality] {
+                    if qualityEstimates[selectedVideoQuality] != nil {
                         Text(qualityName(for: selectedVideoQuality))
                             .font(.caption)
                             .fontWeight(.medium)
@@ -295,7 +279,7 @@ struct VideoRecorderView_Refactored: View {
     
     @ViewBuilder
     private var errorAlert: some View {
-        if let error = uploadService.errorHandler.currentError as? PlayerPathError {
+        if let error = uploadService.errorHandler.currentError {
             if error.isRetryable {
                 Button("Retry", role: .none) {
                     retryLastAction()
@@ -312,7 +296,7 @@ struct VideoRecorderView_Refactored: View {
     
     @ViewBuilder
     private var errorMessage: some View {
-        if let error = uploadService.errorHandler.currentError as? PlayerPathError {
+        if let error = uploadService.errorHandler.currentError {
             VStack(spacing: 12) {
                 Text(error.localizedDescription)
                     .font(.body)
@@ -332,9 +316,6 @@ struct VideoRecorderView_Refactored: View {
                     .multilineTextAlignment(.center)
                 }
             }
-        } else if let error = uploadService.errorHandler.currentError {
-            Text(error.localizedDescription)
-                .multilineTextAlignment(.center)
         }
     }
     
@@ -438,7 +419,6 @@ struct VideoRecorderView_Refactored: View {
                         .background(
                             Capsule()
                                 .fill(Color.red)
-                                .glassEffect(.regular.tint(.red), in: .capsule)
                         )
                         .foregroundColor(.white)
                         .accessibilityLabel("Live game")
@@ -472,7 +452,10 @@ struct VideoRecorderView_Refactored: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
-                .glassEffect(.regular, in: .rect(cornerRadius: 12))
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.white.opacity(0.1))
+                )
             } else {
                 Text("Video Recording")
                     .font(.title2)
@@ -480,7 +463,10 @@ struct VideoRecorderView_Refactored: View {
                     .foregroundColor(.white)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)
-                    .glassEffect(.regular, in: .rect(cornerRadius: 12))
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(Color.white.opacity(0.1))
+                    )
                     .minimumScaleFactor(0.8)
             }
         }
@@ -809,7 +795,10 @@ struct LoadingOverlay: View {
                     .multilineTextAlignment(.center)
             }
             .padding(32)
-            .glassEffect(.regular, in: .rect(cornerRadius: 20))
+            .background(
+                RoundedRectangle(cornerRadius: 20)
+                    .fill(Color.white.opacity(0.1))
+            )
         }
     }
 }

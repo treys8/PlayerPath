@@ -9,6 +9,7 @@ import LocalAuthentication
 import Foundation
 import FirebaseAuth
 import Combine
+import SwiftUI
 
 /// A secure biometric authentication manager that doesn't store passwords.
 /// Instead, it leverages Firebase Auth's built-in token persistence and uses
@@ -143,7 +144,7 @@ final class SecureBiometricAuthManager: ObservableObject {
                 print("✅ App unlocked with \(biometricTypeName)")
                 
                 // Optional: Refresh the Firebase token to ensure it's still valid
-                try? await currentUser.getIDToken(forcingRefresh: true)
+                _ = try? await currentUser.getIDToken(forcingRefresh: true)
                 
                 return true
             }

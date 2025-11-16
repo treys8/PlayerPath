@@ -10,6 +10,35 @@ import UIKit
 import AVFoundation
 import CoreMedia
 
+// MARK: - Camera Host Controller
+
+/// A custom UIViewController that hosts UIImagePickerController and allows all orientations
+class CameraHostController: UIViewController {
+    var picker: UIImagePickerController?
+    
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        
+        guard let picker = picker else { return }
+        
+        // Present picker after view loads
+        DispatchQueue.main.async {
+            self.present(picker, animated: false)
+        }
+    }
+    
+    // KEY: Allow all orientations for camera recording
+    override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
+        return .allButUpsideDown
+    }
+    
+    override var shouldAutorotate: Bool {
+        return true
+    }
+}
+
+// MARK: - Native Camera View
+
 /// A SwiftUI wrapper around UIImagePickerController for recording videos with proper orientation support.
 /// This view handles landscape and portrait recording, fixing video orientation metadata automatically.
 struct NativeCameraView: UIViewControllerRepresentable {
@@ -17,7 +46,9 @@ struct NativeCameraView: UIViewControllerRepresentable {
     let onVideoRecorded: (URL) -> Void
     let onCancel: () -> Void
     
-    func makeUIViewController(context: Context) -> UIImagePickerController {
+    func makeUIViewController(context: Context) -> CameraHostController {
+        let hostController = CameraHostController()
+        
         let picker = UIImagePickerController()
         picker.delegate = context.coordinator
         picker.sourceType = .camera
@@ -38,12 +69,14 @@ struct NativeCameraView: UIViewControllerRepresentable {
         print("🎥 NativeCameraView: Initialized with quality: \(videoQuality.rawValue)")
         #endif
         
-        return picker
+        // Store picker in host controller
+        hostController.picker = picker
+        
+        return hostController
     }
     
-    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {
-        // Ensure full screen presentation is maintained
-        uiViewController.modalPresentationStyle = .fullScreen
+    func updateUIViewController(_ uiViewController: CameraHostController, context: Context) {
+        // Update handled by host controller
     }
     
     func makeCoordinator() -> Coordinator {
@@ -52,7 +85,7 @@ struct NativeCameraView: UIViewControllerRepresentable {
     
     // MARK: - Coordinator
     
-    class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationBarDelegate {
+    class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
         let onVideoRecorded: (URL) -> Void
         let onCancel: () -> Void
         
@@ -106,139 +139,134 @@ struct NativeCameraView: UIViewControllerRepresentable {
         /// KEY FIX #5: Fix video orientation metadata for landscape recordings
         /// This ensures videos recorded in landscape display correctly when played back
         private func fixVideoOrientation(at url: URL, completion: @escaping (URL?) -> Void) {
-            let asset = AVAsset(url: url)
-            
-            guard let videoTrack = asset.tracks(withMediaType: .video).first else {
-                #if DEBUG
-                print("⚠️ NativeCameraView: No video track found, cannot fix orientation")
-                #endif
-                completion(nil)
-                return
-            }
-            
-            // Check current orientation via transform matrix
-            let transform = videoTrack.preferredTransform
-            let videoAngle = atan2(transform.b, transform.a) * 180 / .pi
-            
-            #if DEBUG
-            print("🎥 NativeCameraView: Video angle: \(videoAngle)°")
-            print("🎥 NativeCameraView: Transform: \(transform)")
-            #endif
-            
-            // If video is already in portrait orientation (0° or 180°), no fix needed
-            if abs(videoAngle) < 1.0 || abs(videoAngle - 180) < 1.0 {
-                #if DEBUG
-                print("✅ NativeCameraView: Video is portrait, no orientation fix needed")
-                #endif
-                completion(url)
-                return
-            }
-            
-            #if DEBUG
-            print("🔄 NativeCameraView: Fixing landscape video orientation...")
-            #endif
-            
-            // Create composition with corrected orientation
-            let composition = AVMutableComposition()
-            
-            guard let compositionVideoTrack = composition.addMutableTrack(
-                withMediaType: .video,
-                preferredTrackID: kCMPersistentTrackID_Invalid
-            ) else {
-                #if DEBUG
-                print("❌ NativeCameraView: Failed to create composition video track")
-                #endif
-                completion(nil)
-                return
-            }
-            
-            do {
-                // Copy video track timing
-                try compositionVideoTrack.insertTimeRange(
-                    CMTimeRange(start: .zero, duration: asset.duration),
-                    of: videoTrack,
-                    at: .zero
-                )
-                
-                // Apply correct transform for landscape
-                compositionVideoTrack.preferredTransform = videoTrack.preferredTransform
-                
-                // Handle audio track if present
-                if let audioTrack = asset.tracks(withMediaType: .audio).first,
-                   let compositionAudioTrack = composition.addMutableTrack(
-                       withMediaType: .audio,
-                       preferredTrackID: kCMPersistentTrackID_Invalid
-                   ) {
-                    try compositionAudioTrack.insertTimeRange(
-                        CMTimeRange(start: .zero, duration: asset.duration),
-                        of: audioTrack,
+            Task {
+                do {
+                    let asset = AVURLAsset(url: url)
+                    
+                    // Load tracks asynchronously (modern API)
+                    let videoTracks = try await asset.loadTracks(withMediaType: .video)
+                    guard let videoTrack = videoTracks.first else {
+                        #if DEBUG
+                        print("⚠️ NativeCameraView: No video track found, cannot fix orientation")
+                        #endif
+                        await MainActor.run { completion(nil) }
+                        return
+                    }
+                    
+                    // Load transform and duration (modern API)
+                    let transform = try await videoTrack.load(.preferredTransform)
+                    let duration = try await asset.load(.duration)
+                    
+                    // Check current orientation via transform matrix
+                    let videoAngle = atan2(transform.b, transform.a) * 180 / .pi
+                    
+                    #if DEBUG
+                    print("🎥 NativeCameraView: Video angle: \(videoAngle)°")
+                    print("🎥 NativeCameraView: Transform: \(transform)")
+                    #endif
+                    
+                    // If video is already in portrait orientation (0° or 180°), no fix needed
+                    if abs(videoAngle) < 1.0 || abs(videoAngle - 180) < 1.0 {
+                        #if DEBUG
+                        print("✅ NativeCameraView: Video is portrait, no orientation fix needed")
+                        #endif
+                        await MainActor.run { completion(url) }
+                        return
+                    }
+                    
+                    #if DEBUG
+                    print("🔄 NativeCameraView: Fixing landscape video orientation...")
+                    #endif
+                    
+                    // Create composition with corrected orientation
+                    let composition = AVMutableComposition()
+                    
+                    guard let compositionVideoTrack = composition.addMutableTrack(
+                        withMediaType: .video,
+                        preferredTrackID: kCMPersistentTrackID_Invalid
+                    ) else {
+                        #if DEBUG
+                        print("❌ NativeCameraView: Failed to create composition video track")
+                        #endif
+                        await MainActor.run { completion(nil) }
+                        return
+                    }
+                    
+                    // Copy video track timing
+                    try compositionVideoTrack.insertTimeRange(
+                        CMTimeRange(start: .zero, duration: duration),
+                        of: videoTrack,
                         at: .zero
                     )
+                    
+                    // Apply correct transform for landscape
+                    compositionVideoTrack.preferredTransform = transform
+                    
+                    // Handle audio track if present
+                    let audioTracks = try await asset.loadTracks(withMediaType: .audio)
+                    if let audioTrack = audioTracks.first,
+                       let compositionAudioTrack = composition.addMutableTrack(
+                           withMediaType: .audio,
+                           preferredTrackID: kCMPersistentTrackID_Invalid
+                       ) {
+                        try compositionAudioTrack.insertTimeRange(
+                            CMTimeRange(start: .zero, duration: duration),
+                            of: audioTrack,
+                            at: .zero
+                        )
+                        #if DEBUG
+                        print("✅ NativeCameraView: Audio track copied")
+                        #endif
+                    }
+                    
+                    // Export with corrected orientation
+                    let outputURL = FileManager.default.temporaryDirectory
+                        .appendingPathComponent("fixed_\(UUID().uuidString).mov")
+                    
+                    guard let exportSession = AVAssetExportSession(
+                        asset: composition,
+                        presetName: AVAssetExportPresetHighestQuality
+                    ) else {
+                        #if DEBUG
+                        print("❌ NativeCameraView: Failed to create export session")
+                        #endif
+                        await MainActor.run { completion(nil) }
+                        return
+                    }
+                    
+                    exportSession.shouldOptimizeForNetworkUse = true
+                    
                     #if DEBUG
-                    print("✅ NativeCameraView: Audio track copied")
+                    print("🔄 NativeCameraView: Exporting fixed video...")
                     #endif
-                }
-                
-                // Export with corrected orientation
-                let outputURL = FileManager.default.temporaryDirectory
-                    .appendingPathComponent("fixed_\(UUID().uuidString).mov")
-                
-                guard let exportSession = AVAssetExportSession(
-                    asset: composition,
-                    presetName: AVAssetExportPresetHighestQuality
-                ) else {
-                    #if DEBUG
-                    print("❌ NativeCameraView: Failed to create export session")
-                    #endif
-                    completion(nil)
-                    return
-                }
-                
-                exportSession.outputURL = outputURL
-                exportSession.outputFileType = .mov
-                exportSession.shouldOptimizeForNetworkUse = true
-                
-                #if DEBUG
-                print("🔄 NativeCameraView: Exporting fixed video...")
-                #endif
-                
-                exportSession.exportAsynchronously {
-                    DispatchQueue.main.async {
-                        switch exportSession.status {
-                        case .completed:
+                    
+                    // Use modern async export API (iOS 18+)
+                    do {
+                        try await exportSession.export(to: outputURL, as: .mov)
+                        
+                        await MainActor.run {
                             #if DEBUG
                             print("✅ NativeCameraView: Export completed successfully")
                             #endif
                             // Clean up original file to save space
                             try? FileManager.default.removeItem(at: url)
                             completion(outputURL)
-                            
-                        case .failed:
+                        }
+                    } catch {
+                        await MainActor.run {
                             #if DEBUG
-                            print("❌ NativeCameraView: Export failed: \(exportSession.error?.localizedDescription ?? "Unknown error")")
-                            #endif
-                            completion(nil)
-                            
-                        case .cancelled:
-                            #if DEBUG
-                            print("⚠️ NativeCameraView: Export cancelled")
-                            #endif
-                            completion(nil)
-                            
-                        default:
-                            #if DEBUG
-                            print("⚠️ NativeCameraView: Export in unexpected state: \(exportSession.status.rawValue)")
+                            print("❌ NativeCameraView: Export failed: \(error.localizedDescription)")
                             #endif
                             completion(nil)
                         }
                     }
+                    
+                } catch {
+                    #if DEBUG
+                    print("❌ NativeCameraView: Error fixing video orientation: \(error.localizedDescription)")
+                    #endif
+                    await MainActor.run { completion(nil) }
                 }
-                
-            } catch {
-                #if DEBUG
-                print("❌ NativeCameraView: Error fixing video orientation: \(error.localizedDescription)")
-                #endif
-                completion(nil)
             }
         }
     }

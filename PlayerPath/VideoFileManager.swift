@@ -44,6 +44,26 @@ class VideoFileManager {
         }
     }
     
+    enum FileManagerError: LocalizedError {
+        case documentsDirectoryNotFound
+        case fileAlreadyExists
+        case copyFailed(Error)
+        case deleteFailed(Error)
+        
+        var errorDescription: String? {
+            switch self {
+            case .documentsDirectoryNotFound:
+                return "Could not access app documents directory."
+            case .fileAlreadyExists:
+                return "A file with this name already exists."
+            case .copyFailed(let error):
+                return "Failed to copy file: \(error.localizedDescription)"
+            case .deleteFailed(let error):
+                return "Failed to delete file: \(error.localizedDescription)"
+            }
+        }
+    }
+    
     // MARK: - Constants
     private enum Constants {
         static let maxFileSizeBytes: Int64 = 500 * 1024 * 1024 // 500MB
@@ -51,12 +71,15 @@ class VideoFileManager {
         static let maxDurationSeconds: TimeInterval = 600 // 10 minutes
         static let minDurationSeconds: TimeInterval = 1 // 1 second
         static let thumbnailSize = CGSize(width: 160, height: 120)
+        static let thumbnailCompressionQuality: CGFloat = 0.8
     }
     
     private static func documentsDirectory() throws -> URL {
-        let urls = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)
-        if let first = urls.first { return first }
-        throw NSError(domain: "VideoFileManager", code: -2, userInfo: [NSLocalizedDescriptionKey: "Documents directory not found"]) 
+        guard let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
+            logger.error("Documents directory not found")
+            throw FileManagerError.documentsDirectoryNotFound
+        }
+        return url
     }
     
     // MARK: - File Operations
@@ -72,21 +95,37 @@ class VideoFileManager {
     }
     
     static func copyToDocuments(from sourceURL: URL) throws -> URL {
-        let documents = (try? documentsDirectory()) ?? FileManager.default.temporaryDirectory
+        let documents = try documentsDirectory() // Don't fall back to temp!
+        
         // If already in Documents, just return it
         if sourceURL.standardizedFileURL.deletingLastPathComponent() == documents.standardizedFileURL {
             return sourceURL
         }
 
         var destinationURL = createPermanentVideoURL()
-        // Ensure uniqueness
-        while FileManager.default.fileExists(atPath: destinationURL.path) {
-            destinationURL = createPermanentVideoURL()
+        var attempts = 0
+        let maxAttempts = 10
+        
+        // Try to copy, handling file exists error with retry
+        while attempts < maxAttempts {
+            do {
+                // This will throw if file already exists
+                try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
+                logger.info("Successfully copied video to: \(destinationURL.path, privacy: .public)")
+                return destinationURL
+            } catch let error as NSError where error.domain == NSCocoaErrorDomain && error.code == NSFileWriteFileExistsError {
+                // File exists, try again with new UUID
+                logger.warning("File exists at \(destinationURL.path, privacy: .public), retrying with new name")
+                destinationURL = createPermanentVideoURL()
+                attempts += 1
+            } catch {
+                logger.error("Failed to copy video: \(String(describing: error), privacy: .public)")
+                throw FileManagerError.copyFailed(error)
+            }
         }
-
-        try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
-        logger.info("Successfully copied video to: \(destinationURL.path, privacy: .public)")
-        return destinationURL
+        
+        logger.error("Failed to find unique filename after \(maxAttempts) attempts")
+        throw FileManagerError.fileAlreadyExists
     }
     
     static func cleanup(url: URL) {
@@ -101,6 +140,12 @@ class VideoFileManager {
     // MARK: - Validation
     
     static func validateVideo(at url: URL) async -> Result<Void, ValidationError> {
+        // Check for cancellation early
+        guard !Task.isCancelled else {
+            logger.info("Video validation cancelled")
+            return .failure(.corruptedFile)
+        }
+        
         // Basic file existence and size via URL resource values
         do {
             let keys: Set<URLResourceKey> = [.isRegularFileKey, .fileSizeKey]
@@ -120,8 +165,19 @@ class VideoFileManager {
             return .failure(.corruptedFile)
         }
 
+        // Check for cancellation before expensive operation
+        guard !Task.isCancelled else {
+            logger.info("Video validation cancelled before playability check")
+            return .failure(.corruptedFile)
+        }
+
         // Duration + playability
+        return await validatePlayability(at: url)
+    }
+    
+    private static func validatePlayability(at url: URL) async -> Result<Void, ValidationError> {
         let asset = AVURLAsset(url: url)
+        
         do {
             let (duration, isPlayable) = try await asset.load(.duration, .isPlayable)
             guard isPlayable else { return .failure(.invalidFormat) }
@@ -153,6 +209,12 @@ class VideoFileManager {
         size: CGSize? = nil
     ) async -> Result<String, Error> {
         
+        // Check for cancellation early
+        guard !Task.isCancelled else {
+            logger.info("Thumbnail generation cancelled")
+            return .failure(CancellationError())
+        }
+        
         logger.info("Generating thumbnail for video: \(videoURL.path, privacy: .public)")
         
         do {
@@ -161,9 +223,21 @@ class VideoFileManager {
             imageGenerator.appliesPreferredTrackTransform = true
             imageGenerator.maximumSize = size ?? Constants.thumbnailSize
             
+            // Check for cancellation before expensive operation
+            guard !Task.isCancelled else {
+                logger.info("Thumbnail generation cancelled before image generation")
+                return .failure(CancellationError())
+            }
+            
             // Calculate safe thumbnail time
             let thumbnailTime = try await calculateSafeThumbnailTime(for: asset, requestedTime: time)
             logger.info("Using thumbnail time: \(String(format: "%.3f", CMTimeGetSeconds(thumbnailTime)), privacy: .public) seconds")
+            
+            // Check for cancellation again
+            guard !Task.isCancelled else {
+                logger.info("Thumbnail generation cancelled before CGImage generation")
+                return .failure(CancellationError())
+            }
             
             // Generate thumbnail image
             let cgImage: CGImage
@@ -177,9 +251,15 @@ class VideoFileManager {
             let finalSize = size ?? Constants.thumbnailSize
             let image = normalizedThumbnail(baseImage, size: finalSize)
 
+            // Check for cancellation before saving
+            guard !Task.isCancelled else {
+                logger.info("Thumbnail generation cancelled before saving")
+                return .failure(CancellationError())
+            }
+            
             // Save to documents directory
             let thumbnailURL = createThumbnailURL()
-            guard let imageData = image.jpegData(compressionQuality: 0.8) else {
+            guard let imageData = image.jpegData(compressionQuality: Constants.thumbnailCompressionQuality) else {
                 throw NSError(domain: "VideoFileManager", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to create JPEG data"])
             }
             
@@ -188,6 +268,9 @@ class VideoFileManager {
             
             return .success(thumbnailURL.path)
             
+        } catch is CancellationError {
+            logger.info("Thumbnail generation was cancelled")
+            return .failure(CancellationError())
         } catch {
             logger.error("Error generating thumbnail: \(String(describing: error), privacy: .public)")
             return .failure(error)

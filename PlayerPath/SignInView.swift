@@ -84,7 +84,14 @@ struct SignInView: View {
                         isSignUp: $isSignUp,
                         showingForgotPassword: $showingForgotPassword,
                         canSubmitForm: canSubmitForm(),
-                        performAuth: performAuth
+                        performAuth: performAuth,
+                        onModeSwitched: {
+                            // Clear fields when switching modes for better UX
+                            email = ""
+                            password = ""
+                            displayName = ""
+                            authManager.errorMessage = nil
+                        }
                     )
                     
                     ErrorDisplaySection()
@@ -136,8 +143,10 @@ struct SignInView: View {
             }
         }
         .onChange(of: email) { _, newValue in
-            if newValue.contains(" ") {
-                email = newValue.replacingOccurrences(of: " ", with: "")
+            // Remove spaces and trim whitespace from email
+            let cleaned = newValue.replacingOccurrences(of: " ", with: "")
+            if cleaned != newValue {
+                email = cleaned
             }
         }
         .onAppear {
@@ -172,10 +181,18 @@ struct SignInView: View {
                 // Offer biometric enrollment for new sign-ins (not sign-ups)
                 if !isSignUp && biometricManager.isBiometricAvailable && !biometricManager.isBiometricEnabled {
                     // Small delay so user sees success first
-                    try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+                    try? await Task.sleep(for: .milliseconds(500))
                     await MainActor.run {
-                        showBiometricPrompt = true
+                        // Only show if still signed in
+                        if authManager.isSignedIn {
+                            showBiometricPrompt = true
+                        }
                     }
+                }
+            } else if authManager.errorMessage != nil {
+                // Clear password on failed authentication for security
+                await MainActor.run {
+                    password = ""
                 }
             }
         }
@@ -226,18 +243,22 @@ struct SignInView: View {
 private struct AppLogoSection: View {
     var body: some View {
         VStack {
-            // Your custom PlayerPath logo
-            Image("PlayerPathLogo")
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 80, height: 80)
-                .cornerRadius(16)
-                .background(
+            // Your custom PlayerPath logo with proper fallback
+            Group {
+                if let _ = UIImage(named: "PlayerPathLogo") {
+                    Image("PlayerPathLogo")
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 80, height: 80)
+                        .cornerRadius(16)
+                } else {
                     // Fallback to system icon if custom logo isn't found
                     Image(systemName: "diamond.fill")
-                        .font(.system(size: 80))
-                        .foregroundColor(.blue)
-                )
+                        .font(.system(size: 60))
+                        .foregroundStyle(.blue.gradient)
+                        .frame(width: 80, height: 80)
+                }
+            }
             
             Text("PlayerPath")
                 .font(.largeTitle)
@@ -284,6 +305,8 @@ private struct AuthenticationFormSection: View {
             if isSignUp {
                 TextField("Display Name", text: $displayName)
                     .textFieldStyle(RoundedBorderTextFieldStyle())
+                    .keyboardType(.default)
+                    .textInputAutocapitalization(.words)
                     .accessibilityLabel("Display name")
                     .accessibilityHint("Enter your preferred display name")
                     .textContentType(.name)
@@ -337,6 +360,7 @@ private struct AuthenticationFormSection: View {
                     Image(systemName: showPassword ? "eye.slash.fill" : "eye.fill")
                         .foregroundColor(.secondary)
                 }
+                .disabled(isLoading)
                 .accessibilityLabel(showPassword ? "Hide password" : "Show password")
             }
             
@@ -443,6 +467,7 @@ private struct AuthenticationButtonSection: View {
     @Binding var showingForgotPassword: Bool
     let canSubmitForm: Bool
     let performAuth: () -> Void
+    let onModeSwitched: () -> Void
     
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
     
@@ -465,7 +490,12 @@ private struct AuthenticationButtonSection: View {
             .accessibilityLabel(isSignUp ? "Create Account" : "Sign In")
             .accessibilityHint(isSignUp ? "Create a new PlayerPath account" : "Sign in to your account")
             
-            Button(action: { isSignUp.toggle() }) {
+            Button(action: { 
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    isSignUp.toggle()
+                    onModeSwitched()
+                }
+            }) {
                 Text(isSignUp ? "Already have an account? Sign In" : "Don't have an account? Sign Up")
                     .foregroundColor(.blue)
             }
@@ -524,12 +554,19 @@ private struct BiometricSignInSection: View {
     @ObservedObject var biometricManager: BiometricAuthenticationManager
     let onBiometricSignIn: () -> Void
     
+    @EnvironmentObject private var authManager: ComprehensiveAuthManager
+    
     var body: some View {
         VStack(spacing: 12) {
             Button(action: onBiometricSignIn) {
                 HStack {
-                    Image(systemName: biometricManager.biometricType == .faceID ? "faceid" : "touchid")
-                        .font(.title3)
+                    if authManager.isLoading {
+                        ProgressView()
+                            .tint(.white)
+                    } else {
+                        Image(systemName: biometricManager.biometricType == .faceID ? "faceid" : "touchid")
+                            .font(.title3)
+                    }
                     Text("Sign in with \(biometricManager.biometricTypeName)")
                         .font(.system(size: 17, weight: .medium))
                 }
@@ -545,6 +582,7 @@ private struct BiometricSignInSection: View {
                 )
                 .cornerRadius(10)
             }
+            .disabled(authManager.isLoading)
             .accessibilityLabel("Sign in with \(biometricManager.biometricTypeName)")
             .accessibilityHint("Use biometric authentication to sign in quickly")
         }

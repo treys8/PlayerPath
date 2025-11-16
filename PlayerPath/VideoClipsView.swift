@@ -156,7 +156,7 @@ struct VideoClipsView: View {
                     athlete: athlete,
                     game: liveGameForRecording ?? athlete?.games.first { $0.isLive }
                 )
-                .presentationDetents([.medium, .large])
+                .presentationDetents([.large])
             case .player(let clip):
                 VideoPlayerView(clip: clip)
                     .presentationDetents([.medium, .large])

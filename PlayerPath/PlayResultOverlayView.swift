@@ -63,8 +63,8 @@ struct PlayResultOverlayView: View {
                         // Video metadata badge
                         if let metadata = videoMetadata {
                             VideoMetadataView(metadata: metadata)
-                                .padding(12)
-                                .padding(.top, 50) // Make room for Done button
+                                .padding(16)
+                                .padding(.top, 60) // Position higher and make room for toolbar
                         }
                     }
                     
@@ -92,8 +92,6 @@ struct PlayResultOverlayView: View {
                 // Play Result Selection Overlay
                 VStack {
                     Spacer()
-                    
-                    let minWidth: CGFloat = (hSizeClass == .compact) ? 110 : 120
                     
                     VStack(spacing: 20) {
                         if practice != nil {
@@ -515,27 +513,13 @@ struct PlayResultButton: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 12) {
-                // Icon with circular background
-                ZStack {
-                    Circle()
-                        .fill(Color.white.opacity(0.2))
-                        .frame(width: 44, height: 44)
-                    
-                    Image(systemName: result.iconName)
-                        .font(.system(size: 20, weight: .bold))
-                        .foregroundColor(.white)
-                }
-                
                 // Label
                 Text(result.displayName)
                     .font(.body)
                     .fontWeight(.semibold)
                     .foregroundColor(.white)
-                    .multilineTextAlignment(.leading)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.85)
-                
-                Spacer()
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
                 
                 // Selection indicator
                 if isSelected {
@@ -548,7 +532,7 @@ struct PlayResultButton: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 14)
             .frame(maxWidth: fullWidth ? .infinity : nil)
-            .frame(height: 60)
+            .frame(height: 64)
             .background(
                 RoundedRectangle(cornerRadius: 14)
                     .fill(result.uiColor)

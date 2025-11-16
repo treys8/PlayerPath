@@ -33,6 +33,14 @@ class PlayerPathAppDelegate: NSObject, UIApplicationDelegate {
         return true
     }
     
+    // MARK: - Orientation Support
+    
+    func application(_ application: UIApplication, supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
+        // Allow all orientations for camera/video recording
+        // SwiftUI views will override this to lock to portrait if needed
+        return .allButUpsideDown
+    }
+    
     // MARK: - Push Notifications Setup
     
     private func setupPushNotifications(_ application: UIApplication) {

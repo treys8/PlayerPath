@@ -126,12 +126,43 @@ final class ClipPersistenceService {
             context.insert(result)
             // Mark as highlight for hit outcomes
             videoClip.isHighlight = playResultType.isHighlight
+            
+            // Update athlete's overall statistics
+            if athlete.statistics == nil {
+                let stats = AthleteStatistics()
+                stats.athlete = athlete
+                athlete.statistics = stats
+                context.insert(stats)
+                print("ClipPersistenceService: Created new Statistics for athlete \(athlete.name)")
+            }
+            if let statistics = athlete.statistics {
+                statistics.addPlayResult(playResultType)
+                print("ClipPersistenceService: Updated athlete statistics for play result: \(playResultType.rawValue)")
+            }
+            
+            // Update game statistics if this is linked to a game
+            if let game = game {
+                if game.gameStats == nil {
+                    let gameStats = GameStatistics()
+                    gameStats.game = game
+                    game.gameStats = gameStats
+                    context.insert(gameStats)
+                    print("ClipPersistenceService: Created new GameStatistics for game vs \(game.opponent)")
+                }
+                if let gameStats = game.gameStats {
+                    gameStats.addPlayResult(playResultType)
+                    print("ClipPersistenceService: Updated game statistics for play result: \(playResultType.rawValue)")
+                }
+            }
         }
 
         // Associate relationships (set one side; rely on Swift Data inverses)
         videoClip.athlete = athlete
         if let game = game { videoClip.game = game }
         if let practice = practice { videoClip.practice = practice }
+
+        // ✅ Link video to active season
+        SeasonManager.linkVideoToActiveSeason(videoClip, for: athlete, in: context)
 
         // Insert and save
         context.insert(videoClip)

@@ -122,6 +122,9 @@ extension AppleSignInManager: ASAuthorizationControllerDelegate {
                 // Sign in with Firebase
                 let result = try await Auth.auth().signIn(with: credential)
                 
+                // Check if this is a new user
+                let isNewUser = result.additionalUserInfo?.isNewUser ?? false
+                
                 // Update display name if available and not already set
                 if let fullName = appleIDCredential.fullName,
                    result.user.displayName == nil || result.user.displayName?.isEmpty == true {
@@ -137,7 +140,7 @@ extension AppleSignInManager: ASAuthorizationControllerDelegate {
                 }
                 
                 await MainActor.run {
-                    authManager?.updateCurrentUser(result.user, isNewUser: false)
+                    authManager?.updateCurrentUser(result.user, isNewUser: isNewUser)
                     isLoading = false
                     print("🟢 Apple Sign In successful for: \(result.user.email ?? "unknown")")
                     HapticManager.shared.authenticationSuccess()

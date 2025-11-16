@@ -103,50 +103,6 @@ struct PracticesView: View {
         }
     }
     
-    private func deletePractices(offsets: IndexSet) {
-        withAnimation {
-            let idsToDelete = offsets.map { practices[$0].persistentModelID }
-            for id in idsToDelete {
-                if let practice = practices.first(where: { $0.persistentModelID == id }) {
-                    // Remove from athlete's practices array
-                    if let athlete = practice.athlete,
-                       let practiceIndex = athlete.practices.firstIndex(of: practice) {
-                        athlete.practices.remove(at: practiceIndex)
-                        log.debug("Removed practice from athlete's array")
-                    }
-
-                    // Delete associated video clips
-                    for videoClip in practice.videoClips {
-                        if let athlete = videoClip.athlete,
-                           let clipIndex = athlete.videoClips.firstIndex(of: videoClip) {
-                            athlete.videoClips.remove(at: clipIndex)
-                        }
-                        modelContext.delete(videoClip)
-                        log.debug("Deleted associated video clip: \(videoClip.fileName)")
-                    }
-
-                    // Delete associated notes
-                    for note in practice.notes {
-                        modelContext.delete(note)
-                        log.debug("Deleted associated note")
-                    }
-
-                    modelContext.delete(practice)
-                    log.info("Deleted practice from context")
-                }
-            }
-
-            do {
-                try modelContext.save()
-                UINotificationFeedbackGenerator().notificationOccurred(.success)
-                log.info("Successfully saved practice deletion")
-            } catch {
-                UINotificationFeedbackGenerator().notificationOccurred(.error)
-                log.error("Failed to delete practices: \(error.localizedDescription)")
-            }
-        }
-    }
-    
     private func deleteSinglePractice(_ practice: Practice) {
         withAnimation {
             // Remove from athlete's practices array
@@ -156,12 +112,19 @@ struct PracticesView: View {
                 log.debug("Removed practice from athlete's array")
             }
 
-            // Delete associated video clips
+            // Delete associated video clips and their play results
             for videoClip in practice.videoClips {
                 if let athlete = videoClip.athlete,
                    let clipIndex = athlete.videoClips.firstIndex(of: videoClip) {
                     athlete.videoClips.remove(at: clipIndex)
                 }
+                
+                // Delete associated play result
+                if let playResult = videoClip.playResult {
+                    modelContext.delete(playResult)
+                    log.debug("Deleted associated play result")
+                }
+                
                 modelContext.delete(videoClip)
                 log.debug("Deleted associated video clip: \(videoClip.fileName)")
             }
@@ -287,7 +250,6 @@ struct AddPracticeView: View {
     
     @State private var date = Date()
     @State private var shouldUploadVideo = false
-    @State private var showingVideoRecorder = false
     @State private var createdPractice: Practice?
     
     var body: some View {
@@ -328,17 +290,8 @@ struct AddPracticeView: View {
                 }
             }
         }
-        .sheet(isPresented: $showingVideoRecorder) {
-            if let practice = createdPractice {
-                VideoRecorderView_Refactored(athlete: athlete, practice: practice)
-            }
-        }
-        .onChange(of: showingVideoRecorder) { _, isShowing in
-            // When video recorder is dismissed, also dismiss this view
-            if !isShowing && createdPractice != nil {
-                createdPractice = nil
-                dismiss()
-            }
+        .sheet(item: $createdPractice) { practice in
+            VideoRecorderView_Refactored(athlete: athlete, practice: practice)
         }
     }
     
@@ -351,13 +304,15 @@ struct AddPracticeView: View {
         athlete.practices.append(practice)
         modelContext.insert(practice)
         
+        // ✅ Link practice to active season
+        SeasonManager.linkPracticeToActiveSeason(practice, for: athlete, in: modelContext)
+        
         do {
             try modelContext.save()
             UINotificationFeedbackGenerator().notificationOccurred(.success)
             
             if shouldUploadVideo {
                 createdPractice = practice
-                showingVideoRecorder = true
             } else {
                 dismiss()
             }
@@ -494,8 +449,10 @@ struct PracticeDetailView: View {
             
             do {
                 try modelContext.save()
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
             } catch {
-                print("Failed to delete notes: \(error)")
+                UINotificationFeedbackGenerator().notificationOccurred(.error)
+                log.error("Failed to delete notes: \(error.localizedDescription)")
             }
         }
     }
@@ -557,8 +514,9 @@ struct PracticeDetailView: View {
     }
     
     private func navigateToHome() {
-        // Post notification to switch to Home tab (index 0)
-        NotificationCenter.default.post(name: .switchTab, object: 0)
+        // Switch to Home tab using typed notification helper
+        post(.switchTab(.home))
+        dismiss()
     }
 }
 
@@ -662,9 +620,11 @@ struct AddPracticeNoteView: View {
         
         do {
             try modelContext.save()
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
             dismiss()
         } catch {
-            print("Failed to save note: \(error)")
+            UINotificationFeedbackGenerator().notificationOccurred(.error)
+            log.error("Failed to save note: \(error.localizedDescription)")
         }
     }
 }
