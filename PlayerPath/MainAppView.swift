@@ -2263,6 +2263,12 @@ struct MainTabView: View {
                     Haptics.light()
                 }
             }
+            .onReceive(NotificationCenter.default.publisher(for: .switchAthlete)) { notification in
+                if let athlete = notification.object as? Athlete {
+                    selectedAthlete = athlete
+                    Haptics.light()
+                }
+            }
             .onReceive(NotificationCenter.default.publisher(for: .presentVideoRecorder)) { _ in
                 selectedTab = MainTab.videos.rawValue
                 Haptics.light()
@@ -2400,11 +2406,11 @@ struct MainTabView: View {
             ))
         }
         .tabItem {
-            Label("More", systemImage: "line.3.horizontal")
+            Label("Profile", systemImage: "person.circle.fill")
         }
         .tag(MainTab.profile.rawValue)
-        .accessibilityLabel("More tab")
-        .accessibilityHint("Access settings, profile, and additional features")
+        .accessibilityLabel("Profile tab")
+        .accessibilityHint("Access your profile, settings, and additional features")
     }
     
     // MARK: - State Restoration
@@ -2852,35 +2858,47 @@ struct DashboardView: View {
             await refreshDashboard()
         }
         .scrollBounceBehavior(.basedOnSize)
-        .navigationTitle("Dashboard")
+        .navigationTitle(athlete.name)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .principal) {
                 Menu {
-                    Section("Navigate") {
-                        Button("Tournaments") { postSwitchTab(.tournaments) }
-                        Button("Games") { postSwitchTab(.games) }
-                        Button("Practice") { postSwitchTab(.practice) }
-                        Button("Videos") { postSwitchTab(.videos) }
-                        Button("Highlights") { postSwitchTab(.highlights) }
-                        Button("Stats") { postSwitchTab(.stats) }
+                    // Show all athletes with checkmark for current
+                    ForEach(user.athletes.sorted(by: { $0.name < $1.name })) { ath in
+                        Button {
+                            // Switch to this athlete
+                            NotificationCenter.default.post(
+                                name: .switchAthlete,
+                                object: ath
+                            )
+                            Haptics.light()
+                        } label: {
+                            HStack {
+                                Text(ath.name)
+                                if ath.id == athlete.id {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                    }
+                    
+                    Divider()
+                    
+                    Button {
+                        NotificationCenter.default.post(name: .showAthleteSelection, object: nil)
+                        Haptics.light()
+                    } label: {
+                        Label("Manage Athletes", systemImage: "person.2.fill")
                     }
                 } label: {
                     HStack(spacing: 6) {
-                        Text("Dashboard")
+                        Text(athlete.name)
+                            .fontWeight(.semibold)
                         Image(systemName: "chevron.down")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
                 }
-            }
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button {
-                    NotificationCenter.default.post(name: .showAthleteSelection, object: nil)
-                } label: {
-                    Image(systemName: "person.2.fill")
-                }
-                .accessibilityLabel("Switch athlete")
             }
         }
     }

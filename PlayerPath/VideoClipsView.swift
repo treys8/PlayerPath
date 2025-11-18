@@ -86,7 +86,7 @@ struct VideoClipsView: View {
             }
         }
         .sheet(isPresented: $showingRecorder) {
-            VideoRecorderView(athlete: athlete, liveGame: liveGameContext)
+            VideoRecorderView_Refactored(athlete: athlete, game: liveGameContext)
         }
         .sheet(isPresented: $showingUploadPicker) {
             // TODO: Implement video upload picker
@@ -294,16 +294,21 @@ struct VideoClipCard: View {
         let url = URL(fileURLWithPath: video.filePath)
         guard FileManager.default.fileExists(atPath: video.filePath) else { return }
         
-        do {
-            let image = try await ThumbnailGenerator.generateThumbnail(for: url)
-            let path = try await ThumbnailCache.shared.saveThumbnail(image, for: video.id.uuidString)
-            
+        let result = await VideoFileManager.generateThumbnail(from: url)
+        
+        switch result {
+        case .success(let path):
             await MainActor.run {
                 video.thumbnailPath = path
-                thumbnailImage = image
+                // Load the generated thumbnail
+                Task {
+                    if let image = try? await ThumbnailCache.shared.loadThumbnail(at: path) {
+                        thumbnailImage = image
+                    }
+                }
                 try? modelContext.save()
             }
-        } catch {
+        case .failure(let error):
             print("Failed to generate thumbnail: \(error)")
         }
     }
@@ -329,125 +334,6 @@ struct VideoClipCard: View {
         } catch {
             print("Failed to delete video: \(error)")
         }
-    }
-}
-
-// MARK: - Video Recorder View (Placeholder)
-struct VideoRecorderView: View {
-    let athlete: Athlete
-    let liveGame: Game?
-    @Environment(\.dismiss) private var dismiss
-    
-    var body: some View {
-        NavigationStack {
-            VStack(spacing: 20) {
-                if let game = liveGame {
-                    VStack(spacing: 8) {
-                        HStack(spacing: 4) {
-                            Circle()
-                                .fill(Color.red)
-                                .frame(width: 8, height: 8)
-                                .symbolEffect(.pulse, options: .repeating)
-                            Text("LIVE GAME")
-                                .font(.caption)
-                                .fontWeight(.bold)
-                                .foregroundColor(.red)
-                        }
-                        
-                        Text("vs \(game.opponent)")
-                            .font(.title2)
-                            .fontWeight(.semibold)
-                    }
-                    .padding()
-                    .frame(maxWidth: .infinity)
-                    .background(Color.red.opacity(0.1))
-                    .cornerRadius(12)
-                }
-                
-                Image(systemName: "video.fill")
-                    .font(.system(size: 80))
-                    .foregroundColor(.blue)
-                
-                Text("Video Recorder")
-                    .font(.title)
-                    .fontWeight(.bold)
-                
-                Text("Full video recording implementation coming soon")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-            }
-            .padding()
-            .navigationTitle("Record Video")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        dismiss()
-                    }
-                }
-            }
-        }
-    }
-}
-
-// MARK: - Thumbnail Helpers
-actor ThumbnailCache {
-    static let shared = ThumbnailCache()
-    
-    private var cache: [String: UIImage] = [:]
-    
-    func loadThumbnail(at path: String) async throws -> UIImage {
-        if let cached = cache[path] {
-            return cached
-        }
-        
-        guard FileManager.default.fileExists(atPath: path),
-              let image = UIImage(contentsOfFile: path) else {
-            throw ThumbnailError.notFound
-        }
-        
-        cache[path] = image
-        return image
-    }
-    
-    func saveThumbnail(_ image: UIImage, for id: String) async throws -> String {
-        let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        let thumbnailsDir = documentsPath.appendingPathComponent("Thumbnails")
-        
-        if !FileManager.default.fileExists(atPath: thumbnailsDir.path) {
-            try FileManager.default.createDirectory(at: thumbnailsDir, withIntermediateDirectories: true)
-        }
-        
-        let path = thumbnailsDir.appendingPathComponent("\(id).jpg").path
-        
-        guard let data = image.jpegData(compressionQuality: 0.8) else {
-            throw ThumbnailError.saveFailed
-        }
-        
-        try data.write(to: URL(fileURLWithPath: path))
-        cache[path] = image
-        
-        return path
-    }
-}
-
-enum ThumbnailError: Error {
-    case notFound
-    case saveFailed
-    case generationFailed
-}
-
-actor ThumbnailGenerator {
-    static func generateThumbnail(for url: URL) async throws -> UIImage {
-        let asset = AVAsset(url: url)
-        let imageGenerator = AVAssetImageGenerator(asset: asset)
-        imageGenerator.appliesPreferredTrackTransform = true
-        
-        let time = CMTime(seconds: 1, preferredTimescale: 60)
-        let cgImage = try await imageGenerator.image(at: time).image
-        
-        return UIImage(cgImage: cgImage)
     }
 }
 

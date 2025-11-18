@@ -8,6 +8,7 @@ enum AppEvent {
     case switchTab(MainTab)
     case presentVideoRecorder
     case showAthleteSelection
+    case switchAthlete(Athlete)
     case recordedHitResult([String: Any])
     case videosManageOwnControls(Bool)
     case presentAddGame(Any?)
@@ -22,6 +23,7 @@ extension Notification.Name {
     static let switchTab = Notification.Name("switchTab")
     static let presentVideoRecorder = Notification.Name("presentVideoRecorder")
     static let showAthleteSelection = Notification.Name("showAthleteSelection")
+    static let switchAthlete = Notification.Name("switchAthlete")
     static let recordedHitResult = Notification.Name("recordedHitResult")
     static let videosManageOwnControls = Notification.Name("videosManageOwnControls")
     static let presentAddGame = Notification.Name("presentAddGame")
@@ -41,6 +43,8 @@ func post(_ event: AppEvent) {
         NotificationCenter.default.post(name: .presentVideoRecorder, object: nil)
     case .showAthleteSelection:
         NotificationCenter.default.post(name: .showAthleteSelection, object: nil)
+    case .switchAthlete(let athlete):
+        NotificationCenter.default.post(name: .switchAthlete, object: athlete)
     case .recordedHitResult(let info):
         NotificationCenter.default.post(name: .recordedHitResult, object: info)
     case .videosManageOwnControls(let flag):

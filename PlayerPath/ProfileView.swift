@@ -112,6 +112,7 @@ struct ProfileView: View {
                     isSelected: athlete.id == selectedAthlete?.id
                 ) {
                     selectedAthlete = athlete
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
                 }
             }
             .onDelete { offsets in
@@ -336,9 +337,15 @@ struct SettingsView: View {
                     .disabled(true)
                     .opacity(0.6)
                 
-                Text("Notification and backup preferences are coming soon")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                HStack(spacing: 8) {
+                    Image(systemName: "info.circle.fill")
+                        .foregroundColor(.blue)
+                        .font(.caption)
+                    Text("Notification and backup preferences are coming soon")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .padding(.vertical, 4)
             }
             
             // Removed unimplemented features for now:
@@ -833,6 +840,179 @@ struct AthleteManagementView: View {
         .environmentObject(ComprehensiveAuthManager())
 }
 
+// MARK: - Profile Detail View
+
+/// Detailed profile view that shows user information and athlete management
+struct ProfileDetailView: View {
+    let user: User
+    @Binding var selectedAthlete: Athlete?
+    @Environment(\.modelContext) private var modelContext
+    @EnvironmentObject private var authManager: ComprehensiveAuthManager
+    @State private var showingAddAthlete = false
+    @State private var athletePendingDelete: Athlete?
+    @State private var showingDeleteAthleteAlert = false
+    @State private var showDeleteError = false
+    @State private var deleteErrorMessage = ""
+    @State private var showingPaywall = false
+    
+    // Premium limits
+    private let freeAthleteLimit = 3
+    
+    private var sortedAthletes: [Athlete] {
+        user.athletes.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+    
+    private var canAddMoreAthletes: Bool {
+        user.isPremium || user.athletes.count < freeAthleteLimit
+    }
+    
+    var body: some View {
+        List {
+            // User Profile Section
+            Section {
+                HStack(spacing: 15) {
+                    EditableProfileImageView(user: user, size: 80) {
+                        do {
+                            try modelContext.save()
+                        } catch {
+                            print("Failed to save profile image: \(error)")
+                        }
+                    }
+                    
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(user.username)
+                            .font(.title2)
+                            .fontWeight(.bold)
+                        
+                        Text(user.email)
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                        
+                        if let created = user.createdAt {
+                            Text("Member since \(created.formatted(.dateTime.year()))")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+                .padding(.vertical, 8)
+            }
+            
+            // Athletes Section
+            Section("Athletes") {
+                ForEach(sortedAthletes) { athlete in
+                    Button {
+                        selectedAthlete = athlete
+                    } label: {
+                        HStack {
+                            Image(systemName: "person.circle.fill")
+                                .font(.title2)
+                                .foregroundColor(.blue)
+                            
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(athlete.name)
+                                    .font(.headline)
+                                    .foregroundColor(.primary)
+                                
+                                if let created = athlete.createdAt {
+                                    Text("Created \(created, format: .dateTime.day().month().year())")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                            
+                            Spacer()
+                            
+                            if athlete.id == selectedAthlete?.id {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundColor(.blue)
+                            }
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+                .onDelete { offsets in
+                    if let index = offsets.first, index < sortedAthletes.count {
+                        athletePendingDelete = sortedAthletes[index]
+                        showingDeleteAthleteAlert = true
+                    }
+                }
+                
+                Button {
+                    if canAddMoreAthletes {
+                        showingAddAthlete = true
+                    } else {
+                        showingPaywall = true
+                    }
+                } label: {
+                    Label("Add Athlete", systemImage: "person.badge.plus")
+                }
+                .tint(.blue)
+                
+                if !user.isPremium && user.athletes.count >= freeAthleteLimit {
+                    HStack {
+                        Image(systemName: "crown.fill")
+                            .foregroundColor(.yellow)
+                            .font(.caption)
+                        Text("Upgrade to Premium for unlimited athletes")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.vertical, 4)
+                } else if !user.isPremium {
+                    Text("\(user.athletes.count) of \(freeAthleteLimit) free athletes used")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+        .navigationTitle("Profile")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                EditButton()
+            }
+        }
+        .sheet(isPresented: $showingAddAthlete) {
+            AddAthleteView(user: user, selectedAthlete: $selectedAthlete, isFirstAthlete: user.athletes.isEmpty)
+        }
+        .sheet(isPresented: $showingPaywall) {
+            PaywallView(user: user)
+        }
+        .alert("Delete Athlete", isPresented: $showingDeleteAthleteAlert) {
+            Button("Cancel", role: .cancel) { athletePendingDelete = nil }
+            Button("Delete", role: .destructive) {
+                if let athlete = athletePendingDelete {
+                    delete(athlete: athlete)
+                }
+                athletePendingDelete = nil
+            }
+        } message: {
+            Text("This will delete the athlete and related data. This action cannot be undone.")
+        }
+        .alert("Failed to Delete", isPresented: $showDeleteError) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(deleteErrorMessage.isEmpty ? "Please try again." : deleteErrorMessage)
+        }
+    }
+    
+    private func delete(athlete: Athlete) {
+        // If deleting the selected athlete, select another or none
+        if athlete.id == selectedAthlete?.id {
+            selectedAthlete = user.athletes.first { $0.id != athlete.id }
+        }
+        modelContext.delete(athlete)
+        do {
+            try modelContext.save()
+        } catch {
+            print("Failed to delete athlete: \(error)")
+            deleteErrorMessage = "Failed to delete athlete: \(error.localizedDescription)"
+            showDeleteError = true
+        }
+    }
+}
+
 // MARK: - More View
 
 struct MoreView: View {
@@ -847,12 +1027,9 @@ struct MoreView: View {
 
     var body: some View {
         List {
-            // Profile Header (tappable to edit)
+            // Profile Header (tappable to view/edit profile)
             Section {
-                Button {
-                    // Navigate to edit profile - using notification to avoid nested NavigationStack issues
-                    NotificationCenter.default.post(name: .presentProfileEditor, object: user)
-                } label: {
+                NavigationLink(destination: ProfileDetailView(user: user, selectedAthlete: $selectedAthlete)) {
                     HStack(spacing: 12) {
                         EditableProfileImageView(user: user, size: 60) {
                             do {
@@ -874,14 +1051,22 @@ struct MoreView: View {
                         }
                         
                         Spacer()
-                        
-                        Image(systemName: "chevron.right")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
                     }
                     .padding(.vertical, 8)
                 }
-                .buttonStyle(.plain)
+            }
+            
+            // Organization section with Seasons and Coaches
+            if let athlete = selectedAthlete {
+                Section("Organization") {
+                    NavigationLink(destination: SeasonsView(athlete: athlete)) {
+                        Label("Seasons", systemImage: "calendar")
+                    }
+                    
+                    NavigationLink(destination: CoachesView(athlete: athlete)) {
+                        Label("Coaches", systemImage: "person.3.fill")
+                    }
+                }
             }
 
             // Subscription Section
@@ -919,19 +1104,6 @@ struct MoreView: View {
                 }
             }
 
-            // Management Section - Only show when athlete is selected
-            if let athlete = selectedAthlete {
-                Section("Management") {
-                    NavigationLink(destination: SeasonsView(athlete: athlete)) {
-                        Label("Seasons", systemImage: "calendar")
-                    }
-                    
-                    NavigationLink(destination: CoachesView(athlete: athlete)) {
-                        Label("Coaches", systemImage: "person.3.fill")
-                    }
-                }
-            }
-
             // Settings Section
             Section("Settings") {
                 NavigationLink(destination: SettingsView(user: user)) {
@@ -963,16 +1135,17 @@ struct MoreView: View {
             }
 
             // Account Section
-                Section {
-                    Button("Sign Out") {
-                        showingSignOutAlert = true
-                    }
-                    .disabled(isSigningOut)
-                    .foregroundColor(.red)
+            Section {
+                Button("Sign Out") {
+                    showingSignOutAlert = true
                 }
+                .disabled(isSigningOut)
+                .foregroundColor(.red)
             }
-            .standardNavigationBar(title: "More", displayMode: .large)
-            .alert("Sign Out", isPresented: $showingSignOutAlert) {
+        }
+        .navigationTitle("Profile & Settings")
+        .navigationBarTitleDisplayMode(.large)
+        .alert("Sign Out", isPresented: $showingSignOutAlert) {
             Button("Cancel", role: .cancel) { }
             Button("Sign Out", role: .destructive) {
                 isSigningOut = true

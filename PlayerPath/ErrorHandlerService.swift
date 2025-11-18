@@ -11,7 +11,7 @@ import os.log
 
 // MARK: - PlayerPath Error Types
 
-enum PlayerPathError: LocalizedError, Identifiable {
+enum PlayerPathError: LocalizedError, Identifiable, Equatable {
     // Video-related errors
     case videoUploadFailed(reason: String)
     case videoProcessingFailed(reason: String)
@@ -25,15 +25,32 @@ enum PlayerPathError: LocalizedError, Identifiable {
     
     // Network and connectivity
     case networkError(underlying: Error)
+    case noInternetConnection
+    case slowConnection
+    case requestTimeout
     
     // Authentication
     case authenticationRequired
+    case sessionExpired
+    case permissionDenied
     
     // Storage
     case cloudStorageFull
+    case localStorageFull
+    case insufficientSpace(required: Int64, available: Int64)
+    
+    // Data errors
+    case dataCorrupted(type: String)
+    case syncFailed(reason: String)
+    case saveError(underlying: Error)
     
     // Generic
     case unknownError(String)
+    
+    // MARK: - Equatable Conformance
+    static func == (lhs: PlayerPathError, rhs: PlayerPathError) -> Bool {
+        lhs.id == rhs.id
+    }
     
     var id: String {
         switch self {
@@ -47,8 +64,18 @@ enum PlayerPathError: LocalizedError, Identifiable {
         case .unsupportedVideoFormat: return "unsupported_video_format"
         case .videoFileNotFound: return "video_file_not_found"
         case .networkError: return "network_error"
+        case .noInternetConnection: return "no_internet_connection"
+        case .slowConnection: return "slow_connection"
+        case .requestTimeout: return "request_timeout"
         case .authenticationRequired: return "authentication_required"
+        case .sessionExpired: return "session_expired"
+        case .permissionDenied: return "permission_denied"
         case .cloudStorageFull: return "cloud_storage_full"
+        case .localStorageFull: return "local_storage_full"
+        case .insufficientSpace: return "insufficient_space"
+        case .dataCorrupted: return "data_corrupted"
+        case .syncFailed: return "sync_failed"
+        case .saveError: return "save_error"
         case .unknownError: return "unknown_error"
         }
     }
@@ -79,10 +106,30 @@ enum PlayerPathError: LocalizedError, Identifiable {
             return "Video file could not be found"
         case .networkError(let underlying):
             return "Network error: \(underlying.localizedDescription)"
+        case .noInternetConnection:
+            return "No internet connection available"
+        case .slowConnection:
+            return "Connection is too slow to complete this operation"
+        case .requestTimeout:
+            return "Request timed out"
         case .authenticationRequired:
             return "Authentication required"
+        case .sessionExpired:
+            return "Your session has expired"
+        case .permissionDenied:
+            return "Permission denied"
         case .cloudStorageFull:
             return "Cloud storage is full"
+        case .localStorageFull:
+            return "Device storage is full"
+        case .insufficientSpace(let required, let available):
+            return "Not enough space. Need \(ByteCountFormatter.string(fromByteCount: required, countStyle: .file)) but only \(ByteCountFormatter.string(fromByteCount: available, countStyle: .file)) available"
+        case .dataCorrupted(let type):
+            return "\(type) data is corrupted"
+        case .syncFailed(let reason):
+            return "Sync failed: \(reason)"
+        case .saveError(let underlying):
+            return "Failed to save: \(underlying.localizedDescription)"
         case .unknownError(let message):
             return "Unknown error: \(message)"
         }
@@ -90,12 +137,12 @@ enum PlayerPathError: LocalizedError, Identifiable {
     
     var recoverySuggestion: String? {
         switch self {
-        case .videoUploadFailed:
+        case .videoUploadFailed, .syncFailed:
             return "Check your internet connection and try again."
         case .videoProcessingFailed:
             return "Try selecting a different video or restart the app."
-        case .videoFileCorrupted:
-            return "Please select a different video file."
+        case .videoFileCorrupted, .dataCorrupted:
+            return "Please select a different file."
         case .videoFileTooLarge:
             return "Please select a smaller video or compress the current video."
         case .videoFileTooSmall:
@@ -108,12 +155,24 @@ enum PlayerPathError: LocalizedError, Identifiable {
             return "Please convert your video to a supported format (MP4, MOV)."
         case .videoFileNotFound:
             return "Please select the video again."
-        case .networkError:
+        case .networkError, .requestTimeout:
             return "Check your internet connection and try again."
+        case .noInternetConnection:
+            return "Connect to the internet to continue."
+        case .slowConnection:
+            return "Connect to a faster network or try again later."
         case .authenticationRequired:
             return "Please sign in to continue."
+        case .sessionExpired:
+            return "Please sign in again."
+        case .permissionDenied:
+            return "Grant the required permissions in Settings."
         case .cloudStorageFull:
             return "Free up space in your cloud storage or upgrade your plan."
+        case .localStorageFull, .insufficientSpace:
+            return "Free up space on your device by deleting unused files."
+        case .saveError:
+            return "Please try saving again."
         case .unknownError:
             return "Please try again or restart the app."
         }
@@ -121,29 +180,40 @@ enum PlayerPathError: LocalizedError, Identifiable {
     
     var isRetryable: Bool {
         switch self {
-        case .videoUploadFailed, .videoProcessingFailed, .networkError, .unknownError:
+        case .videoUploadFailed, .videoProcessingFailed, .networkError, 
+             .noInternetConnection, .slowConnection, .requestTimeout,
+             .syncFailed, .saveError, .unknownError:
             return true
         case .videoFileCorrupted, .videoFileTooLarge, .videoFileTooSmall, 
              .videoDurationTooLong, .videoDurationTooShort, .unsupportedVideoFormat, 
-             .videoFileNotFound, .authenticationRequired, .cloudStorageFull:
+             .videoFileNotFound, .authenticationRequired, .sessionExpired,
+             .permissionDenied, .cloudStorageFull, .localStorageFull,
+             .insufficientSpace, .dataCorrupted:
             return false
         }
     }
     
     var severity: ErrorHandlerService.ErrorSeverity {
         switch self {
-        case .videoUploadFailed, .videoProcessingFailed:
+        case .videoUploadFailed, .videoProcessingFailed, .syncFailed:
             return .medium
-        case .networkError:
+        case .networkError, .requestTimeout:
             return .high
-        case .authenticationRequired:
-            return .high
-        case .cloudStorageFull:
+        case .noInternetConnection:
             return .critical
-        case .videoFileCorrupted, .unknownError:
+        case .slowConnection:
+            return .medium
+        case .authenticationRequired, .sessionExpired, .permissionDenied:
+            return .high
+        case .cloudStorageFull, .localStorageFull:
+            return .critical
+        case .insufficientSpace:
+            return .high
+        case .videoFileCorrupted, .dataCorrupted, .unknownError:
             return .high
         case .videoFileTooLarge, .videoFileTooSmall, .videoDurationTooLong, 
-             .videoDurationTooShort, .unsupportedVideoFormat, .videoFileNotFound:
+             .videoDurationTooShort, .unsupportedVideoFormat, .videoFileNotFound,
+             .saveError:
             return .medium
         }
     }
@@ -183,6 +253,63 @@ final class ErrorHandlerService {
         var userDismissalCount: Int = 0
         var successfulRetryCount: Int = 0
         var contexts: Set<String> = []
+    }
+    
+    // MARK: - Convenience Factory Methods
+    
+    /// Convert common Swift/Foundation errors to PlayerPathError
+    static func from(_ error: Error) -> PlayerPathError {
+        // Check if already a PlayerPathError
+        if let playerPathError = error as? PlayerPathError {
+            return playerPathError
+        }
+        
+        // Handle URL/Network errors
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .notConnectedToInternet:
+                return .noInternetConnection
+            case .timedOut:
+                return .requestTimeout
+            case .networkConnectionLost:
+                return .slowConnection
+            default:
+                return .networkError(underlying: urlError)
+            }
+        }
+        
+        // Handle NSError domain checks
+        let nsError = error as NSError
+        
+        // CloudKit errors
+        if nsError.domain == "CKErrorDomain" {
+            // CKError codes
+            switch nsError.code {
+            case 2: // .networkUnavailable
+                return .noInternetConnection
+            case 4: // .networkFailure
+                return .networkError(underlying: error)
+            case 27: // .quotaExceeded
+                return .cloudStorageFull
+            default:
+                return .unknownError(error.localizedDescription)
+            }
+        }
+        
+        // File system errors
+        if nsError.domain == NSCocoaErrorDomain {
+            switch nsError.code {
+            case NSFileNoSuchFileError:
+                return .videoFileNotFound
+            case NSFileReadNoPermissionError, NSFileWriteNoPermissionError:
+                return .permissionDenied
+            default:
+                return .saveError(underlying: error)
+            }
+        }
+        
+        // Default unknown error
+        return .unknownError(error.localizedDescription)
     }
     
     // MARK: - Enhanced Error Handling
@@ -374,6 +501,61 @@ final class ErrorHandlerService {
         // Cancel any pending retry timers
         retryTimers.values.forEach { $0.invalidate() }
         retryTimers.removeAll()
+        retryCallbacks.removeAll()
+    }
+    
+    /// Clear old error history to prevent memory bloat
+    func cleanupOldHistory(olderThan timeInterval: TimeInterval = 3600) {
+        let cutoffDate = Date().addingTimeInterval(-timeInterval)
+        
+        for (key, history) in errorHistory {
+            let recentHistory = history.filter { $0 > cutoffDate }
+            if recentHistory.isEmpty {
+                errorHistory.removeValue(forKey: key)
+            } else {
+                errorHistory[key] = recentHistory
+            }
+        }
+    }
+    
+    /// Get detailed error report for debugging/support
+    func generateErrorReport() -> String {
+        var report = "PlayerPath Error Report\n"
+        report += "Generated: \(Date().formatted())\n\n"
+        
+        report += "Current Error:\n"
+        if let current = currentError {
+            report += "  ID: \(current.id)\n"
+            report += "  Description: \(current.errorDescription ?? "None")\n"
+            report += "  Severity: \(current.severity)\n"
+            report += "  Retryable: \(current.isRetryable)\n\n"
+        } else {
+            report += "  None\n\n"
+        }
+        
+        report += "Queued Errors: \(errorQueue.count)\n"
+        for (index, error) in errorQueue.enumerated() {
+            report += "  \(index + 1). \(error.id)\n"
+        }
+        report += "\n"
+        
+        report += "Critical Errors: \(criticalErrors.count)\n"
+        for error in criticalErrors {
+            report += "  - \(error.id)\n"
+        }
+        report += "\n"
+        
+        report += "Error Analytics:\n"
+        for (errorId, analytics) in errorAnalytics.sorted(by: { $0.value.occurrenceCount > $1.value.occurrenceCount }) {
+            report += "  \(errorId):\n"
+            report += "    Occurrences: \(analytics.occurrenceCount)\n"
+            report += "    First seen: \(analytics.firstOccurrence.formatted())\n"
+            report += "    Last seen: \(analytics.lastOccurrence.formatted())\n"
+            report += "    Successful retries: \(analytics.successfulRetryCount)\n"
+            report += "    Contexts: \(analytics.contexts.joined(separator: ", "))\n"
+        }
+        
+        return report
     }
     
     /// Get error analytics for reporting
@@ -683,9 +865,13 @@ struct PlayerPathErrorView: View {
     
     private var errorIcon: String {
         switch error {
-        case .videoUploadFailed, .networkError:
+        case .videoUploadFailed, .networkError, .slowConnection:
             return "wifi.exclamationmark"
-        case .videoProcessingFailed, .videoFileCorrupted:
+        case .noInternetConnection:
+            return "wifi.slash"
+        case .requestTimeout:
+            return "clock.badge.exclamationmark"
+        case .videoProcessingFailed, .videoFileCorrupted, .dataCorrupted:
             return "exclamationmark.triangle.fill"
         case .videoFileTooLarge, .videoFileTooSmall:
             return "doc.badge.exclamationmark"
@@ -695,10 +881,18 @@ struct PlayerPathErrorView: View {
             return "video.badge.exclamationmark"
         case .videoFileNotFound:
             return "doc.badge.questionmark"
-        case .authenticationRequired:
+        case .authenticationRequired, .sessionExpired:
             return "person.badge.exclamationmark"
+        case .permissionDenied:
+            return "hand.raised.fill"
         case .cloudStorageFull:
-            return "icloud.and.arrow.up"
+            return "icloud.slash.fill"
+        case .localStorageFull, .insufficientSpace:
+            return "internaldrive.fill"
+        case .syncFailed:
+            return "arrow.triangle.2.circlepath.circle"
+        case .saveError:
+            return "square.and.arrow.down.trianglebadge.exclamationmark"
         case .unknownError:
             return "questionmark.circle.fill"
         }
@@ -730,6 +924,72 @@ struct PlayerPathErrorView: View {
         // Implement error reporting logic
         // Could integrate with your analytics service, send email, etc.
         print("Reporting error: \(error.id)")
+    }
+}
+
+// MARK: - Error Handling View Modifier
+
+/// View modifier that automatically shows errors from ErrorHandlerService
+struct ErrorHandlingModifier: ViewModifier {
+    @Environment(\.errorHandler) private var errorHandler: ErrorHandlerService?
+    let onRetry: ((PlayerPathError) -> Void)?
+    let showAnalytics: Bool
+    
+    init(onRetry: ((PlayerPathError) -> Void)? = nil, showAnalytics: Bool = false) {
+        self.onRetry = onRetry
+        self.showAnalytics = showAnalytics
+    }
+    
+    func body(content: Content) -> some View {
+        let service = errorHandler ?? ErrorHandlerService.shared
+        
+        content
+            .overlay(alignment: .top) {
+                if service.isShowingError, let error = service.currentError {
+                    PlayerPathErrorView(
+                        error: error,
+                        onDismiss: {
+                            service.dismissError(userInitiated: true)
+                        },
+                        onRetry: onRetry != nil ? { onRetry?(error) } : nil,
+                        showAnalytics: showAnalytics
+                    )
+                    .padding(.top, 8)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .animation(.spring(response: 0.6, dampingFraction: 0.8), value: service.isShowingError)
+                    .zIndex(999)
+                }
+            }
+    }
+}
+
+extension View {
+    /// Apply automatic error handling to this view
+    func handleErrors(
+        onRetry: ((PlayerPathError) -> Void)? = nil,
+        showAnalytics: Bool = false
+    ) -> some View {
+        modifier(ErrorHandlingModifier(onRetry: onRetry, showAnalytics: showAnalytics))
+    }
+}
+
+// MARK: - Environment Key for ErrorHandlerService
+
+private struct ErrorHandlerKey: EnvironmentKey {
+    static let defaultValue: ErrorHandlerService? = nil
+}
+
+extension EnvironmentValues {
+    var errorHandler: ErrorHandlerService? {
+        get { self[ErrorHandlerKey.self] }
+        set { self[ErrorHandlerKey.self] = newValue }
+    }
+}
+
+extension View {
+    /// Inject ErrorHandlerService into the environment
+    func errorHandlerService(_ service: ErrorHandlerService) -> some View {
+        environment(\.errorHandler, service)
     }
 }
 

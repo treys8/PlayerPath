@@ -241,6 +241,7 @@ struct AddCoachView: View {
                 Text(errorMessage)
             }
         }
+        .presentationDetents([.large])
     }
     
     private func saveCoach() {

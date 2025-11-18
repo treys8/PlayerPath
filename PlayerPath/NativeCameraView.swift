@@ -39,12 +39,52 @@ class CameraHostController: UIViewController {
 
 // MARK: - Native Camera View
 
+/// Errors that can occur during camera recording
+enum NativeCameraError: LocalizedError {
+    case noVideoURL
+    case orientationFixFailed
+    case exportFailed(Error)
+    
+    var errorDescription: String? {
+        switch self {
+        case .noVideoURL:
+            return "No video URL found in recording"
+        case .orientationFixFailed:
+            return "Failed to fix video orientation"
+        case .exportFailed(let error):
+            return "Export failed: \(error.localizedDescription)"
+        }
+    }
+}
+
 /// A SwiftUI wrapper around UIImagePickerController for recording videos with proper orientation support.
 /// This view handles landscape and portrait recording, fixing video orientation metadata automatically.
 struct NativeCameraView: UIViewControllerRepresentable {
     let videoQuality: UIImagePickerController.QualityType
+    let maxDuration: TimeInterval
+    let enableFlash: Bool
+    let cameraDevice: UIImagePickerController.CameraDevice
     let onVideoRecorded: (URL) -> Void
     let onCancel: () -> Void
+    let onError: ((Error) -> Void)?
+    
+    init(
+        videoQuality: UIImagePickerController.QualityType = .typeHigh,
+        maxDuration: TimeInterval = 600,
+        enableFlash: Bool = false,
+        cameraDevice: UIImagePickerController.CameraDevice = .rear,
+        onVideoRecorded: @escaping (URL) -> Void,
+        onCancel: @escaping () -> Void,
+        onError: ((Error) -> Void)? = nil
+    ) {
+        self.videoQuality = videoQuality
+        self.maxDuration = maxDuration
+        self.enableFlash = enableFlash
+        self.cameraDevice = cameraDevice
+        self.onVideoRecorded = onVideoRecorded
+        self.onCancel = onCancel
+        self.onError = onError
+    }
     
     func makeUIViewController(context: Context) -> CameraHostController {
         let hostController = CameraHostController()
@@ -54,7 +94,7 @@ struct NativeCameraView: UIViewControllerRepresentable {
         picker.sourceType = .camera
         picker.mediaTypes = ["public.movie"]
         picker.videoQuality = videoQuality
-        picker.videoMaximumDuration = 600 // 10 minutes max
+        picker.videoMaximumDuration = maxDuration
         
         // KEY FIX #1: Allow all orientations for camera
         picker.modalPresentationStyle = .fullScreen
@@ -65,8 +105,24 @@ struct NativeCameraView: UIViewControllerRepresentable {
         // KEY FIX #3: Disable editing to prevent orientation locks
         picker.allowsEditing = false
         
+        // Set camera device (front/rear)
+        if UIImagePickerController.isCameraDeviceAvailable(cameraDevice) {
+            picker.cameraDevice = cameraDevice
+        }
+        
+        // Enable flash if requested and available
+        if enableFlash && UIImagePickerController.isFlashAvailable(for: cameraDevice) {
+            picker.cameraFlashMode = .on
+        } else {
+            picker.cameraFlashMode = .off
+        }
+        
         #if DEBUG
-        print("🎥 NativeCameraView: Initialized with quality: \(videoQuality.rawValue)")
+        print("🎥 NativeCameraView: Initialized")
+        print("   Quality: \(videoQuality.rawValue)")
+        print("   Max Duration: \(maxDuration)s")
+        print("   Camera: \(cameraDevice == .rear ? "Rear" : "Front")")
+        print("   Flash: \(enableFlash ? "On" : "Off")")
         #endif
         
         // Store picker in host controller
@@ -80,7 +136,11 @@ struct NativeCameraView: UIViewControllerRepresentable {
     }
     
     func makeCoordinator() -> Coordinator {
-        Coordinator(onVideoRecorded: onVideoRecorded, onCancel: onCancel)
+        Coordinator(
+            onVideoRecorded: onVideoRecorded,
+            onCancel: onCancel,
+            onError: onError
+        )
     }
     
     // MARK: - Coordinator
@@ -88,10 +148,16 @@ struct NativeCameraView: UIViewControllerRepresentable {
     class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
         let onVideoRecorded: (URL) -> Void
         let onCancel: () -> Void
+        let onError: ((Error) -> Void)?
         
-        init(onVideoRecorded: @escaping (URL) -> Void, onCancel: @escaping () -> Void) {
+        init(
+            onVideoRecorded: @escaping (URL) -> Void,
+            onCancel: @escaping () -> Void,
+            onError: ((Error) -> Void)? = nil
+        ) {
             self.onVideoRecorded = onVideoRecorded
             self.onCancel = onCancel
+            self.onError = onError
             super.init()
         }
         
@@ -101,7 +167,10 @@ struct NativeCameraView: UIViewControllerRepresentable {
             #endif
             
             guard let videoURL = info[.mediaURL] as? URL else {
+                #if DEBUG
                 print("❌ NativeCameraView: No video URL found in picker info")
+                #endif
+                onError?(NativeCameraError.noVideoURL)
                 onCancel()
                 return
             }
@@ -156,13 +225,17 @@ struct NativeCameraView: UIViewControllerRepresentable {
                     // Load transform and duration (modern API)
                     let transform = try await videoTrack.load(.preferredTransform)
                     let duration = try await asset.load(.duration)
+                    let naturalSize = try await videoTrack.load(.naturalSize)
                     
                     // Check current orientation via transform matrix
                     let videoAngle = atan2(transform.b, transform.a) * 180 / .pi
                     
                     #if DEBUG
-                    print("🎥 NativeCameraView: Video angle: \(videoAngle)°")
-                    print("🎥 NativeCameraView: Transform: \(transform)")
+                    print("🎥 NativeCameraView: Video metadata:")
+                    print("   Angle: \(videoAngle)°")
+                    print("   Transform: \(transform)")
+                    print("   Size: \(naturalSize)")
+                    print("   Duration: \(duration.seconds)s")
                     #endif
                     
                     // If video is already in portrait orientation (0° or 180°), no fix needed
@@ -234,6 +307,8 @@ struct NativeCameraView: UIViewControllerRepresentable {
                         return
                     }
                     
+                    exportSession.outputURL = outputURL
+                    exportSession.outputFileType = .mov
                     exportSession.shouldOptimizeForNetworkUse = true
                     
                     #if DEBUG
@@ -241,23 +316,59 @@ struct NativeCameraView: UIViewControllerRepresentable {
                     #endif
                     
                     // Use modern async export API (iOS 18+)
-                    do {
-                        try await exportSession.export(to: outputURL, as: .mov)
+                    if #available(iOS 18.0, *) {
+                        do {
+                            try await exportSession.export(to: outputURL, as: .mov)
+                            
+                            await MainActor.run {
+                                #if DEBUG
+                                print("✅ NativeCameraView: Export completed successfully")
+                                #endif
+                                // Clean up original file to save space
+                                try? FileManager.default.removeItem(at: url)
+                                completion(outputURL)
+                            }
+                        } catch {
+                            await MainActor.run {
+                                #if DEBUG
+                                print("❌ NativeCameraView: Export failed: \(error.localizedDescription)")
+                                #endif
+                                self.onError?(NativeCameraError.exportFailed(error))
+                                completion(nil)
+                            }
+                        }
+                    } else {
+                        // Fallback for iOS 17 and earlier
+                        await exportSession.export()
                         
                         await MainActor.run {
-                            #if DEBUG
-                            print("✅ NativeCameraView: Export completed successfully")
-                            #endif
-                            // Clean up original file to save space
-                            try? FileManager.default.removeItem(at: url)
-                            completion(outputURL)
-                        }
-                    } catch {
-                        await MainActor.run {
-                            #if DEBUG
-                            print("❌ NativeCameraView: Export failed: \(error.localizedDescription)")
-                            #endif
-                            completion(nil)
+                            switch exportSession.status {
+                            case .completed:
+                                #if DEBUG
+                                print("✅ NativeCameraView: Export completed successfully")
+                                #endif
+                                // Clean up original file to save space
+                                try? FileManager.default.removeItem(at: url)
+                                completion(outputURL)
+                                
+                            case .failed:
+                                #if DEBUG
+                                print("❌ NativeCameraView: Export failed: \(exportSession.error?.localizedDescription ?? "Unknown error")")
+                                #endif
+                                if let error = exportSession.error {
+                                    self.onError?(NativeCameraError.exportFailed(error))
+                                }
+                                completion(nil)
+                                
+                            case .cancelled:
+                                #if DEBUG
+                                print("⚠️ NativeCameraView: Export cancelled")
+                                #endif
+                                completion(nil)
+                                
+                            default:
+                                completion(nil)
+                            }
                         }
                     }
                     
@@ -265,9 +376,48 @@ struct NativeCameraView: UIViewControllerRepresentable {
                     #if DEBUG
                     print("❌ NativeCameraView: Error fixing video orientation: \(error.localizedDescription)")
                     #endif
-                    await MainActor.run { completion(nil) }
+                    await MainActor.run {
+                        self.onError?(NativeCameraError.exportFailed(error))
+                        completion(nil)
+                    }
                 }
             }
+        }
+    }
+}
+
+// MARK: - Video Metadata Helper
+
+extension NativeCameraView {
+    /// Extract useful metadata from recorded video
+    struct VideoMetadata {
+        let duration: TimeInterval
+        let size: CGSize
+        let fileSize: Int64
+        let angle: Double
+        let isLandscape: Bool
+        
+        init(url: URL) async throws {
+            let asset = AVURLAsset(url: url)
+            let videoTracks = try await asset.loadTracks(withMediaType: .video)
+            
+            guard let videoTrack = videoTracks.first else {
+                throw NativeCameraError.noVideoURL
+            }
+            
+            let durationValue = try await asset.load(.duration)
+            self.duration = durationValue.seconds
+            
+            let naturalSize = try await videoTrack.load(.naturalSize)
+            self.size = naturalSize
+            
+            let transform = try await videoTrack.load(.preferredTransform)
+            let videoAngle = atan2(transform.b, transform.a) * 180 / .pi
+            self.angle = videoAngle
+            self.isLandscape = abs(videoAngle) > 1.0 && abs(videoAngle - 180) > 1.0
+            
+            let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+            self.fileSize = attributes[.size] as? Int64 ?? 0
         }
     }
 }

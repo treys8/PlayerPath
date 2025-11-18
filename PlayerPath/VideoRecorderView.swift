@@ -301,13 +301,6 @@ struct VideoRecorderView: View {
                         .font(.subheadline)
                         .foregroundColor(.white.opacity(0.8))
                 }
-            } else {
-                Text("Video Recording")
-                    .font(.title2)
-                    .fontWeight(.bold)
-                    .foregroundColor(.white)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
             }
         }
         .contentTransition(.opacity)
@@ -330,7 +323,8 @@ struct VideoRecorderView: View {
                 onUploadVideo: {
                     hapticTap(.light)
                     showingPhotoPicker = true
-                }
+                },
+                tipText: nil
             )
             .accessibilityElement(children: .contain)
             .accessibilityLabel("Recording options")

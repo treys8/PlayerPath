@@ -316,7 +316,8 @@ struct VideoThumbnailView: View {
 // Preview helper
 extension VideoClip {
     static var preview: VideoClip {
-        let clip = VideoClip(fileName: "preview.mov", filePath: "/tmp/preview.mov", createdAt: Date())
+        let clip = VideoClip(fileName: "preview.mov", filePath: "/tmp/preview.mov")
+        clip.createdAt = Date()
         return clip
     }
 }

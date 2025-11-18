@@ -841,6 +841,7 @@ struct VideoClipRow: View {
     @State private var showingVideoPlayer = false
     @State private var thumbnailImage: UIImage?
     @State private var isLoadingThumbnail = false
+    @Environment(\.modelContext) private var modelContext
     
     var body: some View {
         Button(action: { showingVideoPlayer = true }) {
@@ -1007,6 +1008,12 @@ struct VideoClipRow: View {
             switch result {
             case .success(let thumbnailPath):
                 clip.thumbnailPath = thumbnailPath
+                // Save the thumbnail path to model context
+                do {
+                    try modelContext.save()
+                } catch {
+                    print("Failed to save thumbnail path: \(error)")
+                }
                 Task {
                     await loadThumbnail()
                 }

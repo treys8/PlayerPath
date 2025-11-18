@@ -124,7 +124,7 @@ struct HighlightsView: View {
                     }
                 }
             }
-            .navigationTitle("Highlights")
+            .navigationTitle(athlete?.name ?? "Highlights")
             .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always))
             .navigationBarBackButtonHidden(true)
             .toolbar {
@@ -146,7 +146,8 @@ struct HighlightsView: View {
                         }
                     } label: {
                         HStack(spacing: 6) {
-                            Text("Highlights")
+                            Text(athlete?.name ?? "Highlights")
+                                .fontWeight(.semibold)
                             Image(systemName: "chevron.down")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)

@@ -13,16 +13,9 @@ struct VideoRecordingOptionsView: View {
     var tipText: String? = "Tip: Position camera to capture the full swing and follow-through"
     
     var body: some View {
-        VStack(spacing: 20) {
-            Text("Choose Recording Option")
-                .font(.title3)
-                .fontWeight(.semibold)
-                .foregroundColor(.white)
-            
-            VStack(spacing: 16) {
-                recordVideoButton
-                uploadVideoButton
-            }
+        VStack(spacing: 16) {
+            recordVideoButton
+            uploadVideoButton
             
             if let tipText {
                 helpfulTip(text: tipText)
