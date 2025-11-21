@@ -5,6 +5,18 @@
       location = "self:">
    </FileRef>
    <FileRef
-      location = "group:ClipPersistenceService.swift">
+      location = "group:NavigationHelpers.swift">
+   </FileRef>
+   <FileRef
+      location = "group:NAVIGATION_FIXES_SUMMARY.md">
+   </FileRef>
+   <FileRef
+      location = "group:NavigationExamples.swift">
+   </FileRef>
+   <FileRef
+      location = "group:NAVIGATION_MIGRATION_CHECKLIST.md">
+   </FileRef>
+   <FileRef
+      location = "group:NAVIGATION_QUICK_REFERENCE.md">
    </FileRef>
 </Workspace>

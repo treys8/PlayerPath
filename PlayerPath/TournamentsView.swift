@@ -55,6 +55,7 @@ struct TournamentsView: View {
             }
         }
         .navigationTitle("Tournaments")
+        .navigationBarTitleDisplayMode(.large)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button(action: { showingAddTournament = true }) {

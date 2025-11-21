@@ -44,6 +44,7 @@ struct CoachesView: View {
         }
         .navigationTitle("Coaches")
         .navigationBarTitleDisplayMode(.large)
+        .navigationBarBackButtonHidden(false)  // Explicitly show system back button
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {

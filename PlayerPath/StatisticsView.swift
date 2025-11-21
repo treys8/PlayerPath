@@ -37,51 +37,55 @@ struct StatisticsView: View {
     var hasLiveGame: Bool { currentLiveGame != nil }
     
     var body: some View {
-        Group {
-            if let stats = statistics {
-                ScrollView {
-                    LazyVStack(spacing: 20) {
-                        // Manual Entry Section
-                        ManualEntrySection(
-                            currentLiveGame: currentLiveGame,
-                            showQuickEntry: {
-                                if let game = currentLiveGame { activeSheet = .quickEntry(game) }
-                            },
-                            showGameSelection: { activeSheet = .gameSelection }
-                        )
-                        
-                        // Key Statistics Cards
-                        KeyStatsSection(statistics: stats)
-                        
-                        // Batting Chart
-                        BattingChartSection(statistics: stats)
-                        
-                        // Detailed Statistics
-                        DetailedStatsSection(statistics: stats)
-                        
-                        // Play Results Breakdown
-                        PlayResultsSection(statistics: stats)
-                    }
-                    .padding()
+        contentView
+            .navigationTitle("Statistics")
+            .navigationBarTitleDisplayMode(.large)
+            .sheet(item: $activeSheet) { item in
+                switch item {
+                case .quickEntry(let game):
+                    QuickStatisticsEntryView(game: game, athlete: athlete)
+                case .gameSelection:
+                    GameSelectionForStatsView(athlete: athlete)
                 }
-            } else {
-                EmptyStatisticsView(
-                    isQuickEntryEnabled: hasLiveGame,
-                    showQuickEntry: {
-                        if let game = currentLiveGame { activeSheet = .quickEntry(game) }
-                    },
-                    showGameSelection: { activeSheet = .gameSelection }
-                )
             }
-        }
-        .navigationTitle("Statistics")
-        .sheet(item: $activeSheet) { item in
-            switch item {
-            case .quickEntry(let game):
-                QuickStatisticsEntryView(game: game, athlete: athlete)
-            case .gameSelection:
-                GameSelectionForStatsView(athlete: athlete)
+    }
+    
+    @ViewBuilder
+    private var contentView: some View {
+        if let stats = statistics {
+            ScrollView {
+                LazyVStack(spacing: 20) {
+                    // Manual Entry Section
+                    ManualEntrySection(
+                        currentLiveGame: currentLiveGame,
+                        showQuickEntry: {
+                            if let game = currentLiveGame { activeSheet = .quickEntry(game) }
+                        },
+                        showGameSelection: { activeSheet = .gameSelection }
+                    )
+                    
+                    // Key Statistics Cards
+                    KeyStatsSection(statistics: stats)
+                    
+                    // Batting Chart
+                    BattingChartSection(statistics: stats)
+                    
+                    // Detailed Statistics
+                    DetailedStatsSection(statistics: stats)
+                    
+                    // Play Results Breakdown
+                    PlayResultsSection(statistics: stats)
+                }
+                .padding()
             }
+        } else {
+            EmptyStatisticsView(
+                isQuickEntryEnabled: hasLiveGame,
+                showQuickEntry: {
+                    if let game = currentLiveGame { activeSheet = .quickEntry(game) }
+                },
+                showGameSelection: { activeSheet = .gameSelection }
+            )
         }
     }
 }

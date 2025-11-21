@@ -11,7 +11,6 @@ import SwiftData
 struct SeasonsView: View {
     let athlete: Athlete
     @Environment(\.modelContext) private var modelContext
-    @Environment(\.dismiss) private var dismiss
     @State private var showingCreateSeason = false
     @State private var selectedSeason: Season?
     
@@ -29,9 +28,8 @@ struct SeasonsView: View {
     }
     
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                LazyVStack(spacing: 16) {
+        ScrollView {
+            LazyVStack(spacing: 16) {
                     // Active Season Banner (if exists)
                     if let activeSeason = athlete.activeSeason {
                         VStack(alignment: .leading, spacing: 12) {
@@ -118,13 +116,8 @@ struct SeasonsView: View {
             }
             .navigationTitle("Seasons")
             .navigationBarTitleDisplayMode(.large)
+            .navigationBarBackButtonHidden(false)  // Explicitly show system back button
             .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Done") {
-                        dismiss()
-                    }
-                }
-                
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button(action: { showingCreateSeason = true }) {
                         Image(systemName: "plus")
@@ -140,7 +133,6 @@ struct SeasonsView: View {
                     SeasonDetailView(season: season, athlete: athlete)
                 }
             }
-        }
     }
 }
 

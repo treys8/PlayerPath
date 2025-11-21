@@ -1355,7 +1355,6 @@ struct AthleteSelectionView: View {
             }
             .navigationTitle(user.athletes.count > 1 ? "Choose Athlete" : "Athletes")
             .navigationBarTitleDisplayMode(user.athletes.count > 1 ? .inline : .large)
-            .navigationBarBackButtonHidden(true)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button("Sign Out", role: .destructive) {
@@ -2122,65 +2121,6 @@ struct QualityComparisonRow: View {
                 .monospacedDigit()
         }
         .padding(.vertical, 2)
-    }
-}
-
-// MARK: - Security Settings View
-struct SecuritySettingsView: View {
-    @Environment(\.dismiss) private var dismiss
-    let authManager: ComprehensiveAuthManager
-    @State private var showingChangePassword = false
-    @State private var showingConfirmSignOut = false
-    
-    var body: some View {
-        List {
-            Section("Account Security") {
-                Button("Change Password") {
-                    showingChangePassword = true
-                }
-                .foregroundColor(.primary)
-                
-                HStack {
-                    Text("Email")
-                    Spacer()
-                    Text(authManager.userEmail ?? "Not available")
-                        .foregroundColor(.secondary)
-                }
-            }
-            
-            Section {
-                Button("Sign Out", role: .destructive) {
-                    showingConfirmSignOut = true
-                }
-            }
-        }
-        .navigationTitle("Security Settings")
-        .navigationBarTitleDisplayMode(.inline)
-        .navigationBarBackButtonHidden(false)
-        .alert("Change Password", isPresented: $showingChangePassword) {
-            Button("Send Reset Email") {
-                Task {
-                    if let email = authManager.userEmail {
-                        await authManager.resetPassword(email: email)
-                    }
-                }
-            }
-            Button("Cancel", role: .cancel) { }
-        } message: {
-            Text("We'll send a password reset link to your email address.")
-        }
-        .alert("Sign Out", isPresented: $showingConfirmSignOut) {
-            Button("Sign Out", role: .destructive) {
-                print("🔴 Confirming sign out") // Debug log
-                Task {
-                    await authManager.signOut()
-                    dismiss()
-                }
-            }
-            Button("Cancel", role: .cancel) { }
-        } message: {
-            Text("Are you sure you want to sign out?")
-        }
     }
 }
 

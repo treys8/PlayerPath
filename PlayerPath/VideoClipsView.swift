@@ -63,26 +63,32 @@ struct VideoClipsView: View {
         }
         .navigationTitle("Videos")
         .navigationBarTitleDisplayMode(.large)
+        .navigationBarBackButtonHidden(true)
         .searchable(text: $searchText, prompt: "Search videos")
         .toolbar {
+            // Primary action: Quick Record
             ToolbarItem(placement: .navigationBarTrailing) {
-                Menu {
-                    Button {
-                        Haptics.light()
-                        showingRecorder = true
-                    } label: {
-                        Label("Record Video", systemImage: "video.badge.plus")
-                    }
-                    
-                    Button {
-                        Haptics.light()
-                        showingUploadPicker = true
-                    } label: {
-                        Label("Upload Video", systemImage: "square.and.arrow.up")
-                    }
+                Button {
+                    Haptics.light()
+                    showingRecorder = true
                 } label: {
-                    Image(systemName: "plus")
+                    Image(systemName: "plus.circle.fill")
+                        .font(.title3)
                 }
+                .accessibilityLabel("Record video")
+                .accessibilityHint("Quickly record a new video clip")
+            }
+            
+            // Secondary action: Upload (in toolbar menu)
+            ToolbarItem(placement: .navigationBarLeading) {
+                Button {
+                    Haptics.light()
+                    showingUploadPicker = true
+                } label: {
+                    Image(systemName: "square.and.arrow.up")
+                }
+                .accessibilityLabel("Upload video")
+                .accessibilityHint("Upload a video from your library")
             }
         }
         .sheet(isPresented: $showingRecorder) {
@@ -135,7 +141,12 @@ struct VideoClipsView: View {
     
     private var videoListView: some View {
         ScrollView {
-            LazyVStack(spacing: 16) {
+            LazyVGrid(
+                columns: [
+                    GridItem(.adaptive(minimum: 160, maximum: 200), spacing: 12, alignment: .top)
+                ],
+                spacing: 12
+            ) {
                 ForEach(filteredVideos) { video in
                     VideoClipCard(video: video) {
                         selectedVideo = video
@@ -157,77 +168,90 @@ struct VideoClipCard: View {
     var body: some View {
         Button(action: action) {
             VStack(spacing: 0) {
-                // Thumbnail
-                ZStack {
-                    if let image = thumbnailImage {
-                        Image(uiImage: image)
-                            .resizable()
-                            .scaledToFill()
-                            .frame(height: 200)
-                            .clipped()
-                    } else {
-                        Rectangle()
-                            .fill(LinearGradient(
-                                colors: [.gray.opacity(0.3), .gray.opacity(0.2)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            ))
-                            .frame(height: 200)
+                // Thumbnail with aspect ratio
+                GeometryReader { geometry in
+                    ZStack {
+                        if let image = thumbnailImage {
+                            Image(uiImage: image)
+                                .resizable()
+                                .scaledToFill()
+                                .frame(width: geometry.size.width, height: geometry.size.height)
+                                .clipped()
+                        } else {
+                            Rectangle()
+                                .fill(LinearGradient(
+                                    colors: [.gray.opacity(0.3), .gray.opacity(0.2)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                ))
+                            
+                            ProgressView()
+                        }
                         
-                        ProgressView()
+                        // Play button overlay
+                        Image(systemName: "play.circle.fill")
+                            .font(.system(size: 40))
+                            .foregroundColor(.white)
+                            .shadow(color: .black.opacity(0.5), radius: 4)
+                        
+                        // Highlight star badge in corner
+                        if video.isHighlight {
+                            VStack {
+                                HStack {
+                                    Spacer()
+                                    Image(systemName: "star.fill")
+                                        .foregroundColor(.yellow)
+                                        .font(.caption)
+                                        .padding(6)
+                                        .background(Circle().fill(.black.opacity(0.6)))
+                                }
+                                Spacer()
+                            }
+                            .padding(8)
+                        }
+                    }
+                }
+                .aspectRatio(9/16, contentMode: .fit) // Portrait video aspect ratio
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                
+                // Info section - more compact
+                VStack(alignment: .leading, spacing: 6) {
+                    if let result = video.playResult {
+                        Text(result.type.displayName)
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                            .lineLimit(1)
+                    } else {
+                        Text(video.fileName)
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                            .lineLimit(1)
                     }
                     
-                    Image(systemName: "play.circle.fill")
-                        .font(.system(size: 50))
-                        .foregroundColor(.white)
-                        .shadow(radius: 4)
-                }
-                
-                // Info
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 4) {
-                            if let result = video.playResult {
-                                Text(result.type.displayName)
-                                    .font(.headline)
-                                    .fontWeight(.semibold)
-                            } else {
-                                Text(video.fileName)
-                                    .font(.headline)
-                                    .fontWeight(.semibold)
-                                    .lineLimit(1)
-                            }
-                            
-                            if let created = video.createdAt {
-                                Text(created, format: .dateTime.month().day().year().hour().minute())
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                        }
-                        
-                        Spacer()
-                        
-                        if video.isHighlight {
-                            Image(systemName: "star.fill")
-                                .foregroundColor(.yellow)
-                                .font(.title3)
-                        }
+                    if let created = video.createdAt {
+                        Text(created, format: .dateTime.month().day())
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
                     }
                     
                     if let game = video.game {
-                        HStack(spacing: 4) {
+                        HStack(spacing: 3) {
                             Image(systemName: "baseball.fill")
-                                .font(.caption2)
-                            Text("vs \(game.opponent)")
-                                .font(.caption)
+                                .font(.system(size: 8))
+                            Text(game.opponent)
+                                .lineLimit(1)
                         }
+                        .font(.caption2)
                         .foregroundColor(.blue)
                     }
                 }
-                .padding()
+                .padding(.horizontal, 8)
+                .padding(.vertical, 10)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(maxWidth: .infinity)
-            .appCard()
+            .background(Color(.secondarySystemBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .shadow(color: .black.opacity(0.1), radius: 3, x: 0, y: 2)
         }
         .buttonStyle(.plain)
         .contextMenu {

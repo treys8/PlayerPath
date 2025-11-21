@@ -68,3 +68,27 @@ extension View {
         modifier(ValidationStyle(isValid: isValid, showValidation: showValidation))
     }
 }
+
+// MARK: - Navigation Bar Modifiers
+extension View {
+    /// Standard navigation bar for tab root views (large display mode)
+    func tabRootNavigationBar(title: String) -> some View {
+        self
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.large)
+    }
+    
+    /// Standard navigation bar for regular views (inline display mode)
+    func standardNavigationBar(title: String, displayMode: NavigationBarItem.TitleDisplayMode) -> some View {
+        self
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(displayMode)
+    }
+    
+    /// Child navigation bar for pushed/detail views (inline display mode)
+    func childNavigationBar(title: String) -> some View {
+        self
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+    }
+}

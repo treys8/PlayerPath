@@ -10,33 +10,24 @@ import AVFoundation
 
 /// View for configuring video recording settings including quality, format, frame rate, and slow-motion
 struct VideoRecordingSettingsView: View {
-    @Environment(\.dismiss) private var dismiss
     @State private var settings = VideoRecordingSettings.shared
     @State private var showingResetConfirmation = false
     @State private var showingUnsupportedAlert = false
     @State private var unsupportedMessage = ""
     
     var body: some View {
-        NavigationStack {
-            Form {
-                qualitySection
-                formatSection
-                frameRateSection
-                slowMotionSection
-                additionalSettingsSection
-                summarySection
-                resetSection
-            }
-            .navigationTitle("Recording Settings")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") {
-                        dismiss()
-                    }
-                    .fontWeight(.semibold)
-                }
-            }
+        Form {
+            qualitySection
+            formatSection
+            frameRateSection
+            slowMotionSection
+            additionalSettingsSection
+            summarySection
+            resetSection
+        }
+        .navigationTitle("Recording Settings")
+        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(false)  // Explicitly show system back button
             .alert("Reset Settings", isPresented: $showingResetConfirmation) {
                 Button("Cancel", role: .cancel) { }
                 Button("Reset", role: .destructive) {
@@ -50,7 +41,6 @@ struct VideoRecordingSettingsView: View {
             } message: {
                 Text(unsupportedMessage)
             }
-        }
     }
     
     // MARK: - Sections

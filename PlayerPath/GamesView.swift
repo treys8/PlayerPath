@@ -549,7 +549,7 @@ struct GameDetailView: View {
                 }
             }
         }
-        .standardNavigationBar(title: "vs \(game.opponent)", displayMode: .inline)
+        .childNavigationBar(title: "vs \(game.opponent)")
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Menu {
@@ -1336,7 +1336,6 @@ struct ManualStatisticsEntryView: View {
             }
             .navigationTitle("Enter Statistics")
             .navigationBarTitleDisplayMode(.inline)
-            .navigationBarBackButtonHidden(false)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button("Cancel") {

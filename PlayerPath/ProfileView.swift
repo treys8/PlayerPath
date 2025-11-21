@@ -9,16 +9,7 @@ import SwiftUI
 import SwiftData
 import UIKit
 
-// MARK: - Navigation Bar Fix Extension
-// This helps prevent double back buttons in deeply nested navigation
-extension View {
-    func standardNavigationBar(title: String, displayMode: NavigationBarItem.TitleDisplayMode = .automatic) -> some View {
-        self
-            .navigationTitle(title)
-            .navigationBarTitleDisplayMode(displayMode)
-            .navigationBarBackButtonHidden(false)
-    }
-}
+// MARK: - Profile View (Main "More" Tab Root)
 
 struct ProfileView: View {
     let user: User
@@ -44,7 +35,7 @@ struct ProfileView: View {
             settingsSection
             accountSection
         }
-        .standardNavigationBar(title: "Profile", displayMode: .large)
+        .tabRootNavigationBar(title: "Profile & Settings")
         .sheet(isPresented: $showingAddAthlete) {
             AddAthleteView(user: user, selectedAthlete: $selectedAthlete, isFirstAthlete: user.athletes.isEmpty)
         }
@@ -159,7 +150,7 @@ struct ProfileView: View {
                 Label("Settings", systemImage: "gearshape")
             }
 
-            NavigationLink(destination: SecuritySettingsView(authManager: authManager)) {
+            NavigationLink(destination: SecuritySettingsView(user: user)) {
                 Label("Security Settings", systemImage: "lock.shield")
             }
 
@@ -299,6 +290,108 @@ struct AthleteProfileRow: View {
 
 // MARK: - Settings Views
 
+struct SecuritySettingsView: View {
+    let user: User
+    @EnvironmentObject var authManager: ComprehensiveAuthManager
+    @State private var showingDeleteAccountAlert = false
+    @State private var showingChangePasswordSheet = false
+    @State private var showComingSoonAlert = false
+    @State private var comingSoonFeature = ""
+    
+    var body: some View {
+        Form {
+            Section("Account Information") {
+                HStack {
+                    Text("User ID")
+                    Spacer()
+                    Text(user.id.uuidString.prefix(8))
+                        .foregroundColor(.secondary)
+                        .font(.system(.body, design: .monospaced))
+                }
+                
+                HStack {
+                    Text("Email")
+                    Spacer()
+                    Text(user.email)
+                        .foregroundColor(.secondary)
+                }
+            }
+            
+            Section("Security") {
+                Button {
+                    comingSoonFeature = "Change Password"
+                    showComingSoonAlert = true
+                } label: {
+                    Label("Change Password", systemImage: "key.fill")
+                        .foregroundColor(.primary)
+                }
+                .disabled(true)
+                .opacity(0.6)
+                
+                Button {
+                    comingSoonFeature = "Two-Factor Authentication"
+                    showComingSoonAlert = true
+                } label: {
+                    Label("Two-Factor Authentication", systemImage: "lock.shield.fill")
+                        .foregroundColor(.primary)
+                }
+                .disabled(true)
+                .opacity(0.6)
+            }
+            
+            Section {
+                HStack(spacing: 8) {
+                    Image(systemName: "info.circle.fill")
+                        .foregroundColor(.blue)
+                        .font(.caption)
+                    Text("Additional security features are coming soon")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .padding(.vertical, 4)
+            }
+            
+            Section("Data Management") {
+                Button {
+                    comingSoonFeature = "Export Account Data"
+                    showComingSoonAlert = true
+                } label: {
+                    Label("Export Account Data", systemImage: "square.and.arrow.up")
+                        .foregroundColor(.primary)
+                }
+                .disabled(true)
+                .opacity(0.6)
+            }
+            
+            Section {
+                Button(role: .destructive) {
+                    showingDeleteAccountAlert = true
+                } label: {
+                    Label("Delete Account", systemImage: "trash.fill")
+                }
+                .disabled(true)
+                .opacity(0.6)
+            } footer: {
+                Text("Account deletion is coming soon. This will permanently delete your account and all associated data.")
+                    .font(.caption)
+            }
+        }
+        .alert("Coming Soon", isPresented: $showComingSoonAlert) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text("\(comingSoonFeature) will be available in a future update.")
+        }
+        .alert("Delete Account", isPresented: $showingDeleteAccountAlert) {
+            Button("Cancel", role: .cancel) { }
+            Button("Delete", role: .destructive) {
+                // Handle account deletion
+            }
+        } message: {
+            Text("This action cannot be undone. All your data will be permanently deleted.")
+        }
+    }
+}
+
 struct SettingsView: View {
     let user: User
     @State private var notificationsEnabled = true
@@ -353,7 +446,6 @@ struct SettingsView: View {
             // - Export Data  
             // - Delete Account
         }
-        .standardNavigationBar(title: "Settings", displayMode: .inline)
         .alert("Coming Soon", isPresented: $showComingSoonAlert) {
             Button("OK", role: .cancel) { }
         } message: {
@@ -432,7 +524,6 @@ struct EditAccountView: View {
                 .disabled(!canSave)
             }
         }
-        .standardNavigationBar(title: "Edit Information", displayMode: .inline)
         .alert("Unable to Save", isPresented: $showSaveError) {
             Button("OK") { }
         } message: {
@@ -498,7 +589,6 @@ struct NotificationSettingsView: View {
                 Toggle("Milestone Alerts", isOn: $milestoneAlerts)
             }
         }
-        .standardNavigationBar(title: "Notifications", displayMode: .inline)
     }
 }
 
@@ -535,7 +625,6 @@ struct HelpSupportView: View {
                 }
             }
         }
-        .standardNavigationBar(title: "Help & Support", displayMode: .inline)
     }
 }
 
@@ -569,7 +658,6 @@ struct AboutView: View {
                 .foregroundColor(.secondary)
         }
         .padding()
-        .standardNavigationBar(title: "About", displayMode: .inline)
     }
 }
 
@@ -665,7 +753,6 @@ struct PaywallView: View {
                 }
             }
         }
-        .standardNavigationBar(title: "", displayMode: .inline)
     }
 
     private func upgradeToPremium() {
@@ -792,7 +879,6 @@ struct AthleteManagementView: View {
                 .tint(.blue)
             }
         }
-        .standardNavigationBar(title: "Manage Athletes", displayMode: .inline)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 EditButton()
@@ -966,8 +1052,6 @@ struct ProfileDetailView: View {
                 }
             }
         }
-        .navigationTitle("Profile")
-        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 EditButton()
@@ -1114,7 +1198,7 @@ struct MoreView: View {
                     Label("Video Recording", systemImage: "video.fill")
                 }
 
-                NavigationLink(destination: SecuritySettingsView(authManager: authManager)) {
+                NavigationLink(destination: SecuritySettingsView(user: user)) {
                     Label("Account & Security", systemImage: "lock.shield")
                 }
 
@@ -1143,8 +1227,6 @@ struct MoreView: View {
                 .foregroundColor(.red)
             }
         }
-        .navigationTitle("Profile & Settings")
-        .navigationBarTitleDisplayMode(.large)
         .alert("Sign Out", isPresented: $showingSignOutAlert) {
             Button("Cancel", role: .cancel) { }
             Button("Sign Out", role: .destructive) {
@@ -1179,7 +1261,6 @@ struct SubscriptionView: View {
                 pricingSection
             }
         }
-        .standardNavigationBar(title: "Subscription", displayMode: .large)
         .sheet(isPresented: $showingPaywall) {
             PaywallView(user: user)
         }

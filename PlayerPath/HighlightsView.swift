@@ -57,129 +57,13 @@ struct HighlightsView: View {
     }
     
     var body: some View {
-        NavigationStack {
-            Group {
-                if highlights.isEmpty {
-                    EmptyHighlightsView()
-                } else {
-                    ScrollView {
-                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), spacing: 15, alignment: .top)], spacing: 15) {
-                            ForEach(highlights) { clip in
-                                ZStack(alignment: .topLeading) {
-                                    VStack(spacing: 8) {
-                                        HighlightCard(
-                                            clip: clip,
-                                            editMode: editMode,
-                                            onTap: {
-                                                if editMode == .inactive {
-                                                    selectedClip = clip
-                                                    showingVideoPlayer = true
-                                                } else {
-                                                    toggleSelection(clip)
-                                                }
-                                            },
-                                            onDelete: {
-                                                clipToDelete = clip
-                                                showingDeleteAlert = true
-                                            }
-                                        )
-                                        .contextMenu {
-                                            Button {
-                                                selectedClip = clip
-                                                showingVideoPlayer = true
-                                            } label: {
-                                                Label("Play", systemImage: "play.fill")
-                                            }
-                                            Button {
-                                                // Toggle highlight flag if supported
-                                                clip.isHighlight.toggle()
-                                                try? modelContext.save()
-                                            } label: {
-                                                Label(clip.isHighlight ? "Remove Highlight" : "Mark as Highlight", systemImage: "star")
-                                            }
-                                            Button(role: .destructive) {
-                                                clipToDelete = clip
-                                                showingDeleteAlert = true
-                                            } label: {
-                                                Label("Delete", systemImage: "trash")
-                                            }
-                                        }
-                                        if editMode == .inactive {
-                                            SimpleCloudProgressView(clip: clip)
-                                        }
-                                    }
-                                    if editMode == .active {
-                                        Button(action: { toggleSelection(clip) }) {
-                                            Image(systemName: selection.contains(clip.id) ? "checkmark.circle.fill" : "circle")
-                                                .symbolRenderingMode(.hierarchical)
-                                                .font(.title2)
-                                                .foregroundStyle(selection.contains(clip.id) ? .blue : .secondary)
-                                                .padding(8)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        .padding()
-                    }
-                }
-            }
-            .navigationTitle(athlete?.name ?? "Highlights")
+        contentView
+            .tabRootNavigationBar(title: athlete?.name ?? "Highlights")
             .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always))
-            .navigationBarBackButtonHidden(true)
             .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    NavigationLink(destination: SimpleCloudStorageView()) {
-                        Image(systemName: "icloud.and.arrow.up")
-                    }
-                }
-                ToolbarItem(placement: .principal) {
-                    Menu {
-                        Picker("Filter", selection: $filter) {
-                            Text("All").tag(Filter.all)
-                            Text("Games").tag(Filter.game)
-                            Text("Practice").tag(Filter.practice)
-                        }
-                        Picker("Sort", selection: $sortOrder) {
-                            Text("Newest").tag(SortOrder.newest)
-                            Text("Oldest").tag(SortOrder.oldest)
-                        }
-                    } label: {
-                        HStack(spacing: 6) {
-                            Text(athlete?.name ?? "Highlights")
-                                .fontWeight(.semibold)
-                            Image(systemName: "chevron.down")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-                if !highlights.isEmpty {
-                    ToolbarItem(placement: .navigationBarTrailing) {
-                        Button(editMode == .inactive ? "Select" : (selection.isEmpty ? "Done" : "Done (\(selection.count))")) {
-                            withAnimation { toggleEditMode() }
-                        }
-                    }
-                }
-                ToolbarItemGroup(placement: .bottomBar) {
-                    if editMode == .active {
-                        Button(role: .destructive) {
-                            batchDeleteSelected()
-                        } label: {
-                            Label("Delete", systemImage: "trash")
-                        }
-                        .disabled(selection.isEmpty)
-                        Spacer()
-                        Button {
-                            selection.removeAll()
-                        } label: {
-                            Label("Clear", systemImage: "xmark.circle")
-                        }
-                    }
-                }
+                toolbarContent
             }
             .environment(\.editMode, $editMode)
-        }
         .sheet(isPresented: $showingVideoPlayer) {
             if let clip: VideoClip = selectedClip {
                 VideoPlayerView(clip: clip)
@@ -205,6 +89,157 @@ struct HighlightsView: View {
             Button("OK", role: .none) { finalizeStagedDeletes() }
         } message: {
             Text("You can undo this action.")
+        }
+    }
+    
+    @ViewBuilder
+    private var contentView: some View {
+        if highlights.isEmpty {
+            EmptyHighlightsView()
+        } else {
+            highlightGridView
+        }
+    }
+    
+    private var highlightGridView: some View {
+        ScrollView {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), spacing: 15, alignment: .top)], spacing: 15) {
+                ForEach(highlights) { clip in
+                    highlightItemView(for: clip)
+                }
+            }
+            .padding()
+        }
+    }
+    
+    private func highlightItemView(for clip: VideoClip) -> some View {
+        ZStack(alignment: .topLeading) {
+            VStack(spacing: 8) {
+                HighlightCard(
+                    clip: clip,
+                    editMode: editMode,
+                    onTap: {
+                        if editMode == .inactive {
+                            selectedClip = clip
+                            showingVideoPlayer = true
+                        } else {
+                            toggleSelection(clip)
+                        }
+                    },
+                    onDelete: {
+                        clipToDelete = clip
+                        showingDeleteAlert = true
+                    }
+                )
+                .contextMenu {
+                    contextMenuItems(for: clip)
+                }
+                if editMode == .inactive {
+                    SimpleCloudProgressView(clip: clip)
+                }
+            }
+            if editMode == .active {
+                selectionButton(for: clip)
+            }
+        }
+    }
+    
+    @ViewBuilder
+    private func contextMenuItems(for clip: VideoClip) -> some View {
+        Button {
+            selectedClip = clip
+            showingVideoPlayer = true
+        } label: {
+            Label("Play", systemImage: "play.fill")
+        }
+        Button {
+            // Toggle highlight flag if supported
+            clip.isHighlight.toggle()
+            try? modelContext.save()
+        } label: {
+            Label(clip.isHighlight ? "Remove Highlight" : "Mark as Highlight", systemImage: "star")
+        }
+        Button(role: .destructive) {
+            clipToDelete = clip
+            showingDeleteAlert = true
+        } label: {
+            Label("Delete", systemImage: "trash")
+        }
+    }
+    
+    private func selectionButton(for clip: VideoClip) -> some View {
+        Button(action: { toggleSelection(clip) }) {
+            Image(systemName: selection.contains(clip.id) ? "checkmark.circle.fill" : "circle")
+                .symbolRenderingMode(.hierarchical)
+                .font(.title2)
+                .foregroundStyle(selection.contains(clip.id) ? .blue : .secondary)
+                .padding(8)
+        }
+    }
+    
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .navigationBarLeading) {
+            NavigationLink(destination: SimpleCloudStorageView()) {
+                Image(systemName: "icloud.and.arrow.up")
+            }
+        }
+        ToolbarItem(placement: .principal) {
+            titleMenu
+        }
+        if !highlights.isEmpty {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                editButton
+            }
+        }
+        ToolbarItemGroup(placement: .bottomBar) {
+            if editMode == .active {
+                bottomBarButtons
+            }
+        }
+    }
+    
+    private var titleMenu: some View {
+        Menu {
+            Picker("Filter", selection: $filter) {
+                Text("All").tag(Filter.all)
+                Text("Games").tag(Filter.game)
+                Text("Practice").tag(Filter.practice)
+            }
+            Picker("Sort", selection: $sortOrder) {
+                Text("Newest").tag(SortOrder.newest)
+                Text("Oldest").tag(SortOrder.oldest)
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Text(athlete?.name ?? "Highlights")
+                    .fontWeight(.semibold)
+                Image(systemName: "chevron.down")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+    
+    private var editButton: some View {
+        Button(editMode == .inactive ? "Select" : (selection.isEmpty ? "Done" : "Done (\(selection.count))")) {
+            withAnimation { toggleEditMode() }
+        }
+    }
+    
+    @ViewBuilder
+    private var bottomBarButtons: some View {
+        Button(role: .destructive) {
+            batchDeleteSelected()
+        } label: {
+            Label("Delete", systemImage: "trash")
+        }
+        .disabled(selection.isEmpty)
+        Spacer()
+        Button {
+            selection.removeAll()
+        } label: {
+            Label("Clear", systemImage: "xmark.circle")
         }
     }
     
@@ -359,43 +394,43 @@ struct HighlightCard: View {
         Button(action: onTap) {
             VStack(spacing: 0) {
                 // Video thumbnail area with proper thumbnail loading
-                ZStack {
-                    Group {
-                        if let thumbnail = thumbnailImage {
-                            Image(uiImage: thumbnail)
-                                .resizable()
-                                .aspectRatio(contentMode: .fill)
-                                .frame(height: 120)
-                                .clipped()
-                        } else {
-                            Rectangle()
-                                .fill(
-                                    LinearGradient(
-                                        colors: playResultGradient,
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
+                GeometryReader { geometry in
+                    ZStack {
+                        Group {
+                            if let thumbnail = thumbnailImage {
+                                Image(uiImage: thumbnail)
+                                    .resizable()
+                                    .scaledToFill()
+                                    .frame(width: geometry.size.width, height: geometry.size.height)
+                                    .clipped()
+                            } else {
+                                Rectangle()
+                                    .fill(
+                                        LinearGradient(
+                                            colors: playResultGradient,
+                                            startPoint: .topLeading,
+                                            endPoint: .bottomTrailing
+                                        )
                                     )
-                                )
-                                .frame(height: 120)
-                                .overlay(
-                                    VStack(spacing: 8) {
-                                        if isLoadingThumbnail {
-                                            ProgressView()
-                                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                                                .scaleEffect(1.2)
-                                        } else {
-                                            Image(systemName: "video")
-                                                .font(.title2)
-                                                .foregroundColor(.white)
-                                            
-                                            Text("Loading...")
-                                                .font(.caption)
-                                                .foregroundColor(.white.opacity(0.8))
+                                    .overlay(
+                                        VStack(spacing: 8) {
+                                            if isLoadingThumbnail {
+                                                ProgressView()
+                                                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                                    .scaleEffect(1.2)
+                                            } else {
+                                                Image(systemName: "video")
+                                                    .font(.title2)
+                                                    .foregroundColor(.white)
+                                                
+                                                Text("Loading...")
+                                                    .font(.caption)
+                                                    .foregroundColor(.white.opacity(0.8))
+                                            }
                                         }
-                                    }
-                                )
+                                    )
+                            }
                         }
-                    }
                     
                     // Delete button in edit mode
                     if editMode == .active {
@@ -471,7 +506,10 @@ struct HighlightCard: View {
                             Spacer()
                         }
                     }
+                    }
                 }
+                .aspectRatio(9/16, contentMode: .fit) // Portrait video aspect ratio
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 
                 // Info overlay at bottom
                 VStack(alignment: .leading, spacing: 4) {
