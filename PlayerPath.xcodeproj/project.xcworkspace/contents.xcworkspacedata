@@ -5,18 +5,21 @@
       location = "self:">
    </FileRef>
    <FileRef
-      location = "group:NavigationHelpers.swift">
+      location = "group:PHASE_1_IMPLEMENTATION_GUIDE.md">
    </FileRef>
    <FileRef
-      location = "group:NAVIGATION_FIXES_SUMMARY.md">
+      location = "group:PHASE_1_QUICK_START.md">
    </FileRef>
    <FileRef
-      location = "group:NavigationExamples.swift">
+      location = "group:PHASE_1_STATUS.md">
    </FileRef>
    <FileRef
-      location = "group:NAVIGATION_MIGRATION_CHECKLIST.md">
+      location = "group:FIREBASE_ARCHITECTURE_DIAGRAM.md">
    </FileRef>
    <FileRef
-      location = "group:NAVIGATION_QUICK_REFERENCE.md">
+      location = "group:PHASE_1_COMPLETE_PACKAGE.md">
+   </FileRef>
+   <FileRef
+      location = "group:COACH_ONBOARDING_FIX.md">
    </FileRef>
 </Workspace>

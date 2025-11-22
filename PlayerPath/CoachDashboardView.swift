@@ -8,11 +8,14 @@
 
 import SwiftUI
 import FirebaseAuth
+import Combine
+import UIKit
 
 /// Root view for coaches - replaces the athlete main tabs
 struct CoachDashboardView: View {
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
-    @StateObject private var sharedFolderManager = SharedFolderManager.shared
+    @EnvironmentObject private var sharedFolderManager: SharedFolderManager
+    @StateObject private var invitationManager = CoachInvitationManager.shared
     @State private var selectedTab: CoachTab = .myAthletes
     
     enum CoachTab: String, CaseIterable {
@@ -30,20 +33,39 @@ struct CoachDashboardView: View {
     var body: some View {
         TabView(selection: $selectedTab) {
             CoachAthletesListView()
+                .tag(CoachTab.myAthletes)
                 .tabItem {
                     Label(CoachTab.myAthletes.rawValue, systemImage: CoachTab.myAthletes.icon)
                 }
-                .tag(CoachTab.myAthletes)
             
-            CoachProfileView()
-                .tabItem {
-                    Label(CoachTab.profile.rawValue, systemImage: CoachTab.profile.icon)
+            Group {
+                if invitationManager.pendingInvitationsCount > 0 {
+                    CoachProfileView()
+                        .badge(invitationManager.pendingInvitationsCount)
+                        .tag(CoachTab.profile)
+                        .tabItem {
+                            Label(CoachTab.profile.rawValue, systemImage: CoachTab.profile.icon)
+                        }
+                } else {
+                    CoachProfileView()
+                        .tag(CoachTab.profile)
+                        .tabItem {
+                            Label(CoachTab.profile.rawValue, systemImage: CoachTab.profile.icon)
+                        }
                 }
-                .tag(CoachTab.profile)
+            }
         }
         .tint(.green) // Coach theme color
         .task {
             await loadCoachData()
+            let coachEmail: String = authManager.userEmail ?? ""
+            await invitationManager.checkPendingInvitations(forCoachEmail: coachEmail)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+            Task {
+                let coachEmail: String = authManager.userEmail ?? ""
+                await invitationManager.checkPendingInvitations(forCoachEmail: coachEmail)
+            }
         }
     }
     
@@ -61,7 +83,9 @@ struct CoachDashboardView: View {
 // MARK: - My Athletes List View
 
 struct CoachAthletesListView: View {
-    @StateObject private var sharedFolderManager = SharedFolderManager.shared
+    @EnvironmentObject private var sharedFolderManager: SharedFolderManager
+    @EnvironmentObject private var authManager: ComprehensiveAuthManager
+    @StateObject private var invitationManager = CoachInvitationManager.shared
     @State private var searchText = ""
     @State private var showingInvitations = false
     
@@ -74,22 +98,27 @@ struct CoachAthletesListView: View {
                     CoachEmptyStateView(showingInvitations: $showingInvitations)
                 } else {
                     ScrollView {
-                        VStack(spacing: 20) {
-                            // Pending invitations banner
-                            PendingInvitationsBanner(showingInvitations: $showingInvitations)
-                            
-                            // Group folders by athlete
-                            ForEach(groupedFolders, id: \.athleteID) { group in
-                                AthleteSection(
-                                    athleteID: group.athleteID,
-                                    athleteName: group.athleteName,
-                                    folders: group.folders
-                                )
+                        LazyVStack(spacing: 20, pinnedViews: [.sectionHeaders]) {
+                            Section {
+                                PendingInvitationsBanner(showingInvitations: $showingInvitations)
+                                
+                                ForEach(filteredGroups, id: \.athleteID) { group in
+                                    AthleteSection(
+                                        athleteID: group.athleteID,
+                                        athleteName: group.athleteName,
+                                        folders: group.folders
+                                    )
+                                }
+                            } header: {
+                                PendingInvitationsStickyHeader(showingInvitations: $showingInvitations)
                             }
                         }
                         .padding()
                     }
                     .searchable(text: $searchText, prompt: "Search athletes")
+                    .refreshable {
+                        await reloadData()
+                    }
                 }
             }
             .navigationTitle("My Athletes")
@@ -101,6 +130,8 @@ struct CoachAthletesListView: View {
                         Image(systemName: "envelope.badge")
                             .foregroundColor(.green)
                     }
+                    .accessibilityLabel("Open Invitations")
+                    .accessibilityHint("View and manage pending invitations")
                 }
             }
             .sheet(isPresented: $showingInvitations) {
@@ -109,9 +140,20 @@ struct CoachAthletesListView: View {
         }
     }
     
+    @MainActor private func reloadData() async {
+        guard let coachID = authManager.userID else { return }
+        do {
+            try await sharedFolderManager.loadCoachFolders(coachID: coachID)
+        } catch {
+            print("❌ Failed to reload coach folders: \(error)")
+        }
+        let coachEmail: String = authManager.userEmail ?? ""
+        await invitationManager.checkPendingInvitations(forCoachEmail: coachEmail)
+    }
+    
     // Group folders by athlete
     private var groupedFolders: [AthleteGroup] {
-        let grouped = Dictionary(grouping: filteredFolders) { $0.ownerAthleteID }
+        let grouped = Dictionary(grouping: sharedFolderManager.coachFolders) { $0.ownerAthleteID }
         
         return grouped.map { athleteID, folders in
             AthleteGroup(
@@ -122,13 +164,22 @@ struct CoachAthletesListView: View {
         }.sorted { $0.athleteName < $1.athleteName }
     }
     
-    private var filteredFolders: [SharedFolder] {
-        if searchText.isEmpty {
-            return sharedFolderManager.coachFolders
-        } else {
-            return sharedFolderManager.coachFolders.filter {
-                $0.name.localizedCaseInsensitiveContains(searchText)
+    // Filter groups by athlete name or folder name matching searchText
+    private var filteredGroups: [AthleteGroup] {
+        guard !searchText.isEmpty else {
+            return groupedFolders
+        }
+        let lowercasedSearch = searchText.lowercased()
+        
+        return groupedFolders.filter { group in
+            if group.athleteName.lowercased().contains(lowercasedSearch) {
+                return true
             }
+            // Check if any folder name matches search text
+            if group.folders.contains(where: { $0.name.lowercased().contains(lowercasedSearch) }) {
+                return true
+            }
+            return false
         }
     }
 }
@@ -182,6 +233,8 @@ struct AthleteSection: View {
                 .cornerRadius(12)
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(athleteName)
+            .accessibilityHint(isExpanded ? "Collapse" : "Expand")
             
             // Folder list (expandable)
             if isExpanded {
@@ -246,6 +299,8 @@ struct FolderRowView: View {
         .padding()
         .background(Color(.tertiarySystemBackground))
         .cornerRadius(10)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(folder.name)
     }
 }
 
@@ -318,13 +373,27 @@ struct PendingInvitationsBanner: View {
                 .cornerRadius(12)
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Pending Invitations")
+            .accessibilityHint("Tap to view and respond to invitations")
+        }
+    }
+}
+
+struct PendingInvitationsStickyHeader: View {
+    @Binding var showingInvitations: Bool
+    @StateObject private var invitationManager = CoachInvitationManager.shared
+    
+    var body: some View {
+        if invitationManager.pendingInvitationsCount > 0 {
+            PendingInvitationsBanner(showingInvitations: $showingInvitations)
+                .padding(.bottom, 8)
+                .background(.thinMaterial)
         }
     }
 }
 
 // MARK: - Coach Invitations Manager
 
-@MainActor
 class CoachInvitationManager: ObservableObject {
     static let shared = CoachInvitationManager()
     
@@ -332,6 +401,7 @@ class CoachInvitationManager: ObservableObject {
     
     private init() {}
     
+    @MainActor
     func checkPendingInvitations(forCoachEmail email: String) async {
         // TODO: Implement Firestore query for pending invitations
         // For now, placeholder
@@ -344,4 +414,5 @@ class CoachInvitationManager: ObservableObject {
 #Preview {
     CoachDashboardView()
         .environmentObject(ComprehensiveAuthManager())
+        .environmentObject(SharedFolderManager.shared)
 }

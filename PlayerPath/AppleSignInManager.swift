@@ -188,6 +188,7 @@ extension AppleSignInManager: ASAuthorizationControllerPresentationContextProvid
 // MARK: - SwiftUI Button Wrapper
 
 struct SignInWithAppleButton: View {
+    let isSignUp: Bool
     let action: () -> Void
     
     @Environment(\.colorScheme) private var colorScheme
@@ -198,7 +199,7 @@ struct SignInWithAppleButton: View {
                 Image(systemName: "apple.logo")
                     .font(.system(size: 18, weight: .medium))
                 
-                Text("Continue with Apple")
+                Text("Sign \(isSignUp ? "up" : "in") with Apple")
                     .font(.system(size: 17, weight: .medium))
             }
             .frame(maxWidth: .infinity)
@@ -207,7 +208,7 @@ struct SignInWithAppleButton: View {
             .background(colorScheme == .dark ? Color.white : Color.black)
             .cornerRadius(10)
         }
-        .accessibilityLabel("Sign in with Apple")
-        .accessibilityHint("Use your Apple ID to sign in")
+        .accessibilityLabel("Sign \(isSignUp ? "up" : "in") with Apple")
+        .accessibilityHint("Use your Apple ID to sign \(isSignUp ? "up" : "in")")
     }
 }

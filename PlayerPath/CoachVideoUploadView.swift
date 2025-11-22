@@ -9,6 +9,7 @@
 import SwiftUI
 import PhotosUI
 import AVFoundation
+import Combine
 
 struct CoachVideoUploadView: View {
     let folder: SharedFolder
@@ -243,7 +244,7 @@ class CoachVideoUploadViewModel: ObservableObject {
                 uploaderName: uploaderName
             )
             
-            try await FirestoreManager.shared.createVideoMetadata(
+            _ = try await FirestoreManager.shared.createVideoMetadata(
                 folderID: folderID,
                 metadata: metadata
             )

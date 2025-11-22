@@ -4,6 +4,10 @@
 //
 //  Quick reference for integrating the coach dashboard
 //
+//  NOTE: This file is for reference only and should be excluded from build targets
+//
+
+#if false // Set to false to prevent compilation - this is documentation only
 
 import SwiftUI
 
@@ -210,6 +214,8 @@ struct CreateSharedFolderView: View {
 
 import FirebaseCore
 
+// Example app structure (commented out - for reference only):
+/*
 @main
 struct PlayerPathApp: App {
     init() {
@@ -225,6 +231,7 @@ struct PlayerPathApp: App {
         }
     }
 }
+*/
 
 /*
  
@@ -325,3 +332,5 @@ struct PlayerPathApp: App {
  */
 
 // MARK: - That's it! You're all set up! 🎉
+
+#endif // End of documentation-only code

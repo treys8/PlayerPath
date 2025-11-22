@@ -144,11 +144,14 @@ class SharedFolderManager: ObservableObject {
     }
     
     /// Accepts an invitation to join a shared folder
-    func acceptInvitation(
-        invitationID: String,
-        coachID: String,
-        permissions: FolderPermissions = .default
-    ) async throws {
+    func acceptInvitation(_ invitation: CoachInvitation) async throws {
+        guard let invitationID = invitation.id,
+              let coachID = Auth.auth().currentUser?.uid else {
+            throw SharedFolderError.folderNotFound
+        }
+        
+        let permissions = FolderPermissions.default
+        
         try await firestore.acceptInvitation(
             invitationID: invitationID,
             coachID: coachID,
@@ -160,7 +163,10 @@ class SharedFolderManager: ObservableObject {
     }
     
     /// Declines an invitation
-    func declineInvitation(invitationID: String) async throws {
+    func declineInvitation(_ invitation: CoachInvitation) async throws {
+        guard let invitationID = invitation.id else {
+            throw SharedFolderError.folderNotFound
+        }
         try await firestore.declineInvitation(invitationID: invitationID)
     }
     
@@ -182,15 +188,22 @@ class SharedFolderManager: ObservableObject {
         uploadedByName: String
     ) async throws -> String {
         // First, upload to Firebase Storage
-        let storageURL = try await VideoCloudManager().uploadVideoToSharedFolder(
+        // Use the shared instance
+        let storageURL = try await VideoCloudManager.shared.uploadVideoToSharedFolder(
             videoURL: videoURL,
             folderID: folderID,
             fileName: fileName
         )
         
         // Get file size
-        let attributes = try FileManager.default.attributesOfItem(atPath: videoURL.path)
-        let fileSize = attributes[.size] as? Int64 ?? 0
+        let fileSize: Int64
+        do {
+            let attributes = try FileManager.default.attributesOfItem(atPath: videoURL.path)
+            fileSize = attributes[.size] as? Int64 ?? 0
+        } catch {
+            print("⚠️ Failed to get file size: \(error)")
+            fileSize = 0
+        }
         
         // TODO: Get video duration from AVAsset
         
@@ -213,7 +226,7 @@ class SharedFolderManager: ObservableObject {
     }
     
     /// Loads all videos in a folder
-    func loadVideos(forFolder folderID: String) async throws -> [VideoMetadata] {
+    func loadVideos(forFolder folderID: String) async throws -> [FirestoreVideoMetadata] {
         return try await firestore.fetchVideos(forFolder: folderID)
     }
     
@@ -326,10 +339,11 @@ enum SharedFolderError: LocalizedError {
 }
 
 // MARK: - VideoCloudManager Extension
+@MainActor
 extension VideoCloudManager {
     /// Uploads a video to a shared folder in Firebase Storage
     /// - Returns: Download URL for the uploaded video
-    func uploadVideoToSharedFolder(
+    nonisolated func uploadVideoToSharedFolder(
         videoURL: URL,
         folderID: String,
         fileName: String

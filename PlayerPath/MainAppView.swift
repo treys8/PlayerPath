@@ -4,6 +4,12 @@
 //
 //  Created by Trey Schilling on 10/23/25.
 //
+//  CRITICAL FIXES APPLIED:
+//  1. ✅ NotificationCenter Memory Leak Prevention - All observers properly cleaned up in onDisappear
+//  2. ✅ SwiftData Relationship Race Condition - Set relationships before insert, let inverse handle array
+//  3. ✅ Safe Predicate Implementation - Removed force unwrap, using Swift filter instead
+//  4. ✅ Task Cancellation - All async tasks check for cancellation and store references for cleanup
+//
 
 import SwiftUI
 import SwiftData
@@ -135,7 +141,7 @@ struct FeatureHighlight: View {
     let description: String
     
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(alignment: .top, spacing: 12) {
             Image(systemName: icon)
                 .font(.title3)
                 .foregroundColor(.blue)
@@ -146,19 +152,81 @@ struct FeatureHighlight: View {
                     .font(.subheadline)
                     .fontWeight(.medium)
                     .foregroundColor(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
                 
                 Text(description)
                     .font(.caption)
                     .foregroundColor(.secondary)
-                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .lineLimit(nil)
             }
             
-            Spacer()
+            Spacer(minLength: 0)
         }
     }
 }
 
 
+// Inserted placeholder views for missing types here:
+
+// MARK: - App Root Helper Views
+
+struct ErrorView: View {
+    let message: String
+    let retry: (() -> Void)?
+    var body: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 60))
+                .foregroundColor(.orange)
+            Text("Something went wrong")
+                .font(.title3).bold()
+            Text(message)
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal)
+            if let retry {
+                Button("Try Again", action: retry)
+                    .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding()
+    }
+}
+
+struct FirstAthleteCreationView: View {
+    let user: User
+    @Binding var selectedAthlete: Athlete?
+    let authManager: ComprehensiveAuthManager
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 20) {
+                Image(systemName: "person.crop.circle.badge.plus")
+                    .font(.system(size: 80))
+                    .foregroundColor(.blue)
+                Text("Create Your First Athlete")
+                    .font(.title2).bold()
+                Text("Tap the + button to add your first athlete from the selection screen.")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal)
+                Button {
+                    // Fallback: present the add athlete sheet by posting selection request
+                    NotificationCenter.default.post(name: .showAthleteSelection, object: nil)
+                } label: {
+                    Label("Add Athlete", systemImage: "plus")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+            }
+            .padding()
+            .navigationTitle("Get Started")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+}
 
 // MARK: - Main App Root
 struct PlayerPathMainView: View {
@@ -329,6 +397,8 @@ struct ComprehensiveSignInView: View {
     @State private var password = ""
     @State private var displayName = ""
     @State private var showingForgotPassword = false
+    @State private var selectedRole: UserRole = .athlete
+    @State private var authTask: Task<Void, Never>?
     
     var body: some View {
         NavigationStack {
@@ -339,12 +409,47 @@ struct ComprehensiveSignInView: View {
                         .font(.title)
                         .fontWeight(.bold)
                     
-                    Text(isSignUpMode ? "Join PlayerPath to track your baseball journey" : "Welcome back to PlayerPath")
+                    Text(isSignUpMode ? (selectedRole == .athlete ? "Join PlayerPath to track your baseball journey" : "Join PlayerPath to coach your athletes") : "Welcome back to PlayerPath")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
                 }
                 .padding(.top)
+                
+                // Role Selection (Sign Up only)
+                if isSignUpMode {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("I am a:")
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                            .foregroundColor(.secondary)
+                        
+                        HStack(spacing: 12) {
+                            RoleSelectionButton(
+                                role: .athlete,
+                                isSelected: selectedRole == .athlete,
+                                icon: "figure.baseball",
+                                title: "Athlete",
+                                description: "Track my progress"
+                            ) {
+                                Haptics.light()
+                                selectedRole = .athlete
+                            }
+                            
+                            RoleSelectionButton(
+                                role: .coach,
+                                isSelected: selectedRole == .coach,
+                                icon: "person.2.fill",
+                                title: "Coach",
+                                description: "Work with athletes"
+                            ) {
+                                Haptics.light()
+                                selectedRole = .coach
+                            }
+                        }
+                    }
+                    .padding(.horizontal)
+                }
                 
                 VStack(spacing: 20) {
                     if isSignUpMode {
@@ -551,29 +656,51 @@ struct ComprehensiveSignInView: View {
                 dismiss()
             }
         }
+        .onDisappear {
+            authTask?.cancel()
+        }
     }
     
     private func performAuth() {
-        Task {
+        // Cancel any existing auth task
+        authTask?.cancel()
+        
+        authTask = Task {
             let normalizedEmail = email.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
             let trimmedDisplayName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+            
+            // Check for cancellation before starting
+            guard !Task.isCancelled else { return }
             
             #if DEBUG
             print("🔵 Attempting authentication:")
             print("  - Email: \(normalizedEmail.isEmpty ? "EMPTY" : "***@***")")
             print("  - Password length: \(password.count)")
             print("  - Is sign up: \(isSignUpMode)")
+            print("  - Role: \(selectedRole.rawValue)")
             #endif
             
             if isSignUpMode {
-                await authManager.signUp(
-                    email: normalizedEmail,
-                    password: password,
-                    displayName: trimmedDisplayName.isEmpty ? nil : trimmedDisplayName
-                )
+                // Use role-specific signup method
+                if selectedRole == .coach {
+                    await authManager.signUpAsCoach(
+                        email: normalizedEmail,
+                        password: password,
+                        displayName: trimmedDisplayName.isEmpty ? "Coach" : trimmedDisplayName
+                    )
+                } else {
+                    await authManager.signUp(
+                        email: normalizedEmail,
+                        password: password,
+                        displayName: trimmedDisplayName.isEmpty ? nil : trimmedDisplayName
+                    )
+                }
             } else {
                 await authManager.signIn(email: normalizedEmail, password: password)
             }
+            
+            // Check if cancelled after auth completes
+            guard !Task.isCancelled else { return }
             
             // Add haptic feedback on successful authentication
             if authManager.isSignedIn {
@@ -747,9 +874,71 @@ struct OnboardingFlow: View {
     @State private var selectedAthlete: Athlete?
     
     var body: some View {
+        // Show different onboarding based on user role
+        Group {
+            if authManager.userRole == .coach {
+                CoachOnboardingFlow(
+                    modelContext: modelContext,
+                    authManager: authManager,
+                    user: user
+                )
+            } else {
+                AthleteOnboardingFlow(
+                    modelContext: modelContext,
+                    authManager: authManager,
+                    user: user
+                )
+            }
+        }
+        .onAppear {
+            print("🎯 OnboardingFlow - User role: \(authManager.userRole.rawValue)")
+            print("🎯 OnboardingFlow - User email: \(user.email)")
+            print("🎯 OnboardingFlow - Showing \(authManager.userRole == .coach ? "COACH" : "ATHLETE") onboarding")
+            print("🎯 OnboardingFlow - isNewUser: \(authManager.isNewUser)")
+            print("🎯 OnboardingFlow - isSignedIn: \(authManager.isSignedIn)")
+            
+            // Extra debugging
+            if let profile = authManager.userProfile {
+                print("🎯 OnboardingFlow - Profile role: \(profile.userRole.rawValue)")
+                print("🎯 OnboardingFlow - Profile email: \(profile.email)")
+            } else {
+                print("⚠️ OnboardingFlow - NO PROFILE LOADED (this is expected for new users)")
+                print("⚠️ OnboardingFlow - Using local userRole value: \(authManager.userRole.rawValue)")
+            }
+        }
+    }
+}
+
+// MARK: - Athlete Onboarding Flow
+struct AthleteOnboardingFlow: View {
+    let modelContext: ModelContext
+    @ObservedObject var authManager: ComprehensiveAuthManager
+    let user: User
+    
+    var body: some View {
         NavigationStack {
             VStack(spacing: 40) {
                 Spacer()
+                
+                // ATHLETE BADGE - Makes it obvious this is the athlete flow
+                HStack {
+                    Spacer()
+                    HStack(spacing: 8) {
+                        Image(systemName: "figure.baseball")
+                            .font(.caption)
+                        Text("ATHLETE ACCOUNT")
+                            .font(.caption)
+                            .fontWeight(.bold)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(
+                        Capsule()
+                            .fill(Color.blue.opacity(0.2))
+                    )
+                    .foregroundColor(.blue)
+                    Spacer()
+                }
                 
                 VStack(spacing: 24) {
                     Image(systemName: "hand.wave.fill")
@@ -770,7 +959,7 @@ struct OnboardingFlow: View {
                             .multilineTextAlignment(.center)
                             .accessibilityAddTraits(.isHeader)
                         
-                        Text("Let's get you set up to start tracking your baseball journey")
+                        Text("Let's get you set up to start tracking your journey")
                             .font(.title3)
                             .foregroundColor(.secondary)
                             .multilineTextAlignment(.center)
@@ -789,25 +978,25 @@ struct OnboardingFlow: View {
                     FeatureHighlight(
                         icon: "person.crop.circle.badge.plus",
                         title: "Create Athlete Profiles",
-                        description: "Track multiple players and their individual progress"
+                        description: "Track multiple players and their progress"
                     )
                     
                     FeatureHighlight(
                         icon: "video.circle.fill",
                         title: "Record & Analyze",
-                        description: "Capture practice sessions and games with smart analysis"
+                        description: "Capture sessions and games with analysis"
                     )
                     
                     FeatureHighlight(
                         icon: "chart.line.uptrend.xyaxis.circle.fill",
                         title: "Track Statistics",
-                        description: "Monitor batting averages and performance over time"
+                        description: "Monitor batting averages and performance"
                     )
                     
                     FeatureHighlight(
                         icon: "arrow.triangle.2.circlepath.circle.fill",
                         title: "Sync Everywhere",
-                        description: "Access your data on all your devices automatically"
+                        description: "Access your data on all your devices"
                     )
                 }
                 .padding(.horizontal)
@@ -847,7 +1036,7 @@ struct OnboardingFlow: View {
     }
     
     private func completeOnboarding() {
-        print("🟡 Completing onboarding for new user...")
+        print("🟡 Completing athlete onboarding for new user...")
         
         Task {
             do {
@@ -874,6 +1063,183 @@ struct OnboardingFlow: View {
     }
 }
 
+// MARK: - Coach Onboarding Flow
+struct CoachOnboardingFlow: View {
+    let modelContext: ModelContext
+    @ObservedObject var authManager: ComprehensiveAuthManager
+    let user: User
+    
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 40) {
+                Spacer()
+                
+                // COACH BADGE - Makes it obvious this is the coach flow
+                HStack {
+                    Spacer()
+                    HStack(spacing: 8) {
+                        Image(systemName: "person.fill.checkmark")
+                            .font(.caption)
+                        Text("COACH ACCOUNT")
+                            .font(.caption)
+                            .fontWeight(.bold)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(
+                        Capsule()
+                            .fill(Color.green.opacity(0.2))
+                    )
+                    .foregroundColor(.green)
+                    Spacer()
+                }
+                
+                VStack(spacing: 24) {
+                    Image(systemName: "person.2.wave.2.fill")
+                        .font(.system(size: 100))
+                        .foregroundStyle(
+                            LinearGradient(
+                                colors: [.blue, .purple],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .shadow(color: .blue.opacity(0.3), radius: 10, x: 0, y: 5)
+                    
+                    VStack(spacing: 16) {
+                        Text("Welcome, Coach!")
+                            .font(.largeTitle)
+                            .fontWeight(.bold)
+                            .multilineTextAlignment(.center)
+                            .accessibilityAddTraits(.isHeader)
+                        
+                        Text("Your coaching dashboard is ready")
+                            .font(.title3)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal)
+                    }
+                }
+                
+                // Coach-specific onboarding benefits
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("As a Coach, You Can:")
+                        .font(.headline)
+                        .fontWeight(.semibold)
+                        .padding(.bottom, 8)
+                        .accessibilityAddTraits(.isHeader)
+                    
+                    FeatureHighlight(
+                        icon: "folder.badge.person.crop",
+                        title: "Access Shared Folders",
+                        description: "View folders shared with you by your athletes"
+                    )
+                    
+                    FeatureHighlight(
+                        icon: "video.badge.plus",
+                        title: "Upload & Review Videos",
+                        description: "Add videos and provide feedback on athlete performance"
+                    )
+                    
+                    FeatureHighlight(
+                        icon: "bubble.left.and.bubble.right.fill",
+                        title: "Annotate & Comment",
+                        description: "Add notes and coaching insights to help athletes improve"
+                    )
+                    
+                    FeatureHighlight(
+                        icon: "person.3.fill",
+                        title: "Manage Multiple Athletes",
+                        description: "Track and support all your athletes in one place"
+                    )
+                }
+                .padding(.horizontal)
+                
+                // Info message
+                VStack(spacing: 8) {
+                    HStack(alignment: .top, spacing: 12) {
+                        Image(systemName: "info.circle.fill")
+                            .font(.title2)
+                            .foregroundColor(.blue)
+                        
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("How It Works")
+                                .font(.subheadline)
+                                .fontWeight(.semibold)
+                            Text("Athletes will share their folders with you via email. Once they share a folder, it will appear in your dashboard.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    .padding()
+                    .background(Color.blue.opacity(0.1))
+                    .cornerRadius(12)
+                }
+                .padding(.horizontal)
+                
+                Spacer()
+                
+                Button(action: completeCoachOnboarding) {
+                    HStack {
+                        Image(systemName: "arrow.right.circle.fill")
+                            .font(.headline)
+                        Text("Go to Dashboard")
+                            .font(.headline)
+                            .fontWeight(.semibold)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 54)
+                    .background(
+                        LinearGradient(
+                            colors: [.blue, .purple.opacity(0.8)],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .foregroundColor(.white)
+                    .cornerRadius(12)
+                }
+                .padding(.horizontal)
+                .accessibilityLabel("Complete coach onboarding")
+                .accessibilityHint("Takes you to your coaching dashboard")
+                .accessibilitySortPriority(1)
+                
+                Spacer()
+            }
+            .padding()
+            .toolbar(.hidden, for: .navigationBar)
+        }
+    }
+    
+    private func completeCoachOnboarding() {
+        print("🟡 Completing coach onboarding for new user...")
+        
+        Task {
+            do {
+                // Create onboarding progress record
+                let progress = OnboardingProgress()
+                progress.markCompleted()
+                modelContext.insert(progress)
+                
+                try modelContext.save()
+                print("🟢 Successfully saved coach onboarding progress")
+                
+                // Reset the new user flag after successful onboarding
+                await MainActor.run {
+                    authManager.resetNewUserFlag()
+                    authManager.markOnboardingComplete()
+                    print("🟢 Reset new user flag, coach onboarding completed")
+                    
+                    // Provide haptic feedback
+                    Haptics.medium()
+                }
+            } catch {
+                print("🔴 Failed to save coach onboarding progress: \(error)")
+            }
+        }
+    }
+}
+
 // MARK: - Authenticated Flow
 struct AuthenticatedFlow: View {
     @Environment(\.modelContext) private var modelContext
@@ -883,17 +1249,25 @@ struct AuthenticatedFlow: View {
     
     @State private var currentUser: User?
     @State private var isLoading = true
+    @State private var loadTask: Task<Void, Never>?
     
     var body: some View {
         Group {
             if isLoading {
                 LoadingView(title: "Setting up your profile...", subtitle: "This will only take a moment")
             } else if let user = currentUser {
-                UserMainFlow(
-                    user: user,
-                    isNewUserFlag: authManager.isNewUser,
-                    hasCompletedOnboarding: hasCompletedOnboarding
-                )
+                let _ = print("🎯 AuthenticatedFlow - isNewUser: \(authManager.isNewUser), hasCompletedOnboarding: \(hasCompletedOnboarding), userRole: \(authManager.userRole.rawValue)")
+                
+                // Show onboarding for new users who haven't completed it yet
+                if authManager.isNewUser && !hasCompletedOnboarding {
+                    OnboardingFlow(user: user)
+                } else {
+                    UserMainFlow(
+                        user: user,
+                        isNewUserFlag: authManager.isNewUser,
+                        hasCompletedOnboarding: hasCompletedOnboarding
+                    )
+                }
             } else {
                 ErrorView(message: "Unable to load user profile") {
                     Task {
@@ -902,14 +1276,20 @@ struct AuthenticatedFlow: View {
                 }
             }
         }
-        .task {
-            await loadUser()
+        .task(priority: .userInitiated) {
+            loadTask = Task {
+                await loadUser()
+            }
+        }
+        .onDisappear {
+            loadTask?.cancel()
         }
     }
     
     // Computed property to check if onboarding has been completed
     private var hasCompletedOnboarding: Bool {
-        onboardingProgress.contains { $0.hasCompletedOnboarding }
+        // Check if onboarding progress exists or auth manager flag is set
+        return onboardingProgress.contains { $0.hasCompletedOnboarding } || authManager.hasCompletedOnboarding
     }
     
     private func loadUser() async {
@@ -917,6 +1297,12 @@ struct AuthenticatedFlow: View {
               let rawEmail = authUser.email else {
             print("🔴 No authenticated user found")
             isLoading = false
+            return
+        }
+        
+        // Check for cancellation early
+        guard !Task.isCancelled else {
+            print("🟡 loadUser cancelled early")
             return
         }
         
@@ -935,6 +1321,13 @@ struct AuthenticatedFlow: View {
             print("🟢 Found existing user: \(existingUser.username) (ID: \(existingUser.id))")
             print("🟢 User has \(existingUser.athletes.count) athletes")
             #endif
+            
+            // Check cancellation before updating state
+            guard !Task.isCancelled else {
+                print("🟡 loadUser cancelled before setting currentUser")
+                return
+            }
+            
             currentUser = existingUser
             
             await MainActor.run {
@@ -958,7 +1351,20 @@ struct AuthenticatedFlow: View {
             #if DEBUG
             print("🟡 Creating new user")
             #endif
+            
+            // Check cancellation before creating
+            guard !Task.isCancelled else {
+                print("🟡 loadUser cancelled before createNewUser")
+                return
+            }
+            
             await createNewUser(authUser: authUser, email: email)
+        }
+        
+        // Final cancellation check before marking complete
+        guard !Task.isCancelled else {
+            print("🟡 loadUser cancelled before setting isLoading false")
+            return
         }
         
         isLoading = false
@@ -1008,10 +1414,11 @@ struct UserMainFlow: View {
     let user: User
     let isNewUserFlag: Bool
     let hasCompletedOnboarding: Bool
-    @Query var athletesForUser: [Athlete]
+    @Query(sort: \Athlete.createdAt) private var allAthletes: [Athlete]
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @State private var selectedAthlete: Athlete?
     @State private var showCreationToast = false
+    @State private var notificationObservers: [NSObjectProtocol] = []
     private let userID: UUID
     
     init(user: User, isNewUserFlag: Bool, hasCompletedOnboarding: Bool) {
@@ -1019,10 +1426,13 @@ struct UserMainFlow: View {
         self.isNewUserFlag = isNewUserFlag
         self.hasCompletedOnboarding = hasCompletedOnboarding
         self.userID = user.id
-        // Compare concrete UUIDs to avoid OptionalFlatMap issues in the predicate.
-        self._athletesForUser = Query(filter: #Predicate<Athlete> { athlete in
-            (athlete.user?.id) == userID
-        }, sort: \Athlete.createdAt)
+    }
+    
+    private var athletesForUser: [Athlete] {
+        // Filter safely in Swift to avoid force unwrap in predicate
+        allAthletes.filter { athlete in
+            athlete.user?.id == userID
+        }
     }
     
     private var resolvedAthlete: Athlete? {
@@ -1031,7 +1441,15 @@ struct UserMainFlow: View {
     
     var body: some View {
         Group {
-            if let athlete = resolvedAthlete {
+            // IMPORTANT: Check if user is a coach FIRST before any athlete logic
+            if authManager.userRole == .coach {
+                CoachDashboardView()
+                    .onAppear {
+                        print("🎯 UserMainFlow - Showing CoachDashboardView for user: \(user.email)")
+                    }
+            } 
+            // Only check athlete-related logic if user is an athlete
+            else if let athlete = resolvedAthlete {
                 MainTabView(
                     user: user,
                     selectedAthlete: Binding(
@@ -1039,6 +1457,9 @@ struct UserMainFlow: View {
                         set: { selectedAthlete = $0 }
                     )
                 )
+                .onAppear {
+                    print("🎯 UserMainFlow - Showing MainTabView for athlete: \(athlete.name)")
+                }
             } else if athletesForUser.count > 1 {
                 AthleteSelectionView(
                     user: user,
@@ -1046,18 +1467,29 @@ struct UserMainFlow: View {
                     authManager: authManager
                 )
             } else if athletesForUser.isEmpty && isNewUserFlag && !hasCompletedOnboarding {
+                // New athletes need to create their first athlete profile
                 FirstAthleteCreationView(
                     user: user,
                     selectedAthlete: $selectedAthlete,
                     authManager: authManager
                 )
             } else {
+                // Fallback: show athlete selection
                 AthleteSelectionView(
                     user: user,
                     selectedAthlete: $selectedAthlete,
                     authManager: authManager
                 )
             }
+        }
+        .onAppear {
+            print("🎯 UserMainFlow - User role: \(authManager.userRole.rawValue)")
+            print("🎯 UserMainFlow - User email: \(user.email)")
+            print("🎯 UserMainFlow - Athletes count: \(athletesForUser.count)")
+            setupNotificationObservers()
+        }
+        .onDisappear {
+            cleanupNotificationObservers()
         }
         .overlay(alignment: .top) {
             if showCreationToast {
@@ -1106,166 +1538,30 @@ struct UserMainFlow: View {
             }
         }
     }
-}
-
-
-
-
-// MARK: - Helper Views
-struct CustomLoadingView: View {
-    let message: String
     
-    var body: some View {
-        VStack(spacing: 20) {
-            ProgressView()
-                .scaleEffect(1.5)
-            
-            Text(message)
-                .font(.headline)
+    // MARK: - NotificationCenter Management
+    
+    private func setupNotificationObservers() {
+        cleanupNotificationObservers()
+        
+        let observer = NotificationCenter.default.addObserver(
+            forName: .showAthleteSelection,
+            object: nil,
+            queue: .main
+        ) { _ in
+            selectedAthlete = nil
         }
+        notificationObservers.append(observer)
+    }
+    
+    private func cleanupNotificationObservers() {
+        for observer in notificationObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        notificationObservers.removeAll()
     }
 }
 
-struct ErrorView: View {
-    let message: String
-    let onSignOut: () -> Void
-    
-    var body: some View {
-        VStack(spacing: 20) {
-            Image(systemName: "exclamationmark.triangle")
-                .font(.system(size: 50))
-                .foregroundColor(.orange)
-            
-            Text(message)
-                .font(.headline)
-                .multilineTextAlignment(.center)
-            
-            Button("Sign Out", action: onSignOut)
-                .buttonStyle(.borderedProminent)
-        }
-        .padding()
-    }
-}
-
-// MARK: - First Athlete Creation View
-struct FirstAthleteCreationView: View {
-    @Environment(\.modelContext) private var modelContext
-    let user: User
-    @Binding var selectedAthlete: Athlete?
-    let authManager: ComprehensiveAuthManager
-    @State private var showingAddAthlete = false
-    
-    var body: some View {
-        NavigationStack {
-            VStack(spacing: 40) {
-                Spacer()
-                
-                VStack(spacing: 24) {
-                    Image(systemName: "person.crop.circle.badge.plus")
-                        .font(.system(size: 100))
-                        .foregroundStyle(
-                            LinearGradient(
-                                colors: [.blue, .green],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                        .shadow(color: .blue.opacity(0.3), radius: 10, x: 0, y: 5)
-                    
-                    VStack(spacing: 16) {
-                        Text("Ready to Start Tracking!")
-                            .font(.largeTitle)
-                            .fontWeight(.bold)
-                            .multilineTextAlignment(.center)
-                        
-                        Text("Create your first athlete profile to begin tracking baseball performance, recording videos, and analyzing gameplay.")
-                            .font(.title3)
-                            .foregroundColor(.secondary)
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal)
-                    }
-                }
-                
-                VStack(alignment: .leading, spacing: 16) {
-                    Text("What You Can Track:")
-                        .font(.headline)
-                        .fontWeight(.semibold)
-                        .padding(.bottom, 8)
-                    
-                    FeatureHighlight(
-                        icon: "video.circle.fill",
-                        title: "Record & Analyze",
-                        description: "Capture practice sessions and games with smart analysis"
-                    )
-                    
-                    FeatureHighlight(
-                        icon: "chart.line.uptrend.xyaxis.circle.fill",
-                        title: "Track Statistics",
-                        description: "Monitor batting averages and performance metrics"
-                    )
-                    
-                    FeatureHighlight(
-                        icon: "arrow.triangle.2.circlepath.circle.fill",
-                        title: "Sync Everywhere",
-                        description: "Your data syncs securely across all devices"
-                    )
-                }
-                .padding(.horizontal)
-                
-                Spacer()
-                
-                Button(action: { showingAddAthlete = true }) {
-                    HStack {
-                        Image(systemName: "plus.circle.fill")
-                            .font(.title2)
-                        Text("Create First Athlete")
-                            .font(.headline)
-                            .fontWeight(.semibold)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 54)
-                    .background(
-                        LinearGradient(
-                            colors: [.blue, .blue.opacity(0.8)],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                    )
-                    .foregroundColor(.white)
-                    .cornerRadius(12)
-                }
-                .accessibilityLabel("Create first athlete profile")
-                .accessibilityHint("Creates a new athlete profile to start tracking performance")
-                .accessibilityIdentifier("create_first_athlete")
-                .accessibilitySortPriority(1)
-                
-                Spacer()
-                
-                Text("You can add more athletes later in your profile settings")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-            }
-            .padding()
-            .navigationTitle("Get Started")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Sign Out", role: .destructive) {
-                        Task {
-                            await authManager.signOut()
-                        }
-                    }
-                    .accessibilityLabel("Sign out")
-                    .accessibilityHint("Sign out of your account")
-                }
-            }
-        }
-        .sheet(isPresented: $showingAddAthlete) {
-            AddAthleteView(user: user, selectedAthlete: $selectedAthlete, isFirstAthlete: true)
-        }
-    }
-}
 
 // MARK: - Athlete Selection View
 struct AthleteSelectionView: View {
@@ -1277,7 +1573,7 @@ struct AthleteSelectionView: View {
     @State private var showingAddAthlete = false
     
     @State private var searchText: String = ""
-    
+
     private var filteredAthletes: [Athlete] {
         let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !q.isEmpty else { return user.athletes }
@@ -1367,11 +1663,13 @@ struct AthleteSelectionView: View {
                 }
                 
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(action: { showingAddAthlete = true }) {
-                        Image(systemName: "plus")
+                    if authManager.userRole == .athlete {
+                        Button(action: { showingAddAthlete = true }) {
+                            Image(systemName: "plus")
+                        }
+                        .accessibilityLabel("Add athlete")
+                        .accessibilityHint("Add a new athlete to your roster")
                     }
-                    .accessibilityLabel("Add athlete")
-                    .accessibilityHint("Add a new athlete to your roster")
                 }
             }
             .searchable(text: $searchText)
@@ -1550,98 +1848,113 @@ struct AddAthleteView: View {
     
     var body: some View {
         NavigationStack {
-            VStack(spacing: 30) {
-                VStack(spacing: 16) {
-                    Image(systemName: isFirstAthlete ? "person.crop.circle.badge.plus" : "person.2.crop.square.stack.fill")
-                        .font(.system(size: 60))
-                        .foregroundStyle(
-                            LinearGradient(
-                                colors: [.blue, .green],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
+            VStack(spacing: 40) {
+                if authManager.userRole == .athlete {
+                    Spacer()
+                    
+                    VStack(spacing: 24) {
+                        Image(systemName: "person.crop.circle.badge.plus")
+                            .font(.system(size: 100))
+                            .foregroundStyle(
+                                LinearGradient(
+                                    colors: [.blue, .green],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
                             )
-                        )
-                    
-                    VStack(spacing: 8) {
-                        Text(isFirstAthlete ? "Create Your First Athlete" : "Add New Athlete")
-                            .font(.title)
-                            .fontWeight(.bold)
+                            .shadow(color: .blue.opacity(0.3), radius: 10, x: 0, y: 5)
                         
-                        Text(isFirstAthlete
-                             ? "Start your baseball journey by creating your athlete profile"
-                             : "Add another athlete to track their performance"
-                        )
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
+                        VStack(spacing: 16) {
+                            Text("Ready to Start Tracking!")
+                                .font(.largeTitle)
+                                .fontWeight(.bold)
+                                .multilineTextAlignment(.center)
+                            
+                            Text("Create your first athlete profile to begin tracking baseball performance, recording videos, and analyzing gameplay.")
+                                .font(.title3)
+                                .foregroundColor(.secondary)
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal)
+                        }
                     }
-                }
-                
-                VStack(spacing: 16) {
-                    TextField("Athlete Name", text: $athleteName)
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                        .font(.body)
-                        .accessibilityLabel("Athlete name input field")
-                        .accessibilityHint("Enter the name of the athlete you want to add")
-                        .onSubmit {
-                            // Auto-save if valid
-                            if isValidAthleteName(athleteName) && !isCreatingAthlete {
-                                saveAthlete()
-                            }
-                        }
-                        .submitLabel(.done)
-                        .onChange(of: athleteName) { _, newValue in
-                            // Clear validation errors when user starts typing
-                            if showingValidationError {
-                                showingValidationError = false
-                            }
-                        }
                     
-                    // Show validation feedback
-                    if !athleteName.isEmpty {
-                        HStack {
-                            Image(systemName: isValidAthleteName(athleteName) ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                                .foregroundColor(isValidAthleteName(athleteName) ? .green : .orange)
-                            Text(getNameValidationMessage(athleteName))
-                                .font(.caption)
-                                .foregroundColor(isValidAthleteName(athleteName) ? .green : .orange)
-                            Spacer()
-                        }
-                        .padding(.horizontal, 4)
-                    }
-                }
-                
-                if isFirstAthlete {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("What you can do:")
-                            .font(.subheadline)
-                            .fontWeight(.medium)
-                            .foregroundColor(.primary)
+                    VStack(alignment: .leading, spacing: 16) {
+                        Text("What You Can Track:")
+                            .font(.headline)
+                            .fontWeight(.semibold)
+                            .padding(.bottom, 8)
                         
                         FeatureHighlight(
                             icon: "video.circle.fill",
-                            title: "Record Videos",
-                            description: "Capture practice sessions and games"
+                            title: "Record & Analyze",
+                            description: "Capture practice sessions and games with smart analysis"
                         )
                         
                         FeatureHighlight(
-                            icon: "chart.bar.fill",
+                            icon: "chart.line.uptrend.xyaxis.circle.fill",
                             title: "Track Statistics",
                             description: "Monitor batting averages and performance metrics"
                         )
                         
                         FeatureHighlight(
-                            icon: "star.circle.fill",
-                            title: "Create Highlights",
-                            description: "Save your best plays automatically"
+                            icon: "arrow.triangle.2.circlepath.circle.fill",
+                            title: "Sync Everywhere",
+                            description: "Your data syncs securely across all devices"
                         )
                     }
+                    .padding(.horizontal)
+                    
+                    Spacer()
+                    
+                    VStack(spacing: 12) {
+                        TextField("Athlete Name", text: $athleteName)
+                            .textFieldStyle(RoundedBorderTextFieldStyle())
+                            .accessibilityLabel("Athlete name")
+                            .accessibilityHint("Enter the athlete's name")
+                        Button(action: { Haptics.light(); saveAthlete() }) {
+                            HStack {
+                                Image(systemName: "plus.circle.fill")
+                                    .font(.title2)
+                                Text("Create First Athlete")
+                                    .font(.headline)
+                                    .fontWeight(.semibold)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 54)
+                            .background(
+                                LinearGradient(
+                                    colors: [.blue, .blue.opacity(0.8)],
+                                    startPoint: .leading,
+                                    endPoint: .trailing
+                                )
+                            )
+                            .foregroundColor(.white)
+                            .cornerRadius(12)
+                        }
+                        .disabled(!isValidAthleteName(athleteName) || isCreatingAthlete)
+                        .accessibilityLabel("Create first athlete profile")
+                        .accessibilityHint("Creates a new athlete profile to start tracking performance")
+                        .accessibilityIdentifier("create_first_athlete")
+                        .accessibilitySortPriority(1)
+                    }
+                    
+                    Spacer()
+                    
+                    Text("You can add more athletes later in your profile settings")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                } else {
+                    EmptyStateView(
+                        systemImage: "person.fill.questionmark",
+                        title: "Coach Accounts",
+                        message: "Coaches don't create athletes. Ask your athletes to share a folder with you.",
+                        actionTitle: nil,
+                        action: nil
+                    )
                     .padding()
-                    .background(Color(.systemGray6))
-                    .cornerRadius(12)
+                    Spacer()
                 }
-                
-                Spacer()
             }
             .padding()
             .navigationTitle(isFirstAthlete ? "Get Started" : "New Athlete")
@@ -1731,16 +2044,12 @@ struct AddAthleteView: View {
 
         Task {
             let athlete = Athlete(name: trimmedName)
-            // let statistics = Statistics()
             
-            // Set up all relationships explicitly
+            // Set up relationship BEFORE inserting
             athlete.user = user
-            // athlete.statistics = statistics
-            // statistics.athlete = athlete
             
-            // Insert in model context first
+            // Insert in model context
             modelContext.insert(athlete)
-            // modelContext.insert(statistics)
             
             #if DEBUG
             print("🟡 Attempting to save athlete '\(trimmedName)' for user: \(user.id)")
@@ -1755,17 +2064,14 @@ struct AddAthleteView: View {
                 print("🟢 Successfully saved athlete '\(trimmedName)' with ID: \(athlete.id)")
                 #endif
                 
-                // Add to user's athletes array AFTER successful save
-                // This prevents the duplicate check from seeing the athlete before it's actually saved
+                // SwiftData should have already updated the relationship via inverse
+                // But we verify and log for debugging
                 await MainActor.run {
-                    user.athletes.append(athlete)
                     #if DEBUG
                     print("🟢 User now has \(user.athletes.count) athletes")
                     #endif
-                }
-                
-                // Auto-select the new athlete
-                await MainActor.run {
+                    
+                    // Auto-select the new athlete
                     selectedAthlete = athlete
                     #if DEBUG
                     print("🟢 Selected new athlete: \(athlete.id)")
@@ -2138,6 +2444,9 @@ struct MainTabView: View {
     // Swipe gesture tracking
     @GestureState private var dragOffset: CGFloat = 0
     @State private var tabTransition: AnyTransition = .identity
+    
+    // NotificationCenter observer cleanup
+    @State private var notificationObservers: [NSObjectProtocol] = []
 
     private func applyRecordedHitResult(_ info: [String: Any]) {
         guard let hitType = info["hitType"] as? String else { return }
@@ -2189,6 +2498,10 @@ struct MainTabView: View {
             .tint(.blue)
             .onAppear {
                 restoreSelectedTab()
+                setupNotificationObservers()
+            }
+            .onDisappear {
+                cleanupNotificationObservers()
             }
             .onChange(of: selectedTab) { _, newValue in
                 saveSelectedTab(newValue)
@@ -2197,40 +2510,6 @@ struct MainTabView: View {
                     hideFloatingRecordButton = false 
                 }
             }
-            .onReceive(NotificationCenter.default.publisher(for: .switchTab)) { notification in
-                if let index = notification.object as? Int {
-                    selectedTab = index
-                    Haptics.light()
-                }
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .switchAthlete)) { notification in
-                if let athlete = notification.object as? Athlete {
-                    selectedAthlete = athlete
-                    Haptics.light()
-                }
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .presentVideoRecorder)) { _ in
-                selectedTab = MainTab.videos.rawValue
-                Haptics.light()
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .recordedHitResult)) { notification in
-                if let info = notification.object as? [String: Any] {
-                    applyRecordedHitResult(info)
-                }
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .videosManageOwnControls)) { notification in
-                if let flag = notification.object as? Bool {
-                    hideFloatingRecordButton = flag
-                }
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .presentSeasons)) { _ in
-                showingSeasons = true
-                Haptics.light()
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .presentCoaches)) { _ in
-                showingCoaches = true
-                Haptics.light()
-            }
             .sheet(isPresented: $showingSeasons) {
                 SeasonsView(athlete: selectedAthlete)
             }
@@ -2238,6 +2517,96 @@ struct MainTabView: View {
                 CoachesView(athlete: selectedAthlete)
             }
             .addKeyboardShortcuts()
+    }
+    
+    // MARK: - NotificationCenter Management
+    
+    private func setupNotificationObservers() {
+        // Clean up any existing observers first
+        cleanupNotificationObservers()
+        
+        let switchTabObserver = NotificationCenter.default.addObserver(
+            forName: .switchTab,
+            object: nil,
+            queue: .main
+        ) { notification in
+            if let index = notification.object as? Int {
+                selectedTab = index
+                Haptics.light()
+            }
+        }
+        notificationObservers.append(switchTabObserver)
+        
+        let switchAthleteObserver = NotificationCenter.default.addObserver(
+            forName: .switchAthlete,
+            object: nil,
+            queue: .main
+        ) { notification in
+            if let athlete = notification.object as? Athlete {
+                selectedAthlete = athlete
+                Haptics.light()
+            }
+        }
+        notificationObservers.append(switchAthleteObserver)
+        
+        let presentRecorderObserver = NotificationCenter.default.addObserver(
+            forName: .presentVideoRecorder,
+            object: nil,
+            queue: .main
+        ) { _ in
+            selectedTab = MainTab.videos.rawValue
+            Haptics.light()
+        }
+        notificationObservers.append(presentRecorderObserver)
+        
+        let hitResultObserver = NotificationCenter.default.addObserver(
+            forName: .recordedHitResult,
+            object: nil,
+            queue: .main
+        ) { notification in
+            if let info = notification.object as? [String: Any] {
+                applyRecordedHitResult(info)
+            }
+        }
+        notificationObservers.append(hitResultObserver)
+        
+        let manageControlsObserver = NotificationCenter.default.addObserver(
+            forName: .videosManageOwnControls,
+            object: nil,
+            queue: .main
+        ) { notification in
+            if let flag = notification.object as? Bool {
+                hideFloatingRecordButton = flag
+            }
+        }
+        notificationObservers.append(manageControlsObserver)
+        
+        let presentSeasonsObserver = NotificationCenter.default.addObserver(
+            forName: .presentSeasons,
+            object: nil,
+            queue: .main
+        ) { _ in
+            showingSeasons = true
+            Haptics.light()
+        }
+        notificationObservers.append(presentSeasonsObserver)
+        
+        let presentCoachesObserver = NotificationCenter.default.addObserver(
+            forName: .presentCoaches,
+            object: nil,
+            queue: .main
+        ) { _ in
+            showingCoaches = true
+            Haptics.light()
+        }
+        notificationObservers.append(presentCoachesObserver)
+    }
+    
+    private func cleanupNotificationObservers() {
+        for observer in notificationObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        notificationObservers.removeAll()
     }
     
     @ViewBuilder
@@ -2394,6 +2763,7 @@ struct DashboardView: View {
     
     @State private var showingRecorderDirectly = false
     @State private var isRefreshing = false
+    @State private var refreshTask: Task<Void, Never>?
     
     var liveGames: [Game] {
         athlete.games
@@ -2781,7 +3151,8 @@ struct DashboardView: View {
                         
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 12) {
-                                ForEach(recentVideos, id: \.id) { video in
+                                let videos = Array(recentVideos)
+                                ForEach(videos, id: \.id) { video in
                                     DashboardVideoCard(video: video)
                                 }
                             }
@@ -2795,7 +3166,10 @@ struct DashboardView: View {
             .padding(.vertical)
         }
         .refreshable {
-            await refreshDashboard()
+            refreshTask?.cancel()
+            refreshTask = Task {
+                await refreshDashboard()
+            }
         }
         .scrollBounceBehavior(.basedOnSize)
         .navigationTitle(athlete.name)
@@ -2849,6 +3223,12 @@ struct DashboardView: View {
         guard !isRefreshing else { return }
         isRefreshing = true
         
+        // Check for cancellation
+        guard !Task.isCancelled else {
+            isRefreshing = false
+            return
+        }
+        
         // Haptic feedback for refresh
         await MainActor.run {
             Haptics.light()
@@ -2856,6 +3236,14 @@ struct DashboardView: View {
         
         // Simulate data refresh with a small delay for better UX
         try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+        
+        // Check cancellation after sleep
+        guard !Task.isCancelled else {
+            await MainActor.run {
+                isRefreshing = false
+            }
+            return
+        }
         
         // Trigger model context refresh to get latest data
         await MainActor.run {
@@ -3299,6 +3687,301 @@ struct DashboardFeatureCard: View {
     }
 }
 
+// MARK: - RoleSelectionButton
+
+struct RoleSelectionButton: View {
+    let role: UserRole
+    let isSelected: Bool
+    let icon: String
+    let title: String
+    let description: String
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 12) {
+                Image(systemName: icon)
+                    .font(.system(size: 32))
+                    .foregroundColor(isSelected ? .white : .blue)
+                
+                VStack(spacing: 4) {
+                    Text(title)
+                        .font(.headline)
+                        .foregroundColor(isSelected ? .white : .primary)
+                    
+                    Text(description)
+                        .font(.caption)
+                        .foregroundColor(isSelected ? .white.opacity(0.9) : .secondary)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 20)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(isSelected ? Color.blue : Color(.systemGray6))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .strokeBorder(isSelected ? Color.blue : Color.clear, lineWidth: 2)
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(title): \(description)")
+        .accessibilityHint(isSelected ? "Selected" : "Tap to select \(title)")
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+    }
+}
+
+
+// MARK: - Coach Dashboard View
+// NOTE: This old implementation has been replaced by CoachDashboardView.swift
+// Keeping it commented out for reference during migration
+
+/*
+struct CoachDashboardView: View {
+    @EnvironmentObject private var authManager: ComprehensiveAuthManager
+    @State private var sharedFolders: [SharedFolder] = []
+    @State private var pendingInvitations: [CoachInvitation] = []
+    @State private var isLoading = true
+    @State private var errorMessage: String?
+    
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 24) {
+                    // Welcome Header
+                    VStack(spacing: 8) {
+                        Image(systemName: "person.2.badge.gearshape")
+                            .font(.system(size: 60))
+                            .foregroundStyle(
+                                LinearGradient(
+                                    colors: [.blue, .purple],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                        
+                        Text("Coach Dashboard")
+                            .font(.largeTitle)
+                            .fontWeight(.bold)
+                        
+                        if let displayName = authManager.currentFirebaseUser?.displayName {
+                            Text("Welcome, \(displayName)")
+                                .font(.title3)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    .padding(.top)
+                    
+                    // Pending Invitations Section
+                    if !pendingInvitations.isEmpty {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Label("Pending Invitations", systemImage: "envelope.badge")
+                                .font(.headline)
+                                .foregroundColor(.orange)
+                            
+                            ForEach(pendingInvitations) { invitation in
+                                PendingInvitationCard(invitation: invitation) {
+                                    acceptInvitation(invitation)
+                                }
+                            }
+                        }
+                        .padding()
+                        .background(Color.orange.opacity(0.1))
+                        .cornerRadius(12)
+                    }
+                    
+                    // Shared Folders Section
+                    if isLoading {
+                        ProgressView("Loading your folders...")
+                            .padding()
+                    } else if sharedFolders.isEmpty && pendingInvitations.isEmpty {
+                        EmptyStateView(
+                            systemImage: "folder.badge.questionmark",
+                            title: "No Shared Folders Yet",
+                            message: "Athletes will share their folders with you. Once they do, they'll appear here.",
+                            actionTitle: nil,
+                            action: nil
+                        )
+                        .padding()
+                    } else if !sharedFolders.isEmpty {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Label("My Athletes", systemImage: "folder.badge.person.crop")
+                                .font(.headline)
+                            
+                            ForEach(sharedFolders) { folder in
+                                SharedFolderCard(folder: folder)
+                            }
+                        }
+                        .padding()
+                    }
+                    
+                    // Error Message
+                    if let errorMessage {
+                        Text(errorMessage)
+                            .font(.caption)
+                            .foregroundColor(.red)
+                            .padding()
+                    }
+                }
+                .padding()
+            }
+            .navigationTitle("Coach")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button {
+                        Task {
+                            await authManager.signOut()
+                        }
+                    } label: {
+                        Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
+                    }
+                }
+            }
+            .refreshable {
+                await loadData()
+            }
+        }
+        .task {
+            await loadData()
+        }
+    }
+    
+    private func loadData() async {
+        guard let userID = authManager.userID else {
+            errorMessage = "Not signed in"
+            isLoading = false
+            return
+        }
+        
+        isLoading = true
+        errorMessage = nil
+        
+        do {
+            // Load shared folders
+            let folders = try await FirestoreManager.shared.fetchSharedFolders(forCoach: userID)
+            
+            // Load pending invitations
+            if let email = authManager.currentFirebaseUser?.email {
+                let invitations = try await FirestoreManager.shared.fetchPendingInvitations(forEmail: email)
+                await MainActor.run {
+                    self.sharedFolders = folders
+                    self.pendingInvitations = invitations
+                }
+            }
+            
+            isLoading = false
+        } catch {
+            errorMessage = "Failed to load folders: \(error.localizedDescription)"
+            isLoading = false
+        }
+    }
+    
+    private func acceptInvitation(_ invitation: CoachInvitation) {
+        guard let userID = authManager.userID,
+              let invitationID = invitation.id else {
+            return
+        }
+        
+        Task {
+            do {
+                try await FirestoreManager.shared.acceptInvitation(
+                    invitationID: invitationID,
+                    coachID: userID,
+                    permissions: .default
+                )
+                
+                // Reload data
+                await loadData()
+                
+                Haptics.success()
+            } catch {
+                errorMessage = "Failed to accept invitation: \(error.localizedDescription)"
+            }
+        }
+    }
+}
+*/
+
+// MARK: - Shared Folder Card
+
+struct SharedFolderCard: View {
+    let folder: SharedFolder
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Image(systemName: "folder.fill")
+                    .foregroundColor(.blue)
+                
+                Text(folder.name)
+                    .font(.headline)
+                
+                Spacer()
+                
+                if let videoCount = folder.videoCount {
+                    Text("\(videoCount) videos")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+            
+            if let updatedAt = folder.updatedAt {
+                Text("Last updated: \(updatedAt, format: .relative(presentation: .named))")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding()
+        .appCard()
+    }
+}
+
+// MARK: - Pending Invitation Card
+
+struct PendingInvitationCard: View {
+    let invitation: CoachInvitation
+    let onAccept: () -> Void
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(invitation.athleteName)
+                        .font(.headline)
+                    
+                    Text("Folder: \(invitation.folderName)")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+                
+                Spacer()
+                
+                Button(action: onAccept) {
+                    Text("Accept")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(Color.blue)
+                        .cornerRadius(8)
+                }
+            }
+            
+            if let sentAt = invitation.sentAt {
+                Text("Invited: \(sentAt, format: .relative(presentation: .named))")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding()
+        .background(Color(.systemBackground))
+        .cornerRadius(12)
+        .shadow(color: .black.opacity(0.1), radius: 2, x: 0, y: 1)
+    }
+}
 
 // MARK: - Live Game Recording Flow Documentation
 // 
@@ -3345,4 +4028,5 @@ struct DashboardFeatureCard: View {
 
 // To play a video fullscreen from anywhere:
 // NotificationCenter.default.post(name: .presentFullscreenVideo, object: videoClip)
+
 

@@ -1,17 +1,154 @@
-# Coach Onboarding Fix - Summary
+# Coach Onboarding Fix - Complete Summary
 
-**Issue:** Coaches were being asked to create an athlete after signing up, even though they should go directly to their coach dashboard.
+## Issues Encountered
 
-**Root Cause:** 
-1. The `hasCompletedOnboarding` check was automatically returning `true` for coaches, preventing the coach onboarding flow from showing
-2. The `signUpAsCoach()` method was setting `hasCompletedOnboarding = true` immediately
-3. There was no coach dashboard view implemented
+### Issue 1: Coaches Seeing Athlete Onboarding (FIXED ✅)
+**Problem:** Coaches were seeing the athlete onboarding flow and athlete dashboard after signup.
+
+**Root Cause:** The `ComprehensiveAuthManager` was not loading the user's role from Firestore when the app initialized or when auth state changed.
+
+### Issue 2: Athletes Seeing Coach Onboarding (FIXED ✅)
+**Problem:** After fixing Issue 1, athletes started seeing the coach onboarding flow.
+
+**Root Cause:** Race condition - the auth state listener would fire before the Firestore profile write completed, causing `loadUserProfile()` to not find the profile and potentially set the wrong role.
 
 ---
 
-## ✅ Changes Made
+## ✅ All Fixes Applied
 
-### 1. Fixed `AuthenticatedFlow` in `MainAppView.swift`
+### Fix 1: Load User Profile in Auth State Listener (`ComprehensiveAuthManager.swift`)
+
+Added profile loading when auth state changes and on app init:
+
+```swift
+init() {
+    // ... existing code ...
+    authStateDidChangeListenerHandle = Auth.auth().addStateDidChangeListener { [weak self] _, user in
+        // ... existing code ...
+        if user != nil {
+            Task {
+                await self?.ensureLocalUser()
+                // ✅ ADDED: Load user profile from Firestore to get the role
+                await self?.loadUserProfile()
+            }
+        }
+    }
+    
+    // ✅ ADDED: Load profile for already signed-in users
+    if currentFirebaseUser != nil {
+        Task {
+            await self.loadUserProfile()
+        }
+    }
+}
+```
+
+### Fix 2: Immediately Set Role in Memory (Prevents Race Condition)
+
+Updated `signUp()` to set the athlete role immediately:
+
+```swift
+func signUp(email: String, password: String, displayName: String?) async {
+    // ... create user ...
+    
+    // Create user profile in Firestore with default athlete role
+    try await createUserProfile(
+        userID: result.user.uid,
+        email: email,
+        displayName: displayName ?? email,
+        role: .athlete
+    )
+    
+    // ✅ ADDED: Ensure the role is set locally immediately
+    await MainActor.run {
+        self.userRole = .athlete
+    }
+}
+```
+
+Updated `signUpAsCoach()` similarly:
+
+```swift
+func signUpAsCoach(email: String, password: String, displayName: String) async {
+    // ... create user ...
+    
+    // Create coach profile in Firestore
+    try await createUserProfile(
+        userID: result.user.uid,
+        email: email,
+        displayName: displayName,
+        role: .coach
+    )
+    
+    // ✅ ADDED: Ensure the role is set locally immediately
+    await MainActor.run {
+        self.userRole = .coach
+    }
+}
+```
+
+### Fix 3: Set Role in `createUserProfile()` Before Loading
+
+```swift
+func createUserProfile(
+    userID: String,
+    email: String,
+    displayName: String,
+    role: UserRole
+) async throws {
+    // ... create profile in Firestore ...
+    
+    // ✅ ADDED: Set the role immediately in memory
+    await MainActor.run {
+        self.userRole = role
+        print("✅ Set userRole in memory to: \(role.rawValue)")
+    }
+    
+    // Then fetch to confirm
+    await loadUserProfile()
+}
+```
+
+### Fix 4: Enhanced Logging in `loadUserProfile()`
+
+Added detailed logging to help debug role issues:
+
+```swift
+func loadUserProfile() async {
+    print("🔍 loadUserProfile: Fetching profile for user \(email)")
+    
+    if let profile = try await FirestoreManager.shared.fetchUserProfile(userID: userID) {
+        await MainActor.run {
+            userProfile = profile
+            userRole = profile.userRole
+        }
+        print("✅ Loaded user profile: \(profile.role) for \(email)")
+    } else {
+        print("⚠️ Profile doesn't exist for \(email), creating default athlete profile")
+        // ... create default profile ...
+    }
+}
+```
+
+### Fix 5: Added Debug Logging to `OnboardingFlow` and `UserMainFlow`
+
+To verify correct routing:
+
+```swift
+struct OnboardingFlow: View {
+    var body: some View {
+        Group {
+            // ... role check ...
+        }
+        .onAppear {
+            print("🎯 OnboardingFlow - User role: \(authManager.userRole.rawValue)")
+            print("🎯 OnboardingFlow - Showing \(authManager.userRole == .coach ? "COACH" : "ATHLETE") onboarding")
+        }
+    }
+}
+```
+
+---
 
 **Before:** Always showed `UserMainFlow`, never showed `OnboardingFlow`
 

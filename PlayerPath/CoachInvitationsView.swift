@@ -7,6 +7,7 @@
 //
 
 import SwiftUI
+import Combine
 
 struct CoachInvitationsView: View {
     @Environment(\.dismiss) private var dismiss

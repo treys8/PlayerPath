@@ -1,5 +1,4 @@
 import SwiftUI
-import SwiftUI
 import Combine
 import FirebaseAuth
 import SwiftData
@@ -16,6 +15,10 @@ final class ComprehensiveAuthManager: ObservableObject {
     
     // Make isSignedIn a @Published property for better UI reactivity
     @Published private(set) var isSignedIn: Bool = false
+    
+    // User role management (for coach sharing feature)
+    @Published var userRole: UserRole = .athlete
+    @Published var userProfile: UserProfile?
     
     // Computed properties to access Firebase user information
     var userEmail: String? {
@@ -41,18 +44,34 @@ final class ComprehensiveAuthManager: ObservableObject {
         currentFirebaseUser = Auth.auth().currentUser
         isSignedIn = currentFirebaseUser != nil
         authStateDidChangeListenerHandle = Auth.auth().addStateDidChangeListener { [weak self] _, user in
+            // ✅ Consolidated into a single MainActor Task to prevent race conditions
             Task { @MainActor in
                 self?.currentFirebaseUser = user
                 self?.isSignedIn = user != nil
+                
                 // Reset new user flag when auth state changes (unless it's a signup)
                 if user == nil {
                     self?.isNewUser = false
+                } else {
+                    // User signed in - ensure local user exists
+                    await self?.ensureLocalUser()
+                    
+                    // Only load profile if this isn't a brand new signup
+                    // (signUp/signUpAsCoach already handle profile creation and loading)
+                    if self?.isNewUser == false {
+                        print("🔍 Auth state changed - Loading profile for existing user")
+                        await self?.loadUserProfile()
+                    } else {
+                        print("⏭️ Auth state changed - Skipping profile load for new user (already handled in signup)")
+                    }
                 }
             }
-            if user != nil {
-                Task {
-                    await self?.ensureLocalUser()
-                }
+        }
+        
+        // Load profile for already signed-in users
+        if currentFirebaseUser != nil {
+            Task {
+                await self.loadUserProfile()
             }
         }
     }
@@ -110,8 +129,12 @@ final class ComprehensiveAuthManager: ObservableObject {
             let result = try await Auth.auth().signIn(withEmail: email, password: password)
             currentFirebaseUser = result.user
             isSignedIn = true
+            
+            // Load user profile from Firestore
+            await loadUserProfile()
+            
             isLoading = false
-            print("🟢 Sign in successful for: \(result.user.email ?? "unknown")")
+            print("🟢 Sign in successful for: \(result.user.email ?? "unknown") as \(userRole.rawValue)")
         } catch {
             errorMessage = friendlyErrorMessage(from: error)
             isLoading = false
@@ -124,6 +147,11 @@ final class ComprehensiveAuthManager: ObservableObject {
         errorMessage = nil
         isNewUser = true // This is a signup, mark as new user
         
+        // Set the role IMMEDIATELY before any async operations
+        // This ensures the UI sees the correct role right away
+        userRole = .athlete
+        print("✅ Pre-set userRole to athlete BEFORE Firebase operations")
+        
         do {
             let result = try await Auth.auth().createUser(withEmail: email, password: password)
             if let displayName = displayName, !displayName.isEmpty {
@@ -133,14 +161,187 @@ final class ComprehensiveAuthManager: ObservableObject {
             }
             currentFirebaseUser = result.user
             isSignedIn = true
+            
+            print("🔵 Creating athlete profile for: \(email)")
+            
+            // Create user profile in Firestore with default athlete role
+            // Note: createUserProfile will also set userRole = .athlete internally
+            try await createUserProfile(
+                userID: result.user.uid,
+                email: email,
+                displayName: displayName ?? email,
+                role: .athlete // Default to athlete, can be changed later
+            )
+            
+            // Double-check the role is still set (defensive programming)
+            if userRole != .athlete {
+                print("⚠️ WARNING: userRole was changed after createUserProfile, resetting to athlete")
+                userRole = .athlete
+            }
+            
             isLoading = false
-            // Keep isNewUser = true so the app knows this was a signup
-            print("🟢 Sign up successful for: \(result.user.email ?? "unknown")")
+            print("🟢 Sign up successful for athlete: \(result.user.email ?? "unknown") with role: \(userRole.rawValue)")
         } catch {
             errorMessage = friendlyErrorMessage(from: error)
             isLoading = false
             isNewUser = false
             print("🔴 Sign up error: \(error.localizedDescription)")
+        }
+    }
+    
+    /// Creates a user profile in Firestore
+    func createUserProfile(
+        userID: String,
+        email: String,
+        displayName: String,
+        role: UserRole
+    ) async throws {
+        let profileData: [String: Any] = [
+            "email": email.lowercased(),
+            "role": role.rawValue,
+            "isPremium": false,
+            "createdAt": Date(),
+            "displayName": displayName
+        ]
+        
+        print("🔵 Creating user profile in Firestore - Role: \(role.rawValue), Email: \(email)")
+        
+        try await FirestoreManager.shared.updateUserProfile(
+            userID: userID,
+            email: email,
+            role: role,
+            profileData: profileData
+        )
+        
+        // Note: userRole is already set synchronously before this function is called
+        // We verify it matches what we're saving to Firestore
+        if self.userRole != role {
+            print("⚠️ WARNING: Local userRole (\(self.userRole.rawValue)) doesn't match Firestore role (\(role.rawValue))")
+            self.userRole = role
+            print("✅ Corrected userRole in memory to: \(role.rawValue)")
+        } else {
+            print("✅ Verified userRole in memory matches Firestore: \(role.rawValue)")
+        }
+        
+        // Wait a moment for Firestore to propagate, then verify
+        try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+        
+        // Fetch and cache the profile to confirm it was created correctly
+        await loadUserProfile()
+    }
+    
+    /// Loads user profile from Firestore
+    func loadUserProfile() async {
+        guard let userID = currentFirebaseUser?.uid,
+              let email = currentFirebaseUser?.email else {
+            print("⚠️ loadUserProfile: No user ID or email")
+            return
+        }
+        
+        print("🔍 loadUserProfile: Fetching profile for user \(email)")
+        
+        do {
+            if let profile = try await FirestoreManager.shared.fetchUserProfile(userID: userID) {
+                // Store the current role before updating from Firestore
+                let currentRole = self.userRole
+                
+                // Update profile and role from Firestore
+                userProfile = profile
+                
+                // Only update userRole if it's different AND this is not a new user
+                // For new users, we want to keep the role we set synchronously at signup
+                if isNewUser {
+                    // New user: Keep the role we set at signup, but verify it matches Firestore
+                    if profile.userRole != currentRole {
+                        print("⚠️ WARNING: Firestore role (\(profile.userRole.rawValue)) doesn't match pre-set role (\(currentRole.rawValue)) for new user")
+                        print("⚠️ Keeping pre-set role: \(currentRole.rawValue)")
+                    } else {
+                        print("✅ Firestore role matches pre-set role: \(currentRole.rawValue)")
+                    }
+                    // Keep the pre-set role, don't override
+                } else {
+                    // Existing user: Update role from Firestore
+                    userRole = profile.userRole
+                    print("✅ Updated role from Firestore for existing user: \(profile.userRole.rawValue)")
+                }
+                
+                print("✅ Loaded user profile: \(profile.role) for \(email)")
+            } else {
+                // Profile doesn't exist - only create if this is NOT a new user
+                // (new users should have had their profile created in signUp/signUpAsCoach)
+                if !isNewUser {
+                    print("⚠️ Profile doesn't exist for existing user \(email), creating default athlete profile")
+                    try await createUserProfile(
+                        userID: userID,
+                        email: email,
+                        displayName: currentFirebaseUser?.displayName ?? email,
+                        role: .athlete
+                    )
+                } else {
+                    print("⚠️ Profile not found for new user \(email), but keeping existing role: \(userRole.rawValue)")
+                }
+            }
+        } catch {
+            print("❌ Failed to load user profile for \(email): \(error)")
+        }
+    }
+    
+    /// Signs up a coach with default coach role
+    func signUpAsCoach(email: String, password: String, displayName: String) async {
+        isLoading = true
+        errorMessage = nil
+        isNewUser = true
+        
+        // Set the role IMMEDIATELY before any async operations
+        // This ensures the UI sees the correct role right away
+        userRole = .coach
+        print("✅ Pre-set userRole to coach BEFORE Firebase operations")
+        
+        do {
+            let result = try await Auth.auth().createUser(withEmail: email, password: password)
+            let changeRequest = result.user.createProfileChangeRequest()
+            changeRequest.displayName = displayName
+            try await changeRequest.commitChanges()
+            
+            currentFirebaseUser = result.user
+            isSignedIn = true
+            
+            print("🔵 Creating coach profile for: \(email)")
+            
+            // Create coach profile in Firestore
+            // Note: createUserProfile will also set userRole = .coach internally
+            try await createUserProfile(
+                userID: result.user.uid,
+                email: email,
+                displayName: displayName,
+                role: .coach
+            )
+            
+            // Double-check the role is still set (defensive programming)
+            if userRole != .coach {
+                print("⚠️ WARNING: userRole was changed after createUserProfile, resetting to coach")
+                userRole = .coach
+            }
+            
+            // Check for pending invitations
+            let invitations = try await SharedFolderManager.shared.checkPendingInvitations(forEmail: email)
+            if !invitations.isEmpty {
+                print("✅ Found \(invitations.count) pending invitations for new coach")
+                // UI will show these invitations after sign-up
+            }
+            
+            // Note: We DON'T mark hasCompletedOnboarding = true here
+            // We want coaches to see their coach-specific onboarding flow
+            
+            isLoading = false
+            print("🟢 Coach sign up successful for: \(email) with role: \(userRole.rawValue)")
+        } catch {
+            errorMessage = friendlyErrorMessage(from: error)
+            isLoading = false
+            isNewUser = false
+            // Reset role on error
+            userRole = .athlete
+            print("🔴 Coach sign up error: \(error.localizedDescription)")
         }
     }
     

@@ -15,7 +15,7 @@ import Photos
 struct CloudVideoRecorderView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
-    @StateObject private var cloudManager = VideoCloudManager()
+    private var cloudManager = VideoCloudManager.shared
     @State private var cloudKitManager = CloudKitManager.shared
     
     @State private var userPreferences: UserPreferences?

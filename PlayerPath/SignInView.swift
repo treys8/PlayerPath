@@ -26,82 +26,99 @@ struct SignInView: View {
     @State private var showingTermsOfService = false
     @State private var showBiometricPrompt = false
     @State private var agreedToTerms = false
+    @State private var selectedRole: UserRole = .athlete
+    @State private var showSuccessAnimation = false
+    @State private var shakeOffset: CGFloat = 0
+    @State private var showCoachOnboarding = false
+    @State private var showAthleteOnboarding = false
     
     @FocusState private var focusedField: AuthField?
     
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 30) {
-                    AppLogoSection()
-                    
-                    // Biometric Sign In (for returning users)
-                    if !isSignUp && biometricManager.isBiometricEnabled {
-                        BiometricSignInSection(
-                            biometricManager: biometricManager,
-                            onBiometricSignIn: performBiometricSignIn
-                        )
-                    }
-                    
-                    // Social Sign In Options
-                    if !isSignUp {
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(spacing: 30) {
+                        AppLogoSection()
+                        
+                        // Biometric Sign In (for returning users)
+                        if !isSignUp && biometricManager.isBiometricEnabled {
+                            BiometricSignInSection(
+                                biometricManager: biometricManager,
+                                onBiometricSignIn: performBiometricSignIn
+                            )
+                        }
+                        
+                        // Social Sign In Options
                         SocialSignInSection(
                             appleSignInManager: appleSignInManager,
-                            isLoading: authManager.isLoading || appleSignInManager.isLoading
+                            isLoading: authManager.isLoading || appleSignInManager.isLoading,
+                            isSignUp: isSignUp
                         )
                         
                         DividerWithText(text: "or")
-                    }
-                    
-                    AuthenticationHeaderSection(isSignUp: isSignUp)
-                    
-                    AuthenticationFormSection(
-                        email: $email,
-                        password: $password,
-                        displayName: $displayName,
-                        isSignUp: isSignUp,
-                        isLoading: authManager.isLoading,
-                        focusedField: $focusedField
-                    )
-                    
-                    FormValidationSummary(
-                        email: email,
-                        password: password,
-                        displayName: displayName,
-                        isSignUp: isSignUp
-                    )
-                    
-                    // Terms Agreement for Sign Up
-                    if isSignUp {
-                        TermsAgreementSection(
-                            agreedToTerms: $agreedToTerms,
-                            showingPrivacyPolicy: $showingPrivacyPolicy,
-                            showingTermsOfService: $showingTermsOfService
-                        )
-                    }
-                    
-                    AuthenticationButtonSection(
-                        isSignUp: $isSignUp,
-                        showingForgotPassword: $showingForgotPassword,
-                        canSubmitForm: canSubmitForm(),
-                        performAuth: performAuth,
-                        onModeSwitched: {
-                            // Clear fields when switching modes for better UX
-                            email = ""
-                            password = ""
-                            displayName = ""
-                            authManager.errorMessage = nil
+                        
+                        // Role Selection FIRST (for sign up)
+                        if isSignUp {
+                            RoleSelectionSection(selectedRole: $selectedRole)
                         }
-                    )
-                    
-                    ErrorDisplaySection()
-                    
-                    Spacer(minLength: 0)
+                        
+                        AuthenticationHeaderSection(isSignUp: isSignUp, selectedRole: selectedRole)
+                        
+                        AuthenticationFormSection(
+                            email: $email,
+                            password: $password,
+                            displayName: $displayName,
+                            isSignUp: isSignUp,
+                            isLoading: authManager.isLoading,
+                            focusedField: $focusedField
+                        )
+                        
+                        // Terms Agreement for Sign Up
+                        if isSignUp {
+                            TermsAgreementSection(
+                                agreedToTerms: $agreedToTerms,
+                                showingPrivacyPolicy: $showingPrivacyPolicy,
+                                showingTermsOfService: $showingTermsOfService
+                            )
+                        }
+                        
+                        AuthenticationButtonSection(
+                            isSignUp: $isSignUp,
+                            showingForgotPassword: $showingForgotPassword,
+                            canSubmitForm: canSubmitForm(),
+                            performAuth: performAuth,
+                            onModeSwitched: {
+                                // Clear fields when switching modes for better UX
+                                email = ""
+                                password = ""
+                                displayName = ""
+                                // Keep role selection - user might have chosen deliberately
+                                authManager.errorMessage = nil
+                            }
+                        )
+                        .id("submitButton")
+                        
+                        ErrorDisplaySection()
+                        
+                        Spacer(minLength: 0)
+                    }
+                    .padding()
                 }
-                .padding()
+                .onChange(of: focusedField) { _, newValue in
+                    // Scroll to show submit button when on last field
+                    if newValue == .password {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            withAnimation {
+                                proxy.scrollTo("submitButton", anchor: .bottom)
+                            }
+                        }
+                    }
+                }
             }
             .scrollDismissesKeyboard(.interactively)
             .navigationBarHidden(true)
+            .offset(x: shakeOffset)
             .onSubmit {
                 switch focusedField {
                 case .displayName:
@@ -110,6 +127,48 @@ struct SignInView: View {
                     focusedField = .password
                 case .password, .none:
                     if canSubmitForm() && !authManager.isLoading { performAuth() }
+                }
+            }
+            // Loading overlay
+            .overlay {
+                if authManager.isLoading {
+                    ZStack {
+                        Color.black.opacity(0.3)
+                            .ignoresSafeArea()
+                        
+                        VStack(spacing: 16) {
+                            ProgressView()
+                                .scaleEffect(1.5)
+                                .tint(.white)
+                            Text(isSignUp ? "Creating your account..." : "Signing in...")
+                                .font(.headline)
+                                .foregroundColor(.white)
+                        }
+                        .padding(32)
+                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
+                        .shadow(radius: 20)
+                    }
+                    .transition(.opacity)
+                }
+            }
+            // Success animation overlay
+            .overlay {
+                if showSuccessAnimation {
+                    ZStack {
+                        Color.green.opacity(0.95)
+                            .ignoresSafeArea()
+                        
+                        VStack(spacing: 20) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: 80))
+                                .foregroundColor(.white)
+                            Text(isSignUp ? "Welcome to PlayerPath!" : "Welcome back!")
+                                .font(.title)
+                                .fontWeight(.bold)
+                                .foregroundColor(.white)
+                        }
+                    }
+                    .transition(.scale.combined(with: .opacity))
                 }
             }
         }
@@ -122,6 +181,21 @@ struct SignInView: View {
         .sheet(isPresented: $showingTermsOfService) {
             TermsOfServiceView()
         }
+        .fullScreenCover(isPresented: $showCoachOnboarding) {
+            CoachOnboardingView(onFinish: {
+                showCoachOnboarding = false
+                // TODO: Route coach users to the Shared Folders area of the app.
+                // Consider switching the root view or updating a tab selection here.
+            })
+            .environmentObject(authManager)
+        }
+        .fullScreenCover(isPresented: $showAthleteOnboarding) {
+            AthleteOnboardingView(onFinish: {
+                showAthleteOnboarding = false
+                // TODO: Route athlete users to their main experience (e.g., Home/Record/Library).
+            })
+            .environmentObject(authManager)
+        }
         .alert("Enable \(biometricManager.biometricTypeName)?", isPresented: $showBiometricPrompt) {
             Button("Enable") {
                 enableBiometric()
@@ -132,6 +206,21 @@ struct SignInView: View {
         }
         .onChange(of: authManager.errorMessage) { _, newValue in
             if newValue != nil {
+                // Shake animation on error
+                withAnimation(.spring(response: 0.2, dampingFraction: 0.3)) {
+                    shakeOffset = 10
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    withAnimation(.spring(response: 0.2, dampingFraction: 0.3)) {
+                        shakeOffset = -10
+                    }
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                    withAnimation(.spring(response: 0.2, dampingFraction: 0.3)) {
+                        shakeOffset = 0
+                    }
+                }
+                
                 UIAccessibility.post(notification: .announcement, argument: "Authentication error")
                 HapticManager.shared.error()
             }
@@ -159,29 +248,78 @@ struct SignInView: View {
     private func performAuth() {
         guard !authManager.isLoading else { return }
         
+        // Clean email thoroughly before submission
+        email = email.replacingOccurrences(of: " ", with: "")
+            .lowercased()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        
         HapticManager.shared.buttonTap()
+        
+        print("🔐 Starting authentication - isSignUp: \(isSignUp), role: \(selectedRole.rawValue)")
         
         Task {
             let normalizedEmail = email.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
             let trimmedDisplayName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
             
             if isSignUp {
-                await authManager.signUp(
-                    email: normalizedEmail,
-                    password: password,
-                    displayName: trimmedDisplayName.isEmpty ? nil : trimmedDisplayName
-                )
+                // Route to appropriate sign-up method based on selected role
+                print("🔵 Signing up as \(selectedRole.rawValue) with email: \(normalizedEmail)")
+                
+                if selectedRole == .coach {
+                    await authManager.signUpAsCoach(
+                        email: normalizedEmail,
+                        password: password,
+                        displayName: trimmedDisplayName.isEmpty ? normalizedEmail : trimmedDisplayName
+                    )
+                } else {
+                    await authManager.signUp(
+                        email: normalizedEmail,
+                        password: password,
+                        displayName: trimmedDisplayName.isEmpty ? nil : trimmedDisplayName
+                    )
+                }
             } else {
+                print("🔵 Signing in with email: \(normalizedEmail)")
                 await authManager.signIn(email: normalizedEmail, password: password)
             }
             
             if authManager.isSignedIn {
+                print("✅ Authentication successful - userRole: \(authManager.userRole.rawValue)")
+                print("📋 User profile loaded: \(authManager.userProfile != nil)")
+                if let profile = authManager.userProfile {
+                    print("📋 Profile role from Firestore: \(profile.userRole.rawValue)")
+                }
+                
+                // Show success animation
+                await MainActor.run {
+                    withAnimation(.spring(response: 0.6, dampingFraction: 0.7)) {
+                        showSuccessAnimation = true
+                    }
+                }
+                
                 HapticManager.shared.authenticationSuccess()
+                
+                // Decide which onboarding to show based on the loaded profile role when available
+                if isSignUp {
+                    // Prefer the role from the authenticated profile if present; fallback to the selected role
+                    let effectiveRole: UserRole = authManager.userProfile?.userRole ?? authManager.userRole
+                    // Small delay so the success animation is perceived
+                    try? await Task.sleep(for: .milliseconds(1200))
+                    await MainActor.run {
+                        guard authManager.isSignedIn else { return }
+                        switch effectiveRole {
+                        case .coach:
+                            showCoachOnboarding = true
+                        case .athlete:
+                            showAthleteOnboarding = true
+                        }
+                    }
+                }
                 
                 // Offer biometric enrollment for new sign-ins (not sign-ups)
                 if !isSignUp && biometricManager.isBiometricAvailable && !biometricManager.isBiometricEnabled {
                     // Small delay so user sees success first
-                    try? await Task.sleep(for: .milliseconds(500))
+                    try? await Task.sleep(for: .milliseconds(1500))
                     await MainActor.run {
                         // Only show if still signed in
                         if authManager.isSignedIn {
@@ -190,6 +328,7 @@ struct SignInView: View {
                     }
                 }
             } else if authManager.errorMessage != nil {
+                print("❌ Authentication failed: \(authManager.errorMessage ?? "unknown")")
                 // Clear password on failed authentication for security
                 await MainActor.run {
                     password = ""
@@ -275,6 +414,7 @@ private struct AppLogoSection: View {
 
 private struct AuthenticationHeaderSection: View {
     let isSignUp: Bool
+    let selectedRole: UserRole
     
     var body: some View {
         VStack(spacing: 16) {
@@ -283,10 +423,18 @@ private struct AuthenticationHeaderSection: View {
                 .fontWeight(.semibold)
                 .accessibilityAddTraits(.isHeader)
             
-            Text(isSignUp ? "Join PlayerPath to track your baseball journey" : "Welcome back to PlayerPath")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
+            if isSignUp {
+                Text(selectedRole == .athlete ? "Join PlayerPath as an athlete to track your baseball journey" : "Join PlayerPath as a coach to review shared folders and provide feedback — coaches don’t create athletes")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .animation(.easeInOut, value: selectedRole)
+            } else {
+                Text("Welcome back to PlayerPath")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+            }
         }
     }
 }
@@ -303,12 +451,12 @@ private struct AuthenticationFormSection: View {
     var body: some View {
         VStack(spacing: 20) {
             if isSignUp {
-                TextField("Display Name", text: $displayName)
+                TextField("Your Name", text: $displayName)
                     .textFieldStyle(RoundedBorderTextFieldStyle())
                     .keyboardType(.default)
                     .textInputAutocapitalization(.words)
-                    .accessibilityLabel("Display name")
-                    .accessibilityHint("Enter your preferred display name")
+                    .accessibilityLabel("Your name")
+                    .accessibilityHint("Enter your full name")
                     .textContentType(.name)
                     .focused($focusedField, equals: .displayName)
                     .submitLabel(.next)
@@ -359,6 +507,8 @@ private struct AuthenticationFormSection: View {
                 Button(action: { showPassword.toggle() }) {
                     Image(systemName: showPassword ? "eye.slash.fill" : "eye.fill")
                         .foregroundColor(.secondary)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
                 }
                 .disabled(isLoading)
                 .accessibilityLabel(showPassword ? "Hide password" : "Show password")
@@ -412,56 +562,6 @@ private struct PasswordValidationView: View {
 
 
 
-private struct FormValidationSummary: View {
-    let email: String
-    let password: String
-    let displayName: String
-    let isSignUp: Bool
-    
-    var body: some View {
-        if !email.isEmpty || !password.isEmpty || (isSignUp && !displayName.isEmpty) {
-            HStack {
-                Image(systemName: canSubmitForm ? "checkmark.circle.fill" : "info.circle.fill")
-                    .foregroundColor(canSubmitForm ? .green : .blue)
-                    .font(.caption)
-                
-                Text(getFormValidationSummary())
-                    .font(.caption2)
-                    .foregroundColor(canSubmitForm ? .green : .blue)
-                
-                Spacer()
-            }
-            .padding(.horizontal)
-        }
-    }
-    
-    private var canSubmitForm: Bool {
-        FormValidator.shared.canSubmitSignInForm(
-            email: email,
-            password: password,
-            displayName: displayName,
-            isSignUp: isSignUp
-        )
-    }
-    
-    private func getFormValidationSummary() -> String {
-        let requirements = [
-            ("Valid email", FormValidator.shared.validateEmail(email).isValid),
-            ("Strong password", isSignUp ? FormValidator.shared.validatePasswordStrong(password).isValid : FormValidator.shared.validatePasswordBasic(password).isValid),
-            ("Valid display name", isSignUp ? (displayName.isEmpty || FormValidator.shared.validateDisplayName(displayName).isValid) : true)
-        ]
-        
-        let metCount = requirements.filter { $0.1 }.count
-        let totalCount = isSignUp ? 3 : 2
-        
-        if metCount == totalCount {
-            return "Ready to \(isSignUp ? "create account" : "sign in")!"
-        } else {
-            return "\(metCount) of \(totalCount) requirements met"
-        }
-    }
-}
-
 private struct AuthenticationButtonSection: View {
     @Binding var isSignUp: Bool
     @Binding var showingForgotPassword: Bool
@@ -505,7 +605,9 @@ private struct AuthenticationButtonSection: View {
                 Button("Forgot Password?") {
                     showingForgotPassword = true
                 }
-                .foregroundColor(.gray)
+                .font(.subheadline)
+                .foregroundColor(.blue)
+                .padding(.top, 4)
             }
         }
     }
@@ -592,10 +694,11 @@ private struct BiometricSignInSection: View {
 private struct SocialSignInSection: View {
     @ObservedObject var appleSignInManager: AppleSignInManager
     let isLoading: Bool
+    let isSignUp: Bool
     
     var body: some View {
         VStack(spacing: 12) {
-            SignInWithAppleButton {
+            SignInWithAppleButton(isSignUp: isSignUp) {
                 appleSignInManager.signInWithApple()
             }
             .disabled(isLoading)
@@ -653,23 +756,155 @@ private struct TermsAgreementSection: View {
                     }
                 }
             }
-            .toggleStyle(SwitchToggleStyle(tint: .blue))
+            .toggleStyle(SwitchToggleStyle(tint: .green))
             
             if !agreedToTerms {
                 HStack {
-                    Image(systemName: "info.circle")
-                        .foregroundColor(.blue)
+                    Image(systemName: "info.circle.fill")
+                        .foregroundColor(.red)
                         .font(.caption)
-                    Text("Please agree to continue")
+                    Text("You must agree to continue")
                         .font(.caption2)
-                        .foregroundColor(.blue)
+                        .foregroundColor(.red)
                     Spacer()
                 }
             }
         }
         .padding()
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(agreedToTerms ? Color.green.opacity(0.1) : Color.red.opacity(0.05))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(agreedToTerms ? Color.green.opacity(0.3) : Color.red.opacity(0.3), lineWidth: 2)
+        )
+        .animation(.easeInOut(duration: 0.3), value: agreedToTerms)
+    }
+}
+
+private struct RoleSelectionSection: View {
+    @Binding var selectedRole: UserRole
+    
+    var body: some View {
+        VStack(spacing: 12) {
+            roleSelectionHeader
+            
+            VStack(spacing: 12) {
+                RoleOptionButton(
+                    role: .athlete,
+                    title: "Athlete",
+                    description: "Track your performance, games, and progress",
+                    icon: "figure.baseball",
+                    accentColor: .blue,
+                    isSelected: selectedRole == .athlete,
+                    onSelect: {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            selectedRole = .athlete
+                        }
+                        HapticManager.shared.selectionChanged()
+                    }
+                )
+                
+                RoleOptionButton(
+                    role: .coach,
+                    title: "Coach",
+                    description: "View and provide feedback on athlete videos",
+                    icon: "person.fill.checkmark",
+                    accentColor: .green,
+                    isSelected: selectedRole == .coach,
+                    onSelect: {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            selectedRole = .coach
+                        }
+                        HapticManager.shared.selectionChanged()
+                    }
+                )
+            }
+        }
+        .padding(.vertical)
         .background(Color(.secondarySystemBackground))
         .cornerRadius(12)
+    }
+    
+    private var roleSelectionHeader: some View {
+        HStack {
+            Image(systemName: "person.2.fill")
+                .foregroundColor(.blue)
+                .font(.title3)
+            Text("Choose your role:")
+                .font(.headline)
+                .fontWeight(.semibold)
+            Spacer()
+        }
+        .padding(.horizontal)
+    }
+}
+
+private struct RoleOptionButton: View {
+    let role: UserRole
+    let title: String
+    let description: String
+    let icon: String
+    let accentColor: Color
+    let isSelected: Bool
+    let onSelect: () -> Void
+    
+    var body: some View {
+        Button(action: onSelect) {
+            buttonContent
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
+        .accessibilityHint("Sign up as \(title.lowercased())")
+        .accessibility(addTraits: isSelected ? [.isButton, .isSelected] : [.isButton])
+        .accessibility(value: Text(isSelected ? "Selected" : "Not selected"))
+    }
+    
+    private var buttonContent: some View {
+        HStack(spacing: 12) {
+            selectionIndicator
+            roleDetails
+            Spacer()
+            roleIcon
+        }
+        .padding()
+        .background(backgroundStyle)
+        .overlay(borderStyle)
+    }
+    
+    private var selectionIndicator: some View {
+        Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+            .font(.title3)
+            .foregroundColor(isSelected ? accentColor : .gray)
+    }
+    
+    private var roleDetails: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.headline)
+                .foregroundColor(.primary)
+            Text(description)
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+    
+    private var roleIcon: some View {
+        Image(systemName: icon)
+            .font(.title2)
+            .foregroundColor(isSelected ? accentColor : .gray)
+    }
+    
+    private var backgroundStyle: some View {
+        RoundedRectangle(cornerRadius: 12)
+            .fill(isSelected ? accentColor.opacity(0.1) : Color(.tertiarySystemBackground))
+    }
+    
+    private var borderStyle: some View {
+        RoundedRectangle(cornerRadius: 12)
+            .stroke(isSelected ? accentColor : Color.clear, lineWidth: 2)
     }
 }
 
@@ -840,6 +1075,192 @@ private struct PolicyText: View {
             .font(.subheadline)
             .foregroundColor(.secondary)
             .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+private struct CoachOnboardingView: View {
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var authManager: ComprehensiveAuthManager
+    let onFinish: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "person.fill.checkmark")
+                            .font(.largeTitle)
+                            .foregroundStyle(.green)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Welcome, Coach")
+                                .font(.title)
+                                .fontWeight(.bold)
+                            Text("Here’s how PlayerPath works for coaches")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+
+                    Group {
+                        onboardingCard(
+                            title: "Review shared folders",
+                            message: "You’ll see only folders that athletes share with you. Open a folder to watch videos and view notes.",
+                            icon: "folder.shared")
+
+                        onboardingCard(
+                            title: "Provide feedback",
+                            message: "Leave time-stamped comments and notes on athlete videos to help them improve.",
+                            icon: "text.bubble.fill")
+
+                        onboardingCard(
+                            title: "No athlete creation",
+                            message: "Coaches don’t create athletes or manage their profiles. Athletes control what they share with you.",
+                            icon: "person.crop.circle.badge.xmark")
+                    }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Next: Shared Folders")
+                            .font(.headline)
+                        Text("Continue to see folders that have been shared with you. If you don’t see any yet, ask your athletes to share.")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    }
+
+                    Button(action: finish) {
+                        Text("Continue to Shared Folders")
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 50)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .padding(.top, 8)
+                }
+                .padding()
+            }
+            .navigationTitle("Coach Onboarding")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Close") { finish() }
+                }
+            }
+        }
+    }
+
+    private func finish() {
+        HapticManager.shared.success()
+        onFinish()
+        dismiss()
+    }
+
+    private func onboardingCard(title: String, message: String, icon: String) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                Image(systemName: icon)
+                    .font(.title2)
+                    .foregroundStyle(.blue)
+                Text(title)
+                    .font(.headline)
+            }
+            Text(message)
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+        }
+        .padding()
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color(.secondarySystemBackground)))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(.separator), lineWidth: 0.5))
+    }
+}
+
+private struct AthleteOnboardingView: View {
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var authManager: ComprehensiveAuthManager
+    let onFinish: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "figure.baseball")
+                            .font(.largeTitle)
+                            .foregroundStyle(.blue)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Welcome, Athlete")
+                                .font(.title)
+                                .fontWeight(.bold)
+                            Text("Let’s get you set up to track your journey")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+
+                    Group {
+                        onboardingCard(
+                            title: "Record and upload",
+                            message: "Capture your swings and drills. Upload videos to your library for analysis.",
+                            icon: "video.fill")
+
+                        onboardingCard(
+                            title: "Organize into folders",
+                            message: "Create folders for sessions, drills, or goals so everything stays organized.",
+                            icon: "folder.fill")
+
+                        onboardingCard(
+                            title: "Share with your coach",
+                            message: "Share specific folders with your coach to get targeted feedback when you’re ready.",
+                            icon: "person.crop.circle.badge.checkmark")
+                    }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Next: Your Library")
+                            .font(.headline)
+                        Text("Continue to start recording or upload your first videos.")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    }
+
+                    Button(action: finish) {
+                        Text("Continue to My Library")
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 50)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .padding(.top, 8)
+                }
+                .padding()
+            }
+            .navigationTitle("Athlete Onboarding")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Close") { finish() }
+                }
+            }
+        }
+    }
+
+    private func finish() {
+        HapticManager.shared.success()
+        onFinish()
+        dismiss()
+    }
+
+    private func onboardingCard(title: String, message: String, icon: String) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                Image(systemName: icon)
+                    .font(.title2)
+                    .foregroundStyle(.blue)
+                Text(title)
+                    .font(.headline)
+            }
+            Text(message)
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+        }
+        .padding()
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color(.secondarySystemBackground)))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(.separator), lineWidth: 0.5))
     }
 }
 

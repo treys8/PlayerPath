@@ -7,6 +7,7 @@
 //
 
 import SwiftUI
+import Combine
 
 /// Shows the contents of a shared folder with Games and Practices sections
 struct CoachFolderDetailView: View {

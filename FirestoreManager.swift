@@ -24,10 +24,9 @@ class FirestoreManager: ObservableObject {
     @Published var errorMessage: String?
     
     private init() {
-        // Enable offline persistence
+        // Enable offline persistence with modern cache settings
         let settings = FirestoreSettings()
-        settings.isPersistenceEnabled = true
-        settings.cacheSizeBytes = FirestoreCacheSizeUnlimited
+        settings.cacheSettings = PersistentCacheSettings(sizeBytes: NSNumber(value: FirestoreCacheSizeUnlimited))
         db.settings = settings
         
         print("FirestoreManager initialized with offline persistence")
@@ -247,7 +246,7 @@ class FirestoreManager: ObservableObject {
     }
     
     /// Fetches all videos in a shared folder
-    func fetchVideos(forFolder folderID: String) async throws -> [VideoMetadata] {
+    func fetchVideos(forFolder folderID: String) async throws -> [FirestoreVideoMetadata] {
         isLoading = true
         defer { isLoading = false }
         
@@ -257,8 +256,8 @@ class FirestoreManager: ObservableObject {
                 .order(by: "createdAt", descending: true)
                 .getDocuments()
             
-            let videos = snapshot.documents.compactMap { doc -> VideoMetadata? in
-                var video = try? doc.data(as: VideoMetadata.self)
+            let videos = snapshot.documents.compactMap { doc -> FirestoreVideoMetadata? in
+                var video = try? doc.data(as: FirestoreVideoMetadata.self)
                 video?.id = doc.documentID
                 return video
             }
@@ -482,10 +481,11 @@ class FirestoreManager: ObservableObject {
         do {
             // Get invitation details
             let invitationDoc = try await db.collection("invitations").document(invitationID).getDocument()
-            guard let invitation = try? invitationDoc.data(as: CoachInvitation.self),
-                  let folderID = invitation.folderID else {
+            guard let invitation = try? invitationDoc.data(as: CoachInvitation.self) else {
                 throw NSError(domain: "FirestoreManager", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid invitation"])
             }
+            
+            let folderID = invitation.folderID
             
             // Add coach to folder
             try await addCoachToFolder(folderID: folderID, coachID: coachID, permissions: permissions)
@@ -566,6 +566,68 @@ class FirestoreManager: ObservableObject {
             throw error
         }
     }
+    
+    // MARK: - Helper Methods for Coach Views
+    
+    /// Fetches videos for a shared folder (convenience method)
+    func fetchVideos(forSharedFolder folderID: String) async throws -> [FirestoreVideoMetadata] {
+        return try await fetchVideos(forFolder: folderID)
+    }
+    
+    /// Creates video metadata with additional context (convenience method)
+    func createVideoMetadata(
+        folderID: String,
+        metadata: [String: Any]
+    ) async throws -> String {
+        isLoading = true
+        defer { isLoading = false }
+        
+        do {
+            let docRef = try await db.collection("videos").addDocument(data: metadata)
+            
+            // Increment video count in folder
+            try await db.collection("sharedFolders").document(folderID).updateData([
+                "videoCount": FieldValue.increment(Int64(1)),
+                "updatedAt": FieldValue.serverTimestamp()
+            ])
+            
+            print("✅ Created video metadata: \(docRef.documentID)")
+            return docRef.documentID
+        } catch {
+            print("❌ Failed to create video metadata: \(error)")
+            errorMessage = "Failed to save video: \(error.localizedDescription)"
+            throw error
+        }
+    }
+    
+    /// Creates an annotation (convenience method)
+    func createAnnotation(
+        videoID: String,
+        text: String,
+        timestamp: Double,
+        userID: String,
+        userName: String,
+        isCoachComment: Bool
+    ) async throws -> VideoAnnotation {
+        let annotationID = try await addAnnotation(
+            videoID: videoID,
+            userID: userID,
+            userName: userName,
+            timestamp: timestamp,
+            text: text,
+            isCoachComment: isCoachComment
+        )
+        
+        return VideoAnnotation(
+            id: annotationID,
+            userID: userID,
+            userName: userName,
+            timestamp: timestamp,
+            text: text,
+            createdAt: Date(),
+            isCoachComment: isCoachComment
+        )
+    }
 }
 
 // MARK: - Supporting Types
@@ -619,7 +681,7 @@ struct SharedFolder: Codable, Identifiable {
 }
 
 /// Video metadata model
-struct VideoMetadata: Codable, Identifiable {
+struct FirestoreVideoMetadata: Codable, Identifiable {
     var id: String?
     let fileName: String
     let firebaseStorageURL: String

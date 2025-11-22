@@ -8,17 +8,19 @@
 import Foundation
 import Combine
 import SwiftData
-
-// Note: Firebase imports commented out until Firebase is properly set up
-// import FirebaseStorage
-// import FirebaseFirestore
+import FirebaseStorage
+import FirebaseFirestore
 
 @MainActor
 class VideoCloudManager: ObservableObject {
+    static let shared = VideoCloudManager()
+    
     @Published var uploadProgress: [UUID: Double] = [:]
     @Published var isUploading: [UUID: Bool] = [:]
     @Published var downloadProgress: [UUID: Double] = [:]
     @Published var isDownloading: [UUID: Bool] = [:]
+    
+    private init() {}
     
     // Simulated upload with realistic progress updates
     func uploadVideo(_ videoClip: VideoClip, athlete: Athlete) async throws -> String {
@@ -143,6 +145,65 @@ class VideoCloudManager: ObservableObject {
         }
         
         return results
+    }
+    
+    // MARK: - Shared Folder Upload (for Coach-to-Athlete sharing)
+    
+    /// Uploads a video file to Firebase Storage for a shared folder
+    /// - Parameters:
+    ///   - localURL: Local file URL of the video
+    ///   - fileName: Name for the file in storage
+    ///   - folderID: Shared folder ID
+    ///   - progressHandler: Closure called with progress updates (0.0 to 1.0)
+    /// - Returns: The download URL for the uploaded video
+    func uploadVideo(
+        localURL: URL,
+        fileName: String,
+        folderID: String,
+        progressHandler: @escaping (Double) -> Void
+    ) async throws -> String {
+        
+        // Create storage reference
+        let storage = Storage.storage()
+        let storageRef = storage.reference()
+        let videoRef = storageRef.child("shared_folders/\(folderID)/\(fileName)")
+        
+        // Read video data
+        let videoData = try Data(contentsOf: localURL)
+        
+        // Create upload task with metadata
+        let metadata = StorageMetadata()
+        metadata.contentType = "video/quicktime"
+        
+        // Simulate progress for now (in production, use the actual upload task progress)
+        return try await withCheckedThrowingContinuation { continuation in
+            let uploadTask = videoRef.putData(videoData, metadata: metadata) { metadata, error in
+                if let error = error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+                
+                // Get download URL
+                videoRef.downloadURL { url, error in
+                    if let error = error {
+                        continuation.resume(throwing: error)
+                    } else if let url = url {
+                        continuation.resume(returning: url.absoluteString)
+                    } else {
+                        continuation.resume(throwing: VideoCloudError.invalidURL)
+                    }
+                }
+            }
+            
+            // Monitor upload progress
+            uploadTask.observe(.progress) { snapshot in
+                guard let progress = snapshot.progress else { return }
+                let percentComplete = Double(progress.completedUnitCount) / Double(progress.totalUnitCount)
+                Task { @MainActor in
+                    progressHandler(percentComplete)
+                }
+            }
+        }
     }
 }
 

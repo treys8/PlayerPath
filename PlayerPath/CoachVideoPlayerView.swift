@@ -8,6 +8,7 @@
 
 import SwiftUI
 import AVKit
+import Combine
 
 struct CoachVideoPlayerView: View {
     let folder: SharedFolder

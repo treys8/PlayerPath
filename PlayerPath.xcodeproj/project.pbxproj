@@ -25,6 +25,13 @@
 		2D2FA2D62EB28A1B002E1B80 /* UserPreferencesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D2FA2D52EB28A1B002E1B80 /* UserPreferencesView.swift */; };
 		2D2FA2D82EB28A66002E1B80 /* StoreKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2D2FA2D72EB28A66002E1B80 /* StoreKit.framework */; };
 		2D7F704E2EBEA99100DF8DA5 /* UserPreferencesViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D7F704D2EBEA99100DF8DA5 /* UserPreferencesViewModel.swift */; };
+		2D88646C2ED0C4B2001A687B /* COACH_SHARING_ARCHITECTURE.md in Resources */ = {isa = PBXBuildFile; fileRef = 2D88646B2ED0C4B2001A687B /* COACH_SHARING_ARCHITECTURE.md */; };
+		2D88646E2ED0C69A001A687B /* FirestoreManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D88646D2ED0C69A001A687B /* FirestoreManager.swift */; };
+		2D8864702ED0C6EF001A687B /* SharedFolderManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D88646F2ED0C6EF001A687B /* SharedFolderManager.swift */; };
+		2D8864722ED0C77F001A687B /* PHASE_1_SUMMARY.md in Resources */ = {isa = PBXBuildFile; fileRef = 2D8864712ED0C77F001A687B /* PHASE_1_SUMMARY.md */; };
+		2D8864742ED0C798001A687B /* firestore.rules in Resources */ = {isa = PBXBuildFile; fileRef = 2D8864732ED0C798001A687B /* firestore.rules */; };
+		2D8864762ED0C7AA001A687B /* storage.rules in Resources */ = {isa = PBXBuildFile; fileRef = 2D8864752ED0C7AA001A687B /* storage.rules */; };
+		2D8864782ED0C7D6001A687B /* FIREBASE_SETUP_GUIDE.md in Resources */ = {isa = PBXBuildFile; fileRef = 2D8864772ED0C7D6001A687B /* FIREBASE_SETUP_GUIDE.md */; };
 		2DF23B942EAD2514001C3216 /* Assets.xcassetsContents.json in Resources */ = {isa = PBXBuildFile; fileRef = 2DF23B932EAD2514001C3216 /* Assets.xcassetsContents.json */; };
 		2DF23B962EAD2521001C3216 /* Assets.xcassetsAppIcon.appiconsetContents.json in Resources */ = {isa = PBXBuildFile; fileRef = 2DF23B952EAD2521001C3216 /* Assets.xcassetsAppIcon.appiconsetContents.json */; };
 /* End PBXBuildFile section */
@@ -37,6 +44,13 @@
 		2D2FA2D72EB28A66002E1B80 /* StoreKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = StoreKit.framework; path = System/Library/Frameworks/StoreKit.framework; sourceTree = SDKROOT; };
 		2D3C65892EAB1CC900BC2B9C /* PlayerPath.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PlayerPath.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		2D7F704D2EBEA99100DF8DA5 /* UserPreferencesViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserPreferencesViewModel.swift; sourceTree = "<group>"; };
+		2D88646B2ED0C4B2001A687B /* COACH_SHARING_ARCHITECTURE.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = COACH_SHARING_ARCHITECTURE.md; sourceTree = "<group>"; };
+		2D88646D2ED0C69A001A687B /* FirestoreManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirestoreManager.swift; sourceTree = "<group>"; };
+		2D88646F2ED0C6EF001A687B /* SharedFolderManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedFolderManager.swift; sourceTree = "<group>"; };
+		2D8864712ED0C77F001A687B /* PHASE_1_SUMMARY.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = PHASE_1_SUMMARY.md; sourceTree = "<group>"; };
+		2D8864732ED0C798001A687B /* firestore.rules */ = {isa = PBXFileReference; lastKnownFileType = text; path = firestore.rules; sourceTree = "<group>"; };
+		2D8864752ED0C7AA001A687B /* storage.rules */ = {isa = PBXFileReference; lastKnownFileType = text; path = storage.rules; sourceTree = "<group>"; };
+		2D8864772ED0C7D6001A687B /* FIREBASE_SETUP_GUIDE.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = FIREBASE_SETUP_GUIDE.md; sourceTree = "<group>"; };
 		2DF23B932EAD2514001C3216 /* Assets.xcassetsContents.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = Assets.xcassetsContents.json; sourceTree = "<group>"; };
 		2DF23B952EAD2521001C3216 /* Assets.xcassetsAppIcon.appiconsetContents.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = Assets.xcassetsAppIcon.appiconsetContents.json; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -107,6 +121,13 @@
 				2D2FA2D12EB289E4002E1B80 /* UserPreferences.swift */,
 				2D2FA2D52EB28A1B002E1B80 /* UserPreferencesView.swift */,
 				2D7F704D2EBEA99100DF8DA5 /* UserPreferencesViewModel.swift */,
+				2D88646B2ED0C4B2001A687B /* COACH_SHARING_ARCHITECTURE.md */,
+				2D88646D2ED0C69A001A687B /* FirestoreManager.swift */,
+				2D88646F2ED0C6EF001A687B /* SharedFolderManager.swift */,
+				2D8864712ED0C77F001A687B /* PHASE_1_SUMMARY.md */,
+				2D8864732ED0C798001A687B /* firestore.rules */,
+				2D8864752ED0C7AA001A687B /* storage.rules */,
+				2D8864772ED0C7D6001A687B /* FIREBASE_SETUP_GUIDE.md */,
 			);
 			sourceTree = "<group>";
 		};
@@ -201,6 +222,11 @@
 			buildActionMask = 2147483647;
 			files = (
 				2DF23B962EAD2521001C3216 /* Assets.xcassetsAppIcon.appiconsetContents.json in Resources */,
+				2D88646C2ED0C4B2001A687B /* COACH_SHARING_ARCHITECTURE.md in Resources */,
+				2D8864782ED0C7D6001A687B /* FIREBASE_SETUP_GUIDE.md in Resources */,
+				2D8864762ED0C7AA001A687B /* storage.rules in Resources */,
+				2D8864722ED0C77F001A687B /* PHASE_1_SUMMARY.md in Resources */,
+				2D8864742ED0C798001A687B /* firestore.rules in Resources */,
 				2DF23B942EAD2514001C3216 /* Assets.xcassetsContents.json in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -234,6 +260,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				2D7F704E2EBEA99100DF8DA5 /* UserPreferencesViewModel.swift in Sources */,
+				2D88646E2ED0C69A001A687B /* FirestoreManager.swift in Sources */,
+				2D8864702ED0C6EF001A687B /* SharedFolderManager.swift in Sources */,
 				2D14AB8E2EAE6C2A007951C5 /* CloudVideoRecorderView.swift in Sources */,
 				2D14AB8C2EAE6BF4007951C5 /* VideoCloudManager.swift in Sources */,
 				2D2FA2D62EB28A1B002E1B80 /* UserPreferencesView.swift in Sources */,
