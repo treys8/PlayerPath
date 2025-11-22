@@ -465,16 +465,25 @@ struct CloudVideoRecorderView: View {
             // Link to game or practice
             if let game = game {
                 videoClip.game = game
-                game.videoClips.append(videoClip)
+                if game.videoClips == nil {
+                    game.videoClips = []
+                }
+                game.videoClips?.append(videoClip)
                 print("Linked video to game: \(game.opponent)")
             } else if let practice = practice {
                 videoClip.practice = practice
-                practice.videoClips.append(videoClip)
+                if practice.videoClips == nil {
+                    practice.videoClips = []
+                }
+                practice.videoClips?.append(videoClip)
                 print("Linked video to practice")
             }
             
             videoClip.athlete = athlete
-            athlete.videoClips.append(videoClip)
+            if athlete.videoClips == nil {
+                athlete.videoClips = []
+            }
+            athlete.videoClips?.append(videoClip)
             
             modelContext.insert(videoClip)
             try modelContext.save()

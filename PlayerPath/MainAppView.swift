@@ -1319,7 +1319,7 @@ struct AuthenticatedFlow: View {
         if let existingUser = users.first(where: { $0.email == email }) {
             #if DEBUG
             print("🟢 Found existing user: \(existingUser.username) (ID: \(existingUser.id))")
-            print("🟢 User has \(existingUser.athletes.count) athletes")
+            print("🟢 User has \((existingUser.athletes ?? []).count) athletes")
             #endif
             
             // Check cancellation before updating state
@@ -1334,12 +1334,12 @@ struct AuthenticatedFlow: View {
                 if let refreshedByEmail = users.first(where: { $0.email == email }) {
                     currentUser = refreshedByEmail
                     #if DEBUG
-                    print("🟢 Using persisted user by email: \(refreshedByEmail.username) | athletes: \(refreshedByEmail.athletes.count)")
+                    print("🟢 Using persisted user by email: \(refreshedByEmail.username) | athletes: \((refreshedByEmail.athletes ?? []).count)")
                     #endif
                 } else if let refreshedByID = users.first(where: { $0.id == existingUser.id }) {
                     currentUser = refreshedByID
                     #if DEBUG
-                    print("🟢 Fallback persisted user by id: \(refreshedByID.username) | athletes: \(refreshedByID.athletes.count)")
+                    print("🟢 Fallback persisted user by id: \(refreshedByID.username) | athletes: \((refreshedByID.athletes ?? []).count)")
                     #endif
                 } else {
                     #if DEBUG
@@ -1416,6 +1416,7 @@ struct UserMainFlow: View {
     let hasCompletedOnboarding: Bool
     @Query(sort: \Athlete.createdAt) private var allAthletes: [Athlete]
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
+    @StateObject private var sharedFolderManager = SharedFolderManager.shared
     @State private var selectedAthlete: Athlete?
     @State private var showCreationToast = false
     @State private var notificationObservers: [NSObjectProtocol] = []
@@ -1444,6 +1445,7 @@ struct UserMainFlow: View {
             // IMPORTANT: Check if user is a coach FIRST before any athlete logic
             if authManager.userRole == .coach {
                 CoachDashboardView()
+                    .environmentObject(sharedFolderManager)
                     .onAppear {
                         print("🎯 UserMainFlow - Showing CoachDashboardView for user: \(user.email)")
                     }
@@ -1576,14 +1578,14 @@ struct AthleteSelectionView: View {
 
     private var filteredAthletes: [Athlete] {
         let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !q.isEmpty else { return user.athletes }
-        return user.athletes.filter { $0.name.lowercased().contains(q) }
+        guard !q.isEmpty else { return user.athletes ?? [] }
+        return (user.athletes ?? []).filter { $0.name.lowercased().contains(q) }
     }
     
     var body: some View {
         NavigationStack {
             VStack {
-                if user.athletes.isEmpty {
+                if (user.athletes ?? []).isEmpty {
                     // This shouldn't happen with the new flow, but keeping as fallback
                     VStack(spacing: 30) {
                         Image(systemName: "person.crop.circle.badge.plus")
@@ -1649,8 +1651,8 @@ struct AthleteSelectionView: View {
                     }
                 }
             }
-            .navigationTitle(user.athletes.count > 1 ? "Choose Athlete" : "Athletes")
-            .navigationBarTitleDisplayMode(user.athletes.count > 1 ? .inline : .large)
+            .navigationTitle((user.athletes ?? []).count > 1 ? "Choose Athlete" : "Athletes")
+            .navigationBarTitleDisplayMode((user.athletes ?? []).count > 1 ? .inline : .large)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button("Sign Out", role: .destructive) {
@@ -1729,13 +1731,13 @@ struct AthleteCard: View {
                 HStack(spacing: 16) {
                     AthleteStatBadge(
                         icon: "video.fill",
-                        count: athlete.videoClips.count,
+                        count: (athlete.videoClips ?? []).count,
                         label: "Videos"
                     )
                     
                     AthleteStatBadge(
                         icon: "sportscourt.fill",
-                        count: athlete.games.count,
+                        count: (athlete.games ?? []).count,
                         label: "Games"
                     )
                 }
@@ -1753,7 +1755,7 @@ struct AthleteCard: View {
                 Button {
                     // Toggle live (stub)
                 } label: {
-                    Label(athlete.games.first?.isLive == true ? "End Live" : "Mark Live", systemImage: athlete.games.first?.isLive == true ? "stop.circle" : "record.circle")
+                    Label((athlete.games ?? []).first?.isLive == true ? "End Live" : "Mark Live", systemImage: (athlete.games ?? []).first?.isLive == true ? "stop.circle" : "record.circle")
                 }
             }
         }
@@ -2027,7 +2029,7 @@ struct AddAthleteView: View {
     
     private func isDuplicateAthleteName(_ name: String) -> Bool {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return user.athletes.contains { athlete in
+        return (user.athletes ?? []).contains { athlete in
             athlete.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == trimmedName
         }
     }
@@ -2054,7 +2056,7 @@ struct AddAthleteView: View {
             #if DEBUG
             print("🟡 Attempting to save athlete '\(trimmedName)' for user: \(user.id)")
             print("🟡 User email: \(user.email)")
-            print("🟡 User currently has \(user.athletes.count) athletes")
+            print("🟡 User currently has \((user.athletes ?? []).count) athletes")
             print("🟡 Firebase user: \(authManager.currentFirebaseUser?.email ?? "None")")
             #endif
 
@@ -2068,7 +2070,7 @@ struct AddAthleteView: View {
                 // But we verify and log for debugging
                 await MainActor.run {
                     #if DEBUG
-                    print("🟢 User now has \(user.athletes.count) athletes")
+                    print("🟢 User now has \((user.athletes ?? []).count) athletes")
                     #endif
                     
                     // Auto-select the new athlete
@@ -2709,7 +2711,7 @@ struct MainTabView: View {
     
     private var moreTab: some View {
         NavigationStack {
-            MoreView(user: user, selectedAthlete: Binding(
+            ProfileView(user: user, selectedAthlete: Binding(
                 get: { selectedAthlete },
                 set: { selectedAthlete = $0 ?? selectedAthlete }
             ))
@@ -2766,7 +2768,7 @@ struct DashboardView: View {
     @State private var refreshTask: Task<Void, Never>?
     
     var liveGames: [Game] {
-        athlete.games
+        (athlete.games ?? [])
             .filter { $0.isLive }
             .sorted { lhs, rhs in
                 switch (lhs.date, rhs.date) {
@@ -2783,7 +2785,7 @@ struct DashboardView: View {
     }
     
     var liveTournaments: [Tournament] {
-        athlete.tournaments
+        (athlete.tournaments ?? [])
             .filter { $0.isActive }
             .sorted { lhs, rhs in
                 let l = lhs.startDate ?? .distantPast
@@ -2794,7 +2796,7 @@ struct DashboardView: View {
     
     var recentGames: [Game] {
         let now = Date()
-        let pastGames = athlete.games.filter { game in
+        let pastGames = (athlete.games ?? []).filter { game in
             if let d = game.date { return d <= now }
             return false
         }
@@ -2817,7 +2819,7 @@ struct DashboardView: View {
     
     var upcomingGames: [Game] {
         let now = Date()
-        let futureGames = athlete.games.filter { game in
+        let futureGames = (athlete.games ?? []).filter { game in
             if let d = game.date { return d > now }
             return false
         }
@@ -2839,7 +2841,7 @@ struct DashboardView: View {
     }
     
     var recentVideos: [VideoClip] {
-        athlete.videoClips
+        (athlete.videoClips ?? [])
             .sorted { (lhs: VideoClip, rhs: VideoClip) in
                 switch (lhs.createdAt, rhs.createdAt) {
                 case let (l?, r?):
@@ -3017,7 +3019,7 @@ struct DashboardView: View {
                         DashboardFeatureCard(
                             icon: "trophy.fill",
                             title: "Tournaments",
-                            subtitle: "\(athlete.tournaments.count) Total",
+                            subtitle: "\((athlete.tournaments ?? []).count) Total",
                             color: .orange
                         ) {
                             postSwitchTab(.tournaments)
@@ -3026,7 +3028,7 @@ struct DashboardView: View {
                         DashboardFeatureCard(
                             icon: "sportscourt.fill",
                             title: "Games",
-                            subtitle: "\(athlete.games.count) Total",
+                            subtitle: "\((athlete.games ?? []).count) Total",
                             color: .blue
                         ) {
                             postSwitchTab(.games)
@@ -3044,7 +3046,7 @@ struct DashboardView: View {
                         DashboardFeatureCard(
                             icon: "video.fill",
                             title: "Video Clips",
-                            subtitle: "\(athlete.videoClips.count) Recorded",
+                            subtitle: "\((athlete.videoClips ?? []).count) Recorded",
                             color: .purple
                         ) {
                             postSwitchTab(.videos)
@@ -3053,7 +3055,7 @@ struct DashboardView: View {
                         DashboardFeatureCard(
                             icon: "star.fill",
                             title: "Highlights",
-                            subtitle: "\(athlete.videoClips.filter { $0.isHighlight }.count) Highlights",
+                            subtitle: "\((athlete.videoClips ?? []).filter { $0.isHighlight }.count) Highlights",
                             color: .yellow
                         ) {
                             // For now, route to Highlights tab
@@ -3072,7 +3074,7 @@ struct DashboardView: View {
                         DashboardFeatureCard(
                             icon: "calendar",
                             title: "Seasons",
-                            subtitle: "\(athlete.seasons.count) Total",
+                            subtitle: "\((athlete.seasons ?? []).count) Total",
                             color: .teal
                         ) {
                             // Switch to home tab first, then present sheet
@@ -3178,7 +3180,7 @@ struct DashboardView: View {
             ToolbarItem(placement: .principal) {
                 Menu {
                     // Show all athletes with checkmark for current
-                    ForEach(user.athletes.sorted(by: { $0.name < $1.name })) { ath in
+                    ForEach((user.athletes ?? []).sorted(by: { $0.name < $1.name })) { ath in
                         Button {
                             // Switch to this athlete
                             NotificationCenter.default.post(

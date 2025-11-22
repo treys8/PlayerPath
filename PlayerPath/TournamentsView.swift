@@ -21,7 +21,7 @@ struct TournamentsView: View {
     
     // Cached sorted tournaments to avoid repeated sorting
     private var tournaments: [Tournament] {
-        athlete?.tournaments.sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) } ?? []
+        (athlete?.tournaments ?? []).sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
     }
     
     var body: some View {
@@ -199,7 +199,7 @@ struct TournamentRow: View {
                 
                 Spacer()
                 
-                Text("\(tournament.games.count) \(tournament.games.count == 1 ? "game" : "games")")
+                Text("\((tournament.games ?? []).count) \((tournament.games ?? []).count == 1 ? "game" : "games")")
                     .font(.caption)
                     .foregroundColor(.blue)
             }
@@ -218,7 +218,7 @@ struct TournamentDetailView: View {
     
     // Get the athlete from the tournament's athletes relationship
     private var athlete: Athlete? {
-        tournament.athletes.first
+        (tournament.athletes ?? []).first
     }
     
     var body: some View {
@@ -261,7 +261,7 @@ struct TournamentDetailView: View {
             
             // Games Section
             Section("Games") {
-                if tournament.games.isEmpty {
+                if (tournament.games ?? []).isEmpty {
                     HStack {
                         Text("No games yet")
                             .foregroundColor(.secondary)
@@ -273,7 +273,7 @@ struct TournamentDetailView: View {
                         .controlSize(.regular)
                     }
                 } else {
-                    ForEach(tournament.games.sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }) { game in
+                    ForEach((tournament.games ?? []).sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }) { game in
                         NavigationLink(destination: GameDetailView(game: game)) {
                             TournamentGameRow(game: game)
                         }
@@ -408,7 +408,7 @@ struct TournamentDetailView: View {
     private func endTournament() {
         tournament.isActive = false
         // End all live games in this tournament
-        tournament.games.forEach { $0.isLive = false }
+        (tournament.games ?? []).forEach { $0.isLive = false }
         do {
             try modelContext.save()
         } catch {
@@ -492,9 +492,18 @@ struct AddTournamentView: View {
             info: info
         )
         tournament.isActive = startActive
-        tournament.athletes.append(athlete)
         
-        athlete.tournaments.append(tournament)
+        // Properly handle optional arrays
+        if tournament.athletes == nil {
+            tournament.athletes = []
+        }
+        tournament.athletes?.append(athlete)
+        
+        if athlete.tournaments == nil {
+            athlete.tournaments = []
+        }
+        athlete.tournaments?.append(tournament)
+        
         modelContext.insert(tournament)
         
         do {
@@ -540,7 +549,7 @@ struct TournamentGameRow: View {
                 
                 Spacer()
                 
-                Text("\(game.videoClips.count) clips")
+                Text("\((game.videoClips ?? []).count) clips")
                     .font(.caption)
                     .foregroundColor(.blue)
             }

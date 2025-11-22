@@ -775,33 +775,7 @@ struct GuidelineItem: View {
     }
 }
 
-struct LoadingOverlay: View {
-    let message: String
-    
-    var body: some View {
-        ZStack {
-            Color.black.opacity(0.7)
-                .ignoresSafeArea()
-                .accessibilityAddTraits(.isModal)
-            
-            VStack(spacing: 16) {
-                ProgressView()
-                    .tint(.white)
-                    .scaleEffect(1.5)
-                
-                Text(message)
-                    .font(.headline)
-                    .foregroundColor(.white)
-                    .multilineTextAlignment(.center)
-            }
-            .padding(32)
-            .background(
-                RoundedRectangle(cornerRadius: 20)
-                    .fill(Color.white.opacity(0.1))
-            )
-        }
-    }
-}
+
 
 // MARK: - Network Monitoring
 

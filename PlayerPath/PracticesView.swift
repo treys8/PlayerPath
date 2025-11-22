@@ -20,11 +20,11 @@ struct PracticesView: View {
     @State private var searchText: String = ""
     
     var practices: [Practice] {
-        athlete?.practices.sorted { (lhs, rhs) in
+        (athlete?.practices ?? []).sorted { (lhs, rhs) in
             let l = lhs.date ?? .distantPast
             let r = rhs.date ?? .distantPast
             return l > r
-        } ?? []
+        }
     }
     
     var filteredPractices: [Practice] {
@@ -45,8 +45,8 @@ struct PracticesView: View {
             .formatted(date: .abbreviated, time: .omitted)
             .lowercased()
 
-        let videoCount: Int = practice.videoClips.count
-        let noteCount: Int = practice.notes.count
+        let videoCount: Int = (practice.videoClips ?? []).count
+        let noteCount: Int = (practice.notes ?? []).count
 
         let videoCountString: String = String(videoCount)
         let noteCountString: String = String(noteCount)
@@ -107,16 +107,18 @@ struct PracticesView: View {
         withAnimation {
             // Remove from athlete's practices array
             if let athlete = practice.athlete,
-               let practiceIndex = athlete.practices.firstIndex(of: practice) {
-                athlete.practices.remove(at: practiceIndex)
+               let practices = athlete.practices,
+               let practiceIndex = practices.firstIndex(of: practice) {
+                athlete.practices?.remove(at: practiceIndex)
                 log.debug("Removed practice from athlete's array")
             }
 
             // Delete associated video clips and their play results
-            for videoClip in practice.videoClips {
+            for videoClip in (practice.videoClips ?? []) {
                 if let athlete = videoClip.athlete,
-                   let clipIndex = athlete.videoClips.firstIndex(of: videoClip) {
-                    athlete.videoClips.remove(at: clipIndex)
+                   let videoClips = athlete.videoClips,
+                   let clipIndex = videoClips.firstIndex(of: videoClip) {
+                    athlete.videoClips?.remove(at: clipIndex)
                 }
                 
                 // Delete associated play result
@@ -130,7 +132,7 @@ struct PracticesView: View {
             }
 
             // Delete associated notes
-            for note in practice.notes {
+            for note in (practice.notes ?? []) {
                 modelContext.delete(note)
                 log.debug("Deleted associated note")
             }
@@ -214,10 +216,10 @@ struct PracticeRow: View {
                 Spacer()
                 
                 HStack(spacing: 6) {
-                    Label("\(practice.videoClips.count)", systemImage: "video.fill")
+                    Label("\((practice.videoClips ?? []).count)", systemImage: "video.fill")
                         .labelStyle(.iconOnly)
                         .foregroundColor(.blue)
-                    Text("\(practice.videoClips.count)")
+                    Text("\((practice.videoClips ?? []).count)")
                         .font(.caption2)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
@@ -226,11 +228,11 @@ struct PracticeRow: View {
                 }
             }
             
-            if !practice.notes.isEmpty {
+            if !(practice.notes ?? []).isEmpty {
                 HStack(spacing: 6) {
                     Image(systemName: "note.text")
                         .foregroundColor(.secondary)
-                    Text("\(practice.notes.count)")
+                    Text("\((practice.notes ?? []).count)")
                         .font(.caption2)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
@@ -301,7 +303,10 @@ struct AddPracticeView: View {
         let practice = Practice(date: date)
         practice.athlete = athlete
         
-        athlete.practices.append(practice)
+        if athlete.practices == nil {
+            athlete.practices = []
+        }
+        athlete.practices?.append(practice)
         modelContext.insert(practice)
         
         // ✅ Link practice to active season
@@ -341,11 +346,11 @@ struct PracticeDetailView: View {
     @State private var activeSheet: PracticeSheet?
     
     var videoClips: [VideoClip] {
-        practice.videoClips.sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
+        (practice.videoClips ?? []).sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
     }
     
     var notes: [PracticeNote] {
-        practice.notes.sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
+        (practice.notes ?? []).sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
     }
     
     var body: some View {
@@ -471,16 +476,18 @@ struct PracticeDetailView: View {
     private func deletePractice() {
         // Remove from athlete's practices array
         if let athlete = practice.athlete,
-           let practiceIndex = athlete.practices.firstIndex(of: practice) {
-            athlete.practices.remove(at: practiceIndex)
+           let practices = athlete.practices,
+           let practiceIndex = practices.firstIndex(of: practice) {
+            athlete.practices?.remove(at: practiceIndex)
             log.debug("Removed practice from athlete's array")
         }
         
         // Delete associated video clips
-        for videoClip in practice.videoClips {
+        for videoClip in (practice.videoClips ?? []) {
             if let athlete = videoClip.athlete,
-               let clipIndex = athlete.videoClips.firstIndex(of: videoClip) {
-                athlete.videoClips.remove(at: clipIndex)
+               let videoClips = athlete.videoClips,
+               let clipIndex = videoClips.firstIndex(of: videoClip) {
+                athlete.videoClips?.remove(at: clipIndex)
             }
             
             if let playResult = videoClip.playResult {
@@ -492,7 +499,7 @@ struct PracticeDetailView: View {
         }
         
         // Delete associated notes
-        for note in practice.notes {
+        for note in (practice.notes ?? []) {
             modelContext.delete(note)
             log.debug("Deleted associated note")
         }
@@ -615,7 +622,10 @@ struct AddPracticeNoteView: View {
         let note = PracticeNote(content: noteContent.trimmingCharacters(in: .whitespacesAndNewlines))
         note.practice = practice
         
-        practice.notes.append(note)
+        if practice.notes == nil {
+            practice.notes = []
+        }
+        practice.notes?.append(note)
         modelContext.insert(note)
         
         do {

@@ -13,7 +13,7 @@ import CloudKit
 @Model
 final class UserPreferences {
     // Immutable identity for stability
-    @Attribute(.unique) private(set) var id: UUID
+    private(set) var id: UUID
 
     // MARK: - Video Recording Preferences
     var defaultVideoQuality: VideoQuality { didSet { markAsModified() } }

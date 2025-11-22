@@ -452,12 +452,14 @@ class CoachFolderViewModel: ObservableObject {
         self.folder = folder
     }
     
+    /// Videos marked as game videos (has gameOpponent)
     var gameVideos: [CoachVideoItem] {
-        videos.filter { $0.gameOpponent != nil }
+        videos.filter { $0.videoType == "game" || $0.gameOpponent != nil }
     }
     
+    /// Videos marked as practice videos (has practiceDate but no gameOpponent)
     var practiceVideos: [CoachVideoItem] {
-        videos.filter { $0.practiceDate != nil && $0.gameOpponent == nil }
+        videos.filter { $0.videoType == "practice" || ($0.practiceDate != nil && $0.gameOpponent == nil) }
     }
     
     func loadVideos() async {
@@ -499,9 +501,11 @@ struct CoachVideoItem: Identifiable {
     let isHighlight: Bool
     
     // Context info
+    let videoType: String?
     let gameOpponent: String?
+    let gameDate: Date?
     let practiceDate: Date?
-    let playResult: String?
+    let notes: String?
     
     var contextLabel: String? {
         if let opponent = gameOpponent {
@@ -525,11 +529,12 @@ struct CoachVideoItem: Identifiable {
         self.duration = metadata.duration
         self.isHighlight = metadata.isHighlight ?? false
         
-        // These would come from extended metadata in Firestore
-        // For now, placeholder - you'd add these fields to FirestoreVideoMetadata
-        self.gameOpponent = nil
-        self.practiceDate = nil
-        self.playResult = nil
+        // Extract context info from metadata
+        self.videoType = metadata.videoType
+        self.gameOpponent = metadata.gameOpponent
+        self.gameDate = metadata.gameDate
+        self.practiceDate = metadata.practiceDate
+        self.notes = metadata.notes
     }
 }
 

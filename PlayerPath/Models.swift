@@ -49,12 +49,13 @@ final class User {
     var profileImagePath: String?
     var createdAt: Date?
     var isPremium: Bool = false
-    var athletes: [Athlete] = []
+    var athletes: [Athlete]?
     
     init(username: String, email: String) {
         self.id = UUID()
         self.username = username
         self.email = email
+        self.athletes = []
     }
 }
 
@@ -64,21 +65,21 @@ final class Athlete {
     var name: String = ""
     var createdAt: Date?
     var user: User?
-    var seasons: [Season] = []
-    var tournaments: [Tournament] = []
-    var games: [Game] = []
-    var practices: [Practice] = []
-    var videoClips: [VideoClip] = []
+    var seasons: [Season]?
+    var tournaments: [Tournament]?
+    var games: [Game]?
+    var practices: [Practice]?
+    var videoClips: [VideoClip]?
     var statistics: AthleteStatistics?
     
     /// The currently active season for this athlete (only one can be active at a time)
     var activeSeason: Season? {
-        seasons.first(where: { $0.isActive })
+        seasons?.first(where: { $0.isActive })
     }
     
     /// All archived (completed) seasons, sorted by start date descending
     var archivedSeasons: [Season] {
-        seasons
+        (seasons ?? [])
             .filter { !$0.isActive }
             .sorted { ($0.startDate ?? Date.distantPast) > ($1.startDate ?? Date.distantPast) }
     }
@@ -86,6 +87,11 @@ final class Athlete {
     init(name: String) {
         self.id = UUID()
         self.name = name
+        self.seasons = []
+        self.tournaments = []
+        self.games = []
+        self.practices = []
+        self.videoClips = []
     }
 }
 
@@ -99,10 +105,10 @@ final class Season {
     var isActive: Bool = false
     var createdAt: Date?
     var athlete: Athlete?
-    var games: [Game] = []
-    var practices: [Practice] = []
-    var videoClips: [VideoClip] = []
-    var tournaments: [Tournament] = []
+    var games: [Game]?
+    var practices: [Practice]?
+    var videoClips: [VideoClip]?
+    var tournaments: [Tournament]?
     
     /// Season-specific statistics (calculated when season is archived)
     var seasonStatistics: AthleteStatistics?
@@ -148,17 +154,17 @@ final class Season {
     
     /// Total number of games played in this season
     var totalGames: Int {
-        games.filter { $0.isComplete }.count
+        (games ?? []).filter { $0.isComplete }.count
     }
     
     /// Total videos recorded during this season
     var totalVideos: Int {
-        videoClips.count
+        (videoClips ?? []).count
     }
     
     /// All highlight videos from this season
     var highlights: [VideoClip] {
-        videoClips.filter { $0.isHighlight }
+        (videoClips ?? []).filter { $0.isHighlight }
     }
     
     enum SportType: String, Codable, CaseIterable {
@@ -181,6 +187,10 @@ final class Season {
         self.startDate = startDate
         self.sport = sport
         self.isActive = false
+        self.games = []
+        self.practices = []
+        self.videoClips = []
+        self.tournaments = []
     }
     
     /// End this season and archive it
@@ -194,7 +204,7 @@ final class Season {
         }
         
         // Aggregate all game stats into season stats
-        for game in games where game.isComplete {
+        for game in (games ?? []) where game.isComplete {
             if let gameStats = game.gameStats {
                 seasonStatistics?.singles += gameStats.singles
                 seasonStatistics?.doubles += gameStats.doubles
@@ -230,8 +240,8 @@ final class Tournament {
     var info: String = ""
     var isActive: Bool = false
     var createdAt: Date?
-    var athletes: [Athlete] = []
-    var games: [Game] = []
+    var athletes: [Athlete]?
+    var games: [Game]?
     var season: Season?
     
     // Backward-compatibility shim for older code paths
@@ -252,6 +262,8 @@ final class Tournament {
         self.date = date
         self.location = location
         self.info = info
+        self.athletes = []
+        self.games = []
     }
 }
 
@@ -266,13 +278,14 @@ final class Game {
     var tournament: Tournament?
     var athlete: Athlete?
     var season: Season?
-    var videoClips: [VideoClip] = []
+    var videoClips: [VideoClip]?
     var gameStats: GameStatistics?
     
     init(date: Date, opponent: String) {
         self.id = UUID()
         self.date = date
         self.opponent = opponent
+        self.videoClips = []
     }
 }
 
@@ -284,12 +297,14 @@ final class Practice {
     var createdAt: Date?
     var athlete: Athlete?
     var season: Season?
-    var videoClips: [VideoClip] = []
-    var notes: [PracticeNote] = []
+    var videoClips: [VideoClip]?
+    var notes: [PracticeNote]?
     
     init(date: Date) {
         self.id = UUID()
         self.date = date
+        self.videoClips = []
+        self.notes = []
     }
 }
 

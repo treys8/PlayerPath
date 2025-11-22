@@ -366,7 +366,7 @@ struct GameDetailView: View {
     @State private var gameService: GameService? = nil
     
     var videoClips: [VideoClip] {
-        game.videoClips.sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
+        (game.videoClips ?? []).sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
     }
     
     var body: some View {
@@ -667,7 +667,7 @@ struct AddGameView: View {
     }
     
     var availableTournaments: [Tournament] {
-        athlete?.tournaments.filter { $0.isActive } ?? []
+        (athlete?.tournaments ?? []).filter { $0.isActive }
     }
     
     private var isValidOpponent: Bool {
@@ -760,7 +760,7 @@ struct AddGameView: View {
         let trimmedOpponent = opponent.trimmingCharacters(in: .whitespacesAndNewlines)
         
         // Check for existing game with same opponent and date
-        let existingGame = athlete.games.first { game in
+        let existingGame = (athlete.games ?? []).first { game in
             if let gameDate = game.date {
                 return game.opponent.lowercased() == trimmedOpponent.lowercased() && 
                        Calendar.current.isDate(gameDate, inSameDayAs: date)
@@ -778,7 +778,7 @@ struct AddGameView: View {
         
         // If starting as live, end any other live games
         if startAsLive {
-            athlete.games.forEach { $0.isLive = false }
+            (athlete.games ?? []).forEach { $0.isLive = false }
         }
         
         let game = Game(date: date, opponent: trimmedOpponent)
@@ -794,7 +794,9 @@ struct AddGameView: View {
         // Link to active season
         if let activeSeason = athlete.activeSeason {
             game.season = activeSeason
-            activeSeason.games.append(game)
+            var seasonGames = activeSeason.games ?? []
+            seasonGames.append(game)
+            activeSeason.games = seasonGames
             print("✅ Linked game to active season: \(activeSeason.displayName)")
         } else {
             print("⚠️ Warning: No active season found for game")
@@ -803,25 +805,35 @@ struct AddGameView: View {
         // Set tournament relationship
         if let tournament = selectedTournament ?? tournament {
             game.tournament = tournament
-            tournament.games.append(game)
+            var tournamentGames = tournament.games ?? []
+            tournamentGames.append(game)
+            tournament.games = tournamentGames
             // Also link tournament to active season if not already linked
             if let activeSeason = athlete.activeSeason, tournament.season == nil {
                 tournament.season = activeSeason
-                activeSeason.tournaments.append(tournament)
+                var seasonTournaments = activeSeason.tournaments ?? []
+                seasonTournaments.append(tournament)
+                activeSeason.tournaments = seasonTournaments
                 print("✅ Linked tournament to active season: \(activeSeason.displayName)")
             }
-        } else if let activeTournament = athlete.tournaments.first(where: { $0.isActive }) {
+        } else if let activeTournament = (athlete.tournaments ?? []).first(where: { $0.isActive }) {
             game.tournament = activeTournament
-            activeTournament.games.append(game)
+            var activeTournamentGames = activeTournament.games ?? []
+            activeTournamentGames.append(game)
+            activeTournament.games = activeTournamentGames
             // Also link tournament to active season if not already linked
             if let activeSeason = athlete.activeSeason, activeTournament.season == nil {
                 activeTournament.season = activeSeason
-                activeSeason.tournaments.append(activeTournament)
+                var seasonTournaments = activeSeason.tournaments ?? []
+                seasonTournaments.append(activeTournament)
+                activeSeason.tournaments = seasonTournaments
                 print("✅ Linked tournament to active season: \(activeSeason.displayName)")
             }
         }
         
-        athlete.games.append(game)
+        var athleteGames = athlete.games ?? []
+        athleteGames.append(game)
+        athlete.games = athleteGames
         modelContext.insert(game)
         
         do {

@@ -22,7 +22,7 @@ struct VideoClipsView: View {
     private var filteredVideos: [VideoClip] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !query.isEmpty else {
-            return athlete.videoClips.sorted { (lhs: VideoClip, rhs: VideoClip) in
+            return (athlete.videoClips ?? []).sorted { (lhs: VideoClip, rhs: VideoClip) in
                 switch (lhs.createdAt, rhs.createdAt) {
                 case let (l?, r?):
                     return l > r
@@ -36,7 +36,7 @@ struct VideoClipsView: View {
             }
         }
         
-        return athlete.videoClips.filter { video in
+        return (athlete.videoClips ?? []).filter { video in
             video.fileName.lowercased().contains(query) ||
             (video.playResult?.type.displayName.lowercased().contains(query) ?? false)
         }.sorted { (lhs: VideoClip, rhs: VideoClip) in
@@ -55,7 +55,7 @@ struct VideoClipsView: View {
     
     var body: some View {
         Group {
-            if athlete.videoClips.isEmpty {
+            if athlete.videoClips?.isEmpty ?? true {
                 emptyStateView
             } else {
                 videoListView

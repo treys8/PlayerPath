@@ -244,7 +244,6 @@ struct FeatureRow: View {
     let season = Season(name: "Spring 2025", startDate: Date(), sport: .baseball)
     season.activate()
     season.athlete = athlete
-    athlete.seasons.append(season)
     
     container.mainContext.insert(athlete)
     container.mainContext.insert(season)

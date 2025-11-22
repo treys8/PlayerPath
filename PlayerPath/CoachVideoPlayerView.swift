@@ -570,7 +570,12 @@ class CoachVideoPlayerViewModel: ObservableObject {
                     createdAt: Date(),
                     fileSize: 1024000,
                     duration: 120.0,
-                    isHighlight: false
+                    isHighlight: false,
+                    videoType: "practice",
+                    gameOpponent: nil,
+                    gameDate: nil,
+                    practiceDate: Date(),
+                    notes: nil
                 )
             )
         )

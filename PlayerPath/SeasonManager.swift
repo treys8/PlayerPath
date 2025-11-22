@@ -46,7 +46,11 @@ struct SeasonManager {
         let newSeason = Season(name: seasonName, startDate: now, sport: .baseball)
         newSeason.activate()
         newSeason.athlete = athlete
-        athlete.seasons.append(newSeason)
+        
+        if athlete.seasons == nil {
+            athlete.seasons = []
+        }
+        athlete.seasons?.append(newSeason)
         
         modelContext.insert(newSeason)
         
@@ -70,7 +74,10 @@ struct SeasonManager {
         
         if game.season == nil {
             game.season = activeSeason
-            activeSeason.games.append(game)
+            if activeSeason.games == nil {
+                activeSeason.games = []
+            }
+            activeSeason.games?.append(game)
             
             do {
                 try modelContext.save()
@@ -91,7 +98,10 @@ struct SeasonManager {
         
         if practice.season == nil {
             practice.season = activeSeason
-            activeSeason.practices.append(practice)
+            if activeSeason.practices == nil {
+                activeSeason.practices = []
+            }
+            activeSeason.practices?.append(practice)
             
             do {
                 try modelContext.save()
@@ -112,7 +122,10 @@ struct SeasonManager {
         
         if videoClip.season == nil {
             videoClip.season = activeSeason
-            activeSeason.videoClips.append(videoClip)
+            if activeSeason.videoClips == nil {
+                activeSeason.videoClips = []
+            }
+            activeSeason.videoClips?.append(videoClip)
             
             do {
                 try modelContext.save()
@@ -133,7 +146,10 @@ struct SeasonManager {
         
         if tournament.season == nil {
             tournament.season = activeSeason
-            activeSeason.tournaments.append(tournament)
+            if activeSeason.tournaments == nil {
+                activeSeason.tournaments = []
+            }
+            activeSeason.tournaments?.append(tournament)
             
             do {
                 try modelContext.save()
@@ -158,10 +174,10 @@ struct SeasonManager {
         // Stats
         summary += "📊 Season Overview\n"
         summary += "• Games Played: \(season.totalGames)\n"
-        summary += "• Practices: \(season.practices.count)\n"
+        summary += "• Practices: \((season.practices ?? []).count)\n"
         summary += "• Videos Recorded: \(season.totalVideos)\n"
         summary += "• Highlights: \(season.highlights.count)\n"
-        summary += "• Tournaments: \(season.tournaments.count)\n\n"
+        summary += "• Tournaments: \((season.tournaments ?? []).count)\n\n"
         
         // Baseball stats if available
         if let stats = season.seasonStatistics, stats.atBats > 0 {
@@ -183,7 +199,7 @@ struct SeasonManager {
     /// - Returns: A recommendation for season management
     static func checkSeasonStatus(for athlete: Athlete) -> SeasonRecommendation {
         // No seasons at all - recommend creating one
-        if athlete.seasons.isEmpty {
+        if (athlete.seasons ?? []).isEmpty {
             return .createFirst
         }
         

@@ -56,10 +56,12 @@ actor GameService {
         }
         
         // Delete all video clips and their files
-        for clip in game.videoClips {
-            if let athlete = clip.athlete,
-               let clipIndex = athlete.videoClips.firstIndex(of: clip) {
-                athlete.videoClips.remove(at: clipIndex)
+        for clip in game.videoClips ?? [] {
+            if let clipAthlete = clip.athlete,
+               var athleteClips = clipAthlete.videoClips,
+               let clipIndex = athleteClips.firstIndex(of: clip) {
+                athleteClips.remove(at: clipIndex)
+                clipAthlete.videoClips = athleteClips
             }
             if let playResult = clip.playResult {
                 modelContext.delete(playResult)
@@ -69,15 +71,18 @@ actor GameService {
         }
         
         // Remove game from athlete's games
-        if let index = athlete.games.firstIndex(of: game) {
-            athlete.games.remove(at: index)
+        if var athleteGames = athlete.games,
+           let index = athleteGames.firstIndex(of: game) {
+            athleteGames.remove(at: index)
+            athlete.games = athleteGames
         }
         
         // Remove game from tournament's games if applicable
-        if let tournament = game.tournament {
-            if let index = tournament.games.firstIndex(of: game) {
-                tournament.games.remove(at: index)
-            }
+        if let tournament = game.tournament,
+           var tournamentGames = tournament.games,
+           let index = tournamentGames.firstIndex(of: game) {
+            tournamentGames.remove(at: index)
+            tournament.games = tournamentGames
         }
         
         // Delete gameStats if exists
@@ -101,7 +106,7 @@ actor GameService {
     func createGame(for athlete: Athlete, opponent: String, date: Date, tournament: Tournament?, isLive: Bool) async {
         // Check for duplicate game with same opponent and same day
         let calendar = Calendar.current
-        for existingGame in athlete.games {
+        for existingGame in athlete.games ?? [] {
             if existingGame.opponent == opponent,
                let gameDate = existingGame.date,
                calendar.isDate(gameDate, inSameDayAs: date) {
@@ -112,7 +117,7 @@ actor GameService {
         
         if isLive {
             // End all other live games for athlete
-            for game in athlete.games where game.isLive {
+            for game in athlete.games ?? [] where game.isLive {
                 game.isLive = false
             }
         }
@@ -133,16 +138,22 @@ actor GameService {
         // Assign tournament
         if let providedTournament = tournament {
             game.tournament = providedTournament
-            providedTournament.games.append(game)
+            var tournamentGames = providedTournament.games ?? []
+            tournamentGames.append(game)
+            providedTournament.games = tournamentGames
         } else {
-            if let activeTournament = athlete.tournaments.first(where: { $0.isActive }) {
+            if let activeTournament = (athlete.tournaments ?? []).first(where: { $0.isActive }) {
                 game.tournament = activeTournament
-                activeTournament.games.append(game)
+                var tournamentGames = activeTournament.games ?? []
+                tournamentGames.append(game)
+                activeTournament.games = tournamentGames
             }
         }
         
         // Append game to athlete.games
-        athlete.games.append(game)
+        var athleteGames = athlete.games ?? []
+        athleteGames.append(game)
+        athlete.games = athleteGames
         game.athlete = athlete
         
         do {
@@ -165,7 +176,7 @@ actor GameService {
         }
         
         // End other live games of this athlete
-        for otherGame in athlete.games where otherGame.isLive && otherGame != game {
+        for otherGame in athlete.games ?? [] where otherGame.isLive && otherGame != game {
             otherGame.isLive = false
         }
         
@@ -233,18 +244,20 @@ actor GameService {
     
     func repairConsistency(for athlete: Athlete, allGames: [Game]) async {
         // Set of games that athlete currently references
-        let relationshipSet = Set(athlete.games)
+        let relationshipSet = Set(athlete.games ?? [])
         // Set of games that query found for this athlete
         let querySet = Set(allGames.filter { $0.athlete?.id == athlete.id })
         
         let orphanedGames = querySet.subtracting(relationshipSet)
-        let gamesWithWrongAthlete = athlete.games.filter { $0.athlete != athlete }
+        let gamesWithWrongAthlete = (athlete.games ?? []).filter { $0.athlete != athlete }
         
         if !orphanedGames.isEmpty {
+            var athleteGames = athlete.games ?? []
             for game in orphanedGames {
-                athlete.games.append(game)
+                athleteGames.append(game)
                 game.athlete = athlete
             }
+            athlete.games = athleteGames
             print("Re-added \(orphanedGames.count) orphaned games to athlete's games.")
         }
         

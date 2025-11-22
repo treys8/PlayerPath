@@ -21,16 +21,16 @@ struct SeasonMigrationHelper {
         print("🔄 Starting season migration for \(athlete.name)...")
         
         // Check if athlete already has seasons - if so, skip migration
-        if !athlete.seasons.isEmpty {
+        if !(athlete.seasons ?? []).isEmpty {
             print("⏭️ Athlete already has seasons, skipping migration")
             return
         }
         
         // Collect all items without seasons
-        let gamesWithoutSeason = athlete.games.filter { $0.season == nil }
-        let practicesWithoutSeason = athlete.practices.filter { $0.season == nil }
-        let videosWithoutSeason = athlete.videoClips.filter { $0.season == nil }
-        let tournamentsWithoutSeason = athlete.tournaments.filter { $0.season == nil }
+        let gamesWithoutSeason = (athlete.games ?? []).filter { $0.season == nil }
+        let practicesWithoutSeason = (athlete.practices ?? []).filter { $0.season == nil }
+        let videosWithoutSeason = (athlete.videoClips ?? []).filter { $0.season == nil }
+        let tournamentsWithoutSeason = (athlete.tournaments ?? []).filter { $0.season == nil }
         
         guard !gamesWithoutSeason.isEmpty || !practicesWithoutSeason.isEmpty || 
               !videosWithoutSeason.isEmpty || !tournamentsWithoutSeason.isEmpty else {
@@ -68,27 +68,42 @@ struct SeasonMigrationHelper {
             }
             
             season.athlete = athlete
-            athlete.seasons.append(season)
+            if athlete.seasons == nil {
+                athlete.seasons = []
+            }
+            athlete.seasons?.append(season)
             
             // Link all items to this season
+            if season.games == nil {
+                season.games = []
+            }
             for game in items.games {
                 game.season = season
-                season.games.append(game)
+                season.games?.append(game)
             }
             
+            if season.practices == nil {
+                season.practices = []
+            }
             for practice in items.practices {
                 practice.season = season
-                season.practices.append(practice)
+                season.practices?.append(practice)
             }
             
+            if season.videoClips == nil {
+                season.videoClips = []
+            }
             for video in items.videos {
                 video.season = season
-                season.videoClips.append(video)
+                season.videoClips?.append(video)
             }
             
+            if season.tournaments == nil {
+                season.tournaments = []
+            }
             for tournament in items.tournaments {
                 tournament.season = season
-                season.tournaments.append(tournament)
+                season.tournaments?.append(tournament)
             }
             
             modelContext.insert(season)
@@ -268,19 +283,19 @@ struct SeasonMigrationHelper {
     /// - Returns: True if migration is needed
     static func needsMigration(for athlete: Athlete) -> Bool {
         // If athlete has no seasons but has data, they need migration
-        if athlete.seasons.isEmpty {
-            let hasData = !athlete.games.isEmpty || 
-                         !athlete.practices.isEmpty || 
-                         !athlete.videoClips.isEmpty ||
-                         !athlete.tournaments.isEmpty
+        if (athlete.seasons ?? []).isEmpty {
+            let hasData = !(athlete.games ?? []).isEmpty || 
+                         !(athlete.practices ?? []).isEmpty || 
+                         !(athlete.videoClips ?? []).isEmpty ||
+                         !(athlete.tournaments ?? []).isEmpty
             return hasData
         }
         
         // Check if there's any data without a season
-        let hasUnlinkedData = athlete.games.contains(where: { $0.season == nil }) ||
-                             athlete.practices.contains(where: { $0.season == nil }) ||
-                             athlete.videoClips.contains(where: { $0.season == nil }) ||
-                             athlete.tournaments.contains(where: { $0.season == nil })
+        let hasUnlinkedData = (athlete.games ?? []).contains(where: { $0.season == nil }) ||
+                             (athlete.practices ?? []).contains(where: { $0.season == nil }) ||
+                             (athlete.videoClips ?? []).contains(where: { $0.season == nil }) ||
+                             (athlete.tournaments ?? []).contains(where: { $0.season == nil })
         
         return hasUnlinkedData
     }

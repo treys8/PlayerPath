@@ -34,6 +34,10 @@ struct SignInView: View {
     
     @FocusState private var focusedField: AuthField?
     
+    // Task management for proper cancellation
+    @State private var authTask: Task<Void, Never>?
+    @State private var biometricTask: Task<Void, Never>?
+    
     var body: some View {
         NavigationStack {
             ScrollViewReader { proxy in
@@ -235,11 +239,19 @@ struct SignInView: View {
             // Remove spaces and trim whitespace from email
             let cleaned = newValue.replacingOccurrences(of: " ", with: "")
             if cleaned != newValue {
-                email = cleaned
+                // Use async dispatch to avoid triggering onChange recursively
+                DispatchQueue.main.async {
+                    email = cleaned
+                }
             }
         }
         .onAppear {
             appleSignInManager.configure(with: authManager)
+        }
+        .onDisappear {
+            // Cancel any in-flight tasks to prevent memory leaks and unwanted side effects
+            authTask?.cancel()
+            biometricTask?.cancel()
         }
     }
     
@@ -247,6 +259,9 @@ struct SignInView: View {
     
     private func performAuth() {
         guard !authManager.isLoading else { return }
+        
+        // Cancel any existing auth task
+        authTask?.cancel()
         
         // Clean email thoroughly before submission
         email = email.replacingOccurrences(of: " ", with: "")
@@ -257,7 +272,10 @@ struct SignInView: View {
         
         print("🔐 Starting authentication - isSignUp: \(isSignUp), role: \(selectedRole.rawValue)")
         
-        Task {
+        authTask = Task {
+            // Check for cancellation early
+            guard !Task.isCancelled else { return }
+            
             let normalizedEmail = email.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
             let trimmedDisplayName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
             
@@ -283,6 +301,9 @@ struct SignInView: View {
                 await authManager.signIn(email: normalizedEmail, password: password)
             }
             
+            // Check for cancellation after auth completes
+            guard !Task.isCancelled else { return }
+            
             if authManager.isSignedIn {
                 print("✅ Authentication successful - userRole: \(authManager.userRole.rawValue)")
                 print("📋 User profile loaded: \(authManager.userProfile != nil)")
@@ -304,7 +325,11 @@ struct SignInView: View {
                     // Prefer the role from the authenticated profile if present; fallback to the selected role
                     let effectiveRole: UserRole = authManager.userProfile?.userRole ?? authManager.userRole
                     // Small delay so the success animation is perceived
-                    try? await Task.sleep(for: .milliseconds(1200))
+                    try? await Task.sleep(nanoseconds: 1_200_000_000) // 1.2 seconds
+                    
+                    // Check cancellation after sleep
+                    guard !Task.isCancelled else { return }
+                    
                     await MainActor.run {
                         guard authManager.isSignedIn else { return }
                         switch effectiveRole {
@@ -319,7 +344,11 @@ struct SignInView: View {
                 // Offer biometric enrollment for new sign-ins (not sign-ups)
                 if !isSignUp && biometricManager.isBiometricAvailable && !biometricManager.isBiometricEnabled {
                     // Small delay so user sees success first
-                    try? await Task.sleep(for: .milliseconds(1500))
+                    try? await Task.sleep(nanoseconds: 1_500_000_000) // 1.5 seconds
+                    
+                    // Check cancellation after sleep
+                    guard !Task.isCancelled else { return }
+                    
                     await MainActor.run {
                         // Only show if still signed in
                         if authManager.isSignedIn {
@@ -340,9 +369,18 @@ struct SignInView: View {
     private func performBiometricSignIn() {
         HapticManager.shared.buttonTap()
         
-        Task {
+        // Cancel any existing biometric task
+        biometricTask?.cancel()
+        
+        biometricTask = Task {
+            guard !Task.isCancelled else { return }
+            
             if let credentials = await biometricManager.getBiometricCredentials() {
+                guard !Task.isCancelled else { return }
+                
                 await authManager.signIn(email: credentials.email, password: credentials.password)
+                
+                guard !Task.isCancelled else { return }
                 
                 if authManager.isSignedIn {
                     HapticManager.shared.authenticationSuccess()
@@ -504,7 +542,15 @@ private struct AuthenticationFormSection: View {
                 .submitLabel(.go)
                 .disabled(isLoading)
                 
-                Button(action: { showPassword.toggle() }) {
+                Button(action: { 
+                    showPassword.toggle()
+                    // Announce password visibility change for accessibility
+                    UIAccessibility.post(
+                        notification: .announcement, 
+                        argument: showPassword ? "Password visible" : "Password hidden"
+                    )
+                    HapticManager.shared.selectionChanged()
+                }) {
                     Image(systemName: showPassword ? "eye.slash.fill" : "eye.fill")
                         .foregroundColor(.secondary)
                         .frame(width: 44, height: 44)
@@ -921,51 +967,74 @@ struct PrivacyPolicyView: View {
                         .font(.title)
                         .fontWeight(.bold)
                     
-                    Text("Last updated: November 10, 2025")
+                    Text("Last updated: November 22, 2025")
                         .font(.caption)
                         .foregroundColor(.secondary)
                     
+                    // IMPORTANT: Replace this with your actual privacy policy
+                    VStack(alignment: .leading, spacing: 12) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.largeTitle)
+                            .foregroundColor(.orange)
+                        
+                        Text("Legal Document Required")
+                            .font(.headline)
+                            .foregroundColor(.orange)
+                        
+                        Text("This is a placeholder view. Before releasing your app, you MUST:")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                        
+                        VStack(alignment: .leading, spacing: 8) {
+                            BulletPoint(text: "Consult with a legal professional to create a proper Privacy Policy")
+                            BulletPoint(text: "Ensure compliance with GDPR, CCPA, and other privacy regulations")
+                            BulletPoint(text: "Host your privacy policy on a public URL (required by App Store)")
+                            BulletPoint(text: "Include specific details about data collection, usage, and retention")
+                            BulletPoint(text: "Add information about third-party services (Firebase, etc.)")
+                        }
+                        .padding(.leading)
+                        
+                        Text("⚠️ Using placeholder text is a legal liability. Users cannot consent to undefined terms.")
+                            .font(.caption)
+                            .foregroundColor(.red)
+                            .padding()
+                            .background(Color.red.opacity(0.1))
+                            .cornerRadius(8)
+                    }
+                    .padding()
+                    .background(Color.orange.opacity(0.1))
+                    .cornerRadius(12)
+                    
                     Divider()
                     
-                    // Add your actual privacy policy content here
+                    // Sample structure for when you have real content
                     Group {
-                        SectionHeader(title: "Information We Collect")
-                        PolicyText(text: """
-                        PlayerPath collects information you provide directly to us, including:
-                        • Account information (name, email, password)
-                        • Athletic performance data and statistics
-                        • Videos and photos you upload
-                        • Usage data and analytics
-                        """)
+                        SectionHeader(title: "Sample Structure")
+                        PolicyText(text: "When you have your legal documents, structure them like this:")
                         
-                        SectionHeader(title: "How We Use Your Information")
-                        PolicyText(text: """
-                        We use the information we collect to:
-                        • Provide and improve our services
-                        • Track and analyze your athletic performance
-                        • Send you updates and notifications
-                        • Respond to your requests and support inquiries
-                        """)
+                        SectionHeader(title: "1. Information We Collect")
+                        PolicyText(text: "Details about data collection...")
                         
-                        SectionHeader(title: "Data Security")
-                        PolicyText(text: """
-                        We implement appropriate security measures to protect your personal information. Your data is encrypted in transit and at rest.
-                        """)
+                        SectionHeader(title: "2. How We Use Your Information")
+                        PolicyText(text: "Purpose of data processing...")
                         
-                        SectionHeader(title: "Your Rights")
-                        PolicyText(text: """
-                        You have the right to:
-                        • Access your personal data
-                        • Request data deletion
-                        • Export your data
-                        • Opt-out of marketing communications
-                        """)
+                        SectionHeader(title: "3. Data Sharing and Disclosure")
+                        PolicyText(text: "Third-party integrations...")
                         
-                        SectionHeader(title: "Contact Us")
-                        PolicyText(text: """
-                        If you have questions about this Privacy Policy, please contact us at:
-                        privacy@playerpath.com
-                        """)
+                        SectionHeader(title: "4. Data Security")
+                        PolicyText(text: "Security measures...")
+                        
+                        SectionHeader(title: "5. Your Rights")
+                        PolicyText(text: "User rights under GDPR/CCPA...")
+                        
+                        SectionHeader(title: "6. Children's Privacy")
+                        PolicyText(text: "COPPA compliance if applicable...")
+                        
+                        SectionHeader(title: "7. Changes to This Policy")
+                        PolicyText(text: "How users will be notified...")
+                        
+                        SectionHeader(title: "8. Contact Information")
+                        PolicyText(text: "Legal contact details...")
                     }
                 }
                 .padding()
@@ -993,51 +1062,81 @@ struct TermsOfServiceView: View {
                         .font(.title)
                         .fontWeight(.bold)
                     
-                    Text("Last updated: November 10, 2025")
+                    Text("Last updated: November 22, 2025")
                         .font(.caption)
                         .foregroundColor(.secondary)
                     
+                    // IMPORTANT: Replace this with your actual terms of service
+                    VStack(alignment: .leading, spacing: 12) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.largeTitle)
+                            .foregroundColor(.orange)
+                        
+                        Text("Legal Document Required")
+                            .font(.headline)
+                            .foregroundColor(.orange)
+                        
+                        Text("This is a placeholder view. Before releasing your app, you MUST:")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                        
+                        VStack(alignment: .leading, spacing: 8) {
+                            BulletPoint(text: "Work with a legal professional to draft proper Terms of Service")
+                            BulletPoint(text: "Define user responsibilities and acceptable use")
+                            BulletPoint(text: "Specify intellectual property rights")
+                            BulletPoint(text: "Include limitation of liability clauses")
+                            BulletPoint(text: "Define dispute resolution procedures")
+                            BulletPoint(text: "Host terms on a public URL (required by App Store)")
+                        }
+                        .padding(.leading)
+                        
+                        Text("⚠️ Legally binding agreements require proper legal review. Do not ship with placeholder text.")
+                            .font(.caption)
+                            .foregroundColor(.red)
+                            .padding()
+                            .background(Color.red.opacity(0.1))
+                            .cornerRadius(8)
+                    }
+                    .padding()
+                    .background(Color.orange.opacity(0.1))
+                    .cornerRadius(12)
+                    
                     Divider()
                     
-                    // Add your actual terms of service content here
+                    // Sample structure for when you have real content
                     Group {
-                        SectionHeader(title: "Acceptance of Terms")
-                        PolicyText(text: """
-                        By accessing or using PlayerPath, you agree to be bound by these Terms of Service. If you do not agree to these terms, please do not use our service.
-                        """)
+                        SectionHeader(title: "Sample Structure")
+                        PolicyText(text: "When you have your legal documents, structure them like this:")
                         
-                        SectionHeader(title: "User Accounts")
-                        PolicyText(text: """
-                        You are responsible for:
-                        • Maintaining the confidentiality of your account
-                        • All activities that occur under your account
-                        • Providing accurate and complete information
-                        """)
+                        SectionHeader(title: "1. Acceptance of Terms")
+                        PolicyText(text: "Agreement to be bound by terms...")
                         
-                        SectionHeader(title: "Content Ownership")
-                        PolicyText(text: """
-                        You retain ownership of any content you upload to PlayerPath. By uploading content, you grant us a license to use, store, and display your content as necessary to provide our services.
-                        """)
+                        SectionHeader(title: "2. User Accounts")
+                        PolicyText(text: "Account creation and responsibilities...")
                         
-                        SectionHeader(title: "Acceptable Use")
-                        PolicyText(text: """
-                        You agree not to:
-                        • Violate any laws or regulations
-                        • Upload harmful or offensive content
-                        • Interfere with the service's operation
-                        • Attempt to access other users' accounts
-                        """)
+                        SectionHeader(title: "3. User Content")
+                        PolicyText(text: "Content ownership and licensing...")
                         
-                        SectionHeader(title: "Termination")
-                        PolicyText(text: """
-                        We reserve the right to suspend or terminate your account if you violate these Terms of Service or engage in harmful behavior.
-                        """)
+                        SectionHeader(title: "4. Acceptable Use Policy")
+                        PolicyText(text: "Prohibited activities and behaviors...")
                         
-                        SectionHeader(title: "Contact")
-                        PolicyText(text: """
-                        Questions about these Terms? Contact us at:
-                        legal@playerpath.com
-                        """)
+                        SectionHeader(title: "5. Intellectual Property")
+                        PolicyText(text: "Ownership of app and content...")
+                        
+                        SectionHeader(title: "6. Disclaimers and Limitations")
+                        PolicyText(text: "Liability limitations...")
+                        
+                        SectionHeader(title: "7. Termination")
+                        PolicyText(text: "Account suspension/termination...")
+                        
+                        SectionHeader(title: "8. Governing Law")
+                        PolicyText(text: "Jurisdiction and dispute resolution...")
+                        
+                        SectionHeader(title: "9. Changes to Terms")
+                        PolicyText(text: "How changes are communicated...")
+                        
+                        SectionHeader(title: "10. Contact Information")
+                        PolicyText(text: "Legal contact details...")
                     }
                 }
                 .padding()
@@ -1055,6 +1154,22 @@ struct TermsOfServiceView: View {
 }
 
 // MARK: - Policy View Helpers
+
+private struct BulletPoint: View {
+    let text: String
+    
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Text("•")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+            Text(text)
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
 
 private struct SectionHeader: View {
     let title: String

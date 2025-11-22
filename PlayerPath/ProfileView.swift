@@ -24,6 +24,7 @@ struct ProfileView: View {
     @State private var showDeleteError = false
     @State private var deleteErrorMessage = ""
     @State private var showingPaywall = false
+    @State private var showCoachesPremiumAlert = false
     
     // Premium limits
     private let freeAthleteLimit = 3
@@ -35,51 +36,81 @@ struct ProfileView: View {
             settingsSection
             accountSection
         }
-        .tabRootNavigationBar(title: "Profile & Settings")
+        .tabRootNavigationBar(title: ProfileStrings.title)
         .sheet(isPresented: $showingAddAthlete) {
-            AddAthleteView(user: user, selectedAthlete: $selectedAthlete, isFirstAthlete: user.athletes.isEmpty)
+            AddAthleteView(user: user, selectedAthlete: $selectedAthlete, isFirstAthlete: (user.athletes ?? []).isEmpty)
         }
         .sheet(isPresented: $showingPaywall) {
-            PaywallView(user: user)
+            ImprovedPaywallView(user: user)
         }
-        .alert("Sign Out", isPresented: $showingSignOutAlert) {
-            Button("Cancel", role: .cancel) { }
-            Button("Sign Out", role: .destructive) {
-                UINotificationFeedbackGenerator().notificationOccurred(.success)
+        .alert(ProfileStrings.signOut, isPresented: $showingSignOutAlert) {
+            Button(ProfileStrings.cancel, role: .cancel) { }
+            Button(ProfileStrings.signOut, role: .destructive) {
+                Haptics.warning()
                 isSigningOut = true
                 Task {
-                    await authManager.signOut()
-                    isSigningOut = false
+                    await signOut()
                 }
             }
         } message: {
-            Text("Are you sure you want to sign out? You can always sign back in later.")
+            Text(ProfileStrings.signOutConfirmation)
         }
         .alert("Delete Athlete", isPresented: $showingDeleteAthleteAlert) {
-            Button("Cancel", role: .cancel) { athletePendingDelete = nil }
-            Button("Delete", role: .destructive) {
+            Button(ProfileStrings.cancel, role: .cancel) { athletePendingDelete = nil }
+            Button(ProfileStrings.delete, role: .destructive) {
                 if let athlete = athletePendingDelete {
+                    Haptics.heavy()
                     delete(athlete: athlete)
-                    if user.athletes.isEmpty { selectedAthlete = nil }
+                    if (user.athletes ?? []).isEmpty { selectedAthlete = nil }
                 }
                 athletePendingDelete = nil
             }
         } message: {
-            Text("This will delete the athlete and related data. This action cannot be undone.")
+            Text(ProfileStrings.deleteAthleteConfirmation)
         }
         .alert("Failed to Delete", isPresented: $showDeleteError) {
             Button("OK", role: .cancel) { }
         } message: {
-            Text(deleteErrorMessage.isEmpty ? "Please try again." : deleteErrorMessage)
+            Text(deleteErrorMessage.isEmpty ? ProfileStrings.pleaseRetry : deleteErrorMessage)
+        }
+        .alert(ProfileStrings.premiumRequired, isPresented: $showCoachesPremiumAlert) {
+            Button(ProfileStrings.upgradeToPremium) {
+                showingPaywall = true
+            }
+            Button(ProfileStrings.cancel, role: .cancel) { }
+        } message: {
+            Text(ProfileStrings.premiumCoachMessage)
+        }
+        .overlay {
+            if isSigningOut {
+                LoadingOverlay(message: "Signing out...")
+            }
+        }
+    }
+    
+    // MARK: - Actions
+    
+    private func signOut() async {
+        defer {
+            isSigningOut = false
+        }
+        
+        do {
+            try await Task.sleep(nanoseconds: 500_000_000) // Minimum feedback time
+            await authManager.signOut()
+            Haptics.success()
+        } catch {
+            Haptics.error()
+            // Handle error if needed
         }
     }
 
     private var sortedAthletes: [Athlete] {
-        user.athletes.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        (user.athletes ?? []).sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
     
     private var canAddMoreAthletes: Bool {
-        user.isPremium || user.athletes.count < freeAthleteLimit
+        user.isPremium || (user.athletes ?? []).count < freeAthleteLimit
     }
     
     // MARK: - View Components
@@ -103,7 +134,7 @@ struct ProfileView: View {
                     isSelected: athlete.id == selectedAthlete?.id
                 ) {
                     selectedAthlete = athlete
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    Haptics.light()
                 }
             }
             .onDelete { offsets in
@@ -117,7 +148,7 @@ struct ProfileView: View {
                 if canAddMoreAthletes {
                     showingAddAthlete = true
                 } else {
-                    UINotificationFeedbackGenerator().notificationOccurred(.warning)
+                    Haptics.warning()
                     showingPaywall = true
                 }
             }) {
@@ -125,7 +156,7 @@ struct ProfileView: View {
             }
             .tint(.blue)
             
-            if !user.isPremium && user.athletes.count >= freeAthleteLimit {
+            if !user.isPremium && (user.athletes ?? []).count >= freeAthleteLimit {
                 HStack {
                     Image(systemName: "crown.fill")
                         .foregroundColor(.yellow)
@@ -136,7 +167,7 @@ struct ProfileView: View {
                 }
                 .padding(.vertical, 4)
             } else if !user.isPremium {
-                Text("\(user.athletes.count) of \(freeAthleteLimit) free athletes used")
+                Text("\((user.athletes ?? []).count) of \(freeAthleteLimit) free athletes used")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
@@ -146,6 +177,33 @@ struct ProfileView: View {
 
     private var settingsSection: some View {
         Section("Settings") {
+            // Coach Sharing Feature
+            if user.isPremium {
+                NavigationLink {
+                    AthleteFoldersListView()
+                } label: {
+                    Label("Shared Folders", systemImage: "folder.badge.person.crop")
+                }
+            } else {
+                Button {
+                    Haptics.warning()
+                    showCoachesPremiumAlert = true
+                } label: {
+                    HStack {
+                        Label("Shared Folders", systemImage: "folder.badge.person.crop")
+                        Spacer()
+                        HStack(spacing: 4) {
+                            Image(systemName: "crown.fill")
+                                .font(.caption)
+                            Text("Premium")
+                                .font(.caption)
+                        }
+                        .foregroundColor(.yellow)
+                    }
+                }
+                .foregroundColor(.primary)
+            }
+            
             NavigationLink(destination: SettingsView(user: user)) {
                 Label("Settings", systemImage: "gearshape")
             }
@@ -177,31 +235,51 @@ struct ProfileView: View {
     }
 
     private var accountSection: some View {
-        Section {
-            Button("Sign Out") {
-                UINotificationFeedbackGenerator().notificationOccurred(.warning)
+        Section("Account") {
+            // Subscription Management
+            NavigationLink(destination: SubscriptionView(user: user)) {
+                if user.isPremium {
+                    Label("Subscription", systemImage: "crown.fill")
+                        .badge(Text("Premium").foregroundColor(.yellow))
+                } else {
+                    Label("Upgrade to Premium", systemImage: "crown")
+                }
+            }
+            
+            Button(ProfileStrings.signOut) {
+                Haptics.warning()
                 showingSignOutAlert = true
             }
             .disabled(isSigningOut)
             .opacity(isSigningOut ? 0.5 : 1.0)
-            .foregroundColor(.red)
-            .accessibilityLabel("Sign Out")
+            .foregroundColor(.error)
+            .accessibilityLabel(ProfileStrings.signOut)
             .accessibilityHint("Sign out of your account")
         }
     }
 
     private func delete(athlete: Athlete) {
+        // Save reference for potential rollback
+        let athleteToDelete = athlete
+        
         // If deleting the selected athlete, select another or none
         if athlete.id == selectedAthlete?.id {
-            selectedAthlete = user.athletes.first { $0.id != athlete.id }
+            selectedAthlete = (user.athletes ?? []).first { $0.id != athlete.id }
         }
+        
         modelContext.delete(athlete)
+        
         do {
             try modelContext.save()
+            Haptics.success()
         } catch {
+            // Rollback on error
+            modelContext.insert(athleteToDelete)
+            
             print("Failed to delete athlete: \(error)")
-            deleteErrorMessage = "Failed to delete athlete: \(error.localizedDescription)"
+            deleteErrorMessage = String(format: ProfileStrings.deleteFailed, error.localizedDescription)
             showDeleteError = true
+            Haptics.error()
         }
     }
 }
@@ -262,10 +340,12 @@ struct AthleteProfileRow: View {
                         .font(.headline)
                         .foregroundColor(.primary)
 
+                    let gamesCount = (athlete.games ?? []).count
+                    let videosCount = (athlete.videoClips ?? []).count
                     HStack {
-                        Text("\(athlete.games.count) \(athlete.games.count == 1 ? "game" : "games")")
+                        Text("\(gamesCount) \(gamesCount == 1 ? "game" : "games")")
                         Text("•")
-                        Text("\(athlete.videoClips.count) \(athlete.videoClips.count == 1 ? "clip" : "clips")")
+                        Text("\(videosCount) \(videosCount == 1 ? "clip" : "clips")")
                     }
                     .font(.caption)
                     .foregroundColor(.secondary)
@@ -462,6 +542,7 @@ struct EditAccountView: View {
     let user: User
     @State private var showSaveError = false
     @State private var saveErrorMessage = ""
+    @State private var isSaving = false
 
     init(user: User) {
         self.user = user
@@ -469,16 +550,12 @@ struct EditAccountView: View {
         _email = State(initialValue: user.email)
     }
     
-    private var isValidEmail: Bool {
-        let emailRegex = "^[A-Z0-9a-z._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,64}$"
-        let emailPredicate = NSPredicate(format: "SELF MATCHES %@", emailRegex)
-        return emailPredicate.evaluate(with: email.trimmingCharacters(in: .whitespacesAndNewlines))
-    }
-    
     private var canSave: Bool {
-        let trimmedUsername = username.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
-        return !trimmedUsername.isEmpty && !trimmedEmail.isEmpty && isValidEmail
+        let usernameValid = username.trimmed.isNotEmpty
+        let emailValid = email.trimmed.isValidEmail
+        let hasChanges = username != user.username || email != user.email
+        
+        return usernameValid && emailValid && hasChanges && !isSaving
     }
 
     var body: some View {
@@ -486,18 +563,19 @@ struct EditAccountView: View {
             Section("Profile Picture") {
                 HStack {
                     Spacer()
-                    EditableProfileImageView(user: user, size: 80) {
-                        // Save context when profile image is updated
+                    EditableProfileImageView(user: user, size: .profileLarge) {
                         do {
                             try modelContext.save()
+                            Haptics.light()
                             print("Profile image updated successfully")
                         } catch {
+                            Haptics.error()
                             print("Failed to save profile image update: \(error)")
                         }
                     }
                     Spacer()
                 }
-                .padding(.vertical, 10)
+                .padding(.vertical, 8)
             }
 
             Section("Account Information") {
@@ -510,16 +588,20 @@ struct EditAccountView: View {
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled(true)
                 
-                if !email.isEmpty && !isValidEmail {
+                if !email.isEmpty && !email.isValidEmail {
                     Label("Please enter a valid email address", systemImage: "exclamationmark.triangle.fill")
                         .font(.caption)
-                        .foregroundColor(.orange)
+                        .foregroundColor(.warning)
                 }
             }
 
             Section {
-                Button("Save Changes") {
-                    save()
+                Button {
+                    Task {
+                        await save()
+                    }
+                } label: {
+                    LoadingButtonContent(text: "Save Changes", isLoading: isSaving)
                 }
                 .disabled(!canSave)
             }
@@ -527,37 +609,47 @@ struct EditAccountView: View {
         .alert("Unable to Save", isPresented: $showSaveError) {
             Button("OK") { }
         } message: {
-            Text(saveErrorMessage.isEmpty ? "Please try again in a moment." : saveErrorMessage)
+            Text(saveErrorMessage.isEmpty ? ProfileStrings.pleaseRetry : saveErrorMessage)
         }
     }
 
-    private func save() {
-        let trimmedUsername = username.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
+    private func save() async {
+        let trimmedUsername = username.trimmed
+        let trimmedEmail = email.trimmed
         
-        guard !trimmedUsername.isEmpty else {
-            saveErrorMessage = "Username cannot be empty"
+        // Validate
+        let usernameValidation = trimmedUsername.validateUsername()
+        guard usernameValidation.isValid else {
+            saveErrorMessage = usernameValidation.message
             showSaveError = true
+            Haptics.error()
             return
         }
         
-        guard isValidEmail else {
-            saveErrorMessage = "Please enter a valid email address"
+        let emailValidation = trimmedEmail.validateEmail()
+        guard emailValidation.isValid else {
+            saveErrorMessage = emailValidation.message
             showSaveError = true
+            Haptics.error()
             return
         }
+        
+        isSaving = true
+        defer { isSaving = false }
         
         user.username = trimmedUsername
         user.email = trimmedEmail
         
         do {
+            try await Task.sleep(nanoseconds: 300_000_000) // Brief delay for UX
             try modelContext.save()
-            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            Haptics.success()
             dismiss()
         } catch {
             print("Failed to save user: \(error)")
-            saveErrorMessage = "Failed to save changes: \(error.localizedDescription)"
+            saveErrorMessage = String(format: ProfileStrings.saveFailed, error.localizedDescription)
             showSaveError = true
+            Haptics.error()
         }
     }
 }
@@ -850,7 +942,7 @@ struct AthleteManagementView: View {
     @State private var deleteErrorMessage = ""
     
     private var sortedAthletes: [Athlete] {
-        user.athletes.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        (user.athletes ?? []).sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
     
     var body: some View {
@@ -885,7 +977,7 @@ struct AthleteManagementView: View {
             }
         }
         .sheet(isPresented: $showingAddAthlete) {
-            AddAthleteView(user: user, selectedAthlete: $selectedAthlete, isFirstAthlete: user.athletes.isEmpty)
+            AddAthleteView(user: user, selectedAthlete: $selectedAthlete, isFirstAthlete: (user.athletes ?? []).isEmpty)
         }
         .alert("Delete Athlete", isPresented: $showingDeleteAthleteAlert) {
             Button("Cancel", role: .cancel) { athletePendingDelete = nil }
@@ -908,7 +1000,7 @@ struct AthleteManagementView: View {
     private func delete(athlete: Athlete) {
         // If deleting the selected athlete, select another or none
         if athlete.id == selectedAthlete?.id {
-            selectedAthlete = user.athletes.first { $0.id != athlete.id }
+            selectedAthlete = (user.athletes ?? []).first { $0.id != athlete.id }
         }
         modelContext.delete(athlete)
         do {
@@ -920,327 +1012,22 @@ struct AthleteManagementView: View {
         }
     }
 }
+
+// MARK: - Athlete Folders List View (moved)
+// Duplicate definition removed. See AthleteFoldersListView.swift for the canonical implementation.
+
+// MARK: - Shared Folders Placeholder Views (removed)
+// These placeholder views were removed in favor of the canonical
+// implementations: AthleteFolderDetailView and CreateFolderView.
 
 #Preview {
     ProfileView(user: User(username: "test", email: "test@example.com"), selectedAthlete: .constant(nil))
         .environmentObject(ComprehensiveAuthManager())
 }
 
-// MARK: - Profile Detail View
-
-/// Detailed profile view that shows user information and athlete management
-struct ProfileDetailView: View {
-    let user: User
-    @Binding var selectedAthlete: Athlete?
-    @Environment(\.modelContext) private var modelContext
-    @EnvironmentObject private var authManager: ComprehensiveAuthManager
-    @State private var showingAddAthlete = false
-    @State private var athletePendingDelete: Athlete?
-    @State private var showingDeleteAthleteAlert = false
-    @State private var showDeleteError = false
-    @State private var deleteErrorMessage = ""
-    @State private var showingPaywall = false
-    
-    // Premium limits
-    private let freeAthleteLimit = 3
-    
-    private var sortedAthletes: [Athlete] {
-        user.athletes.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-    }
-    
-    private var canAddMoreAthletes: Bool {
-        user.isPremium || user.athletes.count < freeAthleteLimit
-    }
-    
-    var body: some View {
-        List {
-            // User Profile Section
-            Section {
-                HStack(spacing: 15) {
-                    EditableProfileImageView(user: user, size: 80) {
-                        do {
-                            try modelContext.save()
-                        } catch {
-                            print("Failed to save profile image: \(error)")
-                        }
-                    }
-                    
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(user.username)
-                            .font(.title2)
-                            .fontWeight(.bold)
-                        
-                        Text(user.email)
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                        
-                        if let created = user.createdAt {
-                            Text("Member since \(created.formatted(.dateTime.year()))")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                }
-                .padding(.vertical, 8)
-            }
-            
-            // Athletes Section
-            Section("Athletes") {
-                ForEach(sortedAthletes) { athlete in
-                    Button {
-                        selectedAthlete = athlete
-                    } label: {
-                        HStack {
-                            Image(systemName: "person.circle.fill")
-                                .font(.title2)
-                                .foregroundColor(.blue)
-                            
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(athlete.name)
-                                    .font(.headline)
-                                    .foregroundColor(.primary)
-                                
-                                if let created = athlete.createdAt {
-                                    Text("Created \(created, format: .dateTime.day().month().year())")
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                }
-                            }
-                            
-                            Spacer()
-                            
-                            if athlete.id == selectedAthlete?.id {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .foregroundColor(.blue)
-                            }
-                        }
-                    }
-                    .buttonStyle(.plain)
-                }
-                .onDelete { offsets in
-                    if let index = offsets.first, index < sortedAthletes.count {
-                        athletePendingDelete = sortedAthletes[index]
-                        showingDeleteAthleteAlert = true
-                    }
-                }
-                
-                Button {
-                    if canAddMoreAthletes {
-                        showingAddAthlete = true
-                    } else {
-                        showingPaywall = true
-                    }
-                } label: {
-                    Label("Add Athlete", systemImage: "person.badge.plus")
-                }
-                .tint(.blue)
-                
-                if !user.isPremium && user.athletes.count >= freeAthleteLimit {
-                    HStack {
-                        Image(systemName: "crown.fill")
-                            .foregroundColor(.yellow)
-                            .font(.caption)
-                        Text("Upgrade to Premium for unlimited athletes")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    .padding(.vertical, 4)
-                } else if !user.isPremium {
-                    Text("\(user.athletes.count) of \(freeAthleteLimit) free athletes used")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-            }
-        }
-        .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                EditButton()
-            }
-        }
-        .sheet(isPresented: $showingAddAthlete) {
-            AddAthleteView(user: user, selectedAthlete: $selectedAthlete, isFirstAthlete: user.athletes.isEmpty)
-        }
-        .sheet(isPresented: $showingPaywall) {
-            PaywallView(user: user)
-        }
-        .alert("Delete Athlete", isPresented: $showingDeleteAthleteAlert) {
-            Button("Cancel", role: .cancel) { athletePendingDelete = nil }
-            Button("Delete", role: .destructive) {
-                if let athlete = athletePendingDelete {
-                    delete(athlete: athlete)
-                }
-                athletePendingDelete = nil
-            }
-        } message: {
-            Text("This will delete the athlete and related data. This action cannot be undone.")
-        }
-        .alert("Failed to Delete", isPresented: $showDeleteError) {
-            Button("OK", role: .cancel) { }
-        } message: {
-            Text(deleteErrorMessage.isEmpty ? "Please try again." : deleteErrorMessage)
-        }
-    }
-    
-    private func delete(athlete: Athlete) {
-        // If deleting the selected athlete, select another or none
-        if athlete.id == selectedAthlete?.id {
-            selectedAthlete = user.athletes.first { $0.id != athlete.id }
-        }
-        modelContext.delete(athlete)
-        do {
-            try modelContext.save()
-        } catch {
-            print("Failed to delete athlete: \(error)")
-            deleteErrorMessage = "Failed to delete athlete: \(error.localizedDescription)"
-            showDeleteError = true
-        }
-    }
-}
-
-// MARK: - More View
-
-struct MoreView: View {
-    let user: User
-    @Binding var selectedAthlete: Athlete?
-    @Environment(\.modelContext) private var modelContext
-    @EnvironmentObject private var authManager: ComprehensiveAuthManager
-    @State private var showingAddAthlete = false
-    @State private var showingSettings = false
-    @State private var showingSignOutAlert = false
-    @State private var isSigningOut = false
-
-    var body: some View {
-        List {
-            // Profile Header (tappable to view/edit profile)
-            Section {
-                NavigationLink(destination: ProfileDetailView(user: user, selectedAthlete: $selectedAthlete)) {
-                    HStack(spacing: 12) {
-                        EditableProfileImageView(user: user, size: 60) {
-                            do {
-                                try modelContext.save()
-                            } catch {
-                                print("Failed to save profile image: \(error)")
-                            }
-                        }
-                        .clipShape(Circle())
-
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(user.username)
-                                .font(.title3)
-                                .fontWeight(.semibold)
-                                .foregroundColor(.primary)
-                            Text(user.email)
-                                .font(.subheadline)
-                                .foregroundColor(.secondary)
-                        }
-                        
-                        Spacer()
-                    }
-                    .padding(.vertical, 8)
-                }
-            }
-            
-            // Organization section with Seasons and Coaches
-            if let athlete = selectedAthlete {
-                Section("Organization") {
-                    NavigationLink(destination: SeasonsView(athlete: athlete)) {
-                        Label("Seasons", systemImage: "calendar")
-                    }
-                    
-                    NavigationLink(destination: CoachesView(athlete: athlete)) {
-                        Label("Coaches", systemImage: "person.3.fill")
-                    }
-                }
-            }
-
-            // Subscription Section
-            Section("Subscription") {
-                NavigationLink(destination: SubscriptionView(user: user)) {
-                    HStack(spacing: 12) {
-                        Image(systemName: user.isPremium ? "crown.fill" : "crown")
-                            .font(.title3)
-                            .foregroundColor(.yellow)
-                            .frame(width: 28)
-
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(user.isPremium ? "Premium Member" : "Upgrade to Premium")
-                                .fontWeight(.semibold)
-                            if !user.isPremium {
-                                Text("Unlock all features")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                        }
-
-                        Spacer()
-
-                        if user.isPremium {
-                            Text("Active")
-                                .font(.caption)
-                                .fontWeight(.medium)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .background(Color.green.opacity(0.15))
-                                .foregroundColor(.green)
-                                .cornerRadius(6)
-                        }
-                    }
-                }
-            }
-
-            // Settings Section
-            Section("Settings") {
-                NavigationLink(destination: SettingsView(user: user)) {
-                    Label("App Settings", systemImage: "gearshape")
-                }
-                
-                NavigationLink(destination: VideoRecordingSettingsView()) {
-                    Label("Video Recording", systemImage: "video.fill")
-                }
-
-                NavigationLink(destination: SecuritySettingsView(user: user)) {
-                    Label("Account & Security", systemImage: "lock.shield")
-                }
-
-                NavigationLink(destination: NotificationSettingsView()) {
-                    Label("Notifications", systemImage: "bell")
-                }
-            }
-            
-            // Support Section
-            Section("Support") {
-                NavigationLink(destination: HelpSupportView()) {
-                    Label("Help & Support", systemImage: "questionmark.circle")
-                }
-
-                NavigationLink(destination: AboutView()) {
-                    Label("About PlayerPath", systemImage: "info.circle")
-                }
-            }
-
-            // Account Section
-            Section {
-                Button("Sign Out") {
-                    showingSignOutAlert = true
-                }
-                .disabled(isSigningOut)
-                .foregroundColor(.red)
-            }
-        }
-        .alert("Sign Out", isPresented: $showingSignOutAlert) {
-            Button("Cancel", role: .cancel) { }
-            Button("Sign Out", role: .destructive) {
-                isSigningOut = true
-                Task {
-                    await authManager.signOut()
-                    isSigningOut = false
-                }
-            }
-        } message: {
-            Text("Are you sure you want to sign out? You can always sign back in later.")
-        }
-    }
-}
+// MARK: - REMOVED: ProfileDetailView and MoreView
+// These were duplicates of ProfileView functionality and caused ambiguous init() errors.
+// All functionality has been consolidated into the main ProfileView above.
 
 // MARK: - Subscription View
 
@@ -1262,7 +1049,7 @@ struct SubscriptionView: View {
             }
         }
         .sheet(isPresented: $showingPaywall) {
-            PaywallView(user: user)
+            ImprovedPaywallView(user: user)
         }
     }
 

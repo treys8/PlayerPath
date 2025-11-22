@@ -224,22 +224,53 @@ class CoachVideoUploadViewModel: ObservableObject {
             // Generate file name
             let fileName = generateFileName()
             
-            // Upload to Firebase Storage
+            // Step 1: Generate thumbnail (10% of progress)
+            uploadProgress = 0.05
+            let thumbnailResult = await VideoFileManager.generateThumbnail(from: videoURL)
+            
+            var thumbnailURL: String?
+            
+            if case .success(let localThumbnailPath) = thumbnailResult {
+                // Step 2: Upload thumbnail (20% of progress)
+                uploadProgress = 0.15
+                do {
+                    thumbnailURL = try await VideoCloudManager.shared.uploadThumbnail(
+                        thumbnailURL: URL(fileURLWithPath: localThumbnailPath),
+                        videoFileName: fileName,
+                        folderID: folderID
+                    )
+                    print("✅ Thumbnail uploaded successfully")
+                    
+                    // Clean up local thumbnail
+                    VideoFileManager.cleanup(url: URL(fileURLWithPath: localThumbnailPath))
+                } catch {
+                    print("⚠️ Thumbnail upload failed, continuing with video upload: \(error)")
+                    // Continue even if thumbnail fails
+                }
+            } else {
+                print("⚠️ Thumbnail generation failed, continuing with video upload")
+            }
+            
+            uploadProgress = 0.2
+            
+            // Step 3: Upload video (20% - 100% of progress)
             let storageURL = try await VideoCloudManager.shared.uploadVideo(
                 localURL: videoURL,
                 fileName: fileName,
                 folderID: folderID,
-                progressHandler: { progress in
+                progressHandler: { videoProgress in
                     Task { @MainActor in
-                        self.uploadProgress = progress
+                        // Map video progress from 20% to 100%
+                        self.uploadProgress = 0.2 + (videoProgress * 0.8)
                     }
                 }
             )
             
-            // Create metadata in Firestore
+            // Step 4: Create metadata in Firestore
             let metadata = createMetadata(
                 fileName: fileName,
                 storageURL: storageURL,
+                thumbnailURL: thumbnailURL,
                 uploaderID: uploaderID,
                 uploaderName: uploaderName
             )
@@ -276,6 +307,7 @@ class CoachVideoUploadViewModel: ObservableObject {
     private func createMetadata(
         fileName: String,
         storageURL: String,
+        thumbnailURL: String?,
         uploaderID: String,
         uploaderName: String
     ) -> [String: Any] {
@@ -288,6 +320,11 @@ class CoachVideoUploadViewModel: ObservableObject {
             "isHighlight": isHighlight,
             "createdAt": Date()
         ]
+        
+        // Add thumbnail URL if available
+        if let thumbnailURL = thumbnailURL {
+            metadata["thumbnailURL"] = thumbnailURL
+        }
         
         // Add context-specific metadata
         switch videoContext {

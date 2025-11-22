@@ -187,12 +187,15 @@ class SharedFolderManager: ObservableObject {
         uploadedBy: String,
         uploadedByName: String
     ) async throws -> String {
-        // First, upload to Firebase Storage
-        // Use the shared instance
-        let storageURL = try await VideoCloudManager.shared.uploadVideoToSharedFolder(
-            videoURL: videoURL,
+        // First, upload to Firebase Storage using the REAL implementation
+        let storageURL = try await VideoCloudManager.shared.uploadVideo(
+            localURL: videoURL,
+            fileName: fileName,
             folderID: folderID,
-            fileName: fileName
+            progressHandler: { progress in
+                // Progress is already published by VideoCloudManager
+                print("Upload progress: \(Int(progress * 100))%")
+            }
         )
         
         // Get file size
@@ -338,54 +341,4 @@ enum SharedFolderError: LocalizedError {
     }
 }
 
-// MARK: - VideoCloudManager Extension
-@MainActor
-extension VideoCloudManager {
-    /// Uploads a video to a shared folder in Firebase Storage
-    /// - Returns: Download URL for the uploaded video
-    nonisolated func uploadVideoToSharedFolder(
-        videoURL: URL,
-        folderID: String,
-        fileName: String
-    ) async throws -> String {
-        // TODO: Implement actual Firebase Storage upload
-        // For now, use existing simulated upload logic
-        
-        // In real implementation:
-        // 1. Create reference: storage/sharedFolders/{folderID}/{videoID}.mov
-        // 2. Upload file with progress tracking
-        // 3. Return download URL with auth token
-        
-        // Temporary placeholder using existing logic
-        let clipId = UUID()
-        
-        // Mark as uploading
-        await MainActor.run {
-            isUploading[clipId] = true
-            uploadProgress[clipId] = 0.0
-        }
-        
-        defer {
-            Task { @MainActor in
-                isUploading[clipId] = false
-                uploadProgress[clipId] = nil
-            }
-        }
-        
-        // Simulate upload progress
-        for i in 1...20 {
-            try await Task.sleep(nanoseconds: UInt64.random(in: 50_000_000...200_000_000))
-            
-            await MainActor.run {
-                let progress = Double(i) / 20.0
-                uploadProgress[clipId] = progress
-            }
-        }
-        
-        // Generate storage URL
-        let encodedFileName = fileName.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? "video.mov"
-        let storageURL = "https://firebasestorage.googleapis.com/v0/b/playerpath-app.appspot.com/o/sharedFolders%2F\(folderID)%2F\(encodedFileName)?alt=media&token=\(UUID().uuidString)"
-        
-        return storageURL
-    }
-}
+// NOTE: VideoCloudManager.uploadVideo() is now the single source of truth for uploads

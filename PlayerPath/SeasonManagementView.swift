@@ -423,7 +423,10 @@ struct CreateSeasonView: View {
         
         // Link to athlete
         newSeason.athlete = athlete
-        athlete.seasons.append(newSeason)
+        if athlete.seasons == nil {
+            athlete.seasons = []
+        }
+        athlete.seasons?.append(newSeason)
         
         // Save
         modelContext.insert(newSeason)
@@ -603,10 +606,10 @@ struct SeasonDetailView: View {
     
     private func deleteSeason() {
         // Delink relationships (SwiftData will handle cascade)
-        season.games.forEach { $0.season = nil }
-        season.practices.forEach { $0.season = nil }
-        season.videoClips.forEach { $0.season = nil }
-        season.tournaments.forEach { $0.season = nil }
+        season.games?.forEach { $0.season = nil }
+        season.practices?.forEach { $0.season = nil }
+        season.videoClips?.forEach { $0.season = nil }
+        season.tournaments?.forEach { $0.season = nil }
         
         modelContext.delete(season)
         
@@ -645,18 +648,15 @@ struct SeasonDetailView: View {
     
     let user = User(username: "testuser", email: "test@example.com")
     let athlete = Athlete(name: "Test Athlete")
-    user.athletes.append(athlete)
     athlete.user = user
     
     let season1 = Season(name: "Spring 2025", startDate: Date(), sport: .baseball)
     season1.activate()
     season1.athlete = athlete
-    athlete.seasons.append(season1)
     
     let season2 = Season(name: "Fall 2024", startDate: Calendar.current.date(byAdding: .month, value: -6, to: Date())!, sport: .baseball)
     season2.archive(endDate: Calendar.current.date(byAdding: .month, value: -1, to: Date())!)
     season2.athlete = athlete
-    athlete.seasons.append(season2)
     
     container.mainContext.insert(user)
     container.mainContext.insert(athlete)

@@ -31,7 +31,7 @@ struct StatisticsView: View {
     }
     
     var currentLiveGame: Game? {
-        athlete?.games.first { $0.isLive }
+        athlete?.games?.first(where: { $0.isLive })
     }
     
     var hasLiveGame: Bool { currentLiveGame != nil }

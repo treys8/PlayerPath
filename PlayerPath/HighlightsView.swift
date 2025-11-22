@@ -28,7 +28,8 @@ struct HighlightsView: View {
     @State private var showingUndoAlert = false
     
     var highlights: [VideoClip] {
-        let base = athlete?.videoClips.filter { $0.isHighlight } ?? []
+        guard let athlete = athlete, let videoClips = athlete.videoClips else { return [] }
+        let base = videoClips.filter { $0.isHighlight }
         let filteredByType: [VideoClip] = base.filter { clip in
             switch filter {
             case .all: return true
@@ -267,21 +268,27 @@ struct HighlightsView: View {
             }
             
             // Remove from athlete's video clips array
-            if let athlete = athlete,
-               let index = athlete.videoClips.firstIndex(of: clip) {
-                athlete.videoClips.remove(at: index)
+            if let athlete = athlete, var videoClips = athlete.videoClips {
+                if let index = videoClips.firstIndex(of: clip) {
+                    videoClips.remove(at: index)
+                    athlete.videoClips = videoClips
+                }
             }
             
             // Remove from game's video clips array if applicable
-            if let game = clip.game,
-               let index = game.videoClips.firstIndex(of: clip) {
-                game.videoClips.remove(at: index)
+            if let game = clip.game, var videoClips = game.videoClips {
+                if let index = videoClips.firstIndex(of: clip) {
+                    videoClips.remove(at: index)
+                    game.videoClips = videoClips
+                }
             }
             
             // Remove from practice's video clips array if applicable
-            if let practice = clip.practice,
-               let index = practice.videoClips.firstIndex(of: clip) {
-                practice.videoClips.remove(at: index)
+            if let practice = clip.practice, var videoClips = practice.videoClips {
+                if let index = videoClips.firstIndex(of: clip) {
+                    videoClips.remove(at: index)
+                    practice.videoClips = videoClips
+                }
             }
             
             // Delete any associated play results
@@ -330,9 +337,24 @@ struct HighlightsView: View {
         // Remove from UI immediately but delay file/model deletion to allow undo
         recentlyDeleted.append(clip)
         // Remove references so it disappears from lists
-        if let athlete = athlete, let idx = athlete.videoClips.firstIndex(of: clip) { athlete.videoClips.remove(at: idx) }
-        if let game = clip.game, let idx = game.videoClips.firstIndex(of: clip) { game.videoClips.remove(at: idx) }
-        if let practice = clip.practice, let idx = practice.videoClips.firstIndex(of: clip) { practice.videoClips.remove(at: idx) }
+        if let athlete = athlete, var videoClips = athlete.videoClips {
+            if let idx = videoClips.firstIndex(of: clip) {
+                videoClips.remove(at: idx)
+                athlete.videoClips = videoClips
+            }
+        }
+        if let game = clip.game, var videoClips = game.videoClips {
+            if let idx = videoClips.firstIndex(of: clip) {
+                videoClips.remove(at: idx)
+                game.videoClips = videoClips
+            }
+        }
+        if let practice = clip.practice, var videoClips = practice.videoClips {
+            if let idx = videoClips.firstIndex(of: clip) {
+                videoClips.remove(at: idx)
+                practice.videoClips = videoClips
+            }
+        }
         // Show undo alert
         showingUndoAlert = true
     }
@@ -341,13 +363,25 @@ struct HighlightsView: View {
         // Reinsert staged items back to their relationships
         for clip in recentlyDeleted {
             if let athlete = athlete {
-                if !athlete.videoClips.contains(clip) { athlete.videoClips.append(clip) }
+                var videoClips = athlete.videoClips ?? []
+                if !videoClips.contains(clip) {
+                    videoClips.append(clip)
+                    athlete.videoClips = videoClips
+                }
             }
             if let game = clip.game {
-                if !game.videoClips.contains(clip) { game.videoClips.append(clip) }
+                var videoClips = game.videoClips ?? []
+                if !videoClips.contains(clip) {
+                    videoClips.append(clip)
+                    game.videoClips = videoClips
+                }
             }
             if let practice = clip.practice {
-                if !practice.videoClips.contains(clip) { practice.videoClips.append(clip) }
+                var videoClips = practice.videoClips ?? []
+                if !videoClips.contains(clip) {
+                    videoClips.append(clip)
+                    practice.videoClips = videoClips
+                }
             }
         }
         recentlyDeleted.removeAll()

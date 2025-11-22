@@ -1,0 +1,94 @@
+rules_version = '2';
+
+// Firebase Storage Security Rules for PlayerPath
+// Last updated: November 22, 2025
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    
+    // Helper function to check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    // Helper function to get user document from Firestore
+    function getUserData() {
+      return firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data;
+    }
+    
+    // Helper function to get shared folder document from Firestore
+    function getFolderData(folderID) {
+      return firestore.get(/databases/(default)/documents/sharedFolders/$(folderID)).data;
+    }
+    
+    // Helper function to check if user is the folder owner
+    function isFolderOwner(folderID) {
+      return isAuthenticated() && 
+             getFolderData(folderID).ownerAthleteID == request.auth.uid;
+    }
+    
+    // Helper function to check if user is a shared coach
+    function isSharedCoach(folderID) {
+      return isAuthenticated() && 
+             request.auth.uid in getFolderData(folderID).sharedWithCoachIDs;
+    }
+    
+    // Helper function to check if coach has upload permission
+    function hasUploadPermission(folderID) {
+      let folder = getFolderData(folderID);
+      return request.auth.uid in folder.sharedWithCoachIDs && 
+             folder.permissions[request.auth.uid].canUpload == true;
+    }
+    
+    // Shared folders storage path
+    match /shared_folders/{folderID}/{fileName} {
+      
+      // Read access: Owner OR shared coach
+      allow read: if isAuthenticated() && 
+                     (isFolderOwner(folderID) || isSharedCoach(folderID));
+      
+      // Write access: Owner OR coach with upload permission
+      allow write: if isAuthenticated() && 
+                      (isFolderOwner(folderID) || hasUploadPermission(folderID)) &&
+                      request.resource.size < 500 * 1024 * 1024 && // Max 500MB
+                      request.resource.contentType.matches('video/.*'); // Must be video
+      
+      // Delete access: Owner only
+      allow delete: if isAuthenticated() && isFolderOwner(folderID);
+    }
+    
+    // Shared folders thumbnail storage path
+    match /shared_folders/{folderID}/thumbnails/{thumbnailName} {
+      
+      // Read access: Owner OR shared coach (same as videos)
+      allow read: if isAuthenticated() && 
+                     (isFolderOwner(folderID) || isSharedCoach(folderID));
+      
+      // Write access: Owner OR coach with upload permission (same as videos)
+      allow write: if isAuthenticated() && 
+                      (isFolderOwner(folderID) || hasUploadPermission(folderID)) &&
+                      request.resource.size < 5 * 1024 * 1024 && // Max 5MB for thumbnails
+                      request.resource.contentType.matches('image/.*'); // Must be image
+      
+      // Delete access: Owner only
+      allow delete: if isAuthenticated() && isFolderOwner(folderID);
+    }
+    
+    // Personal athlete videos (future feature)
+    match /videos/{athleteID}/{fileName} {
+      
+      // Read/write: Only the athlete who owns this directory
+      allow read, write: if isAuthenticated() && 
+                           request.auth.uid == athleteID &&
+                           request.resource.size < 500 * 1024 * 1024; // Max 500MB
+      
+      // Delete: Only the athlete
+      allow delete: if isAuthenticated() && request.auth.uid == athleteID;
+    }
+    
+    // Deny all other paths
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

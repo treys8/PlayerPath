@@ -102,7 +102,7 @@ final class UnifiedAuthenticationManager: ObservableObject {
             let allUsers = try context.fetch(allUsersDescriptor)
             debugLog("loadUser: Total users in database: \(allUsers.count)")
             for user in allUsers {
-                debugLog("loadUser: Existing user - Email: '\(user.email)', Athletes: \(user.athletes.count)")
+                debugLog("loadUser: Existing user - Email: '\(user.email)', Athletes: \((user.athletes ?? []).count)")
             }
             
             // Now try to find user by email with case-insensitive match
@@ -118,11 +118,11 @@ final class UnifiedAuthenticationManager: ObservableObject {
             debugLog("loadUser: Found matching user: \(matchingUser?.email ?? "none")")
             
             if let existingUser = matchingUser {
-                debugLog("loadUser: Loading existing user with \(existingUser.athletes.count) athletes")
+                debugLog("loadUser: Loading existing user with \((existingUser.athletes ?? []).count) athletes")
                 currentUser = existingUser
                 
                 // Refresh the athletes relationship to ensure it's loaded
-                for athlete in existingUser.athletes {
+                for athlete in (existingUser.athletes ?? []) {
                     debugLog("loadUser: User has athlete: '\(athlete.name)'")
                 }
             } else {
@@ -154,14 +154,17 @@ final class UnifiedAuthenticationManager: ObservableObject {
                 for athlete in orphanedAthletes {
                     debugLog("loadUser: Associating athlete '\(athlete.name)' with new user")
                     athlete.user = newUser
-                    newUser.athletes.append(athlete)
+                    if newUser.athletes == nil {
+                        newUser.athletes = []
+                    }
+                    newUser.athletes?.append(athlete)
                 }
                 
                 context.insert(newUser)
                 try context.save()
                 currentUser = newUser
                 
-                debugLog("loadUser: Created new user '\(email)' with \(newUser.athletes.count) athletes")
+                debugLog("loadUser: Created new user '\(email)' with \((newUser.athletes ?? []).count) athletes")
             }
         } catch {
             debugLog("loadUser: Failed to load/create user: \(error)")

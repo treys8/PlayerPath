@@ -21,7 +21,7 @@ final class GamesViewModel: ObservableObject {
         self.athlete = athlete
         self.gameService = GameService(modelContext: modelContext)
         if let athlete = athlete {
-            self.availableTournaments = athlete.tournaments.sorted { lhs, rhs in
+            self.availableTournaments = (athlete.tournaments ?? []).sorted { lhs, rhs in
                 if lhs.name == rhs.name {
                     return lhs.id.uuidString < rhs.id.uuidString
                 }
@@ -46,7 +46,7 @@ final class GamesViewModel: ObservableObject {
             return
         }
         
-        let athleteGamesSet = Set(athlete.games)
+        let athleteGamesSet = Set(athlete.games ?? [])
         let filteredGamesSet = Set(allGames.filter { $0.athlete?.id == athlete.id })
         let combinedGames = Array(athleteGamesSet.union(filteredGamesSet))
         

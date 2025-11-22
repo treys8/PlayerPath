@@ -640,9 +640,9 @@ enum UserRole: String, Codable {
 
 /// Permissions a coach has for a specific folder
 struct FolderPermissions: Codable, Equatable {
-    let canUpload: Bool
-    let canComment: Bool
-    let canDelete: Bool
+    var canUpload: Bool
+    var canComment: Bool
+    var canDelete: Bool
     
     func toDictionary() -> [String: Bool] {
         return [
@@ -693,6 +693,13 @@ struct FirestoreVideoMetadata: Codable, Identifiable {
     let fileSize: Int64?
     let duration: Double?
     let isHighlight: Bool?
+    
+    // Game/Practice context
+    let videoType: String? // "game" or "practice"
+    let gameOpponent: String?
+    let gameDate: Date?
+    let practiceDate: Date?
+    let notes: String?
 }
 
 /// Video annotation/comment model

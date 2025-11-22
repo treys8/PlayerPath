@@ -1,0 +1,79 @@
+rules_version = '2';
+
+// Firebase Storage Security Rules for PlayerPath Coach Sharing
+// Deploy with: firebase deploy --only storage
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    
+    // ============================================================
+    // SHARED FOLDER VIDEOS
+    // ============================================================
+    // Path: shared_folders/{folderID}/{fileName}
+    // Used by: Coach sharing feature for video collaboration
+    
+    match /shared_folders/{folderID}/{fileName} {
+      
+      // Allow READ if user is the folder owner OR a shared coach
+      allow read: if request.auth != null &&
+        (isOwner(folderID) || isSharedCoach(folderID));
+      
+      // Allow WRITE (upload) if user is owner OR has upload permission
+      allow write: if request.auth != null &&
+        (isOwner(folderID) || canUploadToFolder(folderID));
+      
+      // Allow DELETE only by the folder owner (athlete)
+      allow delete: if request.auth != null && 
+        isOwner(folderID);
+    }
+    
+    // ============================================================
+    // HELPER FUNCTIONS
+    // ============================================================
+    
+    // Check if user is the owner of a shared folder
+    function isOwner(folderID) {
+      let folder = firestore.get(/databases/(default)/documents/sharedFolders/$(folderID)).data;
+      return request.auth.uid == folder.ownerAthleteID;
+    }
+    
+    // Check if user is a coach with access to this folder
+    function isSharedCoach(folderID) {
+      let folder = firestore.get(/databases/(default)/documents/sharedFolders/$(folderID)).data;
+      return request.auth.uid in folder.sharedWithCoachIDs;
+    }
+    
+    // Check if user has upload permission for this folder
+    function canUploadToFolder(folderID) {
+      let folder = firestore.get(/databases/(default)/documents/sharedFolders/$(folderID)).data;
+      
+      // Owner can always upload
+      if (request.auth.uid == folder.ownerAthleteID) {
+        return true;
+      }
+      
+      // Check coach permissions
+      let permissions = folder.permissions[request.auth.uid];
+      return permissions != null && permissions.canUpload == true;
+    }
+    
+    // ============================================================
+    // FUTURE: ATHLETE PERSONAL VIDEOS
+    // ============================================================
+    // For when you want to store athlete videos in Firebase too
+    
+    match /videos/{athleteID}/{fileName} {
+      // Only the athlete can read/write their own videos
+      allow read, write: if request.auth != null && 
+        request.auth.uid == athleteID;
+    }
+    
+    // ============================================================
+    // DENY ALL OTHER PATHS
+    // ============================================================
+    // Any paths not explicitly allowed above are denied
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

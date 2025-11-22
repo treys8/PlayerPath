@@ -15,7 +15,7 @@ struct SeasonsView: View {
     @State private var selectedSeason: Season?
     
     var seasons: [Season] {
-        athlete.seasons.sorted { lhs, rhs in
+        (athlete.seasons ?? []).sorted { lhs, rhs in
             // Active season first
             if lhs.isActive && !rhs.isActive { return true }
             if !lhs.isActive && rhs.isActive { return false }
@@ -68,7 +68,7 @@ struct SeasonsView: View {
                                 )
                                 SeasonStatBadge(
                                     icon: "figure.run",
-                                    value: activeSeason.practices.count,
+                                    value: (activeSeason.practices ?? []).count,
                                     label: "Practices"
                                 )
                             }
@@ -197,7 +197,7 @@ struct SeasonRow: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     
-                    Label("\(season.practices.count)", systemImage: "figure.run")
+                    Label("\((season.practices ?? []).count)", systemImage: "figure.run")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -367,7 +367,6 @@ struct SeasonGamesListView: View {
     let season = Season(name: "Spring 2025", startDate: Date(), sport: .baseball)
     season.activate()
     season.athlete = athlete
-    athlete.seasons.append(season)
     
     container.mainContext.insert(athlete)
     container.mainContext.insert(season)
