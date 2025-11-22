@@ -1,0 +1,108 @@
+// ============================================================================
+// Firebase Storage Security Rules for PlayerPath Coach Sharing
+// ============================================================================
+// Deploy these rules in Firebase Console:
+// https://console.firebase.google.com/project/YOUR_PROJECT/storage/rules
+// ============================================================================
+
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    
+    // ========================================================================
+    // HELPER FUNCTIONS
+    // ========================================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function canAccessFolder(folderID) {
+      // Check Firestore for folder access
+      let folder = firestore.get(/databases/(default)/documents/sharedFolders/$(folderID)).data;
+      return request.auth.uid == folder.ownerAthleteID 
+          || request.auth.uid in folder.sharedWithCoachIDs;
+    }
+    
+    function canUploadToFolder(folderID) {
+      let folder = firestore.get(/databases/(default)/documents/sharedFolders/$(folderID)).data;
+      return request.auth.uid == folder.ownerAthleteID
+          || (request.auth.uid in folder.sharedWithCoachIDs 
+              && folder.permissions[request.auth.uid].canUpload == true);
+    }
+    
+    function isVideoFile() {
+      // Validate file type is video
+      return request.resource.contentType.matches('video/.*') 
+          || request.resource.contentType == 'application/octet-stream';
+    }
+    
+    function isImageFile() {
+      // Validate file type is image (for thumbnails)
+      return request.resource.contentType.matches('image/.*');
+    }
+    
+    function isValidFileSize() {
+      // Max file size: 2GB for videos
+      return request.resource.size < 2 * 1024 * 1024 * 1024;
+    }
+    
+    // ========================================================================
+    // SHARED FOLDER VIDEOS
+    // ========================================================================
+    
+    match /sharedFolders/{folderID}/{fileName} {
+      // Read: Authenticated users with folder access
+      allow read: if isAuthenticated() && canAccessFolder(folderID);
+      
+      // Write: Users with upload permission, valid video file, and size limit
+      allow write: if isAuthenticated() 
+                   && canUploadToFolder(folderID)
+                   && isVideoFile()
+                   && isValidFileSize();
+      
+      // Delete: Users with upload permission (can delete their own uploads)
+      allow delete: if isAuthenticated() && canUploadToFolder(folderID);
+    }
+    
+    // ========================================================================
+    // VIDEO THUMBNAILS
+    // ========================================================================
+    
+    match /sharedFolders/{folderID}/thumbnails/{fileName} {
+      // Read: Anyone with folder access
+      allow read: if isAuthenticated() && canAccessFolder(folderID);
+      
+      // Write: Users with upload permission, valid image file
+      allow write: if isAuthenticated() 
+                   && canUploadToFolder(folderID)
+                   && isImageFile();
+      
+      // Delete: Users with upload permission
+      allow delete: if isAuthenticated() && canUploadToFolder(folderID);
+    }
+    
+    // ========================================================================
+    // LEGACY/PERSONAL VIDEOS (for backward compatibility)
+    // ========================================================================
+    
+    match /videos/{athleteID}/{fileName} {
+      // Personal videos not shared with coaches
+      // Read/write/delete: Only the athlete who owns them
+      allow read, write, delete: if isAuthenticated() 
+                                 && request.auth.uid == athleteID;
+    }
+  }
+}
+
+// ============================================================================
+// NOTES:
+// ============================================================================
+// 
+// 1. Video files are stored at: /sharedFolders/{folderID}/{videoFileName}
+// 2. Thumbnails are stored at: /sharedFolders/{folderID}/thumbnails/{thumbFileName}
+// 3. Max file size is 2GB (configurable above)
+// 4. Access control is verified against Firestore shared folder permissions
+// 5. Personal (non-shared) videos are stored at: /videos/{athleteID}/{fileName}
+//
+// ============================================================================

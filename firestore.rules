@@ -1,0 +1,161 @@
+// ============================================================================
+// Firebase Firestore Security Rules for PlayerPath Coach Sharing
+// ============================================================================
+// Deploy these rules in Firebase Console:
+// https://console.firebase.google.com/project/YOUR_PROJECT/firestore/rules
+// ============================================================================
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ========================================================================
+    // HELPER FUNCTIONS
+    // ========================================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userID) {
+      return request.auth.uid == userID;
+    }
+    
+    function getUserRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+    
+    function isPremium() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isPremium == true;
+    }
+    
+    function canAccessFolder(folderID) {
+      let folder = get(/databases/$(database)/documents/sharedFolders/$(folderID)).data;
+      return request.auth.uid == folder.ownerAthleteID 
+          || request.auth.uid in folder.sharedWithCoachIDs;
+    }
+    
+    function canUploadToFolder(folderID) {
+      let folder = get(/databases/$(database)/documents/sharedFolders/$(folderID)).data;
+      return request.auth.uid == folder.ownerAthleteID
+          || (request.auth.uid in folder.sharedWithCoachIDs 
+              && folder.permissions[request.auth.uid].canUpload == true);
+    }
+    
+    function canDeleteFromFolder(folderID) {
+      let folder = get(/databases/$(database)/documents/sharedFolders/$(folderID)).data;
+      return request.auth.uid == folder.ownerAthleteID
+          || (request.auth.uid in folder.sharedWithCoachIDs 
+              && folder.permissions[request.auth.uid].canDelete == true);
+    }
+    
+    // ========================================================================
+    // USER PROFILES
+    // ========================================================================
+    
+    match /users/{userID} {
+      // Anyone authenticated can read any user profile (for display names, etc.)
+      allow read: if isAuthenticated();
+      
+      // Users can only write their own profile
+      allow write: if isOwner(userID);
+    }
+    
+    // ========================================================================
+    // SHARED FOLDERS
+    // ========================================================================
+    
+    match /sharedFolders/{folderID} {
+      // Read access: Owner or coaches with access
+      allow read: if isAuthenticated() && canAccessFolder(folderID);
+      
+      // Create: Authenticated premium users can create folders
+      // Must set themselves as owner
+      allow create: if isAuthenticated() 
+                    && isPremium() 
+                    && request.resource.data.ownerAthleteID == request.auth.uid;
+      
+      // Update: Only the owner can update folder settings
+      allow update: if isAuthenticated() 
+                    && resource.data.ownerAthleteID == request.auth.uid;
+      
+      // Delete: Only the owner can delete folders
+      allow delete: if isAuthenticated() 
+                    && resource.data.ownerAthleteID == request.auth.uid;
+    }
+    
+    // ========================================================================
+    // VIDEOS
+    // ========================================================================
+    
+    match /videos/{videoID} {
+      // Read: Anyone with access to the folder
+      allow read: if isAuthenticated() 
+                  && canAccessFolder(resource.data.sharedFolderID);
+      
+      // Create: Users with upload permission
+      allow create: if isAuthenticated() 
+                    && canUploadToFolder(request.resource.data.sharedFolderID)
+                    && request.resource.data.uploadedBy == request.auth.uid;
+      
+      // Update: Only the uploader can update video metadata
+      allow update: if isAuthenticated() 
+                    && resource.data.uploadedBy == request.auth.uid;
+      
+      // Delete: Owner of folder OR uploader OR coach with delete permission
+      allow delete: if isAuthenticated() 
+                    && (resource.data.uploadedBy == request.auth.uid
+                        || canDeleteFromFolder(resource.data.sharedFolderID));
+      
+      // ======================================================================
+      // VIDEO ANNOTATIONS (SUBCOLLECTION)
+      // ======================================================================
+      
+      match /annotations/{annotationID} {
+        // Read: Anyone with access to the video
+        allow read: if isAuthenticated() && 
+                    canAccessFolder(get(/databases/$(database)/documents/videos/$(videoID)).data.sharedFolderID);
+        
+        // Create: Anyone with folder access can comment
+        allow create: if isAuthenticated() 
+                      && request.resource.data.userID == request.auth.uid
+                      && canAccessFolder(get(/databases/$(database)/documents/videos/$(videoID)).data.sharedFolderID);
+        
+        // Update: Users can edit their own comments
+        allow update: if isAuthenticated() 
+                      && resource.data.userID == request.auth.uid;
+        
+        // Delete: Users can delete their own comments, or folder owner can delete any
+        allow delete: if isAuthenticated() 
+                      && (resource.data.userID == request.auth.uid
+                          || get(/databases/$(database)/documents/sharedFolders/$(get(/databases/$(database)/documents/videos/$(videoID)).data.sharedFolderID)).data.ownerAthleteID == request.auth.uid);
+      }
+    }
+    
+    // ========================================================================
+    // INVITATIONS
+    // ========================================================================
+    
+    match /invitations/{invitationID} {
+      // Read: Athlete who sent it OR coach with matching email
+      allow read: if isAuthenticated() && 
+                  (resource.data.athleteID == request.auth.uid 
+                   || resource.data.coachEmail == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.email);
+      
+      // Create: Premium athletes can send invitations
+      allow create: if isAuthenticated() 
+                    && isPremium()
+                    && request.resource.data.athleteID == request.auth.uid;
+      
+      // Update: Athlete who sent it OR coach with matching email can update
+      // (For accepting/declining)
+      allow update: if isAuthenticated() &&
+                    (resource.data.athleteID == request.auth.uid
+                     || resource.data.coachEmail == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.email);
+      
+      // Delete: Only the athlete who sent it
+      allow delete: if isAuthenticated() 
+                    && resource.data.athleteID == request.auth.uid;
+    }
+  }
+}
