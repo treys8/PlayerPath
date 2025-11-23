@@ -290,7 +290,7 @@ struct UserProfileHeader: View {
 
     var body: some View {
         HStack(spacing: 15) {
-            EditableProfileImageView(user: user, size: 60) {
+            EditableProfileImageView(user: user, size: 60) { _ in
                 // Save context when profile image is updated
                 do {
                     try modelContext.save()
@@ -563,7 +563,7 @@ struct EditAccountView: View {
             Section("Profile Picture") {
                 HStack {
                     Spacer()
-                    EditableProfileImageView(user: user, size: .profileLarge) {
+                    EditableProfileImageView(user: user, size: .profileLarge) { _ in
                         do {
                             try modelContext.save()
                             Haptics.light()

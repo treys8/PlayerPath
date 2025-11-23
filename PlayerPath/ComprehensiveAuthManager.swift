@@ -379,6 +379,11 @@ final class ComprehensiveAuthManager: ObservableObject {
         }
     }
     
+    /// Clears the current error message
+    func clearError() {
+        errorMessage = nil
+    }
+    
     func resetNewUserFlag() {
         isNewUser = false
     }

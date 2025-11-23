@@ -8,7 +8,6 @@
 
 import Foundation
 import StoreKit
-import SwiftUI
 import Combine
 
 /// Product identifiers - Must match your App Store Connect configuration
@@ -50,7 +49,7 @@ class StoreKitManager: ObservableObject {
     
     // MARK: - Private Properties
     
-    private var updateListenerTask: Task<Void, Error>?
+    private var updateListenerTask: Task<Void, Never>?
     private var productsLoaded = false
     
     // MARK: - Initialization
@@ -82,10 +81,8 @@ class StoreKitManager: ObservableObject {
             let productIDs = SubscriptionProduct.allCases.map { $0.rawValue }
             let storeProducts = try await Product.products(for: productIDs)
             
-            products = storeProducts.sorted { product1, product2 in
-                // Sort by price (monthly first, then annual)
-                product1.price < product2.price
-            }
+            // Sort by price ascending (monthly will be cheaper than annual)
+            products = storeProducts.sorted { $0.price < $1.price }
             
             productsLoaded = true
             print("✅ Loaded \(products.count) products from App Store")
@@ -171,83 +168,72 @@ class StoreKitManager: ObservableObject {
     
     // MARK: - Subscription Status
     
-    /// Update current subscription status
+    /// Update current subscription status by checking all current entitlements
     func updateSubscriptionStatus() async {
-        var activeSubscription: Product.SubscriptionInfo.Status?
-        var latestTransaction: StoreKit.Transaction?
+        var latestTransaction: Transaction?
+        purchasedProductIDs.removeAll()
         
-        // Check all subscription groups
-        for product in products {
-            guard let subscription = product.subscription else { continue }
+        // Iterate through ALL current entitlements (not just loaded products)
+        for await result in Transaction.currentEntitlements {
+            guard case .verified(let transaction) = result else { continue }
             
-            // Get status for this subscription group
-            guard let statuses = try? await subscription.status else { continue }
+            // Only check auto-renewable subscriptions
+            guard transaction.productType == .autoRenewable else { continue }
             
-            for status in statuses {
-                // Check if verified
-                guard case .verified(let transaction) = status.transaction else { continue }
-                
-                // Check if active or in grace period
-                if status.state == .subscribed || status.state == .inGracePeriod {
-                    // Store this if it's the most recent
-                    if let existing = latestTransaction {
-                        if transaction.purchaseDate > existing.purchaseDate {
-                            latestTransaction = transaction
-                            activeSubscription = status
-                        }
-                    } else {
-                        latestTransaction = transaction
-                        activeSubscription = status
-                    }
-                    
-                    purchasedProductIDs.insert(transaction.productID)
+            // Track this product as purchased
+            purchasedProductIDs.insert(transaction.productID)
+            
+            // Keep the most recent transaction
+            if let existing = latestTransaction {
+                if transaction.purchaseDate > existing.purchaseDate {
+                    latestTransaction = transaction
                 }
+            } else {
+                latestTransaction = transaction
             }
         }
         
-        // Update published status
-        if let status = activeSubscription, let transaction = latestTransaction {
-            switch status.state {
-            case .subscribed:
-                subscriptionStatus = .active
-            case .inGracePeriod:
-                subscriptionStatus = .inGracePeriod
-            case .inBillingRetryPeriod:
-                subscriptionStatus = .inBillingRetry
-            case .revoked:
-                subscriptionStatus = .expired
-            case .expired:
-                subscriptionStatus = .expired
-            default:
+        // Update published status based on latest transaction
+        if let transaction = latestTransaction {
+            expirationDate = transaction.expirationDate
+            
+            if let expDate = transaction.expirationDate {
+                if expDate > Date() {
+                    subscriptionStatus = .active
+                    print("✅ Subscription active, expires: \(expDate)")
+                } else {
+                    subscriptionStatus = .expired
+                    print("⚠️ Subscription expired on: \(expDate)")
+                }
+            } else {
+                // No expiration date means it's a non-consumable or something else
                 subscriptionStatus = .notSubscribed
             }
             
-            // Set expiration date from the transaction
-            expirationDate = transaction.expirationDate
-            
-            print("✅ Subscription status: \(subscriptionStatus)")
-            if let expDate = expirationDate {
-                print("   Expires: \(expDate)")
+            // Check for revocation
+            if transaction.revocationDate != nil {
+                subscriptionStatus = .expired
+                print("⚠️ Subscription was revoked")
             }
         } else {
             subscriptionStatus = .notSubscribed
             expirationDate = nil
-            purchasedProductIDs.removeAll()
+            print("ℹ️ No active subscription found")
         }
     }
     
     // MARK: - Transaction Listening
     
     /// Listen for transaction updates
-    private func listenForTransactions() -> Task<Void, Error> {
-        return Task.detached {
+    private func listenForTransactions() -> Task<Void, Never> {
+        return Task {
             // Iterate through any transactions that don't come from a direct call to purchase()
-            for await result in StoreKit.Transaction.updates {
+            for await result in Transaction.updates {
                 do {
-                    let transaction = try self.checkVerified(result)
+                    let transaction = try checkVerified(result)
                     
                     // Deliver products to the user
-                    await self.updateSubscriptionStatus()
+                    await updateSubscriptionStatus()
                     
                     // Always finish a transaction
                     await transaction.finish()
@@ -263,7 +249,7 @@ class StoreKitManager: ObservableObject {
     // MARK: - Verification
     
     /// Verify a transaction is valid
-    nonisolated private func checkVerified<T>(_ result: VerificationResult<T>) throws -> T {
+    private func checkVerified<T>(_ result: VerificationResult<T>) throws -> T {
         switch result {
         case .unverified:
             throw StoreError.transactionVerificationFailed
@@ -276,7 +262,14 @@ class StoreKitManager: ObservableObject {
     
     /// Whether user has an active subscription
     var isPremium: Bool {
-        subscriptionStatus == .active || subscriptionStatus == .inGracePeriod
+        guard subscriptionStatus == .active else { return false }
+        
+        // Double-check expiration date for accuracy
+        if let expDate = expirationDate {
+            return expDate > Date()
+        }
+        
+        return false
     }
     
     /// Get product by identifier
@@ -300,8 +293,6 @@ class StoreKitManager: ObservableObject {
 enum SubscriptionStatus: String {
     case notSubscribed = "Not Subscribed"
     case active = "Active"
-    case inGracePeriod = "Grace Period"
-    case inBillingRetry = "Billing Retry"
     case expired = "Expired"
 }
 
@@ -338,10 +329,13 @@ enum StoreError: LocalizedError {
 #if DEBUG
 extension StoreKitManager {
     /// Create a mock manager for previews
-    static func mock(isPremium: Bool = false) -> StoreKitManager {
+    /// Note: For production previews, use StoreKit testing configuration files instead
+    static func previewMock(isPremium: Bool = false) -> StoreKitManager {
         let manager = StoreKitManager.shared
+        // WARNING: This mutates the shared singleton, use only in isolated previews
         if isPremium {
             manager.subscriptionStatus = .active
+            manager.expirationDate = Date().addingTimeInterval(30 * 24 * 60 * 60) // 30 days from now
         }
         return manager
     }

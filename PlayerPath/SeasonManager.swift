@@ -47,16 +47,13 @@ struct SeasonManager {
         newSeason.activate()
         newSeason.athlete = athlete
         
-        if athlete.seasons == nil {
-            athlete.seasons = []
-        }
+        athlete.seasons = athlete.seasons ?? []
         athlete.seasons?.append(newSeason)
         
         modelContext.insert(newSeason)
         
         do {
             try modelContext.save()
-            print("✅ Created default season: \(seasonName) for \(athlete.name)")
         } catch {
             print("❌ Error creating default season: \(error)")
         }
@@ -70,21 +67,15 @@ struct SeasonManager {
     ///   - athlete: The athlete
     ///   - modelContext: The SwiftData model context
     static func linkGameToActiveSeason(_ game: Game, for athlete: Athlete, in modelContext: ModelContext) {
-        let activeSeason = ensureActiveSeason(for: athlete, in: modelContext)
+        guard game.season == nil else { return }
         
-        if game.season == nil {
-            game.season = activeSeason
-            if activeSeason.games == nil {
-                activeSeason.games = []
-            }
-            activeSeason.games?.append(game)
-            
-            do {
-                try modelContext.save()
-                print("✅ Linked game to season: \(activeSeason.displayName)")
-            } catch {
-                print("❌ Error linking game to season: \(error)")
-            }
+        let activeSeason = ensureActiveSeason(for: athlete, in: modelContext)
+        game.season = activeSeason  // SwiftData handles inverse relationship automatically
+        
+        do {
+            try modelContext.save()
+        } catch {
+            print("❌ Error linking game to season: \(error)")
         }
     }
     
@@ -94,21 +85,15 @@ struct SeasonManager {
     ///   - athlete: The athlete
     ///   - modelContext: The SwiftData model context
     static func linkPracticeToActiveSeason(_ practice: Practice, for athlete: Athlete, in modelContext: ModelContext) {
-        let activeSeason = ensureActiveSeason(for: athlete, in: modelContext)
+        guard practice.season == nil else { return }
         
-        if practice.season == nil {
-            practice.season = activeSeason
-            if activeSeason.practices == nil {
-                activeSeason.practices = []
-            }
-            activeSeason.practices?.append(practice)
-            
-            do {
-                try modelContext.save()
-                print("✅ Linked practice to season: \(activeSeason.displayName)")
-            } catch {
-                print("❌ Error linking practice to season: \(error)")
-            }
+        let activeSeason = ensureActiveSeason(for: athlete, in: modelContext)
+        practice.season = activeSeason  // SwiftData handles inverse relationship automatically
+        
+        do {
+            try modelContext.save()
+        } catch {
+            print("❌ Error linking practice to season: \(error)")
         }
     }
     
@@ -118,21 +103,15 @@ struct SeasonManager {
     ///   - athlete: The athlete
     ///   - modelContext: The SwiftData model context
     static func linkVideoToActiveSeason(_ videoClip: VideoClip, for athlete: Athlete, in modelContext: ModelContext) {
-        let activeSeason = ensureActiveSeason(for: athlete, in: modelContext)
+        guard videoClip.season == nil else { return }
         
-        if videoClip.season == nil {
-            videoClip.season = activeSeason
-            if activeSeason.videoClips == nil {
-                activeSeason.videoClips = []
-            }
-            activeSeason.videoClips?.append(videoClip)
-            
-            do {
-                try modelContext.save()
-                print("✅ Linked video to season: \(activeSeason.displayName)")
-            } catch {
-                print("❌ Error linking video to season: \(error)")
-            }
+        let activeSeason = ensureActiveSeason(for: athlete, in: modelContext)
+        videoClip.season = activeSeason  // SwiftData handles inverse relationship automatically
+        
+        do {
+            try modelContext.save()
+        } catch {
+            print("❌ Error linking video to season: \(error)")
         }
     }
     
@@ -142,21 +121,15 @@ struct SeasonManager {
     ///   - athlete: The athlete (from tournament.athletes)
     ///   - modelContext: The SwiftData model context
     static func linkTournamentToActiveSeason(_ tournament: Tournament, for athlete: Athlete, in modelContext: ModelContext) {
-        let activeSeason = ensureActiveSeason(for: athlete, in: modelContext)
+        guard tournament.season == nil else { return }
         
-        if tournament.season == nil {
-            tournament.season = activeSeason
-            if activeSeason.tournaments == nil {
-                activeSeason.tournaments = []
-            }
-            activeSeason.tournaments?.append(tournament)
-            
-            do {
-                try modelContext.save()
-                print("✅ Linked tournament to season: \(activeSeason.displayName)")
-            } catch {
-                print("❌ Error linking tournament to season: \(error)")
-            }
+        let activeSeason = ensureActiveSeason(for: athlete, in: modelContext)
+        tournament.season = activeSeason  // SwiftData handles inverse relationship automatically
+        
+        do {
+            try modelContext.save()
+        } catch {
+            print("❌ Error linking tournament to season: \(error)")
         }
     }
     
@@ -182,7 +155,7 @@ struct SeasonManager {
         // Baseball stats if available
         if let stats = season.seasonStatistics, stats.atBats > 0 {
             summary += "⚾️ Batting Statistics\n"
-            summary += "• Batting Average: \(String(format: ".%.3d", Int(stats.battingAverage * 1000)))\n"
+            summary += "• Batting Average: \(String(format: ".%03d", Int(stats.battingAverage * 1000)))\n"
             summary += "• At Bats: \(stats.atBats)\n"
             summary += "• Hits: \(stats.hits)\n"
             summary += "• Home Runs: \(stats.homeRuns)\n"
@@ -209,8 +182,8 @@ struct SeasonManager {
         }
         
         // Active season is very old (6+ months) - recommend ending
-        if let startDate = activeSeason.startDate {
-            let sixMonthsAgo = Calendar.current.date(byAdding: .month, value: -6, to: Date())!
+        if let startDate = activeSeason.startDate,
+           let sixMonthsAgo = Calendar.current.date(byAdding: .month, value: -6, to: Date()) {
             if startDate < sixMonthsAgo {
                 return .considerEnding(activeSeason)
             }

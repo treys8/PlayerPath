@@ -316,7 +316,7 @@ struct StatCard: View {
         .frame(maxWidth: .infinity)
         .statCardBackground()
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(title), \(value)\(subtitle != nil ? ", \(subtitle!)" : "")")
+        .accessibilityLabel("\(title), \(value)\(subtitle.map { ", \($0)" } ?? "")")
     }
 }
 
@@ -534,6 +534,7 @@ struct QuickStatisticsEntryView: View {
     @State private var numberOfPlays: String = "1"
     @State private var showingAlert = false
     @State private var alertMessage = ""
+    @State private var isSaving = false
     @FocusState private var isPlaysFieldFocused: Bool
     
     var body: some View {
@@ -623,7 +624,7 @@ struct QuickStatisticsEntryView: View {
                     Button("Save") {
                         savePlayResults()
                     }
-                    .disabled(numberOfPlays.isEmpty)
+                    .disabled(numberOfPlays.isEmpty || isSaving)
                 }
                 
                 ToolbarItemGroup(placement: .keyboard) {
@@ -642,6 +643,10 @@ struct QuickStatisticsEntryView: View {
     }
     
     private func savePlayResults() {
+        guard !isSaving else { return }
+        isSaving = true
+        defer { isSaving = false }
+        
         guard let playCount = Int(numberOfPlays), playCount > 0 else {
             alertMessage = "Please enter a valid number of plays"
             showingAlert = true
@@ -675,8 +680,8 @@ struct QuickStatisticsEntryView: View {
         if let gameStats = game.gameStats {
             if playResultType.isHit {
                 gameStats.hits += playCount
-                gameStats.atBats += playCount
-            } else if playResultType != .walk {
+            }
+            if playResultType.countsAsAtBat {
                 gameStats.atBats += playCount
             }
         } else {
@@ -687,8 +692,8 @@ struct QuickStatisticsEntryView: View {
             
             if playResultType.isHit {
                 newGameStats.hits += playCount
-                newGameStats.atBats += playCount
-            } else if playResultType != .walk {
+            }
+            if playResultType.countsAsAtBat {
                 newGameStats.atBats += playCount
             }
         }
@@ -715,9 +720,10 @@ struct GameSelectionForStatsView: View {
     @State private var selectedGame: Game?
     @State private var showingCreateGame = false
     
-    var availableGames: [Game] {
-        // Safely sort by date, placing games with no date at the end
-        (athlete?.games ?? []).sorted { lhs, rhs in
+    private var availableGames: [Game] {
+        // Cache sorted games - don't recompute on every body evaluation
+        let games = athlete?.games ?? []
+        return games.sorted { lhs, rhs in
             switch (lhs.date, rhs.date) {
             case let (l?, r?):
                 return l > r // newest first

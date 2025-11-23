@@ -180,7 +180,9 @@ struct NativeCameraView: UIViewControllerRepresentable {
             #endif
             
             // KEY FIX #4: Fix orientation metadata before passing to app
-            fixVideoOrientation(at: videoURL) { fixedURL in
+            fixVideoOrientation(at: videoURL) { [weak self] fixedURL in
+                guard let self = self else { return }
+                
                 if let fixed = fixedURL {
                     #if DEBUG
                     print("✅ NativeCameraView: Video orientation fixed: \(fixed.path)")

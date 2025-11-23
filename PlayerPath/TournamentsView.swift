@@ -19,10 +19,8 @@ struct TournamentsView: View {
     @State private var errorMessage: String?
     @State private var showingError = false
     
-    // Cached sorted tournaments to avoid repeated sorting
-    private var tournaments: [Tournament] {
-        (athlete?.tournaments ?? []).sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
-    }
+    // Cached sorted tournaments to avoid repeated sorting on every body evaluation
+    @State private var tournaments: [Tournament] = []
     
     var body: some View {
         Group {
@@ -72,8 +70,16 @@ struct TournamentsView: View {
                 }
             }
         }
+        .onAppear {
+            updateTournaments()
+        }
+        .onChange(of: athlete?.tournaments) { _, _ in
+            updateTournaments()
+        }
         .sheet(isPresented: $showingAddTournament) {
-            AddTournamentView(athlete: athlete)
+            AddTournamentView(athlete: athlete) {
+                updateTournaments()
+            }
         }
         .alert("Delete Tournaments", isPresented: $showDeleteConfirm, presenting: pendingDeleteOffsets) { offsets in
             Button("Cancel", role: .cancel) { pendingDeleteOffsets = nil }
@@ -94,18 +100,25 @@ struct TournamentsView: View {
         }
     }
     
+    private func updateTournaments() {
+        tournaments = (athlete?.tournaments ?? []).sorted { 
+            ($0.date ?? .distantPast) > ($1.date ?? .distantPast) 
+        }
+    }
+    
     private func deleteTournaments(offsets: IndexSet) {
-        withAnimation {
-            for index in offsets {
-                let tournament = tournaments[index]
+        let tournamentsToDelete = offsets.map { tournaments[$0] }
+        
+        do {
+            for tournament in tournamentsToDelete {
                 modelContext.delete(tournament)
             }
-            do {
-                try modelContext.save()
-            } catch {
-                errorMessage = "Failed to delete tournaments: \(error.localizedDescription)"
-                showingError = true
-            }
+            try modelContext.save()
+            updateTournaments()
+        } catch {
+            modelContext.rollback()
+            errorMessage = "Failed to delete tournaments: \(error.localizedDescription)"
+            showingError = true
         }
     }
 }
@@ -168,6 +181,10 @@ struct PPStatusChip: View {
 struct TournamentRow: View {
     let tournament: Tournament
     
+    private var gameCount: Int {
+        tournament.games?.count ?? 0
+    }
+    
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
@@ -199,7 +216,7 @@ struct TournamentRow: View {
                 
                 Spacer()
                 
-                Text("\((tournament.games ?? []).count) \((tournament.games ?? []).count == 1 ? "game" : "games")")
+                Text("\(gameCount) \(gameCount == 1 ? "game" : "games")")
                     .font(.caption)
                     .foregroundColor(.blue)
             }
@@ -215,10 +232,15 @@ struct TournamentDetailView: View {
     @State private var showingEndTournament = false
     @State private var errorMessage: String?
     @State private var showingError = false
+    @State private var sortedGames: [Game] = []
     
     // Get the athlete from the tournament's athletes relationship
     private var athlete: Athlete? {
-        (tournament.athletes ?? []).first
+        tournament.athletes?.first
+    }
+    
+    private var gameCount: Int {
+        tournament.games?.count ?? 0
     }
     
     var body: some View {
@@ -261,7 +283,7 @@ struct TournamentDetailView: View {
             
             // Games Section
             Section("Games") {
-                if (tournament.games ?? []).isEmpty {
+                if gameCount == 0 {
                     HStack {
                         Text("No games yet")
                             .foregroundColor(.secondary)
@@ -273,7 +295,7 @@ struct TournamentDetailView: View {
                         .controlSize(.regular)
                     }
                 } else {
-                    ForEach((tournament.games ?? []).sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }) { game in
+                    ForEach(sortedGames) { game in
                         NavigationLink(destination: GameDetailView(game: game)) {
                             TournamentGameRow(game: game)
                         }
@@ -332,16 +354,20 @@ struct TournamentDetailView: View {
                 .controlSize(.regular)
             }
         }
+        .onAppear {
+            updateGames()
+        }
+        .onChange(of: tournament.games) { _, _ in
+            updateGames()
+        }
         .sheet(isPresented: $showingAddGame) {
             if let athlete = athlete {
                 AddGameView(athlete: athlete, tournament: tournament)
             } else {
-                // Fallback view if no athlete is associated
-                Text("Cannot add game: No athlete associated with this tournament")
-                    .padding()
-                    .onAppear {
-                        // Auto-dismiss after a moment
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                ErrorMessageView(message: "Cannot add game: No athlete associated with this tournament")
+                    .task {
+                        try? await Task.sleep(nanoseconds: 2_000_000_000)
+                        if !Task.isCancelled {
                             showingAddGame = false
                         }
                     }
@@ -367,55 +393,59 @@ struct TournamentDetailView: View {
     
     // MARK: - Helper Methods
     
+    private func updateGames() {
+        sortedGames = (tournament.games ?? []).sorted { 
+            ($0.date ?? .distantPast) > ($1.date ?? .distantPast) 
+        }
+    }
+    
     private func setGameLive(_ game: Game) {
-        game.isLive = true
         do {
+            game.isLive = true
             try modelContext.save()
+            updateGames()
         } catch {
+            modelContext.rollback()
             errorMessage = "Failed to start game: \(error.localizedDescription)"
             showingError = true
-            // Revert the change
-            game.isLive = false
         }
     }
     
     private func endGame(_ game: Game) {
-        game.isLive = false
-        game.isComplete = true
         do {
+            game.isLive = false
+            game.isComplete = true
             try modelContext.save()
+            updateGames()
         } catch {
+            modelContext.rollback()
             errorMessage = "Failed to end game: \(error.localizedDescription)"
             showingError = true
-            // Revert the changes
-            game.isLive = false
-            game.isComplete = false
         }
     }
     
     private func reactivateTournament() {
-        tournament.isActive = true
         do {
+            tournament.isActive = true
             try modelContext.save()
         } catch {
+            modelContext.rollback()
             errorMessage = "Failed to reactivate tournament: \(error.localizedDescription)"
             showingError = true
-            // Revert the change
-            tournament.isActive = false
         }
     }
     
     private func endTournament() {
-        tournament.isActive = false
-        // End all live games in this tournament
-        (tournament.games ?? []).forEach { $0.isLive = false }
         do {
+            tournament.isActive = false
+            // End all live games in this tournament
+            tournament.games?.forEach { $0.isLive = false }
             try modelContext.save()
+            updateGames()
         } catch {
+            modelContext.rollback()
             errorMessage = "Failed to end tournament: \(error.localizedDescription)"
             showingError = true
-            // Revert the changes
-            tournament.isActive = true
         }
     }
 }
@@ -424,6 +454,7 @@ struct AddTournamentView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     let athlete: Athlete?
+    let onTournamentCreated: () -> Void
     
     @State private var name = ""
     @State private var location = ""
@@ -432,6 +463,12 @@ struct AddTournamentView: View {
     @State private var startActive = false
     @State private var errorMessage: String?
     @State private var showingError = false
+    @State private var isSaving = false
+    
+    init(athlete: Athlete?, onTournamentCreated: @escaping () -> Void = {}) {
+        self.athlete = athlete
+        self.onTournamentCreated = onTournamentCreated
+    }
     
     var body: some View {
         NavigationStack {
@@ -464,8 +501,17 @@ struct AddTournamentView: View {
                     Button("Save") {
                         saveTournament()
                     }
-                    .disabled(name.isEmpty || location.isEmpty)
+                    .disabled(name.isEmpty || location.isEmpty || isSaving)
                 }
+            }
+        }
+        .disabled(isSaving)
+        .overlay {
+            if isSaving {
+                ProgressView()
+                    .scaleEffect(1.5)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color.black.opacity(0.2))
             }
         }
         .alert("Error", isPresented: $showingError) {
@@ -485,31 +531,29 @@ struct AddTournamentView: View {
             return
         }
         
-        let tournament = Tournament(
-            name: name,
-            date: date,
-            location: location,
-            info: info
-        )
-        tournament.isActive = startActive
-        
-        // Properly handle optional arrays
-        if tournament.athletes == nil {
-            tournament.athletes = []
-        }
-        tournament.athletes?.append(athlete)
-        
-        if athlete.tournaments == nil {
-            athlete.tournaments = []
-        }
-        athlete.tournaments?.append(tournament)
-        
-        modelContext.insert(tournament)
+        isSaving = true
         
         do {
+            let tournament = Tournament(
+                name: name,
+                date: date,
+                location: location,
+                info: info
+            )
+            tournament.isActive = startActive
+            
+            // SwiftData handles bidirectional relationships automatically
+            // Just set one side of the relationship
+            tournament.athletes = [athlete]
+            
+            modelContext.insert(tournament)
             try modelContext.save()
+            
+            onTournamentCreated()
             dismiss()
         } catch {
+            modelContext.rollback()
+            isSaving = false
             errorMessage = "Failed to save tournament: \(error.localizedDescription)"
             showingError = true
         }
@@ -519,6 +563,10 @@ struct AddTournamentView: View {
 // MARK: - Game Row Component
 struct TournamentGameRow: View {
     let game: Game
+    
+    private var clipCount: Int {
+        game.videoClips?.count ?? 0
+    }
     
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
@@ -549,12 +597,30 @@ struct TournamentGameRow: View {
                 
                 Spacer()
                 
-                Text("\((game.videoClips ?? []).count) clips")
+                Text("\(clipCount) clips")
                     .font(.caption)
                     .foregroundColor(.blue)
             }
         }
         .padding(.vertical, 2)
+    }
+}
+
+// MARK: - Error Message View
+struct ErrorMessageView: View {
+    let message: String
+    
+    var body: some View {
+        VStack(spacing: 20) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 60))
+                .foregroundColor(.orange)
+            
+            Text(message)
+                .multilineTextAlignment(.center)
+                .padding()
+        }
+        .padding()
     }
 }
 

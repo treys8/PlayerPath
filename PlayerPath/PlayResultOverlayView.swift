@@ -25,9 +25,6 @@ struct PlayResultOverlayView: View {
     @State private var showingConfirmation = false
     @State private var player = AVPlayer()
     
-    @State private var isSaving = false
-    @State private var showSavedToast = false
-    @State private var showConfirmationDialog = false
     @State private var isPlaying = true
     @State private var videoMetadata: VideoMetadata?
     
@@ -57,6 +54,7 @@ struct PlayResultOverlayView: View {
                             }
                             .onDisappear {
                                 player.pause()
+                                player.replaceCurrentItem(with: nil)
                                 isPlaying = false
                             }
                         
@@ -251,7 +249,6 @@ struct PlayResultOverlayView: View {
                             .accessibilityLabel(practice != nil ? "Save Video Only" : "Skip and Save")
                             .accessibilityHint("Save without a play result")
                         }
-                        .disabled(isSaving)
                     }
                     .padding(20)
                     .background(
@@ -274,7 +271,6 @@ struct PlayResultOverlayView: View {
                     )
                     .padding(.horizontal, 16)
                     .accessibilitySortPriority(1)
-                    .disabled(isSaving)
                     
                     Spacer().frame(height: 50)
                 }
@@ -369,23 +365,6 @@ struct PlayResultOverlayView: View {
                     
                     Spacer()
                 }
-                
-                // Saved Toast
-                VStack {
-                    if showSavedToast {
-                        Text("Saved")
-                            .font(.subheadline.weight(.semibold))
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 8)
-                            .background(.ultraThinMaterial)
-                            .clipShape(Capsule())
-                            .shadow(radius: 4)
-                            .transition(.opacity.combined(with: .move(edge: .top)))
-                            .accessibilityHidden(true)
-                    }
-                    Spacer()
-                }
-                .animation(.easeInOut(duration: 0.25), value: showSavedToast)
             }
             .ignoresSafeArea()
             .navigationBarTitleDisplayMode(.inline)
@@ -411,29 +390,11 @@ struct PlayResultOverlayView: View {
                     }
                     .accessibilityLabel("Go back")
                 }
-                
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
-                            .font(.title3)
-                            .foregroundColor(.white)
-                            .padding(8)
-                            .background(
-                                Circle()
-                                    .fill(.ultraThinMaterial)
-                            )
-                    }
-                    .accessibilityLabel("More options")
-                    .disabled(true) // Placeholder for future features
-                    .opacity(0.5)
-                }
             }
             .toolbarBackground(.hidden, for: .navigationBar)
             .onChange(of: scenePhase) { _, phase in
                 if phase == .active {
-                    if !showingConfirmation && !isSaving {
+                    if !showingConfirmation {
                         player.play()
                         isPlaying = true
                     }
@@ -449,17 +410,9 @@ struct PlayResultOverlayView: View {
             ) {
                 Button("Save", role: .none) {
                     guard let result = selectedResult else { return }
-                    isSaving = true
                     UINotificationFeedbackGenerator().notificationOccurred(.success)
                     onSave(result)
-                    isSaving = false
-                    showSavedToast = true
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
-                        showSavedToast = false
-                    }
                     selectedResult = nil
-                    player.play()
-                    isPlaying = true
                 }
                 Button("Cancel", role: .cancel) {
                     selectedResult = nil
@@ -551,9 +504,7 @@ struct PlayResultButton: View {
         .accessibilityLabel(Text(result.accessibilityLabel))
         .accessibilityHint(Text("Selects this play result and asks for confirmation"))
         .accessibilityAddTraits(.isButton)
-        .if(isSelected) { view in
-            view.accessibilityAddTraits(.isSelected)
-        }
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 
@@ -571,7 +522,7 @@ struct OverlayButtonStyle: ButtonStyle {
 }
 
 // MARK: - Video Metadata Extension
-struct VideoMetadata {
+struct VideoMetadata: Sendable {
     let duration: TimeInterval
     let fileSize: Int64
     let resolution: String?
@@ -633,6 +584,8 @@ struct MetadataBadge: View {
 
 extension PlayResultOverlayView {
     private func loadVideoMetadata() {
+        guard videoMetadata == nil else { return }
+        
         Task {
             let asset = AVURLAsset(url: videoURL)
             

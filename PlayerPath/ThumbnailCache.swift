@@ -9,50 +9,56 @@
 import UIKit
 
 /// Thread-safe cache for video thumbnail images with automatic memory management
-@MainActor
-final class ThumbnailCache {
+actor ThumbnailCache {
     
     static let shared = ThumbnailCache()
     
     private let cache = NSCache<NSString, UIImage>()
-    private let maxCacheSize = 100 // Maximum number of thumbnails to cache
+    private let maxCacheSize = 100
     private let maxMemorySize = 50 * 1024 * 1024 // 50MB
+    private var loadingTasks: [String: Task<UIImage, Error>] = [:]
+    private var memoryWarningObserver: NSObjectProtocol?
     
     // MARK: - Initialization
     
     private init() {
-        // Configure cache limits
         cache.countLimit = maxCacheSize
         cache.totalCostLimit = maxMemorySize
         
-        // Clear cache on memory warning
-        NotificationCenter.default.addObserver(
+        // Properly handle memory warnings
+        memoryWarningObserver = NotificationCenter.default.addObserver(
             forName: UIApplication.didReceiveMemoryWarningNotification,
             object: nil,
             queue: .main
-        ) { _ in
-            Task { @MainActor in
-                ThumbnailCache.shared.clearCache()
-            }
+        ) { [weak cache] _ in
+            cache?.removeAllObjects()
+        }
+    }
+    
+    deinit {
+        if let observer = memoryWarningObserver {
+            NotificationCenter.default.removeObserver(observer)
         }
     }
     
     // MARK: - Public API
     
-    /// Load a thumbnail from cache or disk
-    /// - Parameter path: File path to the thumbnail image
-    /// - Returns: The loaded UIImage
-    /// - Throws: ThumbnailError if loading fails
+    /// Load a thumbnail from cache or disk (deduplicates concurrent requests)
     func loadThumbnail(at path: String) async throws -> UIImage {
         let key = path as NSString
         
-        // Check memory cache first
+        // Check memory cache first (NSCache is thread-safe)
         if let cachedImage = cache.object(forKey: key) {
             return cachedImage
         }
         
-        // Load from disk in background
-        return try await Task.detached(priority: .userInitiated) {
+        // Check if already loading this path
+        if let existingTask = loadingTasks[path] {
+            return try await existingTask.value
+        }
+        
+        // Create new loading task
+        let task = Task<UIImage, Error> {
             guard FileManager.default.fileExists(atPath: path) else {
                 throw ThumbnailError.fileNotFound
             }
@@ -62,15 +68,26 @@ final class ThumbnailCache {
                 throw ThumbnailError.invalidImage
             }
             
-            // Cache on main actor with cost calculation
-            await MainActor.run {
-                // Calculate cost: width * height * 4 bytes per pixel
-                let cost = Int(image.size.width * image.size.height * 4)
-                self.cache.setObject(image, forKey: key, cost: cost)
-            }
+            // Calculate proper cost with scale factor
+            let pixelWidth = image.size.width * image.scale
+            let pixelHeight = image.size.height * image.scale
+            let cost = Int(pixelWidth * pixelHeight * 4) // 4 bytes per pixel (RGBA)
+            
+            cache.setObject(image, forKey: key, cost: cost)
             
             return image
-        }.value
+        }
+        
+        loadingTasks[path] = task
+        
+        do {
+            let image = try await task.value
+            loadingTasks.removeValue(forKey: path)
+            return image
+        } catch {
+            loadingTasks.removeValue(forKey: path)
+            throw error
+        }
     }
     
     /// Preload a thumbnail into cache (useful for scroll prefetching)
@@ -86,11 +103,15 @@ final class ThumbnailCache {
     func removeThumbnail(at path: String) {
         let key = path as NSString
         cache.removeObject(forKey: key)
+        loadingTasks[path]?.cancel()
+        loadingTasks.removeValue(forKey: path)
     }
     
     /// Clear all cached thumbnails
     func clearCache() {
         cache.removeAllObjects()
+        loadingTasks.values.forEach { $0.cancel() }
+        loadingTasks.removeAll()
     }
 }
 

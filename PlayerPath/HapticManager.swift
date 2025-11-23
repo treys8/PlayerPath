@@ -11,53 +11,87 @@ import UIKit
 final class HapticManager {
     static let shared = HapticManager()
     
-    private init() {}
+    // Reusable generators to reduce allocation overhead
+    private let impactLight = UIImpactFeedbackGenerator(style: .light)
+    private let impactMedium = UIImpactFeedbackGenerator(style: .medium)
+    private let impactHeavy = UIImpactFeedbackGenerator(style: .heavy)
+    private let notification = UINotificationFeedbackGenerator()
+    private let selection = UISelectionFeedbackGenerator()
+    
+    private init() {
+        // Prepare generators on initialization for better performance
+        impactLight.prepare()
+        impactMedium.prepare()
+        impactHeavy.prepare()
+        notification.prepare()
+        selection.prepare()
+    }
     
     func authenticationSuccess() {
-        let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
-        impactFeedback.impactOccurred()
+        impactMedium.impactOccurred()
+        impactMedium.prepare() // Re-prepare after use
     }
     
     func authenticationError() {
-        let notificationFeedback = UINotificationFeedbackGenerator()
-        notificationFeedback.notificationOccurred(.error)
+        notification.notificationOccurred(.error)
+        notification.prepare()
     }
     
     func buttonTap() {
-        let impactFeedback = UIImpactFeedbackGenerator(style: .light)
-        impactFeedback.impactOccurred()
+        impactLight.impactOccurred()
+        impactLight.prepare()
     }
     
     func successAction() {
-        let notificationFeedback = UINotificationFeedbackGenerator()
-        notificationFeedback.notificationOccurred(.success)
+        notification.notificationOccurred(.success)
+        notification.prepare()
     }
     
     // Additional haptic methods
     func success() {
-        let notificationFeedback = UINotificationFeedbackGenerator()
-        notificationFeedback.notificationOccurred(.success)
+        notification.notificationOccurred(.success)
+        notification.prepare()
     }
     
     func error() {
-        let notificationFeedback = UINotificationFeedbackGenerator()
-        notificationFeedback.notificationOccurred(.error)
+        notification.notificationOccurred(.error)
+        notification.prepare()
     }
     
     func warning() {
-        let notificationFeedback = UINotificationFeedbackGenerator()
-        notificationFeedback.notificationOccurred(.warning)
+        notification.notificationOccurred(.warning)
+        notification.prepare()
     }
     
     func selectionChanged() {
-        let selectionFeedback = UISelectionFeedbackGenerator()
-        selectionFeedback.selectionChanged()
+        selection.selectionChanged()
+        selection.prepare()
     }
     
     func impact(style: UIImpactFeedbackGenerator.FeedbackStyle = .medium) {
-        let impactFeedback = UIImpactFeedbackGenerator(style: style)
-        impactFeedback.impactOccurred()
+        switch style {
+        case .light:
+            impactLight.impactOccurred()
+            impactLight.prepare()
+        case .medium:
+            impactMedium.impactOccurred()
+            impactMedium.prepare()
+        case .heavy:
+            impactHeavy.impactOccurred()
+            impactHeavy.prepare()
+        case .soft:
+            // For soft and rigid, create on-demand since they're less common
+            let generator = UIImpactFeedbackGenerator(style: style)
+            generator.prepare()
+            generator.impactOccurred()
+        case .rigid:
+            let generator = UIImpactFeedbackGenerator(style: style)
+            generator.prepare()
+            generator.impactOccurred()
+        @unknown default:
+            impactMedium.impactOccurred()
+            impactMedium.prepare()
+        }
     }
 }
-
 

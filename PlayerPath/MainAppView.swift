@@ -397,8 +397,8 @@ struct ComprehensiveSignInView: View {
     @State private var password = ""
     @State private var displayName = ""
     @State private var showingForgotPassword = false
+    @State private var showingResetPasswordSheet = false
     @State private var selectedRole: UserRole = .athlete
-    @State private var authTask: Task<Void, Never>?
     
     var body: some View {
         NavigationStack {
@@ -589,7 +589,7 @@ struct ComprehensiveSignInView: View {
                     
                     if !isSignUpMode {
                         Button("Forgot Password?") {
-                            showingForgotPassword = true
+                            showingResetPasswordSheet = true
                         }
                         .foregroundColor(.gray)
                     }
@@ -608,7 +608,7 @@ struct ComprehensiveSignInView: View {
                             Spacer()
                             
                             Button("Dismiss") {
-                                authManager.errorMessage = nil
+                                authManager.clearError()
                             }
                             .font(.caption2)
                             .foregroundColor(.red)
@@ -639,37 +639,24 @@ struct ComprehensiveSignInView: View {
                 }
             }
         }
-        .alert("Reset Password", isPresented: $showingForgotPassword) {
-            TextField("Email", text: $email)
-            Button("Send Reset Email") {
-                Task {
-                    await authManager.resetPassword(email: email)
-                }
-            }
-            Button("Cancel", role: .cancel) { }
-        } message: {
-            Text("Enter your email address to receive a password reset link.")
+        .sheet(isPresented: $showingResetPasswordSheet) {
+            ResetPasswordSheet(email: $email)
         }
         // Auto-dismiss on successful authentication
         .onChange(of: authManager.isSignedIn) { _, isSignedIn in
             if isSignedIn {
-                dismiss()
+                Task { @MainActor in
+                    dismiss()
+                }
             }
-        }
-        .onDisappear {
-            authTask?.cancel()
         }
     }
     
     private func performAuth() {
-        // Cancel any existing auth task
-        authTask?.cancel()
-        
-        authTask = Task {
+        Task {
             let normalizedEmail = email.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
             let trimmedDisplayName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
             
-            // Check for cancellation before starting
             guard !Task.isCancelled else { return }
             
             #if DEBUG
@@ -680,31 +667,37 @@ struct ComprehensiveSignInView: View {
             print("  - Role: \(selectedRole.rawValue)")
             #endif
             
-            if isSignUpMode {
-                // Use role-specific signup method
-                if selectedRole == .coach {
-                    await authManager.signUpAsCoach(
-                        email: normalizedEmail,
-                        password: password,
-                        displayName: trimmedDisplayName.isEmpty ? "Coach" : trimmedDisplayName
-                    )
+            do {
+                if isSignUpMode {
+                    if selectedRole == .coach {
+                        await authManager.signUpAsCoach(
+                            email: normalizedEmail,
+                            password: password,
+                            displayName: trimmedDisplayName.isEmpty ? "Coach" : trimmedDisplayName
+                        )
+                    } else {
+                        await authManager.signUp(
+                            email: normalizedEmail,
+                            password: password,
+                            displayName: trimmedDisplayName.isEmpty ? nil : trimmedDisplayName
+                        )
+                    }
                 } else {
-                    await authManager.signUp(
-                        email: normalizedEmail,
-                        password: password,
-                        displayName: trimmedDisplayName.isEmpty ? nil : trimmedDisplayName
-                    )
+                    await authManager.signIn(email: normalizedEmail, password: password)
                 }
-            } else {
-                await authManager.signIn(email: normalizedEmail, password: password)
-            }
-            
-            // Check if cancelled after auth completes
-            guard !Task.isCancelled else { return }
-            
-            // Add haptic feedback on successful authentication
-            if authManager.isSignedIn {
-                Haptics.light()
+                
+                guard !Task.isCancelled else { return }
+                
+                // Add haptic feedback on successful authentication
+                if authManager.isSignedIn {
+                    await MainActor.run {
+                        Haptics.light()
+                    }
+                }
+            } catch {
+                #if DEBUG
+                print("❌ Auth error: \(error.localizedDescription)")
+                #endif
             }
         }
     }
@@ -863,6 +856,100 @@ struct TrialStatusView: View {
         authManager.trialDaysRemaining > 0
             ? Color.orange.opacity(0.1)
             : Color.red.opacity(0.1)
+    }
+}
+
+// MARK: - Reset Password Sheet
+
+struct ResetPasswordSheet: View {
+    @EnvironmentObject private var authManager: ComprehensiveAuthManager
+    @Environment(\.dismiss) private var dismiss
+    @Binding var email: String
+    
+    @State private var resetEmail = ""
+    @State private var isLoading = false
+    @State private var showingSuccess = false
+    
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 24) {
+                Image(systemName: "key.fill")
+                    .font(.system(size: 60))
+                    .foregroundColor(.blue)
+                    .padding(.top, 32)
+                
+                VStack(spacing: 12) {
+                    Text("Reset Password")
+                        .font(.title2)
+                        .fontWeight(.bold)
+                    
+                    Text("Enter your email address and we'll send you a link to reset your password.")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+                }
+                
+                VStack(spacing: 16) {
+                    TextField("Email", text: $resetEmail)
+                        .textFieldStyle(.roundedBorder)
+                        .keyboardType(.emailAddress)
+                        .textContentType(.emailAddress)
+                        .textInputAutocapitalization(.never)
+                        .disableAutocorrection(true)
+                        .padding(.horizontal)
+                    
+                    Button {
+                        sendResetEmail()
+                    } label: {
+                        HStack {
+                            if isLoading {
+                                ProgressView()
+                                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                            }
+                            Text(isLoading ? "Sending..." : "Send Reset Link")
+                        }
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 50)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(resetEmail.isEmpty || isLoading)
+                    .padding(.horizontal)
+                }
+                
+                Spacer()
+            }
+            .navigationTitle("Reset Password")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+            }
+            .onAppear {
+                resetEmail = email
+            }
+            .alert("Email Sent", isPresented: $showingSuccess) {
+                Button("OK") {
+                    dismiss()
+                }
+            } message: {
+                Text("Check your email for a password reset link.")
+            }
+        }
+    }
+    
+    private func sendResetEmail() {
+        isLoading = true
+        Task {
+            await authManager.resetPassword(email: resetEmail)
+            await MainActor.run {
+                isLoading = false
+                showingSuccess = true
+            }
+        }
     }
 }
 

@@ -245,28 +245,28 @@ struct HighlightsView: View {
     }
     
     private func deleteHighlight(_ clip: VideoClip) {
-        withAnimation {
-            // Delete the video file
-            if FileManager.default.fileExists(atPath: clip.filePath) {
-                try? FileManager.default.removeItem(atPath: clip.filePath)
-                print("Deleted video file: \(clip.filePath)")
-            }
-            
-            // Delete the thumbnail file
-            if let thumbnailPath = clip.thumbnailPath {
-                do {
-                    try FileManager.default.removeItem(atPath: thumbnailPath)
-                    print("Deleted thumbnail file: \(thumbnailPath)")
-                    
-                    // Remove from cache
-                    Task { @MainActor in
-                        ThumbnailCache.shared.removeThumbnail(at: thumbnailPath)
-                    }
-                } catch {
-                    print("Failed to delete thumbnail file: \(error)")
+        // Delete the video file
+        if FileManager.default.fileExists(atPath: clip.filePath) {
+            try? FileManager.default.removeItem(atPath: clip.filePath)
+            print("Deleted video file: \(clip.filePath)")
+        }
+        
+        // Delete the thumbnail file and remove from cache
+        if let thumbnailPath = clip.thumbnailPath {
+            do {
+                try FileManager.default.removeItem(atPath: thumbnailPath)
+                print("Deleted thumbnail file: \(thumbnailPath)")
+                
+                // Remove from cache asynchronously (ThumbnailCache is an actor)
+                Task {
+                    await ThumbnailCache.shared.removeThumbnail(at: thumbnailPath)
                 }
+            } catch {
+                print("Failed to delete thumbnail file: \(error)")
             }
-            
+        }
+        
+        withAnimation {
             // Remove from athlete's video clips array
             if let athlete = athlete, var videoClips = athlete.videoClips {
                 if let index = videoClips.firstIndex(of: clip) {
@@ -393,6 +393,14 @@ struct HighlightsView: View {
             deleteHighlight(clip)
         }
         recentlyDeleted.removeAll()
+        
+        // Critical: Save the model context after deletions
+        do {
+            try modelContext.save()
+            print("Successfully finalized deletion of \(recentlyDeleted.count) highlights")
+        } catch {
+            print("Failed to save after finalizing deletes: \(error)")
+        }
     }
 }
 

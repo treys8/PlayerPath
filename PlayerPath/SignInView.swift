@@ -192,6 +192,7 @@ struct SignInView: View {
                 // Consider switching the root view or updating a tab selection here.
             })
             .environmentObject(authManager)
+            .interactiveDismissDisabled()
         }
         .fullScreenCover(isPresented: $showAthleteOnboarding) {
             AthleteOnboardingView(onFinish: {
@@ -199,6 +200,7 @@ struct SignInView: View {
                 // TODO: Route athlete users to their main experience (e.g., Home/Record/Library).
             })
             .environmentObject(authManager)
+            .interactiveDismissDisabled()
         }
         .alert("Enable \(biometricManager.biometricTypeName)?", isPresented: $showBiometricPrompt) {
             Button("Enable") {
@@ -237,12 +239,9 @@ struct SignInView: View {
         }
         .onChange(of: email) { _, newValue in
             // Remove spaces and trim whitespace from email
-            let cleaned = newValue.replacingOccurrences(of: " ", with: "")
-            if cleaned != newValue {
-                // Use async dispatch to avoid triggering onChange recursively
-                DispatchQueue.main.async {
-                    email = cleaned
-                }
+            let cleaned = newValue.replacingOccurrences(of: " ", with: "").lowercased()
+            if cleaned != newValue && focusedField == .email {
+                email = cleaned
             }
         }
         .onAppear {
@@ -256,6 +255,11 @@ struct SignInView: View {
     }
     
     // MARK: - Private Methods
+    
+    private enum AnimationTiming {
+        static let successDelay: UInt64 = 1_200_000_000 // 1.2 seconds
+        static let biometricPromptDelay: UInt64 = 1_500_000_000 // 1.5 seconds
+    }
     
     private func performAuth() {
         guard !authManager.isLoading else { return }
@@ -273,6 +277,7 @@ struct SignInView: View {
         print("🔐 Starting authentication - isSignUp: \(isSignUp), role: \(selectedRole.rawValue)")
         
         authTask = Task {
+            defer { authTask = nil }
             // Check for cancellation early
             guard !Task.isCancelled else { return }
             
@@ -325,7 +330,7 @@ struct SignInView: View {
                     // Prefer the role from the authenticated profile if present; fallback to the selected role
                     let effectiveRole: UserRole = authManager.userProfile?.userRole ?? authManager.userRole
                     // Small delay so the success animation is perceived
-                    try? await Task.sleep(nanoseconds: 1_200_000_000) // 1.2 seconds
+                    try? await Task.sleep(nanoseconds: AnimationTiming.successDelay)
                     
                     // Check cancellation after sleep
                     guard !Task.isCancelled else { return }
@@ -344,7 +349,7 @@ struct SignInView: View {
                 // Offer biometric enrollment for new sign-ins (not sign-ups)
                 if !isSignUp && biometricManager.isBiometricAvailable && !biometricManager.isBiometricEnabled {
                     // Small delay so user sees success first
-                    try? await Task.sleep(nanoseconds: 1_500_000_000) // 1.5 seconds
+                    try? await Task.sleep(nanoseconds: AnimationTiming.biometricPromptDelay)
                     
                     // Check cancellation after sleep
                     guard !Task.isCancelled else { return }
@@ -373,6 +378,7 @@ struct SignInView: View {
         biometricTask?.cancel()
         
         biometricTask = Task {
+            defer { biometricTask = nil }
             guard !Task.isCancelled else { return }
             
             if let credentials = await biometricManager.getBiometricCredentials() {
@@ -525,6 +531,7 @@ private struct AuthenticationFormSection: View {
                 ValidationFeedbackView(
                     result: FormValidator.shared.validateEmail(email)
                 )
+                .animation(.easeInOut(duration: 0.2), value: email)
             }
             
             HStack {

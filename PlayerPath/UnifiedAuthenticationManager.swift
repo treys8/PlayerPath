@@ -32,12 +32,15 @@ final class UnifiedAuthenticationManager: ObservableObject {
     // MARK: - Private State
     private var modelContext: ModelContext?
     private var authStateListener: AuthStateDidChangeListenerHandle?
+    private var loadUserTask: Task<Void, Never>?
+    private var pendingLoad = false
     
     init() {
         startAuthStateListener()
     }
     
     deinit {
+        loadUserTask?.cancel()
         if let listener = authStateListener {
             Auth.auth().removeStateDidChangeListener(listener)
         }
@@ -46,12 +49,18 @@ final class UnifiedAuthenticationManager: ObservableObject {
     // MARK: - Setup
     
     func setup(context: ModelContext) {
+        loadUserTask?.cancel()
         self.modelContext = context
         
-        // Load user if already authenticated
-        if isAuthenticated {
-            Task { 
-                await loadUser() 
+        // If we're already authenticated and a load was pending before context arrived, perform it now
+        if isAuthenticated && pendingLoad {
+            pendingLoad = false
+            loadUserTask = Task {
+                await loadUser(usingEmail: Auth.auth().currentUser?.email)
+            }
+        } else if let _ = Auth.auth().currentUser {
+            loadUserTask = Task {
+                await loadUser(usingEmail: Auth.auth().currentUser?.email)
             }
         }
     }
@@ -72,12 +81,21 @@ final class UnifiedAuthenticationManager: ObservableObject {
     }
     
     private func updateAuthState(_ user: FirebaseAuth.User?) async {
+        loadUserTask?.cancel()
         currentFirebaseUser = user
         isAuthenticated = user != nil
         errorMessage = nil
         
-        if user != nil {
-            await loadUser()
+        if let user = user {
+            // If context is not ready yet, mark pending and return
+            guard modelContext != nil else {
+                pendingLoad = true
+                return
+            }
+            let email = user.email
+            loadUserTask = Task {
+                await loadUser(usingEmail: email)
+            }
         } else {
             currentUser = nil
         }
@@ -85,16 +103,22 @@ final class UnifiedAuthenticationManager: ObservableObject {
     
     // MARK: - User Management
     
-    private func loadUser() async {
-        guard let firebaseUser = Auth.auth().currentUser,
-              let email = firebaseUser.email,
-              let context = modelContext else {
-            debugLog("loadUser: Missing firebaseUser, email, or modelContext")
+    private func loadUser(usingEmail emailParam: String?) async {
+        if Task.isCancelled { return }
+        
+        let firebaseUser = Auth.auth().currentUser
+        let context = modelContext
+        let rawEmail = emailParam ?? firebaseUser?.email
+        
+        guard let emailRaw = rawEmail, let context else {
+            debugLog("loadUser: Missing firebaseUser email or modelContext")
             return
         }
         
-        debugLog("loadUser: Looking for user with email: '\(email)'")
+        let lowercasedEmail = emailRaw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        debugLog("loadUser: Looking for user with email: '\(lowercasedEmail)'")
         isLoading = true
+        defer { isLoading = false }
         
         do {
             // First, let's see ALL users in the database for debugging
@@ -105,19 +129,19 @@ final class UnifiedAuthenticationManager: ObservableObject {
                 debugLog("loadUser: Existing user - Email: '\(user.email)', Athletes: \((user.athletes ?? []).count)")
             }
             
-            // Now try to find user by email with case-insensitive match
-            // Since lowercased() isn't supported in predicates, we'll fetch all users
-            // and find the match manually
-            let descriptor = FetchDescriptor<User>()
+            // Find user by lowercased email
+            let descriptor = FetchDescriptor<User>(
+                predicate: #Predicate<User> { user in
+                    user.email == lowercasedEmail
+                }
+            )
             
             let users = try context.fetch(descriptor)
-            let matchingUser = users.first { user in
-                user.email.lowercased() == email.lowercased()
-            }
+            let existingUser = users.first
             
-            debugLog("loadUser: Found matching user: \(matchingUser?.email ?? "none")")
+            debugLog("loadUser: Found matching user: \(existingUser?.email ?? "none")")
             
-            if let existingUser = matchingUser {
+            if let existingUser = existingUser {
                 debugLog("loadUser: Loading existing user with \((existingUser.athletes ?? []).count) athletes")
                 currentUser = existingUser
                 
@@ -144,63 +168,66 @@ final class UnifiedAuthenticationManager: ObservableObject {
                     debugLog("loadUser: Athlete '\(athlete.name)' has user: \(athlete.user?.email ?? "nil")")
                 }
                 
-                // Create new user
+                // Create new user with lowercased email
                 let newUser = User(
-                    username: firebaseUser.displayName ?? email,
-                    email: email
+                    username: (firebaseUser?.displayName?.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap { $0.isEmpty ? nil : $0 } ?? lowercasedEmail,
+                    email: lowercasedEmail
                 )
                 
                 // Associate orphaned athletes with the new user
+                // SwiftData handles inverse relationships automatically
                 for athlete in orphanedAthletes {
                     debugLog("loadUser: Associating athlete '\(athlete.name)' with new user")
                     athlete.user = newUser
-                    if newUser.athletes == nil {
-                        newUser.athletes = []
+                    if var list = newUser.athletes {
+                        list.append(athlete)
+                        newUser.athletes = list
                     }
-                    newUser.athletes?.append(athlete)
                 }
                 
                 context.insert(newUser)
                 try context.save()
                 currentUser = newUser
                 
-                debugLog("loadUser: Created new user '\(email)' with \((newUser.athletes ?? []).count) athletes")
+                debugLog("loadUser: Created new user '\(lowercasedEmail)' with \((newUser.athletes ?? []).count) athletes")
             }
         } catch {
             debugLog("loadUser: Failed to load/create user: \(error)")
             errorMessage = AuthError.fromSwiftDataError(error).userMessage
         }
-        
-        isLoading = false
     }
     
     // MARK: - Authentication Methods
     
     func signIn(email: String, password: String) async {
-        guard Validators.isValidEmail(email) else {
+        let normalizedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        
+        guard Validators.isValidEmail(normalizedEmail) else {
             errorMessage = AuthError.invalidEmail.userMessage
             return
         }
         await performAuthAction {
-            let result = try await Auth.auth().signIn(withEmail: email, password: password)
+            let result = try await Auth.auth().signIn(withEmail: normalizedEmail, password: password)
             return result.user
         }
     }
     
     func signUp(email: String, password: String, displayName: String? = nil) async {
-        guard Validators.isValidEmail(email) else {
+        let normalizedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        
+        guard Validators.isValidEmail(normalizedEmail) else {
             errorMessage = AuthError.invalidEmail.userMessage
             return
         }
+        
         guard Validators.isStrongPassword(password) else {
             errorMessage = AuthError.weakPassword.userMessage
             return
         }
         await performAuthAction {
-            let result = try await Auth.auth().createUser(withEmail: email, password: password)
+            let result = try await Auth.auth().createUser(withEmail: normalizedEmail, password: password)
             
-            // Set display name if provided
-            if let displayName = displayName, !displayName.isEmpty {
+            if let displayName = displayName?.trimmingCharacters(in: .whitespacesAndNewlines), !displayName.isEmpty {
                 let changeRequest = result.user.createProfileChangeRequest()
                 changeRequest.displayName = displayName
                 try await changeRequest.commitChanges()
@@ -223,23 +250,23 @@ final class UnifiedAuthenticationManager: ObservableObject {
     }
     
     func sendPasswordReset(email: String) async {
+        let normalizedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        
         // Early validate email format to avoid unnecessary network calls
-        guard Validators.isValidEmail(email) else {
+        guard Validators.isValidEmail(normalizedEmail) else {
             errorMessage = AuthError.invalidEmail.userMessage
-            isLoading = false
             return
         }
         
         isLoading = true
         errorMessage = nil
+        defer { isLoading = false }
         
         do {
-            try await Auth.auth().sendPasswordReset(withEmail: email)
+            try await Auth.auth().sendPasswordReset(withEmail: normalizedEmail)
         } catch {
             errorMessage = AuthError.fromFirebaseError(error).userMessage
         }
-        
-        isLoading = false
     }
     
     // MARK: - Private Helpers
@@ -249,6 +276,7 @@ final class UnifiedAuthenticationManager: ObservableObject {
         errorMessage = nil
         defer { isLoading = false }
         do {
+            if Task.isCancelled { return }
             _ = try await action()
             // Auth state will be updated automatically via listener
         } catch {

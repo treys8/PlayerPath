@@ -17,6 +17,7 @@ class ProfileImageManager {
     
     private let log = Logger(subsystem: "com.playerpath.app", category: "ProfileImageManager")
     private let cache = NSCache<NSString, UIImage>()
+    private let fileQueue = DispatchQueue(label: "com.playerpath.profileimage", qos: .userInitiated)
     
     // Directory for storing profile images
     private var profileImagesDirectory: URL {
@@ -34,62 +35,99 @@ class ProfileImageManager {
     
     private func normalizedImage(_ image: UIImage) -> UIImage {
         if image.imageOrientation == .up { return image }
-        UIGraphicsBeginImageContextWithOptions(image.size, false, image.scale)
-        image.draw(in: CGRect(origin: .zero, size: image.size))
-        let normalized = UIGraphicsGetImageFromCurrentImageContext()
-        UIGraphicsEndImageContext()
-        return normalized ?? image
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = image.scale
+        let renderer = UIGraphicsImageRenderer(size: image.size, format: format)
+        return renderer.image { _ in
+            image.draw(in: CGRect(origin: .zero, size: image.size))
+        }
     }
     
     // Save profile image and return file path
-    func saveProfileImage(_ image: UIImage, for userID: UUID) -> String? {
-        guard let imageData = normalizedImage(image).jpegData(compressionQuality: 0.8) else {
-            log.error("Failed to convert image to JPEG data")
-            return nil
-        }
-        let fileName = "\(userID.uuidString)_profile.jpg"
-        let targetURL = profileImagesDirectory.appendingPathComponent(fileName)
-        let tempURL = profileImagesDirectory.appendingPathComponent(UUID().uuidString + ".tmp")
-        do {
-            try imageData.write(to: tempURL, options: .atomic)
-            if FileManager.default.fileExists(atPath: targetURL.path) {
-                try FileManager.default.removeItem(at: targetURL)
+    func saveProfileImage(_ image: UIImage, for userID: UUID) async -> String? {
+        return await withCheckedContinuation { continuation in
+            fileQueue.async { [weak self] in
+                guard let self = self else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                
+                guard let imageData = self.normalizedImage(image).jpegData(compressionQuality: 0.8) else {
+                    self.log.error("Failed to convert image to JPEG data")
+                    continuation.resume(returning: nil)
+                    return
+                }
+                
+                let fileName = "\(userID.uuidString)_profile.jpg"
+                let targetURL = self.profileImagesDirectory.appendingPathComponent(fileName)
+                let tempURL = self.profileImagesDirectory.appendingPathComponent(UUID().uuidString + ".tmp")
+                
+                do {
+                    try imageData.write(to: tempURL, options: .atomic)
+                    if FileManager.default.fileExists(atPath: targetURL.path) {
+                        try FileManager.default.removeItem(at: targetURL)
+                    }
+                    try FileManager.default.moveItem(at: tempURL, to: targetURL)
+                    self.log.debug("Profile image saved to: \(targetURL.path)")
+                    
+                    // Update cache
+                    if let img = UIImage(contentsOfFile: targetURL.path) {
+                        self.cache.setObject(img, forKey: targetURL.path as NSString)
+                    }
+                    
+                    continuation.resume(returning: targetURL.path)
+                } catch {
+                    self.log.error("Failed to save profile image: \(error.localizedDescription)")
+                    try? FileManager.default.removeItem(at: tempURL)
+                    continuation.resume(returning: nil)
+                }
             }
-            try FileManager.default.moveItem(at: tempURL, to: targetURL)
-            log.debug("Profile image saved to: \(targetURL.path)")
-            // Update cache
-            if let img = UIImage(contentsOfFile: targetURL.path) {
-                cache.setObject(img, forKey: targetURL.path as NSString)
-            }
-            return targetURL.path
-        } catch {
-            log.error("Failed to save profile image: \(error.localizedDescription)")
-            try? FileManager.default.removeItem(at: tempURL)
-            return nil
         }
     }
     
     // Load profile image from file path
-    func loadProfileImage(from path: String?) -> UIImage? {
+    func loadProfileImage(from path: String?) async -> UIImage? {
         guard let path = path, !path.isEmpty else { return nil }
-        if let cached = cache.object(forKey: path as NSString) { return cached }
-        if FileManager.default.fileExists(atPath: path), let image = UIImage(contentsOfFile: path) {
-            cache.setObject(image, forKey: path as NSString)
-            return image
+        
+        // Check cache first (cache is thread-safe)
+        if let cached = cache.object(forKey: path as NSString) {
+            return cached
         }
-        return nil
+        
+        // Load from disk on background queue
+        return await withCheckedContinuation { continuation in
+            fileQueue.async { [weak self] in
+                guard let self = self else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                
+                if FileManager.default.fileExists(atPath: path),
+                   let image = UIImage(contentsOfFile: path) {
+                    self.cache.setObject(image, forKey: path as NSString)
+                    continuation.resume(returning: image)
+                } else {
+                    continuation.resume(returning: nil)
+                }
+            }
+        }
     }
     
     // Delete profile image file
     func deleteProfileImage(at path: String?) {
         guard let path = path, !path.isEmpty else { return }
-        if FileManager.default.fileExists(atPath: path) {
-            do {
-                try FileManager.default.removeItem(atPath: path)
-                cache.removeObject(forKey: path as NSString)
-                log.debug("Deleted profile image at: \(path)")
-            } catch {
-                log.error("Failed to delete profile image: \(error.localizedDescription)")
+        
+        fileQueue.async { [weak self] in
+            guard let self = self else { return }
+            
+            if FileManager.default.fileExists(atPath: path) {
+                do {
+                    try FileManager.default.removeItem(atPath: path)
+                    self.cache.removeObject(forKey: path as NSString)
+                    self.log.debug("Deleted profile image at: \(path)")
+                } catch {
+                    self.log.error("Failed to delete profile image: \(error.localizedDescription)")
+                }
             }
         }
     }
@@ -102,28 +140,14 @@ class ProfileImageManager {
             ? max(size.width / image.size.width, size.height / image.size.height)
             : min(size.width / image.size.width, size.height / image.size.height)
         let newSize = CGSize(width: image.size.width * scale, height: image.size.height * scale)
-        let renderer = UIGraphicsImageRenderer(size: size)
+        
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = image.scale
+        let renderer = UIGraphicsImageRenderer(size: size, format: format)
+        
         return renderer.image { _ in
             let origin = CGPoint(x: (size.width - newSize.width) / 2, y: (size.height - newSize.height) / 2)
             image.draw(in: CGRect(origin: origin, size: newSize))
-        }
-    }
-    
-    func saveProfileImageAsync(_ image: UIImage, for userID: UUID) async -> String? {
-        await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                let path = self.saveProfileImage(image, for: userID)
-                continuation.resume(returning: path)
-            }
-        }
-    }
-    
-    func loadProfileImageAsync(from path: String?) async -> UIImage? {
-        await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                let image = self.loadProfileImage(from: path)
-                continuation.resume(returning: image)
-            }
         }
     }
 }
@@ -188,19 +212,10 @@ struct ProfileImageView: View {
         isLoading = true
         
         Task {
-            let image = await ProfileImageManager.shared.loadProfileImageAsync(from: user.profileImagePath)
+            let image = await ProfileImageManager.shared.loadProfileImage(from: user.profileImagePath)
             await MainActor.run {
                 profileImage = image
                 isLoading = false
-            }
-        }
-    }
-    
-    private func loadImageAsync() async -> UIImage? {
-        return await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                let image = ProfileImageManager.shared.loadProfileImage(from: user.profileImagePath)
-                continuation.resume(returning: image)
             }
         }
     }
@@ -209,7 +224,7 @@ struct ProfileImageView: View {
 struct EditableProfileImageView: View {
     let user: User
     let size: CGFloat
-    let onImageUpdated: () -> Void
+    let onImageUpdated: (String?) -> Void  // Returns new path or nil on removal
     
     @State private var profileImage: UIImage?
     @State private var showingImagePicker = false
@@ -217,7 +232,7 @@ struct EditableProfileImageView: View {
     @State private var imageSourceType: UIImagePickerController.SourceType = .photoLibrary
     @State private var isLoading = false
     
-    init(user: User, size: CGFloat = 100, onImageUpdated: @escaping () -> Void = {}) {
+    init(user: User, size: CGFloat = 100, onImageUpdated: @escaping (String?) -> Void) {
         self.user = user
         self.size = size
         self.onImageUpdated = onImageUpdated
@@ -312,19 +327,10 @@ struct EditableProfileImageView: View {
         isLoading = true
         
         Task {
-            let image = await ProfileImageManager.shared.loadProfileImageAsync(from: user.profileImagePath)
+            let image = await ProfileImageManager.shared.loadProfileImage(from: user.profileImagePath)
             await MainActor.run {
                 profileImage = image
                 isLoading = false
-            }
-        }
-    }
-    
-    private func loadImageAsync() async -> UIImage? {
-        return await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                let image = ProfileImageManager.shared.loadProfileImage(from: user.profileImagePath)
-                continuation.resume(returning: image)
             }
         }
     }
@@ -339,18 +345,18 @@ struct EditableProfileImageView: View {
             }
             
             // Resize image for better performance
-            let resizedImage = ProfileImageManager.shared.resizeImage(image, to: CGSize(width: 300, height: 300))
+            let resizedImage = ProfileImageManager.shared.resizeImage(
+                image,
+                to: CGSize(width: 300, height: 300)
+            )
             
-            // Save new image asynchronously
-            if let newPath = await ProfileImageManager.shared.saveProfileImageAsync(resizedImage, for: user.id) {
-                await MainActor.run {
-                    user.profileImagePath = newPath
-                    profileImage = resizedImage
-                    isLoading = false
-                    onImageUpdated()
-                }
-            } else {
-                await MainActor.run { isLoading = false }
+            // Save new image
+            let newPath = await ProfileImageManager.shared.saveProfileImage(resizedImage, for: user.id)
+            
+            await MainActor.run {
+                profileImage = resizedImage
+                isLoading = false
+                onImageUpdated(newPath)  // Let caller update SwiftData model
             }
         }
     }
@@ -358,9 +364,8 @@ struct EditableProfileImageView: View {
     private func removeProfileImage() {
         if let path = user.profileImagePath {
             ProfileImageManager.shared.deleteProfileImage(at: path)
-            user.profileImagePath = nil
             profileImage = nil
-            onImageUpdated()
+            onImageUpdated(nil)  // Let caller update SwiftData model
         }
     }
 }

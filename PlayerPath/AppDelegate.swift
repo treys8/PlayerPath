@@ -16,7 +16,7 @@ class PlayerPathAppDelegate: NSObject, UIApplicationDelegate {
     
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         
-        // Configure Firebase when the app starts
+        // Configure Firebase when the app starts (thread-safe with dispatch_once internally)
         if FirebaseApp.app() == nil {
             appLog.info("Configuring Firebase on launch")
             FirebaseApp.configure()
@@ -45,13 +45,15 @@ class PlayerPathAppDelegate: NSObject, UIApplicationDelegate {
     
     private func setupPushNotifications(_ application: UIApplication) {
         // Request notification permissions on app launch and register for remote notifications on grant
-        Task {
-            let granted = await PushNotificationService.shared.requestAuthorization()
-            appLog.info("Push authorization granted: \(granted, privacy: .public)")
-            if granted {
-                await MainActor.run {
+        Task { @MainActor in
+            do {
+                let granted = await PushNotificationService.shared.requestAuthorization()
+                appLog.info("Push authorization granted: \(granted, privacy: .public)")
+                if granted {
                     application.registerForRemoteNotifications()
                 }
+            } catch {
+                appLog.error("Failed to setup push notifications: \(error.localizedDescription)")
             }
         }
     }
@@ -71,66 +73,66 @@ class PlayerPathAppDelegate: NSObject, UIApplicationDelegate {
     // MARK: - Remote Notifications
     
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
-        // Forward to notification service
-        Task { @MainActor in
-            PushNotificationService.shared.didRegisterForRemoteNotifications(withDeviceToken: deviceToken)
-        }
+        // Forward to notification service (called on main thread by system)
+        PushNotificationService.shared.didRegisterForRemoteNotifications(withDeviceToken: deviceToken)
     }
     
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
-        // Forward to notification service
-        Task { @MainActor in
-            PushNotificationService.shared.didFailToRegisterForRemoteNotifications(with: error)
-        }
+        // Forward to notification service (called on main thread by system)
+        PushNotificationService.shared.didFailToRegisterForRemoteNotifications(with: error)
     }
     
     // Handle incoming push notifications when app is not running
     func application(_ application: UIApplication, didReceiveRemoteNotification userInfo: [AnyHashable : Any], fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
         
-        // Process the notification and then call completion handler with a meaningful result
+        // System gives 30 seconds max - use 25 second timeout with 5 second buffer
         Task {
-            // Await any CloudKit processing; ignore return value if it's Void
-            _ = await CloudKitManager.shared.handleRemoteNotification(userInfo)
-            let handled = handleRemoteNotification(userInfo: userInfo)
+            let handled = await withTaskGroup(of: Bool.self, returning: Bool.self) { group in
+                // Task 1: Process the notification
+                group.addTask {
+                    await CloudKitManager.shared.handleRemoteNotification(userInfo)
+                    return self.handleRemoteNotification(userInfo: userInfo)
+                }
+                
+                // Task 2: Timeout protection (25 seconds)
+                group.addTask {
+                    try? await Task.sleep(for: .seconds(25))
+                    appLog.warning("Remote notification processing timed out after 25 seconds")
+                    return false
+                }
+                
+                // Return result from whichever completes first
+                let result = await group.next() ?? false
+                group.cancelAll()
+                return result
+            }
+            
             completionHandler(handled ? .newData : .noData)
         }
     }
     
     @discardableResult private func handleRemoteNotification(userInfo: [AnyHashable: Any]) -> Bool {
-        var handled = false
         // Handle different types of remote notifications
         if let typeString = userInfo[RemoteNotificationKey.type] as? String,
            let type = RemoteNotificationType(rawValue: typeString) {
+            appLog.info("Handling remote notification type: \(type.rawValue, privacy: .public)")
             switch type {
-            case .performanceInsights:
-                handled = true
-            case .gameReminder:
-                handled = true
-            case .practiceReminder:
-                handled = true
+            case .performanceInsights, .gameReminder, .practiceReminder:
+                return true
             }
         } else if let unknown = userInfo[RemoteNotificationKey.type] {
             appLog.info("Unknown remote notification type: \(String(describing: unknown), privacy: .public)")
         } else {
             appLog.info("Remote notification missing 'type' key")
         }
-        return handled
+        return false
     }
     
     // MARK: - Background Processing
     
-    func application(_ application: UIApplication, performFetchWithCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
-        // Perform background refresh tasks
-        Task {
-            await performBackgroundRefresh()
-            completionHandler(.newData)
-        }
-    }
-    
-    private func performBackgroundRefresh() async {
-        // Background refresh tasks can be added here later
-        // For now, just a placeholder for future functionality
-    }
+    // Note: application(_:performFetchWithCompletionHandler:) was deprecated in iOS 13
+    // For background refresh, migrate to BGAppRefreshTask with BGTaskScheduler
+    // See registerBackgroundTasks() method below for setup
 }
 
 // MARK: - Scene Configuration
@@ -156,6 +158,26 @@ extension PlayerPathAppDelegate {
         }
     }
     
+    func sceneDidBecomeActive(_ scene: UIScene) {
+        // Called when scene transitions from background/inactive to active
+        // Resume any paused tasks or refresh UI if needed
+    }
+    
+    func sceneWillResignActive(_ scene: UIScene) {
+        // Called when scene is about to transition from active to inactive
+        // Pause ongoing tasks, disable timers, etc.
+    }
+    
+    func sceneDidEnterBackground(_ scene: UIScene) {
+        // Called when scene enters background
+        // Save data, release shared resources, store enough state information
+    }
+    
+    func sceneWillEnterForeground(_ scene: UIScene) {
+        // Called when scene is about to enter foreground
+        // Undo changes made on entering background
+    }
+    
     func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
         // Handle URL schemes if needed for deep linking
         for context in URLContexts {
@@ -170,16 +192,15 @@ extension PlayerPathAppDelegate {
         // Process notification launch
         appLog.info("App launched from notification: \(actionIdentifier, privacy: .public)")
         
-        // You can post notifications to coordinate with your SwiftUI views
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-            switch actionIdentifier {
-            case "VIEW_STATS":
-                if let athleteId = userInfo["athleteId"] as? String {
-                    NotificationCenter.default.post(name: .navigateToStatistics, object: athleteId)
-                }
-            default:
-                break
+        // Post notification for SwiftUI views to handle
+        // Note: Use proper coordinator or deep link handler in production
+        switch actionIdentifier {
+        case "VIEW_STATS":
+            if let athleteId = userInfo["athleteId"] as? String {
+                NotificationCenter.default.post(name: .navigateToStatistics, object: athleteId)
             }
+        default:
+            break
         }
     }
     
@@ -197,17 +218,12 @@ extension PlayerPathAppDelegate {
 extension PlayerPathAppDelegate {
     
     func registerBackgroundTasks() {
-        // Background tasks can be registered here for future functionality
-        // This would be called during app initialization
-        
-        /*
-        BGTaskScheduler.shared.register(forTaskWithIdentifier: "com.playerpath.data-sync", using: nil) { task in
-            self.handleDataSyncBackgroundTask(task as! BGProcessingTask)
-        }
-        */
+        // Background tasks registration removed - not currently used
+        // If needed in future, implement BGTaskScheduler with proper identifiers in Info.plist
     }
     
     /*
+    // Removed - not currently implemented
     private func handleDataSyncBackgroundTask(_ task: BGProcessingTask) {
         // Handle data synchronization in background
         let operation = DataSyncOperation()

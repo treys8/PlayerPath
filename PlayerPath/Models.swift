@@ -56,6 +56,7 @@ final class User {
         self.username = username
         self.email = email
         self.athletes = []
+        self.createdAt = Date()
     }
 }
 
@@ -92,6 +93,7 @@ final class Athlete {
         self.games = []
         self.practices = []
         self.videoClips = []
+        self.createdAt = Date()
     }
 }
 
@@ -191,6 +193,7 @@ final class Season {
         self.practices = []
         self.videoClips = []
         self.tournaments = []
+        self.createdAt = Date()
     }
     
     /// End this season and archive it
@@ -199,28 +202,29 @@ final class Season {
         self.isActive = false
         
         // Calculate and save season statistics
+        let stats = seasonStatistics ?? AthleteStatistics()
         if seasonStatistics == nil {
-            seasonStatistics = AthleteStatistics()
+            seasonStatistics = stats
         }
         
         // Aggregate all game stats into season stats
         for game in (games ?? []) where game.isComplete {
             if let gameStats = game.gameStats {
-                seasonStatistics?.singles += gameStats.singles
-                seasonStatistics?.doubles += gameStats.doubles
-                seasonStatistics?.triples += gameStats.triples
-                seasonStatistics?.homeRuns += gameStats.homeRuns
-                seasonStatistics?.runs += gameStats.runs
-                seasonStatistics?.rbis += gameStats.rbis
-                seasonStatistics?.walks += gameStats.walks
-                seasonStatistics?.strikeouts += gameStats.strikeouts
-                seasonStatistics?.atBats += gameStats.atBats
-                seasonStatistics?.hits += gameStats.hits
+                stats.singles += gameStats.singles
+                stats.doubles += gameStats.doubles
+                stats.triples += gameStats.triples
+                stats.homeRuns += gameStats.homeRuns
+                stats.runs += gameStats.runs
+                stats.rbis += gameStats.rbis
+                stats.walks += gameStats.walks
+                stats.strikeouts += gameStats.strikeouts
+                stats.atBats += gameStats.atBats
+                stats.hits += gameStats.hits
             }
         }
         
-        seasonStatistics?.totalGames = totalGames
-        seasonStatistics?.updatedAt = Date()
+        stats.totalGames = totalGames
+        stats.updatedAt = Date()
     }
     
     /// Activate this season (deactivates other seasons for this athlete)
@@ -264,6 +268,7 @@ final class Tournament {
         self.info = info
         self.athletes = []
         self.games = []
+        self.createdAt = Date()
     }
 }
 
@@ -286,6 +291,7 @@ final class Game {
         self.date = date
         self.opponent = opponent
         self.videoClips = []
+        self.createdAt = Date()
     }
 }
 
@@ -305,6 +311,7 @@ final class Practice {
         self.date = date
         self.videoClips = []
         self.notes = []
+        self.createdAt = Date()
     }
 }
 
@@ -318,6 +325,7 @@ final class PracticeNote {
     init(content: String) {
         self.id = UUID()
         self.content = content
+        self.createdAt = Date()
     }
 }
 
@@ -343,6 +351,7 @@ final class VideoClip {
         self.id = UUID()
         self.fileName = fileName
         self.filePath = filePath
+        self.createdAt = Date()
     }
     
     // Computed properties for sync status
@@ -371,6 +380,17 @@ enum PlayResultType: Int, CaseIterable, Codable {
             return true
         default:
             return false
+        }
+    }
+    
+    /// Determines if this result counts as an official at-bat
+    /// Baseball rules: Walks, HBP, sac flies, and sac bunts do NOT count as at-bats
+    var countsAsAtBat: Bool {
+        switch self {
+        case .walk:
+            return false // Walks don't count as at-bats
+        case .single, .double, .triple, .homeRun, .strikeout, .groundOut, .flyOut:
+            return true // Hits and outs count as at-bats
         }
     }
     
@@ -417,6 +437,7 @@ final class PlayResult {
     init(type: PlayResultType) {
         self.id = UUID()
         self.type = type
+        self.createdAt = Date()
     }
 }
 
@@ -457,36 +478,36 @@ final class AthleteStatistics {
     
     init() {
         self.id = UUID()
+        self.updatedAt = Date()
     }
     
     func addPlayResult(_ playResult: PlayResultType) {
+        // Update at-bats (only if this result counts as an at-bat)
+        if playResult.countsAsAtBat {
+            self.atBats += 1
+        }
+        
+        // Update specific result counts
         switch playResult {
         case .single:
-            self.atBats += 1
             self.hits += 1
             self.singles += 1
         case .double:
-            self.atBats += 1
             self.hits += 1
             self.doubles += 1
         case .triple:
-            self.atBats += 1
             self.hits += 1
             self.triples += 1
         case .homeRun:
-            self.atBats += 1
             self.hits += 1
             self.homeRuns += 1
         case .walk:
             self.walks += 1
         case .strikeout:
-            self.atBats += 1
             self.strikeouts += 1
         case .groundOut:
-            self.atBats += 1
             self.groundOuts += 1
         case .flyOut:
-            self.atBats += 1
             self.flyOuts += 1
         }
         self.updatedAt = Date()
@@ -537,37 +558,39 @@ final class GameStatistics {
     
     init() {
         self.id = UUID()
+        self.createdAt = Date()
     }
     
     func addPlayResult(_ playResult: PlayResultType) {
+        // Update at-bats (only if this result counts as an at-bat)
+        if playResult.countsAsAtBat {
+            self.atBats += 1
+        }
+        
+        // Update specific result counts
         switch playResult {
         case .single:
-            self.atBats += 1
             self.hits += 1
             self.singles += 1
         case .double:
-            self.atBats += 1
             self.hits += 1
             self.doubles += 1
         case .triple:
-            self.atBats += 1
             self.hits += 1
             self.triples += 1
         case .homeRun:
-            self.atBats += 1
             self.hits += 1
             self.homeRuns += 1
         case .walk:
             self.walks += 1
         case .strikeout:
-            self.atBats += 1
             self.strikeouts += 1
         case .groundOut:
-            self.atBats += 1
             // Note: groundOuts are not tracked separately in GameStatistics
+            break
         case .flyOut:
-            self.atBats += 1
             // Note: flyOuts are not tracked separately in GameStatistics
+            break
         }
         print("GameStatistics: Added play result \(playResult.rawValue). New totals - Hits: \(self.hits), At Bats: \(self.atBats)")
     }
@@ -601,6 +624,7 @@ final class OnboardingProgress {
     
     init() {
         self.id = UUID()
+        self.createdAt = Date()
     }
     
     func markCompleted() {

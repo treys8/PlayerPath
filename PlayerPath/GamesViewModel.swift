@@ -80,37 +80,35 @@ final class GamesViewModel: ObservableObject {
     }
     
     func repair(allGames: [Game]) {
-        Task {
+        Task { @MainActor in
             if let athlete = self.athlete {
                 await gameService.repairConsistency(for: athlete, allGames: allGames)
             }
-            await MainActor.run {
-                recomputeSections(allGames: allGames)
-            }
+            recomputeSections(allGames: allGames)
         }
     }
     
     func create(opponent: String, date: Date, tournament: Tournament?, isLive: Bool) {
-        Task {
+        Task { @MainActor in
             guard let athlete = self.athlete else { return }
             await gameService.createGame(for: athlete, opponent: opponent, date: date, tournament: tournament, isLive: isLive)
         }
     }
     
     func start(_ game: Game) {
-        Task {
+        Task { @MainActor in
             await gameService.start(game)
         }
     }
     
     func end(_ game: Game) {
-        Task {
+        Task { @MainActor in
             await gameService.end(game)
         }
     }
     
     func deleteDeep(_ game: Game) {
-        Task {
+        Task { @MainActor in
             await gameService.deleteGameDeep(game)
         }
     }

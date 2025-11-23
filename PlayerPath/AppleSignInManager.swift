@@ -50,7 +50,9 @@ final class AppleSignInManager: NSObject, ObservableObject {
         var randomBytes = [UInt8](repeating: 0, count: length)
         let errorCode = SecRandomCopyBytes(kSecRandomDefault, randomBytes.count, &randomBytes)
         if errorCode != errSecSuccess {
-            fatalError("Unable to generate nonce. SecRandomCopyBytes failed with OSStatus \(errorCode)")
+            // Fallback to UUID-based nonce if SecRandom fails
+            print("⚠️ SecRandomCopyBytes failed with \(errorCode), using UUID fallback")
+            return UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(length).lowercased()
         }
         
         let charset: [Character] =
@@ -71,6 +73,32 @@ final class AppleSignInManager: NSObject, ObservableObject {
         }.joined()
         
         return hashString
+    }
+    
+    /// Sign in with Firebase with automatic retry for transient network errors
+    private func signInWithRetry(credential: AuthCredential, attempt: Int = 1, maxAttempts: Int = 3) async throws -> AuthDataResult {
+        do {
+            return try await Auth.auth().signIn(with: credential)
+        } catch {
+            let nsError = error as NSError
+            
+            // Retry only on transient network errors
+            let retryableErrors: Set<Int> = [
+                NSURLErrorTimedOut,
+                NSURLErrorCannotConnectToHost,
+                NSURLErrorNetworkConnectionLost,
+                NSURLErrorNotConnectedToInternet
+            ]
+            
+            if retryableErrors.contains(nsError.code) && attempt < maxAttempts {
+                let delay = pow(2.0, Double(attempt)) // Exponential backoff
+                try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                print("⚠️ Retrying Firebase sign in (attempt \(attempt + 1)/\(maxAttempts))")
+                return try await signInWithRetry(credential: credential, attempt: attempt + 1, maxAttempts: maxAttempts)
+            }
+            
+            throw error
+        }
     }
 }
 
@@ -119,8 +147,8 @@ extension AppleSignInManager: ASAuthorizationControllerDelegate {
                     fullName: appleIDCredential.fullName
                 )
                 
-                // Sign in with Firebase
-                let result = try await Auth.auth().signIn(with: credential)
+                // Sign in with Firebase (with automatic retry for transient errors)
+                let result = try await signInWithRetry(credential: credential)
                 
                 // Check if this is a new user
                 let isNewUser = result.additionalUserInfo?.isNewUser ?? false
@@ -142,12 +170,14 @@ extension AppleSignInManager: ASAuthorizationControllerDelegate {
                 await MainActor.run {
                     authManager?.updateCurrentUser(result.user, isNewUser: isNewUser)
                     isLoading = false
+                    currentNonce = nil // Clear nonce after successful use
                     print("🟢 Apple Sign In successful for: \(result.user.email ?? "unknown")")
                     HapticManager.shared.authenticationSuccess()
                 }
                 
             } catch {
                 await MainActor.run {
+                    currentNonce = nil // Clear nonce on error too
                     errorMessage = "Apple Sign In failed: \(error.localizedDescription)"
                     isLoading = false
                     print("🔴 Apple Sign In error: \(error.localizedDescription)")
@@ -158,6 +188,7 @@ extension AppleSignInManager: ASAuthorizationControllerDelegate {
     
     func authorizationController(controller: ASAuthorizationController, didCompleteWithError error: Error) {
         Task { @MainActor in
+            currentNonce = nil // Clear nonce on cancellation/error
             let authError = error as NSError
             
             // Don't show error if user cancelled
@@ -177,11 +208,30 @@ extension AppleSignInManager: ASAuthorizationControllerDelegate {
 
 extension AppleSignInManager: ASAuthorizationControllerPresentationContextProviding {
     func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
-        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-              let window = windowScene.windows.first else {
-            fatalError("No window found")
+        // Try active foreground scene first
+        if let windowScene = UIApplication.shared.connectedScenes.first(where: { $0.activationState == .foregroundActive }) as? UIWindowScene,
+           let window = windowScene.windows.first(where: { $0.isKeyWindow }) ?? windowScene.windows.first {
+            return window
         }
-        return window
+        
+        // Fallback to any scene with a window
+        for scene in UIApplication.shared.connectedScenes {
+            if let windowScene = scene as? UIWindowScene,
+               let window = windowScene.windows.first {
+                return window
+            }
+        }
+        
+        // Last resort: create a window with the first available window scene
+        // This satisfies the new iOS 26 requirement for UIWindow(windowScene:)
+        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
+            print("⚠️ Creating fallback window with scene for Apple Sign In")
+            return UIWindow(windowScene: windowScene)
+        }
+        
+        // If absolutely no window scene exists (very rare), fail gracefully
+        print("⚠️ No window scene available for Apple Sign In presentation - authentication will fail")
+        fatalError("No UIWindowScene available for Apple Sign In. This should not happen in a properly configured app.")
     }
 }
 

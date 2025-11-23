@@ -14,16 +14,17 @@ struct SeasonsView: View {
     @State private var showingCreateSeason = false
     @State private var selectedSeason: Season?
     
-    var seasons: [Season] {
-        (athlete.seasons ?? []).sorted { lhs, rhs in
+    private var seasons: [Season] {
+        // Cache this - don't recompute on every body evaluation
+        let allSeasons = athlete.seasons ?? []
+        return allSeasons.sorted { lhs, rhs in
             // Active season first
-            if lhs.isActive && !rhs.isActive { return true }
-            if !lhs.isActive && rhs.isActive { return false }
+            if lhs.isActive != rhs.isActive {
+                return lhs.isActive
+            }
             
             // Then sort by start date (most recent first)
-            let lDate = lhs.startDate ?? .distantPast
-            let rDate = rhs.startDate ?? .distantPast
-            return lDate > rDate
+            return (lhs.startDate ?? .distantPast) > (rhs.startDate ?? .distantPast)
         }
     }
     
@@ -116,7 +117,6 @@ struct SeasonsView: View {
             }
             .navigationTitle("Seasons")
             .navigationBarTitleDisplayMode(.large)
-            .navigationBarBackButtonHidden(false)  // Explicitly show system back button
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button(action: { showingCreateSeason = true }) {
@@ -129,9 +129,7 @@ struct SeasonsView: View {
                 CreateSeasonView(athlete: athlete)
             }
             .sheet(item: $selectedSeason) { season in
-                NavigationStack {
-                    SeasonDetailView(season: season, athlete: athlete)
-                }
+                SeasonDetailView(season: season, athlete: athlete)
             }
     }
 }
@@ -361,7 +359,9 @@ struct SeasonGamesListView: View {
 
 #Preview {
     let config = ModelConfiguration(isStoredInMemoryOnly: true)
-    let container = try! ModelContainer(for: Athlete.self, Season.self, configurations: config)
+    guard let container = try? ModelContainer(for: Athlete.self, Season.self, configurations: config) else {
+        return Text("Preview Error")
+    }
     
     let athlete = Athlete(name: "Test Player")
     let season = Season(name: "Spring 2025", startDate: Date(), sport: .baseball)

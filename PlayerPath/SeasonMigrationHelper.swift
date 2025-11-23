@@ -9,7 +9,6 @@ import Foundation
 import SwiftData
 
 /// Helper for migrating existing data to seasons for users upgrading to the season system
-@MainActor
 struct SeasonMigrationHelper {
     
     /// Migrates all existing games, practices, and videos for an athlete to appropriate seasons
@@ -17,12 +16,10 @@ struct SeasonMigrationHelper {
     /// - Parameters:
     ///   - athlete: The athlete whose data needs migration
     ///   - modelContext: The SwiftData model context
+    @MainActor
     static func migrateExistingData(for athlete: Athlete, in modelContext: ModelContext) async {
-        print("🔄 Starting season migration for \(athlete.name)...")
-        
         // Check if athlete already has seasons - if so, skip migration
-        if !(athlete.seasons ?? []).isEmpty {
-            print("⏭️ Athlete already has seasons, skipping migration")
+        guard (athlete.seasons ?? []).isEmpty else {
             return
         }
         
@@ -34,15 +31,8 @@ struct SeasonMigrationHelper {
         
         guard !gamesWithoutSeason.isEmpty || !practicesWithoutSeason.isEmpty || 
               !videosWithoutSeason.isEmpty || !tournamentsWithoutSeason.isEmpty else {
-            print("✅ No data to migrate")
             return
         }
-        
-        print("📊 Found data to migrate:")
-        print("  • \(gamesWithoutSeason.count) games")
-        print("  • \(practicesWithoutSeason.count) practices")
-        print("  • \(videosWithoutSeason.count) videos")
-        print("  • \(tournamentsWithoutSeason.count) tournaments")
         
         // Group items by date ranges to create appropriate seasons
         let seasons = createSeasonsFromData(
@@ -68,53 +58,32 @@ struct SeasonMigrationHelper {
             }
             
             season.athlete = athlete
-            if athlete.seasons == nil {
-                athlete.seasons = []
-            }
+            athlete.seasons = athlete.seasons ?? []
             athlete.seasons?.append(season)
             
-            // Link all items to this season
-            if season.games == nil {
-                season.games = []
-            }
+            // Link all items to this season - SwiftData handles inverse relationships
             for game in items.games {
                 game.season = season
-                season.games?.append(game)
             }
             
-            if season.practices == nil {
-                season.practices = []
-            }
             for practice in items.practices {
                 practice.season = season
-                season.practices?.append(practice)
             }
             
-            if season.videoClips == nil {
-                season.videoClips = []
-            }
             for video in items.videos {
                 video.season = season
-                season.videoClips?.append(video)
             }
             
-            if season.tournaments == nil {
-                season.tournaments = []
-            }
             for tournament in items.tournaments {
                 tournament.season = season
-                season.tournaments?.append(tournament)
             }
             
             modelContext.insert(season)
-            
-            print("✅ Created season: \(season.displayName) with \(items.totalItems) items")
         }
         
         // Save everything
         do {
             try modelContext.save()
-            print("✅ Migration complete for \(athlete.name)")
         } catch {
             print("❌ Migration error: \(error)")
         }
@@ -191,8 +160,8 @@ struct SeasonMigrationHelper {
         // Convert to sorted array
         let sortedKeys = seasonGroups.keys.sorted { $0.year > $1.year || ($0.year == $1.year && $0.season > $1.season) }
         
-        return sortedKeys.map { key in
-            let items = seasonGroups[key]!
+        return sortedKeys.compactMap { key in
+            guard let items = seasonGroups[key] else { return nil }
             let isRecent = key == sortedKeys.first
             
             // Determine start and end dates from actual data
@@ -283,20 +252,18 @@ struct SeasonMigrationHelper {
     /// - Returns: True if migration is needed
     static func needsMigration(for athlete: Athlete) -> Bool {
         // If athlete has no seasons but has data, they need migration
-        if (athlete.seasons ?? []).isEmpty {
-            let hasData = !(athlete.games ?? []).isEmpty || 
-                         !(athlete.practices ?? []).isEmpty || 
-                         !(athlete.videoClips ?? []).isEmpty ||
-                         !(athlete.tournaments ?? []).isEmpty
-            return hasData
+        let seasons = athlete.seasons ?? []
+        if seasons.isEmpty {
+            return !(athlete.games ?? []).isEmpty || 
+                   !(athlete.practices ?? []).isEmpty || 
+                   !(athlete.videoClips ?? []).isEmpty ||
+                   !(athlete.tournaments ?? []).isEmpty
         }
         
         // Check if there's any data without a season
-        let hasUnlinkedData = (athlete.games ?? []).contains(where: { $0.season == nil }) ||
-                             (athlete.practices ?? []).contains(where: { $0.season == nil }) ||
-                             (athlete.videoClips ?? []).contains(where: { $0.season == nil }) ||
-                             (athlete.tournaments ?? []).contains(where: { $0.season == nil })
-        
-        return hasUnlinkedData
+        return (athlete.games ?? []).contains(where: { $0.season == nil }) ||
+               (athlete.practices ?? []).contains(where: { $0.season == nil }) ||
+               (athlete.videoClips ?? []).contains(where: { $0.season == nil }) ||
+               (athlete.tournaments ?? []).contains(where: { $0.season == nil })
     }
 }

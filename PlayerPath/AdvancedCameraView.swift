@@ -61,6 +61,19 @@ class AdvancedCameraViewController: UIViewController {
     
     // MARK: - Lifecycle
     
+    deinit {
+        recordingTimer?.invalidate()
+        recordingTimer = nil
+        
+        if captureSession.isRunning {
+            DispatchQueue.global(qos: .userInitiated).async { [captureSession] in
+                captureSession.stopRunning()
+            }
+        }
+        
+        previewLayer?.removeFromSuperlayer()
+    }
+    
     override func viewDidLoad() {
         super.viewDidLoad()
         
@@ -71,20 +84,18 @@ class AdvancedCameraViewController: UIViewController {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         
-        if !captureSession.isRunning {
-            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                self?.captureSession.startRunning()
-            }
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self, !self.captureSession.isRunning else { return }
+            self.captureSession.startRunning()
         }
     }
     
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         
-        if captureSession.isRunning {
-            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                self?.captureSession.stopRunning()
-            }
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self, self.captureSession.isRunning else { return }
+            self.captureSession.stopRunning()
         }
     }
     
@@ -197,6 +208,35 @@ class AdvancedCameraViewController: UIViewController {
     }
     
     private func setupCamera() {
+        // Check camera authorization first
+        let authStatus = AVCaptureDevice.authorizationStatus(for: .video)
+        guard authStatus == .authorized else {
+            if authStatus == .notDetermined {
+                AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
+                    if granted {
+                        DispatchQueue.main.async {
+                            self?.setupCamera()
+                        }
+                    } else {
+                        DispatchQueue.main.async {
+                            self?.showPermissionDeniedUI()
+                        }
+                    }
+                }
+            } else {
+                showPermissionDeniedUI()
+            }
+            return
+        }
+        
+        // Validate settings and warn user
+        let warnings = validateSettings()
+        if !warnings.isEmpty {
+            #if DEBUG
+            print("⚠️ Camera settings warnings: \(warnings.joined(separator: ", "))")
+            #endif
+        }
+        
         // Configure session preset based on quality
         captureSession.sessionPreset = settings.quality.avPreset
         
@@ -295,13 +335,34 @@ class AdvancedCameraViewController: UIViewController {
         for format in formats {
             let ranges = format.videoSupportedFrameRateRanges
             for range in ranges {
-                if Int(range.maxFrameRate) >= targetFPS {
+                if Int(range.minFrameRate) <= targetFPS && Int(range.maxFrameRate) >= targetFPS {
                     return format
                 }
             }
         }
         
         return nil
+    }
+    
+    private func validateSettings() -> [String] {
+        var warnings: [String] = []
+        
+        // Check 4K60 + stabilization compatibility
+        if settings.quality == .ultra4K && settings.frameRate.fps >= 60 && settings.stabilizationMode != .off {
+            warnings.append("4K60 with stabilization may not be supported on all devices")
+        }
+        
+        // Check slow-motion + quality compatibility
+        if settings.slowMotionEnabled && settings.quality == .ultra4K {
+            warnings.append("Slow-motion at 4K may have limited support")
+        }
+        
+        // Check high frame rate availability
+        if settings.frameRate.fps >= 120 {
+            warnings.append("120+ fps requires compatible device and may reduce resolution")
+        }
+        
+        return warnings
     }
     
     // MARK: - Actions
@@ -375,7 +436,13 @@ class AdvancedCameraViewController: UIViewController {
     }
     
     private func stopRecording() {
-        guard let output = movieFileOutput, output.isRecording else { return }
+        guard let output = movieFileOutput else { return }
+        guard output.isRecording else {
+            // Already stopped, just clean up UI
+            isRecording = false
+            stopRecordingTimer()
+            return
+        }
         
         output.stopRecording()
         stopRecordingTimer()
@@ -419,6 +486,23 @@ class AdvancedCameraViewController: UIViewController {
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         previewLayer?.frame = view.bounds
+    }
+    
+    private func showPermissionDeniedUI() {
+        let alert = UIAlertController(
+            title: "Camera Access Required",
+            message: "Please enable camera access in Settings to record videos.",
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: "Open Settings", style: .default) { _ in
+            if let url = URL(string: UIApplication.openSettingsURLString) {
+                UIApplication.shared.open(url)
+            }
+        })
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { [weak self] _ in
+            self?.onCancel?()
+        })
+        present(alert, animated: true)
     }
 }
 

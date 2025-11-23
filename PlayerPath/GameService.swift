@@ -35,9 +35,8 @@ actor GameService {
                 do {
                     try fileManager.removeItem(at: thumbnailURL)
                     print("Deleted thumbnail file at \(thumbnailURL.path)")
-                    await MainActor.run {
-                        ThumbnailCache.shared.removeThumbnail(at: thumbnailPath)
-                    }
+                    // Remove from cache (ThumbnailCache is an actor)
+                    await ThumbnailCache.shared.removeThumbnail(at: thumbnailPath)
                 } catch {
                     print("Error deleting thumbnail file at \(thumbnailURL.path): \(error.localizedDescription)")
                 }

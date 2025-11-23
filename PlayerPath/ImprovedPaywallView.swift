@@ -87,10 +87,8 @@ struct ImprovedPaywallView: View {
                     user.isPremium = true
                     try? modelContext.save()
                     
-                    // Dismiss after short delay
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-                        dismiss()
-                    }
+                    // Dismiss immediately - no delay needed
+                    dismiss()
                 }
             }
         }
@@ -262,10 +260,9 @@ struct ImprovedPaywallView: View {
         guard let product = selectedProduct else { return }
         
         isPurchasing = true
+        defer { isPurchasing = false }
         
         let result = await storeManager.purchase(product)
-        
-        isPurchasing = false
         
         switch result {
         case .success:
@@ -286,8 +283,8 @@ struct ImprovedPaywallView: View {
     
     private func restorePurchases() async {
         isPurchasing = true
+        defer { isPurchasing = false }
         await storeManager.restorePurchases()
-        isPurchasing = false
     }
 }
 

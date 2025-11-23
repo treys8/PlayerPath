@@ -11,11 +11,22 @@ import SwiftUI
 /// Athlete's view of all their shared folders
 struct AthleteFoldersListView: View {
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
-    @StateObject private var folderManager = SharedFolderManager.shared
+    @ObservedObject private var folderManager = SharedFolderManager.shared
     
-    @State private var showingCreateFolder = false
+    enum SheetType: Identifiable {
+        case createFolder
+        
+        var id: String {
+            switch self {
+            case .createFolder: return "createFolder"
+            }
+        }
+    }
+    
+    @State private var activeSheet: SheetType?
     @State private var showingError = false
     @State private var errorMessage = ""
+    @State private var isDeletingFolders = false
     
     var body: some View {
         Group {
@@ -32,20 +43,32 @@ struct AthleteFoldersListView: View {
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {
-                    showingCreateFolder = true
+                    activeSheet = .createFolder
                     Haptics.light()
                 } label: {
                     Image(systemName: "plus.circle.fill")
                 }
             }
         }
-        .sheet(isPresented: $showingCreateFolder) {
-            CreateFolderView()
+        .sheet(item: $activeSheet) { sheet in
+            switch sheet {
+            case .createFolder:
+                CreateFolderView()
+            }
         }
         .alert("Error", isPresented: $showingError) {
             Button("OK", role: .cancel) { }
         } message: {
             Text(errorMessage)
+        }
+        .overlay {
+            if isDeletingFolders {
+                ProgressView("Deleting...")
+                    .padding()
+                    .background(Color(.systemBackground))
+                    .cornerRadius(12)
+                    .shadow(radius: 10)
+            }
         }
         .task {
             await loadFolders()
@@ -74,7 +97,7 @@ struct AthleteFoldersListView: View {
                 .padding(.horizontal, 32)
             
             Button {
-                showingCreateFolder = true
+                activeSheet = .createFolder
                 Haptics.light()
             } label: {
                 Label("Create Folder", systemImage: "plus.circle.fill")
@@ -123,17 +146,33 @@ struct AthleteFoldersListView: View {
     }
     
     private func deleteFolders(at offsets: IndexSet) {
-        for index in offsets {
-            let folder = folderManager.athleteFolders[index]
+        let foldersToDelete = offsets.map { folderManager.athleteFolders[$0] }
+        
+        Task {
+            await MainActor.run { isDeletingFolders = true }
             
-            Task {
+            var errors: [String] = []
+            
+            for folder in foldersToDelete {
+                guard let folderID = folder.id else {
+                    errors.append("Folder '\(folder.name)' has no ID")
+                    continue
+                }
+                
                 do {
-                    if let folderID = folder.id {
-                        try await folderManager.deleteFolder(folderID: folderID)
-                        Haptics.success()
-                    }
+                    try await folderManager.deleteFolder(folderID: folderID)
                 } catch {
-                    errorMessage = "Failed to delete folder: \(error.localizedDescription)"
+                    errors.append("Failed to delete '\(folder.name)': \(error.localizedDescription)")
+                }
+            }
+            
+            await MainActor.run {
+                isDeletingFolders = false
+                
+                if errors.isEmpty {
+                    Haptics.success()
+                } else {
+                    errorMessage = errors.joined(separator: "\n")
                     showingError = true
                     Haptics.error()
                 }
@@ -204,11 +243,23 @@ struct AthleteFolderDetailView: View {
     
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @StateObject private var viewModel: CoachFolderViewModel
-    @StateObject private var folderManager = SharedFolderManager.shared
+    @ObservedObject private var folderManager = SharedFolderManager.shared
     
-    @State private var showingInviteCoach = false
-    @State private var showingManageCoaches = false
-    @State private var showingUploadSheet = false
+    enum SheetType: Identifiable {
+        case inviteCoach
+        case manageCoaches
+        case uploadVideo
+        
+        var id: String {
+            switch self {
+            case .inviteCoach: return "inviteCoach"
+            case .manageCoaches: return "manageCoaches"
+            case .uploadVideo: return "uploadVideo"
+            }
+        }
+    }
+    
+    @State private var activeSheet: SheetType?
     @State private var selectedTab: CoachFolderDetailView.FolderTab = .all
     
     init(folder: SharedFolder) {
@@ -249,19 +300,19 @@ struct AthleteFolderDetailView: View {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Menu {
                     Button {
-                        showingUploadSheet = true
+                        activeSheet = .uploadVideo
                     } label: {
                         Label("Upload Video", systemImage: "plus.circle")
                     }
                     
                     Button {
-                        showingInviteCoach = true
+                        activeSheet = .inviteCoach
                     } label: {
                         Label("Invite Coach", systemImage: "person.badge.plus")
                     }
                     
                     Button {
-                        showingManageCoaches = true
+                        activeSheet = .manageCoaches
                     } label: {
                         Label("Manage Coaches", systemImage: "person.2.fill")
                     }
@@ -270,14 +321,15 @@ struct AthleteFolderDetailView: View {
                 }
             }
         }
-        .sheet(isPresented: $showingInviteCoach) {
-            InviteCoachView(folder: folder)
-        }
-        .sheet(isPresented: $showingManageCoaches) {
-            ManageCoachesView(folder: folder)
-        }
-        .sheet(isPresented: $showingUploadSheet) {
-            CoachVideoUploadView(folder: folder, selectedTab: selectedTab)
+        .sheet(item: $activeSheet) { sheet in
+            switch sheet {
+            case .inviteCoach:
+                InviteCoachView(folder: folder)
+            case .manageCoaches:
+                ManageCoachesView(folder: folder)
+            case .uploadVideo:
+                CoachVideoUploadView(folder: folder, selectedTab: selectedTab)
+            }
         }
         .task {
             await viewModel.loadVideos()
@@ -324,10 +376,11 @@ struct ManageCoachesView: View {
     
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
-    @StateObject private var folderManager = SharedFolderManager.shared
+    @ObservedObject private var folderManager = SharedFolderManager.shared
     
     @State private var showingRemoveConfirmation = false
     @State private var coachToRemove: String?
+    @State private var isRemoving = false
     
     var body: some View {
         NavigationStack {
@@ -366,6 +419,15 @@ struct ManageCoachesView: View {
                     }
                 }
             }
+            .overlay {
+                if isRemoving {
+                    ProgressView("Removing coach...")
+                        .padding()
+                        .background(Color(.systemBackground))
+                        .cornerRadius(12)
+                        .shadow(radius: 10)
+                }
+            }
             .alert("Remove Coach", isPresented: $showingRemoveConfirmation) {
                 Button("Cancel", role: .cancel) {
                     coachToRemove = nil
@@ -374,10 +436,22 @@ struct ManageCoachesView: View {
                     if let coachID = coachToRemove,
                        let folderID = folder.id {
                         Task {
-                            try? await folderManager.removeCoach(
-                                coachID: coachID,
-                                fromFolder: folderID
-                            )
+                            isRemoving = true
+                            do {
+                                try await folderManager.removeCoach(
+                                    coachID: coachID,
+                                    fromFolder: folderID
+                                )
+                                await MainActor.run {
+                                    isRemoving = false
+                                    Haptics.success()
+                                }
+                            } catch {
+                                await MainActor.run {
+                                    isRemoving = false
+                                    Haptics.error()
+                                }
+                            }
                         }
                     }
                     coachToRemove = nil
@@ -403,7 +477,7 @@ struct CoachPermissionRow: View {
                     .font(.title3)
                     .foregroundColor(.purple)
                 
-                Text("Coach") // TODO: Load actual coach name
+                Text("Coach ID: \(coachID.prefix(8))...") // TODO: Load actual coach name from Firestore
                     .font(.headline)
                 
                 Spacer()

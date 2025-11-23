@@ -136,9 +136,14 @@ struct SeasonManagementView: View {
     private func archiveSeason(_ season: Season) {
         withAnimation {
             season.archive()
-            try? modelContext.save()
         }
-        Haptics.medium()
+        
+        do {
+            try modelContext.save()
+            Haptics.medium()
+        } catch {
+            print("Failed to archive season: \(error)")
+        }
     }
 }
 
@@ -407,29 +412,29 @@ struct CreateSeasonView: View {
             return
         }
         
-        // If making this active, archive the current active season
-        if makeActive, let currentActive = athlete.activeSeason {
-            currentActive.archive()
+        withAnimation {
+            // If making this active, archive the current active season
+            if makeActive, let currentActive = athlete.activeSeason {
+                currentActive.archive()
+            }
+            
+            // Create new season
+            let newSeason = Season(name: seasonName.trimmingCharacters(in: .whitespacesAndNewlines),
+                                  startDate: startDate,
+                                  sport: selectedSport)
+            
+            if makeActive {
+                newSeason.activate()
+            }
+            
+            // Link to athlete
+            newSeason.athlete = athlete
+            athlete.seasons = athlete.seasons ?? []
+            athlete.seasons?.append(newSeason)
+            
+            // Save
+            modelContext.insert(newSeason)
         }
-        
-        // Create new season
-        let newSeason = Season(name: seasonName.trimmingCharacters(in: .whitespacesAndNewlines),
-                              startDate: startDate,
-                              sport: selectedSport)
-        
-        if makeActive {
-            newSeason.activate()
-        }
-        
-        // Link to athlete
-        newSeason.athlete = athlete
-        if athlete.seasons == nil {
-            athlete.seasons = []
-        }
-        athlete.seasons?.append(newSeason)
-        
-        // Save
-        modelContext.insert(newSeason)
         
         do {
             try modelContext.save()
@@ -539,7 +544,7 @@ struct SeasonDetailView: View {
             // Baseball Stats (if available)
             if let stats = season.seasonStatistics, stats.atBats > 0 {
                 Section("Batting Statistics") {
-                    LabeledContent("Batting Average", value: String(format: ".%.3d", Int(stats.battingAverage * 1000)))
+                    LabeledContent("Batting Average", value: String(format: ".%03d", Int(stats.battingAverage * 1000)))
                     LabeledContent("At Bats", value: "\(stats.atBats)")
                     LabeledContent("Hits", value: "\(stats.hits)")
                     LabeledContent("Home Runs", value: "\(stats.homeRuns)")
@@ -623,13 +628,15 @@ struct SeasonDetailView: View {
     }
     
     private func reactivateSeason() {
-        // Archive current active season if exists
-        if let currentActive = athlete.activeSeason {
-            currentActive.archive()
+        withAnimation {
+            // Archive current active season if exists
+            if let currentActive = athlete.activeSeason {
+                currentActive.archive()
+            }
+            
+            // Reactivate this season
+            season.activate()
         }
-        
-        // Reactivate this season
-        season.activate()
         
         do {
             try modelContext.save()

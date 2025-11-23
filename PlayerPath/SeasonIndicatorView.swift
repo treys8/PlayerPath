@@ -60,8 +60,12 @@ struct SeasonRecommendationBanner: View {
     @State private var showingSeasonManagement = false
     @State private var dismissed = false
     
+    private var dismissedKey: String {
+        "seasonBanner_\(athlete.id.uuidString)"
+    }
+    
     var body: some View {
-        if !dismissed, let message = recommendation.message {
+        if !dismissed && !UserDefaults.standard.bool(forKey: dismissedKey), let message = recommendation.message {
             HStack(spacing: 12) {
                 Image(systemName: iconForRecommendation)
                     .font(.title3)
@@ -95,6 +99,7 @@ struct SeasonRecommendationBanner: View {
                 Button {
                     withAnimation {
                         dismissed = true
+                        UserDefaults.standard.set(true, forKey: dismissedKey)
                     }
                 } label: {
                     Image(systemName: "xmark")
@@ -203,7 +208,7 @@ struct CreateFirstSeasonPrompt: View {
             
             Button("I'll Do This Later") {
                 // Create a default season in the background
-                let _ = SeasonManager.ensureActiveSeason(for: athlete, in: modelContext)
+                _ = SeasonManager.ensureActiveSeason(for: athlete, in: modelContext)
             }
             .font(.subheadline)
             .foregroundStyle(.secondary)
@@ -238,7 +243,17 @@ struct FeatureRow: View {
 
 #Preview("Season Indicator") {
     let config = ModelConfiguration(isStoredInMemoryOnly: true)
-    let container = try! ModelContainer(for: Athlete.self, Season.self, configurations: config)
+    let container: ModelContainer = {
+        if let c = try? ModelContainer(for: Athlete.self, Season.self, configurations: config) {
+            return c
+        }
+        // Fallback to an in-memory container without configurations
+        return (try? ModelContainer(for: Athlete.self, Season.self)) ?? {
+            // As a last resort, create an empty container using only Athlete to keep previews running
+            // Note: adjust types if needed in your project
+            return try! ModelContainer(for: Athlete.self, Season.self)
+        }()
+    }()
     
     let athlete = Athlete(name: "Test Player")
     let season = Season(name: "Spring 2025", startDate: Date(), sport: .baseball)
@@ -257,7 +272,7 @@ struct FeatureRow: View {
 
 #Preview("Create First Season") {
     let config = ModelConfiguration(isStoredInMemoryOnly: true)
-    let container = try! ModelContainer(for: Athlete.self, Season.self, configurations: config)
+    let container: ModelContainer = (try? ModelContainer(for: Athlete.self, Season.self, configurations: config)) ?? (try! ModelContainer(for: Athlete.self, Season.self))
     
     let athlete = Athlete(name: "Test Player")
     container.mainContext.insert(athlete)
@@ -268,7 +283,7 @@ struct FeatureRow: View {
 
 #Preview("Season Recommendation Banner") {
     let config = ModelConfiguration(isStoredInMemoryOnly: true)
-    let container = try! ModelContainer(for: Athlete.self, Season.self, configurations: config)
+    let container: ModelContainer = (try? ModelContainer(for: Athlete.self, Season.self, configurations: config)) ?? (try! ModelContainer(for: Athlete.self, Season.self))
     
     let athlete = Athlete(name: "Test Player")
     container.mainContext.insert(athlete)
@@ -288,3 +303,4 @@ struct FeatureRow: View {
     }
     .modelContainer(container)
 }
+

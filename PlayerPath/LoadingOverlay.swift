@@ -31,6 +31,7 @@ struct LoadingOverlay: View {
                     Text(message)
                         .font(.subheadline)
                         .foregroundColor(.white)
+                        .id(message) // Proper identity for animation
                 }
             }
             .padding(32)
@@ -41,7 +42,6 @@ struct LoadingOverlay: View {
             .shadow(radius: 10)
         }
         .transition(.opacity)
-        .animation(.easeInOut, value: message)
     }
 }
 
@@ -78,7 +78,6 @@ struct LoadingButtonContent: View {
             Text(text)
         }
         .opacity(isLoading ? 0.6 : 1.0)
-        .animation(.easeInOut, value: isLoading)
     }
 }
 
