@@ -34,6 +34,9 @@ final class GamesViewModel: ObservableObject {
     }
     
     func update(allGames: [Game]) {
+        #if DEBUG
+        print("📊 GamesViewModel: Updating with \(allGames.count) total games")
+        #endif
         recomputeSections(allGames: allGames)
     }
     
@@ -43,12 +46,22 @@ final class GamesViewModel: ObservableObject {
             completedGames = []
             upcomingGames = []
             pastGames = []
+            #if DEBUG
+            print("📊 GamesViewModel: No athlete, cleared all sections")
+            #endif
             return
         }
         
         let athleteGamesSet = Set(athlete.games ?? [])
         let filteredGamesSet = Set(allGames.filter { $0.athlete?.id == athlete.id })
         let combinedGames = Array(athleteGamesSet.union(filteredGamesSet))
+        
+        #if DEBUG
+        print("📊 GamesViewModel: Athlete '\(athlete.name)'")
+        print("   - Games from relationship: \(athleteGamesSet.count)")
+        print("   - Games from query filter: \(filteredGamesSet.count)")
+        print("   - Combined unique games: \(combinedGames.count)")
+        #endif
         
         let sortedGames = combinedGames.sorted { a, b in
             switch (a.date, b.date) {
@@ -77,6 +90,14 @@ final class GamesViewModel: ObservableObject {
             if let d = game.date { return d <= now }
             return false
         }
+        
+        #if DEBUG
+        print("📊 GamesViewModel: Sections updated")
+        print("   - Live: \(liveGames.count)")
+        print("   - Completed: \(completedGames.count)")
+        print("   - Upcoming: \(upcomingGames.count)")
+        print("   - Past: \(pastGames.count)")
+        #endif
     }
     
     func repair(allGames: [Game]) {

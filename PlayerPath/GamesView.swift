@@ -13,7 +13,10 @@ import Combine
 struct GamesView: View {
     let athlete: Athlete?
     @Environment(\.modelContext) private var modelContext
-    @Query private var allGames: [Game]
+    
+    // Query all games with sorting - SwiftData will automatically observe changes
+    @Query(sort: \Game.date, order: .reverse) private var allGames: [Game]
+    
     @StateObject private var viewModelHolder = ViewModelHolder()
     
     // Error handling
@@ -147,9 +150,10 @@ struct GamesView: View {
                 }
             }
         }
-        .standardNavigationBar(title: "Games", displayMode: .large)
+        .navigationTitle("Games")
+        .navigationBarTitleDisplayMode(.large)
         .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
+            ToolbarItem(placement: .primaryAction) {
                 Button(action: { showingGameCreation = true }) {
                     Image(systemName: "plus")
                 }
@@ -157,7 +161,7 @@ struct GamesView: View {
             }
             
             if hasGames {
-                ToolbarItem(placement: .navigationBarLeading) {
+                ToolbarItem(placement: .topBarLeading) {
                     EditButton()
                 }
             }
@@ -165,11 +169,24 @@ struct GamesView: View {
         .onAppear {
             if viewModelHolder.viewModel == nil {
                 viewModelHolder.viewModel = GamesViewModel(modelContext: modelContext, athlete: athlete, allGames: allGames)
+                #if DEBUG
+                print("🎮 GamesView: Initialized ViewModel with \(allGames.count) games")
+                #endif
             } else {
                 viewModelHolder.viewModel?.update(allGames: allGames)
+                #if DEBUG
+                print("🎮 GamesView: Updated ViewModel with \(allGames.count) games")
+                #endif
             }
         }
-        .onChange(of: allGames) { _, newValue in
+        .onChange(of: allGames) { oldValue, newValue in
+            #if DEBUG
+            print("🎮 GamesView: Games changed from \(oldValue.count) to \(newValue.count)")
+            if let athlete = athlete {
+                let athleteGames = newValue.filter { $0.athlete?.id == athlete.id }
+                print("🎮 GamesView: Athlete '\(athlete.name)' has \(athleteGames.count) games")
+            }
+            #endif
             viewModelHolder.viewModel?.update(allGames: newValue)
         }
         .sheet(isPresented: $showingGameCreation) {
@@ -339,7 +356,7 @@ struct EmptyGamesView: View {
                 .font(.title)
                 .fontWeight(.bold)
             
-            Text("Create your first game to start recording and tracking performance")
+            Text("Create your first game to record and track performance")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
@@ -446,40 +463,41 @@ struct GameDetailView: View {
                 if !game.isComplete {
                     Button(action: { showingVideoRecorder = true }) {
                         Label("Record Video", systemImage: "video.badge.plus")
-                            .foregroundColor(.blue)
                     }
                     
                     if game.isLive {
-                        Button("End Game") {
+                        Button(role: .destructive) {
                             showingEndGame = true
+                        } label: {
+                            Label("End Game", systemImage: "stop.circle")
                         }
-                        .foregroundColor(.red)
                     } else {
-                        Button("Start Game") {
+                        Button {
                             startGame()
+                        } label: {
+                            Label("Start Game", systemImage: "play.circle")
                         }
-                        .foregroundColor(.green)
                     }
                 } else {
-                    Button("Mark as Incomplete") {
+                    Button {
                         game.isComplete = false
                         try? modelContext.save()
+                    } label: {
+                        Label("Mark as Incomplete", systemImage: "arrow.counterclockwise")
                     }
-                    .foregroundColor(.orange)
                 }
                 
                 // Manual Statistics Entry
                 Button(action: { showingManualStats = true }) {
                     Label("Enter Statistics", systemImage: "chart.bar.doc.horizontal")
-                        .foregroundColor(.purple)
                 }
                 
-                // Additional quick actions
                 if !game.isComplete && !game.isLive {
-                    Button("Delete Game") {
+                    Button(role: .destructive) {
                         showingDeleteConfirmation = true
+                    } label: {
+                        Label("Delete Game", systemImage: "trash")
                     }
-                    .foregroundColor(.red)
                 }
             }
             
@@ -549,9 +567,10 @@ struct GameDetailView: View {
                 }
             }
         }
-        .childNavigationBar(title: "vs \(game.opponent)")
+        .navigationTitle("vs \(game.opponent)")
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
+            ToolbarItem(placement: .primaryAction) {
                 Menu {
                     // Video Actions
                     if !game.isComplete {
@@ -718,13 +737,13 @@ struct AddGameView: View {
             .navigationTitle("New Game")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
+                ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
                         dismiss()
                     }
                 }
                 
-                ToolbarItem(placement: .navigationBarTrailing) {
+                ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
                         saveGame()
                     }
@@ -1128,7 +1147,7 @@ struct GameCreationView: View {
                     
                     if makeGameLive {
                         Label {
-                            Text("This game will become the active game for recording videos")
+                            Text("Game becomes active for recording")
                                 .font(.caption)
                         } icon: {
                             Image(systemName: "info.circle")
@@ -1137,10 +1156,9 @@ struct GameCreationView: View {
                     }
                 }
                 
-                // Quick tips section
                 Section {
                     Label {
-                        Text("You can add statistics and videos after creating the game")
+                        Text("Add stats and videos after creating the game")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     } icon: {
@@ -1152,13 +1170,13 @@ struct GameCreationView: View {
             .navigationTitle("New Game")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
+                ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
                         dismiss()
                     }
                 }
                 
-                ToolbarItem(placement: .navigationBarTrailing) {
+                ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
                         saveGame()
                     }
@@ -1171,7 +1189,7 @@ struct GameCreationView: View {
                 }
             }
         }
-        .alert("Invalid Input", isPresented: $showingValidationError) {
+        .alert("Validation Error", isPresented: $showingValidationError) {
             Button("OK") { }
         } message: {
             Text(validationMessage)
@@ -1349,13 +1367,13 @@ struct ManualStatisticsEntryView: View {
             .navigationTitle("Enter Statistics")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
+                ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
                         dismiss()
                     }
                 }
                 
-                ToolbarItem(placement: .navigationBarTrailing) {
+                ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
                         saveStatistics()
                     }
@@ -1363,7 +1381,7 @@ struct ManualStatisticsEntryView: View {
                 }
             }
         }
-        .alert("Invalid Input", isPresented: $showingValidationAlert) {
+        .alert("Error", isPresented: $showingValidationAlert) {
             Button("OK") { }
         } message: {
             Text(alertMessage)
@@ -1457,7 +1475,7 @@ struct StatEntryRow: View {
             
             TextField("0", text: $value)
                 .keyboardType(.numberPad)
-                .textFieldStyle(RoundedBorderTextFieldStyle())
+                .textFieldStyle(.roundedBorder)
                 .frame(width: 60)
                 .multilineTextAlignment(.center)
         }

@@ -43,7 +43,8 @@ struct VideoRecorderView_Refactored: View {
     @State private var showingLowStorageAlert = false
     @State private var availableStorageGB: Double = 0
     @State private var showingQualityPicker = false
-    
+    @State private var saveTask: Task<Void, Never>?
+
     // Video recording constraints
     private let maxRecordingDuration: TimeInterval = 600 // 10 minutes - matches validation
     private let maxFileSizeBytes: Int64 = 500 * 1024 * 1024 // 500MB - matches validation
@@ -117,18 +118,33 @@ struct VideoRecorderView_Refactored: View {
                     .presentationDragIndicator(.visible)
             }
             .task {
+                // Start network monitoring
+                networkMonitor.startMonitoring()
+
                 // Load saved quality preference
                 if let savedQuality = UserDefaults.standard.value(forKey: "selectedVideoQuality") as? Int {
                     selectedVideoQuality = UIImagePickerController.QualityType(rawValue: savedQuality) ?? .typeHigh
                 }
-                
+
                 // Check storage on appear
                 checkAvailableStorage()
-                
+
                 // Auto-open camera when launched for a live game to streamline recording
                 if game?.isLive == true {
                     try? await Task.sleep(nanoseconds: 300_000_000) // 0.3s
                     checkCameraPermission()
+                }
+
+                // Clean up when task is cancelled (view disappears)
+                await withTaskCancellationHandler {
+                    // Wait indefinitely until cancelled
+                    await withCheckedContinuation { (_: CheckedContinuation<Void, Never>) in
+                        // Never resume - just wait for cancellation
+                    }
+                } onCancel: {
+                    Task { @MainActor in
+                        networkMonitor.stopMonitoring()
+                    }
                 }
             }
     }
@@ -708,7 +724,17 @@ struct VideoRecorderView_Refactored: View {
             UINotificationFeedbackGenerator().notificationOccurred(.error)
             return
         }
-        Task {
+
+        // Cancel any existing save task
+        saveTask?.cancel()
+
+        // Store the new save task for cancellation on cleanup
+        saveTask = Task {
+            guard !Task.isCancelled else {
+                print("VideoRecorder: Save task cancelled before starting")
+                return
+            }
+
             do {
                 _ = try await ClipPersistenceService().saveClip(
                     from: videoURL,
@@ -718,12 +744,23 @@ struct VideoRecorderView_Refactored: View {
                     game: game,
                     practice: practice
                 )
+
+                guard !Task.isCancelled else {
+                    print("VideoRecorder: Save task cancelled after save")
+                    return
+                }
+
                 // Success feedback
                 await MainActor.run {
                     UINotificationFeedbackGenerator().notificationOccurred(.success)
                     UIAccessibility.post(notification: .announcement, argument: "Video saved successfully")
                 }
             } catch {
+                guard !Task.isCancelled else {
+                    print("VideoRecorder: Save task cancelled during error handling")
+                    return
+                }
+
                 print("Failed to save video: \(error)")
                 await MainActor.run {
                     UINotificationFeedbackGenerator().notificationOccurred(.error)
@@ -734,7 +771,12 @@ struct VideoRecorderView_Refactored: View {
     
     private func cleanupAndDismiss() {
         print("VideoRecorder: cleanupAndDismiss called")
-        DispatchQueue.main.async {
+
+        // Cancel any pending save task
+        saveTask?.cancel()
+        saveTask = nil
+
+        Task { @MainActor in
             if let videoURL = recordedVideoURL {
                 VideoFileManager.cleanup(url: videoURL)
             }
@@ -782,24 +824,21 @@ struct GuidelineItem: View {
 class NetworkMonitor: ObservableObject {
     @Published var isConnected: Bool = true
     @Published var connectionType: NWInterface.InterfaceType?
-    
-    private let monitor = NWPathMonitor()
+
+    private var monitor: NWPathMonitor?
     private let queue = DispatchQueue(label: "NetworkMonitor")
-    
-    init() {
-        startMonitoring()
-    }
-    
-    deinit {
-        monitor.cancel()
-    }
-    
-    private func startMonitoring() {
-        monitor.pathUpdateHandler = { [weak self] path in
+
+    func startMonitoring() {
+        guard monitor == nil else { return }
+
+        let pathMonitor = NWPathMonitor()
+        monitor = pathMonitor
+
+        pathMonitor.pathUpdateHandler = { [weak self] path in
             DispatchQueue.main.async { [weak self] in
                 self?.isConnected = path.status == .satisfied
                 self?.connectionType = path.availableInterfaces.first?.type
-                
+
                 if path.status == .satisfied {
                     if let type = path.availableInterfaces.first?.type {
                         let typeString = self?.interfaceTypeName(type) ?? "unknown"
@@ -810,9 +849,16 @@ class NetworkMonitor: ObservableObject {
                 }
             }
         }
-        monitor.start(queue: queue)
+        pathMonitor.start(queue: queue)
+        print("NetworkMonitor: Started monitoring")
     }
-    
+
+    func stopMonitoring() {
+        monitor?.cancel()
+        monitor = nil
+        print("NetworkMonitor: Stopped monitoring")
+    }
+
     private func interfaceTypeName(_ type: NWInterface.InterfaceType) -> String {
         switch type {
         case .wifi: return "WiFi"
@@ -823,11 +869,11 @@ class NetworkMonitor: ObservableObject {
         @unknown default: return "Unknown"
         }
     }
-    
+
     var isOnWiFi: Bool {
         connectionType == .wifi
     }
-    
+
     var isOnCellular: Bool {
         connectionType == .cellular
     }

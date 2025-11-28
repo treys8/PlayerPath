@@ -9,6 +9,7 @@ import SwiftUI
 import SwiftData
 import UserNotifications
 import Combine
+import FirebaseCore
 
 /// Provides a shared `NavigationCoordinator` via the environment so views can react
 /// to app-wide navigation requests (e.g., from notifications or deep links).
@@ -35,6 +36,17 @@ struct PlayerPathApp: App {
     
     // State for handling notification-based navigation
     @State private var navigationCoordinator = NavigationCoordinator()
+    
+    // Initialize Firebase before anything else
+    init() {
+        // Configure Firebase as early as possible
+        if FirebaseApp.app() == nil {
+            FirebaseApp.configure()
+            #if DEBUG
+            print("🔥 Firebase configured in App init")
+            #endif
+        }
+    }
     
     var body: some Scene {
         WindowGroup {

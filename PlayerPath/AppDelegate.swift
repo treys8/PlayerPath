@@ -46,14 +46,10 @@ class PlayerPathAppDelegate: NSObject, UIApplicationDelegate {
     private func setupPushNotifications(_ application: UIApplication) {
         // Request notification permissions on app launch and register for remote notifications on grant
         Task { @MainActor in
-            do {
-                let granted = await PushNotificationService.shared.requestAuthorization()
-                appLog.info("Push authorization granted: \(granted, privacy: .public)")
-                if granted {
-                    application.registerForRemoteNotifications()
-                }
-            } catch {
-                appLog.error("Failed to setup push notifications: \(error.localizedDescription)")
+            let granted = await PushNotificationService.shared.requestAuthorization()
+            appLog.info("Push authorization granted: \(granted, privacy: .public)")
+            if granted {
+                application.registerForRemoteNotifications()
             }
         }
     }
@@ -86,10 +82,10 @@ class PlayerPathAppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication, didReceiveRemoteNotification userInfo: [AnyHashable : Any], fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
         
         // System gives 30 seconds max - use 25 second timeout with 5 second buffer
-        Task {
+        Task { @MainActor in
             let handled = await withTaskGroup(of: Bool.self, returning: Bool.self) { group in
                 // Task 1: Process the notification
-                group.addTask {
+                group.addTask { @MainActor in
                     await CloudKitManager.shared.handleRemoteNotification(userInfo)
                     return self.handleRemoteNotification(userInfo: userInfo)
                 }
@@ -97,7 +93,9 @@ class PlayerPathAppDelegate: NSObject, UIApplicationDelegate {
                 // Task 2: Timeout protection (25 seconds)
                 group.addTask {
                     try? await Task.sleep(for: .seconds(25))
-                    appLog.warning("Remote notification processing timed out after 25 seconds")
+                    await MainActor.run {
+                        appLog.warning("Remote notification processing timed out after 25 seconds")
+                    }
                     return false
                 }
                 
@@ -111,6 +109,7 @@ class PlayerPathAppDelegate: NSObject, UIApplicationDelegate {
         }
     }
     
+    @MainActor
     @discardableResult private func handleRemoteNotification(userInfo: [AnyHashable: Any]) -> Bool {
         // Handle different types of remote notifications
         if let typeString = userInfo[RemoteNotificationKey.type] as? String,

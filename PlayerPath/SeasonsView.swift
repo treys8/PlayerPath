@@ -13,20 +13,7 @@ struct SeasonsView: View {
     @Environment(\.modelContext) private var modelContext
     @State private var showingCreateSeason = false
     @State private var selectedSeason: Season?
-    
-    private var seasons: [Season] {
-        // Cache this - don't recompute on every body evaluation
-        let allSeasons = athlete.seasons ?? []
-        return allSeasons.sorted { lhs, rhs in
-            // Active season first
-            if lhs.isActive != rhs.isActive {
-                return lhs.isActive
-            }
-            
-            // Then sort by start date (most recent first)
-            return (lhs.startDate ?? .distantPast) > (rhs.startDate ?? .distantPast)
-        }
-    }
+    @State private var seasons: [Season] = []
     
     var body: some View {
         ScrollView {
@@ -131,6 +118,25 @@ struct SeasonsView: View {
             .sheet(item: $selectedSeason) { season in
                 SeasonDetailView(season: season, athlete: athlete)
             }
+            .onAppear {
+                updateSeasons()
+            }
+            .onChange(of: athlete.seasons) { _, _ in
+                updateSeasons()
+            }
+    }
+
+    private func updateSeasons() {
+        let allSeasons = athlete.seasons ?? []
+        seasons = allSeasons.sorted { lhs, rhs in
+            // Active season first
+            if lhs.isActive != rhs.isActive {
+                return lhs.isActive
+            }
+
+            // Then sort by start date (most recent first)
+            return (lhs.startDate ?? .distantPast) > (rhs.startDate ?? .distantPast)
+        }
     }
 }
 

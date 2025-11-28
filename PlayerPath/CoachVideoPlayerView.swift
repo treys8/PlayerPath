@@ -563,7 +563,7 @@ class CoachVideoPlayerViewModel: ObservableObject {
                     id: "video123",
                     fileName: "practice_2024-11-21.mov",
                     firebaseStorageURL: "https://example.com/video.mov",
-                    thumbnailURL: nil,
+                    thumbnail: nil,
                     uploadedBy: "coach456",
                     uploadedByName: "Coach Smith",
                     sharedFolderID: "folder123",

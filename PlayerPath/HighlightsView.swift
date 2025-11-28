@@ -24,8 +24,6 @@ struct HighlightsView: View {
     enum SortOrder: String, CaseIterable, Identifiable { case newest, oldest; var id: String { rawValue } }
     @State private var sortOrder: SortOrder = .newest
     @State private var selection = Set<VideoClip.ID>()
-    @State private var recentlyDeleted: [VideoClip] = []
-    @State private var showingUndoAlert = false
     
     var highlights: [VideoClip] {
         guard let athlete = athlete, let videoClips = athlete.videoClips else { return [] }
@@ -59,7 +57,8 @@ struct HighlightsView: View {
     
     var body: some View {
         contentView
-            .tabRootNavigationBar(title: athlete?.name ?? "Highlights")
+            .navigationTitle(athlete?.name ?? "Highlights")
+            .navigationBarTitleDisplayMode(.large)
             .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always))
             .toolbar {
                 toolbarContent
@@ -76,20 +75,12 @@ struct HighlightsView: View {
             }
             Button("Delete", role: .destructive) {
                 if let clip = clipToDelete {
-                    stageDelete(clip)
+                    deleteHighlight(clip)
                 }
                 clipToDelete = nil
             }
         } message: {
-            Text("Are you sure you want to delete this highlight? This action cannot be undone.")
-        }
-        .alert("Highlight deleted", isPresented: $showingUndoAlert) {
-            Button("Undo", role: .cancel) {
-                undoRecentDelete()
-            }
-            Button("OK", role: .none) { finalizeStagedDeletes() }
-        } message: {
-            Text("You can undo this action.")
+            Text("Are you sure you want to delete this highlight?")
         }
     }
     
@@ -104,7 +95,7 @@ struct HighlightsView: View {
     
     private var highlightGridView: some View {
         ScrollView {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), spacing: 15, alignment: .top)], spacing: 15) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 15, alignment: .top)], spacing: 15) {
                 ForEach(highlights) { clip in
                     highlightItemView(for: clip)
                 }
@@ -126,10 +117,6 @@ struct HighlightsView: View {
                         } else {
                             toggleSelection(clip)
                         }
-                    },
-                    onDelete: {
-                        clipToDelete = clip
-                        showingDeleteAlert = true
                     }
                 )
                 .contextMenu {
@@ -180,19 +167,26 @@ struct HighlightsView: View {
     
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        ToolbarItem(placement: .navigationBarLeading) {
-            NavigationLink(destination: SimpleCloudStorageView()) {
-                Image(systemName: "icloud.and.arrow.up")
+        ToolbarItem(placement: .primaryAction) {
+            Menu {
+                NavigationLink(destination: SimpleCloudStorageView()) {
+                    Label("Cloud Storage", systemImage: "icloud")
+                }
+            } label: {
+                Image(systemName: "ellipsis.circle")
             }
         }
+        
         ToolbarItem(placement: .principal) {
             titleMenu
         }
+        
         if !highlights.isEmpty {
-            ToolbarItem(placement: .navigationBarTrailing) {
+            ToolbarItem(placement: .secondaryAction) {
                 editButton
             }
         }
+        
         ToolbarItemGroup(placement: .bottomBar) {
             if editMode == .active {
                 bottomBarButtons
@@ -328,79 +322,11 @@ struct HighlightsView: View {
     private func batchDeleteSelected() {
         let clips = highlights.filter { selection.contains($0.id) }
         guard !clips.isEmpty else { return }
-        for clip in clips { stageDelete(clip) }
-        selection.removeAll()
-        withAnimation { editMode = .inactive }
-    }
-    
-    private func stageDelete(_ clip: VideoClip) {
-        // Remove from UI immediately but delay file/model deletion to allow undo
-        recentlyDeleted.append(clip)
-        // Remove references so it disappears from lists
-        if let athlete = athlete, var videoClips = athlete.videoClips {
-            if let idx = videoClips.firstIndex(of: clip) {
-                videoClips.remove(at: idx)
-                athlete.videoClips = videoClips
-            }
-        }
-        if let game = clip.game, var videoClips = game.videoClips {
-            if let idx = videoClips.firstIndex(of: clip) {
-                videoClips.remove(at: idx)
-                game.videoClips = videoClips
-            }
-        }
-        if let practice = clip.practice, var videoClips = practice.videoClips {
-            if let idx = videoClips.firstIndex(of: clip) {
-                videoClips.remove(at: idx)
-                practice.videoClips = videoClips
-            }
-        }
-        // Show undo alert
-        showingUndoAlert = true
-    }
-
-    private func undoRecentDelete() {
-        // Reinsert staged items back to their relationships
-        for clip in recentlyDeleted {
-            if let athlete = athlete {
-                var videoClips = athlete.videoClips ?? []
-                if !videoClips.contains(clip) {
-                    videoClips.append(clip)
-                    athlete.videoClips = videoClips
-                }
-            }
-            if let game = clip.game {
-                var videoClips = game.videoClips ?? []
-                if !videoClips.contains(clip) {
-                    videoClips.append(clip)
-                    game.videoClips = videoClips
-                }
-            }
-            if let practice = clip.practice {
-                var videoClips = practice.videoClips ?? []
-                if !videoClips.contains(clip) {
-                    videoClips.append(clip)
-                    practice.videoClips = videoClips
-                }
-            }
-        }
-        recentlyDeleted.removeAll()
-    }
-
-    private func finalizeStagedDeletes() {
-        guard !recentlyDeleted.isEmpty else { return }
-        for clip in recentlyDeleted {
+        for clip in clips { 
             deleteHighlight(clip)
         }
-        recentlyDeleted.removeAll()
-        
-        // Critical: Save the model context after deletions
-        do {
-            try modelContext.save()
-            print("Successfully finalized deletion of \(recentlyDeleted.count) highlights")
-        } catch {
-            print("Failed to save after finalizing deletes: \(error)")
-        }
+        selection.removeAll()
+        withAnimation { editMode = .inactive }
     }
 }
 
@@ -415,7 +341,7 @@ struct EmptyHighlightsView: View {
                 .font(.title)
                 .fontWeight(.bold)
             
-            Text("Record some great plays! Singles, doubles, triples, and home runs automatically become highlights")
+            Text("Star great plays! Hits automatically become highlights")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
@@ -428,7 +354,6 @@ struct HighlightCard: View {
     let clip: VideoClip
     let editMode: EditMode
     let onTap: () -> Void
-    let onDelete: () -> Void
     @State private var thumbnailImage: UIImage?
     @State private var isLoadingThumbnail = false
     
@@ -474,25 +399,8 @@ struct HighlightCard: View {
                             }
                         }
                     
-                    // Delete button in edit mode
-                    if editMode == .active {
-                        VStack {
-                            HStack {
-                                Button(action: onDelete) {
-                                    Image(systemName: "minus.circle.fill")
-                                        .font(.title2)
-                                        .foregroundColor(.red)
-                                        .background(Circle().fill(Color.white))
-                                }
-                                .padding(8)
-                                
-                                Spacer()
-                            }
-                            
-                            Spacer()
-                        }
-                    } else {
-                        // Play button overlay (only in normal mode)
+                    // Play button overlay (only in normal mode)
+                    if editMode == .inactive {
                         Circle()
                             .fill(Color.black.opacity(0.6))
                             .frame(width: 44, height: 44)
@@ -501,8 +409,6 @@ struct HighlightCard: View {
                                     .font(.title3)
                                     .foregroundColor(.white)
                             )
-                            .transition(.scale.combined(with: .opacity))
-                            .animation(.easeInOut(duration: 0.15), value: editMode)
                     }
                     
                     // Play result badge in top-right corner (always visible)
@@ -525,7 +431,7 @@ struct HighlightCard: View {
                                 .padding(.vertical, 6)
                                 .background(playResultColor(for: playResult.type))
                                 .cornerRadius(8)
-                                .padding(.top, editMode == .active ? 40 : 8) // Adjust for delete button
+                                .padding(.top, 8)
                                 .padding(.trailing, 8)
                             }
                         }
@@ -550,7 +456,7 @@ struct HighlightCard: View {
                     }
                     }
                 }
-                .aspectRatio(9/16, contentMode: .fit) // Portrait video aspect ratio
+                .aspectRatio(16/9, contentMode: .fit) // Landscape video aspect ratio
                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 
                 // Info overlay at bottom

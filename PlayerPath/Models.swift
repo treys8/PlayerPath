@@ -244,7 +244,7 @@ final class Tournament {
     var info: String = ""
     var isActive: Bool = false
     var createdAt: Date?
-    var athletes: [Athlete]?
+    @Relationship(inverse: \Athlete.tournaments) var athletes: [Athlete]?
     var games: [Game]?
     var season: Season?
     

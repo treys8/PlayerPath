@@ -63,32 +63,27 @@ struct VideoClipsView: View {
         }
         .navigationTitle("Videos")
         .navigationBarTitleDisplayMode(.large)
-        .navigationBarBackButtonHidden(true)
         .searchable(text: $searchText, prompt: "Search videos")
         .toolbar {
-            // Primary action: Quick Record
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button {
-                    Haptics.light()
-                    showingRecorder = true
+            ToolbarItem(placement: .primaryAction) {
+                Menu {
+                    Button {
+                        Haptics.light()
+                        showingRecorder = true
+                    } label: {
+                        Label("Record Video", systemImage: "video.badge.plus")
+                    }
+                    
+                    Button {
+                        Haptics.light()
+                        showingUploadPicker = true
+                    } label: {
+                        Label("Upload from Library", systemImage: "square.and.arrow.up")
+                    }
                 } label: {
-                    Image(systemName: "plus.circle.fill")
-                        .font(.title3)
+                    Image(systemName: "plus")
                 }
-                .accessibilityLabel("Record video")
-                .accessibilityHint("Quickly record a new video clip")
-            }
-            
-            // Secondary action: Upload (in toolbar menu)
-            ToolbarItem(placement: .navigationBarLeading) {
-                Button {
-                    Haptics.light()
-                    showingUploadPicker = true
-                } label: {
-                    Image(systemName: "square.and.arrow.up")
-                }
-                .accessibilityLabel("Upload video")
-                .accessibilityHint("Upload a video from your library")
+                .accessibilityLabel("Add video")
             }
         }
         .sheet(isPresented: $showingRecorder) {
@@ -99,10 +94,8 @@ struct VideoClipsView: View {
             Text("Video upload coming soon")
         }
         .sheet(item: $selectedVideo) { video in
-            if let url = URL(string: "file://\(video.filePath)") {
-                VideoPlayer(player: AVPlayer(url: url))
-                    .ignoresSafeArea()
-            }
+            VideoPlayer(player: AVPlayer(url: URL(fileURLWithPath: video.filePath)))
+                .ignoresSafeArea()
         }
         .onReceive(NotificationCenter.default.publisher(for: .presentVideoRecorder)) { notification in
             liveGameContext = notification.object as? Game
@@ -130,7 +123,7 @@ struct VideoClipsView: View {
         EmptyStateView(
             systemImage: "video.slash",
             title: "No Videos Yet",
-            message: "Record your first video to start building your highlight reel",
+            message: "Record your first video to build your highlight reel",
             actionTitle: "Record Video",
             action: {
                 Haptics.light()
@@ -143,7 +136,7 @@ struct VideoClipsView: View {
         ScrollView {
             LazyVGrid(
                 columns: [
-                    GridItem(.adaptive(minimum: 160, maximum: 200), spacing: 12, alignment: .top)
+                    GridItem(.adaptive(minimum: 140, maximum: 200), spacing: 12, alignment: .top)
                 ],
                 spacing: 12
             ) {
@@ -211,7 +204,7 @@ struct VideoClipCard: View {
                         }
                     }
                 }
-                .aspectRatio(9/16, contentMode: .fit) // Portrait video aspect ratio
+                .aspectRatio(16/9, contentMode: .fit) // Landscape video aspect ratio
                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 
                 // Info section - more compact

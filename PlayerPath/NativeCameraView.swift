@@ -60,6 +60,13 @@ enum NativeCameraError: LocalizedError {
 /// A SwiftUI wrapper around UIImagePickerController for recording videos with proper orientation support.
 /// This view handles landscape and portrait recording, fixing video orientation metadata automatically.
 struct NativeCameraView: UIViewControllerRepresentable {
+    // MARK: - Constants
+
+    private enum Constants {
+        static let defaultMaxDuration: TimeInterval = 600 // 10 minutes
+        static let orientationAngleTolerance: Double = 1.0 // Degrees
+    }
+
     let videoQuality: UIImagePickerController.QualityType
     let maxDuration: TimeInterval
     let enableFlash: Bool
@@ -67,10 +74,10 @@ struct NativeCameraView: UIViewControllerRepresentable {
     let onVideoRecorded: (URL) -> Void
     let onCancel: () -> Void
     let onError: ((Error) -> Void)?
-    
+
     init(
         videoQuality: UIImagePickerController.QualityType = .typeHigh,
-        maxDuration: TimeInterval = 600,
+        maxDuration: TimeInterval = Constants.defaultMaxDuration,
         enableFlash: Bool = false,
         cameraDevice: UIImagePickerController.CameraDevice = .rear,
         onVideoRecorded: @escaping (URL) -> Void,
@@ -210,17 +217,23 @@ struct NativeCameraView: UIViewControllerRepresentable {
         /// KEY FIX #5: Fix video orientation metadata for landscape recordings
         /// This ensures videos recorded in landscape display correctly when played back
         private func fixVideoOrientation(at url: URL, completion: @escaping (URL?) -> Void) {
+            // Capture error handler to avoid retain cycle
+            let errorHandler = self.onError
+
             Task {
                 do {
                     let asset = AVURLAsset(url: url)
-                    
+
                     // Load tracks asynchronously (modern API)
                     let videoTracks = try await asset.loadTracks(withMediaType: .video)
                     guard let videoTrack = videoTracks.first else {
                         #if DEBUG
                         print("⚠️ NativeCameraView: No video track found, cannot fix orientation")
                         #endif
-                        await MainActor.run { completion(nil) }
+                        await MainActor.run {
+                            errorHandler?(NativeCameraError.orientationFixFailed)
+                            completion(nil)
+                        }
                         return
                     }
                     
@@ -241,7 +254,7 @@ struct NativeCameraView: UIViewControllerRepresentable {
                     #endif
                     
                     // If video is already in portrait orientation (0° or 180°), no fix needed
-                    if abs(videoAngle) < 1.0 || abs(videoAngle - 180) < 1.0 {
+                    if abs(videoAngle) < Constants.orientationAngleTolerance || abs(videoAngle - 180) < Constants.orientationAngleTolerance {
                         #if DEBUG
                         print("✅ NativeCameraView: Video is portrait, no orientation fix needed")
                         #endif
@@ -263,7 +276,10 @@ struct NativeCameraView: UIViewControllerRepresentable {
                         #if DEBUG
                         print("❌ NativeCameraView: Failed to create composition video track")
                         #endif
-                        await MainActor.run { completion(nil) }
+                        await MainActor.run {
+                            errorHandler?(NativeCameraError.orientationFixFailed)
+                            completion(nil)
+                        }
                         return
                     }
                     
@@ -305,7 +321,10 @@ struct NativeCameraView: UIViewControllerRepresentable {
                         #if DEBUG
                         print("❌ NativeCameraView: Failed to create export session")
                         #endif
-                        await MainActor.run { completion(nil) }
+                        await MainActor.run {
+                            errorHandler?(NativeCameraError.orientationFixFailed)
+                            completion(nil)
+                        }
                         return
                     }
                     
@@ -317,60 +336,46 @@ struct NativeCameraView: UIViewControllerRepresentable {
                     print("🔄 NativeCameraView: Exporting fixed video...")
                     #endif
                     
-                    // Use modern async export API (iOS 18+)
-                    if #available(iOS 18.0, *) {
-                        do {
-                            try await exportSession.export(to: outputURL, as: .mov)
-                            
-                            await MainActor.run {
-                                #if DEBUG
-                                print("✅ NativeCameraView: Export completed successfully")
-                                #endif
-                                // Clean up original file to save space
-                                try? FileManager.default.removeItem(at: url)
-                                completion(outputURL)
+                    // Use fallback export API for all iOS versions (iOS 18 API verification needed)
+                    await exportSession.export()
+
+                    await MainActor.run {
+                        switch exportSession.status {
+                        case .completed:
+                            #if DEBUG
+                            print("✅ NativeCameraView: Export completed successfully")
+                            #endif
+                            // IMPORTANT: Don't delete original file here - let caller handle cleanup
+                            // after they've successfully saved the video to prevent data loss
+                            completion(outputURL)
+
+                        case .failed:
+                            #if DEBUG
+                            print("❌ NativeCameraView: Export failed: \(exportSession.error?.localizedDescription ?? "Unknown error")")
+                            #endif
+                            // Clean up failed export file
+                            try? FileManager.default.removeItem(at: outputURL)
+
+                            if let error = exportSession.error {
+                                errorHandler?(NativeCameraError.exportFailed(error))
                             }
-                        } catch {
-                            await MainActor.run {
-                                #if DEBUG
-                                print("❌ NativeCameraView: Export failed: \(error.localizedDescription)")
-                                #endif
-                                self.onError?(NativeCameraError.exportFailed(error))
-                                completion(nil)
-                            }
-                        }
-                    } else {
-                        // Fallback for iOS 17 and earlier
-                        await exportSession.export()
-                        
-                        await MainActor.run {
-                            switch exportSession.status {
-                            case .completed:
-                                #if DEBUG
-                                print("✅ NativeCameraView: Export completed successfully")
-                                #endif
-                                // Clean up original file to save space
-                                try? FileManager.default.removeItem(at: url)
-                                completion(outputURL)
-                                
-                            case .failed:
-                                #if DEBUG
-                                print("❌ NativeCameraView: Export failed: \(exportSession.error?.localizedDescription ?? "Unknown error")")
-                                #endif
-                                if let error = exportSession.error {
-                                    self.onError?(NativeCameraError.exportFailed(error))
-                                }
-                                completion(nil)
-                                
-                            case .cancelled:
-                                #if DEBUG
-                                print("⚠️ NativeCameraView: Export cancelled")
-                                #endif
-                                completion(nil)
-                                
-                            default:
-                                completion(nil)
-                            }
+                            completion(nil)
+
+                        case .cancelled:
+                            #if DEBUG
+                            print("⚠️ NativeCameraView: Export cancelled")
+                            #endif
+                            // Clean up cancelled export file
+                            try? FileManager.default.removeItem(at: outputURL)
+                            completion(nil)
+
+                        default:
+                            #if DEBUG
+                            print("⚠️ NativeCameraView: Export ended with unknown status")
+                            #endif
+                            // Clean up on unknown status
+                            try? FileManager.default.removeItem(at: outputURL)
+                            completion(nil)
                         }
                     }
                     
@@ -379,47 +384,11 @@ struct NativeCameraView: UIViewControllerRepresentable {
                     print("❌ NativeCameraView: Error fixing video orientation: \(error.localizedDescription)")
                     #endif
                     await MainActor.run {
-                        self.onError?(NativeCameraError.exportFailed(error))
+                        errorHandler?(NativeCameraError.exportFailed(error))
                         completion(nil)
                     }
                 }
             }
-        }
-    }
-}
-
-// MARK: - Video Metadata Helper
-
-extension NativeCameraView {
-    /// Extract useful metadata from recorded video
-    struct VideoMetadata {
-        let duration: TimeInterval
-        let size: CGSize
-        let fileSize: Int64
-        let angle: Double
-        let isLandscape: Bool
-        
-        init(url: URL) async throws {
-            let asset = AVURLAsset(url: url)
-            let videoTracks = try await asset.loadTracks(withMediaType: .video)
-            
-            guard let videoTrack = videoTracks.first else {
-                throw NativeCameraError.noVideoURL
-            }
-            
-            let durationValue = try await asset.load(.duration)
-            self.duration = durationValue.seconds
-            
-            let naturalSize = try await videoTrack.load(.naturalSize)
-            self.size = naturalSize
-            
-            let transform = try await videoTrack.load(.preferredTransform)
-            let videoAngle = atan2(transform.b, transform.a) * 180 / .pi
-            self.angle = videoAngle
-            self.isLandscape = abs(videoAngle) > 1.0 && abs(videoAngle - 180) > 1.0
-            
-            let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
-            self.fileSize = attributes[.size] as? Int64 ?? 0
         }
     }
 }

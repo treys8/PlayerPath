@@ -105,31 +105,25 @@ struct EmptyStatisticsView: View {
                 .font(.title)
                 .fontWeight(.bold)
             
-            Text("Record some plays to start building your statistical profile")
+            Text("Record plays to start building your stats")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
             
-            VStack(spacing: 15) {
-                Button(action: { showGameSelection() }) {
-                    Label("Add Past Game Statistics", systemImage: "plus.circle.fill")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(.blue)
-                .accessibilityLabel("Add past game statistics")
-                .accessibilityHint("Select a previous game to record statistics")
-                
+            VStack(spacing: 12) {
                 Button(action: { showQuickEntry() }) {
-                    Label("Record Current Game Stats", systemImage: "chart.bar.doc.horizontal.fill")
+                    Label("Record Live Game Stats", systemImage: "chart.bar.doc.horizontal.fill")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(.green)
-                .accessibilityLabel("Record current game statistics")
-                .accessibilityHint("Record plays for the ongoing game")
                 .disabled(!isQuickEntryEnabled)
-                .opacity(isQuickEntryEnabled ? 1.0 : 0.5)
+                
+                Button(action: { showGameSelection() }) {
+                    Label("Add Past Game Statistics", systemImage: "plus.circle.fill")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
             }
             .padding(.horizontal)
         }
@@ -170,7 +164,7 @@ struct ManualEntrySection: View {
                                     .fontWeight(.semibold)
                                     .foregroundColor(.primary)
                                 
-                                Text("Tap to add at-bats, hits, and results")
+                                Text("Tap to add at-bats and hits")
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                             }
@@ -213,7 +207,7 @@ struct ManualEntrySection: View {
                                 .fontWeight(.semibold)
                                 .foregroundColor(.primary)
                             
-                            Text("Select a previous game to record statistics")
+                            Text("Select a game to record statistics")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                         }
@@ -350,15 +344,12 @@ struct BattingChartSection: View {
                             .font(.caption2)
                             .foregroundColor(.secondary)
                     }
+                    .accessibilityLabel("\(data.type): \(data.count)")
                 }
                 .chartXScale(domain: 0...max(1, chartData.map(\.count).max() ?? 1))
-                .chartXAxisLabel("Count")
-                .chartYAxisLabel("Hit Type")
                 .frame(height: 200)
                 .padding()
                 .statCardBackground()
-                .accessibilityElement(children: .contain)
-                .accessibilityLabel("Hit distribution chart")
             } else {
                 Text("No hits recorded yet")
                     .font(.subheadline)
@@ -575,9 +566,17 @@ struct QuickStatisticsEntryView: View {
                             .fontWeight(.medium)
                         TextField("1", text: $numberOfPlays)
                             .keyboardType(.numberPad)
-                            .textFieldStyle(RoundedBorderTextFieldStyle())
+                            .textFieldStyle(.roundedBorder)
                             .frame(width: 80)
                             .focused($isPlaysFieldFocused)
+                            .toolbar {
+                                ToolbarItemGroup(placement: .keyboard) {
+                                    Spacer()
+                                    Button("Done") { 
+                                        isPlaysFieldFocused = false 
+                                    }
+                                }
+                            }
                     }
                 }
                 
@@ -614,22 +613,17 @@ struct QuickStatisticsEntryView: View {
             .navigationTitle("Record Statistics")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
+                ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
                         dismiss()
                     }
                 }
                 
-                ToolbarItem(placement: .navigationBarTrailing) {
+                ToolbarItem(placement: .primaryAction) {
                     Button("Save") {
                         savePlayResults()
                     }
                     .disabled(numberOfPlays.isEmpty || isSaving)
-                }
-                
-                ToolbarItemGroup(placement: .keyboard) {
-                    Spacer()
-                    Button("Done") { isPlaysFieldFocused = false }
                 }
             }
         }
@@ -684,17 +678,29 @@ struct QuickStatisticsEntryView: View {
             if playResultType.countsAsAtBat {
                 gameStats.atBats += playCount
             }
+            if playResultType == .strikeout {
+                gameStats.strikeouts += playCount
+            }
+            if playResultType == .walk {
+                gameStats.walks += playCount
+            }
         } else {
             let newGameStats = GameStatistics()
             game.gameStats = newGameStats
             newGameStats.game = game
             modelContext.insert(newGameStats)
-            
+
             if playResultType.isHit {
                 newGameStats.hits += playCount
             }
             if playResultType.countsAsAtBat {
                 newGameStats.atBats += playCount
+            }
+            if playResultType == .strikeout {
+                newGameStats.strikeouts += playCount
+            }
+            if playResultType == .walk {
+                newGameStats.walks += playCount
             }
         }
         
@@ -776,7 +782,7 @@ struct GameSelectionForStatsView: View {
             .navigationTitle("Select Game")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
+                ToolbarItem(placement: .confirmationAction) {
                     Button("Done") {
                         dismiss()
                     }

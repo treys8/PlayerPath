@@ -13,15 +13,14 @@ struct SeasonManagementView: View {
     let athlete: Athlete
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
-    
-    // Query all games to force refresh when games complete
-    @Query private var allGames: [Game]
-    @Query private var allVideos: [VideoClip]
-    
+
     @State private var showingCreateSeason = false
     @State private var showingArchiveConfirmation = false
     @State private var seasonToArchive: Season?
     @State private var showingSeasonDetail: Season?
+    @State private var isProcessing = false
+    @State private var showingError = false
+    @State private var errorMessage = ""
     
     var body: some View {
         List {
@@ -131,17 +130,41 @@ struct SeasonManagementView: View {
         } message: { season in
             Text("Are you sure you want to end \(season.displayName)? This will archive all games, practices, and videos for this season. You can still view them later in season history.")
         }
+        .alert("Error", isPresented: $showingError) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(errorMessage)
+        }
+        .disabled(isProcessing)
     }
     
     private func archiveSeason(_ season: Season) {
-        withAnimation {
-            season.archive()
-        }
-        
+        isProcessing = true
+
+        // Save state for rollback
+        let wasActive = season.isActive
+        let previousEndDate = season.endDate
+
+        // Archive the season
+        season.archive()
+
         do {
             try modelContext.save()
+            // Success - animate the change
+            withAnimation {
+                isProcessing = false
+            }
             Haptics.medium()
         } catch {
+            // Rollback on failure
+            if wasActive {
+                season.activate()
+            }
+            season.endDate = previousEndDate
+
+            isProcessing = false
+            errorMessage = "Failed to archive season: \(error.localizedDescription)"
+            showingError = true
             print("Failed to archive season: \(error)")
         }
     }
@@ -152,22 +175,15 @@ struct SeasonManagementView: View {
 struct ActiveSeasonCard: View {
     let season: Season
     let athlete: Athlete
-    
-    // Query games and videos to force UI updates
-    @Query private var allGames: [Game]
-    @Query private var allVideos: [VideoClip]
-    
-    // Compute stats based on current data
-    private var completedGames: Int {
-        allGames.filter { $0.season?.id == season.id && $0.isComplete }.count
-    }
-    
-    private var totalVideos: Int {
-        allVideos.filter { $0.season?.id == season.id }.count
-    }
-    
-    private var highlights: Int {
-        allVideos.filter { $0.season?.id == season.id && $0.isHighlight }.count
+
+    @State private var completedGames: Int = 0
+    @State private var totalVideos: Int = 0
+    @State private var highlights: Int = 0
+
+    // Use targeted queries with predicates instead of loading all records
+    init(season: Season, athlete: Athlete) {
+        self.season = season
+        self.athlete = athlete
     }
     
     var body: some View {
@@ -208,6 +224,21 @@ struct ActiveSeasonCard: View {
             RoundedRectangle(cornerRadius: 12)
                 .fill(.blue.opacity(0.1))
         }
+        .task {
+            updateStats()
+        }
+        .onChange(of: season.games) { _, _ in
+            updateStats()
+        }
+        .onChange(of: season.videoClips) { _, _ in
+            updateStats()
+        }
+    }
+
+    private func updateStats() {
+        completedGames = season.games?.filter { $0.isComplete }.count ?? 0
+        totalVideos = season.videoClips?.count ?? 0
+        highlights = season.videoClips?.filter { $0.isHighlight }.count ?? 0
     }
 }
 
@@ -237,18 +268,9 @@ struct StatBadge: View {
 
 struct SeasonHistoryRow: View {
     let season: Season
-    
-    // Query games and videos for live counts
-    @Query private var allGames: [Game]
-    @Query private var allVideos: [VideoClip]
-    
-    private var completedGames: Int {
-        allGames.filter { $0.season?.id == season.id && $0.isComplete }.count
-    }
-    
-    private var totalVideos: Int {
-        allVideos.filter { $0.season?.id == season.id }.count
-    }
+
+    @State private var completedGames: Int = 0
+    @State private var totalVideos: Int = 0
     
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -284,6 +306,14 @@ struct SeasonHistoryRow: View {
             }
         }
         .padding(.vertical, 4)
+        .task {
+            updateStats()
+        }
+    }
+
+    private func updateStats() {
+        completedGames = season.games?.filter { $0.isComplete }.count ?? 0
+        totalVideos = season.videoClips?.count ?? 0
     }
 }
 
@@ -411,36 +441,48 @@ struct CreateSeasonView: View {
             showingError = true
             return
         }
-        
-        withAnimation {
-            // If making this active, archive the current active season
-            if makeActive, let currentActive = athlete.activeSeason {
-                currentActive.archive()
-            }
-            
-            // Create new season
-            let newSeason = Season(name: seasonName.trimmingCharacters(in: .whitespacesAndNewlines),
-                                  startDate: startDate,
-                                  sport: selectedSport)
-            
-            if makeActive {
-                newSeason.activate()
-            }
-            
-            // Link to athlete
-            newSeason.athlete = athlete
-            athlete.seasons = athlete.seasons ?? []
-            athlete.seasons?.append(newSeason)
-            
-            // Save
-            modelContext.insert(newSeason)
+
+        // Save state for rollback
+        let previousActiveWasActive = athlete.activeSeason?.isActive ?? false
+        let previousActiveEndDate = athlete.activeSeason?.endDate
+
+        // If making this active, archive the current active season
+        if makeActive, let currentActive = athlete.activeSeason {
+            currentActive.archive()
         }
-        
+
+        // Create new season
+        let newSeason = Season(name: seasonName.trimmingCharacters(in: .whitespacesAndNewlines),
+                              startDate: startDate,
+                              sport: selectedSport)
+
+        if makeActive {
+            newSeason.activate()
+        }
+
+        // Link to athlete
+        newSeason.athlete = athlete
+        athlete.seasons = athlete.seasons ?? []
+        athlete.seasons?.append(newSeason)
+
+        // Insert and save
+        modelContext.insert(newSeason)
+
         do {
             try modelContext.save()
+            // Success - provide feedback and dismiss
             Haptics.medium()
             dismiss()
         } catch {
+            // Rollback on failure
+            modelContext.delete(newSeason)
+            athlete.seasons?.removeAll { $0.id == newSeason.id }
+
+            if let previousActive = athlete.activeSeason, previousActiveWasActive {
+                previousActive.activate()
+                previousActive.endDate = previousActiveEndDate
+            }
+
             errorMessage = "Failed to create season: \(error.localizedDescription)"
             showingError = true
         }
@@ -454,36 +496,19 @@ struct SeasonDetailView: View {
     let athlete: Athlete
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
-    
-    // Query all data to get live updates
-    @Query private var allGames: [Game]
-    @Query private var allVideos: [VideoClip]
-    @Query private var allPractices: [Practice]
-    @Query private var allTournaments: [Tournament]
-    
+
     @State private var showingDeleteConfirmation = false
     @State private var showingReactivateConfirmation = false
-    
-    // Computed properties for live stats
-    private var completedGames: Int {
-        allGames.filter { $0.season?.id == season.id && $0.isComplete }.count
-    }
-    
-    private var totalVideos: Int {
-        allVideos.filter { $0.season?.id == season.id }.count
-    }
-    
-    private var highlights: Int {
-        allVideos.filter { $0.season?.id == season.id && $0.isHighlight }.count
-    }
-    
-    private var practices: Int {
-        allPractices.filter { $0.season?.id == season.id }.count
-    }
-    
-    private var tournaments: Int {
-        allTournaments.filter { $0.season?.id == season.id }.count
-    }
+    @State private var isProcessing = false
+    @State private var showingError = false
+    @State private var errorMessage = ""
+
+    // Cached stats - updated via relationships
+    @State private var completedGames: Int = 0
+    @State private var totalVideos: Int = 0
+    @State private var highlights: Int = 0
+    @State private var practices: Int = 0
+    @State private var tournaments: Int = 0
     
     var body: some View {
         List {
@@ -607,41 +632,110 @@ struct SeasonDetailView: View {
                 Text("This will make \(season.displayName) the active season.")
             }
         }
+        .alert("Error", isPresented: $showingError) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(errorMessage)
+        }
+        .disabled(isProcessing)
+        .task {
+            updateStats()
+        }
+        .onChange(of: season.games) { _, _ in
+            updateStats()
+        }
+        .onChange(of: season.videoClips) { _, _ in
+            updateStats()
+        }
+        .onChange(of: season.practices) { _, _ in
+            updateStats()
+        }
+        .onChange(of: season.tournaments) { _, _ in
+            updateStats()
+        }
+    }
+
+    private func updateStats() {
+        completedGames = season.games?.filter { $0.isComplete }.count ?? 0
+        totalVideos = season.videoClips?.count ?? 0
+        highlights = season.videoClips?.filter { $0.isHighlight }.count ?? 0
+        practices = season.practices?.count ?? 0
+        tournaments = season.tournaments?.count ?? 0
     }
     
     private func deleteSeason() {
-        // Delink relationships (SwiftData will handle cascade)
-        season.games?.forEach { $0.season = nil }
-        season.practices?.forEach { $0.season = nil }
-        season.videoClips?.forEach { $0.season = nil }
-        season.tournaments?.forEach { $0.season = nil }
-        
+        isProcessing = true
+
+        // Store relationships for rollback
+        let games = season.games
+        let practices = season.practices
+        let videoClips = season.videoClips
+        let tournaments = season.tournaments
+
+        // Delink relationships - let SwiftData handle updates efficiently
+        season.games = nil
+        season.practices = nil
+        season.videoClips = nil
+        season.tournaments = nil
+
         modelContext.delete(season)
-        
+
         do {
             try modelContext.save()
             Haptics.medium()
             dismiss()
         } catch {
+            // Rollback on failure
+            season.games = games
+            season.practices = practices
+            season.videoClips = videoClips
+            season.tournaments = tournaments
+
+            isProcessing = false
+            errorMessage = "Failed to delete season: \(error.localizedDescription)"
+            showingError = true
             print("Error deleting season: \(error)")
         }
     }
     
     private func reactivateSeason() {
-        withAnimation {
-            // Archive current active season if exists
-            if let currentActive = athlete.activeSeason {
-                currentActive.archive()
-            }
-            
-            // Reactivate this season
-            season.activate()
+        isProcessing = true
+
+        // Save state for rollback
+        let previousActiveWasActive = athlete.activeSeason?.isActive ?? false
+        let previousActiveEndDate = athlete.activeSeason?.endDate
+        let wasActive = season.isActive
+        let previousEndDate = season.endDate
+
+        // Archive current active season if exists
+        if let currentActive = athlete.activeSeason {
+            currentActive.archive()
         }
-        
+
+        // Reactivate this season
+        season.activate()
+
         do {
             try modelContext.save()
+            withAnimation {
+                isProcessing = false
+            }
             Haptics.medium()
         } catch {
+            // Rollback on failure
+            if let previousActive = athlete.activeSeason, previousActiveWasActive {
+                previousActive.activate()
+                previousActive.endDate = previousActiveEndDate
+            }
+
+            if !wasActive {
+                season.isActive = false
+            }
+            season.endDate = previousEndDate
+
+            isProcessing = false
+            errorMessage = "Failed to reactivate season: \(error.localizedDescription)"
+            showingError = true
             print("Error reactivating season: \(error)")
         }
     }
@@ -651,25 +745,30 @@ struct SeasonDetailView: View {
 
 #Preview {
     let config = ModelConfiguration(isStoredInMemoryOnly: true)
-    let container = try! ModelContainer(for: User.self, Athlete.self, Season.self, configurations: config)
-    
+    guard let container = try? ModelContainer(for: User.self, Athlete.self, Season.self, configurations: config) else {
+        return Text("Failed to create preview container")
+    }
+
     let user = User(username: "testuser", email: "test@example.com")
     let athlete = Athlete(name: "Test Athlete")
     athlete.user = user
-    
+
     let season1 = Season(name: "Spring 2025", startDate: Date(), sport: .baseball)
     season1.activate()
     season1.athlete = athlete
-    
-    let season2 = Season(name: "Fall 2024", startDate: Calendar.current.date(byAdding: .month, value: -6, to: Date())!, sport: .baseball)
-    season2.archive(endDate: Calendar.current.date(byAdding: .month, value: -1, to: Date())!)
-    season2.athlete = athlete
-    
+
+    if let pastDate = Calendar.current.date(byAdding: .month, value: -6, to: Date()),
+       let endDate = Calendar.current.date(byAdding: .month, value: -1, to: Date()) {
+        let season2 = Season(name: "Fall 2024", startDate: pastDate, sport: .baseball)
+        season2.archive(endDate: endDate)
+        season2.athlete = athlete
+        container.mainContext.insert(season2)
+    }
+
     container.mainContext.insert(user)
     container.mainContext.insert(athlete)
     container.mainContext.insert(season1)
-    container.mainContext.insert(season2)
-    
+
     return NavigationStack {
         SeasonManagementView(athlete: athlete)
     }

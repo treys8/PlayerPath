@@ -19,7 +19,13 @@ struct VideoThumbnailView: View {
     
     @State private var thumbnailImage: UIImage?
     @State private var isLoadingThumbnail = false
+    @State private var loadError: Error?
+    @State private var generationAttempts = 0
+    @State private var loadTask: Task<Void, Never>?
     @Environment(\.modelContext) private var modelContext
+
+    // Constants
+    private let maxGenerationAttempts = 2
     
     // MARK: - Initializers
     
@@ -78,20 +84,63 @@ struct VideoThumbnailView: View {
             }
             .cornerRadius(cornerRadius)
             .overlay(playButtonOverlay)
-            
+
             // Play Result Badge Overlay
             if showPlayResult {
                 playResultBadge
             }
-            
+
             // Highlight Star Indicator
             if showHighlight && clip.isHighlight {
                 highlightIndicator
             }
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(accessibilityDescription)
         .task {
-            await loadThumbnail()
+            loadTask = Task {
+                await loadThumbnail()
+            }
+            // Wait for cancellation
+            await withTaskCancellationHandler {
+                await withCheckedContinuation { (_: CheckedContinuation<Void, Never>) in
+                    // Never resume - just wait for cancellation
+                }
+            } onCancel: {
+                loadTask?.cancel()
+                loadTask = nil
+            }
         }
+    }
+
+    // MARK: - Accessibility
+
+    private var accessibilityDescription: String {
+        var description = "Video clip"
+
+        if let playResult = clip.playResult {
+            description += ", \(playResult.type.displayName)"
+        } else {
+            description += ", unrecorded play"
+        }
+
+        if clip.isHighlight {
+            description += ", highlighted"
+        }
+
+        if let game = clip.game {
+            description += ", from game versus \(game.opponent)"
+        } else if clip.practice != nil {
+            description += ", from practice session"
+        }
+
+        if loadError != nil {
+            description += ", failed to load thumbnail"
+        } else if isLoadingThumbnail {
+            description += ", loading thumbnail"
+        }
+
+        return description
     }
     
     // MARK: - Subviews
@@ -106,18 +155,35 @@ struct VideoThumbnailView: View {
                         ProgressView()
                             .progressViewStyle(CircularProgressViewStyle(tint: .white))
                             .scaleEffect(scaledValue(0.7))
+                    } else if loadError != nil {
+                        Image(systemName: "exclamationmark.triangle")
+                            .foregroundColor(.yellow)
+                            .font(.system(size: scaledValue(20)))
+                            .accessibilityHidden(true)
                     } else {
                         Image(systemName: "video")
                             .foregroundColor(.white)
                             .font(.system(size: scaledValue(20)))
                             .accessibilityHidden(true)
                     }
-                    
-                    Text(isLoadingThumbnail ? "Loading..." : "No Preview")
+
+                    Text(placeholderText)
                         .font(.system(size: scaledValue(10)))
                         .foregroundColor(.white)
+                        .multilineTextAlignment(.center)
                 }
+                .padding(scaledSpacing(4))
             )
+    }
+
+    private var placeholderText: String {
+        if isLoadingThumbnail {
+            return "Loading..."
+        } else if loadError != nil {
+            return "Failed to Load"
+        } else {
+            return "No Preview"
+        }
     }
     
     @ViewBuilder
@@ -179,57 +245,157 @@ struct VideoThumbnailView: View {
     }
     
     // MARK: - Thumbnail Loading
-    
+
     @MainActor
     private func loadThumbnail() async {
         // Skip if already loading or already have image
         guard !isLoadingThumbnail, thumbnailImage == nil else { return }
-        
+
+        // Check for cancellation
+        guard !Task.isCancelled else {
+            print("VideoThumbnailView: Load cancelled before start")
+            return
+        }
+
+        // Clear any previous error
+        loadError = nil
+
         // Check if we have a thumbnail path
         guard let thumbnailPath = clip.thumbnailPath else {
             // Generate thumbnail if none exists
             await generateMissingThumbnail()
             return
         }
-        
+
         isLoadingThumbnail = true
-        
+
+        // Check for cancellation before loading
+        guard !Task.isCancelled else {
+            print("VideoThumbnailView: Load cancelled before file load")
+            isLoadingThumbnail = false
+            return
+        }
+
         do {
             // Load thumbnail asynchronously using cache
             let image = try await ThumbnailCache.shared.loadThumbnail(at: thumbnailPath)
+
+            // Check for cancellation after loading
+            guard !Task.isCancelled else {
+                print("VideoThumbnailView: Load cancelled after file load")
+                isLoadingThumbnail = false
+                return
+            }
+
             thumbnailImage = image
+            isLoadingThumbnail = false
         } catch {
+            // Check for cancellation during error handling
+            guard !Task.isCancelled else {
+                print("VideoThumbnailView: Load cancelled during error handling")
+                isLoadingThumbnail = false
+                return
+            }
+
             print("Failed to load thumbnail: \(error)")
-            // Try to regenerate thumbnail
-            await generateMissingThumbnail()
+            loadError = error
+            isLoadingThumbnail = false
+
+            // Try to regenerate thumbnail only if we haven't exceeded retry limit
+            if generationAttempts < maxGenerationAttempts {
+                await generateMissingThumbnail()
+            }
         }
-        
-        isLoadingThumbnail = false
     }
     
+    @MainActor
     private func generateMissingThumbnail() async {
-        print("Generating missing thumbnail for clip: \(clip.fileName)")
-        
+        // Increment generation attempts to prevent infinite loops
+        generationAttempts += 1
+
+        // Check for cancellation
+        guard !Task.isCancelled else {
+            print("VideoThumbnailView: Generation cancelled before start")
+            return
+        }
+
+        // Check retry limit to prevent infinite recursion
+        guard generationAttempts <= maxGenerationAttempts else {
+            print("VideoThumbnailView: Max generation attempts reached for \(clip.fileName)")
+            loadError = NSError(
+                domain: "VideoThumbnailView",
+                code: -1,
+                userInfo: [NSLocalizedDescriptionKey: "Max retry attempts exceeded"]
+            )
+            isLoadingThumbnail = false
+            return
+        }
+
+        print("VideoThumbnailView: Generating thumbnail (attempt \(generationAttempts)/\(maxGenerationAttempts)) for \(clip.fileName)")
+
         let videoURL = URL(fileURLWithPath: clip.filePath)
+
+        // Check if video file exists before attempting generation
+        guard FileManager.default.fileExists(atPath: videoURL.path) else {
+            print("VideoThumbnailView: Video file does not exist at \(videoURL.path)")
+            loadError = NSError(
+                domain: "VideoThumbnailView",
+                code: -2,
+                userInfo: [NSLocalizedDescriptionKey: "Video file not found"]
+            )
+            isLoadingThumbnail = false
+            return
+        }
+
+        // Check for cancellation before generation
+        guard !Task.isCancelled else {
+            print("VideoThumbnailView: Generation cancelled before file check")
+            isLoadingThumbnail = false
+            return
+        }
+
         let result = await VideoFileManager.generateThumbnail(from: videoURL)
-        
-        await MainActor.run {
-            switch result {
-            case .success(let thumbnailPath):
-                clip.thumbnailPath = thumbnailPath
-                // Save the thumbnail path to model context
+
+        // Check for cancellation after generation
+        guard !Task.isCancelled else {
+            print("VideoThumbnailView: Generation cancelled after completion")
+            isLoadingThumbnail = false
+            return
+        }
+
+        switch result {
+        case .success(let thumbnailPath):
+            clip.thumbnailPath = thumbnailPath
+
+            // Save the thumbnail path to model context using a serialized approach
+            // to prevent concurrent save issues
+            Task.detached { @MainActor in
                 do {
-                    try modelContext.save()
+                    try await Task.sleep(nanoseconds: 100_000_000) // 0.1s delay to avoid concurrent saves
+                    try self.modelContext.save()
+                    print("VideoThumbnailView: Thumbnail path saved for \(self.clip.fileName)")
                 } catch {
-                    print("Failed to save thumbnail path: \(error)")
+                    print("VideoThumbnailView: Failed to save thumbnail path: \(error)")
                 }
-                Task {
-                    await loadThumbnail()
-                }
-            case .failure(let error):
-                print("Failed to generate thumbnail: \(error)")
+            }
+
+            // Load the newly generated thumbnail directly
+            // Use the synchronous image creation to avoid recursion
+            do {
+                let image = try await ThumbnailCache.shared.loadThumbnail(at: thumbnailPath)
+                thumbnailImage = image
+                isLoadingThumbnail = false
+                print("VideoThumbnailView: Successfully loaded generated thumbnail")
+            } catch {
+                print("VideoThumbnailView: Failed to load generated thumbnail: \(error)")
+                loadError = error
                 isLoadingThumbnail = false
             }
+
+        case .failure(let error):
+            print("VideoThumbnailView: Failed to generate thumbnail: \(error)")
+            loadError = error
+            isLoadingThumbnail = false
         }
     }
     

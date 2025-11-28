@@ -12,6 +12,12 @@ import UIKit
 // MARK: - Profile View (Main "More" Tab Root)
 
 struct ProfileView: View {
+    // MARK: - Configuration Constants
+    private enum Config {
+        static let freeAthleteLimit = 3
+        static let signOutDelay: UInt64 = 500_000_000 // 0.5 seconds
+    }
+
     let user: User
     @Binding var selectedAthlete: Athlete?
     @Environment(\.modelContext) private var modelContext
@@ -25,9 +31,7 @@ struct ProfileView: View {
     @State private var deleteErrorMessage = ""
     @State private var showingPaywall = false
     @State private var showCoachesPremiumAlert = false
-    
-    // Premium limits
-    private let freeAthleteLimit = 3
+    @State private var sortedAthletes: [Athlete] = []
 
     var body: some View {
         List {
@@ -86,17 +90,23 @@ struct ProfileView: View {
                 LoadingOverlay(message: "Signing out...")
             }
         }
+        .onAppear {
+            updateSortedAthletes()
+        }
+        .onChange(of: user.athletes) { _, _ in
+            updateSortedAthletes()
+        }
     }
-    
+
     // MARK: - Actions
     
     private func signOut() async {
         defer {
             isSigningOut = false
         }
-        
+
         do {
-            try await Task.sleep(nanoseconds: 500_000_000) // Minimum feedback time
+            try await Task.sleep(nanoseconds: Config.signOutDelay)
             await authManager.signOut()
             Haptics.success()
         } catch {
@@ -105,12 +115,12 @@ struct ProfileView: View {
         }
     }
 
-    private var sortedAthletes: [Athlete] {
-        (user.athletes ?? []).sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    private func updateSortedAthletes() {
+        sortedAthletes = (user.athletes ?? []).sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
-    
+
     private var canAddMoreAthletes: Bool {
-        user.isPremium || (user.athletes ?? []).count < freeAthleteLimit
+        user.isPremium || (user.athletes ?? []).count < Config.freeAthleteLimit
     }
     
     // MARK: - View Components
@@ -124,7 +134,9 @@ struct ProfileView: View {
 
     private var athletesSection: some View {
         Section("Athletes") {
-            NavigationLink(destination: AthleteManagementView(user: user, selectedAthlete: $selectedAthlete)) {
+            NavigationLink {
+                AthleteManagementView(user: user, selectedAthlete: $selectedAthlete)
+            } label: {
                 Label("Manage Athletes", systemImage: "person.2.fill")
             }
             
@@ -156,7 +168,7 @@ struct ProfileView: View {
             }
             .tint(.blue)
             
-            if !user.isPremium && (user.athletes ?? []).count >= freeAthleteLimit {
+            if !user.isPremium && (user.athletes ?? []).count >= Config.freeAthleteLimit {
                 HStack {
                     Image(systemName: "crown.fill")
                         .foregroundColor(.yellow)
@@ -167,7 +179,7 @@ struct ProfileView: View {
                 }
                 .padding(.vertical, 4)
             } else if !user.isPremium {
-                Text("\((user.athletes ?? []).count) of \(freeAthleteLimit) free athletes used")
+                Text("\((user.athletes ?? []).count) of \(Config.freeAthleteLimit) free athletes used")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
@@ -203,32 +215,44 @@ struct ProfileView: View {
                 }
                 .foregroundColor(.primary)
             }
-            
-            NavigationLink(destination: SettingsView(user: user)) {
+
+            NavigationLink {
+                SettingsView(user: user)
+            } label: {
                 Label("Settings", systemImage: "gearshape")
             }
 
-            NavigationLink(destination: SecuritySettingsView(user: user)) {
+            NavigationLink {
+                SecuritySettingsView(user: user)
+            } label: {
                 Label("Security Settings", systemImage: "lock.shield")
             }
 
-            NavigationLink(destination: NotificationSettingsView()) {
+            NavigationLink {
+                NotificationSettingsView()
+            } label: {
                 Label("Notifications", systemImage: "bell")
             }
 
             #if DEBUG
             // CloudKit sync testing - monitors iCloud availability and sync status
-            NavigationLink(destination: CloudKitTestView()) {
+            NavigationLink {
+                CloudKitTestView()
+            } label: {
                 Label("CloudKit Test", systemImage: "icloud")
                     .foregroundColor(.blue)
             }
             #endif
 
-            NavigationLink(destination: HelpSupportView()) {
+            NavigationLink {
+                HelpSupportView()
+            } label: {
                 Label("Help & Support", systemImage: "questionmark.circle")
             }
 
-            NavigationLink(destination: AboutView()) {
+            NavigationLink {
+                AboutView()
+            } label: {
                 Label("About PlayerPath", systemImage: "info.circle")
             }
         }
@@ -237,7 +261,9 @@ struct ProfileView: View {
     private var accountSection: some View {
         Section("Account") {
             // Subscription Management
-            NavigationLink(destination: SubscriptionView(user: user)) {
+            NavigationLink {
+                SubscriptionView(user: user)
+            } label: {
                 if user.isPremium {
                     Label("Subscription", systemImage: "crown.fill")
                         .badge(Text("Premium").foregroundColor(.yellow))
@@ -245,7 +271,7 @@ struct ProfileView: View {
                     Label("Upgrade to Premium", systemImage: "crown")
                 }
             }
-            
+
             Button(ProfileStrings.signOut) {
                 Haptics.warning()
                 showingSignOutAlert = true
@@ -259,23 +285,23 @@ struct ProfileView: View {
     }
 
     private func delete(athlete: Athlete) {
-        // Save reference for potential rollback
-        let athleteToDelete = athlete
-        
         // If deleting the selected athlete, select another or none
         if athlete.id == selectedAthlete?.id {
-            selectedAthlete = (user.athletes ?? []).first { $0.id != athlete.id }
+            let remainingAthletes = (user.athletes ?? []).filter { $0.id != athlete.id }
+            selectedAthlete = remainingAthletes.first
         }
-        
+
         modelContext.delete(athlete)
-        
+
         do {
             try modelContext.save()
             Haptics.success()
+
+            // Clear selection if no athletes remain
+            if (user.athletes ?? []).isEmpty {
+                selectedAthlete = nil
+            }
         } catch {
-            // Rollback on error
-            modelContext.insert(athleteToDelete)
-            
             print("Failed to delete athlete: \(error)")
             deleteErrorMessage = String(format: ProfileStrings.deleteFailed, error.localizedDescription)
             showDeleteError = true
@@ -373,11 +399,7 @@ struct AthleteProfileRow: View {
 struct SecuritySettingsView: View {
     let user: User
     @EnvironmentObject var authManager: ComprehensiveAuthManager
-    @State private var showingDeleteAccountAlert = false
-    @State private var showingChangePasswordSheet = false
-    @State private var showComingSoonAlert = false
-    @State private var comingSoonFeature = ""
-    
+
     var body: some View {
         Form {
             Section("Account Information") {
@@ -388,7 +410,7 @@ struct SecuritySettingsView: View {
                         .foregroundColor(.secondary)
                         .font(.system(.body, design: .monospaced))
                 }
-                
+
                 HStack {
                     Text("Email")
                     Spacer()
@@ -396,88 +418,26 @@ struct SecuritySettingsView: View {
                         .foregroundColor(.secondary)
                 }
             }
-            
-            Section("Security") {
-                Button {
-                    comingSoonFeature = "Change Password"
-                    showComingSoonAlert = true
-                } label: {
-                    Label("Change Password", systemImage: "key.fill")
-                        .foregroundColor(.primary)
-                }
-                .disabled(true)
-                .opacity(0.6)
-                
-                Button {
-                    comingSoonFeature = "Two-Factor Authentication"
-                    showComingSoonAlert = true
-                } label: {
-                    Label("Two-Factor Authentication", systemImage: "lock.shield.fill")
-                        .foregroundColor(.primary)
-                }
-                .disabled(true)
-                .opacity(0.6)
-            }
-            
+
             Section {
                 HStack(spacing: 8) {
                     Image(systemName: "info.circle.fill")
                         .foregroundColor(.blue)
                         .font(.caption)
-                    Text("Additional security features are coming soon")
+                    Text("Additional security features such as password changes, two-factor authentication, and account management will be available in a future update.")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
                 .padding(.vertical, 4)
             }
-            
-            Section("Data Management") {
-                Button {
-                    comingSoonFeature = "Export Account Data"
-                    showComingSoonAlert = true
-                } label: {
-                    Label("Export Account Data", systemImage: "square.and.arrow.up")
-                        .foregroundColor(.primary)
-                }
-                .disabled(true)
-                .opacity(0.6)
-            }
-            
-            Section {
-                Button(role: .destructive) {
-                    showingDeleteAccountAlert = true
-                } label: {
-                    Label("Delete Account", systemImage: "trash.fill")
-                }
-                .disabled(true)
-                .opacity(0.6)
-            } footer: {
-                Text("Account deletion is coming soon. This will permanently delete your account and all associated data.")
-                    .font(.caption)
-            }
         }
-        .alert("Coming Soon", isPresented: $showComingSoonAlert) {
-            Button("OK", role: .cancel) { }
-        } message: {
-            Text("\(comingSoonFeature) will be available in a future update.")
-        }
-        .alert("Delete Account", isPresented: $showingDeleteAccountAlert) {
-            Button("Cancel", role: .cancel) { }
-            Button("Delete", role: .destructive) {
-                // Handle account deletion
-            }
-        } message: {
-            Text("This action cannot be undone. All your data will be permanently deleted.")
-        }
+        .navigationTitle("Security")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 
 struct SettingsView: View {
     let user: User
-    @State private var notificationsEnabled = true
-    @State private var dataBackupEnabled = true
-    @State private var showComingSoonAlert = false
-    @State private var comingSoonFeature = ""
 
     var body: some View {
         Form {
@@ -496,41 +456,27 @@ struct SettingsView: View {
                         .foregroundColor(.secondary)
                 }
 
-                NavigationLink(destination: EditAccountView(user: user)) {
+                NavigationLink {
+                    EditAccountView(user: user)
+                } label: {
                     Label("Edit Information", systemImage: "pencil")
                 }
             }
 
-            Section("Preferences") {
-                Toggle("Push Notifications", isOn: $notificationsEnabled)
-                    .disabled(true)
-                    .opacity(0.6)
-                
-                Toggle("Auto Backup Data", isOn: $dataBackupEnabled)
-                    .disabled(true)
-                    .opacity(0.6)
-                
+            Section {
                 HStack(spacing: 8) {
                     Image(systemName: "info.circle.fill")
                         .foregroundColor(.blue)
                         .font(.caption)
-                    Text("Notification and backup preferences are coming soon")
+                    Text("Additional preferences and settings options will be available in a future update.")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
                 .padding(.vertical, 4)
             }
-            
-            // Removed unimplemented features for now:
-            // - Change Password
-            // - Export Data  
-            // - Delete Account
         }
-        .alert("Coming Soon", isPresented: $showComingSoonAlert) {
-            Button("OK", role: .cancel) { }
-        } message: {
-            Text("\(comingSoonFeature) will be available in a future update.")
-        }
+        .navigationTitle("Settings")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 
@@ -606,6 +552,8 @@ struct EditAccountView: View {
                 .disabled(!canSave)
             }
         }
+        .navigationTitle("Edit Account")
+        .navigationBarTitleDisplayMode(.inline)
         .alert("Unable to Save", isPresented: $showSaveError) {
             Button("OK") { }
         } message: {
@@ -681,6 +629,8 @@ struct NotificationSettingsView: View {
                 Toggle("Milestone Alerts", isOn: $milestoneAlerts)
             }
         }
+        .navigationTitle("Notifications")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 
@@ -717,6 +667,8 @@ struct HelpSupportView: View {
                 }
             }
         }
+        .navigationTitle("Help & Support")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 
@@ -745,189 +697,19 @@ struct AboutView: View {
 
             Spacer()
 
-            Text("Made with ❤️ for baseball athletes")
+            Text("Made for baseball athletes")
                 .font(.caption)
                 .foregroundColor(.secondary)
         }
         .padding()
+        .navigationTitle("About")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 
-struct PaywallView: View {
-    let user: User
-    @Environment(\.dismiss) private var dismiss
-    @Environment(\.modelContext) private var modelContext
-
-    var body: some View {
-        ScrollView {
-            VStack(spacing: 30) {
-                // Header
-                VStack(spacing: 15) {
-                    Image(systemName: "crown.fill")
-                        .font(.system(size: 60))
-                        .foregroundColor(.yellow)
-
-                    Text("Upgrade to Premium")
-                        .font(.largeTitle)
-                        .fontWeight(.bold)
-
-                    Text("Unlock the full potential of your baseball journey")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
-                }
-
-                // Features
-                VStack(spacing: 20) {
-                    PaywallFeatureRow(
-                        icon: "person.3.fill",
-                        title: "Unlimited Athletes",
-                        description: "Track multiple players"
-                    )
-
-                    PaywallFeatureRow(
-                        icon: "chart.line.uptrend.xyaxis",
-                        title: "Advanced Statistics",
-                        description: "Detailed analytics and trends"
-                    )
-
-                    PaywallFeatureRow(
-                        icon: "icloud.and.arrow.up",
-                        title: "Cloud Backup",
-                        description: "Never lose your data"
-                    )
-
-                    PaywallFeatureRow(
-                        icon: "square.and.arrow.up",
-                        title: "Export & Share",
-                        description: "Share highlight reels"
-                    )
-                }
-
-                // Pricing
-                VStack(spacing: 15) {
-                    Text("Choose Your Plan")
-                        .font(.headline)
-                        .fontWeight(.bold)
-
-                    HStack(spacing: 15) {
-                        PricingCard(
-                            title: "Monthly",
-                            price: "$9.99",
-                            period: "per month"
-                        )
-
-                        PricingCard(
-                            title: "Annual",
-                            price: "$59.99",
-                            period: "per year",
-                            savings: "Save 50%"
-                        )
-                    }
-                }
-
-                Button("Start Premium", action: upgradeToPremium)
-                    .buttonStyle(.borderedProminent)
-                    .tint(.blue)
-                    .frame(maxWidth: .infinity)
-                    .padding(.horizontal)
-
-                Text("Cancel anytime • 7-day free trial")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-            .padding()
-        }
-        .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button("Later") {
-                    dismiss()
-                }
-            }
-        }
-    }
-
-    private func upgradeToPremium() {
-        // In a real app, you'd integrate with StoreKit
-        user.isPremium = true
-        try? modelContext.save()
-        dismiss()
-    }
-}
-
-struct PaywallFeatureRow: View {
-    let icon: String
-    let title: String
-    let description: String
-
-    var body: some View {
-        HStack(spacing: 15) {
-            Image(systemName: icon)
-                .font(.title2)
-                .foregroundColor(.blue)
-                .frame(width: 30)
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(.headline)
-                    .fontWeight(.semibold)
-
-                Text(description)
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-            }
-
-            Spacer()
-        }
-        .padding(.horizontal)
-    }
-}
-
-struct PricingCard: View {
-    let title: String
-    let price: String
-    let period: String
-    let savings: String?
-
-    init(title: String, price: String, period: String, savings: String? = nil) {
-        self.title = title
-        self.price = price
-        self.period = period
-        self.savings = savings
-    }
-
-    var body: some View {
-        VStack(spacing: 10) {
-            if let savings = savings {
-                Text(savings)
-                    .font(.caption)
-                    .fontWeight(.bold)
-                    .foregroundColor(.green)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Color.green.opacity(0.1))
-                    .cornerRadius(4)
-            }
-
-            Text(title)
-                .font(.headline)
-                .fontWeight(.bold)
-
-            Text(price)
-                .font(.title)
-                .fontWeight(.bold)
-                .foregroundColor(.blue)
-
-            Text(period)
-                .font(.caption)
-                .foregroundColor(.secondary)
-        }
-        .frame(maxWidth: .infinity)
-        .padding()
-        .background(Color(.systemGray6))
-        .cornerRadius(12)
-    }
-}
+// MARK: - REMOVED: PaywallView, PaywallFeatureRow, PricingCard
+// These deprecated views have been removed in favor of ImprovedPaywallView
+// which is used throughout the app (see lines 47, 982)
 
 // MARK: - Athlete Management View
 
@@ -940,11 +722,8 @@ struct AthleteManagementView: View {
     @State private var showingDeleteAthleteAlert = false
     @State private var showDeleteError = false
     @State private var deleteErrorMessage = ""
-    
-    private var sortedAthletes: [Athlete] {
-        (user.athletes ?? []).sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-    }
-    
+    @State private var sortedAthletes: [Athlete] = []
+
     var body: some View {
         List {
             Section {
@@ -963,7 +742,7 @@ struct AthleteManagementView: View {
                     }
                 }
             }
-            
+
             Section {
                 Button(action: { showingAddAthlete = true }) {
                     Label("Add Athlete", systemImage: "person.badge.plus")
@@ -971,6 +750,8 @@ struct AthleteManagementView: View {
                 .tint(.blue)
             }
         }
+        .navigationTitle("Manage Athletes")
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 EditButton()
@@ -995,20 +776,40 @@ struct AthleteManagementView: View {
         } message: {
             Text(deleteErrorMessage.isEmpty ? "Please try again." : deleteErrorMessage)
         }
+        .onAppear {
+            updateSortedAthletes()
+        }
+        .onChange(of: user.athletes) { _, _ in
+            updateSortedAthletes()
+        }
     }
-    
+
+    private func updateSortedAthletes() {
+        sortedAthletes = (user.athletes ?? []).sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
     private func delete(athlete: Athlete) {
         // If deleting the selected athlete, select another or none
         if athlete.id == selectedAthlete?.id {
-            selectedAthlete = (user.athletes ?? []).first { $0.id != athlete.id }
+            let remainingAthletes = (user.athletes ?? []).filter { $0.id != athlete.id }
+            selectedAthlete = remainingAthletes.first
         }
+
         modelContext.delete(athlete)
+
         do {
             try modelContext.save()
+            Haptics.success()
+
+            // Clear selection if no athletes remain
+            if (user.athletes ?? []).isEmpty {
+                selectedAthlete = nil
+            }
         } catch {
             print("Failed to delete athlete: \(error)")
             deleteErrorMessage = "Failed to delete athlete: \(error.localizedDescription)"
             showDeleteError = true
+            Haptics.error()
         }
     }
 }

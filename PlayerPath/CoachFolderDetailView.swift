@@ -520,7 +520,7 @@ struct CoachVideoItem: Identifiable {
         self.id = metadata.id ?? UUID().uuidString
         self.fileName = metadata.fileName
         self.firebaseStorageURL = metadata.firebaseStorageURL
-        self.thumbnailURL = metadata.thumbnailURL
+        self.thumbnailURL = metadata.thumbnail?.standardURL
         self.uploadedBy = metadata.uploadedBy
         self.uploadedByName = metadata.uploadedByName
         self.sharedFolderID = metadata.sharedFolderID

@@ -81,19 +81,16 @@ struct PracticesView: View {
         .navigationBarTitleDisplayMode(.large)
         .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic))
         .animation(.default, value: filteredPractices.count)
-        .refreshable {
-            // TODO: hook up sync or reload
-        }
         .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
+            ToolbarItem(placement: .primaryAction) {
                 Button(action: { showingAddPractice = true }) {
                     Image(systemName: "plus")
-                        .accessibilityLabel("Add Practice")
                 }
+                .accessibilityLabel("Add Practice")
             }
             
             if !practices.isEmpty {
-                ToolbarItem(placement: .navigationBarLeading) {
+                ToolbarItem(placement: .topBarLeading) {
                     EditButton()
                 }
             }
@@ -187,7 +184,7 @@ struct EmptyPracticesView: View {
                 .font(.title)
                 .fontWeight(.bold)
             
-            Text("Create your first practice session to start tracking training videos and notes")
+            Text("Create your first practice to track training")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
@@ -279,13 +276,13 @@ struct AddPracticeView: View {
             .navigationTitle("New Practice")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
+                ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
                         dismiss()
                     }
                 }
                 
-                ToolbarItem(placement: .navigationBarTrailing) {
+                ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
                         savePractice()
                     }
@@ -370,23 +367,17 @@ struct PracticeDetailView: View {
             Section("Actions") {
                 Button(action: { activeSheet = .recordVideo }) {
                     Label("Record Video", systemImage: "video.badge.plus")
-                        .foregroundColor(.blue)
-                        .accessibilityLabel("Record Video")
                 }
                 
                 Button(action: { activeSheet = .addNote }) {
                     Label("Add Note", systemImage: "note.text.badge.plus")
-                        .foregroundColor(.green)
-                        .accessibilityLabel("Add Note")
                 }
                 
-                Button(action: {
+                Button(role: .destructive, action: {
                     UINotificationFeedbackGenerator().notificationOccurred(.warning)
                     showingDeleteConfirmation = true
                 }) {
                     Label("Delete Practice", systemImage: "trash")
-                        .foregroundColor(.red)
-                        .accessibilityLabel("Delete Practice")
                 }
             }
             
@@ -424,9 +415,6 @@ struct PracticeDetailView: View {
         }
         .navigationTitle("Practice")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            // Removed the custom back/home button toolbar item as per instructions
-        }
         .sheet(item: $activeSheet) { sheet in
             switch sheet {
             case .recordVideo:
@@ -441,7 +429,7 @@ struct PracticeDetailView: View {
                 deletePractice()
             }
         } message: {
-            Text("Are you sure you want to delete this practice session? This will also delete all associated videos and notes. This action cannot be undone.")
+            Text("This will delete all videos and notes.")
         }
     }
     
@@ -512,18 +500,11 @@ struct PracticeDetailView: View {
             try modelContext.save()
             UINotificationFeedbackGenerator().notificationOccurred(.success)
             log.info("Successfully saved practice deletion")
-            // Navigate to Home tab instead of just dismissing
-            navigateToHome()
+            dismiss()
         } catch {
             UINotificationFeedbackGenerator().notificationOccurred(.error)
             log.error("Failed to delete practice: \(error.localizedDescription)")
         }
-    }
-    
-    private func navigateToHome() {
-        // Switch to Home tab using typed notification helper
-        post(.switchTab(.home))
-        dismiss()
     }
 }
 
@@ -602,13 +583,13 @@ struct AddPracticeNoteView: View {
             .navigationTitle("Add Note")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
+                ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
                         dismiss()
                     }
                 }
                 
-                ToolbarItem(placement: .navigationBarTrailing) {
+                ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
                         saveNote()
                     }

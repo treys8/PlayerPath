@@ -210,14 +210,14 @@ class SharedFolderManager: ObservableObject {
         
         // TODO: Get video duration from AVAsset
         
-        // Generate thumbnail
-        let thumbnailURL: String? = nil // TODO: Implement thumbnail generation
+        // Generate thumbnail (TODO: Implement thumbnail generation)
+        let thumbnail: ThumbnailMetadata? = nil
         
         // Upload metadata to Firestore
         let videoID = try await firestore.uploadVideoMetadata(
             fileName: fileName,
             storageURL: storageURL,
-            thumbnailURL: thumbnailURL,
+            thumbnail: thumbnail,
             folderID: folderID,
             uploadedBy: uploadedBy,
             uploadedByName: uploadedByName,

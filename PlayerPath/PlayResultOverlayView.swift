@@ -27,6 +27,7 @@ struct PlayResultOverlayView: View {
     
     @State private var isPlaying = true
     @State private var videoMetadata: VideoMetadata?
+    @State private var metadataTask: Task<Void, Never>?
     
     init(videoURL: URL, athlete: Athlete?, game: Game? = nil, practice: Practice? = nil, onSave: @escaping (PlayResultType?) -> Void, onCancel: @escaping () -> Void) {
         self.videoURL = videoURL
@@ -56,6 +57,7 @@ struct PlayResultOverlayView: View {
                                 player.pause()
                                 player.replaceCurrentItem(with: nil)
                                 isPlaying = false
+                                metadataTask?.cancel()
                             }
                         
                         // Video metadata badge
@@ -73,7 +75,7 @@ struct PlayResultOverlayView: View {
                             player.play()
                         }
                         isPlaying.toggle()
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        Haptics.light()
                     } label: {
                         Image(systemName: isPlaying ? "pause.fill" : "play.fill")
                             .font(.system(size: 16, weight: .bold))
@@ -143,7 +145,7 @@ struct PlayResultOverlayView: View {
                                             isSelected: selectedResult == result
                                         ) {
                                             selectedResult = result
-                                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                                            Haptics.medium()
                                             player.pause()
                                             isPlaying = false
                                             showingConfirmation = true
@@ -201,7 +203,7 @@ struct PlayResultOverlayView: View {
                                             isSelected: selectedResult == result
                                         ) {
                                             selectedResult = result
-                                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                                            Haptics.medium()
                                             player.pause()
                                             isPlaying = false
                                             showingConfirmation = true
@@ -214,7 +216,7 @@ struct PlayResultOverlayView: View {
                         // Action Buttons
                         HStack(spacing: 12) {
                             Button {
-                                UINotificationFeedbackGenerator().notificationOccurred(.warning)
+                                Haptics.warning()
                                 onCancel()
                             } label: {
                                 Label("Cancel", systemImage: "xmark")
@@ -232,7 +234,7 @@ struct PlayResultOverlayView: View {
                             .accessibilityHint("Dismiss without saving a play result")
                             
                             Button {
-                                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                                Haptics.success()
                                 onSave(nil)
                             } label: {
                                 Label(practice != nil ? "Save Video Only" : "Skip & Save", systemImage: "checkmark")
@@ -371,7 +373,7 @@ struct PlayResultOverlayView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button {
-                        UINotificationFeedbackGenerator().notificationOccurred(.warning)
+                        Haptics.warning()
                         onCancel()
                     } label: {
                         HStack(spacing: 6) {
@@ -585,26 +587,30 @@ struct MetadataBadge: View {
 extension PlayResultOverlayView {
     private func loadVideoMetadata() {
         guard videoMetadata == nil else { return }
-        
-        Task {
+
+        metadataTask = Task {
             let asset = AVURLAsset(url: videoURL)
-            
+
             // Get duration
+            guard !Task.isCancelled else { return }
             let duration = try? await asset.load(.duration)
             let durationSeconds = duration?.seconds ?? 0
-            
+
             // Get file size
+            guard !Task.isCancelled else { return }
             let attributes = try? FileManager.default.attributesOfItem(atPath: videoURL.path)
             let fileSize = attributes?[.size] as? Int64 ?? 0
-            
+
             // Get resolution
+            guard !Task.isCancelled else { return }
             var resolutionString: String?
             if let track = try? await asset.loadTracks(withMediaType: .video).first {
+                guard !Task.isCancelled else { return }
                 let size = try? await track.load(.naturalSize)
                 if let size = size {
                     let width = Int(size.width)
                     let height = Int(size.height)
-                    
+
                     // Common resolution names
                     switch (width, height) {
                     case (3840, 2160), (2160, 3840):
@@ -620,7 +626,8 @@ extension PlayResultOverlayView {
                     }
                 }
             }
-            
+
+            guard !Task.isCancelled else { return }
             await MainActor.run {
                 videoMetadata = VideoMetadata(
                     duration: durationSeconds,

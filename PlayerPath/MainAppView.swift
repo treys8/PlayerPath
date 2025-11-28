@@ -5,15 +5,17 @@
 //  Created by Trey Schilling on 10/23/25.
 //
 //  CRITICAL FIXES APPLIED:
-//  1. ✅ NotificationCenter Memory Leak Prevention - All observers properly cleaned up in onDisappear
+//  1. ✅ NotificationCenter Memory Leak Prevention - Using @StateObject NotificationObserverManager for lifecycle safety
 //  2. ✅ SwiftData Relationship Race Condition - Set relationships before insert, let inverse handle array
 //  3. ✅ Safe Predicate Implementation - Removed force unwrap, using Swift filter instead
 //  4. ✅ Task Cancellation - All async tasks check for cancellation and store references for cleanup
+//  5. ✅ Observer Duplication Prevention - Dedicated ObservableObject manages observers with automatic cleanup
 //
 
 import SwiftUI
 import SwiftData
 import FirebaseAuth
+import Combine
 
 extension View {
     /// Lightweight glass effect wrapper fallback when glassEffect is not available everywhere
@@ -123,13 +125,46 @@ func postSwitchTab(_ tab: MainTab) {
 }
 
 // MARK: - App-wide Notifications
-// Post this to present the video recorder from anywhere (Videos module should observe and present its recorder UI)
-// Notification.Name("PresentVideoRecorder")
-//
-// Post this when a recording determines a hit result. The object should be a dictionary:
-// ["hitType": String] where hitType is one of: "single", "double", "triple", "homeRun".
-// Videos/Highlights should move the clip into Highlights, and Statistics should update counts accordingly.
-// Notification.Name("RecordedHitResult")
+// Notification names are now defined in AppNotifications.swift
+
+// MARK: - NotificationObserverManager
+
+/// Manages NotificationCenter observers with automatic lifecycle handling
+/// This prevents observer duplication during view lifecycle events
+final class NotificationObserverManager: ObservableObject {
+    private var observers: [NSObjectProtocol] = []
+    
+    deinit {
+        // Cleanup synchronously in deinit - this is safe because
+        // removeObserver is synchronous and doesn't require MainActor
+        // Remove observers directly here since deinit is non-isolated
+        for observer in observers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        observers.removeAll()
+    }
+    
+    /// Add an observer and track it for cleanup
+    @MainActor
+    func observe(name: Notification.Name, object: Any? = nil, using block: @escaping @Sendable (Notification) -> Void) {
+        let observer = NotificationCenter.default.addObserver(
+            forName: name,
+            object: object,
+            queue: .main,
+            using: block
+        )
+        observers.append(observer)
+    }
+    
+    /// Remove all observers
+    @MainActor
+    func cleanup() {
+        for observer in observers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        observers.removeAll()
+    }
+}
 
 
 
@@ -214,7 +249,7 @@ struct FirstAthleteCreationView: View {
                     .padding(.horizontal)
                 Button {
                     // Fallback: present the add athlete sheet by posting selection request
-                    NotificationCenter.default.post(name: .showAthleteSelection, object: nil)
+                    NotificationCenter.default.post(name: Notification.Name.showAthleteSelection, object: nil)
                 } label: {
                     Label("Add Athlete", systemImage: "plus")
                         .frame(maxWidth: .infinity)
@@ -667,37 +702,31 @@ struct ComprehensiveSignInView: View {
             print("  - Role: \(selectedRole.rawValue)")
             #endif
             
-            do {
-                if isSignUpMode {
-                    if selectedRole == .coach {
-                        await authManager.signUpAsCoach(
-                            email: normalizedEmail,
-                            password: password,
-                            displayName: trimmedDisplayName.isEmpty ? "Coach" : trimmedDisplayName
-                        )
-                    } else {
-                        await authManager.signUp(
-                            email: normalizedEmail,
-                            password: password,
-                            displayName: trimmedDisplayName.isEmpty ? nil : trimmedDisplayName
-                        )
-                    }
+            if isSignUpMode {
+                if selectedRole == .coach {
+                    await authManager.signUpAsCoach(
+                        email: normalizedEmail,
+                        password: password,
+                        displayName: trimmedDisplayName.isEmpty ? "Coach" : trimmedDisplayName
+                    )
                 } else {
-                    await authManager.signIn(email: normalizedEmail, password: password)
+                    await authManager.signUp(
+                        email: normalizedEmail,
+                        password: password,
+                        displayName: trimmedDisplayName.isEmpty ? nil : trimmedDisplayName
+                    )
                 }
-                
-                guard !Task.isCancelled else { return }
-                
-                // Add haptic feedback on successful authentication
-                if authManager.isSignedIn {
-                    await MainActor.run {
-                        Haptics.light()
-                    }
+            } else {
+                await authManager.signIn(email: normalizedEmail, password: password)
+            }
+            
+            guard !Task.isCancelled else { return }
+            
+            // Add haptic feedback on successful authentication
+            if authManager.isSignedIn {
+                await MainActor.run {
+                    Haptics.light()
                 }
-            } catch {
-                #if DEBUG
-                print("❌ Auth error: \(error.localizedDescription)")
-                #endif
             }
         }
     }
@@ -1046,7 +1075,7 @@ struct AthleteOnboardingFlow: View {
                             .multilineTextAlignment(.center)
                             .accessibilityAddTraits(.isHeader)
                         
-                        Text("Let's get you set up to start tracking your journey")
+                        Text("Let's get you set up to begin tracking")
                             .font(.title3)
                             .foregroundColor(.secondary)
                             .multilineTextAlignment(.center)
@@ -1071,7 +1100,7 @@ struct AthleteOnboardingFlow: View {
                     FeatureHighlight(
                         icon: "video.circle.fill",
                         title: "Record & Analyze",
-                        description: "Capture sessions and games with analysis"
+                        description: "Capture sessions and games"
                     )
                     
                     FeatureHighlight(
@@ -1225,19 +1254,19 @@ struct CoachOnboardingFlow: View {
                     FeatureHighlight(
                         icon: "video.badge.plus",
                         title: "Upload & Review Videos",
-                        description: "Add videos and provide feedback on athlete performance"
+                        description: "Add videos and provide feedback"
                     )
                     
                     FeatureHighlight(
                         icon: "bubble.left.and.bubble.right.fill",
                         title: "Annotate & Comment",
-                        description: "Add notes and coaching insights to help athletes improve"
+                        description: "Add coaching insights and notes"
                     )
                     
                     FeatureHighlight(
                         icon: "person.3.fill",
                         title: "Manage Multiple Athletes",
-                        description: "Track and support all your athletes in one place"
+                        description: "Support all your athletes in one place"
                     )
                 }
                 .padding(.horizontal)
@@ -1253,7 +1282,7 @@ struct CoachOnboardingFlow: View {
                             Text("How It Works")
                                 .font(.subheadline)
                                 .fontWeight(.semibold)
-                            Text("Athletes will share their folders with you via email. Once they share a folder, it will appear in your dashboard.")
+                            Text("Athletes share folders via email. They'll appear in your dashboard.")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                         }
@@ -1506,8 +1535,10 @@ struct UserMainFlow: View {
     @StateObject private var sharedFolderManager = SharedFolderManager.shared
     @State private var selectedAthlete: Athlete?
     @State private var showCreationToast = false
-    @State private var notificationObservers: [NSObjectProtocol] = []
     private let userID: UUID
+    
+    // NotificationCenter observer management using StateObject
+    @StateObject private var notificationManager = NotificationObserverManager()
     
     init(user: User, isNewUserFlag: Bool, hasCompletedOnboarding: Bool) {
         self.user = user
@@ -1571,15 +1602,6 @@ struct UserMainFlow: View {
                 )
             }
         }
-        .onAppear {
-            print("🎯 UserMainFlow - User role: \(authManager.userRole.rawValue)")
-            print("🎯 UserMainFlow - User email: \(user.email)")
-            print("🎯 UserMainFlow - Athletes count: \(athletesForUser.count)")
-            setupNotificationObservers()
-        }
-        .onDisappear {
-            cleanupNotificationObservers()
-        }
         .overlay(alignment: .top) {
             if showCreationToast {
                 Text("Athlete created")
@@ -1612,10 +1634,14 @@ struct UserMainFlow: View {
                 }
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .showAthleteSelection)) { _ in
-            selectedAthlete = nil
-        }
         .task {
+            // Use task modifier for automatic cancellation handling
+            print("🎯 UserMainFlow - User role: \(authManager.userRole.rawValue)")
+            print("🎯 UserMainFlow - User email: \(user.email)")
+            print("🎯 UserMainFlow - Athletes count: \(athletesForUser.count)")
+            
+            setupNotificationObservers()
+            
             #if DEBUG
             print("🟡 UserMainFlow task - User: \(user.id), Athletes: \(athletesForUser.count)")
             #endif
@@ -1631,23 +1657,12 @@ struct UserMainFlow: View {
     // MARK: - NotificationCenter Management
     
     private func setupNotificationObservers() {
-        cleanupNotificationObservers()
+        // Clean up any existing observers first (safety)
+        notificationManager.cleanup()
         
-        let observer = NotificationCenter.default.addObserver(
-            forName: .showAthleteSelection,
-            object: nil,
-            queue: .main
-        ) { _ in
+        notificationManager.observe(name: Notification.Name.showAthleteSelection) { _ in
             selectedAthlete = nil
         }
-        notificationObservers.append(observer)
-    }
-    
-    private func cleanupNotificationObservers() {
-        for observer in notificationObservers {
-            NotificationCenter.default.removeObserver(observer)
-        }
-        notificationObservers.removeAll()
     }
 }
 
@@ -1934,6 +1949,7 @@ struct AddAthleteView: View {
     @State private var showingValidationError = false
     @State private var validationErrorMessage = ""
     @State private var successMessage = ""
+    @FocusState private var isNameFieldFocused: Bool
     
     var body: some View {
         NavigationStack {
@@ -1954,12 +1970,12 @@ struct AddAthleteView: View {
                             .shadow(color: .blue.opacity(0.3), radius: 10, x: 0, y: 5)
                         
                         VStack(spacing: 16) {
-                            Text("Ready to Start Tracking!")
+                            Text("Ready to Track!")
                                 .font(.largeTitle)
                                 .fontWeight(.bold)
                                 .multilineTextAlignment(.center)
                             
-                            Text("Create your first athlete profile to begin tracking baseball performance, recording videos, and analyzing gameplay.")
+                            Text("Create your first profile to get started.")
                                 .font(.title3)
                                 .foregroundColor(.secondary)
                                 .multilineTextAlignment(.center)
@@ -1976,7 +1992,7 @@ struct AddAthleteView: View {
                         FeatureHighlight(
                             icon: "video.circle.fill",
                             title: "Record & Analyze",
-                            description: "Capture practice sessions and games with smart analysis"
+                            description: "Capture sessions and games"
                         )
                         
                         FeatureHighlight(
@@ -1998,10 +2014,23 @@ struct AddAthleteView: View {
                     VStack(spacing: 12) {
                         TextField("Athlete Name", text: $athleteName)
                             .textFieldStyle(RoundedBorderTextFieldStyle())
+                            .focused($isNameFieldFocused)
+                            .textContentType(.name)
+                            .submitLabel(.done)
+                            .onSubmit {
+                                if isValidAthleteName(athleteName) && !isCreatingAthlete {
+                                    saveAthlete()
+                                }
+                            }
                             .accessibilityLabel("Athlete name")
                             .accessibilityHint("Enter the athlete's name")
+                        
                         Button(action: { Haptics.light(); saveAthlete() }) {
                             HStack {
+                                if isCreatingAthlete {
+                                    ProgressView()
+                                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                }
                                 Image(systemName: "plus.circle.fill")
                                     .font(.title2)
                                 Text("Create First Athlete")
@@ -2049,13 +2078,13 @@ struct AddAthleteView: View {
             .navigationTitle(isFirstAthlete ? "Get Started" : "New Athlete")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
+                ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
                         dismiss()
                     }
                 }
                 
-                ToolbarItem(placement: .navigationBarTrailing) {
+                ToolbarItem(placement: .confirmationAction) {
                     Button(action: saveAthlete) {
                         HStack {
                             if isCreatingAthlete {
@@ -2071,13 +2100,14 @@ struct AddAthleteView: View {
                     .accessibilityHint("Creates the new athlete profile")
                 }
             }
+            .onAppear {
+                // Auto-focus the name field when the view appears
+                isNameFieldFocused = true
+            }
         }
         .alert("Success! 🎉", isPresented: $showingSuccessAlert) {
             Button("Continue") {
-                // Add a small delay for better UX
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                    dismiss()
-                }
+                dismiss()
             }
         } message: {
             Text(successMessage)
@@ -2187,27 +2217,29 @@ struct AddAthleteView: View {
                 await MainActor.run {
                     successMessage = message
                     isCreatingAthlete = false
-                    // Clear the text field to prevent duplicate validation warnings
                     athleteName = ""
-                    // Slight delay before alert for better UX
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                        showingSuccessAlert = true
-                    }
+                    showingSuccessAlert = true
                 }
             } catch {
                 await MainActor.run {
                     isCreatingAthlete = false
-                    if error.localizedDescription.contains("unique") || error.localizedDescription.contains("duplicate") {
-                        validationErrorMessage = "An athlete with this name already exists. Please choose a different name."
-                    } else if error.localizedDescription.contains("network") || error.localizedDescription.contains("connection") {
-                        validationErrorMessage = "Unable to save due to connection issues. Please check your internet and try again."
-                    } else {
-                        validationErrorMessage = "Unable to save athlete. Please try again in a moment."
-                    }
+                    validationErrorMessage = getErrorMessage(for: error)
                     showingValidationError = true
                 }
                 print("🔴 Failed to save athlete: \(error)")
             }
+        }
+    }
+    
+    private func getErrorMessage(for error: Error) -> String {
+        let errorDescription = error.localizedDescription.lowercased()
+        
+        if errorDescription.contains("unique") || errorDescription.contains("duplicate") {
+            return "An athlete with this name already exists. Please choose a different name."
+        } else if errorDescription.contains("network") || errorDescription.contains("connection") {
+            return "Unable to save due to connection issues. Please check your internet and try again."
+        } else {
+            return "Unable to save athlete. Please try again in a moment."
         }
     }
 }
@@ -2534,12 +2566,23 @@ struct MainTabView: View {
     @GestureState private var dragOffset: CGFloat = 0
     @State private var tabTransition: AnyTransition = .identity
     
-    // NotificationCenter observer cleanup
-    @State private var notificationObservers: [NSObjectProtocol] = []
+    // NotificationCenter observer management using StateObject for lifecycle safety
+    @StateObject private var notificationManager = NotificationObserverManager()
 
     private func applyRecordedHitResult(_ info: [String: Any]) {
-        guard let hitType = info["hitType"] as? String else { return }
+        guard let hitType = info["hitType"] as? String else { 
+            print("⚠️ Invalid hit result format")
+            return 
+        }
+        
+        #if DEBUG
+        print("⚾️ Recording hit result: \(hitType) for athlete: \(selectedAthlete.name)")
+        #endif
+        
         StatisticsHelpers.record(hitType: hitType, for: selectedAthlete, in: modelContext)
+        
+        // Provide haptic feedback for successful stat recording
+        Haptics.success()
     }
     
     // MARK: - Dashboard actions
@@ -2585,12 +2628,10 @@ struct MainTabView: View {
     var body: some View {
         tabViewContent
             .tint(.blue)
-            .onAppear {
+            .task {
+                // Use task modifier which automatically handles cancellation
                 restoreSelectedTab()
                 setupNotificationObservers()
-            }
-            .onDisappear {
-                cleanupNotificationObservers()
             }
             .onChange(of: selectedTab) { _, newValue in
                 saveSelectedTab(newValue)
@@ -2611,91 +2652,49 @@ struct MainTabView: View {
     // MARK: - NotificationCenter Management
     
     private func setupNotificationObservers() {
-        // Clean up any existing observers first
-        cleanupNotificationObservers()
+        // Clean up any existing observers first (safety)
+        notificationManager.cleanup()
         
-        let switchTabObserver = NotificationCenter.default.addObserver(
-            forName: .switchTab,
-            object: nil,
-            queue: .main
-        ) { notification in
+        notificationManager.observe(name: Notification.Name.switchTab) { notification in
             if let index = notification.object as? Int {
                 selectedTab = index
                 Haptics.light()
             }
         }
-        notificationObservers.append(switchTabObserver)
         
-        let switchAthleteObserver = NotificationCenter.default.addObserver(
-            forName: .switchAthlete,
-            object: nil,
-            queue: .main
-        ) { notification in
+        notificationManager.observe(name: Notification.Name.switchAthlete) { notification in
             if let athlete = notification.object as? Athlete {
                 selectedAthlete = athlete
                 Haptics.light()
             }
         }
-        notificationObservers.append(switchAthleteObserver)
         
-        let presentRecorderObserver = NotificationCenter.default.addObserver(
-            forName: .presentVideoRecorder,
-            object: nil,
-            queue: .main
-        ) { _ in
+        notificationManager.observe(name: Notification.Name.presentVideoRecorder) { _ in
             selectedTab = MainTab.videos.rawValue
             Haptics.light()
         }
-        notificationObservers.append(presentRecorderObserver)
         
-        let hitResultObserver = NotificationCenter.default.addObserver(
-            forName: .recordedHitResult,
-            object: nil,
-            queue: .main
-        ) { notification in
+        notificationManager.observe(name: Notification.Name.recordedHitResult) { notification in
             if let info = notification.object as? [String: Any] {
                 applyRecordedHitResult(info)
             }
         }
-        notificationObservers.append(hitResultObserver)
         
-        let manageControlsObserver = NotificationCenter.default.addObserver(
-            forName: .videosManageOwnControls,
-            object: nil,
-            queue: .main
-        ) { notification in
+        notificationManager.observe(name: Notification.Name.videosManageOwnControls) { notification in
             if let flag = notification.object as? Bool {
                 hideFloatingRecordButton = flag
             }
         }
-        notificationObservers.append(manageControlsObserver)
         
-        let presentSeasonsObserver = NotificationCenter.default.addObserver(
-            forName: .presentSeasons,
-            object: nil,
-            queue: .main
-        ) { _ in
+        notificationManager.observe(name: Notification.Name.presentSeasons) { _ in
             showingSeasons = true
             Haptics.light()
         }
-        notificationObservers.append(presentSeasonsObserver)
         
-        let presentCoachesObserver = NotificationCenter.default.addObserver(
-            forName: .presentCoaches,
-            object: nil,
-            queue: .main
-        ) { _ in
+        notificationManager.observe(name: Notification.Name.presentCoaches) { _ in
             showingCoaches = true
             Haptics.light()
         }
-        notificationObservers.append(presentCoachesObserver)
-    }
-    
-    private func cleanupNotificationObservers() {
-        for observer in notificationObservers {
-            NotificationCenter.default.removeObserver(observer)
-        }
-        notificationObservers.removeAll()
     }
     
     @ViewBuilder
@@ -2848,7 +2847,6 @@ struct DashboardView: View {
     let athlete: Athlete
     let authManager: ComprehensiveAuthManager
     @Environment(\.modelContext) private var modelContext
-    @Environment(\.dismiss) private var dismiss
     
     @State private var showingRecorderDirectly = false
     @State private var isRefreshing = false
@@ -2858,16 +2856,10 @@ struct DashboardView: View {
         (athlete.games ?? [])
             .filter { $0.isLive }
             .sorted { lhs, rhs in
-                switch (lhs.date, rhs.date) {
-                case let (l?, r?):
-                    return l > r
-                case (nil, _?):
-                    return false // nils last
-                case (_?, nil):
-                    return true  // non-nil first
-                case (nil, nil):
-                    return false
+                guard let lhsDate = lhs.date, let rhsDate = rhs.date else {
+                    return lhs.date != nil
                 }
+                return lhsDate > rhsDate
             }
     }
     
@@ -2875,30 +2867,24 @@ struct DashboardView: View {
         (athlete.tournaments ?? [])
             .filter { $0.isActive }
             .sorted { lhs, rhs in
-                let l = lhs.startDate ?? .distantPast
-                let r = rhs.startDate ?? .distantPast
-                return l > r
+                let lhsDate = lhs.startDate ?? .distantPast
+                let rhsDate = rhs.startDate ?? .distantPast
+                return lhsDate > rhsDate
             }
     }
     
     var recentGames: [Game] {
         let now = Date()
-        let pastGames = (athlete.games ?? []).filter { game in
-            if let d = game.date { return d <= now }
-            return false
-        }
-        return pastGames
+        return (athlete.games ?? [])
+            .filter { game in
+                guard let date = game.date else { return false }
+                return date <= now
+            }
             .sorted { lhs, rhs in
-                switch (lhs.date, rhs.date) {
-                case let (l?, r?):
-                    return l > r
-                case (nil, _?):
-                    return false
-                case (_?, nil):
-                    return true
-                case (nil, nil):
-                    return false
+                guard let lhsDate = lhs.date, let rhsDate = rhs.date else {
+                    return lhs.date != nil
                 }
+                return lhsDate > rhsDate
             }
             .prefix(3)
             .map { $0 }
@@ -2906,22 +2892,16 @@ struct DashboardView: View {
     
     var upcomingGames: [Game] {
         let now = Date()
-        let futureGames = (athlete.games ?? []).filter { game in
-            if let d = game.date { return d > now }
-            return false
-        }
-        return futureGames
+        return (athlete.games ?? [])
+            .filter { game in
+                guard let date = game.date else { return false }
+                return date > now
+            }
             .sorted { lhs, rhs in
-                switch (lhs.date, rhs.date) {
-                case let (l?, r?):
-                    return l < r
-                case (nil, _?):
-                    return false
-                case (_?, nil):
-                    return true
-                case (nil, nil):
-                    return false
+                guard let lhsDate = lhs.date, let rhsDate = rhs.date else {
+                    return lhs.date != nil
                 }
+                return lhsDate < rhsDate
             }
             .prefix(3)
             .map { $0 }
@@ -2929,17 +2909,11 @@ struct DashboardView: View {
     
     var recentVideos: [VideoClip] {
         (athlete.videoClips ?? [])
-            .sorted { (lhs: VideoClip, rhs: VideoClip) in
-                switch (lhs.createdAt, rhs.createdAt) {
-                case let (l?, r?):
-                    return l > r // newer first
-                case (nil, _?):
-                    return false // nils last
-                case (_?, nil):
-                    return true  // non-nil first
-                case (nil, nil):
-                    return false
+            .sorted { lhs, rhs in
+                guard let lhsCreated = lhs.createdAt, let rhsCreated = rhs.createdAt else {
+                    return lhs.createdAt != nil
                 }
+                return lhsCreated > rhsCreated
             }
             .prefix(3)
             .map { $0 }
@@ -3033,7 +3007,7 @@ struct DashboardView: View {
                                 
                                 // Ask the Games module to present its Add Game UI
                                 // Pass the live tournament as context if available
-                                NotificationCenter.default.post(name: .presentAddGame, object: tournamentContext)
+                                NotificationCenter.default.post(name: Notification.Name.presentAddGame, object: tournamentContext)
                                 #if DEBUG
                                 if let tournament = tournamentContext {
                                     print("📣 Posted .presentAddGame notification with live tournament: \(tournament.name)")
@@ -3078,11 +3052,11 @@ struct DashboardView: View {
                                 
                                 // Add a small delay to ensure the Videos tab is ready before posting notification
                                 // This ensures VideoClipsView has mounted and is listening for the notification
-                                try? await Task.sleep(nanoseconds: 150_000_000) // 0.15 seconds
+                                try? await Task.sleep(for: .milliseconds(150))
                                 
                                 // Post notification with game context
                                 // The Videos tab will handle this when it appears
-                                NotificationCenter.default.post(name: .presentVideoRecorder, object: gameContext)
+                                NotificationCenter.default.post(name: Notification.Name.presentVideoRecorder, object: gameContext)
                                 #if DEBUG
                                 print("📣 Posted .presentVideoRecorder notification with game context")
                                 #endif
@@ -3167,7 +3141,7 @@ struct DashboardView: View {
                             // Switch to home tab first, then present sheet
                             postSwitchTab(.home)
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                                NotificationCenter.default.post(name: .presentSeasons, object: athlete)
+                                NotificationCenter.default.post(name: Notification.Name.presentSeasons, object: athlete)
                             }
                         }
                         
@@ -3180,7 +3154,7 @@ struct DashboardView: View {
                             // Switch to home tab first, then present sheet
                             postSwitchTab(.home)
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                                NotificationCenter.default.post(name: .presentCoaches, object: athlete)
+                                NotificationCenter.default.post(name: Notification.Name.presentCoaches, object: athlete)
                             }
                         }
                     }
@@ -3260,6 +3234,9 @@ struct DashboardView: View {
                 await refreshDashboard()
             }
         }
+        .onDisappear {
+            refreshTask?.cancel()
+        }
         .scrollBounceBehavior(.basedOnSize)
         .navigationTitle(athlete.name)
         .navigationBarTitleDisplayMode(.inline)
@@ -3271,7 +3248,7 @@ struct DashboardView: View {
                         Button {
                             // Switch to this athlete
                             NotificationCenter.default.post(
-                                name: .switchAthlete,
+                                name: Notification.Name.switchAthlete,
                                 object: ath
                             )
                             Haptics.light()
@@ -3288,7 +3265,7 @@ struct DashboardView: View {
                     Divider()
                     
                     Button {
-                        NotificationCenter.default.post(name: .showAthleteSelection, object: nil)
+                        NotificationCenter.default.post(name: Notification.Name.showAthleteSelection, object: nil)
                         Haptics.light()
                     } label: {
                         Label("Manage Athletes", systemImage: "person.2.fill")
@@ -3312,11 +3289,10 @@ struct DashboardView: View {
         guard !isRefreshing else { return }
         isRefreshing = true
         
+        defer { isRefreshing = false }
+        
         // Check for cancellation
-        guard !Task.isCancelled else {
-            isRefreshing = false
-            return
-        }
+        guard !Task.isCancelled else { return }
         
         // Haptic feedback for refresh
         await MainActor.run {
@@ -3324,24 +3300,14 @@ struct DashboardView: View {
         }
         
         // Simulate data refresh with a small delay for better UX
-        try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+        try? await Task.sleep(for: .milliseconds(500))
         
         // Check cancellation after sleep
-        guard !Task.isCancelled else {
-            await MainActor.run {
-                isRefreshing = false
-            }
-            return
-        }
+        guard !Task.isCancelled else { return }
         
-        // Trigger model context refresh to get latest data
+        // SwiftData will automatically refresh on next query
         await MainActor.run {
-            // SwiftData will automatically refresh on next query
-            // No need to manually refresh - just provide visual feedback
-            
-            // Success haptic
             Haptics.light()
-            isRefreshing = false
         }
     }
 }
@@ -3615,17 +3581,22 @@ struct DashboardVideoThumbnail: View {
     private func load() async {
         guard !isLoading, image == nil else { return }
         isLoading = true
-        if let path = video.thumbnailPath {
-            do {
-                let img = try await ThumbnailCache.shared.loadThumbnail(at: path)
-                await MainActor.run { withAnimation(.easeInOut(duration: 0.2)) { image = img } }
-            } catch {
-                // Fallback stays as gradient
+        defer { isLoading = false }
+        
+        guard let path = video.thumbnailPath else { return }
+        
+        do {
+            let img = try await ThumbnailCache.shared.loadThumbnail(at: path)
+            await MainActor.run { 
+                withAnimation(.easeInOut(duration: 0.2)) { 
+                    image = img 
+                } 
             }
-        } else {
-            // Optionally trigger generation elsewhere if desired
+        } catch {
+            #if DEBUG
+            print("⚠️ Failed to load thumbnail: \(error.localizedDescription)")
+            #endif
         }
-        isLoading = false
     }
 }
 
@@ -3661,21 +3632,18 @@ struct DashboardVideoCard: View {
         .contextMenu {
             Button {
                 Haptics.light()
-                NotificationCenter.default.post(name: .presentFullscreenVideo, object: video)
+                NotificationCenter.default.post(name: Notification.Name.presentFullscreenVideo, object: video)
             } label: {
                 Label("Play", systemImage: "play.fill")
             }
+            
             if FileManager.default.fileExists(atPath: video.filePath) {
                 ShareLink(item: URL(fileURLWithPath: video.filePath)) {
                     Label("Share", systemImage: "square.and.arrow.up")
                 }
             } else {
-                Button {
-                    Haptics.light()
-                    // File missing, handle gracefully
-                } label: {
-                    Label("Share", systemImage: "square.and.arrow.up")
-                }
+                Text("File unavailable")
+                    .foregroundColor(.secondary)
             }
         }
     }
@@ -4093,6 +4061,15 @@ struct PendingInvitationCard: View {
 // - GameDetailView can post Notification.Name("ReactivateGame") with the game ID/object to mark a game live again if it was ended by mistake.
 // - Videos feature should observe Notification.Name("PresentFullscreenVideo") to present the player in full screen for a given clip.
 
+// Integration: In VideoClipsView or its recorder container, post .videosManageOwnControls with true when showing its own Record/Upload buttons, and false when dismissed:
+// NotificationCenter.default.post(name: Notification.Name.videosManageOwnControls, object: true)
+// NotificationCenter.default.post(name: Notification.Name.videosManageOwnControls, object: false)
+
+// To play a video fullscreen from anywhere:
+// NotificationCenter.default.post(name: Notification.Name.presentFullscreenVideo, object: videoClip)
+
+
+
 #Preview("Main App") {
     PlayerPathMainView()
         .environmentObject(ComprehensiveAuthManager())
@@ -4110,12 +4087,4 @@ struct PendingInvitationCard: View {
     
     return PreviewWrapper()
 }
-
-// Integration: In VideoClipsView or its recorder container, post .videosManageOwnControls with true when showing its own Record/Upload buttons, and false when dismissed:
-// NotificationCenter.default.post(name: .videosManageOwnControls, object: true)
-// NotificationCenter.default.post(name: .videosManageOwnControls, object: false)
-
-// To play a video fullscreen from anywhere:
-// NotificationCenter.default.post(name: .presentFullscreenVideo, object: videoClip)
-
 

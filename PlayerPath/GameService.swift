@@ -103,13 +103,22 @@ actor GameService {
     // MARK: - Game Creation
     
     func createGame(for athlete: Athlete, opponent: String, date: Date, tournament: Tournament?, isLive: Bool) async {
+        #if DEBUG
+        print("🏗️ GameService: Creating game")
+        print("   - Athlete: \(athlete.name)")
+        print("   - Opponent: \(opponent)")
+        print("   - Date: \(date)")
+        print("   - Tournament: \(tournament?.name ?? "none")")
+        print("   - Is Live: \(isLive)")
+        #endif
+        
         // Check for duplicate game with same opponent and same day
         let calendar = Calendar.current
         for existingGame in athlete.games ?? [] {
             if existingGame.opponent == opponent,
                let gameDate = existingGame.date,
                calendar.isDate(gameDate, inSameDayAs: date) {
-                print("Duplicate game found for opponent \(opponent) on the same day.")
+                print("❌ GameService: Duplicate game found for opponent \(opponent) on the same day.")
                 return
             }
         }
@@ -157,9 +166,15 @@ actor GameService {
         
         do {
             try modelContext.save()
-            print("Created new game successfully.")
+            #if DEBUG
+            print("✅ GameService: Created new game successfully")
+            print("   - Game ID: \(game.id)")
+            print("   - Athlete games count: \(athlete.games?.count ?? 0)")
+            #endif
         } catch {
-            print("Error saving context after creating game: \(error.localizedDescription)")
+            #if DEBUG
+            print("❌ GameService: Error saving context after creating game: \(error.localizedDescription)")
+            #endif
         }
         
         // ✅ Link game to active season (must be done after save, on MainActor)

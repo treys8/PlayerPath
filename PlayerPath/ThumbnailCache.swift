@@ -9,7 +9,7 @@
 import UIKit
 
 /// Thread-safe cache for video thumbnail images with automatic memory management
-actor ThumbnailCache {
+@MainActor final class ThumbnailCache {
     
     static let shared = ThumbnailCache()
     
@@ -26,12 +26,13 @@ actor ThumbnailCache {
         cache.totalCostLimit = maxMemorySize
         
         // Properly handle memory warnings
+        let cacheRef = cache
         memoryWarningObserver = NotificationCenter.default.addObserver(
             forName: UIApplication.didReceiveMemoryWarningNotification,
             object: nil,
             queue: .main
-        ) { [weak cache] _ in
-            cache?.removeAllObjects()
+        ) { _ in
+            cacheRef.removeAllObjects()
         }
     }
     
@@ -59,14 +60,27 @@ actor ThumbnailCache {
         
         // Create new loading task
         let task = Task<UIImage, Error> {
-            guard FileManager.default.fileExists(atPath: path) else {
-                throw ThumbnailError.fileNotFound
+            // Perform disk IO off the main actor
+            return try await withCheckedThrowingContinuation { continuation in
+                DispatchQueue.global(qos: .userInitiated).async {
+                    if !FileManager.default.fileExists(atPath: path) {
+                        continuation.resume(throwing: ThumbnailError.fileNotFound)
+                        return
+                    }
+                    guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+                          let image = UIImage(data: data) else {
+                        continuation.resume(throwing: ThumbnailError.invalidImage)
+                        return
+                    }
+                    continuation.resume(returning: image)
+                }
             }
-            
-            guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
-                  let image = UIImage(data: data) else {
-                throw ThumbnailError.invalidImage
-            }
+        }
+        
+        loadingTasks[path] = task
+        
+        do {
+            let image = try await task.value
             
             // Calculate proper cost with scale factor
             let pixelWidth = image.size.width * image.scale
@@ -75,13 +89,6 @@ actor ThumbnailCache {
             
             cache.setObject(image, forKey: key, cost: cost)
             
-            return image
-        }
-        
-        loadingTasks[path] = task
-        
-        do {
-            let image = try await task.value
             loadingTasks.removeValue(forKey: path)
             return image
         } catch {

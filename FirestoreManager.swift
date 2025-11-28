@@ -201,31 +201,87 @@ class FirestoreManager: ObservableObject {
     // MARK: - Video Metadata
     
     /// Uploads video metadata to Firestore after file upload to Storage
+    /// - Parameters:
+    ///   - fileName: Name of the video file
+    ///   - storageURL: Firebase Storage URL for the video
+    ///   - thumbnail: Structured thumbnail metadata (supports multiple qualities)
+    ///   - folderID: Shared folder ID
+    ///   - uploadedBy: User ID of uploader
+    ///   - uploadedByName: Display name of uploader
+    ///   - fileSize: File size in bytes
+    ///   - duration: Video duration in seconds
+    ///   - videoType: Type of video ("game", "practice", "highlight")
+    ///   - gameContext: Optional game-specific metadata
+    ///   - practiceContext: Optional practice-specific metadata
+    /// - Returns: Document ID of created video metadata
     func uploadVideoMetadata(
         fileName: String,
         storageURL: String,
-        thumbnailURL: String?,
+        thumbnail: ThumbnailMetadata?,
         folderID: String,
         uploadedBy: String,
         uploadedByName: String,
         fileSize: Int64,
-        duration: Double?
+        duration: Double?,
+        videoType: String = "game",
+        gameContext: GameContext? = nil,
+        practiceContext: PracticeContext? = nil
     ) async throws -> String {
         isLoading = true
         defer { isLoading = false }
         
-        let videoData: [String: Any] = [
+        var videoData: [String: Any] = [
             "fileName": fileName,
             "firebaseStorageURL": storageURL,
-            "thumbnailURL": thumbnailURL as Any,
             "uploadedBy": uploadedBy,
             "uploadedByName": uploadedByName,
             "sharedFolderID": folderID,
             "createdAt": FieldValue.serverTimestamp(),
             "fileSize": fileSize,
             "duration": duration as Any,
-            "isHighlight": false
+            "videoType": videoType,
+            "isHighlight": videoType == "highlight"
         ]
+        
+        // Add structured thumbnail data
+        if let thumbnail = thumbnail {
+            var thumbnailDict: [String: Any] = [
+                "standardURL": thumbnail.standardURL
+            ]
+            if let highQualityURL = thumbnail.highQualityURL {
+                thumbnailDict["highQualityURL"] = highQualityURL
+            }
+            if let timestamp = thumbnail.timestamp {
+                thumbnailDict["timestamp"] = timestamp
+            }
+            if let width = thumbnail.width {
+                thumbnailDict["width"] = width
+            }
+            if let height = thumbnail.height {
+                thumbnailDict["height"] = height
+            }
+            videoData["thumbnail"] = thumbnailDict
+            
+            // Keep legacy field for backward compatibility
+            videoData["thumbnailURL"] = thumbnail.standardURL
+        }
+        
+        // Add game-specific context
+        if let game = gameContext {
+            videoData["gameOpponent"] = game.opponent
+            videoData["gameDate"] = game.date
+            if let notes = game.notes {
+                videoData["notes"] = notes
+            }
+        }
+        
+        // Add practice-specific context
+        if let practice = practiceContext {
+            videoData["practiceDate"] = practice.date
+            if let notes = practice.notes {
+                videoData["notes"] = notes
+            }
+        }
         
         do {
             let docRef = try await db.collection("videos").addDocument(data: videoData)
@@ -236,13 +292,38 @@ class FirestoreManager: ObservableObject {
                 "updatedAt": FieldValue.serverTimestamp()
             ])
             
-            print("✅ Uploaded video metadata: \(docRef.documentID)")
+            print("✅ Uploaded video metadata: \(docRef.documentID) [Type: \(videoType)]")
             return docRef.documentID
         } catch {
             print("❌ Failed to upload video metadata: \(error)")
             errorMessage = "Failed to save video: \(error.localizedDescription)"
             throw error
         }
+    }
+    
+    /// Legacy method for backward compatibility - use uploadVideoMetadata with ThumbnailMetadata instead
+    @available(*, deprecated, message: "Use uploadVideoMetadata with ThumbnailMetadata parameter")
+    func uploadVideoMetadata(
+        fileName: String,
+        storageURL: String,
+        thumbnailURL: String?,
+        folderID: String,
+        uploadedBy: String,
+        uploadedByName: String,
+        fileSize: Int64,
+        duration: Double?
+    ) async throws -> String {
+        let thumbnail = thumbnailURL.map { ThumbnailMetadata(standardURL: $0) }
+        return try await uploadVideoMetadata(
+            fileName: fileName,
+            storageURL: storageURL,
+            thumbnail: thumbnail,
+            folderID: folderID,
+            uploadedBy: uploadedBy,
+            uploadedByName: uploadedByName,
+            fileSize: fileSize,
+            duration: duration
+        )
     }
     
     /// Fetches all videos in a shared folder
@@ -574,6 +655,98 @@ class FirestoreManager: ObservableObject {
         return try await fetchVideos(forFolder: folderID)
     }
     
+    // MARK: - Thumbnail Management
+    
+    /// Uploads a single thumbnail to Firebase Storage
+    /// - Parameters:
+    ///   - localURL: Local file URL of the thumbnail image
+    ///   - videoFileName: The video file name (to create matching thumbnail name)
+    ///   - folderID: Shared folder ID
+    ///   - quality: Quality level ("standard" or "high")
+    /// - Returns: The download URL for the uploaded thumbnail
+    func uploadThumbnail(
+        localURL: URL,
+        videoFileName: String,
+        folderID: String,
+        quality: ThumbnailQuality = .standard
+    ) async throws -> String {
+        isLoading = true
+        defer { isLoading = false }
+        
+        // Use VideoCloudManager for actual upload
+        let cloudManager = VideoCloudManager.shared
+        
+        // Generate appropriate filename based on quality
+        let baseFileName = (videoFileName as NSString).deletingPathExtension
+        let suffix = quality == .high ? "_thumbnail_hq.jpg" : "_thumbnail.jpg"
+        let thumbnailFileName = baseFileName + suffix
+        
+        do {
+            // Create a temporary reference using the quality-specific filename
+            let thumbnailURL = try await cloudManager.uploadThumbnail(
+                thumbnailURL: localURL,
+                videoFileName: thumbnailFileName,
+                folderID: folderID
+            )
+            
+            print("✅ Uploaded \(quality.rawValue) quality thumbnail for \(videoFileName)")
+            return thumbnailURL
+        } catch {
+            print("❌ Failed to upload thumbnail: \(error)")
+            errorMessage = "Failed to upload thumbnail: \(error.localizedDescription)"
+            throw error
+        }
+    }
+    
+    /// Uploads multiple thumbnails (standard and high quality) for highlights
+    /// - Parameters:
+    ///   - standardURL: Local file URL of standard quality thumbnail
+    ///   - highQualityURL: Local file URL of high quality thumbnail (optional)
+    ///   - videoFileName: The video file name
+    ///   - folderID: Shared folder ID
+    ///   - timestamp: Time in video where thumbnail was captured
+    /// - Returns: Complete ThumbnailMetadata object with all URLs
+    func uploadThumbnails(
+        standardURL: URL,
+        highQualityURL: URL?,
+        videoFileName: String,
+        folderID: String,
+        timestamp: Double? = nil
+    ) async throws -> ThumbnailMetadata {
+        isLoading = true
+        defer { isLoading = false }
+        
+        // Upload standard quality thumbnail
+        let standardDownloadURL = try await uploadThumbnail(
+            localURL: standardURL,
+            videoFileName: videoFileName,
+            folderID: folderID,
+            quality: .standard
+        )
+        
+        // Upload high quality thumbnail if provided
+        var highQualityDownloadURL: String?
+        if let highQualityURL = highQualityURL {
+            highQualityDownloadURL = try await uploadThumbnail(
+                localURL: highQualityURL,
+                videoFileName: videoFileName,
+                folderID: folderID,
+                quality: .high
+            )
+        }
+        
+        return ThumbnailMetadata(
+            standardURL: standardDownloadURL,
+            highQualityURL: highQualityDownloadURL,
+            timestamp: timestamp
+        )
+    }
+    
+    enum ThumbnailQuality: String {
+        case standard = "standard"
+        case high = "high"
+    }
+    
     /// Creates video metadata with additional context (convenience method)
     func createVideoMetadata(
         folderID: String,
@@ -680,12 +853,38 @@ struct SharedFolder: Codable, Identifiable {
     }
 }
 
+/// Thumbnail metadata with support for multiple quality levels
+struct ThumbnailMetadata: Codable, Equatable {
+    let standardURL: String         // Standard quality (160x120)
+    let highQualityURL: String?     // High quality (320x240) - for highlights
+    let timestamp: Double?          // Time in video (seconds) where thumbnail was captured
+    let width: Int?
+    let height: Int?
+    
+    init(standardURL: String, highQualityURL: String? = nil, timestamp: Double? = nil, width: Int? = nil, height: Int? = nil) {
+        self.standardURL = standardURL
+        self.highQualityURL = highQualityURL
+        self.timestamp = timestamp
+        self.width = width
+        self.height = height
+    }
+}
+
 /// Video metadata model
 struct FirestoreVideoMetadata: Codable, Identifiable {
     var id: String?
     let fileName: String
     let firebaseStorageURL: String
-    let thumbnailURL: String?
+    
+    // IMPROVED: Structured thumbnail metadata instead of single URL
+    let thumbnail: ThumbnailMetadata?
+    
+    // DEPRECATED: Use thumbnail.standardURL instead
+    @available(*, deprecated, message: "Use thumbnail.standardURL instead")
+    var thumbnailURL: String? {
+        thumbnail?.standardURL
+    }
+    
     let uploadedBy: String
     let uploadedByName: String
     let sharedFolderID: String
@@ -695,7 +894,7 @@ struct FirestoreVideoMetadata: Codable, Identifiable {
     let isHighlight: Bool?
     
     // Game/Practice context
-    let videoType: String? // "game" or "practice"
+    let videoType: String? // "game", "practice", or "highlight"
     let gameOpponent: String?
     let gameDate: Date?
     let practiceDate: Date?
@@ -739,5 +938,33 @@ struct UserProfile: Codable, Identifiable {
     
     var userRole: UserRole {
         UserRole(rawValue: role) ?? .athlete
+    }
+}
+
+// MARK: - Video Context Models
+
+/// Context metadata for game videos
+struct GameContext {
+    let opponent: String
+    let date: Date
+    let notes: String?
+    
+    init(opponent: String, date: Date, notes: String? = nil) {
+        self.opponent = opponent
+        self.date = date
+        self.notes = notes
+    }
+}
+
+/// Context metadata for practice videos
+struct PracticeContext {
+    let date: Date
+    let notes: String?
+    let drillType: String?
+    
+    init(date: Date, notes: String? = nil, drillType: String? = nil) {
+        self.date = date
+        self.notes = notes
+        self.drillType = drillType
     }
 }

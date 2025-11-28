@@ -44,7 +44,6 @@ struct CoachesView: View {
         }
         .navigationTitle("Coaches")
         .navigationBarTitleDisplayMode(.large)
-        .navigationBarBackButtonHidden(false)  // Explicitly show system back button
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {
@@ -109,7 +108,7 @@ struct EmptyCoachesView: View {
                 .font(.title2)
                 .fontWeight(.semibold)
             
-            Text("Add your coaches to keep track of their contact information and notes.")
+            Text("Add coaches to track contact info and notes")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -153,6 +152,15 @@ struct CoachRow: View {
                             .font(.caption)
                         Text(phone)
                             .font(.caption)
+                    }
+                    .foregroundStyle(.secondary)
+                } else if let email = coach.email, !email.isEmpty {
+                    HStack(spacing: 4) {
+                        Image(systemName: "envelope.fill")
+                            .font(.caption)
+                        Text(email)
+                            .font(.caption)
+                            .lineLimit(1)
                     }
                     .foregroundStyle(.secondary)
                 }
@@ -214,8 +222,18 @@ struct AddCoachView: View {
                 }
                 
                 Section {
-                    TextEditor(text: $notes)
-                        .frame(minHeight: 100)
+                    ZStack(alignment: .topLeading) {
+                        TextEditor(text: $notes)
+                            .frame(minHeight: 100)
+                        
+                        if notes.isEmpty {
+                            Text("Add any notes about this coach...")
+                                .foregroundStyle(.secondary)
+                                .padding(.top, 8)
+                                .padding(.leading, 4)
+                                .allowsHitTesting(false)
+                        }
+                    }
                 } header: {
                     Text("Notes (optional)")
                 }
@@ -242,7 +260,6 @@ struct AddCoachView: View {
                 Text(errorMessage)
             }
         }
-        .presentationDetents([.large])
     }
     
     private func saveCoach() {
@@ -276,7 +293,6 @@ struct CoachDetailView: View {
     @Environment(\.dismiss) private var dismiss
     
     @State private var showingDeleteConfirmation = false
-    @State private var showingEditSheet = false
     
     var body: some View {
         List {
@@ -306,8 +322,12 @@ struct CoachDetailView: View {
                 Section("Contact") {
                     if let phone = coach.phone, !phone.isEmpty {
                         LabeledContent {
-                            Link(phone, destination: URL(string: "tel:\(phone)")!)
-                                .foregroundStyle(.blue)
+                            if let url = URL(string: "tel:\(phone.filter { $0.isNumber })") {
+                                Link(phone, destination: url)
+                                    .foregroundStyle(.blue)
+                            } else {
+                                Text(phone)
+                            }
                         } label: {
                             Label("Phone", systemImage: "phone.fill")
                         }
@@ -315,8 +335,12 @@ struct CoachDetailView: View {
                     
                     if let email = coach.email, !email.isEmpty {
                         LabeledContent {
-                            Link(email, destination: URL(string: "mailto:\(email)")!)
-                                .foregroundStyle(.blue)
+                            if let url = URL(string: "mailto:\(email)") {
+                                Link(email, destination: url)
+                                    .foregroundStyle(.blue)
+                            } else {
+                                Text(email)
+                            }
                         } label: {
                             Label("Email", systemImage: "envelope.fill")
                         }
@@ -342,15 +366,6 @@ struct CoachDetailView: View {
         }
         .navigationTitle("Coach Details")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    showingEditSheet = true
-                } label: {
-                    Text("Edit")
-                }
-            }
-        }
         .alert("Remove Coach", isPresented: $showingDeleteConfirmation) {
             Button("Cancel", role: .cancel) { }
             Button("Remove", role: .destructive) {
@@ -358,7 +373,7 @@ struct CoachDetailView: View {
                 dismiss()
             }
         } message: {
-            Text("Are you sure you want to remove \(coach.name) from your coaches?")
+            Text("Are you sure you want to remove \(coach.name)?")
         }
     }
 }

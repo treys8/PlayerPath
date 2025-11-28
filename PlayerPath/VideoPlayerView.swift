@@ -150,6 +150,7 @@ struct VideoPlayerView: View {
             setupTask?.cancel()
             setupTask = nil
             player?.pause()
+            player?.replaceCurrentItem(with: nil)
             player = nil
             isPlayerReady = false
             isLoading = true
@@ -187,16 +188,26 @@ struct VideoPlayerView: View {
     
     private func setupPlayer() async {
         print("VideoPlayerView: Starting player setup for clip: \(clip.fileName)")
-        
+
+        guard !Task.isCancelled else {
+            print("VideoPlayerView: Setup cancelled before start")
+            return
+        }
+
         await MainActor.run {
             isLoading = true
             errorMessage = ""
             player = nil
             isPlayerReady = false
         }
-        
+
+        guard !Task.isCancelled else {
+            print("VideoPlayerView: Setup cancelled after state reset")
+            return
+        }
+
         print("VideoPlayerView: File path: \(clip.filePath)")
-        
+
         guard let url = findVideoURL() else {
             print("VideoPlayerView: No valid video file found")
             await MainActor.run {
@@ -205,7 +216,12 @@ struct VideoPlayerView: View {
             }
             return
         }
-        
+
+        guard !Task.isCancelled else {
+            print("VideoPlayerView: Setup cancelled after finding URL")
+            return
+        }
+
         await loadPlayer(from: url)
     }
     
@@ -231,18 +247,35 @@ struct VideoPlayerView: View {
     
     private func loadPlayer(from url: URL) async {
         print("VideoPlayerView: Creating AVPlayer with URL: \(url)")
+
+        guard !Task.isCancelled else {
+            print("VideoPlayerView: Load cancelled before creating player")
+            return
+        }
+
         let newPlayer = AVPlayer(url: url)
         let asset = AVURLAsset(url: url)
-        
+
         do {
             let (isPlayable, _, tracks) = try await asset.load(.isPlayable, .duration, .tracks)
+
+            guard !Task.isCancelled else {
+                print("VideoPlayerView: Load cancelled after loading asset")
+                return
+            }
+
             let computedAspect = await calculateVideoAspect(from: tracks)
-            
+
+            guard !Task.isCancelled else {
+                print("VideoPlayerView: Load cancelled after calculating aspect")
+                return
+            }
+
             await MainActor.run {
                 if let aspect = computedAspect {
                     self.videoAspect = aspect
                 }
-                
+
                 if isPlayable {
                     self.player = newPlayer
                     self.isPlayerReady = true
@@ -255,6 +288,11 @@ struct VideoPlayerView: View {
                 }
             }
         } catch {
+            guard !Task.isCancelled else {
+                print("VideoPlayerView: Load cancelled during error handling")
+                return
+            }
+
             await MainActor.run {
                 self.isLoading = false
                 self.errorMessage = "Unable to load video: \(error.localizedDescription)"
@@ -370,6 +408,7 @@ struct VideoTrimmerSheet: View {
     @State private var duration: Double = 0
     @State private var isExporting = false
     @State private var exportError: String?
+    @State private var exportedTempURL: URL?
 
     var body: some View {
         NavigationStack {
@@ -428,6 +467,17 @@ struct VideoTrimmerSheet: View {
             .onAppear {
                 setup()
             }
+            .onDisappear {
+                // Pause player to free resources
+                player.pause()
+
+                // Clean up temp file if export was successful but not yet processed
+                // Note: If onExported was called, parent is responsible for cleanup
+                if let tempURL = exportedTempURL, FileManager.default.fileExists(atPath: tempURL.path) {
+                    try? FileManager.default.removeItem(at: tempURL)
+                    print("VideoTrimmerSheet: Cleaned up temp file on dismiss")
+                }
+            }
         }
     }
 
@@ -463,19 +513,53 @@ struct VideoTrimmerSheet: View {
         let start = CMTime(seconds: startTime, preferredTimescale: 600)
         let end = CMTime(seconds: endTime, preferredTimescale: 600)
         session.timeRange = CMTimeRangeFromTimeToTime(start: start, end: end)
+        session.outputURL = outputURL
+        session.outputFileType = .mp4
 
-        do {
-            // New async throwing API (iOS 18+). Avoids deprecated export() / status / error
-            try await session.export(to: outputURL, as: .mp4)
-            await MainActor.run {
-                self.isExporting = false
-                self.onExported(outputURL)
-                self.dismiss()
+        // Use iOS 18+ API if available, otherwise fallback to older API
+        if #available(iOS 18.0, *) {
+            do {
+                try await session.export(to: outputURL, as: .mp4)
+                await MainActor.run {
+                    self.isExporting = false
+                    self.exportedTempURL = outputURL
+                    self.onExported(outputURL)
+                    self.dismiss()
+                }
+            } catch {
+                await MainActor.run {
+                    // Clean up failed export
+                    try? FileManager.default.removeItem(at: outputURL)
+                    self.isExporting = false
+                    self.exportError = error.localizedDescription
+                }
             }
-        } catch {
+        } else {
+            // Fallback for iOS 17 and earlier
+            await session.export()
             await MainActor.run {
-                self.isExporting = false
-                self.exportError = error.localizedDescription
+                switch session.status {
+                case .completed:
+                    self.isExporting = false
+                    self.exportedTempURL = outputURL
+                    self.onExported(outputURL)
+                    self.dismiss()
+                case .failed:
+                    // Clean up failed export
+                    try? FileManager.default.removeItem(at: outputURL)
+                    self.isExporting = false
+                    self.exportError = session.error?.localizedDescription ?? "Export failed"
+                case .cancelled:
+                    // Clean up cancelled export
+                    try? FileManager.default.removeItem(at: outputURL)
+                    self.isExporting = false
+                    self.exportError = "Export was cancelled"
+                default:
+                    // Clean up unknown status
+                    try? FileManager.default.removeItem(at: outputURL)
+                    self.isExporting = false
+                    self.exportError = "Export ended with unknown status"
+                }
             }
         }
     }
