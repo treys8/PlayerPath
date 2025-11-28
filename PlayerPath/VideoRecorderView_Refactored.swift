@@ -105,7 +105,7 @@ struct VideoRecorderView_Refactored: View {
             .alert("Low Storage", isPresented: $showingLowStorageAlert) {
                 Button("OK", role: .cancel) {}
                 Button("Settings", role: .none) {
-                    if let settingsURL = URL(string: "App-Prefs:root=General&path=STORAGE_MGMT") {
+                    if let settingsURL = URL(string: UIApplication.openSettingsURLString) {
                         UIApplication.shared.open(settingsURL)
                     }
                 }
@@ -132,20 +132,14 @@ struct VideoRecorderView_Refactored: View {
                 // Auto-open camera when launched for a live game to streamline recording
                 if game?.isLive == true {
                     try? await Task.sleep(nanoseconds: 300_000_000) // 0.3s
+                    guard !Task.isCancelled else { return }
                     checkCameraPermission()
                 }
-
-                // Clean up when task is cancelled (view disappears)
-                await withTaskCancellationHandler {
-                    // Wait indefinitely until cancelled
-                    await withCheckedContinuation { (_: CheckedContinuation<Void, Never>) in
-                        // Never resume - just wait for cancellation
-                    }
-                } onCancel: {
-                    Task { @MainActor in
-                        networkMonitor.stopMonitoring()
-                    }
-                }
+            }
+            .onDisappear {
+                // Clean up resources when view disappears
+                networkMonitor.stopMonitoring()
+                saveTask?.cancel()
             }
     }
     
@@ -573,7 +567,7 @@ struct VideoRecorderView_Refactored: View {
                     Button("Use Medium Quality") {
                         selectedVideoQuality = .typeMedium
                         UserDefaults.standard.set(selectedVideoQuality.rawValue, forKey: "selectedVideoQuality")
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        Haptics.light()
                     }
                     .font(.caption2)
                     .padding(.horizontal, 8)

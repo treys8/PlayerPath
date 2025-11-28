@@ -22,7 +22,11 @@ final class AppleSignInManager: NSObject, ObservableObject {
     func configure(with authManager: ComprehensiveAuthManager) {
         self.authManager = authManager
     }
-    
+
+    func cleanup() {
+        self.authManager = nil
+    }
+
     // MARK: - Sign in with Apple
     
     func signInWithApple() {

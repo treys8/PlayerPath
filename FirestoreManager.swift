@@ -836,12 +836,13 @@ struct SharedFolder: Codable, Identifiable {
     var id: String?
     let name: String
     let ownerAthleteID: String
+    let ownerAthleteName: String?  // Name of the athlete who owns this folder
     let sharedWithCoachIDs: [String]
     let permissions: [String: [String: Bool]]
     let createdAt: Date?
     let updatedAt: Date?
     let videoCount: Int?
-    
+
     /// Helper to get typed permissions for a coach
     func getPermissions(for coachID: String) -> FolderPermissions? {
         guard let permDict = permissions[coachID] else { return nil }
@@ -915,14 +916,20 @@ struct VideoAnnotation: Codable, Identifiable {
 /// Coach invitation model
 struct CoachInvitation: Codable, Identifiable {
     var id: String?
+    let folderID: String
+    let folderName: String
     let athleteID: String
     let athleteName: String
     let coachEmail: String
-    let folderID: String
-    let folderName: String
-    let status: String // "pending", "accepted", "declined"
-    let sentAt: Date?
-    let expiresAt: Date?
+    let permissions: FolderPermissions
+    let createdAt: Date
+    var status: InvitationStatus
+
+    enum InvitationStatus: String, Codable {
+        case pending
+        case accepted
+        case declined
+    }
 }
 
 /// User profile model

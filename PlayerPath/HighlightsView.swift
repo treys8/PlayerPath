@@ -250,11 +250,9 @@ struct HighlightsView: View {
             do {
                 try FileManager.default.removeItem(atPath: thumbnailPath)
                 print("Deleted thumbnail file: \(thumbnailPath)")
-                
-                // Remove from cache asynchronously (ThumbnailCache is an actor)
-                Task {
-                    await ThumbnailCache.shared.removeThumbnail(at: thumbnailPath)
-                }
+
+                // Remove from cache (ThumbnailCache is @MainActor, synchronous)
+                ThumbnailCache.shared.removeThumbnail(at: thumbnailPath)
             } catch {
                 print("Failed to delete thumbnail file: \(error)")
             }

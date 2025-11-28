@@ -1659,9 +1659,11 @@ struct UserMainFlow: View {
     private func setupNotificationObservers() {
         // Clean up any existing observers first (safety)
         notificationManager.cleanup()
-        
+
         notificationManager.observe(name: Notification.Name.showAthleteSelection) { _ in
-            selectedAthlete = nil
+            MainActor.assumeIsolated {
+                selectedAthlete = nil
+            }
         }
     }
 }
@@ -2654,46 +2656,60 @@ struct MainTabView: View {
     private func setupNotificationObservers() {
         // Clean up any existing observers first (safety)
         notificationManager.cleanup()
-        
+
         notificationManager.observe(name: Notification.Name.switchTab) { notification in
-            if let index = notification.object as? Int {
-                selectedTab = index
-                Haptics.light()
+            MainActor.assumeIsolated {
+                if let index = notification.object as? Int {
+                    selectedTab = index
+                    Haptics.light()
+                }
             }
         }
-        
+
         notificationManager.observe(name: Notification.Name.switchAthlete) { notification in
-            if let athlete = notification.object as? Athlete {
-                selectedAthlete = athlete
+            MainActor.assumeIsolated {
+                if let athlete = notification.object as? Athlete {
+                    selectedAthlete = athlete
+                    Haptics.light()
+                }
+            }
+        }
+
+        notificationManager.observe(name: Notification.Name.presentVideoRecorder) { _ in
+            MainActor.assumeIsolated {
+                selectedTab = MainTab.videos.rawValue
                 Haptics.light()
             }
         }
-        
-        notificationManager.observe(name: Notification.Name.presentVideoRecorder) { _ in
-            selectedTab = MainTab.videos.rawValue
-            Haptics.light()
-        }
-        
+
         notificationManager.observe(name: Notification.Name.recordedHitResult) { notification in
-            if let info = notification.object as? [String: Any] {
-                applyRecordedHitResult(info)
+            MainActor.assumeIsolated {
+                if let info = notification.object as? [String: Any] {
+                    applyRecordedHitResult(info)
+                }
             }
         }
-        
+
         notificationManager.observe(name: Notification.Name.videosManageOwnControls) { notification in
-            if let flag = notification.object as? Bool {
-                hideFloatingRecordButton = flag
+            MainActor.assumeIsolated {
+                if let flag = notification.object as? Bool {
+                    hideFloatingRecordButton = flag
+                }
             }
         }
-        
+
         notificationManager.observe(name: Notification.Name.presentSeasons) { _ in
-            showingSeasons = true
-            Haptics.light()
+            MainActor.assumeIsolated {
+                showingSeasons = true
+                Haptics.light()
+            }
         }
-        
+
         notificationManager.observe(name: Notification.Name.presentCoaches) { _ in
-            showingCoaches = true
-            Haptics.light()
+            MainActor.assumeIsolated {
+                showingCoaches = true
+                Haptics.light()
+            }
         }
     }
     
@@ -4027,11 +4043,9 @@ struct PendingInvitationCard: View {
                 }
             }
             
-            if let sentAt = invitation.sentAt {
-                Text("Invited: \(sentAt, format: .relative(presentation: .named))")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
+            Text("Invited: \(invitation.createdAt, format: .relative(presentation: .named))")
+                .font(.caption)
+                .foregroundColor(.secondary)
         }
         .padding()
         .background(Color(.systemBackground))

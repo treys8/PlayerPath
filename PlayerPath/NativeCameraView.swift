@@ -335,47 +335,71 @@ struct NativeCameraView: UIViewControllerRepresentable {
                     #if DEBUG
                     print("🔄 NativeCameraView: Exporting fixed video...")
                     #endif
-                    
-                    // Use fallback export API for all iOS versions (iOS 18 API verification needed)
-                    await exportSession.export()
 
-                    await MainActor.run {
-                        switch exportSession.status {
-                        case .completed:
-                            #if DEBUG
-                            print("✅ NativeCameraView: Export completed successfully")
-                            #endif
-                            // IMPORTANT: Don't delete original file here - let caller handle cleanup
-                            // after they've successfully saved the video to prevent data loss
-                            completion(outputURL)
-
-                        case .failed:
-                            #if DEBUG
-                            print("❌ NativeCameraView: Export failed: \(exportSession.error?.localizedDescription ?? "Unknown error")")
-                            #endif
-                            // Clean up failed export file
-                            try? FileManager.default.removeItem(at: outputURL)
-
-                            if let error = exportSession.error {
-                                errorHandler?(NativeCameraError.exportFailed(error))
+                    // Use new iOS 18+ API or fallback to legacy API
+                    if #available(iOS 18.0, *) {
+                        // Use new API for iOS 18+
+                        do {
+                            try await exportSession.export(to: outputURL, as: .mov)
+                            await MainActor.run {
+                                #if DEBUG
+                                print("✅ NativeCameraView: Export completed successfully")
+                                #endif
+                                completion(outputURL)
                             }
-                            completion(nil)
+                        } catch {
+                            await MainActor.run {
+                                #if DEBUG
+                                print("❌ NativeCameraView: Export failed: \(error.localizedDescription)")
+                                #endif
+                                // Clean up failed export file
+                                try? FileManager.default.removeItem(at: outputURL)
+                                errorHandler?(NativeCameraError.exportFailed(error))
+                                completion(nil)
+                            }
+                        }
+                    } else {
+                        // Fallback for iOS 17 and earlier
+                        await exportSession.export()
 
-                        case .cancelled:
-                            #if DEBUG
-                            print("⚠️ NativeCameraView: Export cancelled")
-                            #endif
-                            // Clean up cancelled export file
-                            try? FileManager.default.removeItem(at: outputURL)
-                            completion(nil)
+                        await MainActor.run {
+                            switch exportSession.status {
+                            case .completed:
+                                #if DEBUG
+                                print("✅ NativeCameraView: Export completed successfully")
+                                #endif
+                                // IMPORTANT: Don't delete original file here - let caller handle cleanup
+                                // after they've successfully saved the video to prevent data loss
+                                completion(outputURL)
 
-                        default:
-                            #if DEBUG
-                            print("⚠️ NativeCameraView: Export ended with unknown status")
-                            #endif
-                            // Clean up on unknown status
-                            try? FileManager.default.removeItem(at: outputURL)
-                            completion(nil)
+                            case .failed:
+                                #if DEBUG
+                                print("❌ NativeCameraView: Export failed: \(exportSession.error?.localizedDescription ?? "Unknown error")")
+                                #endif
+                                // Clean up failed export file
+                                try? FileManager.default.removeItem(at: outputURL)
+
+                                if let error = exportSession.error {
+                                    errorHandler?(NativeCameraError.exportFailed(error))
+                                }
+                                completion(nil)
+
+                            case .cancelled:
+                                #if DEBUG
+                                print("⚠️ NativeCameraView: Export cancelled")
+                                #endif
+                                // Clean up cancelled export file
+                                try? FileManager.default.removeItem(at: outputURL)
+                                completion(nil)
+
+                            default:
+                                #if DEBUG
+                                print("⚠️ NativeCameraView: Export ended with unknown status")
+                                #endif
+                                // Clean up on unknown status
+                                try? FileManager.default.removeItem(at: outputURL)
+                                completion(nil)
+                            }
                         }
                     }
                     

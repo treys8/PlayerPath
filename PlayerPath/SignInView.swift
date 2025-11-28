@@ -112,9 +112,13 @@ struct SignInView: View {
                 .onChange(of: focusedField) { _, newValue in
                     // Scroll to show submit button when on last field
                     if newValue == .password {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                            withAnimation {
-                                proxy.scrollTo("submitButton", anchor: .bottom)
+                        Task {
+                            try? await Task.sleep(nanoseconds: 300_000_000) // 0.3 seconds
+                            guard !Task.isCancelled else { return }
+                            await MainActor.run {
+                                withAnimation {
+                                    proxy.scrollTo("submitButton", anchor: .bottom)
+                                }
                             }
                         }
                     }
@@ -188,19 +192,18 @@ struct SignInView: View {
         .fullScreenCover(isPresented: $showCoachOnboarding) {
             CoachOnboardingView(onFinish: {
                 showCoachOnboarding = false
-                // TODO: Route coach users to the Shared Folders area of the app.
-                // Consider switching the root view or updating a tab selection here.
+                // Navigation to coach dashboard handled automatically by MainAppView
+                // based on authManager.userRole == .coach
             })
             .environmentObject(authManager)
-            .interactiveDismissDisabled()
         }
         .fullScreenCover(isPresented: $showAthleteOnboarding) {
             AthleteOnboardingView(onFinish: {
                 showAthleteOnboarding = false
-                // TODO: Route athlete users to their main experience (e.g., Home/Record/Library).
+                // Navigation to athlete tabs handled automatically by MainAppView
+                // based on authManager.userRole == .athlete
             })
             .environmentObject(authManager)
-            .interactiveDismissDisabled()
         }
         .alert("Enable \(biometricManager.biometricTypeName)?", isPresented: $showBiometricPrompt) {
             Button("Enable") {
@@ -213,22 +216,12 @@ struct SignInView: View {
         .onChange(of: authManager.errorMessage) { _, newValue in
             if newValue != nil {
                 // Shake animation on error
-                withAnimation(.spring(response: 0.2, dampingFraction: 0.3)) {
-                    shakeOffset = 10
+                Task {
+                    await performShakeAnimation()
                 }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    withAnimation(.spring(response: 0.2, dampingFraction: 0.3)) {
-                        shakeOffset = -10
-                    }
-                }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                    withAnimation(.spring(response: 0.2, dampingFraction: 0.3)) {
-                        shakeOffset = 0
-                    }
-                }
-                
+
                 UIAccessibility.post(notification: .announcement, argument: "Authentication error")
-                HapticManager.shared.error()
+                Haptics.error()
             }
         }
         .onChange(of: appleSignInManager.errorMessage) { _, newValue in
@@ -237,13 +230,7 @@ struct SignInView: View {
                 appleSignInManager.errorMessage = nil
             }
         }
-        .onChange(of: email) { _, newValue in
-            // Remove spaces and trim whitespace from email
-            let cleaned = newValue.replacingOccurrences(of: " ", with: "").lowercased()
-            if cleaned != newValue && focusedField == .email {
-                email = cleaned
-            }
-        }
+        // Note: Email cleaning is handled in performAuth() to avoid onChange loops
         .onAppear {
             appleSignInManager.configure(with: authManager)
         }
@@ -251,59 +238,111 @@ struct SignInView: View {
             // Cancel any in-flight tasks to prevent memory leaks and unwanted side effects
             authTask?.cancel()
             biometricTask?.cancel()
+            // Clear the reference to authManager to prevent potential retain cycles
+            appleSignInManager.cleanup()
         }
     }
     
     // MARK: - Private Methods
-    
+
     private enum AnimationTiming {
-        static let successDelay: UInt64 = 1_200_000_000 // 1.2 seconds
-        static let biometricPromptDelay: UInt64 = 1_500_000_000 // 1.5 seconds
+        static let successDelayNanoseconds: UInt64 = 1_200_000_000 // 1.2 seconds
+        static let biometricPromptDelayNanoseconds: UInt64 = 1_500_000_000 // 1.5 seconds
+        static let shakeStepNanoseconds: UInt64 = 100_000_000 // 0.1 seconds
+        static let authTimeoutNanoseconds: UInt64 = 30_000_000_000 // 30 seconds
+    }
+
+    @MainActor
+    private func withTimeout<T>(nanoseconds: UInt64, operation: @escaping () async throws -> T) async throws -> T {
+        try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask {
+                try await operation()
+            }
+
+            group.addTask {
+                try await Task.sleep(nanoseconds: nanoseconds)
+                throw CancellationError()
+            }
+
+            let result = try await group.next()!
+            group.cancelAll()
+            return result
+        }
+    }
+
+    @MainActor
+    private func performShakeAnimation() async {
+        withAnimation(.spring(response: 0.2, dampingFraction: 0.3)) {
+            shakeOffset = 10
+        }
+        try? await Task.sleep(nanoseconds: AnimationTiming.shakeStepNanoseconds)
+        guard !Task.isCancelled else { return }
+
+        withAnimation(.spring(response: 0.2, dampingFraction: 0.3)) {
+            shakeOffset = -10
+        }
+        try? await Task.sleep(nanoseconds: AnimationTiming.shakeStepNanoseconds)
+        guard !Task.isCancelled else { return }
+
+        withAnimation(.spring(response: 0.2, dampingFraction: 0.3)) {
+            shakeOffset = 0
+        }
     }
     
     private func performAuth() {
         guard !authManager.isLoading else { return }
-        
+
         // Cancel any existing auth task
         authTask?.cancel()
-        
-        // Clean email thoroughly before submission
+
+        // Clean email thoroughly once before submission
         email = email.replacingOccurrences(of: " ", with: "")
             .lowercased()
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        
-        HapticManager.shared.buttonTap()
-        
+
+        Haptics.light()
+
         print("🔐 Starting authentication - isSignUp: \(isSignUp), role: \(selectedRole.rawValue)")
-        
+
         authTask = Task {
             defer { authTask = nil }
             // Check for cancellation early
             guard !Task.isCancelled else { return }
-            
-            let normalizedEmail = email.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+
+            let normalizedEmail = email
             let trimmedDisplayName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
             
-            if isSignUp {
-                // Route to appropriate sign-up method based on selected role
-                print("🔵 Signing up as \(selectedRole.rawValue) with email: \(normalizedEmail)")
-                
-                if selectedRole == .coach {
-                    await authManager.signUpAsCoach(
-                        email: normalizedEmail,
-                        password: password,
-                        displayName: trimmedDisplayName.isEmpty ? normalizedEmail : trimmedDisplayName
-                    )
-                } else {
-                    await authManager.signUp(
-                        email: normalizedEmail,
-                        password: password,
-                        displayName: trimmedDisplayName.isEmpty ? nil : trimmedDisplayName
-                    )
+            do {
+                // Wrap authentication in timeout to prevent hanging on network issues
+                try await withTimeout(nanoseconds: AnimationTiming.authTimeoutNanoseconds) {
+                    if isSignUp {
+                        // Route to appropriate sign-up method based on selected role
+                        print("🔵 Signing up as \(selectedRole.rawValue) with email: \(normalizedEmail)")
+
+                        if selectedRole == .coach {
+                            await authManager.signUpAsCoach(
+                                email: normalizedEmail,
+                                password: password,
+                                displayName: trimmedDisplayName.isEmpty ? normalizedEmail : trimmedDisplayName
+                            )
+                        } else {
+                            await authManager.signUp(
+                                email: normalizedEmail,
+                                password: password,
+                                displayName: trimmedDisplayName.isEmpty ? nil : trimmedDisplayName
+                            )
+                        }
+                    } else {
+                        print("🔵 Signing in with email: \(normalizedEmail)")
+                        await authManager.signIn(email: normalizedEmail, password: password)
+                    }
                 }
-            } else {
-                print("🔵 Signing in with email: \(normalizedEmail)")
-                await authManager.signIn(email: normalizedEmail, password: password)
+            } catch {
+                // Timeout or other error
+                await MainActor.run {
+                    authManager.errorMessage = "Request timed out. Please check your connection and try again."
+                }
+                return
             }
             
             // Check for cancellation after auth completes
@@ -315,26 +354,31 @@ struct SignInView: View {
                 if let profile = authManager.userProfile {
                     print("📋 Profile role from Firestore: \(profile.userRole.rawValue)")
                 }
-                
+
+                // Clear password immediately for security (both signup and signin)
+                await MainActor.run {
+                    password = ""
+                }
+
                 // Show success animation
                 await MainActor.run {
                     withAnimation(.spring(response: 0.6, dampingFraction: 0.7)) {
                         showSuccessAnimation = true
                     }
                 }
-                
-                HapticManager.shared.authenticationSuccess()
-                
+
+                Haptics.success()
+
                 // Decide which onboarding to show based on the loaded profile role when available
                 if isSignUp {
                     // Prefer the role from the authenticated profile if present; fallback to the selected role
                     let effectiveRole: UserRole = authManager.userProfile?.userRole ?? authManager.userRole
                     // Small delay so the success animation is perceived
-                    try? await Task.sleep(nanoseconds: AnimationTiming.successDelay)
-                    
+                    try? await Task.sleep(nanoseconds: AnimationTiming.successDelayNanoseconds)
+
                     // Check cancellation after sleep
                     guard !Task.isCancelled else { return }
-                    
+
                     await MainActor.run {
                         guard authManager.isSignedIn else { return }
                         switch effectiveRole {
@@ -349,7 +393,7 @@ struct SignInView: View {
                 // Offer biometric enrollment for new sign-ins (not sign-ups)
                 if !isSignUp && biometricManager.isBiometricAvailable && !biometricManager.isBiometricEnabled {
                     // Small delay so user sees success first
-                    try? await Task.sleep(nanoseconds: AnimationTiming.biometricPromptDelay)
+                    try? await Task.sleep(nanoseconds: AnimationTiming.biometricPromptDelayNanoseconds)
                     
                     // Check cancellation after sleep
                     guard !Task.isCancelled else { return }
@@ -372,8 +416,8 @@ struct SignInView: View {
     }
     
     private func performBiometricSignIn() {
-        HapticManager.shared.buttonTap()
-        
+        Haptics.light()
+
         // Cancel any existing biometric task
         biometricTask?.cancel()
         
@@ -389,17 +433,17 @@ struct SignInView: View {
                 guard !Task.isCancelled else { return }
                 
                 if authManager.isSignedIn {
-                    HapticManager.shared.authenticationSuccess()
+                    Haptics.success()
                 }
             }
         }
     }
-    
+
     private func enableBiometric() {
         Task {
             let success = await biometricManager.enableBiometric(email: email, password: password)
             if success {
-                HapticManager.shared.success()
+                Haptics.success()
             }
         }
     }
@@ -549,14 +593,14 @@ private struct AuthenticationFormSection: View {
                 .submitLabel(.go)
                 .disabled(isLoading)
                 
-                Button(action: { 
+                Button(action: {
                     showPassword.toggle()
                     // Announce password visibility change for accessibility
                     UIAccessibility.post(
-                        notification: .announcement, 
+                        notification: .announcement,
                         argument: showPassword ? "Password visible" : "Password hidden"
                     )
-                    HapticManager.shared.selectionChanged()
+                    Haptics.selection()
                 }) {
                     Image(systemName: showPassword ? "eye.slash.fill" : "eye.fill")
                         .foregroundColor(.secondary)
@@ -855,10 +899,10 @@ private struct RoleSelectionSection: View {
                         withAnimation(.easeInOut(duration: 0.2)) {
                             selectedRole = .athlete
                         }
-                        HapticManager.shared.selectionChanged()
+                        Haptics.selection()
                     }
                 )
-                
+
                 RoleOptionButton(
                     role: .coach,
                     title: "Coach",
@@ -870,7 +914,7 @@ private struct RoleSelectionSection: View {
                         withAnimation(.easeInOut(duration: 0.2)) {
                             selectedRole = .coach
                         }
-                        HapticManager.shared.selectionChanged()
+                        Haptics.selection()
                     }
                 )
             }
@@ -1213,11 +1257,13 @@ private struct CoachOnboardingView: View {
                         Image(systemName: "person.fill.checkmark")
                             .font(.largeTitle)
                             .foregroundStyle(.green)
+                            .accessibilityHidden(true)
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Welcome, Coach")
                                 .font(.title)
                                 .fontWeight(.bold)
-                            Text("Here’s how PlayerPath works for coaches")
+                                .accessibilityAddTraits(.isHeader)
+                            Text("Here's how PlayerPath works for coaches")
                                 .font(.subheadline)
                                 .foregroundColor(.secondary)
                         }
@@ -1255,6 +1301,8 @@ private struct CoachOnboardingView: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .padding(.top, 8)
+                    .accessibilityLabel("Continue to Shared Folders")
+                    .accessibilityHint("Complete onboarding and view shared folders from athletes")
                 }
                 .padding()
             }
@@ -1269,9 +1317,9 @@ private struct CoachOnboardingView: View {
     }
 
     private func finish() {
-        HapticManager.shared.success()
+        Haptics.success()
         onFinish()
-        dismiss()
+        // Don't call dismiss() - the binding change in onFinish() automatically dismisses the cover
     }
 
     private func onboardingCard(title: String, message: String, icon: String) -> some View {
@@ -1280,6 +1328,7 @@ private struct CoachOnboardingView: View {
                 Image(systemName: icon)
                     .font(.title2)
                     .foregroundStyle(.blue)
+                    .accessibilityHidden(true)
                 Text(title)
                     .font(.headline)
             }
@@ -1290,6 +1339,9 @@ private struct CoachOnboardingView: View {
         .padding()
         .background(RoundedRectangle(cornerRadius: 12).fill(Color(.secondarySystemBackground)))
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(.separator), lineWidth: 0.5))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(title)
+        .accessibilityHint(message)
     }
 }
 
@@ -1306,11 +1358,13 @@ private struct AthleteOnboardingView: View {
                         Image(systemName: "figure.baseball")
                             .font(.largeTitle)
                             .foregroundStyle(.blue)
+                            .accessibilityHidden(true)
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Welcome, Athlete")
                                 .font(.title)
                                 .fontWeight(.bold)
-                            Text("Let’s get you set up to track your journey")
+                                .accessibilityAddTraits(.isHeader)
+                            Text("Let's get you set up to track your journey")
                                 .font(.subheadline)
                                 .foregroundColor(.secondary)
                         }
@@ -1348,6 +1402,8 @@ private struct AthleteOnboardingView: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .padding(.top, 8)
+                    .accessibilityLabel("Continue to My Library")
+                    .accessibilityHint("Complete onboarding and start recording videos")
                 }
                 .padding()
             }
@@ -1362,9 +1418,9 @@ private struct AthleteOnboardingView: View {
     }
 
     private func finish() {
-        HapticManager.shared.success()
+        Haptics.success()
         onFinish()
-        dismiss()
+        // Don't call dismiss() - the binding change in onFinish() automatically dismisses the cover
     }
 
     private func onboardingCard(title: String, message: String, icon: String) -> some View {
@@ -1373,6 +1429,7 @@ private struct AthleteOnboardingView: View {
                 Image(systemName: icon)
                     .font(.title2)
                     .foregroundStyle(.blue)
+                    .accessibilityHidden(true)
                 Text(title)
                     .font(.headline)
             }
@@ -1383,6 +1440,9 @@ private struct AthleteOnboardingView: View {
         .padding()
         .background(RoundedRectangle(cornerRadius: 12).fill(Color(.secondarySystemBackground)))
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(.separator), lineWidth: 0.5))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(title)
+        .accessibilityHint(message)
     }
 }
 

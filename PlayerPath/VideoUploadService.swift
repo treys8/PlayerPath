@@ -54,23 +54,13 @@ class VideoUploadService: ObservableObject {
     }
     
     func uploadVideo(from localURL: URL, to cloudManager: VideoCloudManager) async -> Result<String, PlayerPathError> {
+        uploadProgress = 0.0
+
         return await errorHandler.withErrorHandling(context: "Video cloud upload", canRetry: true) {
             // TODO: Implement actual upload when VideoCloudManager is functional
-            // For now, simulate upload progress
-            
-            uploadProgress = 0.0
-            
-            for i in 1...10 {
-                try await Task.sleep(nanoseconds: 100_000_000) // 0.1 second
-                uploadProgress = Double(i) / 10.0
-            }
-            
-            // Simulate potential upload errors
-            if Bool.random() {
-                throw PlayerPathError.videoUploadFailed(reason: "Network timeout during upload")
-            }
-            
-            return "https://example.com/uploaded-video.mp4" // Placeholder URL
+            // For now, this is a placeholder that should be replaced with real implementation
+
+            throw PlayerPathError.videoUploadFailed(reason: "Upload functionality not yet implemented. Please check back in a future update.")
         }
     }
     
@@ -115,12 +105,14 @@ class VideoUploadService: ObservableObject {
 // MARK: - Video Transferable for PhotosPicker
 struct VideoTransferable: Transferable {
     let url: URL
-    
+
     static var transferRepresentation: some TransferRepresentation {
         FileRepresentation(contentType: .movie) { video in
             SentTransferredFile(video.url)
         } importing: { received in
-            let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+            guard let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
+                throw PlayerPathError.videoUploadFailed(reason: "Could not access app documents directory")
+            }
             let copy = documentsPath.appendingPathComponent("imported_\(UUID().uuidString).mov")
             try FileManager.default.copyItem(at: received.file, to: copy)
             return Self.init(url: copy)

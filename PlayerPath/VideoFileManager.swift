@@ -84,28 +84,28 @@ class VideoFileManager {
     
     // MARK: - File Operations
     
-    static func createPermanentVideoURL() -> URL {
-        let documentsPath = (try? documentsDirectory()) ?? FileManager.default.temporaryDirectory
+    static func createPermanentVideoURL() throws -> URL {
+        let documentsPath = try documentsDirectory()
         return documentsPath.appendingPathComponent("\(UUID().uuidString).mov")
     }
     
-    static func createThumbnailURL() -> URL {
-        let documentsPath = (try? documentsDirectory()) ?? FileManager.default.temporaryDirectory
+    static func createThumbnailURL() throws -> URL {
+        let documentsPath = try documentsDirectory()
         return documentsPath.appendingPathComponent("thumb_\(UUID().uuidString).jpg")
     }
     
     static func copyToDocuments(from sourceURL: URL) throws -> URL {
         let documents = try documentsDirectory() // Don't fall back to temp!
-        
+
         // If already in Documents, just return it
         if sourceURL.standardizedFileURL.deletingLastPathComponent() == documents.standardizedFileURL {
             return sourceURL
         }
 
-        var destinationURL = createPermanentVideoURL()
+        var destinationURL = try createPermanentVideoURL()
         var attempts = 0
         let maxAttempts = 10
-        
+
         // Try to copy, handling file exists error with retry
         while attempts < maxAttempts {
             do {
@@ -116,14 +116,14 @@ class VideoFileManager {
             } catch let error as NSError where error.domain == NSCocoaErrorDomain && error.code == NSFileWriteFileExistsError {
                 // File exists, try again with new UUID
                 logger.warning("File exists at \(destinationURL.path, privacy: .public), retrying with new name")
-                destinationURL = createPermanentVideoURL()
+                destinationURL = try createPermanentVideoURL()
                 attempts += 1
             } catch {
                 logger.error("Failed to copy video: \(String(describing: error), privacy: .public)")
                 throw FileManagerError.copyFailed(error)
             }
         }
-        
+
         logger.error("Failed to find unique filename after \(maxAttempts) attempts")
         throw FileManagerError.fileAlreadyExists
     }
@@ -256,16 +256,16 @@ class VideoFileManager {
                 logger.info("Thumbnail generation cancelled before saving")
                 return .failure(CancellationError())
             }
-            
+
             // Save to documents directory
-            let thumbnailURL = createThumbnailURL()
+            let thumbnailURL = try createThumbnailURL()
             guard let imageData = image.jpegData(compressionQuality: Constants.thumbnailCompressionQuality) else {
                 throw NSError(domain: "VideoFileManager", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to create JPEG data"])
             }
-            
+
             try imageData.write(to: thumbnailURL)
             logger.info("Successfully saved thumbnail to: \(thumbnailURL.path, privacy: .public)")
-            
+
             return .success(thumbnailURL.path)
             
         } catch is CancellationError {

@@ -123,11 +123,9 @@ struct InvitationRow: View {
                 Spacer()
             }
             
-            if let sentAt = invitation.sentAt {
-                Text("Sent \(sentAt.formatted(.relative(presentation: .named)))")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
+            Text("Sent \(invitation.createdAt.formatted(.relative(presentation: .named)))")
+                .font(.caption)
+                .foregroundColor(.secondary)
             
             HStack(spacing: 12) {
                 Button(action: {
@@ -257,15 +255,15 @@ class CoachInvitationsViewModel: ObservableObject {
     @Published var errorMessage: String?
     
     var pendingInvitations: [CoachInvitation] {
-        invitations.filter { $0.status == "pending" }
+        invitations.filter { $0.status == .pending }
     }
-    
+
     var acceptedInvitations: [CoachInvitation] {
-        invitations.filter { $0.status == "accepted" }
+        invitations.filter { $0.status == .accepted }
     }
-    
+
     var declinedInvitations: [CoachInvitation] {
-        invitations.filter { $0.status == "declined" }
+        invitations.filter { $0.status == .declined }
     }
     
     func loadInvitations(forCoachEmail email: String) async {
@@ -285,56 +283,56 @@ class CoachInvitationsViewModel: ObservableObject {
     func acceptInvitation(_ invitation: CoachInvitation) async {
         do {
             try await SharedFolderManager.shared.acceptInvitation(invitation)
-            
+
             // Update local state
             if let index = invitations.firstIndex(where: { $0.id == invitation.id }) {
                 invitations[index] = CoachInvitation(
                     id: invitation.id,
+                    folderID: invitation.folderID,
+                    folderName: invitation.folderName,
                     athleteID: invitation.athleteID,
                     athleteName: invitation.athleteName,
                     coachEmail: invitation.coachEmail,
-                    folderID: invitation.folderID,
-                    folderName: invitation.folderName,
-                    status: "accepted",
-                    sentAt: invitation.sentAt,
-                    expiresAt: invitation.expiresAt
+                    permissions: invitation.permissions,
+                    createdAt: invitation.createdAt,
+                    status: .accepted
                 )
             }
-            
-            HapticManager.shared.success()
-            
+
+            Haptics.success()
+
         } catch {
             errorMessage = "Failed to accept invitation: \(error.localizedDescription)"
             print("❌ Failed to accept invitation: \(error)")
-            HapticManager.shared.error()
+            Haptics.error()
         }
     }
     
     func declineInvitation(_ invitation: CoachInvitation) async {
         do {
             try await SharedFolderManager.shared.declineInvitation(invitation)
-            
+
             // Update local state
             if let index = invitations.firstIndex(where: { $0.id == invitation.id }) {
                 invitations[index] = CoachInvitation(
                     id: invitation.id,
+                    folderID: invitation.folderID,
+                    folderName: invitation.folderName,
                     athleteID: invitation.athleteID,
                     athleteName: invitation.athleteName,
                     coachEmail: invitation.coachEmail,
-                    folderID: invitation.folderID,
-                    folderName: invitation.folderName,
-                    status: "declined",
-                    sentAt: invitation.sentAt,
-                    expiresAt: invitation.expiresAt
+                    permissions: invitation.permissions,
+                    createdAt: invitation.createdAt,
+                    status: .declined
                 )
             }
-            
-            HapticManager.shared.success()
-            
+
+            Haptics.success()
+
         } catch {
             errorMessage = "Failed to decline invitation: \(error.localizedDescription)"
             print("❌ Failed to decline invitation: \(error)")
-            HapticManager.shared.error()
+            Haptics.error()
         }
     }
 }

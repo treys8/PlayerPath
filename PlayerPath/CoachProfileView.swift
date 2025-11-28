@@ -11,9 +11,10 @@ import StoreKit
 
 struct CoachProfileView: View {
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
-    @StateObject private var sharedFolderManager = SharedFolderManager.shared
+    @ObservedObject private var sharedFolderManager = SharedFolderManager.shared
     @State private var showingSignOutAlert = false
     @State private var showingPaywall = false
+    @State private var isSigningOut = false
     
     var body: some View {
         NavigationStack {
@@ -51,10 +52,17 @@ struct CoachProfileView: View {
                     HStack {
                         Label("Athletes", systemImage: "person.3.fill")
                         Spacer()
+                        Text("\(uniqueAthleteCount)")
+                            .foregroundColor(.secondary)
+                    }
+
+                    HStack {
+                        Label("Shared Folders", systemImage: "folder.fill")
+                        Spacer()
                         Text("\(sharedFolderManager.coachFolders.count)")
                             .foregroundColor(.secondary)
                     }
-                    
+
                     HStack {
                         Label("Total Videos", systemImage: "video.fill")
                         Spacer()
@@ -67,6 +75,7 @@ struct CoachProfileView: View {
                 Section("Account") {
                     // Subscription Management
                     Button(action: {
+                        Haptics.light()
                         showingPaywall = true
                     }) {
                         HStack {
@@ -78,8 +87,9 @@ struct CoachProfileView: View {
                         }
                     }
                     .foregroundColor(.primary)
-                    
+
                     Button(action: {
+                        Haptics.warning()
                         showingSignOutAlert = true
                     }) {
                         Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
@@ -92,30 +102,51 @@ struct CoachProfileView: View {
                     HStack {
                         Text("Version")
                         Spacer()
-                        Text("1.0.0")
+                        Text(appVersion)
                             .foregroundColor(.secondary)
                     }
                 }
             }
             .navigationTitle("Profile")
+            .disabled(isSigningOut)
+            .overlay {
+                if isSigningOut {
+                    LoadingOverlay(message: "Signing out...")
+                }
+            }
             .sheet(isPresented: $showingPaywall) {
                 CoachPaywallView()
             }
             .alert("Sign Out", isPresented: $showingSignOutAlert) {
                 Button("Sign Out", role: .destructive) {
                     Task {
+                        isSigningOut = true
                         await authManager.signOut()
+                        isSigningOut = false
+                        Haptics.success()
                     }
                 }
-                Button("Cancel", role: .cancel) {}
+                Button("Cancel", role: .cancel) {
+                    Haptics.light()
+                }
             } message: {
                 Text("Are you sure you want to sign out?")
             }
         }
     }
-    
+
+    // MARK: - Computed Properties
+
+    private var uniqueAthleteCount: Int {
+        Set(sharedFolderManager.coachFolders.map { $0.ownerAthleteID }).count
+    }
+
     private var totalVideoCount: Int {
         sharedFolderManager.coachFolders.reduce(0) { $0 + ($1.videoCount ?? 0) }
+    }
+
+    private var appVersion: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0"
     }
 }
 
@@ -125,11 +156,12 @@ struct CoachPaywallView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @Environment(\.openURL) private var openURL
-    @StateObject private var storeManager = StoreKitManager.shared
-    
+    @ObservedObject private var storeManager = StoreKitManager.shared
+
     @State private var selectedProduct: Product?
     @State private var showingError = false
     @State private var isPurchasing = false
+    @State private var dismissTask: Task<Void, Never>?
     
     var body: some View {
         NavigationStack {
@@ -210,15 +242,16 @@ struct CoachPaywallView: View {
                     
                     // Purchase Button
                     Button(action: {
+                        Haptics.light()
                         Task {
                             await purchaseSelected()
                         }
                     }) {
                         HStack {
-                            Text("Start 7-Day Free Trial")
+                            Text(purchaseButtonText)
                                 .font(.headline)
                                 .fontWeight(.semibold)
-                            
+
                             if isPurchasing {
                                 ProgressView()
                                     .tint(.white)
@@ -232,8 +265,11 @@ struct CoachPaywallView: View {
                     }
                     .disabled(selectedProduct == nil || isPurchasing)
                     .padding(.horizontal)
+                    .accessibilityLabel(purchaseButtonText)
+                    .accessibilityHint("Purchase the selected subscription plan")
                     
                     Button(action: {
+                        Haptics.light()
                         Task {
                             await restorePurchases()
                         }
@@ -243,14 +279,16 @@ struct CoachPaywallView: View {
                             .foregroundColor(.secondary)
                     }
                     .disabled(isPurchasing)
-                    
+                    .accessibilityLabel("Restore Purchase")
+                    .accessibilityHint("Restore previously purchased subscriptions")
+
                     VStack(spacing: 8) {
-                        if let product = selectedProduct {
-                            Text("Then \(product.displayPrice) per \(product.subscription?.subscriptionPeriod.unit == .month ? "month" : "year")")
+                        if let product = selectedProduct, let subscription = product.subscription {
+                            Text("Then \(product.displayPrice) per \(subscriptionPeriodText(subscription.subscriptionPeriod.unit))")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                         }
-                        
+
                         Text("Cancel anytime • Auto-renews until cancelled")
                             .font(.caption)
                             .foregroundColor(.secondary)
@@ -264,12 +302,15 @@ struct CoachPaywallView: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Close") {
+                        Haptics.light()
                         dismiss()
                     }
                 }
             }
             .alert("Error", isPresented: $showingError, presenting: storeManager.error) { _ in
-                Button("OK", role: .cancel) {}
+                Button("OK", role: .cancel) {
+                    Haptics.light()
+                }
             } message: { error in
                 Text(error.localizedDescription)
             }
@@ -283,7 +324,7 @@ struct CoachPaywallView: View {
                 if storeManager.products.isEmpty {
                     await storeManager.loadProducts()
                 }
-                
+
                 // Select monthly by default
                 if selectedProduct == nil {
                     selectedProduct = storeManager.monthlyProduct
@@ -291,43 +332,100 @@ struct CoachPaywallView: View {
             }
             .onChange(of: storeManager.isPremium) { _, isPremium in
                 if isPremium {
-                    // Update auth manager or user model if needed
-                    // For coaches, we might sync this differently
-                    
-                    // Dismiss after short delay
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-                        dismiss()
+                    Haptics.success()
+
+                    // Dismiss after short delay with proper cancellation
+                    dismissTask?.cancel()
+                    dismissTask = Task {
+                        try? await Task.sleep(nanoseconds: 1_000_000_000)
+                        guard !Task.isCancelled else { return }
+
+                        await MainActor.run {
+                            dismiss()
+                        }
                     }
                 }
+            }
+            .onDisappear {
+                // Cancel dismiss task on view disappear
+                dismissTask?.cancel()
             }
         }
     }
     
     private func purchaseSelected() async {
         guard let product = selectedProduct else { return }
-        
+
         isPurchasing = true
-        
+
         let result = await storeManager.purchase(product)
-        
+
         isPurchasing = false
-        
+
         switch result {
         case .success:
-            // Success is handled in onChange
+            // Success is handled in onChange with haptic feedback
             break
         case .cancelled:
-            // User cancelled, do nothing
+            // User cancelled, do nothing (no haptic)
             break
-        case .pending, .failed, .unknown:
+        case .pending:
+            await MainActor.run {
+                Haptics.light()
+            }
+            showingError = true
+        case .failed, .unknown:
+            await MainActor.run {
+                Haptics.error()
+            }
             showingError = true
         }
     }
-    
+
     private func restorePurchases() async {
         isPurchasing = true
         await storeManager.restorePurchases()
         isPurchasing = false
+
+        await MainActor.run {
+            if storeManager.isPremium {
+                Haptics.success()
+            } else {
+                Haptics.light()
+            }
+        }
+    }
+
+    // MARK: - Helper Methods
+
+    private var purchaseButtonText: String {
+        guard let product = selectedProduct,
+              let subscription = product.subscription,
+              let introOffer = subscription.introductoryOffer else {
+            return "Subscribe Now"
+        }
+
+        // Check if it's a free trial
+        if introOffer.price == 0 {
+            let period = introOffer.period
+            if period.unit == .day {
+                return "Start \(period.value)-Day Free Trial"
+            } else if period.unit == .week {
+                return "Start \(period.value)-Week Free Trial"
+            }
+        }
+
+        return "Subscribe Now"
+    }
+
+    private func subscriptionPeriodText(_ unit: Product.SubscriptionPeriod.Unit) -> String {
+        switch unit {
+        case .day: return "day"
+        case .week: return "week"
+        case .month: return "month"
+        case .year: return "year"
+        @unknown default: return "period"
+        }
     }
 }
 
@@ -335,7 +433,7 @@ struct CoachFeatureRow: View {
     let icon: String
     let title: String
     let description: String
-    
+
     var body: some View {
         HStack(spacing: 16) {
             Image(systemName: icon)
@@ -344,18 +442,22 @@ struct CoachFeatureRow: View {
                 .frame(width: 44, height: 44)
                 .background(Color.green.opacity(0.1))
                 .cornerRadius(10)
-            
+                .accessibilityHidden(true)
+
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
                     .font(.headline)
-                
+
                 Text(description)
                     .font(.subheadline)
                     .foregroundColor(.secondary)
             }
-            
+
             Spacer()
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(title)
+        .accessibilityHint(description)
     }
 }
 

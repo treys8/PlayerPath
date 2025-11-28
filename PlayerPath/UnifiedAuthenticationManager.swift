@@ -121,52 +121,59 @@ final class UnifiedAuthenticationManager: ObservableObject {
         defer { isLoading = false }
         
         do {
-            // First, let's see ALL users in the database for debugging
+            #if DEBUG
+            // Verbose logging for development (can be expensive with many users)
             let allUsersDescriptor = FetchDescriptor<User>()
             let allUsers = try context.fetch(allUsersDescriptor)
             debugLog("loadUser: Total users in database: \(allUsers.count)")
-            for user in allUsers {
-                debugLog("loadUser: Existing user - Email: '\(user.email)', Athletes: \((user.athletes ?? []).count)")
+            if allUsers.count <= 10 {  // Only log details if reasonable number of users
+                for user in allUsers {
+                    debugLog("loadUser: Existing user - Email: '\(user.email)', Athletes: \((user.athletes ?? []).count)")
+                }
             }
-            
+            #endif
+
             // Find user by lowercased email
             let descriptor = FetchDescriptor<User>(
                 predicate: #Predicate<User> { user in
                     user.email == lowercasedEmail
                 }
             )
-            
+
+            if Task.isCancelled { return }
             let users = try context.fetch(descriptor)
             let existingUser = users.first
-            
+
             debugLog("loadUser: Found matching user: \(existingUser?.email ?? "none")")
-            
+
+            if Task.isCancelled { return }
             if let existingUser = existingUser {
                 debugLog("loadUser: Loading existing user with \((existingUser.athletes ?? []).count) athletes")
                 currentUser = existingUser
-                
-                // Refresh the athletes relationship to ensure it's loaded
-                for athlete in (existingUser.athletes ?? []) {
-                    debugLog("loadUser: User has athlete: '\(athlete.name)'")
-                }
             } else {
                 // No user found - check for orphaned athletes
+                if Task.isCancelled { return }
+
                 let orphanDescriptor = FetchDescriptor<Athlete>(
                     predicate: #Predicate<Athlete> { athlete in
                         athlete.user == nil
                     }
                 )
-                
+
                 let orphanedAthletes = try context.fetch(orphanDescriptor)
                 debugLog("loadUser: Found \(orphanedAthletes.count) orphaned athletes")
-                
-                // Also check ALL athletes to see what's in the database
+
+                #if DEBUG
+                // Verbose logging for development (can be expensive with many athletes)
                 let allAthletesDescriptor = FetchDescriptor<Athlete>()
                 let allAthletes = try context.fetch(allAthletesDescriptor)
                 debugLog("loadUser: Total athletes in database: \(allAthletes.count)")
-                for athlete in allAthletes {
-                    debugLog("loadUser: Athlete '\(athlete.name)' has user: \(athlete.user?.email ?? "nil")")
+                if allAthletes.count <= 20 {  // Only log details if reasonable number of athletes
+                    for athlete in allAthletes {
+                        debugLog("loadUser: Athlete '\(athlete.name)' has user: \(athlete.user?.email ?? "nil")")
+                    }
                 }
+                #endif
                 
                 // Create new user with lowercased email
                 let newUser = User(
@@ -175,14 +182,10 @@ final class UnifiedAuthenticationManager: ObservableObject {
                 )
                 
                 // Associate orphaned athletes with the new user
-                // SwiftData handles inverse relationships automatically
+                // SwiftData handles inverse relationships automatically - no need to manually update arrays
                 for athlete in orphanedAthletes {
                     debugLog("loadUser: Associating athlete '\(athlete.name)' with new user")
-                    athlete.user = newUser
-                    if var list = newUser.athletes {
-                        list.append(athlete)
-                        newUser.athletes = list
-                    }
+                    athlete.user = newUser  // SwiftData automatically updates newUser.athletes
                 }
                 
                 context.insert(newUser)
@@ -201,11 +204,17 @@ final class UnifiedAuthenticationManager: ObservableObject {
     
     func signIn(email: String, password: String) async {
         let normalizedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        
+
         guard Validators.isValidEmail(normalizedEmail) else {
             errorMessage = AuthError.invalidEmail.userMessage
             return
         }
+
+        guard !password.isEmpty else {
+            errorMessage = "Password cannot be empty."
+            return
+        }
+
         await performAuthAction {
             let result = try await Auth.auth().signIn(withEmail: normalizedEmail, password: password)
             return result.user

@@ -547,6 +547,7 @@ struct CoachVideoItem: Identifiable {
                 id: "preview",
                 name: "Coach Smith Folder",
                 ownerAthleteID: "athlete123",
+                ownerAthleteName: "Test Athlete",
                 sharedWithCoachIDs: ["coach456"],
                 permissions: [:],
                 createdAt: Date(),

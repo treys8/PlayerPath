@@ -383,6 +383,7 @@ struct InviteCoachView: View {
             id: "preview",
             name: "Coach Smith",
             ownerAthleteID: "athlete123",
+            ownerAthleteName: "Test Athlete",
             sharedWithCoachIDs: [],
             permissions: [:],
             createdAt: Date(),

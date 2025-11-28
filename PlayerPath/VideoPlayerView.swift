@@ -85,6 +85,7 @@ struct VideoPlayerView: View {
                         .padding(.horizontal)
                         .accessibilityLabel("Error: \(errorMessage)")
                     Button("Try Again") {
+                        Haptics.light()
                         Task { await setupPlayer() }
                     }
                     .padding(.horizontal, 20)
@@ -227,21 +228,24 @@ struct VideoPlayerView: View {
     
     private func findVideoURL() -> URL? {
         let primaryURL = URL(fileURLWithPath: clip.filePath)
-        
+
         if FileManager.default.fileExists(atPath: clip.filePath) {
             print("VideoPlayerView: File exists at primary path")
             return primaryURL
         }
-        
+
         print("VideoPlayerView: File not found at primary path, trying alternate")
-        let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        guard let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
+            print("VideoPlayerView: Could not access documents directory")
+            return nil
+        }
         let alternateURL = documentsPath.appendingPathComponent(clip.fileName)
-        
+
         if FileManager.default.fileExists(atPath: alternateURL.path) {
             print("VideoPlayerView: File found at alternate path: \(alternateURL.path)")
             return alternateURL
         }
-        
+
         return nil
     }
     

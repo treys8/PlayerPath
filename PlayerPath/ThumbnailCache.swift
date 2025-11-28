@@ -24,15 +24,16 @@ import UIKit
     private init() {
         cache.countLimit = maxCacheSize
         cache.totalCostLimit = maxMemorySize
-        
+
         // Properly handle memory warnings
-        let cacheRef = cache
         memoryWarningObserver = NotificationCenter.default.addObserver(
             forName: UIApplication.didReceiveMemoryWarningNotification,
             object: nil,
             queue: .main
-        ) { _ in
-            cacheRef.removeAllObjects()
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.cache.removeAllObjects()
+            }
         }
     }
     

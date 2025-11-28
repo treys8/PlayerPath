@@ -390,7 +390,7 @@ struct DetailedStatsSection: View {
     }
 }
 
-struct LabelValueRow: View {
+private struct LabelValueRow: View {
     let label: String
     let value: String
     var body: some View {
@@ -435,14 +435,14 @@ struct PlayResultsSection: View {
     
     private var playResults: [PlayResultData] {
         [
-            PlayResultData(type: "Singles", count: statistics.singles, icon: "1.circle.fill", color: .green),
-            PlayResultData(type: "Doubles", count: statistics.doubles, icon: "2.circle.fill", color: .blue),
-            PlayResultData(type: "Triples", count: statistics.triples, icon: "3.circle.fill", color: .orange),
-            PlayResultData(type: "Home Runs", count: statistics.homeRuns, icon: "4.circle.fill", color: .red),
-            PlayResultData(type: "Runs", count: statistics.runs, icon: "figure.run", color: .purple),
-            PlayResultData(type: "RBIs", count: statistics.rbis, icon: "arrow.up.right.circle.fill", color: .pink),
-            PlayResultData(type: "Walks", count: statistics.walks, icon: "figure.walk", color: .cyan),
-            PlayResultData(type: "Strikeouts", count: statistics.strikeouts, icon: "k.circle.fill", color: .red)
+            PlayResultData(type: "Singles", count: statistics.singles, color: .green),
+            PlayResultData(type: "Doubles", count: statistics.doubles, color: .blue),
+            PlayResultData(type: "Triples", count: statistics.triples, color: .orange),
+            PlayResultData(type: "Home Runs", count: statistics.homeRuns, color: .red),
+            PlayResultData(type: "Runs", count: statistics.runs, color: .purple),
+            PlayResultData(type: "RBIs", count: statistics.rbis, color: .pink),
+            PlayResultData(type: "Walks", count: statistics.walks, color: .cyan),
+            PlayResultData(type: "Strikeouts", count: statistics.strikeouts, color: .red)
         ]
     }
     
@@ -471,7 +471,6 @@ struct PlayResultsSection: View {
 struct PlayResultData {
     let type: String
     let count: Int
-    let icon: String
     let color: Color
 }
 
@@ -515,6 +514,7 @@ struct PlayResultCard: View {
 }
 
 // MARK: - Quick Statistics Entry View
+@MainActor
 struct QuickStatisticsEntryView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
@@ -569,14 +569,6 @@ struct QuickStatisticsEntryView: View {
                             .textFieldStyle(.roundedBorder)
                             .frame(width: 80)
                             .focused($isPlaysFieldFocused)
-                            .toolbar {
-                                ToolbarItemGroup(placement: .keyboard) {
-                                    Spacer()
-                                    Button("Done") { 
-                                        isPlaysFieldFocused = false 
-                                    }
-                                }
-                            }
                     }
                 }
                 
@@ -618,12 +610,19 @@ struct QuickStatisticsEntryView: View {
                         dismiss()
                     }
                 }
-                
+
                 ToolbarItem(placement: .primaryAction) {
                     Button("Save") {
                         savePlayResults()
                     }
                     .disabled(numberOfPlays.isEmpty || isSaving)
+                }
+
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") {
+                        isPlaysFieldFocused = false
+                    }
                 }
             }
         }
@@ -636,13 +635,35 @@ struct QuickStatisticsEntryView: View {
         }
     }
     
+    private func pluralizedPlayType(_ playType: PlayResultType, count: Int) -> String {
+        if count == 1 {
+            return playType.displayName
+        }
+        return playType.displayName
+    }
+
+    private func updateGameStatistics(_ gameStats: GameStatistics, playResultType: PlayResultType, playCount: Int) {
+        if playResultType.isHit {
+            gameStats.hits += playCount
+        }
+        if playResultType.countsAsAtBat {
+            gameStats.atBats += playCount
+        }
+        if playResultType == .strikeout {
+            gameStats.strikeouts += playCount
+        }
+        if playResultType == .walk {
+            gameStats.walks += playCount
+        }
+    }
+
     private func savePlayResults() {
         guard !isSaving else { return }
         isSaving = true
         defer { isSaving = false }
         
-        guard let playCount = Int(numberOfPlays), playCount > 0 else {
-            alertMessage = "Please enter a valid number of plays"
+        guard let playCount = Int(numberOfPlays), playCount > 0, playCount <= 99 else {
+            alertMessage = "Please enter a valid number of plays (1-99)"
             showingAlert = true
             return
         }
@@ -670,43 +691,23 @@ struct QuickStatisticsEntryView: View {
             }
         }
         
-        // Update game statistics if available
-        if let gameStats = game.gameStats {
-            if playResultType.isHit {
-                gameStats.hits += playCount
-            }
-            if playResultType.countsAsAtBat {
-                gameStats.atBats += playCount
-            }
-            if playResultType == .strikeout {
-                gameStats.strikeouts += playCount
-            }
-            if playResultType == .walk {
-                gameStats.walks += playCount
-            }
+        // Update game statistics
+        let gameStats: GameStatistics
+        if let existingStats = game.gameStats {
+            gameStats = existingStats
         } else {
             let newGameStats = GameStatistics()
             game.gameStats = newGameStats
             newGameStats.game = game
             modelContext.insert(newGameStats)
-
-            if playResultType.isHit {
-                newGameStats.hits += playCount
-            }
-            if playResultType.countsAsAtBat {
-                newGameStats.atBats += playCount
-            }
-            if playResultType == .strikeout {
-                newGameStats.strikeouts += playCount
-            }
-            if playResultType == .walk {
-                newGameStats.walks += playCount
-            }
+            gameStats = newGameStats
         }
+
+        updateGameStatistics(gameStats, playResultType: playResultType, playCount: playCount)
         
         do {
             try modelContext.save()
-            alertMessage = "Recorded \(playCount) \(playResultType.rawValue)\(playCount > 1 ? "s" : "") for \(game.opponent)"
+            alertMessage = "Recorded \(playCount) \(pluralizedPlayType(playResultType, count: playCount)) for \(game.opponent)"
             showingAlert = true
         } catch {
             print("Failed to save statistics: \(error)")
@@ -727,7 +728,6 @@ struct GameSelectionForStatsView: View {
     @State private var showingCreateGame = false
     
     private var availableGames: [Game] {
-        // Cache sorted games - don't recompute on every body evaluation
         let games = athlete?.games ?? []
         return games.sorted { lhs, rhs in
             switch (lhs.date, rhs.date) {
@@ -862,9 +862,9 @@ struct GameRowForStats: View {
                         .font(.subheadline)
                         .fontWeight(.semibold)
                         .foregroundColor(.blue)
-                    
+
                     if stats.atBats > 0 {
-                        Text(String(format: "%.3f", Double(stats.hits) / Double(stats.atBats)))
+                        Text(formatBattingAverage(Double(stats.hits) / Double(stats.atBats)))
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
@@ -873,7 +873,7 @@ struct GameRowForStats: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
-                
+
                 Image(systemName: "chevron.right")
                     .font(.caption)
                     .foregroundColor(.gray)

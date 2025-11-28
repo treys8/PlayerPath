@@ -396,6 +396,7 @@ struct VideoRecordingView: View {
             id: "preview",
             name: "Test Folder",
             ownerAthleteID: "athlete123",
+            ownerAthleteName: "Test Athlete",
             sharedWithCoachIDs: ["coach456"],
             permissions: [:],
             createdAt: Date(),

@@ -19,6 +19,7 @@ import SwiftData
  Athlete.practices <-> Practice.athlete
  Athlete.videoClips <-> VideoClip.athlete
  Athlete.statistics <-> AthleteStatistics.athlete (to-one)
+ Athlete.coaches <-> Coach.athlete
 
  Season.games <-> Game.season
  Season.practices <-> Practice.season
@@ -35,7 +36,7 @@ import SwiftData
  Practice.videoClips <-> VideoClip.practice
  Practice.notes <-> PracticeNote.practice
  Practice.season <-> Season.practices
- 
+
  VideoClip.season <-> Season.videoClips
  PlayResult.videoClip <-> VideoClip.playResult (to-one)
 */
@@ -72,19 +73,20 @@ final class Athlete {
     var practices: [Practice]?
     var videoClips: [VideoClip]?
     var statistics: AthleteStatistics?
-    
+    var coaches: [Coach]?
+
     /// The currently active season for this athlete (only one can be active at a time)
     var activeSeason: Season? {
         seasons?.first(where: { $0.isActive })
     }
-    
+
     /// All archived (completed) seasons, sorted by start date descending
     var archivedSeasons: [Season] {
         (seasons ?? [])
             .filter { !$0.isActive }
             .sorted { ($0.startDate ?? Date.distantPast) > ($1.startDate ?? Date.distantPast) }
     }
-    
+
     init(name: String) {
         self.id = UUID()
         self.name = name
@@ -93,6 +95,7 @@ final class Athlete {
         self.games = []
         self.practices = []
         self.videoClips = []
+        self.coaches = []
         self.createdAt = Date()
     }
 }
@@ -621,15 +624,38 @@ final class OnboardingProgress {
     var hasCompletedOnboarding: Bool = false
     var completedAt: Date?
     var createdAt: Date?
-    
+
     init() {
         self.id = UUID()
         self.createdAt = Date()
     }
-    
+
     func markCompleted() {
         self.hasCompletedOnboarding = true
         self.completedAt = Date()
+    }
+}
+
+// MARK: - Coach Model
+@Model
+final class Coach {
+    var id: UUID
+    var name: String = ""
+    var role: String = ""
+    var phone: String = ""
+    var email: String = ""
+    var notes: String = ""
+    var createdAt: Date?
+    var athlete: Athlete?
+
+    init(name: String, role: String = "", phone: String = "", email: String = "", notes: String = "") {
+        self.id = UUID()
+        self.name = name
+        self.role = role
+        self.phone = phone
+        self.email = email
+        self.notes = notes
+        self.createdAt = Date()
     }
 }
 
