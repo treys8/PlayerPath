@@ -13,37 +13,37 @@ import CloudKit
 @Model
 final class UserPreferences {
     // Immutable identity for stability
-    private(set) var id: UUID
+    private(set) var id: UUID = UUID()
 
     // MARK: - Video Recording Preferences
-    var defaultVideoQuality: VideoQuality { didSet { markAsModified() } }
-    var autoUploadToCloud: Bool { didSet { markAsModified() } }
-    var saveToPhotosLibrary: Bool { didSet { markAsModified() } }
-    var enableHapticFeedback: Bool { didSet { markAsModified() } }
+    var defaultVideoQuality: VideoQuality? { didSet { markAsModified() } }
+    var autoUploadToCloud: Bool = true { didSet { markAsModified() } }
+    var saveToPhotosLibrary: Bool = false { didSet { markAsModified() } }
+    var enableHapticFeedback: Bool = true { didSet { markAsModified() } }
 
     // MARK: - UI Preferences
-    var preferredTheme: AppTheme { didSet { markAsModified() } }
-    var showOnboardingTips: Bool { didSet { markAsModified() } }
-    var enableDebugMode: Bool { didSet { markAsModified() } }
+    var preferredTheme: AppTheme? { didSet { markAsModified() } }
+    var showOnboardingTips: Bool = true { didSet { markAsModified() } }
+    var enableDebugMode: Bool = false { didSet { markAsModified() } }
 
     // MARK: - Cloud Sync Preferences
-    var syncHighlightsOnly: Bool { didSet { markAsModified() } }
+    var syncHighlightsOnly: Bool = false { didSet { markAsModified() } }
     // Clamped in MB to a reasonable range (50MB–10GB)
-    var maxVideoFileSize: Int { didSet { maxVideoFileSize = max(50, min(maxVideoFileSize, 10_000)); markAsModified() } }
-    var autoDeleteAfterUpload: Bool { didSet { markAsModified() } }
+    var maxVideoFileSize: Int = 500 { didSet { maxVideoFileSize = max(50, min(maxVideoFileSize, 10_000)); markAsModified() } }
+    var autoDeleteAfterUpload: Bool = false { didSet { markAsModified() } }
 
     // MARK: - Analytics Preferences
-    var enableAnalytics: Bool { didSet { markAsModified() } }
-    var shareUsageData: Bool { didSet { markAsModified() } }
+    var enableAnalytics: Bool = true { didSet { markAsModified() } }
+    var shareUsageData: Bool = false { didSet { markAsModified() } }
     var canSendAnalytics: Bool { enableAnalytics && shareUsageData }
     var canSendNotifications: Bool { enableUploadNotifications }
 
     // MARK: - Notification Preferences
-    var enableUploadNotifications: Bool { didSet { markAsModified() } }
-    var enableGameReminders: Bool { didSet { markAsModified() } }
+    var enableUploadNotifications: Bool = true { didSet { markAsModified() } }
+    var enableGameReminders: Bool = true { didSet { markAsModified() } }
 
     // MARK: - Sync metadata
-    var lastModified: Date
+    var lastModified: Date = Date()
 
     // MARK: - Init
     init() {

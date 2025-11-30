@@ -34,7 +34,6 @@ struct GamesView: View {
     @State private var showingGameCreation = false
     @State private var newGameOpponent = ""
     @State private var newGameDate = Date()
-    @State private var selectedTournament: Tournament?
     @State private var makeGameLive = false
     
     // Computed properties for cleaner code
@@ -192,9 +191,8 @@ struct GamesView: View {
         .sheet(isPresented: $showingGameCreation) {
             GameCreationView(
                 athlete: athlete,
-                availableTournaments: viewModelHolder.viewModel?.availableTournaments ?? [],
-                onSave: { opponent, date, tournament, isLive in
-                    createGame(opponent: opponent, date: date, tournament: tournament, isLive: isLive)
+                onSave: { opponent, date, isLive in
+                    createGame(opponent: opponent, date: date, isLive: isLive)
                 }
             )
         }
@@ -243,8 +241,15 @@ struct GamesView: View {
         refreshGames()
     }
     
-    private func createGame(opponent: String, date: Date, tournament: Tournament?, isLive: Bool) {
-        viewModelHolder.viewModel?.create(opponent: opponent, date: date, tournament: tournament, isLive: isLive)
+    private func createGame(opponent: String, date: Date, isLive: Bool) {
+        viewModelHolder.viewModel?.create(
+            opponent: opponent,
+            date: date,
+            isLive: isLive,
+            onError: { errorMessage in
+                showError(errorMessage)
+            }
+        )
         refreshGames()
     }
     
@@ -283,14 +288,7 @@ struct GameRow: View {
                             .foregroundColor(.secondary)
                     }
                     
-                    if let tournament = game.tournament {
-                        Text("•")
-                            .foregroundColor(.secondary)
-                        Text(tournament.name)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .lineLimit(1)
-                    }
+                    // Removed tournament display here as per instructions
                 }
             }
             
@@ -445,15 +443,7 @@ struct GameDetailView: View {
                         .fontWeight(.bold)
                     }
                     
-                    if let tournament = game.tournament {
-                        HStack {
-                            Text("Tournament")
-                                .fontWeight(.semibold)
-                            Spacer()
-                            Text(tournament.name)
-                                .foregroundColor(.secondary)
-                        }
-                    }
+                    // Removed tournament display here as per instructions
                 }
                 .padding(.vertical, 5)
             }
@@ -670,23 +660,16 @@ struct AddGameView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     let athlete: Athlete?
-    let tournament: Tournament?
-    
+
     @State private var opponent = ""
     @State private var date = Date()
-    @State private var selectedTournament: Tournament?
     @State private var startAsLive = false
     @State private var showingError = false
     @State private var errorMessage = ""
-    
-    init(athlete: Athlete? = nil, tournament: Tournament? = nil) {
+    @State private var isSeasonError = false
+
+    init(athlete: Athlete? = nil) {
         self.athlete = athlete
-        self.tournament = tournament
-        self._selectedTournament = State(initialValue: tournament)
-    }
-    
-    var availableTournaments: [Tournament] {
-        (athlete?.tournaments ?? []).filter { $0.isActive }
     }
     
     private var isValidOpponent: Bool {
@@ -716,19 +699,7 @@ struct AddGameView: View {
                     DatePicker("Date & Time", selection: $date)
                 }
                 
-                if tournament == nil && !availableTournaments.isEmpty {
-                    Section("Tournament") {
-                        Picker("Select Tournament", selection: $selectedTournament) {
-                            Text("Standalone Game")
-                                .tag(nil as Tournament?)
-                            
-                            ForEach(availableTournaments) { tournament in
-                                Text(tournament.name)
-                                    .tag(tournament as Tournament?)
-                            }
-                        }
-                    }
-                }
+                // Removed tournament selection section
                 
                 Section {
                     Toggle("Start as Live Game", isOn: $startAsLive)
@@ -750,119 +721,65 @@ struct AddGameView: View {
                     .disabled(!isValidOpponent)
                 }
             }
-            .onAppear {
-                if selectedTournament == nil {
-                    selectedTournament = availableTournaments.first(where: { $0.isActive })
-                }
-            }
+            // Removed onAppear that sets selectedTournament
         }
-        .alert("Error", isPresented: $showingError) {
-            Button("OK") { }
+        .alert(isSeasonError ? "No Active Season" : "Error", isPresented: $showingError) {
+            if isSeasonError {
+                Button("Create Season") {
+                    dismiss()
+                    // Post notification to open seasons view
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        NotificationCenter.default.post(name: Notification.Name.presentSeasons, object: athlete)
+                    }
+                }
+                Button("Cancel", role: .cancel) { }
+            } else {
+                Button("OK") { }
+            }
         } message: {
             Text(errorMessage)
         }
     }
-    
+
     private func saveGame() {
         guard let athlete = athlete else {
             errorMessage = "No athlete selected"
             showingError = true
             return
         }
-        
+
         guard isValidOpponent else {
             errorMessage = "Please enter a valid opponent name (2-50 characters)"
             showingError = true
             return
         }
-        
+
         let trimmedOpponent = opponent.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Use GameService for consistent game creation
+        let gameService = GameService(modelContext: modelContext)
+        // Removed tournament parameter from call
         
-        // Check for existing game with same opponent and date
-        let existingGame = (athlete.games ?? []).first { game in
-            if let gameDate = game.date {
-                return game.opponent.lowercased() == trimmedOpponent.lowercased() && 
-                       Calendar.current.isDate(gameDate, inSameDayAs: date)
+        Task {
+            let result = await gameService.createGame(
+                for: athlete,
+                opponent: trimmedOpponent,
+                date: date,
+                isLive: startAsLive
+            )
+
+            await MainActor.run {
+                switch result {
+                case .success:
+                    // Dismiss on successful creation
+                    dismiss()
+                case .failure(let error):
+                    // Show error alert
+                    errorMessage = error.localizedDescription
+                    isSeasonError = (error == .noActiveSeason)
+                    showingError = true
+                }
             }
-            return false
-        }
-        
-        if existingGame != nil {
-            errorMessage = "A game against \(trimmedOpponent) already exists on this date"
-            showingError = true
-            return
-        }
-        
-        print("Creating new game via AddGameView: \(trimmedOpponent) for athlete: \(athlete.name)")
-        
-        // If starting as live, end any other live games
-        if startAsLive {
-            (athlete.games ?? []).forEach { $0.isLive = false }
-        }
-        
-        let game = Game(date: date, opponent: trimmedOpponent)
-        game.isLive = startAsLive
-        game.athlete = athlete
-        
-        // Create and link game statistics
-        let gameStats = GameStatistics()
-        game.gameStats = gameStats
-        gameStats.game = game
-        modelContext.insert(gameStats)
-        
-        // Link to active season
-        if let activeSeason = athlete.activeSeason {
-            game.season = activeSeason
-            var seasonGames = activeSeason.games ?? []
-            seasonGames.append(game)
-            activeSeason.games = seasonGames
-            print("✅ Linked game to active season: \(activeSeason.displayName)")
-        } else {
-            print("⚠️ Warning: No active season found for game")
-        }
-        
-        // Set tournament relationship
-        if let tournament = selectedTournament ?? tournament {
-            game.tournament = tournament
-            var tournamentGames = tournament.games ?? []
-            tournamentGames.append(game)
-            tournament.games = tournamentGames
-            // Also link tournament to active season if not already linked
-            if let activeSeason = athlete.activeSeason, tournament.season == nil {
-                tournament.season = activeSeason
-                var seasonTournaments = activeSeason.tournaments ?? []
-                seasonTournaments.append(tournament)
-                activeSeason.tournaments = seasonTournaments
-                print("✅ Linked tournament to active season: \(activeSeason.displayName)")
-            }
-        } else if let activeTournament = (athlete.tournaments ?? []).first(where: { $0.isActive }) {
-            game.tournament = activeTournament
-            var activeTournamentGames = activeTournament.games ?? []
-            activeTournamentGames.append(game)
-            activeTournament.games = activeTournamentGames
-            // Also link tournament to active season if not already linked
-            if let activeSeason = athlete.activeSeason, activeTournament.season == nil {
-                activeTournament.season = activeSeason
-                var seasonTournaments = activeSeason.tournaments ?? []
-                seasonTournaments.append(activeTournament)
-                activeSeason.tournaments = seasonTournaments
-                print("✅ Linked tournament to active season: \(activeSeason.displayName)")
-            }
-        }
-        
-        var athleteGames = athlete.games ?? []
-        athleteGames.append(game)
-        athlete.games = athleteGames
-        modelContext.insert(game)
-        
-        do {
-            try modelContext.save()
-            print("Successfully saved game via AddGameView: \(trimmedOpponent)")
-            dismiss()
-        } catch {
-            print("Failed to save game: \(error)")
-            errorMessage = "Failed to save game: \(error.localizedDescription)"
-            showingError = true
         }
     }
 }
@@ -1085,12 +1002,10 @@ struct VideoClipRow: View {
 struct GameCreationView: View {
     @Environment(\.dismiss) private var dismiss
     let athlete: Athlete?
-    let availableTournaments: [Tournament]
-    let onSave: (String, Date, Tournament?, Bool) -> Void
-    
+    let onSave: (String, Date, Bool) -> Void
+
     @State private var opponent = ""
     @State private var date = Date()
-    @State private var selectedTournament: Tournament?
     @State private var makeGameLive = false
     @State private var showingValidationError = false
     @State private var validationMessage = ""
@@ -1126,22 +1041,7 @@ struct GameCreationView: View {
                     
                     DatePicker("Date & Time", selection: $date)
                 }
-                
-                if !availableTournaments.isEmpty {
-                    Section("Tournament (Optional)") {
-                        Picker("Select Tournament", selection: $selectedTournament) {
-                            Text("Standalone Game")
-                                .tag(nil as Tournament?)
-                            
-                            ForEach(availableTournaments) { tournament in
-                                Text(tournament.name)
-                                    .tag(tournament as Tournament?)
-                            }
-                        }
-                        .pickerStyle(.menu)
-                    }
-                }
-                
+
                 Section("Game Options") {
                     Toggle("Start as Live Game", isOn: $makeGameLive)
                     
@@ -1183,11 +1083,7 @@ struct GameCreationView: View {
                     .disabled(!canSave)
                 }
             }
-            .onAppear {
-                if selectedTournament == nil {
-                    selectedTournament = availableTournaments.first(where: { $0.isActive })
-                }
-            }
+            // Removed onAppear that sets selectedTournament
         }
         .alert("Validation Error", isPresented: $showingValidationError) {
             Button("OK") { }
@@ -1220,7 +1116,7 @@ struct GameCreationView: View {
             return
         }
         
-        onSave(opponent.trimmingCharacters(in: .whitespacesAndNewlines), date, selectedTournament, makeGameLive)
+        onSave(opponent.trimmingCharacters(in: .whitespacesAndNewlines), date, makeGameLive)
         dismiss()
     }
 }
@@ -1528,3 +1424,19 @@ struct PreviewStatRow: View {
     }
 }
 
+extension GameService {
+    func createGame(
+        for athlete: Athlete,
+        opponent: String,
+        date: Date,
+        isLive: Bool
+    ) async -> Result<Game, GameService.GameCreationError> {
+        return await createGame(
+            for: athlete,
+            opponent: opponent,
+            date: date,
+            tournament: nil,
+            isLive: isLive
+        )
+    }
+}

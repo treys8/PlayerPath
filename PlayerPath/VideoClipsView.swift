@@ -18,8 +18,11 @@ struct VideoClipsView: View {
     @State private var showingPlayer = false
     @State private var searchText = ""
     @State private var liveGameContext: Game?
-    
+    @State private var refreshTrigger = UUID()
+
     private var filteredVideos: [VideoClip] {
+        // Force refresh by accessing refreshTrigger
+        _ = refreshTrigger
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !query.isEmpty else {
             return (athlete.videoClips ?? []).sorted { (lhs: VideoClip, rhs: VideoClip) in
@@ -117,8 +120,11 @@ struct VideoClipsView: View {
             NotificationCenter.default.post(name: .videosManageOwnControls, object: false)
             liveGameContext = nil
         }
+        .onChange(of: athlete.videoClips?.count) { _, _ in
+            refreshTrigger = UUID()
+        }
     }
-    
+
     private var emptyStateView: some View {
         EmptyStateView(
             systemImage: "video.slash",

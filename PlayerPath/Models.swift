@@ -44,36 +44,35 @@ import SwiftData
 // MARK: - User and Athlete Models
 @Model
 final class User {
-    var id: UUID
+    var id: UUID = UUID()
     var username: String = ""
     var email: String = ""
     var profileImagePath: String?
     var createdAt: Date?
     var isPremium: Bool = false
-    var athletes: [Athlete]?
-    
+    @Relationship(inverse: \Athlete.user) var athletes: [Athlete]?
+
     init(username: String, email: String) {
         self.id = UUID()
         self.username = username
         self.email = email
-        self.athletes = []
         self.createdAt = Date()
     }
 }
 
 @Model
 final class Athlete {
-    var id: UUID
+    var id: UUID = UUID()
     var name: String = ""
     var createdAt: Date?
     var user: User?
-    var seasons: [Season]?
+    @Relationship(inverse: \Season.athlete) var seasons: [Season]?
     var tournaments: [Tournament]?
-    var games: [Game]?
-    var practices: [Practice]?
-    var videoClips: [VideoClip]?
-    var statistics: AthleteStatistics?
-    var coaches: [Coach]?
+    @Relationship(inverse: \Game.athlete) var games: [Game]?
+    @Relationship(inverse: \Practice.athlete) var practices: [Practice]?
+    @Relationship(inverse: \VideoClip.athlete) var videoClips: [VideoClip]?
+    @Relationship(inverse: \AthleteStatistics.athlete) var statistics: AthleteStatistics?
+    @Relationship(inverse: \Coach.athlete) var coaches: [Coach]?
 
     /// The currently active season for this athlete (only one can be active at a time)
     var activeSeason: Season? {
@@ -90,12 +89,6 @@ final class Athlete {
     init(name: String) {
         self.id = UUID()
         self.name = name
-        self.seasons = []
-        self.tournaments = []
-        self.games = []
-        self.practices = []
-        self.videoClips = []
-        self.coaches = []
         self.createdAt = Date()
     }
 }
@@ -103,20 +96,20 @@ final class Athlete {
 // MARK: - Season Model
 @Model
 final class Season {
-    var id: UUID
+    var id: UUID = UUID()
     var name: String = ""
     var startDate: Date?
     var endDate: Date?
     var isActive: Bool = false
     var createdAt: Date?
     var athlete: Athlete?
-    var games: [Game]?
-    var practices: [Practice]?
-    var videoClips: [VideoClip]?
-    var tournaments: [Tournament]?
-    
+    @Relationship(inverse: \Game.season) var games: [Game]?
+    @Relationship(inverse: \Practice.season) var practices: [Practice]?
+    @Relationship(inverse: \VideoClip.season) var videoClips: [VideoClip]?
+    @Relationship(inverse: \Tournament.season) var tournaments: [Tournament]?
+
     /// Season-specific statistics (calculated when season is archived)
-    var seasonStatistics: AthleteStatistics?
+    @Relationship(inverse: \AthleteStatistics.season) var seasonStatistics: AthleteStatistics?
     
     /// Notes about the season (goals, achievements, etc.)
     var notes: String = ""
@@ -192,10 +185,6 @@ final class Season {
         self.startDate = startDate
         self.sport = sport
         self.isActive = false
-        self.games = []
-        self.practices = []
-        self.videoClips = []
-        self.tournaments = []
         self.createdAt = Date()
     }
     
@@ -240,7 +229,7 @@ final class Season {
 // MARK: - Tournament and Game Models
 @Model
 final class Tournament {
-    var id: UUID
+    var id: UUID = UUID()
     var name: String = ""
     var date: Date?
     var location: String = ""
@@ -248,7 +237,7 @@ final class Tournament {
     var isActive: Bool = false
     var createdAt: Date?
     @Relationship(inverse: \Athlete.tournaments) var athletes: [Athlete]?
-    var games: [Game]?
+    @Relationship(inverse: \Game.tournament) var games: [Game]?
     var season: Season?
     
     // Backward-compatibility shim for older code paths
@@ -269,15 +258,13 @@ final class Tournament {
         self.date = date
         self.location = location
         self.info = info
-        self.athletes = []
-        self.games = []
         self.createdAt = Date()
     }
 }
 
 @Model
 final class Game {
-    var id: UUID
+    var id: UUID = UUID()
     var date: Date?
     var opponent: String = ""
     var isLive: Bool = false
@@ -286,14 +273,13 @@ final class Game {
     var tournament: Tournament?
     var athlete: Athlete?
     var season: Season?
-    var videoClips: [VideoClip]?
-    var gameStats: GameStatistics?
-    
+    @Relationship(inverse: \VideoClip.game) var videoClips: [VideoClip]?
+    @Relationship(inverse: \GameStatistics.game) var gameStats: GameStatistics?
+
     init(date: Date, opponent: String) {
         self.id = UUID()
         self.date = date
         self.opponent = opponent
-        self.videoClips = []
         self.createdAt = Date()
     }
 }
@@ -301,30 +287,28 @@ final class Game {
 // MARK: - Practice Models
 @Model
 final class Practice {
-    var id: UUID
+    var id: UUID = UUID()
     var date: Date?
     var createdAt: Date?
     var athlete: Athlete?
     var season: Season?
-    var videoClips: [VideoClip]?
-    var notes: [PracticeNote]?
-    
+    @Relationship(inverse: \VideoClip.practice) var videoClips: [VideoClip]?
+    @Relationship(inverse: \PracticeNote.practice) var notes: [PracticeNote]?
+
     init(date: Date) {
         self.id = UUID()
         self.date = date
-        self.videoClips = []
-        self.notes = []
         self.createdAt = Date()
     }
 }
 
 @Model
 final class PracticeNote {
-    var id: UUID
+    var id: UUID = UUID()
     var content: String = ""
     var createdAt: Date?
     var practice: Practice?
-    
+
     init(content: String) {
         self.id = UUID()
         self.content = content
@@ -335,7 +319,7 @@ final class PracticeNote {
 // MARK: - Video and Play Result Models
 @Model
 final class VideoClip {
-    var id: UUID
+    var id: UUID = UUID()
     var fileName: String = ""
     var filePath: String = ""
     var thumbnailPath: String?     // Path to thumbnail image
@@ -343,7 +327,7 @@ final class VideoClip {
     var isUploaded: Bool = false           // Sync status
     var lastSyncDate: Date?        // Last successful sync
     var createdAt: Date?
-    var playResult: PlayResult?
+    @Relationship(inverse: \PlayResult.videoClip) var playResult: PlayResult?
     var isHighlight: Bool = false
     var game: Game?
     var practice: Practice?
@@ -432,11 +416,11 @@ enum PlayResultType: Int, CaseIterable, Codable {
 
 @Model
 final class PlayResult {
-    var id: UUID
+    var id: UUID = UUID()
     var type: PlayResultType = PlayResultType.single
     var createdAt: Date?
     var videoClip: VideoClip?
-    
+
     init(type: PlayResultType) {
         self.id = UUID()
         self.type = type
@@ -447,8 +431,9 @@ final class PlayResult {
 // MARK: - Statistics Models
 @Model
 final class AthleteStatistics {
-    var id: UUID
+    var id: UUID = UUID()
     var athlete: Athlete?
+    var season: Season?  // Inverse relationship for Season.seasonStatistics
     var totalGames: Int = 0
     var atBats: Int = 0
     var hits: Int = 0
@@ -545,7 +530,7 @@ final class AthleteStatistics {
 
 @Model
 final class GameStatistics {
-    var id: UUID
+    var id: UUID = UUID()
     var game: Game?
     var atBats: Int = 0
     var hits: Int = 0
@@ -620,7 +605,7 @@ final class GameStatistics {
 // MARK: - Onboarding Models
 @Model
 final class OnboardingProgress {
-    var id: UUID
+    var id: UUID = UUID()
     var hasCompletedOnboarding: Bool = false
     var completedAt: Date?
     var createdAt: Date?
@@ -639,7 +624,7 @@ final class OnboardingProgress {
 // MARK: - Coach Model
 @Model
 final class Coach {
-    var id: UUID
+    var id: UUID = UUID()
     var name: String = ""
     var role: String = ""
     var phone: String = ""

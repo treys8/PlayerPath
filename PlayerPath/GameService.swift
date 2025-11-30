@@ -2,10 +2,11 @@ import Foundation
 import SwiftUI
 import SwiftData
 
-actor GameService {
-    
+@MainActor
+class GameService {
+
     private let modelContext: ModelContext
-    
+
     init(modelContext: ModelContext) {
         self.modelContext = modelContext
     }
@@ -36,7 +37,7 @@ actor GameService {
                     try fileManager.removeItem(at: thumbnailURL)
                     print("Deleted thumbnail file at \(thumbnailURL.path)")
                     // Remove from cache (ThumbnailCache is an actor)
-                    await ThumbnailCache.shared.removeThumbnail(at: thumbnailPath)
+                    ThumbnailCache.shared.removeThumbnail(at: thumbnailPath)
                 } catch {
                     print("Error deleting thumbnail file at \(thumbnailURL.path): \(error.localizedDescription)")
                 }
@@ -101,84 +102,85 @@ actor GameService {
     }
     
     // MARK: - Game Creation
-    
-    func createGame(for athlete: Athlete, opponent: String, date: Date, tournament: Tournament?, isLive: Bool) async {
-        #if DEBUG
-        print("🏗️ GameService: Creating game")
-        print("   - Athlete: \(athlete.name)")
-        print("   - Opponent: \(opponent)")
-        print("   - Date: \(date)")
-        print("   - Tournament: \(tournament?.name ?? "none")")
-        print("   - Is Live: \(isLive)")
-        #endif
-        
-        // Check for duplicate game with same opponent and same day
+
+    enum GameCreationError: Error {
+        case noActiveSeason
+        case duplicateGame
+        case saveFailed
+
+        var localizedDescription: String {
+            switch self {
+            case .noActiveSeason:
+                return "No active season found. Please create a season before adding games."
+            case .duplicateGame:
+                return "A game against this opponent already exists on the same day."
+            case .saveFailed:
+                return "Failed to save game. Please try again."
+            }
+        }
+    }
+
+    func createGame(for athlete: Athlete, opponent: String, date: Date, tournament: Tournament?, isLive: Bool) async -> Result<Game, GameCreationError> {
+        // Validate athlete has an active season
+        guard athlete.activeSeason != nil else {
+            return .failure(.noActiveSeason)
+        }
+
+        // Check for duplicate game with same opponent on same day
         let calendar = Calendar.current
-        for existingGame in athlete.games ?? [] {
-            if existingGame.opponent == opponent,
-               let gameDate = existingGame.date,
-               calendar.isDate(gameDate, inSameDayAs: date) {
-                print("❌ GameService: Duplicate game found for opponent \(opponent) on the same day.")
-                return
-            }
+        let isDuplicate = (athlete.games ?? []).contains { existingGame in
+            existingGame.opponent == opponent &&
+            existingGame.date.map { calendar.isDate($0, inSameDayAs: date) } == true
         }
-        
+
+        guard !isDuplicate else {
+            return .failure(.duplicateGame)
+        }
+
+        // End all other live games if this game is going live
         if isLive {
-            // End all other live games for athlete
-            for game in athlete.games ?? [] where game.isLive {
-                game.isLive = false
-            }
+            (athlete.games ?? []).filter { $0.isLive }.forEach { $0.isLive = false }
         }
-        
-        // Create new game
+
+        // Create game with relationships
         let game = Game(date: date, opponent: opponent)
         game.isLive = isLive
-        
-        // Create and link GameStatistics
-        let stats = GameStatistics()
-        game.gameStats = stats
-        stats.game = game
-        modelContext.insert(stats)
-        
-        // Insert game into context
-        modelContext.insert(game)
-        
-        // Assign tournament
-        if let providedTournament = tournament {
-            game.tournament = providedTournament
-            var tournamentGames = providedTournament.games ?? []
-            tournamentGames.append(game)
-            providedTournament.games = tournamentGames
-        } else {
-            if let activeTournament = (athlete.tournaments ?? []).first(where: { $0.isActive }) {
-                game.tournament = activeTournament
-                var tournamentGames = activeTournament.games ?? []
-                tournamentGames.append(game)
-                activeTournament.games = tournamentGames
-            }
-        }
-        
-        // Append game to athlete.games
-        var athleteGames = athlete.games ?? []
-        athleteGames.append(game)
-        athlete.games = athleteGames
         game.athlete = athlete
-        
+        game.season = athlete.activeSeason
+
+        if let tournament = tournament {
+            game.tournament = tournament
+        }
+
+        // Create and link statistics
+        let stats = GameStatistics()
+        stats.game = game
+        game.gameStats = stats
+
+        modelContext.insert(game)
+        modelContext.insert(stats)
+
+        // Save and notify
         do {
             try modelContext.save()
+
             #if DEBUG
-            print("✅ GameService: Created new game successfully")
-            print("   - Game ID: \(game.id)")
-            print("   - Athlete games count: \(athlete.games?.count ?? 0)")
+            print("✅ Game created: \(opponent) (live: \(isLive), season: \(game.season?.name ?? "none"))")
             #endif
+
+            NotificationCenter.default.post(name: Notification.Name("GameCreated"), object: game)
+
+            if game.isLive {
+                NotificationCenter.default.post(name: Notification.Name("GameBecameLive"), object: game)
+            }
+
+            return .success(game)
         } catch {
             #if DEBUG
-            print("❌ GameService: Error saving context after creating game: \(error.localizedDescription)")
+            print("❌ Game save failed: \(error.localizedDescription)")
             #endif
+            return .failure(.saveFailed)
         }
-        
-        // ✅ Link game to active season (must be done after save, on MainActor)
-        await SeasonManager.linkGameToActiveSeason(game, for: athlete, in: modelContext)
     }
     
     // MARK: - Game Lifecycle Management
@@ -200,6 +202,7 @@ actor GameService {
         do {
             try modelContext.save()
             print("Started game for athlete \(athlete.name).")
+            NotificationCenter.default.post(name: Notification.Name("GameBecameLive"), object: game)
         } catch {
             print("Error saving context after starting game: \(error.localizedDescription)")
         }

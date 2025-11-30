@@ -126,22 +126,10 @@ final class ClipPersistenceService {
             context.insert(result)
             // Mark as highlight for hit outcomes
             videoClip.isHighlight = playResultType.isHighlight
-            
-            // Update athlete's overall statistics
-            if athlete.statistics == nil {
-                let stats = AthleteStatistics()
-                stats.athlete = athlete
-                athlete.statistics = stats
-                context.insert(stats)
-                print("ClipPersistenceService: Created new Statistics for athlete \(athlete.name)")
-            }
-            if let statistics = athlete.statistics {
-                statistics.addPlayResult(playResultType)
-                print("ClipPersistenceService: Updated athlete statistics for play result: \(playResultType.rawValue)")
-            }
-            
-            // Update game statistics if this is linked to a game
+
             if let game = game {
+                // For game videos: Only update game statistics
+                // Athlete stats will be aggregated when the game ends
                 if game.gameStats == nil {
                     let gameStats = GameStatistics()
                     gameStats.game = game
@@ -153,6 +141,19 @@ final class ClipPersistenceService {
                     gameStats.addPlayResult(playResultType)
                     print("ClipPersistenceService: Updated game statistics for play result: \(playResultType.rawValue)")
                 }
+            } else {
+                // For practice/standalone videos: Update athlete statistics directly
+                if athlete.statistics == nil {
+                    let stats = AthleteStatistics()
+                    stats.athlete = athlete
+                    athlete.statistics = stats
+                    context.insert(stats)
+                    print("ClipPersistenceService: Created new Statistics for athlete \(athlete.name)")
+                }
+                if let statistics = athlete.statistics {
+                    statistics.addPlayResult(playResultType)
+                    print("ClipPersistenceService: Updated athlete statistics for play result: \(playResultType.rawValue)")
+                }
             }
         }
 
@@ -161,12 +162,17 @@ final class ClipPersistenceService {
         if let game = game { videoClip.game = game }
         if let practice = practice { videoClip.practice = practice }
 
-        // ✅ Link video to active season
-        SeasonManager.linkVideoToActiveSeason(videoClip, for: athlete, in: context)
+        // Link video to active season BEFORE save
+        if let activeSeason = athlete.activeSeason {
+            videoClip.season = activeSeason
+        }
 
         // Insert and save
         context.insert(videoClip)
         try context.save()
+
+        // Notify dashboard to refresh
+        NotificationCenter.default.post(name: Notification.Name("VideoRecorded"), object: videoClip)
 
         return videoClip
     }

@@ -24,6 +24,7 @@ struct HighlightsView: View {
     enum SortOrder: String, CaseIterable, Identifiable { case newest, oldest; var id: String { rawValue } }
     @State private var sortOrder: SortOrder = .newest
     @State private var selection = Set<VideoClip.ID>()
+    @State private var hasMigratedHighlights = false
     
     var highlights: [VideoClip] {
         guard let athlete = athlete, let videoClips = athlete.videoClips else { return [] }
@@ -82,8 +83,41 @@ struct HighlightsView: View {
         } message: {
             Text("Are you sure you want to delete this highlight?")
         }
+        .onAppear {
+            migrateHitVideosToHighlights()
+        }
     }
-    
+
+    private func migrateHitVideosToHighlights() {
+        // Only run migration once per view lifecycle
+        guard !hasMigratedHighlights, let athlete = athlete else { return }
+        hasMigratedHighlights = true
+
+        // Find all videos with hit play results that aren't marked as highlights
+        guard let allVideos = athlete.videoClips else { return }
+
+        var migrationCount = 0
+        for video in allVideos {
+            // Check if video has a hit play result but isn't marked as highlight
+            if let playResult = video.playResult,
+               playResult.type.isHighlight,
+               !video.isHighlight {
+                video.isHighlight = true
+                migrationCount += 1
+            }
+        }
+
+        // Save if we migrated any videos
+        if migrationCount > 0 {
+            do {
+                try modelContext.save()
+                print("HighlightsView: Migrated \(migrationCount) hit videos to highlights")
+            } catch {
+                print("HighlightsView: Failed to migrate highlights: \(error)")
+            }
+        }
+    }
+
     @ViewBuilder
     private var contentView: some View {
         if highlights.isEmpty {

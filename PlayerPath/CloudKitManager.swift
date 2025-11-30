@@ -678,11 +678,11 @@ extension CloudKitManager {
             }
             
             // Update record with current preferences
-            record["defaultVideoQuality"] = preferences.defaultVideoQuality.rawValue
+            record["defaultVideoQuality"] = preferences.defaultVideoQuality?.rawValue ?? VideoQuality.high.rawValue
             record["autoUploadToCloud"] = preferences.autoUploadToCloud
             record["saveToPhotosLibrary"] = preferences.saveToPhotosLibrary
             record["enableHapticFeedback"] = preferences.enableHapticFeedback
-            record["preferredTheme"] = preferences.preferredTheme.rawValue
+            record["preferredTheme"] = preferences.preferredTheme?.rawValue ?? AppTheme.system.rawValue
             record["showOnboardingTips"] = preferences.showOnboardingTips
             record["enableDebugMode"] = preferences.enableDebugMode
             record["syncHighlightsOnly"] = preferences.syncHighlightsOnly

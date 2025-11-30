@@ -109,13 +109,12 @@ struct EmptyStateView: View {
 // MARK: - Main Tab Enum
 enum MainTab: Int {
     case home = 0
-    case tournaments = 1
-    case games = 2
-    case stats = 3
-    case practice = 4
-    case videos = 5
-    case highlights = 6
-    case profile = 7
+    case games = 1
+    case stats = 2
+    case practice = 3
+    case videos = 4
+    case highlights = 5
+    case profile = 6
 }
 
 // Convenience helper to switch tabs via NotificationCenter
@@ -2594,11 +2593,7 @@ struct MainTabView: View {
         do { try modelContext.save() } catch { print("Failed to toggle game live: \(error)") }
     }
 
-    private func toggleTournamentActive(_ tournament: Tournament) {
-        Haptics.light()
-        tournament.isActive.toggle()
-        do { try modelContext.save() } catch { print("Failed to toggle tournament active: \(error)") }
-    }
+    // Removed toggleTournamentActive(_:) as tournaments are removed
     
     // MARK: - Tab Navigation Helpers
     
@@ -2717,7 +2712,6 @@ struct MainTabView: View {
     private var tabViewContent: some View {
         TabView(selection: $selectedTab) {
             homeTab
-            tournamentsTab
             gamesTab
             statsTab
             practiceTab
@@ -2729,7 +2723,11 @@ struct MainTabView: View {
     
     private var homeTab: some View {
         NavigationStack {
-            DashboardView(user: user, athlete: selectedAthlete, authManager: authManager)
+            DashboardView(
+                user: user,
+                athlete: selectedAthlete,
+                authManager: authManager
+            )
         }
         .tabItem {
             Label("Home", systemImage: "house.fill")
@@ -2737,18 +2735,6 @@ struct MainTabView: View {
         .tag(MainTab.home.rawValue)
         .accessibilityLabel("Home tab")
         .accessibilityHint("View your dashboard and quick actions")
-    }
-    
-    private var tournamentsTab: some View {
-        NavigationStack {
-            TournamentsView(athlete: selectedAthlete)
-        }
-        .tabItem {
-            Label("Tournaments", systemImage: "trophy.fill")
-        }
-        .tag(MainTab.tournaments.rawValue)
-        .accessibilityLabel("Tournaments tab")
-        .accessibilityHint("View and manage tournaments")
     }
     
     private var gamesTab: some View {
@@ -2863,137 +2849,164 @@ struct DashboardView: View {
     let athlete: Athlete
     let authManager: ComprehensiveAuthManager
     @Environment(\.modelContext) private var modelContext
-    
-    @State private var showingRecorderDirectly = false
-    @State private var isRefreshing = false
-    @State private var refreshTask: Task<Void, Never>?
-    
-    var liveGames: [Game] {
-        (athlete.games ?? [])
-            .filter { $0.isLive }
-            .sorted { lhs, rhs in
-                guard let lhsDate = lhs.date, let rhsDate = rhs.date else {
-                    return lhs.date != nil
-                }
-                return lhsDate > rhsDate
-            }
+
+    @State private var viewModel: GamesDashboardViewModel?
+    @State private var pulseAnimation = false
+
+    // Dynamic live games query configured via init to safely capture athleteID
+    private let athleteID: UUID
+    @Query private var liveGames: [Game]
+
+    init(user: User, athlete: Athlete, authManager: ComprehensiveAuthManager) {
+        self.user = user
+        self.athlete = athlete
+        self.authManager = authManager
+        self._viewModel = State(initialValue: nil)
+        self._pulseAnimation = State(initialValue: false)
+        self.athleteID = athlete.id
+        // Configure the query with a predicate bound to a stable value (athleteID)
+        self._liveGames = Query(filter: #Predicate<Game> { game in
+            game.isLive == true && game.athlete?.id == athleteID
+        }, sort: [SortDescriptor(\Game.date, order: .reverse)])
     }
-    
-    var liveTournaments: [Tournament] {
-        (athlete.tournaments ?? [])
-            .filter { $0.isActive }
-            .sorted { lhs, rhs in
-                let lhsDate = lhs.startDate ?? .distantPast
-                let rhsDate = rhs.startDate ?? .distantPast
-                return lhsDate > rhsDate
-            }
+
+    private var hasLiveGame: Bool {
+        !liveGames.isEmpty
     }
-    
-    var recentGames: [Game] {
-        let now = Date()
-        return (athlete.games ?? [])
-            .filter { game in
-                guard let date = game.date else { return false }
-                return date <= now
-            }
-            .sorted { lhs, rhs in
-                guard let lhsDate = lhs.date, let rhsDate = rhs.date else {
-                    return lhs.date != nil
-                }
-                return lhsDate > rhsDate
-            }
-            .prefix(3)
-            .map { $0 }
+
+    private var firstLiveGame: Game? {
+        liveGames.first
     }
-    
-    var upcomingGames: [Game] {
-        let now = Date()
-        return (athlete.games ?? [])
-            .filter { game in
-                guard let date = game.date else { return false }
-                return date > now
+
+    // MARK: - Body
+
+    var body: some View {
+        Group {
+            if let viewModel = viewModel {
+                dashboardContent(viewModel: viewModel)
+            } else {
+                ProgressView("Loading...")
             }
-            .sorted { lhs, rhs in
-                guard let lhsDate = lhs.date, let rhsDate = rhs.date else {
-                    return lhs.date != nil
-                }
-                return lhsDate < rhsDate
+        }
+        .task {
+            // Initialize ViewModel with environment modelContext once
+            if viewModel == nil {
+                viewModel = GamesDashboardViewModel(
+                    athlete: athlete,
+                    modelContext: modelContext
+                )
             }
-            .prefix(3)
-            .map { $0 }
+            pulseAnimation = true
+            #if DEBUG
+            print("🔍 DashboardView liveGames count: \(liveGames.count) for athlete: \(athlete.name)")
+            #endif
+        }
     }
-    
-    var recentVideos: [VideoClip] {
-        (athlete.videoClips ?? [])
-            .sorted { lhs, rhs in
-                guard let lhsCreated = lhs.createdAt, let rhsCreated = rhs.createdAt else {
-                    return lhs.createdAt != nil
-                }
-                return lhsCreated > rhsCreated
-            }
-            .prefix(3)
-            .map { $0 }
-    }
-    
-    // MARK: - Dashboard actions
+
+    // MARK: - Content
+
     private func toggleGameLive(_ game: Game) {
         Haptics.light()
         game.isLive.toggle()
-        do { try modelContext.save() } catch { print("Failed to toggle game live: \(error)") }
+        do {
+            try modelContext.save()
+            NotificationCenter.default.post(name: Notification.Name("GameBecameLive"), object: game)
+        } catch {
+            print("❌ Failed to toggle game live: \(error)")
+        }
     }
 
-    private func toggleTournamentActive(_ tournament: Tournament) {
+    private func endLiveGame(_ game: Game) {
         Haptics.light()
-        tournament.isActive.toggle()
-        do { try modelContext.save() } catch { print("Failed to toggle tournament active: \(error)") }
+        game.isLive = false
+        game.isComplete = true
+
+        if let athlete = game.athlete {
+            // Create athlete statistics if they don't exist
+            if athlete.statistics == nil {
+                let newStats = AthleteStatistics()
+                newStats.athlete = athlete
+                athlete.statistics = newStats
+                modelContext.insert(newStats)
+            }
+
+            // Aggregate game statistics into athlete's overall statistics
+            if let athleteStats = athlete.statistics, let gameStats = game.gameStats {
+                athleteStats.atBats += gameStats.atBats
+                athleteStats.hits += gameStats.hits
+                athleteStats.singles += gameStats.singles
+                athleteStats.doubles += gameStats.doubles
+                athleteStats.triples += gameStats.triples
+                athleteStats.homeRuns += gameStats.homeRuns
+                athleteStats.runs += gameStats.runs
+                athleteStats.rbis += gameStats.rbis
+                athleteStats.strikeouts += gameStats.strikeouts
+                athleteStats.walks += gameStats.walks
+                athleteStats.updatedAt = Date()
+            }
+
+            // Increment total games
+            if let athleteStats = athlete.statistics {
+                athleteStats.addCompletedGame()
+            }
+        }
+
+        do {
+            try modelContext.save()
+            print("✅ Game ended successfully")
+        } catch {
+            print("❌ Error ending game: \(error)")
+        }
     }
-    
-    var body: some View {
+
+
+    @ViewBuilder
+    private func dashboardContent(viewModel: GamesDashboardViewModel) -> some View {
         ScrollView {
             LazyVStack(spacing: 24) {
-                
-                // Live Section (Games and Tournaments)
-                if !liveGames.isEmpty || !liveTournaments.isEmpty {
+
+                // LIVE GAMES SECTION - Shows when games are live
+                if !liveGames.isEmpty {
                     VStack(spacing: 12) {
+                        // Header with pulsing indicator
                         HStack {
-                            Text("Live")
-                                .font(.headline)
-                                .fontWeight(.semibold)
+                            HStack(spacing: 6) {
+                                Circle()
+                                    .fill(Color.red)
+                                    .frame(width: 8, height: 8)
+                                    .opacity(pulseAnimation ? 0.4 : 1.0)
+                                    .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: pulseAnimation)
+
+                                Text("Live Now")
+                                    .font(.headline)
+                                    .fontWeight(.semibold)
+                            }
+
                             Spacer()
+
+                            Text("\(liveGames.count)")
+                                .font(.caption)
+                                .fontWeight(.medium)
+                                .foregroundColor(.secondary)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(Color(.systemGray5))
+                                .clipShape(Capsule())
                         }
-                        
-                        // Display as vertical list for compactness
-                        VStack(spacing: 8) {
-                            ForEach(liveGames, id: \.id) { game in
-                                NavigationLink {
-                                    GameDetailView(game: game)
-                                } label: {
-                                    DashboardGameCard(
-                                        game: game,
-                                        onOpen: { /* Navigation handled by NavigationLink automatically */ },
-                                        onToggleLive: { toggleGameLive(game) }
-                                    )
+
+                        // Live Games
+                        ForEach(liveGames) { game in
+                            NavigationLink {
+                                GameDetailView(game: game)
+                            } label: {
+                                LiveGameCard(game: game) {
+                                    endLiveGame(game)
                                 }
-                                .buttonStyle(.plain)
                             }
-                            
-                            ForEach(liveTournaments, id: \.id) { tournament in
-                                NavigationLink {
-                                    TournamentDetailView(tournament: tournament)
-                                } label: {
-                                    DashboardTournamentCard(
-                                        tournament: tournament,
-                                        onOpen: { /* Navigation handled by NavigationLink automatically */ },
-                                        onToggleActive: { toggleTournamentActive(tournament) }
-                                    )
-                                }
-                                .buttonStyle(.plain)
-                            }
+                            .buttonStyle(.plain)
                         }
                     }
                     .padding(.horizontal)
-                    .transition(.move(edge: .top).combined(with: .opacity))
-                    .animation(.easeInOut(duration: 0.25), value: liveGames.count + liveTournaments.count)
                 }
                 
                 // Quick Actions Section
@@ -3018,32 +3031,25 @@ struct DashboardView: View {
                                 print("🎮 New Game quick action - switching to Games tab")
                                 #endif
                                 
-                                // Check if there's a live tournament to associate with the new game
-                                let tournamentContext = liveTournaments.first
-                                
+                                // Removed tournament context usage, always nil
                                 // Ask the Games module to present its Add Game UI
-                                // Pass the live tournament as context if available
-                                NotificationCenter.default.post(name: Notification.Name.presentAddGame, object: tournamentContext)
+                                NotificationCenter.default.post(name: Notification.Name.presentAddGame, object: nil)
                                 #if DEBUG
-                                if let tournament = tournamentContext {
-                                    print("📣 Posted .presentAddGame notification with live tournament: \(tournament.name)")
-                                } else {
-                                    print("📣 Posted .presentAddGame notification with no tournament context")
-                                }
+                                print("📣 Posted .presentAddGame notification with no tournament context")
                                 #endif
                                 Haptics.light()
                             }
                         }
                         QuickActionButton(
-                            icon: liveGames.isEmpty ? "video.badge.plus" : "record.circle",
-                            title: liveGames.isEmpty ? "Quick Record" : "Record Live",
+                            icon: hasLiveGame ? "record.circle" : "video.badge.plus",
+                            title: hasLiveGame ? "Record Live" : "Quick Record",
                             color: .red
                         ) {
                             Task { @MainActor in
                                 #if DEBUG
-                                print("🎬 Quick Record tapped - Live games: \(liveGames.count)")
+                                print("🎬 Quick Record tapped - Has live game: \(hasLiveGame)")
                                 #endif
-                                
+
                                 // Check permissions first (before any UI changes)
                                 let status = await RecorderPermissions.ensureCapturePermissions(context: "VideoRecorder")
                                 guard status == .granted else {
@@ -3052,9 +3058,9 @@ struct DashboardView: View {
                                     #endif
                                     return
                                 }
-                                
+
                                 // Set the live game context for recording
-                                let gameContext: Game? = liveGames.first
+                                let gameContext: Game? = firstLiveGame
                                 #if DEBUG
                                 if let game = gameContext {
                                     print("🎮 Recording for live game: \(game.opponent)")
@@ -3093,19 +3099,11 @@ struct DashboardView: View {
                     }
 
                     LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-                        DashboardFeatureCard(
-                            icon: "trophy.fill",
-                            title: "Tournaments",
-                            subtitle: "\((athlete.tournaments ?? []).count) Total",
-                            color: .orange
-                        ) {
-                            postSwitchTab(.tournaments)
-                        }
-
+                        // Removed Tournaments card
                         DashboardFeatureCard(
                             icon: "sportscourt.fill",
                             title: "Games",
-                            subtitle: "\((athlete.games ?? []).count) Total",
+                            subtitle: "\(viewModel.totalGames) Total",
                             color: .blue
                         ) {
                             postSwitchTab(.games)
@@ -3123,7 +3121,7 @@ struct DashboardView: View {
                         DashboardFeatureCard(
                             icon: "video.fill",
                             title: "Video Clips",
-                            subtitle: "\((athlete.videoClips ?? []).count) Recorded",
+                            subtitle: "\(viewModel.totalVideos) Recorded",
                             color: .purple
                         ) {
                             postSwitchTab(.videos)
@@ -3132,7 +3130,7 @@ struct DashboardView: View {
                         DashboardFeatureCard(
                             icon: "star.fill",
                             title: "Highlights",
-                            subtitle: "\((athlete.videoClips ?? []).filter { $0.isHighlight }.count) Highlights",
+                            subtitle: "\(viewModel.totalHighlights) Highlights",
                             color: .yellow
                         ) {
                             // For now, route to Highlights tab
@@ -3210,7 +3208,7 @@ struct DashboardView: View {
                 .padding(.horizontal)
                 
                 // Recent Videos Section
-                if !recentVideos.isEmpty {
+                if !viewModel.recentVideos.isEmpty {
                     VStack(spacing: 16) {
                         HStack {
                             Text("Recent Videos")
@@ -3227,11 +3225,10 @@ struct DashboardView: View {
                             .simultaneousGesture(TapGesture().onEnded { Haptics.light() })
                         }
                         .padding(.horizontal)
-                        
+
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 12) {
-                                let videos = Array(recentVideos)
-                                ForEach(videos, id: \.id) { video in
+                                ForEach(viewModel.recentVideos, id: \.id) { video in
                                     DashboardVideoCard(video: video)
                                 }
                             }
@@ -3239,19 +3236,21 @@ struct DashboardView: View {
                         }
                     }
                     .transition(.move(edge: .top).combined(with: .opacity))
-                    .animation(.easeInOut(duration: 0.25), value: recentVideos.count)
+                    .animation(.easeInOut(duration: 0.25), value: viewModel.recentVideos.count)
                 }
             }
             .padding(.vertical)
         }
         .refreshable {
-            refreshTask?.cancel()
-            refreshTask = Task {
-                await refreshDashboard()
-            }
+            await viewModel.forceRefresh()
+        }
+        .onAppear {
+            // Start auto-refresh timer when view appears
+            viewModel.startAutoRefresh()
         }
         .onDisappear {
-            refreshTask?.cancel()
+            // Stop auto-refresh timer when view disappears
+            viewModel.stopAutoRefresh()
         }
         .scrollBounceBehavior(.basedOnSize)
         .navigationTitle(athlete.name)
@@ -3299,33 +3298,6 @@ struct DashboardView: View {
         }
     }
     
-    // MARK: - Refresh Handler
-    
-    func refreshDashboard() async {
-        guard !isRefreshing else { return }
-        isRefreshing = true
-        
-        defer { isRefreshing = false }
-        
-        // Check for cancellation
-        guard !Task.isCancelled else { return }
-        
-        // Haptic feedback for refresh
-        await MainActor.run {
-            Haptics.light()
-        }
-        
-        // Simulate data refresh with a small delay for better UX
-        try? await Task.sleep(for: .milliseconds(500))
-        
-        // Check cancellation after sleep
-        guard !Task.isCancelled else { return }
-        
-        // SwiftData will automatically refresh on next query
-        await MainActor.run {
-            Haptics.light()
-        }
-    }
 }
 
 // MARK: - Dashboard Helper Views
@@ -3401,7 +3373,7 @@ struct DashboardGameCard: View {
                 }
                 
                 // Opponent name
-                Text("vs \(game.opponent)")
+                Text("vs \(game.opponent.isEmpty ? "Unknown" : game.opponent)")
                     .font(.subheadline)
                     .fontWeight(.semibold)
                     .foregroundColor(.primary)
@@ -3462,107 +3434,7 @@ struct DashboardGameCard: View {
     private func toggleHapticThen(_ action: (() -> Void)?) { Haptics.light(); action?() }
 }
 
-struct DashboardTournamentCard: View {
-    let tournament: Tournament
-    var onOpen: (() -> Void)? = nil
-    var onToggleActive: (() -> Void)? = nil
-
-    var body: some View {
-        HStack(spacing: 12) {
-            // Tournament icon indicator
-            Image(systemName: "trophy.fill")
-                .font(.title3)
-                .foregroundColor(tournament.isActive ? .orange : .orange.opacity(0.6))
-                .frame(width: 32, height: 32)
-                .background(
-                    Circle()
-                        .fill(tournament.isActive ? Color.orange.opacity(0.15) : Color.orange.opacity(0.08))
-                )
-            
-            // Content
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 6) {
-                    if tournament.isActive {
-                        HStack(spacing: 3) {
-                            Circle()
-                                .fill(Color.orange)
-                                .frame(width: 6, height: 6)
-                                .symbolEffect(.pulse, options: .repeating)
-                            Text("LIVE")
-                                .font(.caption2)
-                                .fontWeight(.bold)
-                                .foregroundColor(.orange)
-                                .textCase(.uppercase)
-                        }
-                    }
-                    
-                    Text("TOURNAMENT")
-                        .font(.caption2)
-                        .fontWeight(.semibold)
-                        .foregroundColor(.secondary)
-                        .textCase(.uppercase)
-                }
-                
-                // Tournament name
-                Text(tournament.name)
-                    .font(.subheadline)
-                    .fontWeight(.semibold)
-                    .foregroundColor(.primary)
-                    .lineLimit(1)
-                
-                // Date information
-                if let start = tournament.startDate {
-                    HStack(spacing: 4) {
-                        Image(systemName: "calendar")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                        Text(start, format: .dateTime.month(.abbreviated).day())
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                } else {
-                    Text("Date TBD")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-            }
-            
-            Spacer()
-            
-            Image(systemName: "chevron.right")
-                .font(.caption)
-                .foregroundColor(.secondary)
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity)
-        .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(tournament.isActive ? Color.orange.opacity(0.05) : Color(.systemBackground))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(tournament.isActive ? Color.orange.opacity(0.3) : Color(.systemGray5), lineWidth: tournament.isActive ? 1.5 : 1)
-        )
-        .contextMenu {
-            Button {
-                Haptics.light()
-                onOpen?()
-            } label: {
-                Label("Open", systemImage: "arrow.right.circle")
-                    .accessibilityLabel("Open tournament")
-            }
-            Button {
-                Haptics.light()
-                onToggleActive?()
-            } label: {
-                Label(tournament.isActive ? "End" : "Mark Active", systemImage: tournament.isActive ? "stop.circle" : "record.circle")
-                    .accessibilityLabel("Toggle tournament active status")
-            }
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(tournament.isActive ? "Live tournament: \(tournament.name)" : "Tournament: \(tournament.name)")
-    }
-}
+// Removed DashboardTournamentCard struct entirely
 
 // MARK: - DashboardVideoThumbnail (new reusable thumbnail view)
 struct DashboardVideoThumbnail: View {
@@ -4059,7 +3931,7 @@ struct PendingInvitationCard: View {
 // Complete flow for "Record Live" when a game is live:
 // 1. Dashboard detects live games and shows "Record Live" quick action
 // 2. User taps "Record Live" → Dashboard gets first live game
-// 3. Dashboard checks permissions, switches to Videos tab, and posts .presentVideoRecorder with game object
+// 3. Dashboard checks permissions, switches to Videos tab, and posts .presentVideoRecorder with live game context
 // 4. VideoClipsView receives notification and opens VideoRecorderView_Refactored with live game context
 // 5. VideoRecorderView_Refactored shows "LIVE GAME vs [opponent]" header and auto-opens camera
 // 6. User records video → PlayResultOverlayView links video to the live game
@@ -4100,5 +3972,100 @@ struct PendingInvitationCard: View {
     }
     
     return PreviewWrapper()
+}
+
+// MARK: - Live Game Card
+
+struct LiveGameCard: View {
+    let game: Game
+    var onEnd: (() -> Void)?
+
+    @State private var isPulsing = false
+
+    var body: some View {
+        HStack(spacing: 12) {
+            // Pulsing indicator
+            ZStack {
+                Circle()
+                    .fill(Color.red.opacity(0.2))
+                    .frame(width: 44, height: 44)
+
+                Circle()
+                    .fill(Color.red.opacity(isPulsing ? 0.1 : 0.3))
+                    .frame(width: 36, height: 36)
+                    .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: isPulsing)
+
+                Image(systemName: "baseball.fill")
+                    .font(.system(size: 18))
+                    .foregroundColor(.red)
+            }
+            .onAppear { isPulsing = true }
+
+            // Game info
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    Text("LIVE")
+                        .font(.caption2)
+                        .fontWeight(.black)
+                        .foregroundColor(.red)
+
+                    Text("•")
+                        .foregroundColor(.secondary)
+
+                    Text("GAME")
+                        .font(.caption2)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.secondary)
+                }
+
+                Text("vs \(game.opponent.isEmpty ? "Unknown" : game.opponent)")
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+
+                // Show stats if available
+                if let stats = game.gameStats, stats.atBats > 0 {
+                    Text("\(stats.hits)-\(stats.atBats)")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                } else if let date = game.date {
+                    Text(date, format: .dateTime.hour().minute())
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+
+            Spacer()
+
+            // End button
+            Button {
+                onEnd?()
+            } label: {
+                Text("End")
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(Color.red)
+                    .clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
+
+            Image(systemName: "chevron.right")
+                .font(.caption)
+                .foregroundColor(.secondary)
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color.red.opacity(0.08))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color.red.opacity(0.3), lineWidth: 1.5)
+        )
+    }
 }
 

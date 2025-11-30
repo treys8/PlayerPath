@@ -139,7 +139,15 @@ struct ProfileView: View {
             } label: {
                 Label("Manage Athletes", systemImage: "person.2.fill")
             }
-            
+
+            if let selectedAthlete = selectedAthlete {
+                NavigationLink {
+                    SeasonManagementView(athlete: selectedAthlete)
+                } label: {
+                    Label("Manage Seasons", systemImage: "calendar")
+                }
+            }
+
             ForEach(sortedAthletes) { athlete in
                 AthleteProfileRow(
                     athlete: athlete,
