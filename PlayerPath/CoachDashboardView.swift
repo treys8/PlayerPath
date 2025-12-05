@@ -116,7 +116,7 @@ struct CoachAthletesListView: View {
                             Section {
                                 PendingInvitationsBanner(showingInvitations: $showingInvitations)
 
-                                ForEach(filteredGroups, id: \.athleteID) { group in
+                                ForEach(filteredGroups, id: \CoachAthleteGroup.athleteID) { group in
                                     AthleteSection(
                                         athleteID: group.athleteID,
                                         athleteName: group.athleteName,
@@ -178,11 +178,11 @@ struct CoachAthletesListView: View {
     }
 
     // Group folders by athlete
-    private var groupedFolders: [AthleteGroup] {
+    private var groupedFolders: [CoachAthleteGroup] {
         let grouped = Dictionary(grouping: sharedFolderManager.coachFolders) { $0.ownerAthleteID }
 
         return grouped.map { athleteID, folders in
-            AthleteGroup(
+            CoachAthleteGroup(
                 athleteID: athleteID,
                 athleteName: folders.first?.ownerAthleteName ?? "Unknown Athlete",
                 folders: folders
@@ -191,7 +191,7 @@ struct CoachAthletesListView: View {
     }
 
     // Filter groups by athlete name or folder name matching searchText
-    private var filteredGroups: [AthleteGroup] {
+    private var filteredGroups: [CoachAthleteGroup] {
         guard !searchText.isEmpty else {
             return groupedFolders
         }
@@ -212,7 +212,7 @@ struct CoachAthletesListView: View {
 
 // MARK: - Supporting Types
 
-struct AthleteGroup {
+struct CoachAthleteGroup {
     let athleteID: String
     let athleteName: String
     let folders: [SharedFolder]
@@ -272,7 +272,7 @@ struct AthleteSection: View {
                 VStack(spacing: 8) {
                     ForEach(folders) { folder in
                         NavigationLink(destination: CoachFolderDetailView(folder: folder)) {
-                            FolderRowView(folder: folder)
+                            CoachFolderRowView(folder: folder)
                         }
                         .buttonStyle(.plain)
                     }
@@ -285,7 +285,7 @@ struct AthleteSection: View {
 
 // MARK: - Folder Row Component
 
-struct FolderRowView: View {
+struct CoachFolderRowView: View {
     let folder: SharedFolder
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
 
@@ -489,3 +489,4 @@ class CoachInvitationManager: ObservableObject {
         .environmentObject(ComprehensiveAuthManager())
         .environmentObject(SharedFolderManager.shared)
 }
+

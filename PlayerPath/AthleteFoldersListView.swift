@@ -158,9 +158,14 @@ struct AthleteFoldersListView: View {
                     errors.append("Folder '\(folder.name)' has no ID")
                     continue
                 }
-                
+
+                guard let athleteID = authManager.userID else {
+                    errors.append("Not authenticated to delete folder '\(folder.name)'")
+                    continue
+                }
+
                 do {
-                    try await folderManager.deleteFolder(folderID: folderID)
+                    try await folderManager.deleteFolder(folderID: folderID, athleteID: athleteID)
                 } catch {
                     errors.append("Failed to delete '\(folder.name)': \(error.localizedDescription)")
                 }
@@ -240,16 +245,39 @@ struct FolderRow: View {
 /// Detail view for athlete to manage their folder and see videos
 struct AthleteFolderDetailView: View {
     let folder: SharedFolder
-    
+
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
+    @State private var resolvedAthleteID: String?
+
+    var body: some View {
+        Group {
+            if let athleteID = resolvedAthleteID {
+                AthleteFolderDetailContent(folder: folder, athleteID: athleteID)
+            } else {
+                ProgressView("Loading...")
+            }
+        }
+        .task {
+            // Resolve athlete ID from the environment once the view appears
+            if resolvedAthleteID == nil {
+                resolvedAthleteID = authManager.userID
+            }
+        }
+    }
+}
+
+private struct AthleteFolderDetailContent: View {
+    let folder: SharedFolder
+    let athleteID: String
+
     @StateObject private var viewModel: CoachFolderViewModel
     @ObservedObject private var folderManager = SharedFolderManager.shared
-    
+
     enum SheetType: Identifiable {
         case inviteCoach
         case manageCoaches
         case uploadVideo
-        
+
         var id: String {
             switch self {
             case .inviteCoach: return "inviteCoach"
@@ -258,20 +286,21 @@ struct AthleteFolderDetailView: View {
             }
         }
     }
-    
+
     @State private var activeSheet: SheetType?
     @State private var selectedTab: CoachFolderDetailView.FolderTab = .all
-    
-    init(folder: SharedFolder) {
+
+    init(folder: SharedFolder, athleteID: String) {
         self.folder = folder
+        self.athleteID = athleteID
         _viewModel = StateObject(wrappedValue: CoachFolderViewModel(folder: folder))
     }
-    
+
     var body: some View {
         VStack(spacing: 0) {
             // Header with folder info
             folderHeader
-            
+
             // Tab picker for Games / Practices / All
             Picker("View", selection: $selectedTab) {
                 ForEach(CoachFolderDetailView.FolderTab.allCases, id: \.self) { tab in
@@ -281,7 +310,7 @@ struct AthleteFolderDetailView: View {
             }
             .pickerStyle(.segmented)
             .padding()
-            
+
             // Content organized by category
             Group {
                 switch selectedTab {
@@ -304,13 +333,13 @@ struct AthleteFolderDetailView: View {
                     } label: {
                         Label("Upload Video", systemImage: "plus.circle")
                     }
-                    
+
                     Button {
                         activeSheet = .inviteCoach
                     } label: {
                         Label("Invite Coach", systemImage: "person.badge.plus")
                     }
-                    
+
                     Button {
                         activeSheet = .manageCoaches
                     } label: {
@@ -338,29 +367,29 @@ struct AthleteFolderDetailView: View {
             await viewModel.loadVideos()
         }
     }
-    
+
     private var folderHeader: some View {
         VStack(spacing: 12) {
             HStack(spacing: 16) {
                 Image(systemName: "folder.fill")
                     .font(.title)
                     .foregroundColor(.blue)
-                
+
                 VStack(alignment: .leading, spacing: 4) {
                     Text(folder.name)
                         .font(.headline)
-                    
+
                     HStack(spacing: 12) {
                         Label("\(viewModel.videos.count) videos", systemImage: "video.fill")
                             .font(.caption)
                             .foregroundColor(.secondary)
-                        
+
                         Label("\(folder.sharedWithCoachIDs.count) coaches", systemImage: "person.fill")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
                 }
-                
+
                 Spacer()
             }
             .padding()
@@ -537,3 +566,4 @@ struct PermissionBadge: View {
             .environmentObject(ComprehensiveAuthManager())
     }
 }
+

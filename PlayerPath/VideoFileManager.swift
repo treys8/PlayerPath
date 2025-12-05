@@ -70,7 +70,7 @@ class VideoFileManager {
         static let minFileSizeBytes: Int64 = 1024 // 1KB
         static let maxDurationSeconds: TimeInterval = 600 // 10 minutes
         static let minDurationSeconds: TimeInterval = 1 // 1 second
-        static let thumbnailSize = CGSize(width: 160, height: 120)
+        static let thumbnailSize = CGSize(width: 160, height: 90) // 16:9 landscape aspect ratio
         static let thumbnailCompressionQuality: CGFloat = 0.8
     }
     

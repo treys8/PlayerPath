@@ -8,12 +8,15 @@
 import AVFoundation
 import UIKit
 import Combine
+import os
 
 @MainActor
 class VideoRecordingPermissionManager: ObservableObject {
     @Published var isRequestingPermissions = false
     @Published var permissionAlertMessage = ""
     @Published var showingPermissionAlert = false
+
+    private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.playerpath", category: "PermissionManager")
     
     enum PermissionState {
         case authorized
@@ -43,16 +46,16 @@ class VideoRecordingPermissionManager: ObservableObject {
     }
     
     func checkPermissions() async -> Result<Void, PermissionError> {
-        print("PermissionManager: Checking camera and microphone permissions...")
-        
+        Self.logger.info("Checking camera and microphone permissions")
+
         let cameraStatus = AVCaptureDevice.authorizationStatus(for: .video)
         let microphoneStatus = AVCaptureDevice.authorizationStatus(for: .audio)
-        
-        print("PermissionManager: Camera status: \(cameraStatus.rawValue), Microphone status: \(microphoneStatus.rawValue)")
-        
+
+        Self.logger.debug("Camera status: \(cameraStatus.rawValue), Microphone status: \(microphoneStatus.rawValue)")
+
         // Check if both permissions are already granted
         if cameraStatus == .authorized && microphoneStatus == .authorized {
-            print("PermissionManager: Both permissions authorized")
+            Self.logger.info("Both permissions authorized")
             return .success(())
         }
         
@@ -74,35 +77,22 @@ class VideoRecordingPermissionManager: ObservableObject {
     }
     
     private func requestPermissions() async -> Result<Void, PermissionError> {
-        print("PermissionManager: Requesting permissions...")
-        
+        Self.logger.info("Requesting permissions")
+
         isRequestingPermissions = true
         defer { isRequestingPermissions = false }
-        
-        var cameraGranted = false
-        var microphoneGranted = false
-        
-        // Request camera permission first
-        let cameraStatus = AVCaptureDevice.authorizationStatus(for: .video)
-        if cameraStatus == .notDetermined {
-            print("PermissionManager: Requesting camera permission...")
-            cameraGranted = await AVCaptureDevice.requestAccess(for: .video)
-            print("PermissionManager: Camera permission result: \(cameraGranted)")
-        } else {
-            cameraGranted = (cameraStatus == .authorized)
-        }
-        
+
+        // Request camera permission
+        Self.logger.debug("Requesting camera permission")
+        let cameraGranted = await AVCaptureDevice.requestAccess(for: .video)
+        Self.logger.debug("Camera permission result: \(cameraGranted)")
+
         // Request microphone permission
-        let microphoneStatus = AVCaptureDevice.authorizationStatus(for: .audio)
-        if microphoneStatus == .notDetermined {
-            print("PermissionManager: Requesting microphone permission...")
-            microphoneGranted = await AVCaptureDevice.requestAccess(for: .audio)
-            print("PermissionManager: Microphone permission result: \(microphoneGranted)")
-        } else {
-            microphoneGranted = (microphoneStatus == .authorized)
-        }
-        
-        print("PermissionManager: Final results - Camera: \(cameraGranted), Microphone: \(microphoneGranted)")
+        Self.logger.debug("Requesting microphone permission")
+        let microphoneGranted = await AVCaptureDevice.requestAccess(for: .audio)
+        Self.logger.debug("Microphone permission result: \(microphoneGranted)")
+
+        Self.logger.info("Final results - Camera: \(cameraGranted), Microphone: \(microphoneGranted)")
         
         if cameraGranted && microphoneGranted {
             return .success(())
@@ -123,8 +113,17 @@ class VideoRecordingPermissionManager: ObservableObject {
     }
     
     func openSettings() {
-        if let settingsURL = URL(string: UIApplication.openSettingsURLString) {
-            UIApplication.shared.open(settingsURL)
+        guard let settingsURL = URL(string: UIApplication.openSettingsURLString) else {
+            Self.logger.error("Failed to create settings URL")
+            return
+        }
+
+        UIApplication.shared.open(settingsURL) { success in
+            if success {
+                Self.logger.info("Successfully opened Settings")
+            } else {
+                Self.logger.error("Failed to open Settings")
+            }
         }
     }
 }

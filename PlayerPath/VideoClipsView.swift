@@ -8,6 +8,7 @@
 import SwiftUI
 import SwiftData
 import AVKit
+import PhotosUI
 
 struct VideoClipsView: View {
     let athlete: Athlete
@@ -15,10 +16,14 @@ struct VideoClipsView: View {
     @State private var showingRecorder = false
     @State private var showingUploadPicker = false
     @State private var selectedVideo: VideoClip?
-    @State private var showingPlayer = false
     @State private var searchText = ""
     @State private var liveGameContext: Game?
     @State private var refreshTrigger = UUID()
+    @State private var errorMessage: String?
+    @State private var showingError = false
+    @State private var isImporting = false
+    @State private var videoToDelete: VideoClip?
+    @State private var showingDeleteConfirmation = false
 
     private var filteredVideos: [VideoClip] {
         // Force refresh by accessing refreshTrigger
@@ -93,12 +98,35 @@ struct VideoClipsView: View {
             VideoRecorderView_Refactored(athlete: athlete, game: liveGameContext)
         }
         .sheet(isPresented: $showingUploadPicker) {
-            // TODO: Implement video upload picker
-            Text("Video upload coming soon")
+            VideoPicker(athlete: athlete, onError: { error in
+                errorMessage = error
+                showingError = true
+            }, onImportStart: {
+                isImporting = true
+            }, onImportComplete: {
+                isImporting = false
+                refreshTrigger = UUID()
+            })
         }
         .sheet(item: $selectedVideo) { video in
-            VideoPlayer(player: AVPlayer(url: URL(fileURLWithPath: video.filePath)))
-                .ignoresSafeArea()
+            if FileManager.default.fileExists(atPath: video.filePath) {
+                VideoPlayer(player: AVPlayer(url: URL(fileURLWithPath: video.filePath)))
+                    .ignoresSafeArea()
+            } else {
+                VStack(spacing: 16) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.system(size: 60))
+                        .foregroundColor(.orange)
+                    Text("Video File Not Found")
+                        .font(.title2)
+                        .fontWeight(.semibold)
+                    Text("The video file may have been deleted or moved.")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+                .padding()
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .presentVideoRecorder)) { notification in
             liveGameContext = notification.object as? Game
@@ -122,6 +150,62 @@ struct VideoClipsView: View {
         }
         .onChange(of: athlete.videoClips?.count) { _, _ in
             refreshTrigger = UUID()
+        }
+        .alert("Error", isPresented: $showingError) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(errorMessage ?? "An unknown error occurred")
+        }
+        .confirmationDialog("Delete Video", isPresented: $showingDeleteConfirmation, presenting: videoToDelete) { video in
+            Button("Delete", role: .destructive) {
+                performDelete(video)
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: { video in
+            Text("Are you sure you want to delete this video? This action cannot be undone.")
+        }
+        .overlay {
+            if isImporting {
+                ZStack {
+                    Color.black.opacity(0.4)
+                        .ignoresSafeArea()
+                    VStack(spacing: 16) {
+                        ProgressView()
+                            .scaleEffect(1.5)
+                        Text("Importing Video...")
+                            .font(.headline)
+                            .foregroundColor(.white)
+                    }
+                    .padding(32)
+                    .background(Color(.systemBackground))
+                    .cornerRadius(16)
+                    .shadow(radius: 20)
+                }
+            }
+        }
+    }
+
+    private func performDelete(_ video: VideoClip) {
+        Haptics.medium()
+
+        // Delete file
+        if FileManager.default.fileExists(atPath: video.filePath) {
+            try? FileManager.default.removeItem(atPath: video.filePath)
+        }
+
+        // Delete thumbnail
+        if let thumbPath = video.thumbnailPath {
+            try? FileManager.default.removeItem(atPath: thumbPath)
+        }
+
+        // Delete from database
+        modelContext.delete(video)
+
+        do {
+            try modelContext.save()
+        } catch {
+            errorMessage = "Failed to delete video: \(error.localizedDescription)"
+            showingError = true
         }
     }
 
@@ -147,10 +231,13 @@ struct VideoClipsView: View {
                 spacing: 12
             ) {
                 ForEach(filteredVideos) { video in
-                    VideoClipCard(video: video) {
+                    VideoClipCard(video: video, onPlay: {
                         selectedVideo = video
                         Haptics.light()
-                    }
+                    }, onDelete: {
+                        videoToDelete = video
+                        showingDeleteConfirmation = true
+                    })
                 }
             }
             .padding()
@@ -160,12 +247,15 @@ struct VideoClipsView: View {
 
 struct VideoClipCard: View {
     let video: VideoClip
-    let action: () -> Void
+    let onPlay: () -> Void
+    let onDelete: () -> Void
     @Environment(\.modelContext) private var modelContext
     @State private var thumbnailImage: UIImage?
+    @State private var errorMessage: String?
+    @State private var showingError = false
     
     var body: some View {
-        Button(action: action) {
+        Button(action: onPlay) {
             VStack(spacing: 0) {
                 // Thumbnail with aspect ratio
                 GeometryReader { geometry in
@@ -256,18 +346,19 @@ struct VideoClipCard: View {
         .contextMenu {
             Button {
                 Haptics.light()
-                action()
+                onPlay()
             } label: {
                 Label("Play", systemImage: "play.fill")
             }
-            
+
             Button {
                 Haptics.light()
                 video.isHighlight.toggle()
                 do {
                     try modelContext.save()
                 } catch {
-                    print("Failed to toggle highlight: \(error)")
+                    errorMessage = "Failed to toggle highlight: \(error.localizedDescription)"
+                    showingError = true
                 }
             } label: {
                 Label(
@@ -275,20 +366,25 @@ struct VideoClipCard: View {
                     systemImage: video.isHighlight ? "star.slash" : "star.fill"
                 )
             }
-            
+
             if FileManager.default.fileExists(atPath: video.filePath) {
                 ShareLink(item: URL(fileURLWithPath: video.filePath)) {
                     Label("Share", systemImage: "square.and.arrow.up")
                 }
             }
-            
+
             Divider()
-            
+
             Button(role: .destructive) {
-                deleteVideo(video)
+                onDelete()
             } label: {
                 Label("Delete", systemImage: "trash")
             }
+        }
+        .alert("Error", isPresented: $showingError) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(errorMessage ?? "An unknown error occurred")
         }
         .task {
             await loadThumbnail()
@@ -316,9 +412,9 @@ struct VideoClipCard: View {
     private func generateThumbnail() async {
         let url = URL(fileURLWithPath: video.filePath)
         guard FileManager.default.fileExists(atPath: video.filePath) else { return }
-        
+
         let result = await VideoFileManager.generateThumbnail(from: url)
-        
+
         switch result {
         case .success(let path):
             await MainActor.run {
@@ -329,33 +425,15 @@ struct VideoClipCard: View {
                         thumbnailImage = image
                     }
                 }
-                try? modelContext.save()
+                do {
+                    try modelContext.save()
+                } catch {
+                    // Silent failure for thumbnail save - not critical
+                }
             }
-        case .failure(let error):
-            print("Failed to generate thumbnail: \(error)")
-        }
-    }
-    
-    private func deleteVideo(_ video: VideoClip) {
-        Haptics.medium()
-        
-        // Delete file
-        if FileManager.default.fileExists(atPath: video.filePath) {
-            try? FileManager.default.removeItem(atPath: video.filePath)
-        }
-        
-        // Delete thumbnail
-        if let thumbPath = video.thumbnailPath {
-            try? FileManager.default.removeItem(atPath: thumbPath)
-        }
-        
-        // Delete from database
-        modelContext.delete(video)
-        
-        do {
-            try modelContext.save()
-        } catch {
-            print("Failed to delete video: \(error)")
+        case .failure:
+            // Silent failure for thumbnail generation - will show placeholder
+            return
         }
     }
 }

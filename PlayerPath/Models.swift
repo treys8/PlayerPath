@@ -633,6 +633,57 @@ final class Coach {
     var createdAt: Date?
     var athlete: Athlete?
 
+    // MARK: - Firebase Integration
+
+    /// Firebase user ID if this coach has accepted an invitation and has an account
+    var firebaseCoachID: String?
+
+    /// Firebase folder IDs that this coach has access to
+    var sharedFolderIDs: [String] = []
+
+    /// Invitation tracking
+    var invitationSentAt: Date?
+    var invitationAcceptedAt: Date?
+    var lastInvitationStatus: String? // "pending", "accepted", "declined"
+
+    // MARK: - Computed Properties
+
+    /// Whether this coach has an active Firebase account linked
+    var hasFirebaseAccount: Bool {
+        firebaseCoachID != nil
+    }
+
+    /// Whether this coach has access to any shared folders
+    var hasFolderAccess: Bool {
+        !sharedFolderIDs.isEmpty
+    }
+
+    /// Status badge text for UI
+    var connectionStatus: String {
+        if hasFirebaseAccount && hasFolderAccess {
+            return "Connected"
+        } else if invitationSentAt != nil && lastInvitationStatus == "pending" {
+            return "Invitation Pending"
+        } else if lastInvitationStatus == "declined" {
+            return "Invitation Declined"
+        } else {
+            return "Not Connected"
+        }
+    }
+
+    /// Status color for UI
+    var connectionStatusColor: String {
+        if hasFirebaseAccount && hasFolderAccess {
+            return "green"
+        } else if invitationSentAt != nil && lastInvitationStatus == "pending" {
+            return "orange"
+        } else if lastInvitationStatus == "declined" {
+            return "red"
+        } else {
+            return "gray"
+        }
+    }
+
     init(name: String, role: String = "", phone: String = "", email: String = "", notes: String = "") {
         self.id = UUID()
         self.name = name
@@ -641,6 +692,26 @@ final class Coach {
         self.email = email
         self.notes = notes
         self.createdAt = Date()
+    }
+
+    // MARK: - Firebase Sync Methods
+
+    /// Updates Firebase connection status when coach accepts invitation
+    func markInvitationAccepted(firebaseCoachID: String, folderID: String) {
+        self.firebaseCoachID = firebaseCoachID
+        self.invitationAcceptedAt = Date()
+        self.lastInvitationStatus = "accepted"
+        if !sharedFolderIDs.contains(folderID) {
+            sharedFolderIDs.append(folderID)
+        }
+    }
+
+    /// Removes folder access when athlete revokes permissions
+    func removeFolderAccess(folderID: String) {
+        sharedFolderIDs.removeAll { $0 == folderID }
+        if sharedFolderIDs.isEmpty {
+            firebaseCoachID = nil
+        }
     }
 }
 

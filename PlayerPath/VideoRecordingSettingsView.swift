@@ -7,15 +7,19 @@
 
 import SwiftUI
 import AVFoundation
+import Observation
 
 /// View for configuring video recording settings including quality, format, frame rate, and slow-motion
 struct VideoRecordingSettingsView: View {
+    // Access singleton directly - don't create a copy with @State
     @State private var settings = VideoRecordingSettings.shared
     @State private var showingResetConfirmation = false
     @State private var showingUnsupportedAlert = false
     @State private var unsupportedMessage = ""
+    @State private var lastSaveTime: Date?
     
     var body: some View {
+        @Bindable var settings = settings
         Form {
             qualitySection
             formatSection
@@ -28,7 +32,14 @@ struct VideoRecordingSettingsView: View {
         .navigationTitle("Recording Settings")
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(false)  // Explicitly show system back button
-            .alert("Reset Settings", isPresented: $showingResetConfirmation) {
+        .toolbar {
+            ToolbarItem(placement: .status) {
+                Text("Settings auto-save")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .alert("Reset Settings", isPresented: $showingResetConfirmation) {
                 Button("Cancel", role: .cancel) { }
                 Button("Reset", role: .destructive) {
                     resetSettings()
@@ -456,3 +467,4 @@ struct SummaryRow: View {
 #Preview {
     VideoRecordingSettingsView()
 }
+

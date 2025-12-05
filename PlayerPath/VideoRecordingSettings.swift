@@ -14,11 +14,16 @@ import SwiftUI
 /// Stores user preferences for video recording quality, format, frame rate, and slow-motion
 @Observable
 final class VideoRecordingSettings {
-    
+
     // MARK: - Singleton
-    
+
     static let shared = VideoRecordingSettings()
-    
+
+    // MARK: - Debouncing
+
+    private var saveTask: Task<Void, Never>?
+    private let saveDebounceInterval: Duration = .milliseconds(500)
+
     // MARK: - Settings Properties
     
     /// Video quality/resolution
@@ -117,18 +122,40 @@ final class VideoRecordingSettings {
     }
     
     // MARK: - Persistence
-    
+
     private func saveSettings() {
+        // Cancel any pending save task
+        saveTask?.cancel()
+
+        // Schedule new save with debouncing
+        saveTask = Task {
+            try? await Task.sleep(for: saveDebounceInterval)
+
+            guard !Task.isCancelled else { return }
+
+            // Perform actual save
+            UserDefaults.standard.set(quality.rawValue, forKey: Keys.quality)
+            UserDefaults.standard.set(format.rawValue, forKey: Keys.format)
+            UserDefaults.standard.set(frameRate.rawValue, forKey: Keys.frameRate)
+            UserDefaults.standard.set(slowMotionEnabled, forKey: Keys.slowMotionEnabled)
+            UserDefaults.standard.set(audioEnabled, forKey: Keys.audioEnabled)
+            UserDefaults.standard.set(stabilizationMode.rawValue, forKey: Keys.stabilizationMode)
+
+            #if DEBUG
+            print("💾 Video recording settings saved")
+            #endif
+        }
+    }
+
+    /// Force immediate save (useful when app is backgrounding)
+    func saveImmediately() {
+        saveTask?.cancel()
         UserDefaults.standard.set(quality.rawValue, forKey: Keys.quality)
         UserDefaults.standard.set(format.rawValue, forKey: Keys.format)
         UserDefaults.standard.set(frameRate.rawValue, forKey: Keys.frameRate)
         UserDefaults.standard.set(slowMotionEnabled, forKey: Keys.slowMotionEnabled)
         UserDefaults.standard.set(audioEnabled, forKey: Keys.audioEnabled)
         UserDefaults.standard.set(stabilizationMode.rawValue, forKey: Keys.stabilizationMode)
-        
-        #if DEBUG
-        print("💾 Video recording settings saved")
-        #endif
     }
     
     // MARK: - Reset to Defaults
@@ -197,7 +224,7 @@ enum RecordingQuality: String, CaseIterable, Identifiable {
     
     var resolution: CGSize {
         switch self {
-        case .low480p: return CGSize(width: 854, height: 480)
+        case .low480p: return CGSize(width: 640, height: 480)
         case .medium720p: return CGSize(width: 1280, height: 720)
         case .high1080p: return CGSize(width: 1920, height: 1080)
         case .ultra4K: return CGSize(width: 3840, height: 2160)
@@ -386,12 +413,17 @@ enum StabilizationMode: String, CaseIterable, Identifiable {
 // MARK: - Helper Extensions
 
 extension VideoRecordingSettings {
+    /// Shared capture session for capability checking (reused to avoid memory leaks)
+    private static let capabilityCheckSession: AVCaptureSession = {
+        let session = AVCaptureSession()
+        return session
+    }()
+
     /// Check if device supports the selected quality
     func isQualitySupported(_ quality: RecordingQuality) -> Bool {
         // Most modern iOS devices support up to 4K
-        // Check if the device supports the preset
-        let captureSession = AVCaptureSession()
-        return captureSession.canSetSessionPreset(quality.avPreset)
+        // Check if the device supports the preset using shared session
+        return Self.capabilityCheckSession.canSetSessionPreset(quality.avPreset)
     }
     
     /// Check if device supports the selected frame rate at current quality

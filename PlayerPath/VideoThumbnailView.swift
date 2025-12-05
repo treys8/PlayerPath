@@ -7,6 +7,7 @@
 
 import SwiftUI
 import SwiftData
+import os
 
 /// Reusable video thumbnail view with automatic loading, caching, and overlays
 struct VideoThumbnailView: View {
@@ -21,11 +22,11 @@ struct VideoThumbnailView: View {
     @State private var isLoadingThumbnail = false
     @State private var loadError: Error?
     @State private var generationAttempts = 0
-    @State private var loadTask: Task<Void, Never>?
     @Environment(\.modelContext) private var modelContext
 
     // Constants
     private let maxGenerationAttempts = 2
+    private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.playerpath", category: "VideoThumbnailView")
     
     // MARK: - Initializers
     
@@ -53,17 +54,30 @@ struct VideoThumbnailView: View {
         self.showHighlight = showHighlight
     }
     
-    // Convenience initializers for common sizes
+    // Convenience initializers for common sizes (16:9 landscape aspect ratio)
     static func small(clip: VideoClip) -> VideoThumbnailView {
-        VideoThumbnailView(clip: clip, size: CGSize(width: 50, height: 35), cornerRadius: 6)
+        VideoThumbnailView(clip: clip, size: CGSize(width: 50, height: 28), cornerRadius: 6)
     }
-    
+
     static func medium(clip: VideoClip) -> VideoThumbnailView {
-        VideoThumbnailView(clip: clip, size: CGSize(width: 80, height: 60), cornerRadius: 8)
+        VideoThumbnailView(clip: clip, size: CGSize(width: 80, height: 45), cornerRadius: 8)
     }
-    
+
     static func large(clip: VideoClip) -> VideoThumbnailView {
-        VideoThumbnailView(clip: clip, size: CGSize(width: 120, height: 90), cornerRadius: 10)
+        VideoThumbnailView(clip: clip, size: CGSize(width: 120, height: 68), cornerRadius: 10)
+    }
+
+    // Portrait orientation (9:16 aspect ratio)
+    static func smallPortrait(clip: VideoClip) -> VideoThumbnailView {
+        VideoThumbnailView(clip: clip, size: CGSize(width: 28, height: 50), cornerRadius: 6)
+    }
+
+    static func mediumPortrait(clip: VideoClip) -> VideoThumbnailView {
+        VideoThumbnailView(clip: clip, size: CGSize(width: 45, height: 80), cornerRadius: 8)
+    }
+
+    static func largePortrait(clip: VideoClip) -> VideoThumbnailView {
+        VideoThumbnailView(clip: clip, size: CGSize(width: 68, height: 120), cornerRadius: 10)
     }
     
     // MARK: - Body
@@ -75,13 +89,13 @@ struct VideoThumbnailView: View {
                 if let thumbnail = thumbnailImage {
                     Image(uiImage: thumbnail)
                         .resizable()
-                        .aspectRatio(contentMode: .fill)
+                        .aspectRatio(contentMode: .fit)
                         .frame(width: size.width, height: size.height)
-                        .clipped()
                 } else {
                     placeholderView
                 }
             }
+            .background(Color.black.opacity(0.1)) // Background for letterboxing
             .cornerRadius(cornerRadius)
             .overlay(playButtonOverlay)
 
@@ -98,18 +112,14 @@ struct VideoThumbnailView: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityDescription)
         .task {
-            loadTask = Task {
-                await loadThumbnail()
-            }
-            // Wait for cancellation
-            await withTaskCancellationHandler {
-                await withCheckedContinuation { (_: CheckedContinuation<Void, Never>) in
-                    // Never resume - just wait for cancellation
-                }
-            } onCancel: {
-                loadTask?.cancel()
-                loadTask = nil
-            }
+            await loadThumbnail()
+        }
+        .onDisappear {
+            // Reset state when view disappears
+            thumbnailImage = nil
+            generationAttempts = 0
+            loadError = nil
+            isLoadingThumbnail = false
         }
     }
 
@@ -208,7 +218,7 @@ struct VideoThumbnailView: View {
                 playResultIcon(for: playResult.type)
                     .foregroundColor(.white)
                     .font(.system(size: scaledValue(10)))
-                
+
                 Text(playResultAbbreviation(for: playResult.type))
                     .font(.system(size: scaledValue(10)))
                     .fontWeight(.bold)
@@ -219,6 +229,7 @@ struct VideoThumbnailView: View {
             .background(playResultColor(for: playResult.type))
             .cornerRadius(scaledValue(4))
             .offset(x: scaledValue(4), y: scaledValue(-4))
+            .accessibilityHidden(true) // Already described in main accessibility label
         } else {
             // Unrecorded indicator
             Text("?")
@@ -229,6 +240,7 @@ struct VideoThumbnailView: View {
                 .background(Color.gray)
                 .clipShape(Circle())
                 .offset(x: scaledValue(4), y: scaledValue(-4))
+                .accessibilityHidden(true) // Already described in main accessibility label
         }
     }
     
@@ -236,12 +248,13 @@ struct VideoThumbnailView: View {
         Image(systemName: "star.fill")
             .foregroundColor(.yellow)
             .font(.system(size: scaledValue(10)))
+            .padding(scaledValue(4))
             .background(
                 Circle()
                     .fill(Color.black.opacity(0.6))
-                    .frame(width: scaledValue(18), height: scaledValue(18))
             )
             .offset(x: scaledValue(-4), y: scaledValue(4))
+            .accessibilityHidden(true) // Already described in main accessibility label
     }
     
     // MARK: - Thumbnail Loading
@@ -253,7 +266,7 @@ struct VideoThumbnailView: View {
 
         // Check for cancellation
         guard !Task.isCancelled else {
-            print("VideoThumbnailView: Load cancelled before start")
+            Self.logger.debug("Load cancelled before start")
             return
         }
 
@@ -271,7 +284,7 @@ struct VideoThumbnailView: View {
 
         // Check for cancellation before loading
         guard !Task.isCancelled else {
-            print("VideoThumbnailView: Load cancelled before file load")
+            Self.logger.debug("Load cancelled before file load")
             isLoadingThumbnail = false
             return
         }
@@ -282,7 +295,7 @@ struct VideoThumbnailView: View {
 
             // Check for cancellation after loading
             guard !Task.isCancelled else {
-                print("VideoThumbnailView: Load cancelled after file load")
+                Self.logger.debug("Load cancelled after file load")
                 isLoadingThumbnail = false
                 return
             }
@@ -292,12 +305,12 @@ struct VideoThumbnailView: View {
         } catch {
             // Check for cancellation during error handling
             guard !Task.isCancelled else {
-                print("VideoThumbnailView: Load cancelled during error handling")
+                Self.logger.debug("Load cancelled during error handling")
                 isLoadingThumbnail = false
                 return
             }
 
-            print("Failed to load thumbnail: \(error)")
+            Self.logger.warning("Failed to load thumbnail: \(error.localizedDescription, privacy: .public)")
             loadError = error
             isLoadingThumbnail = false
 
@@ -315,13 +328,13 @@ struct VideoThumbnailView: View {
 
         // Check for cancellation
         guard !Task.isCancelled else {
-            print("VideoThumbnailView: Generation cancelled before start")
+            Self.logger.debug("Generation cancelled before start")
             return
         }
 
         // Check retry limit to prevent infinite recursion
         guard generationAttempts <= maxGenerationAttempts else {
-            print("VideoThumbnailView: Max generation attempts reached for \(clip.fileName)")
+            Self.logger.warning("Max generation attempts reached for \(self.clip.fileName, privacy: .public)")
             loadError = NSError(
                 domain: "VideoThumbnailView",
                 code: -1,
@@ -331,13 +344,13 @@ struct VideoThumbnailView: View {
             return
         }
 
-        print("VideoThumbnailView: Generating thumbnail (attempt \(generationAttempts)/\(maxGenerationAttempts)) for \(clip.fileName)")
+        Self.logger.info("Generating thumbnail (attempt \(self.generationAttempts)/\(self.maxGenerationAttempts)) for \(self.clip.fileName, privacy: .public)")
 
         let videoURL = URL(fileURLWithPath: clip.filePath)
 
         // Check if video file exists before attempting generation
         guard FileManager.default.fileExists(atPath: videoURL.path) else {
-            print("VideoThumbnailView: Video file does not exist at \(videoURL.path)")
+            Self.logger.error("Video file does not exist at \(videoURL.path, privacy: .public)")
             loadError = NSError(
                 domain: "VideoThumbnailView",
                 code: -2,
@@ -349,7 +362,7 @@ struct VideoThumbnailView: View {
 
         // Check for cancellation before generation
         guard !Task.isCancelled else {
-            print("VideoThumbnailView: Generation cancelled before file check")
+            Self.logger.debug("Generation cancelled before file check")
             isLoadingThumbnail = false
             return
         }
@@ -358,7 +371,7 @@ struct VideoThumbnailView: View {
 
         // Check for cancellation after generation
         guard !Task.isCancelled else {
-            print("VideoThumbnailView: Generation cancelled after completion")
+            Self.logger.debug("Generation cancelled after completion")
             isLoadingThumbnail = false
             return
         }
@@ -367,33 +380,29 @@ struct VideoThumbnailView: View {
         case .success(let thumbnailPath):
             clip.thumbnailPath = thumbnailPath
 
-            // Save the thumbnail path to model context using a serialized approach
-            // to prevent concurrent save issues
-            Task.detached { @MainActor in
-                do {
-                    try await Task.sleep(nanoseconds: 100_000_000) // 0.1s delay to avoid concurrent saves
-                    try self.modelContext.save()
-                    print("VideoThumbnailView: Thumbnail path saved for \(self.clip.fileName)")
-                } catch {
-                    print("VideoThumbnailView: Failed to save thumbnail path: \(error)")
-                }
+            // Save the thumbnail path to model context
+            do {
+                try modelContext.save()
+                Self.logger.debug("Thumbnail path saved for \(self.clip.fileName, privacy: .public)")
+            } catch {
+                Self.logger.error("Failed to save thumbnail path: \(error.localizedDescription, privacy: .public)")
+                // Continue anyway - the thumbnail is already generated
             }
 
-            // Load the newly generated thumbnail directly
-            // Use the synchronous image creation to avoid recursion
+            // Load the newly generated thumbnail
             do {
                 let image = try await ThumbnailCache.shared.loadThumbnail(at: thumbnailPath)
                 thumbnailImage = image
                 isLoadingThumbnail = false
-                print("VideoThumbnailView: Successfully loaded generated thumbnail")
+                Self.logger.debug("Successfully loaded generated thumbnail")
             } catch {
-                print("VideoThumbnailView: Failed to load generated thumbnail: \(error)")
+                Self.logger.error("Failed to load generated thumbnail: \(error.localizedDescription, privacy: .public)")
                 loadError = error
                 isLoadingThumbnail = false
             }
 
         case .failure(let error):
-            print("VideoThumbnailView: Failed to generate thumbnail: \(error)")
+            Self.logger.error("Failed to generate thumbnail: \(error.localizedDescription, privacy: .public)")
             loadError = error
             isLoadingThumbnail = false
         }
@@ -477,6 +486,31 @@ struct VideoThumbnailView: View {
 #Preview("Large Thumbnail") {
     VideoThumbnailView.large(clip: .preview)
         .padding()
+}
+
+#Preview("Portrait Thumbnails") {
+    VStack(spacing: 16) {
+        VideoThumbnailView.smallPortrait(clip: .preview)
+        VideoThumbnailView.mediumPortrait(clip: .preview)
+        VideoThumbnailView.largePortrait(clip: .preview)
+    }
+    .padding()
+}
+
+#Preview("Landscape vs Portrait") {
+    HStack(spacing: 16) {
+        VStack {
+            Text("Landscape 16:9")
+                .font(.caption)
+            VideoThumbnailView.medium(clip: .preview)
+        }
+        VStack {
+            Text("Portrait 9:16")
+                .font(.caption)
+            VideoThumbnailView.mediumPortrait(clip: .preview)
+        }
+    }
+    .padding()
 }
 
 // Preview helper

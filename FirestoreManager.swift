@@ -876,16 +876,16 @@ struct FirestoreVideoMetadata: Codable, Identifiable {
     var id: String?
     let fileName: String
     let firebaseStorageURL: String
-    
+
     // IMPROVED: Structured thumbnail metadata instead of single URL
     let thumbnail: ThumbnailMetadata?
-    
+
     // DEPRECATED: Use thumbnail.standardURL instead
     @available(*, deprecated, message: "Use thumbnail.standardURL instead")
     var thumbnailURL: String? {
         thumbnail?.standardURL
     }
-    
+
     let uploadedBy: String
     let uploadedByName: String
     let sharedFolderID: String
@@ -893,13 +893,44 @@ struct FirestoreVideoMetadata: Codable, Identifiable {
     let fileSize: Int64?
     let duration: Double?
     let isHighlight: Bool?
-    
+
+    // ENHANCED: Upload source tracking
+    let uploadedByType: UploadedByType? // "athlete" or "coach"
+    let isOrphaned: Bool? // True if uploader deleted their account
+    let orphanedAt: Date? // When uploader account was deleted
+
     // Game/Practice context
     let videoType: String? // "game", "practice", or "highlight"
     let gameOpponent: String?
     let gameDate: Date?
     let practiceDate: Date?
     let notes: String?
+
+    /// Display name for uploader (handles orphaned accounts)
+    var uploaderDisplayName: String {
+        if isOrphaned == true {
+            return "\(uploadedByName) (Former Coach)"
+        }
+        return uploadedByName
+    }
+
+    /// Whether this video was uploaded by a coach
+    var wasUploadedByCoach: Bool {
+        uploadedByType == .coach
+    }
+}
+
+/// Type of user who uploaded a video
+enum UploadedByType: String, Codable {
+    case athlete
+    case coach
+
+    var displayName: String {
+        switch self {
+        case .athlete: return "Athlete"
+        case .coach: return "Coach"
+        }
+    }
 }
 
 /// Video annotation/comment model

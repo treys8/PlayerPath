@@ -142,8 +142,37 @@ struct CoachRow: View {
                 .foregroundStyle(.purple)
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(coach.name)
-                    .font(.headline)
+                HStack(spacing: 8) {
+                    Text(coach.name)
+                        .font(.headline)
+
+                    // Connection status badge
+                    if coach.hasFirebaseAccount {
+                        HStack(spacing: 4) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.caption2)
+                            Text(coach.connectionStatus)
+                                .font(.caption2)
+                        }
+                        .foregroundStyle(statusColor(for: coach.connectionStatusColor))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(statusColor(for: coach.connectionStatusColor).opacity(0.15))
+                        .cornerRadius(4)
+                    } else if coach.invitationSentAt != nil {
+                        HStack(spacing: 4) {
+                            Image(systemName: "clock.fill")
+                                .font(.caption2)
+                            Text(coach.connectionStatus)
+                                .font(.caption2)
+                        }
+                        .foregroundStyle(statusColor(for: coach.connectionStatusColor))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(statusColor(for: coach.connectionStatusColor).opacity(0.15))
+                        .cornerRadius(4)
+                    }
+                }
 
                 if !coach.role.isEmpty {
                     Text(coach.role)
@@ -172,8 +201,28 @@ struct CoachRow: View {
             }
 
             Spacer()
+
+            if coach.hasFolderAccess {
+                VStack(alignment: .trailing, spacing: 4) {
+                    Image(systemName: "folder.badge.person.crop")
+                        .font(.title3)
+                        .foregroundStyle(.blue)
+                    Text("\(coach.sharedFolderIDs.count) folder\(coach.sharedFolderIDs.count == 1 ? "" : "s")")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
         }
         .padding(.vertical, 4)
+    }
+
+    private func statusColor(for colorName: String) -> Color {
+        switch colorName {
+        case "green": return .green
+        case "orange": return .orange
+        case "red": return .red
+        default: return .gray
+        }
     }
 }
 
@@ -371,6 +420,7 @@ struct CoachDetailView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var showingDeleteConfirmation = false
+    @State private var showingInviteToFolder = false
 
     var body: some View {
         List {
@@ -390,9 +440,76 @@ struct CoachDetailView: View {
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                         }
+
+                        // Connection status
+                        HStack(spacing: 6) {
+                            Image(systemName: coach.hasFirebaseAccount ? "checkmark.circle.fill" : "circle")
+                                .font(.caption)
+                            Text(coach.connectionStatus)
+                                .font(.caption)
+                        }
+                        .foregroundStyle(statusColor(for: coach.connectionStatusColor))
+                        .padding(.top, 4)
                     }
                 }
                 .padding(.vertical, 8)
+            }
+
+            // Firebase Connection Status
+            if coach.hasFirebaseAccount {
+                Section("App Access") {
+                    LabeledContent {
+                        Text("Active")
+                            .foregroundStyle(.green)
+                    } label: {
+                        Label("Account Status", systemImage: "person.badge.checkmark")
+                    }
+
+                    if let acceptedAt = coach.invitationAcceptedAt {
+                        LabeledContent {
+                            Text(acceptedAt.formatted(date: .abbreviated, time: .omitted))
+                                .foregroundStyle(.secondary)
+                        } label: {
+                            Label("Connected Since", systemImage: "calendar")
+                        }
+                    }
+                }
+            } else if coach.invitationSentAt != nil {
+                Section("App Access") {
+                    LabeledContent {
+                        Text(coach.connectionStatus)
+                            .foregroundStyle(statusColor(for: coach.connectionStatusColor))
+                    } label: {
+                        Label("Invitation Status", systemImage: "envelope")
+                    }
+
+                    if let sentAt = coach.invitationSentAt {
+                        LabeledContent {
+                            Text(sentAt.formatted(.relative(presentation: .named)))
+                                .foregroundStyle(.secondary)
+                        } label: {
+                            Label("Sent", systemImage: "clock")
+                        }
+                    }
+                }
+            }
+
+            // Shared Folders
+            if coach.hasFolderAccess {
+                Section("Shared Folders") {
+                    ForEach(coach.sharedFolderIDs, id: \.self) { folderID in
+                        HStack {
+                            Image(systemName: "folder.fill")
+                                .foregroundStyle(.blue)
+                            Text("Folder")
+                            Spacer()
+                            Button("Revoke", role: .destructive) {
+                                // TODO: Implement revoke access
+                            }
+                            .font(.caption)
+                        }
+                    }
+                }
             }
 
             // Contact Information
@@ -464,6 +581,15 @@ struct CoachDetailView: View {
         } catch {
             print("Error deleting coach: \(error)")
             Haptics.error()
+        }
+    }
+
+    private func statusColor(for colorName: String) -> Color {
+        switch colorName {
+        case "green": return .green
+        case "orange": return .orange
+        case "red": return .red
+        default: return .gray
         }
     }
 

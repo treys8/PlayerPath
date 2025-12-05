@@ -380,13 +380,13 @@ class VideoCloudManager: ObservableObject {
         folderID: String,
         expirationHours: Int = 168
     ) async throws -> String {
-        
+
         let storage = Storage.storage()
         let storageRef = storage.reference()
-        
+
         let thumbnailFileName = (videoFileName as NSString).deletingPathExtension + "_thumbnail.jpg"
         let thumbnailRef = storageRef.child("shared_folders/\(folderID)/thumbnails/\(thumbnailFileName)")
-        
+
         return try await withCheckedThrowingContinuation { continuation in
             thumbnailRef.downloadURL { url, error in
                 if let error = error {
@@ -395,6 +395,64 @@ class VideoCloudManager: ObservableObject {
                     continuation.resume(returning: url.absoluteString)
                 } else {
                     continuation.resume(throwing: VideoCloudError.invalidURL)
+                }
+            }
+        }
+    }
+
+    /// Deletes a video from Firebase Storage for a shared folder
+    /// - Parameters:
+    ///   - fileName: Name of the video file to delete
+    ///   - folderID: Shared folder ID
+    func deleteVideo(fileName: String, folderID: String) async throws {
+        let storage = Storage.storage()
+        let storageRef = storage.reference()
+        let videoRef = storageRef.child("shared_folders/\(folderID)/\(fileName)")
+
+        return try await withCheckedThrowingContinuation { continuation in
+            videoRef.delete { error in
+                if let error = error {
+                    // Check if file doesn't exist (not really an error in deletion context)
+                    let nsError = error as NSError
+                    if nsError.domain == "FIRStorageErrorDomain" && nsError.code == StorageErrorCode.objectNotFound.rawValue {
+                        print("⚠️ Video file not found in storage, treating as already deleted: \(fileName)")
+                        continuation.resume()
+                    } else {
+                        continuation.resume(throwing: error)
+                    }
+                } else {
+                    print("✅ Deleted video from storage: \(fileName)")
+                    continuation.resume()
+                }
+            }
+        }
+    }
+
+    /// Deletes a thumbnail from Firebase Storage for a shared folder
+    /// - Parameters:
+    ///   - videoFileName: Name of the video file (thumbnail name will be derived)
+    ///   - folderID: Shared folder ID
+    func deleteThumbnail(videoFileName: String, folderID: String) async throws {
+        let storage = Storage.storage()
+        let storageRef = storage.reference()
+
+        let thumbnailFileName = (videoFileName as NSString).deletingPathExtension + "_thumbnail.jpg"
+        let thumbnailRef = storageRef.child("shared_folders/\(folderID)/thumbnails/\(thumbnailFileName)")
+
+        return try await withCheckedThrowingContinuation { continuation in
+            thumbnailRef.delete { error in
+                if let error = error {
+                    // Check if file doesn't exist (not really an error)
+                    let nsError = error as NSError
+                    if nsError.domain == "FIRStorageErrorDomain" && nsError.code == StorageErrorCode.objectNotFound.rawValue {
+                        print("⚠️ Thumbnail file not found in storage, treating as already deleted")
+                        continuation.resume()
+                    } else {
+                        continuation.resume(throwing: error)
+                    }
+                } else {
+                    print("✅ Deleted thumbnail from storage")
+                    continuation.resume()
                 }
             }
         }
