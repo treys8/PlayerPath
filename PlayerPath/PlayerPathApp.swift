@@ -116,6 +116,12 @@ struct PlayerPathApp: App {
                         case .recordPractice(let practiceId):
                             navigationCoordinator.selectedPracticeId = practiceId
                             navigationCoordinator.showVideoRecorder = true
+                        case .invitation(let invitationId):
+                            navigationCoordinator.selectedInvitationId = invitationId
+                            navigationCoordinator.showInvitation = true
+                        case .folder(let folderId):
+                            navigationCoordinator.selectedFolderId = folderId
+                            navigationCoordinator.showFolder = true
                         }
                         // Views should call navigationCoordinator.resetNavigation() after handling.
                     }
@@ -160,18 +166,26 @@ final class NavigationCoordinator {
     var showStatistics = false
     var showVideoRecorder = false
     var showWeeklySummary = false
-    
+    var showInvitation = false
+    var showFolder = false
+
     var selectedAthleteId: String?
     var selectedGameId: String?
     var selectedPracticeId: String?
-    
+    var selectedInvitationId: String?
+    var selectedFolderId: String?
+
     func resetNavigation() {
         showStatistics = false
         showVideoRecorder = false
         showWeeklySummary = false
+        showInvitation = false
+        showFolder = false
         selectedAthleteId = nil
         selectedGameId = nil
         selectedPracticeId = nil
+        selectedInvitationId = nil
+        selectedFolderId = nil
     }
 }
 
@@ -182,18 +196,26 @@ enum DeepLinkIntent {
     case statistics(athleteId: String)
     case recordGame(gameId: String)
     case recordPractice(practiceId: String)
+    case invitation(invitationId: String)
+    case folder(folderId: String)
 }
 
 extension DeepLinkIntent {
     /// Initialize from a URL of the form:
     /// playerpath://statistics?athleteId=... ,
     /// playerpath://record/game?gameId=... ,
-    /// playerpath://record/practice?practiceId=...
+    /// playerpath://record/practice?practiceId=... ,
+    /// playerpath://invitation/{invitationId} ,
+    /// playerpath://folder/{folderId}
     init?(url: URL) {
         guard let host = url.host?.lowercased() else { return nil }
         let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
         let queryItems = components?.queryItems ?? []
         func value(_ name: String) -> String? { queryItems.first(where: { $0.name == name })?.value }
+
+        let path = url.path
+        let pathComponents = path.split(separator: "/").map(String.init)
+
         switch (host, url.path.lowercased()) {
         case ("statistics", _):
             if let id = value("athleteId"), !id.isEmpty { self = .statistics(athleteId: id); return }
@@ -201,6 +223,18 @@ extension DeepLinkIntent {
             if let id = value("gameId"), !id.isEmpty { self = .recordGame(gameId: id); return }
         case ("record", "/practice"):
             if let id = value("practiceId"), !id.isEmpty { self = .recordPractice(practiceId: id); return }
+        case ("invitation", _):
+            // Format: playerpath://invitation/{invitationId}
+            if pathComponents.count >= 1, !pathComponents[0].isEmpty {
+                self = .invitation(invitationId: pathComponents[0])
+                return
+            }
+        case ("folder", _):
+            // Format: playerpath://folder/{folderId}
+            if pathComponents.count >= 1, !pathComponents[0].isEmpty {
+                self = .folder(folderId: pathComponents[0])
+                return
+            }
         default:
             break
         }

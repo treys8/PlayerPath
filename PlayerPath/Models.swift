@@ -270,6 +270,7 @@ final class Game {
     var isLive: Bool = false
     var isComplete: Bool = false
     var createdAt: Date?
+    var year: Int? // Year for tracking when no season is active
     var tournament: Tournament?
     var athlete: Athlete?
     var season: Season?
@@ -281,6 +282,9 @@ final class Game {
         self.date = date
         self.opponent = opponent
         self.createdAt = Date()
+        // Auto-set year from date
+        let calendar = Calendar.current
+        self.year = calendar.component(.year, from: date)
     }
 }
 

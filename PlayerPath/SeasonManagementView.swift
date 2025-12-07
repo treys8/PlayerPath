@@ -499,6 +499,7 @@ struct SeasonDetailView: View {
 
     @State private var showingDeleteConfirmation = false
     @State private var showingReactivateConfirmation = false
+    @State private var showingEndSeasonConfirmation = false
     @State private var isProcessing = false
     @State private var showingError = false
     @State private var errorMessage = ""
@@ -588,14 +589,21 @@ struct SeasonDetailView: View {
             
             // Actions
             Section {
-                if season.isArchived {
+                if season.isActive {
+                    Button {
+                        showingEndSeasonConfirmation = true
+                    } label: {
+                        Label("End Season", systemImage: "checkmark.circle")
+                            .foregroundColor(.orange)
+                    }
+                } else if season.isArchived {
                     Button {
                         showingReactivateConfirmation = true
                     } label: {
                         Label("Reactivate Season", systemImage: "arrow.counterclockwise")
                     }
                 }
-                
+
                 Button(role: .destructive) {
                     showingDeleteConfirmation = true
                 } label: {
@@ -619,6 +627,14 @@ struct SeasonDetailView: View {
             }
         } message: {
             Text("Are you sure you want to delete this season? This will not delete the games, practices, or videos, but they will no longer be associated with a season.")
+        }
+        .alert("End Season", isPresented: $showingEndSeasonConfirmation) {
+            Button("Cancel", role: .cancel) { }
+            Button("End Season", role: .destructive) {
+                endSeason()
+            }
+        } message: {
+            Text("Are you sure you want to end \(season.displayName)? This will archive the season and you won't be able to add new games or practices to it. You can reactivate it later if needed.")
         }
         .alert("Reactivate Season", isPresented: $showingReactivateConfirmation) {
             Button("Cancel", role: .cancel) { }
@@ -698,6 +714,37 @@ struct SeasonDetailView: View {
         }
     }
     
+    private func endSeason() {
+        isProcessing = true
+
+        // Save state for rollback
+        let wasActive = season.isActive
+        let previousEndDate = season.endDate
+
+        // End the season
+        season.archive()
+
+        do {
+            try modelContext.save()
+            withAnimation {
+                isProcessing = false
+            }
+            Haptics.medium()
+            print("✅ Season ended: \(season.displayName)")
+        } catch {
+            // Rollback on failure
+            if wasActive {
+                season.activate()
+            }
+            season.endDate = previousEndDate
+
+            isProcessing = false
+            errorMessage = "Failed to end season: \(error.localizedDescription)"
+            showingError = true
+            print("❌ Error ending season: \(error)")
+        }
+    }
+
     private func reactivateSeason() {
         isProcessing = true
 

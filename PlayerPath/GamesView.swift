@@ -732,12 +732,21 @@ struct AddGameView: View {
                         NotificationCenter.default.post(name: Notification.Name.presentSeasons, object: athlete)
                     }
                 }
+                Button("Add to Year Only") {
+                    saveGameWithoutSeason()
+                }
                 Button("Cancel", role: .cancel) { }
             } else {
                 Button("OK") { }
             }
         } message: {
-            Text(errorMessage)
+            if isSeasonError {
+                let calendar = Calendar.current
+                let year = calendar.component(.year, from: date)
+                Text("You don't have an active season. Create a season to organize your games, or add this game to year \(year) for basic tracking.")
+            } else {
+                Text(errorMessage)
+            }
         }
     }
 
@@ -756,10 +765,17 @@ struct AddGameView: View {
 
         let trimmedOpponent = opponent.trimmingCharacters(in: .whitespacesAndNewlines)
 
+        #if DEBUG
+        print("📱 AddGameView.saveGame() called")
+        print("   Athlete: \(athlete.name)")
+        print("   Active season: \(athlete.activeSeason?.name ?? "none")")
+        print("   Seasons count: \(athlete.seasons?.count ?? 0)")
+        #endif
+
         // Use GameService for consistent game creation
         let gameService = GameService(modelContext: modelContext)
         // Removed tournament parameter from call
-        
+
         Task {
             let result = await gameService.createGame(
                 for: athlete,
@@ -771,12 +787,64 @@ struct AddGameView: View {
             await MainActor.run {
                 switch result {
                 case .success:
+                    #if DEBUG
+                    print("   ✅ Game created successfully")
+                    #endif
                     // Dismiss on successful creation
+                    dismiss()
+                case .failure(let error):
+                    #if DEBUG
+                    print("   ❌ Game creation failed: \(error)")
+                    print("   Is season error: \(error == .noActiveSeason)")
+                    #endif
+                    // Show error alert
+                    errorMessage = error.localizedDescription
+                    isSeasonError = (error == .noActiveSeason)
+                    showingError = true
+                }
+            }
+        }
+    }
+
+    private func saveGameWithoutSeason() {
+        guard let athlete = athlete else {
+            errorMessage = "No athlete selected"
+            showingError = true
+            return
+        }
+
+        guard isValidOpponent else {
+            errorMessage = "Please enter a valid opponent name (2-50 characters)"
+            showingError = true
+            return
+        }
+
+        let trimmedOpponent = opponent.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Use GameService with allowWithoutSeason flag
+        let gameService = GameService(modelContext: modelContext)
+
+        Task {
+            let result = await gameService.createGame(
+                for: athlete,
+                opponent: trimmedOpponent,
+                date: date,
+                isLive: startAsLive,
+                allowWithoutSeason: true
+            )
+
+            await MainActor.run {
+                switch result {
+                case .success(let game):
+                    // Success - dismiss
+                    let calendar = Calendar.current
+                    let year = calendar.component(.year, from: date)
+                    print("✅ Game added to year \(year): \(trimmedOpponent)")
                     dismiss()
                 case .failure(let error):
                     // Show error alert
                     errorMessage = error.localizedDescription
-                    isSeasonError = (error == .noActiveSeason)
+                    isSeasonError = false
                     showingError = true
                 }
             }
@@ -1429,14 +1497,16 @@ extension GameService {
         for athlete: Athlete,
         opponent: String,
         date: Date,
-        isLive: Bool
+        isLive: Bool,
+        allowWithoutSeason: Bool = false
     ) async -> Result<Game, GameService.GameCreationError> {
         return await createGame(
             for: athlete,
             opponent: opponent,
             date: date,
             tournament: nil,
-            isLive: isLive
+            isLive: isLive,
+            allowWithoutSeason: allowWithoutSeason
         )
     }
 }

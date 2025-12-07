@@ -6,5 +6,18 @@
 	<array>
 		<string>remote-notification</string>
 	</array>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>com.playerpath.app</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>playerpath</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

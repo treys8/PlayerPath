@@ -34,7 +34,7 @@ extension View {
 }
 
 extension View {
-    func appCard(cornerRadius: CGFloat = 12) -> some View {
+    func appCard(cornerRadius: CGFloat = 16) -> some View {
         self
             .background(
                 RoundedRectangle(cornerRadius: cornerRadius)
@@ -45,6 +45,19 @@ extension View {
                     .stroke(Color(.systemGray5), lineWidth: 1)
             )
             .shadow(color: .black.opacity(0.06), radius: 4, x: 0, y: 2)
+    }
+
+    func appCardMaterial(cornerRadius: CGFloat = 16) -> some View {
+        self
+            .background(
+                RoundedRectangle(cornerRadius: cornerRadius)
+                    .fill(.regularMaterial)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius)
+                    .stroke(Color(.systemGray6), lineWidth: 0.5)
+            )
+            .shadow(color: .black.opacity(0.08), radius: 6, x: 0, y: 3)
     }
 }
 
@@ -69,7 +82,9 @@ struct EmptyStateView: View {
     let message: String
     let actionTitle: String?
     let action: (() -> Void)?
-    
+
+    @State private var isAnimating = false
+
     init(systemImage: String, title: String, message: String, actionTitle: String? = nil, action: (() -> Void)? = nil) {
         self.systemImage = systemImage
         self.title = title
@@ -77,25 +92,61 @@ struct EmptyStateView: View {
         self.actionTitle = actionTitle
         self.action = action
     }
-    
+
     var body: some View {
-        VStack(spacing: 30) {
+        VStack(spacing: 32) {
             Image(systemName: systemImage)
-                .font(.system(size: 80))
-                .foregroundColor(.secondary)
-            Text(title)
-                .font(.title)
-                .fontWeight(.bold)
-            Text(message)
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
+                .font(.system(size: 80, weight: .light))
+                .foregroundStyle(
+                    LinearGradient(
+                        colors: [.blue.opacity(0.8), .blue.opacity(0.4)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .symbolRenderingMode(.hierarchical)
+                .symbolEffect(.bounce, value: isAnimating)
+                .scaleEffect(isAnimating ? 1.0 : 0.9)
+                .animation(.spring(response: 0.6, dampingFraction: 0.7), value: isAnimating)
+
+            VStack(spacing: 12) {
+                Text(title)
+                    .font(.title2)
+                    .fontWeight(.bold)
+                    .foregroundColor(.primary)
+
+                Text(message)
+                    .font(.body)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             if let actionTitle, let action {
-                Button(actionTitle, action: action)
-                    .buttonStyle(.borderedProminent)
+                Button(action: action) {
+                    Text(actionTitle)
+                        .font(.headline)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(
+                            LinearGradient(
+                                colors: [.blue, .blue.opacity(0.8)],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                        .cornerRadius(12)
+                }
+                .buttonStyle(.plain)
             }
         }
-        .padding()
+        .padding(.horizontal, 40)
+        .padding(.vertical, 60)
+        .onAppear {
+            isAnimating = true
+        }
     }
 }
 
@@ -110,11 +161,14 @@ struct EmptyStateView: View {
 enum MainTab: Int {
     case home = 0
     case games = 1
-    case stats = 2
-    case practice = 3
-    case videos = 4
-    case highlights = 5
-    case profile = 6
+    case videos = 2
+    case stats = 3
+    case more = 4
+
+    // Legacy compatibility aliases
+    static var practice: MainTab { .more }
+    static var highlights: MainTab { .more }
+    static var profile: MainTab { .more }
 }
 
 // Convenience helper to switch tabs via NotificationCenter
@@ -297,16 +351,32 @@ struct WelcomeFlow: View {
                 
                 // App Logo and Branding
                 VStack(spacing: 24) {
-                    Image(systemName: "baseball.fill")
-                        .font(.system(size: 100))
-                        .foregroundStyle(
-                            LinearGradient(
-                                colors: [.red, .white],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
+                    ZStack {
+                        // Glow effect behind icon
+                        Circle()
+                            .fill(
+                                RadialGradient(
+                                    colors: [.red.opacity(0.3), .clear],
+                                    center: .center,
+                                    startRadius: 20,
+                                    endRadius: 80
+                                )
                             )
-                        )
-                        .shadow(color: .red.opacity(0.3), radius: 10, x: 0, y: 5)
+                            .frame(width: 160, height: 160)
+                            .blur(radius: 20)
+
+                        Image(systemName: "baseball.fill")
+                            .font(.system(size: 100, weight: .medium))
+                            .foregroundStyle(
+                                LinearGradient(
+                                    colors: [.red, .red.opacity(0.7), .white],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                            .symbolRenderingMode(.hierarchical)
+                            .shadow(color: .red.opacity(0.4), radius: 15, x: 0, y: 8)
+                    }
                     
                     VStack(spacing: 12) {
                         Text("PlayerPath")
@@ -354,48 +424,60 @@ struct WelcomeFlow: View {
                 
                 // Action buttons
                 VStack(spacing: 16) {
-                    Button(action: { activeSheet = .signUp }) {
-                        HStack {
+                    Button(action: { Haptics.medium(); activeSheet = .signUp }) {
+                        HStack(spacing: 12) {
                             Image(systemName: "person.crop.circle.badge.plus")
-                                .font(.headline)
-                            Text("Get Started")
-                                .font(.headline)
+                                .font(.title3)
                                 .fontWeight(.semibold)
+                            Text("Get Started")
+                                .font(.title3)
+                                .fontWeight(.bold)
                         }
                         .frame(maxWidth: .infinity)
-                        .frame(height: 54)
+                        .frame(height: 58)
                         .background(
                             LinearGradient(
-                                colors: [.blue, .blue.opacity(0.8)],
-                                startPoint: .leading,
-                                endPoint: .trailing
+                                colors: [.blue, .blue.opacity(0.85)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
                             )
                         )
                         .foregroundColor(.white)
-                        .cornerRadius(12)
+                        .cornerRadius(16)
+                        .shadow(color: .blue.opacity(0.4), radius: 12, x: 0, y: 6)
                     }
+                    .buttonStyle(.plain)
                     .accessibilityLabel("Sign up to get started")
                     .accessibilityHint("Creates a new account and begins onboarding")
                     .accessibilityIdentifier("welcome_get_started")
                     .accessibilitySortPriority(1)
-                    
-                    Button(action: { activeSheet = .signIn }) {
-                        HStack {
-                            Image(systemName: "arrow.right.circle")
-                                .font(.headline)
+
+                    Button(action: { Haptics.light(); activeSheet = .signIn }) {
+                        HStack(spacing: 12) {
+                            Image(systemName: "arrow.right.circle.fill")
+                                .font(.title3)
                             Text("Sign In")
-                                .font(.headline)
-                                .fontWeight(.medium)
+                                .font(.title3)
+                                .fontWeight(.semibold)
                         }
                         .frame(maxWidth: .infinity)
-                        .frame(height: 54)
-                        .background(Color.clear)
+                        .frame(height: 58)
+                        .background(.ultraThinMaterial)
                         .foregroundColor(.blue)
                         .overlay(
-                            RoundedRectangle(cornerRadius: 12)
-                                .stroke(Color.blue, lineWidth: 2)
+                            RoundedRectangle(cornerRadius: 16)
+                                .stroke(
+                                    LinearGradient(
+                                        colors: [.blue, .blue.opacity(0.6)],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    ),
+                                    lineWidth: 2.5
+                                )
                         )
+                        .cornerRadius(16)
                     }
+                    .buttonStyle(.plain)
                     .accessibilityLabel("Sign in to existing account")
                     .accessibilityHint("Sign in with your existing credentials")
                     .accessibilityIdentifier("welcome_sign_in")
@@ -800,71 +882,105 @@ struct ComprehensiveSignInView: View {
 struct TrialStatusView: View {
     let authManager: ComprehensiveAuthManager
     @State private var showingUpgrade = false
-    
+
     var body: some View {
         if !authManager.isPremiumUser {
-            HStack(spacing: 12) {
+            HStack(spacing: 14) {
                 statusIcon
                 statusText
                 Spacer()
                 upgradeButton
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .background(statusBackgroundColor)
-            .cornerRadius(12)
+            .padding(.horizontal, 18)
+            .padding(.vertical, 14)
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(statusBackgroundGradient)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(statusBorderColor, lineWidth: 1.5)
+            )
+            .shadow(color: statusShadowColor.opacity(0.2), radius: 8, x: 0, y: 4)
             .animation(.easeInOut(duration: 0.3), value: authManager.trialDaysRemaining)
         }
     }
-    
+
     private var statusIcon: some View {
-        Image(systemName: authManager.trialDaysRemaining > 0 ? "clock.badge.exclamationmark" : "exclamationmark.triangle.fill")
-            .foregroundColor(authManager.trialDaysRemaining > 0 ? .orange : .red)
-            .font(.title3)
+        ZStack {
+            Circle()
+                .fill(statusIconBackground)
+                .frame(width: 40, height: 40)
+
+            Image(systemName: authManager.trialDaysRemaining > 0 ? "clock.fill" : "exclamationmark.triangle.fill")
+                .foregroundColor(statusIconColor)
+                .font(.system(size: 18, weight: .semibold))
+                .symbolRenderingMode(.hierarchical)
+        }
     }
-    
+
     private var statusText: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 3) {
             if authManager.trialDaysRemaining > 0 {
                 Text("Free Trial")
-                    .font(.caption)
-                    .fontWeight(.medium)
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
                     .foregroundColor(.primary)
-                
+
                 Text("\(authManager.trialDaysRemaining) days remaining")
-                    .font(.caption2)
+                    .font(.caption)
                     .foregroundColor(.secondary)
+                    .monospacedDigit()
                     .contentTransition(.numericText())
             } else {
                 Text("Trial Expired")
-                    .font(.caption)
-                    .fontWeight(.medium)
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
                     .foregroundColor(.red)
-                
-                Text("Upgrade to continue using all features")
-                    .font(.caption2)
+
+                Text("Upgrade to continue")
+                    .font(.caption)
                     .foregroundColor(.secondary)
             }
         }
     }
-    
+
     private var upgradeButton: some View {
         Button(action: { Haptics.light(); showingUpgrade = true }) {
             Text("Upgrade")
-                .font(.caption)
-                .fontWeight(.semibold)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(Color.blue)
+                .font(.subheadline)
+                .fontWeight(.bold)
                 .foregroundColor(.white)
-                .cornerRadius(8)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(
+                    LinearGradient(
+                        colors: [.blue, .blue.opacity(0.8)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .cornerRadius(10)
+                .shadow(color: .blue.opacity(0.3), radius: 4, x: 0, y: 2)
         }
         .sheet(isPresented: $showingUpgrade) {
-            // TODO: Create a proper premium upgrade view
             NavigationStack {
-                VStack {
+                VStack(spacing: 24) {
+                    Image(systemName: "crown.fill")
+                        .font(.system(size: 60))
+                        .foregroundStyle(
+                            LinearGradient(
+                                colors: [.yellow, .orange],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .symbolRenderingMode(.hierarchical)
+
                     Text("Premium Features")
                         .font(.title)
+                        .fontWeight(.bold)
+
                     Text("Coming Soon...")
                         .foregroundColor(.secondary)
                 }
@@ -879,11 +995,39 @@ struct TrialStatusView: View {
             }
         }
     }
-    
-    private var statusBackgroundColor: Color {
-        authManager.trialDaysRemaining > 0
-            ? Color.orange.opacity(0.1)
-            : Color.red.opacity(0.1)
+
+    // MARK: - Style Helpers
+
+    private var statusBackgroundGradient: LinearGradient {
+        if authManager.trialDaysRemaining > 0 {
+            return LinearGradient(
+                colors: [Color.orange.opacity(0.12), Color.orange.opacity(0.08)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        } else {
+            return LinearGradient(
+                colors: [Color.red.opacity(0.12), Color.red.opacity(0.08)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        }
+    }
+
+    private var statusBorderColor: Color {
+        authManager.trialDaysRemaining > 0 ? .orange.opacity(0.3) : .red.opacity(0.3)
+    }
+
+    private var statusShadowColor: Color {
+        authManager.trialDaysRemaining > 0 ? .orange : .red
+    }
+
+    private var statusIconBackground: Color {
+        authManager.trialDaysRemaining > 0 ? .orange.opacity(0.15) : .red.opacity(0.15)
+    }
+
+    private var statusIconColor: Color {
+        authManager.trialDaysRemaining > 0 ? .orange : .red
     }
 }
 
@@ -1056,16 +1200,32 @@ struct AthleteOnboardingFlow: View {
                 }
                 
                 VStack(spacing: 24) {
-                    Image(systemName: "hand.wave.fill")
-                        .font(.system(size: 100))
-                        .foregroundStyle(
-                            LinearGradient(
-                                colors: [.orange, .yellow],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
+                    ZStack {
+                        // Glow effect
+                        Circle()
+                            .fill(
+                                RadialGradient(
+                                    colors: [.orange.opacity(0.3), .clear],
+                                    center: .center,
+                                    startRadius: 20,
+                                    endRadius: 80
+                                )
                             )
-                        )
-                        .shadow(color: .orange.opacity(0.3), radius: 10, x: 0, y: 5)
+                            .frame(width: 160, height: 160)
+                            .blur(radius: 20)
+
+                        Image(systemName: "hand.wave.fill")
+                            .font(.system(size: 100, weight: .medium))
+                            .foregroundStyle(
+                                LinearGradient(
+                                    colors: [.orange, .yellow],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                            .symbolRenderingMode(.hierarchical)
+                            .shadow(color: .orange.opacity(0.4), radius: 15, x: 0, y: 8)
+                    }
                     
                     VStack(spacing: 16) {
                         Text("Welcome to PlayerPath!")
@@ -1118,26 +1278,29 @@ struct AthleteOnboardingFlow: View {
                 
                 Spacer()
                 
-                Button(action: completeOnboarding) {
-                    HStack {
+                Button(action: { Haptics.medium(); completeOnboarding() }) {
+                    HStack(spacing: 12) {
                         Image(systemName: "arrow.right.circle.fill")
-                            .font(.headline)
-                        Text("Get Started")
-                            .font(.headline)
+                            .font(.title3)
                             .fontWeight(.semibold)
+                        Text("Get Started")
+                            .font(.title3)
+                            .fontWeight(.bold)
                     }
                     .frame(maxWidth: .infinity)
-                    .frame(height: 54)
+                    .frame(height: 58)
                     .background(
                         LinearGradient(
-                            colors: [.blue, .blue.opacity(0.8)],
-                            startPoint: .leading,
-                            endPoint: .trailing
+                            colors: [.blue, .blue.opacity(0.85)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
                         )
                     )
                     .foregroundColor(.white)
-                    .cornerRadius(12)
+                    .cornerRadius(16)
+                    .shadow(color: .blue.opacity(0.4), radius: 12, x: 0, y: 6)
                 }
+                .buttonStyle(.plain)
                 .padding(.horizontal)
                 .accessibilityLabel("Complete onboarding and get started")
                 .accessibilityHint("Completes the setup process and takes you to create your first athlete")
@@ -1210,16 +1373,32 @@ struct CoachOnboardingFlow: View {
                 }
                 
                 VStack(spacing: 24) {
-                    Image(systemName: "person.2.wave.2.fill")
-                        .font(.system(size: 100))
-                        .foregroundStyle(
-                            LinearGradient(
-                                colors: [.blue, .purple],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
+                    ZStack {
+                        // Glow effect
+                        Circle()
+                            .fill(
+                                RadialGradient(
+                                    colors: [.blue.opacity(0.3), .purple.opacity(0.2), .clear],
+                                    center: .center,
+                                    startRadius: 20,
+                                    endRadius: 80
+                                )
                             )
-                        )
-                        .shadow(color: .blue.opacity(0.3), radius: 10, x: 0, y: 5)
+                            .frame(width: 160, height: 160)
+                            .blur(radius: 20)
+
+                        Image(systemName: "person.2.wave.2.fill")
+                            .font(.system(size: 100, weight: .medium))
+                            .foregroundStyle(
+                                LinearGradient(
+                                    colors: [.blue, .purple],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                            .symbolRenderingMode(.hierarchical)
+                            .shadow(color: .blue.opacity(0.4), radius: 15, x: 0, y: 8)
+                    }
                     
                     VStack(spacing: 16) {
                         Text("Welcome, Coach!")
@@ -1294,26 +1473,34 @@ struct CoachOnboardingFlow: View {
                 
                 Spacer()
                 
-                Button(action: completeCoachOnboarding) {
-                    HStack {
+                Button(action: { Haptics.medium(); completeCoachOnboarding() }) {
+                    HStack(spacing: 12) {
                         Image(systemName: "arrow.right.circle.fill")
-                            .font(.headline)
-                        Text("Go to Dashboard")
-                            .font(.headline)
+                            .font(.title3)
                             .fontWeight(.semibold)
+                        Text("Go to Dashboard")
+                            .font(.title3)
+                            .fontWeight(.bold)
                     }
                     .frame(maxWidth: .infinity)
-                    .frame(height: 54)
+                    .frame(height: 58)
                     .background(
                         LinearGradient(
-                            colors: [.blue, .purple.opacity(0.8)],
-                            startPoint: .leading,
-                            endPoint: .trailing
+                            colors: [.blue, .purple.opacity(0.85)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
                         )
                     )
                     .foregroundColor(.white)
-                    .cornerRadius(12)
+                    .cornerRadius(16)
+                    .shadow(
+                        color: Color.blue.opacity(0.4),
+                        radius: 12,
+                        x: 0,
+                        y: 6
+                    )
                 }
+                .buttonStyle(.plain)
                 .padding(.horizontal)
                 .accessibilityLabel("Complete coach onboarding")
                 .accessibilityHint("Takes you to your coaching dashboard")
@@ -2598,9 +2785,9 @@ struct MainTabView: View {
     // MARK: - Tab Navigation Helpers
     
     private func navigateToTab(_ direction: SwipeDirection) {
-        let maxTab = MainTab.profile.rawValue
+        let maxTab = MainTab.more.rawValue
         var newTab = selectedTab
-        
+
         switch direction {
         case .left:
             // Swipe left = next tab
@@ -2609,7 +2796,7 @@ struct MainTabView: View {
             // Swipe right = previous tab
             newTab = max(selectedTab - 1, 0)
         }
-        
+
         if newTab != selectedTab {
             Haptics.selection()
             withAnimation(.easeInOut(duration: 0.3)) {
@@ -2638,10 +2825,28 @@ struct MainTabView: View {
                 }
             }
             .sheet(isPresented: $showingSeasons) {
-                SeasonsView(athlete: selectedAthlete)
+                NavigationStack {
+                    SeasonsView(athlete: selectedAthlete)
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button("Done") {
+                                    showingSeasons = false
+                                }
+                            }
+                        }
+                }
             }
             .sheet(isPresented: $showingCoaches) {
-                CoachesView(athlete: selectedAthlete)
+                NavigationStack {
+                    CoachesView(athlete: selectedAthlete)
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button("Done") {
+                                    showingCoaches = false
+                                }
+                            }
+                        }
+                }
             }
             .addKeyboardShortcuts()
     }
@@ -2713,10 +2918,8 @@ struct MainTabView: View {
         TabView(selection: $selectedTab) {
             homeTab
             gamesTab
-            statsTab
-            practiceTab
             videosTab
-            highlightsTab
+            statsTab
             moreTab
         }
     }
@@ -2805,10 +3008,10 @@ struct MainTabView: View {
             ))
         }
         .tabItem {
-            Label("Profile", systemImage: "person.circle.fill")
+            Label("More", systemImage: "ellipsis.circle.fill")
         }
-        .tag(MainTab.profile.rawValue)
-        .accessibilityLabel("Profile tab")
+        .tag(MainTab.more.rawValue)
+        .accessibilityLabel("More tab")
         .accessibilityHint("Access your profile, settings, and additional features")
     }
     
@@ -2821,8 +3024,11 @@ struct MainTabView: View {
     private func restoreSelectedTab() {
         let savedTab = UserDefaults.standard.integer(forKey: "LastSelectedTab")
         // Only restore if it's a valid tab index
-        if (0...MainTab.profile.rawValue).contains(savedTab) {
+        if (0...MainTab.more.rawValue).contains(savedTab) {
             selectedTab = savedTab
+        } else {
+            // Default to home tab if saved tab is invalid
+            selectedTab = MainTab.home.rawValue
         }
     }
 }
@@ -2852,6 +3058,8 @@ struct DashboardView: View {
 
     @State private var viewModel: GamesDashboardViewModel?
     @State private var pulseAnimation = false
+    @State private var showCoachesPremiumAlert = false
+    @State private var showingPaywall = false
 
     // Dynamic live games query configured via init to safely capture athleteID
     private let athleteID: UUID
@@ -2900,6 +3108,18 @@ struct DashboardView: View {
             #if DEBUG
             print("🔍 DashboardView liveGames count: \(liveGames.count) for athlete: \(athlete.name)")
             #endif
+        }
+        .alert("Premium Feature", isPresented: $showCoachesPremiumAlert) {
+            Button("Upgrade to Premium") {
+                Haptics.success()
+                showingPaywall = true
+            }
+            Button("Not Now", role: .cancel) { }
+        } message: {
+            Text("The Coaches feature is available exclusively to Premium members. Upgrade now to share videos and collaborate with your coaching team!")
+        }
+        .sheet(isPresented: $showingPaywall) {
+            ImprovedPaywallView(user: user)
         }
     }
 
@@ -2963,7 +3183,7 @@ struct DashboardView: View {
     @ViewBuilder
     private func dashboardContent(viewModel: GamesDashboardViewModel) -> some View {
         ScrollView {
-            LazyVStack(spacing: 24) {
+            LazyVStack(spacing: 32) {
 
                 // LIVE GAMES SECTION - Shows when games are live
                 if !liveGames.isEmpty {
@@ -2975,11 +3195,19 @@ struct DashboardView: View {
                                     .fill(Color.red)
                                     .frame(width: 8, height: 8)
                                     .opacity(pulseAnimation ? 0.4 : 1.0)
+                                    .shadow(color: .red.opacity(0.8), radius: pulseAnimation ? 4 : 2)
                                     .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: pulseAnimation)
 
                                 Text("Live Now")
-                                    .font(.headline)
-                                    .fontWeight(.semibold)
+                                    .font(.title3)
+                                    .fontWeight(.bold)
+                                    .foregroundStyle(
+                                        LinearGradient(
+                                            colors: [.red, .red.opacity(0.8)],
+                                            startPoint: .leading,
+                                            endPoint: .trailing
+                                        )
+                                    )
                             }
 
                             Spacer()
@@ -3013,8 +3241,8 @@ struct DashboardView: View {
                 VStack(spacing: 16) {
                     HStack {
                         Text("Quick Actions")
-                            .font(.headline)
-                            .fontWeight(.semibold)
+                            .font(.title3)
+                            .fontWeight(.bold)
                         Spacer()
                     }
                     
@@ -3093,13 +3321,13 @@ struct DashboardView: View {
                 VStack(spacing: 16) {
                     HStack {
                         Text("Management")
-                            .font(.headline)
-                            .fontWeight(.semibold)
+                            .font(.title3)
+                            .fontWeight(.bold)
                         Spacer()
                     }
 
-                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-                        // Removed Tournaments card
+                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 16) {
+                        // 1. Games
                         DashboardFeatureCard(
                             icon: "sportscourt.fill",
                             title: "Games",
@@ -3109,15 +3337,7 @@ struct DashboardView: View {
                             postSwitchTab(.games)
                         }
 
-                        DashboardFeatureCard(
-                            icon: "figure.run",
-                            title: "Practice",
-                            subtitle: "0 Sessions",
-                            color: .green
-                        ) {
-                            postSwitchTab(.practice)
-                        }
-
+                        // 2. Video Clips
                         DashboardFeatureCard(
                             icon: "video.fill",
                             title: "Video Clips",
@@ -3127,16 +3347,7 @@ struct DashboardView: View {
                             postSwitchTab(.videos)
                         }
 
-                        DashboardFeatureCard(
-                            icon: "star.fill",
-                            title: "Highlights",
-                            subtitle: "\(viewModel.totalHighlights) Highlights",
-                            color: .yellow
-                        ) {
-                            // For now, route to Highlights tab
-                            postSwitchTab(.highlights)
-                        }
-
+                        // 3. Statistics
                         DashboardFeatureCard(
                             icon: "chart.bar.fill",
                             title: "Statistics",
@@ -3145,30 +3356,56 @@ struct DashboardView: View {
                         ) {
                             postSwitchTab(.stats)
                         }
-                        
+
+                        // 4. Highlights
+                        DashboardFeatureCard(
+                            icon: "star.fill",
+                            title: "Highlights",
+                            subtitle: "\(viewModel.totalHighlights) Highlights",
+                            color: .yellow
+                        ) {
+                            postSwitchTab(.highlights)
+                        }
+
+                        // 5. Practice
+                        DashboardFeatureCard(
+                            icon: "figure.run",
+                            title: "Practice",
+                            subtitle: "0 Sessions",
+                            color: .green
+                        ) {
+                            postSwitchTab(.practice)
+                        }
+
+                        // 6. Coaches (Premium Only)
+                        DashboardPremiumFeatureCard(
+                            icon: "person.3.fill",
+                            title: "Coaches",
+                            subtitle: "0 Coaches",
+                            color: .indigo,
+                            isPremium: authManager.isPremiumUser
+                        ) {
+                            if authManager.isPremiumUser {
+                                postSwitchTab(.home)
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                    NotificationCenter.default.post(name: Notification.Name.presentCoaches, object: athlete)
+                                }
+                            } else {
+                                Haptics.warning()
+                                showCoachesPremiumAlert = true
+                            }
+                        }
+
+                        // 7. Seasons
                         DashboardFeatureCard(
                             icon: "calendar",
                             title: "Seasons",
                             subtitle: "\((athlete.seasons ?? []).count) Total",
                             color: .teal
                         ) {
-                            // Switch to home tab first, then present sheet
                             postSwitchTab(.home)
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                                 NotificationCenter.default.post(name: Notification.Name.presentSeasons, object: athlete)
-                            }
-                        }
-                        
-                        DashboardFeatureCard(
-                            icon: "person.3.fill",
-                            title: "Coaches",
-                            subtitle: "0 Coaches",
-                            color: .indigo
-                        ) {
-                            // Switch to home tab first, then present sheet
-                            postSwitchTab(.home)
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                                NotificationCenter.default.post(name: Notification.Name.presentCoaches, object: athlete)
                             }
                         }
                     }
@@ -3179,8 +3416,8 @@ struct DashboardView: View {
                 VStack(spacing: 16) {
                     HStack {
                         Text("Quick Stats")
-                            .font(.headline)
-                            .fontWeight(.semibold)
+                            .font(.title3)
+                            .fontWeight(.bold)
                         Spacer()
                     }
 
@@ -3212,8 +3449,8 @@ struct DashboardView: View {
                     VStack(spacing: 16) {
                         HStack {
                             Text("Recent Videos")
-                                .font(.headline)
-                                .fontWeight(.semibold)
+                                .font(.title3)
+                                .fontWeight(.bold)
                             Spacer()
                             NavigationLink {
                                 VideoClipsView(athlete: athlete)
@@ -3307,25 +3544,28 @@ struct DashboardStatCard: View {
     let value: String
     let icon: String
     let color: Color
-    
+
     var body: some View {
         VStack(spacing: 8) {
             Image(systemName: icon)
                 .font(.title2)
                 .foregroundColor(color)
-            
+                .symbolRenderingMode(.hierarchical)
+
             Text(value)
                 .font(.title3)
                 .fontWeight(.bold)
                 .foregroundColor(.primary)
+                .monospacedDigit()
                 .contentTransition(.numericText())
-            
+
             Text(title)
                 .font(.caption)
+                .fontWeight(.medium)
                 .foregroundColor(.secondary)
         }
         .frame(maxWidth: .infinity)
-        .padding()
+        .padding(.vertical, 18)
         .appCard()
         .accessibilityElement(children: .combine)
     }
@@ -3405,11 +3645,11 @@ struct DashboardGameCard: View {
         .padding(12)
         .frame(maxWidth: .infinity)
         .background(
-            RoundedRectangle(cornerRadius: 10)
+            RoundedRectangle(cornerRadius: 16)
                 .fill(game.isLive ? Color.red.opacity(0.05) : Color(.systemBackground))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 10)
+            RoundedRectangle(cornerRadius: 16)
                 .stroke(game.isLive ? Color.red.opacity(0.3) : Color(.systemGray5), lineWidth: game.isLive ? 1.5 : 1)
         )
         .contextMenu {
@@ -3462,7 +3702,7 @@ struct DashboardVideoThumbnail: View {
                 .symbolEffect(.bounce, options: .speed(0.5))
         }
         .aspectRatio(16/9, contentMode: .fit)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
         .task { await load() }
     }
 
@@ -3490,33 +3730,69 @@ struct DashboardVideoThumbnail: View {
 
 struct DashboardVideoCard: View {
     let video: VideoClip
-    
+
+    @State private var isPressed = false
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            // Video thumbnail placeholder replaced by DashboardVideoThumbnail
-            DashboardVideoThumbnail(video: video)
-                .accessibilityLabel("Video thumbnail")
-            
+            // Video thumbnail with overlay gradient
+            ZStack(alignment: .bottomLeading) {
+                DashboardVideoThumbnail(video: video)
+                    .accessibilityLabel("Video thumbnail")
+
+                // Gradient overlay for better text contrast
+                LinearGradient(
+                    colors: [.clear, .black.opacity(0.6)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+
+                // Duration or play badge overlay
+                HStack(spacing: 4) {
+                    Image(systemName: "play.fill")
+                        .font(.caption2)
+                        .foregroundColor(.white)
+                }
+                .padding(.horizontal, 6)
+                .padding(.vertical, 4)
+                .background(.ultraThinMaterial.opacity(0.8))
+                .clipShape(Capsule())
+                .padding(8)
+            }
+
             Text(video.playResult?.type.displayName ?? video.fileName)
                 .font(.subheadline)
                 .fontWeight(.medium)
                 .lineLimit(2)
                 .minimumScaleFactor(0.8)
-            
+                .foregroundColor(.primary)
+
             if let created = video.createdAt {
-                Text(created, format: .dateTime.month().day())
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                HStack(spacing: 4) {
+                    Image(systemName: "calendar")
+                        .font(.caption2)
+                    Text(created, format: .dateTime.month().day())
+                        .font(.caption)
+                }
+                .foregroundColor(.secondary)
             } else {
                 Text("—")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
         }
-        .frame(width: 140)
+        .frame(width: 150)
         .padding(8)
         .appCard()
+        .scaleEffect(isPressed ? 0.96 : 1.0)
+        .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isPressed)
         .accessibilityElement(children: .combine)
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in isPressed = true }
+                .onEnded { _ in isPressed = false }
+        )
         .contextMenu {
             Button {
                 Haptics.light()
@@ -3524,7 +3800,7 @@ struct DashboardVideoCard: View {
             } label: {
                 Label("Play", systemImage: "play.fill")
             }
-            
+
             if FileManager.default.fileExists(atPath: video.filePath) {
                 ShareLink(item: URL(fileURLWithPath: video.filePath)) {
                     Label("Share", systemImage: "square.and.arrow.up")
@@ -3542,32 +3818,46 @@ struct QuickActionButton: View {
     let title: String
     let color: Color
     let action: () -> Void
-    
+
+    @State private var isPressed = false
+
     var body: some View {
         Button(action: { Haptics.light(); action() }) {
             VStack(spacing: 8) {
                 Image(systemName: icon)
                     .font(.title2)
-                    .foregroundColor(color)
-                
+                    .foregroundColor(.white)
+                    .symbolRenderingMode(.hierarchical)
+
                 Text(title)
                     .font(.caption)
-                    .fontWeight(.medium)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.white)
                     .multilineTextAlignment(.center)
             }
             .frame(maxWidth: .infinity)
             .padding()
             .background(
                 RoundedRectangle(cornerRadius: 12)
-                    .fill(color.opacity(0.1))
+                    .fill(
+                        LinearGradient(
+                            colors: [color, color.opacity(0.8)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
             )
-            .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(color.opacity(0.3), lineWidth: 1)
-            )
+            .shadow(color: color.opacity(0.3), radius: 8, x: 0, y: 4)
         }
         .contentShape(RoundedRectangle(cornerRadius: 12))
         .buttonStyle(.plain)
+        .scaleEffect(isPressed ? 0.96 : 1.0)
+        .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isPressed)
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in isPressed = true }
+                .onEnded { _ in isPressed = false }
+        )
     }
 }
 
@@ -3600,12 +3890,15 @@ struct DashboardFeatureCard: View {
     let color: Color
     let action: () -> Void
 
+    @State private var isPressed = false
+
     var body: some View {
         Button(action: action) {
             VStack(spacing: 12) {
                 Image(systemName: icon)
-                    .font(.system(size: 28, weight: .regular))
+                    .font(.system(size: 32, weight: .medium))
                     .foregroundColor(color)
+                    .symbolRenderingMode(.hierarchical)
                     .frame(maxWidth: .infinity, alignment: .center)
 
                 Text(title)
@@ -3622,13 +3915,114 @@ struct DashboardFeatureCard: View {
                     .multilineTextAlignment(.center)
             }
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 16)
+            .padding(.vertical, 20)
+            .padding(.horizontal, 8)
         }
         .appCard()
         .accessibilityElement(children: .combine)
         .buttonStyle(.plain)
+        .scaleEffect(isPressed ? 0.96 : 1.0)
+        .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isPressed)
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in isPressed = true }
+                .onEnded { _ in isPressed = false }
+        )
         .accessibilityLabel(title)
         .accessibilityHint("Opens \(title)")
+    }
+}
+
+// MARK: - DashboardPremiumFeatureCard (Feature with Premium Badge)
+
+struct DashboardPremiumFeatureCard: View {
+    let icon: String
+    let title: String
+    let subtitle: String
+    let color: Color
+    let isPremium: Bool
+    let action: () -> Void
+
+    @State private var isPressed = false
+
+    var body: some View {
+        Button(action: action) {
+            ZStack(alignment: .topTrailing) {
+                VStack(spacing: 12) {
+                    Image(systemName: icon)
+                        .font(.system(size: 32, weight: .medium))
+                        .foregroundColor(color)
+                        .symbolRenderingMode(.hierarchical)
+                        .frame(maxWidth: .infinity, alignment: .center)
+
+                    Text(title)
+                        .font(.headline)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.primary)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.9)
+
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 20)
+                .padding(.horizontal, 8)
+
+                // Premium badge overlay (only shown for non-premium users)
+                if !isPremium {
+                    HStack(spacing: 3) {
+                        Image(systemName: "crown.fill")
+                            .font(.caption2)
+                            .fontWeight(.bold)
+                        Text("Premium")
+                            .font(.caption2)
+                            .fontWeight(.bold)
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(
+                        LinearGradient(
+                            colors: [.yellow, .orange],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .clipShape(Capsule())
+                    .shadow(color: .orange.opacity(0.4), radius: 4, x: 0, y: 2)
+                    .offset(x: -6, y: 6)
+                }
+            }
+        }
+        .appCard()
+        .overlay {
+            if !isPremium {
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(
+                        LinearGradient(
+                            colors: [.yellow.opacity(0.5), .orange.opacity(0.5)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 1.5
+                    )
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .buttonStyle(.plain)
+        .scaleEffect(isPressed ? 0.96 : 1.0)
+        .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isPressed)
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in isPressed = true }
+                .onEnded { _ in isPressed = false }
+        )
+        .accessibilityLabel(title + (isPremium ? "" : ", Premium feature"))
+        .accessibilityHint(isPremium ? "Opens \(title)" : "Requires Premium subscription")
     }
 }
 
@@ -3981,36 +4375,56 @@ struct LiveGameCard: View {
     var onEnd: (() -> Void)?
 
     @State private var isPulsing = false
+    @State private var isPressed = false
 
     var body: some View {
-        HStack(spacing: 12) {
-            // Pulsing indicator
+        HStack(spacing: 14) {
+            // Enhanced pulsing indicator with glow
             ZStack {
+                // Outer glow ring
+                Circle()
+                    .fill(Color.red.opacity(isPulsing ? 0.15 : 0.25))
+                    .frame(width: 50, height: 50)
+                    .blur(radius: 4)
+                    .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: isPulsing)
+
                 Circle()
                     .fill(Color.red.opacity(0.2))
                     .frame(width: 44, height: 44)
 
                 Circle()
-                    .fill(Color.red.opacity(isPulsing ? 0.1 : 0.3))
+                    .fill(Color.red.opacity(isPulsing ? 0.1 : 0.35))
                     .frame(width: 36, height: 36)
                     .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: isPulsing)
 
                 Image(systemName: "baseball.fill")
-                    .font(.system(size: 18))
+                    .font(.system(size: 18, weight: .semibold))
                     .foregroundColor(.red)
+                    .symbolRenderingMode(.hierarchical)
             }
             .onAppear { isPulsing = true }
 
             // Game info
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 6) {
-                    Text("LIVE")
-                        .font(.caption2)
-                        .fontWeight(.black)
-                        .foregroundColor(.red)
+                    // Animated LIVE badge
+                    HStack(spacing: 3) {
+                        Circle()
+                            .fill(Color.red)
+                            .frame(width: 6, height: 6)
+                            .opacity(isPulsing ? 0.5 : 1.0)
 
-                    Text("•")
-                        .foregroundColor(.secondary)
+                        Text("LIVE")
+                            .font(.caption2)
+                            .fontWeight(.black)
+                            .foregroundColor(.red)
+                    }
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(
+                        Capsule()
+                            .fill(Color.red.opacity(0.12))
+                    )
 
                     Text("GAME")
                         .font(.caption2)
@@ -4019,52 +4433,85 @@ struct LiveGameCard: View {
                 }
 
                 Text("vs \(game.opponent.isEmpty ? "Unknown" : game.opponent)")
-                    .font(.subheadline)
+                    .font(.body)
                     .fontWeight(.semibold)
                     .foregroundColor(.primary)
                     .lineLimit(1)
 
                 // Show stats if available
                 if let stats = game.gameStats, stats.atBats > 0 {
-                    Text("\(stats.hits)-\(stats.atBats)")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                    HStack(spacing: 4) {
+                        Image(systemName: "chart.bar.fill")
+                            .font(.caption2)
+                        Text("\(stats.hits)-\(stats.atBats)")
+                            .font(.caption)
+                            .monospacedDigit()
+                    }
+                    .foregroundColor(.secondary)
                 } else if let date = game.date {
-                    Text(date, format: .dateTime.hour().minute())
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                    HStack(spacing: 4) {
+                        Image(systemName: "clock.fill")
+                            .font(.caption2)
+                        Text(date, format: .dateTime.hour().minute())
+                            .font(.caption)
+                    }
+                    .foregroundColor(.secondary)
                 }
             }
 
             Spacer()
 
-            // End button
-            Button {
-                onEnd?()
-            } label: {
-                Text("End")
-                    .font(.caption)
-                    .fontWeight(.semibold)
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(Color.red)
-                    .clipShape(Capsule())
-            }
-            .buttonStyle(.plain)
+            VStack(spacing: 8) {
+                // End button with gradient
+                Button {
+                    Haptics.medium()
+                    onEnd?()
+                } label: {
+                    Text("End")
+                        .font(.caption)
+                        .fontWeight(.bold)
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 7)
+                        .background(
+                            LinearGradient(
+                                colors: [.red, .red.opacity(0.8)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .clipShape(Capsule())
+                        .shadow(color: .red.opacity(0.3), radius: 4, x: 0, y: 2)
+                }
+                .buttonStyle(.plain)
 
-            Image(systemName: "chevron.right")
-                .font(.caption)
-                .foregroundColor(.secondary)
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
         }
-        .padding(12)
+        .padding(16)
         .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color.red.opacity(0.08))
+            RoundedRectangle(cornerRadius: 16)
+                .fill(
+                    LinearGradient(
+                        colors: [Color.red.opacity(0.1), Color.red.opacity(0.05)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(Color.red.opacity(0.3), lineWidth: 1.5)
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(Color.red.opacity(0.4), lineWidth: 2)
+        )
+        .shadow(color: .red.opacity(0.15), radius: 8, x: 0, y: 4)
+        .scaleEffect(isPressed ? 0.98 : 1.0)
+        .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isPressed)
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in isPressed = true }
+                .onEnded { _ in isPressed = false }
         )
     }
 }

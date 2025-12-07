@@ -25,6 +25,7 @@ struct HighlightsView: View {
     @State private var sortOrder: SortOrder = .newest
     @State private var selection = Set<VideoClip.ID>()
     @State private var hasMigratedHighlights = false
+    @State private var expandedGroups = Set<UUID>()
     
     var highlights: [VideoClip] {
         guard let athlete = athlete, let videoClips = athlete.videoClips else { return [] }
@@ -54,6 +55,69 @@ struct HighlightsView: View {
             return sortOrder == .newest ? (l > r) : (l < r)
         }
         return sorted
+    }
+
+    // Group highlights by game for better organization
+    var groupedHighlights: [GameHighlightGroup] {
+        let clips = highlights
+
+        // Separate game clips and practice clips
+        var gameClips: [UUID: [VideoClip]] = [:]
+        var practiceClips: [VideoClip] = []
+
+        for clip in clips {
+            if let game = clip.game {
+                let gameID = game.id
+                gameClips[gameID, default: []].append(clip)
+            } else {
+                practiceClips.append(clip)
+            }
+        }
+
+        // Create groups for games (sorted by clips within each game)
+        var groups: [GameHighlightGroup] = gameClips.map { gameID, clips in
+            let sortedClips = clips.sorted { lhs, rhs in
+                let l = lhs.createdAt ?? .distantPast
+                let r = rhs.createdAt ?? .distantPast
+                return l < r  // Always chronological within game
+            }
+
+            return GameHighlightGroup(
+                id: gameID,
+                game: clips.first?.game,
+                clips: sortedClips,
+                isExpanded: expandedGroups.contains(gameID)
+            )
+        }
+
+        // Sort groups by game date
+        groups.sort { lhs, rhs in
+            let lDate = lhs.game?.date ?? .distantPast
+            let rDate = rhs.game?.date ?? .distantPast
+            return sortOrder == .newest ? (lDate > rDate) : (lDate < rDate)
+        }
+
+        // Add practice clips as individual groups
+        for clip in practiceClips {
+            let practiceID = clip.id
+            groups.append(GameHighlightGroup(
+                id: practiceID,
+                game: nil,
+                clips: [clip],
+                isExpanded: true  // Practice clips always expanded (single clip)
+            ))
+        }
+
+        // Auto-expand single-clip game groups
+        groups = groups.map { group in
+            var updatedGroup = group
+            if group.clips.count == 1 {
+                updatedGroup.isExpanded = true
+            }
+            return updatedGroup
+        }
+
+        return groups
     }
     
     var body: some View {
@@ -126,76 +190,42 @@ struct HighlightsView: View {
             highlightGridView
         }
     }
-    
+
     private var highlightGridView: some View {
         ScrollView {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 15, alignment: .top)], spacing: 15) {
-                ForEach(highlights) { clip in
-                    highlightItemView(for: clip)
+            LazyVStack(spacing: 20) {
+                ForEach(groupedHighlights) { group in
+                    GameHighlightSection(
+                        group: group,
+                        editMode: editMode,
+                        selection: $selection,
+                        onToggleExpand: {
+                            toggleGroupExpansion(group.id)
+                        },
+                        onClipTap: { clip in
+                            if editMode == .inactive {
+                                selectedClip = clip
+                                showingVideoPlayer = true
+                            } else {
+                                toggleSelection(clip)
+                            }
+                        },
+                        onDeleteClip: { clip in
+                            clipToDelete = clip
+                            showingDeleteAlert = true
+                        }
+                    )
                 }
             }
             .padding()
         }
     }
-    
-    private func highlightItemView(for clip: VideoClip) -> some View {
-        ZStack(alignment: .topLeading) {
-            VStack(spacing: 8) {
-                HighlightCard(
-                    clip: clip,
-                    editMode: editMode,
-                    onTap: {
-                        if editMode == .inactive {
-                            selectedClip = clip
-                            showingVideoPlayer = true
-                        } else {
-                            toggleSelection(clip)
-                        }
-                    }
-                )
-                .contextMenu {
-                    contextMenuItems(for: clip)
-                }
-                if editMode == .inactive {
-                    SimpleCloudProgressView(clip: clip)
-                }
-            }
-            if editMode == .active {
-                selectionButton(for: clip)
-            }
-        }
-    }
-    
-    @ViewBuilder
-    private func contextMenuItems(for clip: VideoClip) -> some View {
-        Button {
-            selectedClip = clip
-            showingVideoPlayer = true
-        } label: {
-            Label("Play", systemImage: "play.fill")
-        }
-        Button {
-            // Toggle highlight flag if supported
-            clip.isHighlight.toggle()
-            try? modelContext.save()
-        } label: {
-            Label(clip.isHighlight ? "Remove Highlight" : "Mark as Highlight", systemImage: "star")
-        }
-        Button(role: .destructive) {
-            clipToDelete = clip
-            showingDeleteAlert = true
-        } label: {
-            Label("Delete", systemImage: "trash")
-        }
-    }
-    
-    private func selectionButton(for clip: VideoClip) -> some View {
-        Button(action: { toggleSelection(clip) }) {
-            Image(systemName: selection.contains(clip.id) ? "checkmark.circle.fill" : "circle")
-                .symbolRenderingMode(.hierarchical)
-                .font(.title2)
-                .foregroundStyle(selection.contains(clip.id) ? .blue : .secondary)
-                .padding(8)
+
+    private func toggleGroupExpansion(_ groupID: UUID) {
+        if expandedGroups.contains(groupID) {
+            expandedGroups.remove(groupID)
+        } else {
+            expandedGroups.insert(groupID)
         }
     }
     
@@ -840,6 +870,156 @@ extension DateFormatter {
         df.timeStyle = .none
         return df
     }()
+}
+
+// MARK: - Game Highlight Group Model
+
+struct GameHighlightGroup: Identifiable {
+    let id: UUID
+    let game: Game?
+    let clips: [VideoClip]
+    var isExpanded: Bool
+
+    var displayTitle: String {
+        if let game = game {
+            return "vs \(game.opponent)"
+        } else {
+            return "Practice"
+        }
+    }
+
+    var displayDate: String {
+        if let game = game, let date = game.date {
+            return date.formatted(date: .abbreviated, time: .omitted)
+        } else if let firstClip = clips.first, let date = firstClip.createdAt {
+            return date.formatted(date: .abbreviated, time: .omitted)
+        }
+        return ""
+    }
+
+    var hitCount: Int {
+        clips.count
+    }
+}
+
+// MARK: - Game Highlight Section View
+
+struct GameHighlightSection: View {
+    let group: GameHighlightGroup
+    let editMode: EditMode
+    @Binding var selection: Set<UUID>
+    let onToggleExpand: () -> Void
+    let onClipTap: (VideoClip) -> Void
+    let onDeleteClip: (VideoClip) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Section Header (always visible)
+            if group.clips.count > 1 {
+                Button(action: {
+                    Haptics.selection()
+                    withAnimation {
+                        onToggleExpand()
+                    }
+                }) {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(group.displayTitle)
+                                .font(.headline)
+                                .foregroundColor(.primary)
+
+                            HStack(spacing: 12) {
+                                Text(group.displayDate)
+                                    .font(.subheadline)
+                                    .foregroundColor(.secondary)
+
+                                HStack(spacing: 4) {
+                                    Image(systemName: "video.fill")
+                                        .font(.caption2)
+                                    Text("\(group.hitCount) hit\(group.hitCount == 1 ? "" : "s")")
+                                        .font(.caption)
+                                }
+                                .foregroundColor(.blue)
+                            }
+                        }
+
+                        Spacer()
+
+                        Image(systemName: group.isExpanded ? "chevron.up.circle.fill" : "chevron.down.circle.fill")
+                            .font(.title3)
+                            .foregroundColor(.blue)
+                    }
+                    .padding()
+                    .background(Color(.secondarySystemBackground))
+                    .cornerRadius(12)
+                }
+                .buttonStyle(.plain)
+            }
+
+            // Clips Grid (shown when expanded or single clip)
+            if group.isExpanded {
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: 140), spacing: 15, alignment: .top)],
+                    spacing: 15
+                ) {
+                    ForEach(group.clips) { clip in
+                        highlightItemView(
+                            clip: clip,
+                            editMode: editMode,
+                            isSelected: selection.contains(clip.id),
+                            onTap: { onClipTap(clip) },
+                            onDelete: { onDeleteClip(clip) }
+                        )
+                    }
+                }
+                .padding(.leading, group.clips.count > 1 ? 12 : 0)
+            }
+        }
+    }
+
+    private func highlightItemView(
+        clip: VideoClip,
+        editMode: EditMode,
+        isSelected: Bool,
+        onTap: @escaping () -> Void,
+        onDelete: @escaping () -> Void
+    ) -> some View {
+        ZStack(alignment: .topLeading) {
+            VStack(spacing: 8) {
+                HighlightCard(
+                    clip: clip,
+                    editMode: editMode,
+                    onTap: onTap
+                )
+                .contextMenu {
+                    Button {
+                        onTap()
+                    } label: {
+                        Label("Play", systemImage: "play.fill")
+                    }
+                    Button {
+                        onDelete()
+                    } label: {
+                        Label("Delete", systemImage: "trash")
+                    }
+                }
+
+                if editMode == .inactive {
+                    SimpleCloudProgressView(clip: clip)
+                }
+            }
+
+            if editMode == .active {
+                Button(action: onTap) {
+                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                        .symbolRenderingMode(.hierarchical)
+                        .font(.title2)
+                        .foregroundStyle(isSelected ? .blue : .secondary)
+                        .padding(8)
+                }
+            }
+        }
+    }
 }
 
 #Preview {

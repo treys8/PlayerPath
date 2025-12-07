@@ -83,6 +83,12 @@ struct VideoThumbnailView: View {
     // MARK: - Body
     
     var body: some View {
+        // Defensive check to prevent zero-dimension rendering errors
+        let safeSize = CGSize(
+            width: max(size.width, 1),
+            height: max(size.height, 1)
+        )
+
         ZStack(alignment: .bottomLeading) {
             // Thumbnail Image
             Group {
@@ -90,7 +96,7 @@ struct VideoThumbnailView: View {
                     Image(uiImage: thumbnail)
                         .resizable()
                         .aspectRatio(contentMode: .fit)
-                        .frame(width: size.width, height: size.height)
+                        .frame(width: safeSize.width, height: safeSize.height)
                 } else {
                     placeholderView
                 }
@@ -156,9 +162,14 @@ struct VideoThumbnailView: View {
     // MARK: - Subviews
     
     private var placeholderView: some View {
-        Rectangle()
+        let safeSize = CGSize(
+            width: max(size.width, 1),
+            height: max(size.height, 1)
+        )
+
+        return Rectangle()
             .fill(Color.gray.opacity(0.3))
-            .frame(width: size.width, height: size.height)
+            .frame(width: safeSize.width, height: safeSize.height)
             .overlay(
                 VStack(spacing: scaledSpacing(4)) {
                     if isLoadingThumbnail {

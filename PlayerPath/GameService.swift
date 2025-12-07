@@ -120,9 +120,25 @@ class GameService {
         }
     }
 
-    func createGame(for athlete: Athlete, opponent: String, date: Date, tournament: Tournament?, isLive: Bool) async -> Result<Game, GameCreationError> {
-        // Validate athlete has an active season
-        guard athlete.activeSeason != nil else {
+    func createGame(for athlete: Athlete, opponent: String, date: Date, tournament: Tournament?, isLive: Bool, allowWithoutSeason: Bool = false) async -> Result<Game, GameCreationError> {
+        // Check if athlete has an active season
+        let hasActiveSeason = athlete.activeSeason != nil
+
+        #if DEBUG
+        print("🎮 GameService.createGame() called")
+        print("   Athlete: \(athlete.name)")
+        print("   Has active season: \(hasActiveSeason)")
+        if let season = athlete.activeSeason {
+            print("   Active season: \(season.name)")
+        }
+        print("   Allow without season: \(allowWithoutSeason)")
+        #endif
+
+        // If no active season and not explicitly allowed to create without season, return error
+        if !hasActiveSeason && !allowWithoutSeason {
+            #if DEBUG
+            print("   ❌ Returning .noActiveSeason error")
+            #endif
             return .failure(.noActiveSeason)
         }
 
@@ -146,7 +162,7 @@ class GameService {
         let game = Game(date: date, opponent: opponent)
         game.isLive = isLive
         game.athlete = athlete
-        game.season = athlete.activeSeason
+        game.season = athlete.activeSeason // Will be nil if no active season
 
         if let tournament = tournament {
             game.tournament = tournament
@@ -165,7 +181,8 @@ class GameService {
             try modelContext.save()
 
             #if DEBUG
-            print("✅ Game created: \(opponent) (live: \(isLive), season: \(game.season?.name ?? "none"))")
+            let seasonInfo = game.season?.name ?? "year \(game.year ?? 0)"
+            print("✅ Game created: \(opponent) (live: \(isLive), tracking: \(seasonInfo))")
             #endif
 
             NotificationCenter.default.post(name: Notification.Name("GameCreated"), object: game)

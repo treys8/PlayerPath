@@ -216,12 +216,19 @@ class VideoFileManager {
         }
         
         logger.info("Generating thumbnail for video: \(videoURL.path, privacy: .public)")
-        
+
         do {
             let asset = AVURLAsset(url: videoURL)
             let imageGenerator = AVAssetImageGenerator(asset: asset)
             imageGenerator.appliesPreferredTrackTransform = true
-            imageGenerator.maximumSize = size ?? Constants.thumbnailSize
+
+            // Ensure thumbnail size is valid (prevent zero-dimension errors)
+            let requestedSize = size ?? Constants.thumbnailSize
+            let safeSize = CGSize(
+                width: max(requestedSize.width, 1),
+                height: max(requestedSize.height, 1)
+            )
+            imageGenerator.maximumSize = safeSize
             
             // Check for cancellation before expensive operation
             guard !Task.isCancelled else {
@@ -248,8 +255,7 @@ class VideoFileManager {
             }
             
             let baseImage = UIImage(cgImage: cgImage)
-            let finalSize = size ?? Constants.thumbnailSize
-            let image = normalizedThumbnail(baseImage, size: finalSize)
+            let image = normalizedThumbnail(baseImage, size: safeSize)
 
             // Check for cancellation before saving
             guard !Task.isCancelled else {
