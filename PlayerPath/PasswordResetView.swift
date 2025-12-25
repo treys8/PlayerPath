@@ -186,7 +186,7 @@ struct PasswordResetView: View {
                             
                             Button("contact support") {
                                 // Open email or support URL
-                                if let url = URL(string: "mailto:support@playerpath.com") {
+                                if let url = URL(string: "mailto:\(AuthConstants.supportEmail)") {
                                     UIApplication.shared.open(url)
                                 }
                             }

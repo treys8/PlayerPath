@@ -15,8 +15,10 @@ import Combine
 final class AppleSignInManager: NSObject, ObservableObject {
     @Published var isLoading = false
     @Published var errorMessage: String?
-    
+
     private var currentNonce: String?
+    private var nonceTimestamp: Date?
+    private let nonceExpirationSeconds: TimeInterval = 300 // 5 minutes
     private var authManager: ComprehensiveAuthManager?
     
     func configure(with authManager: ComprehensiveAuthManager) {
@@ -32,15 +34,17 @@ final class AppleSignInManager: NSObject, ObservableObject {
     func signInWithApple() {
         isLoading = true
         errorMessage = nil
-        
+
+        // Generate nonce and timestamp for security
         let nonce = randomNonceString()
         currentNonce = nonce
-        
+        nonceTimestamp = Date()
+
         let appleIDProvider = ASAuthorizationAppleIDProvider()
         let request = appleIDProvider.createRequest()
         request.requestedScopes = [.fullName, .email]
         request.nonce = sha256(nonce)
-        
+
         let authorizationController = ASAuthorizationController(authorizationRequests: [request])
         authorizationController.delegate = self
         authorizationController.presentationContextProvider = self
@@ -127,6 +131,21 @@ extension AppleSignInManager: ASAuthorizationControllerDelegate {
                     }
                     return
                 }
+
+                // Validate nonce expiration for security
+                if let timestamp = nonceTimestamp {
+                    let elapsed = Date().timeIntervalSince(timestamp)
+                    if elapsed > nonceExpirationSeconds {
+                        await MainActor.run {
+                            errorMessage = "Sign in request expired. Please try again."
+                            isLoading = false
+                            currentNonce = nil
+                            nonceTimestamp = nil
+                        }
+                        print("🔴 Apple Sign In nonce expired after \(elapsed) seconds")
+                        return
+                    }
+                }
                 
                 guard let appleIDToken = appleIDCredential.identityToken else {
                     await MainActor.run {
@@ -175,6 +194,7 @@ extension AppleSignInManager: ASAuthorizationControllerDelegate {
                     authManager?.updateCurrentUser(result.user, isNewUser: isNewUser)
                     isLoading = false
                     currentNonce = nil // Clear nonce after successful use
+                    nonceTimestamp = nil
                     print("🟢 Apple Sign In successful for: \(result.user.email ?? "unknown")")
                     HapticManager.shared.authenticationSuccess()
                 }
@@ -182,6 +202,7 @@ extension AppleSignInManager: ASAuthorizationControllerDelegate {
             } catch {
                 await MainActor.run {
                     currentNonce = nil // Clear nonce on error too
+                    nonceTimestamp = nil
                     errorMessage = "Apple Sign In failed: \(error.localizedDescription)"
                     isLoading = false
                     print("🔴 Apple Sign In error: \(error.localizedDescription)")
@@ -193,8 +214,9 @@ extension AppleSignInManager: ASAuthorizationControllerDelegate {
     func authorizationController(controller: ASAuthorizationController, didCompleteWithError error: Error) {
         Task { @MainActor in
             currentNonce = nil // Clear nonce on cancellation/error
+            nonceTimestamp = nil
             let authError = error as NSError
-            
+
             // Don't show error if user cancelled
             if authError.code == ASAuthorizationError.canceled.rawValue {
                 print("User cancelled Apple Sign In")
@@ -202,7 +224,7 @@ extension AppleSignInManager: ASAuthorizationControllerDelegate {
                 errorMessage = "Apple Sign In failed: \(error.localizedDescription)"
                 print("🔴 Apple Sign In error: \(error.localizedDescription)")
             }
-            
+
             isLoading = false
         }
     }
@@ -232,10 +254,14 @@ extension AppleSignInManager: ASAuthorizationControllerPresentationContextProvid
             print("⚠️ Creating fallback window with scene for Apple Sign In")
             return UIWindow(windowScene: windowScene)
         }
-        
-        // If absolutely no window scene exists (very rare), fail gracefully
-        print("⚠️ No window scene available for Apple Sign In presentation - authentication will fail")
-        fatalError("No UIWindowScene available for Apple Sign In. This should not happen in a properly configured app.")
+
+        // Absolute last resort: create a basic window without a scene
+        // This is deprecated but prevents a crash in the extremely rare case where no scenes exist
+        print("❌ No window scene available, creating basic UIWindow for Apple Sign In")
+        #if DEBUG
+        assertionFailure("No window scene available - app may be in an invalid state")
+        #endif
+        return UIWindow(frame: UIScreen.main.bounds)
     }
 }
 

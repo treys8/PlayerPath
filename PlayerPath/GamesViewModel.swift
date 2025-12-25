@@ -125,6 +125,10 @@ final class GamesViewModel: ObservableObject {
         game.isLive = isLive
         game.athlete = athlete
 
+        #if DEBUG
+        print("🎮 Creating game: '\(opponent)' | isLive: \(isLive)")
+        #endif
+
         let stats = GameStatistics()
         game.gameStats = stats
         stats.game = game
@@ -138,7 +142,9 @@ final class GamesViewModel: ObservableObject {
 
         do {
             try modelContext.save()
-            print("✅ Game created on main context")
+            #if DEBUG
+            print("✅ Game created on main context | Opponent: '\(opponent)' | isLive after save: \(game.isLive)")
+            #endif
         } catch {
             print("❌ Error: \(error)")
             onError("Failed to save game. Please try again.")

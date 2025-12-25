@@ -11,7 +11,7 @@ import Charts
 
 struct StatisticsView: View {
     let athlete: Athlete?
-    
+
     enum ActiveSheet: Identifiable {
         case quickEntry(Game)
         case gameSelection
@@ -25,21 +25,93 @@ struct StatisticsView: View {
         }
     }
     @State private var activeSheet: ActiveSheet?
-    
-    var statistics: AthleteStatistics? {
-        athlete?.statistics
+    @State private var selectedSeasonFilter: String? = nil // nil = All Seasons (Career)
+
+    // Get all available seasons (active + archived)
+    private var availableSeasons: [Season] {
+        var seasons: [Season] = []
+        if let activeSeason = athlete?.activeSeason {
+            seasons.append(activeSeason)
+        }
+        seasons.append(contentsOf: athlete?.archivedSeasons ?? [])
+        return seasons.sorted { ($0.startDate ?? Date.distantPast) > ($1.startDate ?? Date.distantPast) }
     }
-    
+
+    // Get statistics based on selected filter
+    var statistics: AthleteStatistics? {
+        if let seasonID = selectedSeasonFilter {
+            // Show specific season statistics
+            if let season = availableSeasons.first(where: { $0.id.uuidString == seasonID }) {
+                return season.seasonStatistics
+            }
+            return nil
+        } else {
+            // Show career statistics
+            return athlete?.statistics
+        }
+    }
+
     var currentLiveGame: Game? {
         athlete?.games?.first(where: { $0.isLive })
     }
-    
+
     var hasLiveGame: Bool { currentLiveGame != nil }
-    
+
+    @State private var showingExportOptions = false
+    @State private var exportedFileURL: URL?
+    @State private var showingShareSheet = false
+    @State private var exportError: String?
+    @State private var showingExportError = false
+    @State private var showingSeasonComparison = false
+
     var body: some View {
         contentView
             .navigationTitle("Statistics")
             .navigationBarTitleDisplayMode(.large)
+            .toolbar {
+                if statistics != nil, let ath = athlete {
+                    // Compare seasons button
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button {
+                            showingSeasonComparison = true
+                        } label: {
+                            Label("Compare Seasons", systemImage: "chart.line.uptrend.xyaxis")
+                        }
+                        .accessibilityLabel("Compare seasons")
+                    }
+
+                    // Season filter
+                    if !availableSeasons.isEmpty {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            SeasonFilterMenu(
+                                selectedSeasonID: $selectedSeasonFilter,
+                                availableSeasons: availableSeasons,
+                                showNoSeasonOption: false
+                            )
+                        }
+                    }
+
+                    // Export menu
+                    ToolbarItem(placement: .primaryAction) {
+                        Menu {
+                            Button {
+                                exportCSV(athlete: ath)
+                            } label: {
+                                Label("Export as CSV", systemImage: "doc.text")
+                            }
+
+                            Button {
+                                exportPDF(athlete: ath)
+                            } label: {
+                                Label("Export as PDF", systemImage: "doc.richtext")
+                            }
+                        } label: {
+                            Image(systemName: "square.and.arrow.up")
+                        }
+                        .accessibilityLabel("Export statistics")
+                    }
+                }
+            }
             .sheet(item: $activeSheet) { item in
                 switch item {
                 case .quickEntry(let game):
@@ -48,6 +120,59 @@ struct StatisticsView: View {
                     GameSelectionForStatsView(athlete: athlete)
                 }
             }
+            .sheet(isPresented: $showingShareSheet) {
+                if let url = exportedFileURL {
+                    ShareSheet(items: [url])
+                }
+            }
+            .sheet(isPresented: $showingSeasonComparison) {
+                if let ath = athlete {
+                    SeasonComparisonView(athlete: ath)
+                }
+            }
+            .alert("Export Error", isPresented: $showingExportError) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(exportError ?? "Failed to export statistics")
+            }
+    }
+
+    private func exportCSV(athlete: Athlete) {
+        guard let stats = statistics else { return }
+
+        let result = StatisticsExportService.exportToCSV(athlete: athlete, stats: stats)
+
+        switch result {
+        case .success(let url):
+            exportedFileURL = url
+            showingShareSheet = true
+            Haptics.success()
+        case .failure(let error):
+            exportError = error.localizedDescription
+            showingExportError = true
+            Haptics.warning()
+        }
+    }
+
+    private func exportPDF(athlete: Athlete) {
+        guard let stats = statistics else { return }
+
+        let result = StatisticsExportService.exportToPDF(
+            athlete: athlete,
+            stats: stats,
+            season: athlete.activeSeason
+        )
+
+        switch result {
+        case .success(let url):
+            exportedFileURL = url
+            showingShareSheet = true
+            Haptics.success()
+        case .failure(let error):
+            exportError = error.localizedDescription
+            showingExportError = true
+            Haptics.warning()
+        }
     }
     
     @ViewBuilder
@@ -63,16 +188,33 @@ struct StatisticsView: View {
                         },
                         showGameSelection: { activeSheet = .gameSelection }
                     )
-                    
-                    // Key Statistics Cards
-                    KeyStatsSection(statistics: stats)
-                    
+
+                    // Show different stats based on filter
+                    if selectedSeasonFilter == nil {
+                        // Career view - show comparison if active season exists
+                        if let activeSeason = athlete?.activeSeason,
+                           let seasonStats = activeSeason.seasonStatistics,
+                           let careerStats = athlete?.statistics {
+                            CareerSeasonComparisonSection(
+                                careerStats: careerStats,
+                                seasonStats: seasonStats,
+                                seasonName: activeSeason.displayName
+                            )
+                        } else {
+                            // Just show career stats
+                            KeyStatsSection(statistics: stats)
+                        }
+                    } else {
+                        // Specific season view - show season stats only
+                        KeyStatsSection(statistics: stats)
+                    }
+
                     // Batting Chart
                     BattingChartSection(statistics: stats)
-                    
+
                     // Detailed Statistics
                     DetailedStatsSection(statistics: stats)
-                    
+
                     // Play Results Breakdown
                     PlayResultsSection(statistics: stats)
                 }
@@ -94,41 +236,74 @@ struct EmptyStatisticsView: View {
     let isQuickEntryEnabled: Bool
     let showQuickEntry: () -> Void
     let showGameSelection: () -> Void
-    
+    @Environment(\.dismiss) private var dismiss
+
     var body: some View {
         VStack(spacing: 30) {
             Image(systemName: "chart.bar")
                 .font(.system(size: 80))
                 .foregroundColor(.blue)
-            
+
             Text("No Statistics Yet")
                 .font(.title)
                 .fontWeight(.bold)
-            
+
             Text("Record plays to start building your stats")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
-            
+                .padding(.horizontal)
+
             VStack(spacing: 12) {
-                Button(action: { showQuickEntry() }) {
-                    Label("Record Live Game Stats", systemImage: "chart.bar.doc.horizontal.fill")
-                        .frame(maxWidth: .infinity)
+                if isQuickEntryEnabled {
+                    Button(action: {
+                        Haptics.light()
+                        showQuickEntry()
+                    }) {
+                        Label("Record Live Game Stats", systemImage: "chart.bar.doc.horizontal.fill")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.green)
+
+                    Button(action: {
+                        Haptics.light()
+                        showGameSelection()
+                    }) {
+                        Label("Add Past Game Statistics", systemImage: "plus.circle.fill")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                } else {
+                    // No live game - prioritize going to Games to create one
+                    Button {
+                        Haptics.light()
+                        NotificationCenter.default.post(name: .switchToGamesTab, object: nil)
+                        dismiss()
+                    } label: {
+                        Label("Go to Games", systemImage: "baseball.fill")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+
+                    Button(action: {
+                        Haptics.light()
+                        showGameSelection()
+                    }) {
+                        Label("Add Past Game Statistics", systemImage: "plus.circle.fill")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(.green)
-                .disabled(!isQuickEntryEnabled)
-                
-                Button(action: { showGameSelection() }) {
-                    Label("Add Past Game Statistics", systemImage: "plus.circle.fill")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
             }
             .padding(.horizontal)
         }
         .padding()
     }
+}
+
+extension Notification.Name {
+    static let switchToGamesTab = Notification.Name("switchToGamesTab")
 }
 
 // MARK: - Manual Entry Section
@@ -228,15 +403,124 @@ struct ManualEntrySection: View {
     }
 }
 
+// MARK: - Career vs Season Comparison Section (NEW)
+struct CareerSeasonComparisonSection: View {
+    let careerStats: AthleteStatistics
+    let seasonStats: AthleteStatistics
+    let seasonName: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 15) {
+            Text("Statistics Comparison")
+                .font(.headline)
+                .fontWeight(.bold)
+
+            // Batting Average Comparison
+            ComparisonStatCard(
+                title: "Batting Average",
+                careerValue: formatBattingAverage(careerStats.battingAverage),
+                seasonValue: formatBattingAverage(seasonStats.battingAverage),
+                careerSubtitle: "Career: \(careerStats.hits)/\(careerStats.atBats)",
+                seasonSubtitle: "\(seasonName): \(seasonStats.hits)/\(seasonStats.atBats)",
+                color: .blue
+            )
+
+            // On-Base Percentage Comparison
+            ComparisonStatCard(
+                title: "On-Base Percentage",
+                careerValue: formatThreeDecimal(careerStats.onBasePercentage),
+                seasonValue: formatThreeDecimal(seasonStats.onBasePercentage),
+                careerSubtitle: "Career Walks: \(careerStats.walks)",
+                seasonSubtitle: "\(seasonName) Walks: \(seasonStats.walks)",
+                color: .green
+            )
+
+            // Slugging Percentage Comparison
+            ComparisonStatCard(
+                title: "Slugging Percentage",
+                careerValue: formatBattingAverage(careerStats.sluggingPercentage),
+                seasonValue: formatBattingAverage(seasonStats.sluggingPercentage),
+                careerSubtitle: "Career Total Bases",
+                seasonSubtitle: "\(seasonName) Total Bases",
+                color: .orange
+            )
+
+            // Games Played Comparison
+            ComparisonStatCard(
+                title: "Games Played",
+                careerValue: "\(careerStats.totalGames)",
+                seasonValue: "\(seasonStats.totalGames)",
+                careerSubtitle: "All Time",
+                seasonSubtitle: seasonName,
+                color: .purple
+            )
+        }
+    }
+}
+
+struct ComparisonStatCard: View {
+    let title: String
+    let careerValue: String
+    let seasonValue: String
+    let careerSubtitle: String
+    let seasonSubtitle: String
+    let color: Color
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.subheadline)
+                .fontWeight(.semibold)
+                .foregroundColor(.secondary)
+
+            HStack(spacing: 12) {
+                // Career Stats
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Career")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text(careerValue)
+                        .font(.title2)
+                        .fontWeight(.bold)
+                        .foregroundColor(color)
+                    Text(careerSubtitle)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                Divider()
+
+                // Season Stats
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("This Season")
+                        .font(.caption)
+                        .foregroundColor(.blue)
+                    Text(seasonValue)
+                        .font(.title2)
+                        .fontWeight(.bold)
+                        .foregroundColor(color)
+                    Text(seasonSubtitle)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .padding()
+        .statCardBackground()
+    }
+}
+
 struct KeyStatsSection: View {
     let statistics: AthleteStatistics
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 15) {
             Text("Key Statistics")
                 .font(.headline)
                 .fontWeight(.bold)
-            
+
             LazyVGrid(columns: [
                 GridItem(.flexible()),
                 GridItem(.flexible())
@@ -247,21 +531,21 @@ struct KeyStatsSection: View {
                     color: .blue,
                     subtitle: "\(statistics.hits)/\(statistics.atBats)"
                 )
-                
+
                 StatCard(
                     title: "On-Base %",
                     value: formatThreeDecimal(statistics.onBasePercentage),
                     color: .green,
                     subtitle: "Walks: \(statistics.walks)"
                 )
-                
+
                 StatCard(
                     title: "Slugging %",
                     value: formatBattingAverage(statistics.sluggingPercentage),
                     color: .orange,
                     subtitle: "Total Bases"
                 )
-                
+
                 StatCard(
                     title: "Games Played",
                     value: "\(statistics.totalGames)",

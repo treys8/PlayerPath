@@ -19,6 +19,7 @@ struct CoachDashboardView: View {
     @ObservedObject private var invitationManager = CoachInvitationManager.shared
     @State private var selectedTab: CoachTab = .myAthletes
     @State private var loadTask: Task<Void, Never>?
+    @State private var notificationCancellable: AnyCancellable?
 
     enum CoachTab: String, CaseIterable {
         case myAthletes = "My Athletes"
@@ -68,16 +69,24 @@ struct CoachDashboardView: View {
                 }
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
-            Task {
-                guard !Task.isCancelled else { return }
-                if let coachEmail = authManager.userEmail {
-                    await invitationManager.checkPendingInvitations(forCoachEmail: coachEmail)
+        .onAppear {
+            // Set up notification observer for app becoming active
+            notificationCancellable = NotificationCenter.default
+                .publisher(for: UIApplication.didBecomeActiveNotification)
+                .sink { _ in
+                    Task {
+                        guard !Task.isCancelled else { return }
+                        if let coachEmail = authManager.userEmail {
+                            await invitationManager.checkPendingInvitations(forCoachEmail: coachEmail)
+                        }
+                    }
                 }
-            }
         }
         .onDisappear {
+            // Cancel all subscriptions and tasks
             loadTask?.cancel()
+            notificationCancellable?.cancel()
+            notificationCancellable = nil
         }
     }
 
@@ -451,34 +460,30 @@ class CoachInvitationManager: ObservableObject {
     }
 
     private func fetchPendingInvitations(for email: String) async throws -> [CoachInvitation] {
-        // TODO: Implement actual Firestore query
-        // For now, return empty array - this should query:
-        // db.collection("coachInvitations")
-        //   .whereField("coachEmail", isEqualTo: email)
-        //   .whereField("status", isEqualTo: "pending")
-        //   .getDocuments()
-
-        return []
+        // Query Firestore for pending invitations
+        return try await FirestoreManager.shared.fetchPendingInvitations(forEmail: email)
     }
 
     @MainActor
     func acceptInvitation(_ invitation: CoachInvitation) async throws {
-        // TODO: Implement acceptance logic
-        // 1. Update invitation status to "accepted"
-        // 2. Add coach ID to folder's sharedWithCoachIDs array
-        // 3. Add permissions to folder
-        // 4. Refresh pending invitations
+        // Accept the invitation via SharedFolderManager
+        try await SharedFolderManager.shared.acceptInvitation(invitation)
 
+        // Refresh pending invitations
         await checkPendingInvitations(forCoachEmail: invitation.coachEmail)
+
+        Haptics.success()
     }
 
     @MainActor
     func declineInvitation(_ invitation: CoachInvitation) async throws {
-        // TODO: Implement decline logic
-        // 1. Update invitation status to "declined"
-        // 2. Refresh pending invitations
+        // Decline the invitation via SharedFolderManager
+        try await SharedFolderManager.shared.declineInvitation(invitation)
 
+        // Refresh pending invitations
         await checkPendingInvitations(forCoachEmail: invitation.coachEmail)
+
+        Haptics.light()
     }
 }
 

@@ -18,7 +18,8 @@ struct PracticesView: View {
     @State private var showingAddPractice = false
     @State private var selectedPractice: Practice?
     @State private var searchText: String = ""
-    
+    @State private var selectedSeasonFilter: String? = nil
+
     var practices: [Practice] {
         (athlete?.practices ?? []).sorted { (lhs, rhs) in
             let l = lhs.date ?? .distantPast
@@ -26,15 +27,72 @@ struct PracticesView: View {
             return l > r
         }
     }
-    
+
+    // Get all unique seasons from practices
+    private var availableSeasons: [Season] {
+        let seasons = (athlete?.practices ?? []).compactMap { $0.season }
+        let uniqueSeasons = Array(Set(seasons))
+        return uniqueSeasons.sorted { ($0.startDate ?? Date.distantPast) > ($1.startDate ?? Date.distantPast) }
+    }
+
+    // Check if filters are active
+    private var hasActiveFilters: Bool {
+        selectedSeasonFilter != nil ||
+        !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    // Check if we have any practices at all (before filtering)
+    private var hasAnyPractices: Bool {
+        !(athlete?.practices?.isEmpty ?? true)
+    }
+
     var filteredPractices: [Practice] {
-        let items: [Practice] = practices
+        var items: [Practice] = practices
+
+        // Filter by season
+        if let seasonFilter = selectedSeasonFilter {
+            items = items.filter { practice in
+                if seasonFilter == "no_season" {
+                    return practice.season == nil
+                } else {
+                    return practice.season?.id.uuidString == seasonFilter
+                }
+            }
+        }
+
+        // Filter by search text
         let trimmed: String = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return items }
 
         let q: String = trimmed.lowercased()
         return items.filter { practice in
             matchesSearch(practice, query: q)
+        }
+    }
+
+    private var filterDescription: String {
+        var parts: [String] = []
+
+        if let seasonID = selectedSeasonFilter {
+            if seasonID == "no_season" {
+                parts.append("season: None")
+            } else if let season = availableSeasons.first(where: { $0.id.uuidString == seasonID }) {
+                parts.append("season: \(season.displayName)")
+            }
+        }
+
+        if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            parts.append("search: \"\(searchText)\"")
+        }
+
+        return parts.isEmpty ? "your filters" : parts.joined(separator: ", ")
+    }
+
+    private func clearAllFilters() {
+        Haptics.light()
+        withAnimation {
+            selectedSeasonFilter = nil
+            searchText = ""
         }
     }
     
@@ -62,8 +120,17 @@ struct PracticesView: View {
         Group {
             VStack {
                 if filteredPractices.isEmpty {
-                    EmptyPracticesView {
-                        showingAddPractice = true
+                    if hasActiveFilters && hasAnyPractices {
+                        // Filtered empty state
+                        FilteredEmptyStateView(
+                            filterDescription: filterDescription,
+                            onClearFilters: clearAllFilters
+                        )
+                    } else {
+                        // True empty state
+                        EmptyPracticesView {
+                            showingAddPractice = true
+                        }
                     }
                 } else {
                     List {
@@ -73,6 +140,9 @@ struct PracticesView: View {
                             }
                         }
                         .onDelete { offsets in deletePracticesFromFiltered(offsets: offsets) }
+                    }
+                    .refreshable {
+                        await refreshPractices()
                     }
                 }
             }
@@ -88,9 +158,21 @@ struct PracticesView: View {
                 }
                 .accessibilityLabel("Add Practice")
             }
-            
+
+            // Season filter
             if !practices.isEmpty {
                 ToolbarItem(placement: .topBarLeading) {
+                    SeasonFilterMenu(
+                        selectedSeasonID: $selectedSeasonFilter,
+                        availableSeasons: availableSeasons,
+                        showNoSeasonOption: (athlete?.practices ?? []).contains(where: { $0.season == nil })
+                    )
+                }
+            }
+
+            // Edit button
+            if !practices.isEmpty {
+                ToolbarItem(placement: .topBarTrailing) {
                     EditButton()
                 }
             }
@@ -153,6 +235,14 @@ struct PracticesView: View {
         let toDelete = practices.filter { idsToDelete.contains($0.persistentModelID) }
         for practice in toDelete { deleteSinglePractice(practice) }
     }
+
+    @MainActor
+    private func refreshPractices() async {
+        Haptics.light()
+        // Practices automatically refresh via SwiftData @Query
+        // Small delay for haptic feedback
+        try? await Task.sleep(nanoseconds: 300_000_000)
+    }
 }
 
 struct PracticeListRow: View {
@@ -200,7 +290,7 @@ struct EmptyPracticesView: View {
 
 struct PracticeRow: View {
     let practice: Practice
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack {
@@ -209,9 +299,13 @@ struct PracticeRow: View {
                     .fontWeight(.semibold)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
-                
+
+                if let season = practice.season {
+                    SeasonBadge(season: season, fontSize: 8)
+                }
+
                 Spacer()
-                
+
                 HStack(spacing: 6) {
                     Label("\((practice.videoClips ?? []).count)", systemImage: "video.fill")
                         .labelStyle(.iconOnly)
@@ -224,7 +318,7 @@ struct PracticeRow: View {
                         .clipShape(Capsule())
                 }
             }
-            
+
             if !(practice.notes ?? []).isEmpty {
                 HStack(spacing: 6) {
                     Image(systemName: "note.text")

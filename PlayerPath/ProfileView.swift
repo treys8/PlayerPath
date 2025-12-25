@@ -658,7 +658,7 @@ struct HelpSupportView: View {
             }
 
             Section("Contact") {
-                if let emailURL = URL(string: "mailto:support@playerpath.app") {
+                if let emailURL = URL(string: "mailto:\(AuthConstants.supportEmail)") {
                     Link("Email Support", destination: emailURL)
                 }
                 if let websiteURL = URL(string: "https://playerpath.app") {

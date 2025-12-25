@@ -28,6 +28,8 @@ struct PlayResultOverlayView: View {
     @State private var isPlaying = true
     @State private var videoMetadata: VideoMetadata?
     @State private var metadataTask: Task<Void, Never>?
+    @State private var isLooping = false
+    @State private var hasLooped = false
     
     init(videoURL: URL, athlete: Athlete?, game: Game? = nil, practice: Practice? = nil, onSave: @escaping (PlayResultType?) -> Void, onCancel: @escaping () -> Void) {
         self.videoURL = videoURL
@@ -52,20 +54,45 @@ struct PlayResultOverlayView: View {
                                 player.play()
                                 isPlaying = true
                                 loadVideoMetadata()
+                                addVideoEndObserver()
                             }
                             .onDisappear {
                                 player.pause()
                                 player.replaceCurrentItem(with: nil)
                                 isPlaying = false
-                                metadataTask?.cancel()
+                                if let task = metadataTask {
+                                    task.cancel()
+                                    metadataTask = nil
+                                }
+                                removeVideoEndObserver()
                             }
                         
-                        // Video metadata badge
-                        if let metadata = videoMetadata {
-                            VideoMetadataView(metadata: metadata)
-                                .padding(16)
-                                .padding(.top, 60) // Position higher and make room for toolbar
+                        // Video metadata badge and replay indicator
+                        VStack(alignment: .trailing, spacing: 8) {
+                            if let metadata = videoMetadata {
+                                VideoMetadataView(metadata: metadata)
+                            }
+
+                            if hasLooped {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "arrow.triangle.2.circlepath")
+                                        .font(.system(size: 10))
+                                    Text("Replaying")
+                                        .font(.system(size: 11, weight: .semibold))
+                                }
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 6)
+                                .background(
+                                    Capsule()
+                                        .fill(Color.orange.opacity(0.9))
+                                )
+                                .shadow(radius: 2)
+                                .transition(.scale.combined(with: .opacity))
+                            }
                         }
+                        .padding(16)
+                        .padding(.top, 60) // Position higher and make room for toolbar
                     }
                     
                     Button {
@@ -424,12 +451,6 @@ struct PlayResultOverlayView: View {
             } message: {
                 Text("Save this play as a \(selectedResult?.displayName ?? "play")?")
             }
-            .onChange(of: showingConfirmation) { _, isShowing in
-                if isShowing {
-                    player.pause()
-                    isPlaying = false
-                }
-            }
         }
     }
 }
@@ -585,6 +606,35 @@ struct MetadataBadge: View {
 }
 
 extension PlayResultOverlayView {
+    private func addVideoEndObserver() {
+        NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime,
+            object: player.currentItem,
+            queue: .main
+        ) { [self] _ in
+            hasLooped = true
+            isLooping = true
+
+            // Auto-hide replay indicator after 3 seconds
+            Task {
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                await MainActor.run {
+                    withAnimation {
+                        hasLooped = false
+                    }
+                }
+            }
+        }
+    }
+
+    private func removeVideoEndObserver() {
+        NotificationCenter.default.removeObserver(
+            self,
+            name: .AVPlayerItemDidPlayToEndTime,
+            object: player.currentItem
+        )
+    }
+
     private func loadVideoMetadata() {
         guard videoMetadata == nil else { return }
 

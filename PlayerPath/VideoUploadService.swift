@@ -11,6 +11,7 @@ import SwiftUI
 import Combine
 import CloudKit
 import AVFoundation
+import FirebaseAuth
 import os.log
 
 @MainActor
@@ -57,10 +58,36 @@ class VideoUploadService: ObservableObject {
         uploadProgress = 0.0
 
         return await errorHandler.withErrorHandling(context: "Video cloud upload", canRetry: true) {
-            // TODO: Implement actual upload when VideoCloudManager is functional
-            // For now, this is a placeholder that should be replaced with real implementation
+            // Validate user authentication before upload
+            guard let user = Auth.auth().currentUser else {
+                throw PlayerPathError.authenticationRequired
+            }
 
-            throw PlayerPathError.videoUploadFailed(reason: "Upload functionality not yet implemented. Please check back in a future update.")
+            #if DEBUG
+            print("🔐 VideoUploadService: Authenticated user: \(user.uid)")
+            #endif
+
+            // Generate unique filename for the video
+            let fileName = "\(UUID().uuidString).mov"
+
+            // Use user-specific folder ID for better organization
+            let folderID = "athlete_videos/\(user.uid)"
+
+            // Upload with progress tracking
+            let downloadURL = try await cloudManager.uploadVideo(
+                localURL: localURL,
+                fileName: fileName,
+                folderID: folderID,
+                progressHandler: { [weak self] progress in
+                    self?.uploadProgress = progress
+                }
+            )
+
+            #if DEBUG
+            print("✅ VideoUploadService: Upload completed - \(downloadURL)")
+            #endif
+
+            return downloadURL
         }
     }
     

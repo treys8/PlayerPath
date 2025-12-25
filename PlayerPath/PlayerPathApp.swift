@@ -33,10 +33,10 @@ extension EnvironmentValues {
 struct PlayerPathApp: App {
     @UIApplicationDelegateAdaptor(PlayerPathAppDelegate.self) var appDelegate
     @Environment(\.scenePhase) private var scenePhase
-    
+
     // State for handling notification-based navigation
     @State private var navigationCoordinator = NavigationCoordinator()
-    
+
     // Initialize Firebase before anything else
     init() {
         // Configure Firebase as early as possible
@@ -50,56 +50,43 @@ struct PlayerPathApp: App {
     
     var body: some Scene {
         WindowGroup {
-            PlayerPathMainView()
-                .environment(\.navigationCoordinator, navigationCoordinator)
-                .onReceive(NotificationCenter.default.publisher(for: .navigateToStatistics)) { (notification: Notification) in
-                    if let athleteId = notification.object as? String {
-                        #if DEBUG
-                        print("🔔 Received navigateToStatistics for id: \(athleteId)")
-                        #endif
-                        Haptics.light()
-                        navigationCoordinator.selectedAthleteId = athleteId
-                        navigationCoordinator.showStatistics = true
-                        // Handlers in views should call navigationCoordinator.resetNavigation() after navigating.
+            ScenePhaseSaveHandler(scenePhase: scenePhase) {
+                PlayerPathMainView()
+                    .environment(\.navigationCoordinator, navigationCoordinator)
+                    .onReceive(NotificationCenter.default.publisher(for: .navigateToStatistics)) { (notification: Notification) in
+                        if let athleteId = notification.object as? String {
+                            #if DEBUG
+                            print("🔔 Received navigateToStatistics for id: \(athleteId)")
+                            #endif
+                            Haptics.light()
+                            navigationCoordinator.selectedAthleteId = athleteId
+                            navigationCoordinator.showStatistics = true
+                            // Handlers in views should call navigationCoordinator.resetNavigation() after navigating.
+                        }
                     }
-                }
-                .onReceive(NotificationCenter.default.publisher(for: .startRecordingForGame)) { (notification: Notification) in
-                    if let gameId = notification.object as? String {
-                        #if DEBUG
-                        print("🔔 Received startRecordingForGame for id: \(gameId)")
-                        #endif
-                        Haptics.light()
-                        navigationCoordinator.selectedGameId = gameId
-                        navigationCoordinator.showVideoRecorder = true
-                        // Handlers in views should call navigationCoordinator.resetNavigation() after navigating.
+                    .onReceive(NotificationCenter.default.publisher(for: .startRecordingForGame)) { (notification: Notification) in
+                        if let gameId = notification.object as? String {
+                            #if DEBUG
+                            print("🔔 Received startRecordingForGame for id: \(gameId)")
+                            #endif
+                            Haptics.light()
+                            navigationCoordinator.selectedGameId = gameId
+                            navigationCoordinator.showVideoRecorder = true
+                            // Handlers in views should call navigationCoordinator.resetNavigation() after navigating.
+                        }
                     }
-                }
-                .onReceive(NotificationCenter.default.publisher(for: .startRecordingForPractice)) { (notification: Notification) in
-                    if let practiceId = notification.object as? String {
-                        #if DEBUG
-                        print("🔔 Received startRecordingForPractice for id: \(practiceId)")
-                        #endif
-                        Haptics.light()
-                        navigationCoordinator.selectedPracticeId = practiceId
-                        navigationCoordinator.showVideoRecorder = true
-                        // Handlers in views should call navigationCoordinator.resetNavigation() after navigating.
+                    .onReceive(NotificationCenter.default.publisher(for: .startRecordingForPractice)) { (notification: Notification) in
+                        if let practiceId = notification.object as? String {
+                            #if DEBUG
+                            print("🔔 Received startRecordingForPractice for id: \(practiceId)")
+                            #endif
+                            Haptics.light()
+                            navigationCoordinator.selectedPracticeId = practiceId
+                            navigationCoordinator.showVideoRecorder = true
+                            // Handlers in views should call navigationCoordinator.resetNavigation() after navigating.
+                        }
                     }
-                }
-                .onChange(of: scenePhase) { oldValue, newValue in
-                    #if DEBUG
-                    print("📱 Scene phase changed: \(oldValue) -> \(newValue)")
-                    #endif
-                    switch newValue {
-                    case .active:
-                        break
-                    case .inactive:
-                        break
-                    case .background:
-                        break
-                    @unknown default:
-                        break
-                    }
-                }
+            }
                 .onOpenURL { url in
                     #if DEBUG
                     print("🔗 OpenURL: \(url.absoluteString)")
@@ -239,5 +226,76 @@ extension DeepLinkIntent {
             break
         }
         return nil
+    }
+}
+
+// MARK: - Scene Phase Save Handler
+
+/// Wrapper view that saves the modelContext when the app goes to background
+struct ScenePhaseSaveHandler<Content: View>: View {
+    let scenePhase: ScenePhase
+    @ViewBuilder let content: () -> Content
+
+    @Environment(\.modelContext) private var modelContext
+    @State private var lastSavedPhase: ScenePhase?
+
+    var body: some View {
+        content()
+            .onChange(of: scenePhase) { oldValue, newValue in
+                handleScenePhaseChange(from: oldValue, to: newValue)
+            }
+    }
+
+    private func handleScenePhaseChange(from oldPhase: ScenePhase, to newPhase: ScenePhase) {
+        #if DEBUG
+        print("📱 Scene phase changed: \(oldPhase) -> \(newPhase)")
+        #endif
+
+        switch newPhase {
+        case .active:
+            #if DEBUG
+            print("📱 App became active")
+            #endif
+            lastSavedPhase = .active
+
+        case .inactive:
+            #if DEBUG
+            print("📱 App became inactive - saving data...")
+            #endif
+            saveModelContext()
+            lastSavedPhase = .inactive
+
+        case .background:
+            #if DEBUG
+            print("📱 App moved to background - saving data...")
+            #endif
+            saveModelContext()
+            lastSavedPhase = .background
+
+        @unknown default:
+            break
+        }
+    }
+
+    private func saveModelContext() {
+        // Only save if there are changes
+        guard modelContext.hasChanges else {
+            #if DEBUG
+            print("💾 No changes to save")
+            #endif
+            return
+        }
+
+        do {
+            try modelContext.save()
+            #if DEBUG
+            print("✅ Model context saved successfully")
+            #endif
+        } catch {
+            #if DEBUG
+            print("❌ Failed to save model context: \(error.localizedDescription)")
+            #endif
+            // Log the error but don't crash the app
+        }
     }
 }

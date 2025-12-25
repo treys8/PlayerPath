@@ -1,8 +1,20 @@
 // ============================================================================
 // Firebase Firestore Security Rules for PlayerPath Coach Sharing
 // ============================================================================
-// Deploy these rules in Firebase Console:
-// https://console.firebase.google.com/project/YOUR_PROJECT/firestore/rules
+// DEPLOYMENT INSTRUCTIONS:
+// 1. Go to Firebase Console: https://console.firebase.google.com
+// 2. Select your project
+// 3. Navigate to Firestore Database > Rules
+// 4. Copy and paste this entire file
+// 5. Click "Publish" to deploy the rules
+// 6. Test the rules using the "Rules Playground" tab
+// ============================================================================
+// SECURITY NOTES:
+// - All operations require authentication
+// - Premium-only features enforced server-side
+// - Coach permissions validated against folder settings
+// - Invitation expiry enforced server-side
+// - Comment permissions enforced for annotations
 // ============================================================================
 
 rules_version = '2';
@@ -45,8 +57,19 @@ service cloud.firestore {
     function canDeleteFromFolder(folderID) {
       let folder = get(/databases/$(database)/documents/sharedFolders/$(folderID)).data;
       return request.auth.uid == folder.ownerAthleteID
-          || (request.auth.uid in folder.sharedWithCoachIDs 
+          || (request.auth.uid in folder.sharedWithCoachIDs
               && folder.permissions[request.auth.uid].canDelete == true);
+    }
+
+    function canCommentOnFolder(folderID) {
+      let folder = get(/databases/$(database)/documents/sharedFolders/$(folderID)).data;
+      return request.auth.uid == folder.ownerAthleteID
+          || (request.auth.uid in folder.sharedWithCoachIDs
+              && folder.permissions[request.auth.uid].canComment == true);
+    }
+
+    function isInvitationNotExpired(expiresAt) {
+      return request.time < expiresAt;
     }
     
     // ========================================================================
@@ -113,13 +136,13 @@ service cloud.firestore {
       
       match /annotations/{annotationID} {
         // Read: Anyone with access to the video
-        allow read: if isAuthenticated() && 
+        allow read: if isAuthenticated() &&
                     canAccessFolder(get(/databases/$(database)/documents/videos/$(videoID)).data.sharedFolderID);
-        
-        // Create: Anyone with folder access can comment
-        allow create: if isAuthenticated() 
+
+        // Create: Only users with comment permission can create annotations
+        allow create: if isAuthenticated()
                       && request.resource.data.userID == request.auth.uid
-                      && canAccessFolder(get(/databases/$(database)/documents/videos/$(videoID)).data.sharedFolderID);
+                      && canCommentOnFolder(get(/databases/$(database)/documents/videos/$(videoID)).data.sharedFolderID);
         
         // Update: Users can edit their own comments
         allow update: if isAuthenticated() 
@@ -133,28 +156,56 @@ service cloud.firestore {
     }
     
     // ========================================================================
+    // COACH ACCESS REVOCATIONS
+    // ========================================================================
+
+    match /coach_access_revocations/{revocationId} {
+      // Read: Only the athlete who revoked access
+      allow read: if isAuthenticated()
+                  && resource.data.athleteID == request.auth.uid;
+
+      // Create: Only folder owners can create revocations
+      // This is created programmatically, not directly by users
+      allow create: if isAuthenticated()
+                    && request.resource.data.athleteID == request.auth.uid;
+
+      // Update: System only (for email tracking)
+      allow update: if false;
+
+      // Delete: Only the athlete who created it
+      allow delete: if isAuthenticated()
+                    && resource.data.athleteID == request.auth.uid;
+    }
+
+    // ========================================================================
     // INVITATIONS
     // ========================================================================
     
     match /invitations/{invitationID} {
       // Read: Athlete who sent it OR coach with matching email
-      allow read: if isAuthenticated() && 
-                  (resource.data.athleteID == request.auth.uid 
+      // Only non-expired invitations can be read
+      allow read: if isAuthenticated() &&
+                  isInvitationNotExpired(resource.data.expiresAt) &&
+                  (resource.data.athleteID == request.auth.uid
                    || resource.data.coachEmail == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.email);
-      
+
       // Create: Premium athletes can send invitations
-      allow create: if isAuthenticated() 
+      // Must set expiresAt to a future timestamp
+      allow create: if isAuthenticated()
                     && isPremium()
-                    && request.resource.data.athleteID == request.auth.uid;
-      
+                    && request.resource.data.athleteID == request.auth.uid
+                    && request.resource.data.keys().hasAll(['expiresAt'])
+                    && isInvitationNotExpired(request.resource.data.expiresAt);
+
       // Update: Athlete who sent it OR coach with matching email can update
-      // (For accepting/declining)
+      // (For accepting/declining) - Only if not expired
       allow update: if isAuthenticated() &&
+                    isInvitationNotExpired(resource.data.expiresAt) &&
                     (resource.data.athleteID == request.auth.uid
                      || resource.data.coachEmail == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.email);
-      
+
       // Delete: Only the athlete who sent it
-      allow delete: if isAuthenticated() 
+      allow delete: if isAuthenticated()
                     && resource.data.athleteID == request.auth.uid;
     }
   }

@@ -26,35 +26,58 @@ struct HighlightsView: View {
     @State private var selection = Set<VideoClip.ID>()
     @State private var hasMigratedHighlights = false
     @State private var expandedGroups = Set<UUID>()
+    @State private var selectedSeasonFilter: String? = nil // nil = All Seasons
     
+    // Get all unique seasons from highlights
+    private var availableSeasons: [Season] {
+        guard let athlete = athlete, let videoClips = athlete.videoClips else { return [] }
+        let highlightClips = videoClips.filter { $0.isHighlight }
+        let seasons = highlightClips.compactMap { $0.season }
+        let uniqueSeasons = Array(Set(seasons))
+        return uniqueSeasons.sorted { ($0.startDate ?? Date.distantPast) > ($1.startDate ?? Date.distantPast) }
+    }
+
     var highlights: [VideoClip] {
         guard let athlete = athlete, let videoClips = athlete.videoClips else { return [] }
-        let base = videoClips.filter { $0.isHighlight }
-        let filteredByType: [VideoClip] = base.filter { clip in
+        var filtered = videoClips.filter { $0.isHighlight }
+
+        // Filter by season
+        if let seasonFilter = selectedSeasonFilter {
+            filtered = filtered.filter { clip in
+                if seasonFilter == "no_season" {
+                    return clip.season == nil
+                } else {
+                    return clip.season?.id.uuidString == seasonFilter
+                }
+            }
+        }
+
+        // Filter by type
+        filtered = filtered.filter { clip in
             switch filter {
             case .all: return true
             case .game: return clip.game != nil
             case .practice: return clip.game == nil
             }
         }
-        let filteredBySearch: [VideoClip]
-        if searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            filteredBySearch = filteredByType
-        } else {
+
+        // Filter by search text
+        if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             let q = searchText.lowercased()
-            filteredBySearch = filteredByType.filter { clip in
+            filtered = filtered.filter { clip in
                 let opponent = clip.game?.opponent.lowercased() ?? ""
                 let result = clip.playResult?.type.displayName.lowercased() ?? ""
                 let fileName = clip.fileName.lowercased()
                 return opponent.contains(q) || result.contains(q) || fileName.contains(q)
             }
         }
-        let sorted = filteredBySearch.sorted { lhs, rhs in
+
+        // Sort
+        return filtered.sorted { lhs, rhs in
             let l = lhs.createdAt ?? .distantPast
             let r = rhs.createdAt ?? .distantPast
             return sortOrder == .newest ? (l > r) : (l < r)
         }
-        return sorted
     }
 
     // Group highlights by game for better organization
@@ -182,12 +205,80 @@ struct HighlightsView: View {
         }
     }
 
+    // Check if filters are active
+    private var hasActiveFilters: Bool {
+        selectedSeasonFilter != nil ||
+        filter != .all ||
+        !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    // Check if we have any highlights at all (before filtering)
+    private var hasAnyHighlights: Bool {
+        guard let athlete = athlete, let videoClips = athlete.videoClips else { return false }
+        return videoClips.contains(where: { $0.isHighlight })
+    }
+
     @ViewBuilder
     private var contentView: some View {
-        if highlights.isEmpty {
-            EmptyHighlightsView()
-        } else {
-            highlightGridView
+        VStack(spacing: 0) {
+            // Type filter segmented control (only show if we have highlights)
+            if !highlights.isEmpty {
+                Picker("Type", selection: $filter) {
+                    Text("All").tag(Filter.all)
+                    Text("Games").tag(Filter.game)
+                    Text("Practice").tag(Filter.practice)
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal)
+                .padding(.vertical, 8)
+            }
+
+            // Main content
+            if highlights.isEmpty {
+                if hasActiveFilters && hasAnyHighlights {
+                    // Filtered empty state - user has highlights but filters exclude them
+                    FilteredEmptyStateView(
+                        filterDescription: filterDescription,
+                        onClearFilters: clearAllFilters
+                    )
+                } else {
+                    // True empty state - no highlights at all
+                    EmptyHighlightsView()
+                }
+            } else {
+                highlightGridView
+            }
+        }
+    }
+
+    private var filterDescription: String {
+        var parts: [String] = []
+
+        if let seasonID = selectedSeasonFilter {
+            if seasonID == "no_season" {
+                parts.append("season: None")
+            } else if let season = availableSeasons.first(where: { $0.id.uuidString == seasonID }) {
+                parts.append("season: \(season.displayName)")
+            }
+        }
+
+        if filter != .all {
+            parts.append("type: \(filter == .game ? "Games" : "Practice")")
+        }
+
+        if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            parts.append("search: \"\(searchText)\"")
+        }
+
+        return parts.isEmpty ? "your filters" : parts.joined(separator: ", ")
+    }
+
+    private func clearAllFilters() {
+        Haptics.light()
+        withAnimation {
+            selectedSeasonFilter = nil
+            filter = .all
+            searchText = ""
         }
     }
 
@@ -219,6 +310,18 @@ struct HighlightsView: View {
             }
             .padding()
         }
+        .refreshable {
+            await refreshHighlights()
+        }
+    }
+
+    @MainActor
+    private func refreshHighlights() async {
+        Haptics.light()
+        // Trigger re-migration check
+        migrateHitVideosToHighlights()
+        // Small delay for haptic feedback
+        try? await Task.sleep(nanoseconds: 300_000_000)
     }
 
     private func toggleGroupExpansion(_ groupID: UUID) {
@@ -231,6 +334,33 @@ struct HighlightsView: View {
     
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
+        // Season filter (only show if we have highlights)
+        if !groupedHighlights.isEmpty {
+            ToolbarItem(placement: .topBarLeading) {
+                SeasonFilterMenu(
+                    selectedSeasonID: $selectedSeasonFilter,
+                    availableSeasons: availableSeasons,
+                    showNoSeasonOption: (athlete?.videoClips ?? []).filter { $0.isHighlight }.contains(where: { $0.season == nil })
+                )
+            }
+        }
+
+        // Filter/Sort menu
+        if !groupedHighlights.isEmpty {
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Picker("Sort", selection: $sortOrder) {
+                        Label("Newest", systemImage: "arrow.down").tag(SortOrder.newest)
+                        Label("Oldest", systemImage: "arrow.up").tag(SortOrder.oldest)
+                    }
+                } label: {
+                    Image(systemName: "arrow.up.arrow.down.circle")
+                }
+                .accessibilityLabel("Sort highlights")
+            }
+        }
+
+        // More options menu
         ToolbarItem(placement: .primaryAction) {
             Menu {
                 NavigationLink(destination: SimpleCloudStorageView()) {
@@ -240,42 +370,18 @@ struct HighlightsView: View {
                 Image(systemName: "ellipsis.circle")
             }
         }
-        
-        ToolbarItem(placement: .principal) {
-            titleMenu
-        }
-        
+
+        // Edit button
         if !highlights.isEmpty {
             ToolbarItem(placement: .secondaryAction) {
                 editButton
             }
         }
-        
+
+        // Bottom bar in edit mode
         ToolbarItemGroup(placement: .bottomBar) {
             if editMode == .active {
                 bottomBarButtons
-            }
-        }
-    }
-    
-    private var titleMenu: some View {
-        Menu {
-            Picker("Filter", selection: $filter) {
-                Text("All").tag(Filter.all)
-                Text("Games").tag(Filter.game)
-                Text("Practice").tag(Filter.practice)
-            }
-            Picker("Sort", selection: $sortOrder) {
-                Text("Newest").tag(SortOrder.newest)
-                Text("Oldest").tag(SortOrder.oldest)
-            }
-        } label: {
-            HStack(spacing: 6) {
-                Text(athlete?.name ?? "Highlights")
-                    .fontWeight(.semibold)
-                Image(systemName: "chevron.down")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
         }
     }
@@ -393,23 +499,42 @@ struct HighlightsView: View {
 }
 
 struct EmptyHighlightsView: View {
+    @Environment(\.dismiss) private var dismiss
+
     var body: some View {
         VStack(spacing: 30) {
             Image(systemName: "star")
                 .font(.system(size: 80))
                 .foregroundColor(.yellow)
-            
+
             Text("No Highlights Yet")
                 .font(.title)
                 .fontWeight(.bold)
-            
+
             Text("Star great plays! Hits automatically become highlights")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
+                .padding(.horizontal)
+
+            Button {
+                Haptics.light()
+                // Navigate to Videos tab
+                NotificationCenter.default.post(name: .switchToVideosTab, object: nil)
+                dismiss()
+            } label: {
+                Label("Go to Videos", systemImage: "video.fill")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .padding(.horizontal)
         }
         .padding()
     }
+}
+
+extension Notification.Name {
+    static let switchToVideosTab = Notification.Name("switchToVideosTab")
 }
 
 struct HighlightCard: View {
@@ -529,18 +654,30 @@ struct HighlightCard: View {
                             .fontWeight(.bold)
                             .foregroundColor(.primary)
                     }
-                    
+
                     if let game = clip.game {
-                        Text("vs \(game.opponent)")
-                            .font(.subheadline)
-                            .foregroundColor(.blue)
-                        
+                        HStack(spacing: 8) {
+                            Text("vs \(game.opponent)")
+                                .font(.subheadline)
+                                .foregroundColor(.blue)
+
+                            if let season = clip.season {
+                                SeasonBadge(season: season, fontSize: 8)
+                            }
+                        }
+
                         Text((game.date ?? Date()), style: .date)
                     } else {
-                        Text("Practice")
-                            .font(.subheadline)
-                            .foregroundColor(.green)
-                        
+                        HStack(spacing: 8) {
+                            Text("Practice")
+                                .font(.subheadline)
+                                .foregroundColor(.green)
+
+                            if let season = clip.season {
+                                SeasonBadge(season: season, fontSize: 8)
+                            }
+                        }
+
                         Text((clip.createdAt ?? Date()), style: .date)
                     }
                 }
@@ -702,32 +839,98 @@ struct HighlightCard: View {
 // MARK: - Temporary Simple Cloud Progress View
 struct SimpleCloudProgressView: View {
     let clip: VideoClip
-    
+    let athlete: Athlete?
+
+    @Environment(\.modelContext) private var modelContext
+    @State private var isUploading = false
+    @State private var uploadProgress: Double = 0.0
+    @State private var uploadError: String?
+
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: cloudStatusIcon)
                 .foregroundColor(cloudStatusColor)
                 .font(.caption)
-            
-            Text(cloudStatusText)
-                .font(.caption2)
-                .foregroundColor(.secondary)
-            
+
+            if isUploading {
+                HStack(spacing: 4) {
+                    ProgressView(value: uploadProgress)
+                        .progressViewStyle(.linear)
+                        .frame(maxWidth: 100)
+
+                    Text("\(Int(uploadProgress * 100))%")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .monospacedDigit()
+                }
+            } else {
+                Text(cloudStatusText)
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+
             Spacer()
-            
-            if clip.needsUpload {
+
+            if clip.needsUpload && !isUploading {
                 Button("Upload") {
-                    // TODO: Implement upload functionality
+                    Task {
+                        await uploadVideo()
+                    }
                 }
                 .font(.caption2)
                 .buttonStyle(.bordered)
                 .controlSize(.mini)
+            }
+
+            if let error = uploadError {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundColor(.red)
+                    .font(.caption)
+                    .help(error)
             }
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
         .background(Color(.systemGray6))
         .cornerRadius(8)
+    }
+
+    private func uploadVideo() async {
+        guard let athlete = athlete else {
+            uploadError = "No athlete associated with clip"
+            return
+        }
+
+        isUploading = true
+        uploadError = nil
+        uploadProgress = 0.0
+
+        do {
+            let cloudURL = try await VideoCloudManager.shared.uploadVideo(clip, athlete: athlete)
+
+            // Update clip in model context
+            await MainActor.run {
+                clip.cloudURL = cloudURL
+                clip.isUploaded = true
+                clip.lastSyncDate = Date()
+
+                do {
+                    try modelContext.save()
+                    print("✅ Successfully uploaded and saved clip: \(clip.fileName)")
+                } catch {
+                    uploadError = "Failed to save: \(error.localizedDescription)"
+                    print("🔴 Error saving clip after upload: \(error)")
+                }
+
+                isUploading = false
+            }
+        } catch {
+            await MainActor.run {
+                uploadError = error.localizedDescription
+                isUploading = false
+                print("🔴 Upload failed: \(error)")
+            }
+        }
     }
     
     private var cloudStatusIcon: String {
@@ -773,14 +976,18 @@ struct SimpleCloudProgressView: View {
 struct SimpleCloudStorageView: View {
     @Environment(\.modelContext) private var modelContext
     @Query private var pendingUploads: [VideoClip]
-    
+
+    @State private var uploadingClips = Set<UUID>()
+    @State private var isBulkUploading = false
+    @State private var uploadErrors: [UUID: String] = [:]
+
     init() {
         self._pendingUploads = Query(
             filter: #Predicate<VideoClip> { $0.needsUpload },
             sort: [SortDescriptor(\VideoClip.createdAt, order: .reverse)]
         )
     }
-    
+
     var body: some View {
         NavigationStack {
             List {
@@ -837,28 +1044,126 @@ struct SimpleCloudStorageView: View {
                                 }
                                 
                                 Spacer()
-                                
-                                Button("Upload") {
-                                    // TODO: Implement upload functionality
-                                    print("Upload requested for: \(clip.fileName)")
+
+                                if uploadingClips.contains(clip.id) {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                } else {
+                                    Button("Upload") {
+                                        Task {
+                                            await uploadClip(clip)
+                                        }
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .controlSize(.small)
                                 }
-                                .buttonStyle(.bordered)
-                                .controlSize(.small)
+
+                                if let error = uploadErrors[clip.id] {
+                                    Image(systemName: "exclamationmark.triangle.fill")
+                                        .foregroundColor(.red)
+                                        .help(error)
+                                }
                             }
                         }
                     }
                     
                     Section {
-                        Button("Upload All Videos") {
-                            // TODO: Implement bulk upload
-                            print("Bulk upload requested for \(pendingUploads.count) videos")
+                        Button {
+                            Task {
+                                await uploadAll()
+                            }
+                        } label: {
+                            HStack {
+                                if isBulkUploading {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                    Text("Uploading...")
+                                } else {
+                                    Text("Upload All Videos (\(pendingUploads.count))")
+                                }
+                            }
                         }
-                        .disabled(pendingUploads.isEmpty)
+                        .disabled(pendingUploads.isEmpty || isBulkUploading)
                     }
                 }
             }
             .navigationTitle("Cloud Storage")
             .navigationBarTitleDisplayMode(.large)
+        }
+    }
+
+    private func uploadClip(_ clip: VideoClip) async {
+        guard let athlete = clip.athlete else {
+            uploadErrors[clip.id] = "No athlete associated with clip"
+            print("🔴 Cannot upload clip: no athlete")
+            return
+        }
+
+        uploadingClips.insert(clip.id)
+        uploadErrors.removeValue(forKey: clip.id)
+
+        do {
+            let cloudURL = try await VideoCloudManager.shared.uploadVideo(clip, athlete: athlete)
+
+            await MainActor.run {
+                clip.cloudURL = cloudURL
+                clip.isUploaded = true
+                clip.lastSyncDate = Date()
+
+                do {
+                    try modelContext.save()
+                    print("✅ Successfully uploaded clip: \(clip.fileName)")
+                } catch {
+                    uploadErrors[clip.id] = "Failed to save: \(error.localizedDescription)"
+                    print("🔴 Error saving clip after upload: \(error)")
+                }
+
+                uploadingClips.remove(clip.id)
+            }
+        } catch {
+            await MainActor.run {
+                uploadErrors[clip.id] = error.localizedDescription
+                uploadingClips.remove(clip.id)
+                print("🔴 Upload failed for \(clip.fileName): \(error)")
+            }
+        }
+    }
+
+    private func uploadAll() async {
+        isBulkUploading = true
+        uploadErrors.removeAll()
+
+        // Upload clips in parallel (max 3 concurrent uploads)
+        await withTaskGroup(of: Void.self) { group in
+            var activeUploads = 0
+            var clipIndex = 0
+            let maxConcurrent = 3
+
+            // Start initial batch
+            while clipIndex < pendingUploads.count && activeUploads < maxConcurrent {
+                let clip = pendingUploads[clipIndex]
+                group.addTask {
+                    await uploadClip(clip)
+                }
+                activeUploads += 1
+                clipIndex += 1
+            }
+
+            // As tasks complete, start new ones
+            for await _ in group {
+                if clipIndex < pendingUploads.count {
+                    let clip = pendingUploads[clipIndex]
+                    group.addTask {
+                        await uploadClip(clip)
+                    }
+                    clipIndex += 1
+                }
+            }
+        }
+
+        await MainActor.run {
+            isBulkUploading = false
+            print("✅ Bulk upload completed")
         }
     }
 }
@@ -1005,7 +1310,7 @@ struct GameHighlightSection: View {
                 }
 
                 if editMode == .inactive {
-                    SimpleCloudProgressView(clip: clip)
+                    SimpleCloudProgressView(clip: clip, athlete: clip.athlete)
                 }
             }
 

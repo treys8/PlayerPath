@@ -22,9 +22,15 @@ struct GamesView: View {
     // Error handling
     @State private var showingError = false
     @State private var errorMessage = ""
-    
+
     // Loading states
     @State private var isLoading = false
+
+    // Search
+    @State private var searchText = ""
+
+    // Season filter
+    @State private var selectedSeasonFilter: String? = nil // nil = All Seasons
 
     final class ViewModelHolder: ObservableObject {
         @Published var viewModel: GamesViewModel?
@@ -43,19 +49,106 @@ struct GamesView: View {
                !vm.pastGames.isEmpty || !vm.completedGames.isEmpty
     }
     
-    private var liveGames: [Game] { viewModelHolder.viewModel?.liveGames ?? [] }
-    private var upcomingGames: [Game] { viewModelHolder.viewModel?.upcomingGames ?? [] }
-    private var pastGames: [Game] { viewModelHolder.viewModel?.pastGames ?? [] }
-    private var completedGames: [Game] { viewModelHolder.viewModel?.completedGames ?? [] }
+    private var liveGames: [Game] {
+        filterGames(viewModelHolder.viewModel?.liveGames ?? [])
+    }
+    private var upcomingGames: [Game] {
+        filterGames(viewModelHolder.viewModel?.upcomingGames ?? [])
+    }
+    private var pastGames: [Game] {
+        filterGames(viewModelHolder.viewModel?.pastGames ?? [])
+    }
+    private var completedGames: [Game] {
+        filterGames(viewModelHolder.viewModel?.completedGames ?? [])
+    }
+
+    // Get all unique seasons from games
+    private var availableSeasons: [Season] {
+        let seasons = allGames.compactMap { $0.season }
+        let uniqueSeasons = Array(Set(seasons))
+        return uniqueSeasons.sorted { ($0.startDate ?? Date.distantPast) > ($1.startDate ?? Date.distantPast) }
+    }
+
+    // Check if filters are active
+    private var hasActiveFilters: Bool {
+        selectedSeasonFilter != nil ||
+        !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    // Check if we have any filtered results
+    private var hasFilteredResults: Bool {
+        !liveGames.isEmpty || !upcomingGames.isEmpty || !pastGames.isEmpty || !completedGames.isEmpty
+    }
+
+    private func filterGames(_ games: [Game]) -> [Game] {
+        var filtered = games
+
+        // Filter by season
+        if let seasonFilter = selectedSeasonFilter {
+            filtered = filtered.filter { game in
+                if seasonFilter == "no_season" {
+                    return game.season == nil
+                } else {
+                    return game.season?.id.uuidString == seasonFilter
+                }
+            }
+        }
+
+        // Filter by search text
+        if !searchText.isEmpty {
+            let query = searchText.lowercased()
+            filtered = filtered.filter { game in
+                game.opponent.lowercased().contains(query) ||
+                (game.date?.formatted(date: .abbreviated, time: .omitted).lowercased().contains(query) ?? false)
+            }
+        }
+
+        return filtered
+    }
+
+    private var filterDescription: String {
+        var parts: [String] = []
+
+        if let seasonID = selectedSeasonFilter {
+            if seasonID == "no_season" {
+                parts.append("season: None")
+            } else if let season = availableSeasons.first(where: { $0.id.uuidString == seasonID }) {
+                parts.append("season: \(season.displayName)")
+            }
+        }
+
+        if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            parts.append("search: \"\(searchText)\"")
+        }
+
+        return parts.isEmpty ? "your filters" : parts.joined(separator: ", ")
+    }
+
+    private func clearAllFilters() {
+        Haptics.light()
+        withAnimation {
+            selectedSeasonFilter = nil
+            searchText = ""
+        }
+    }
     
     var body: some View {
         Group {
             if isLoading {
                 ProgressView("Loading games...")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if !hasGames {
-                EmptyGamesView {
-                    showingGameCreation = true
+            } else if !hasFilteredResults {
+                if hasActiveFilters && hasGames {
+                    // Filtered empty state
+                    FilteredEmptyStateView(
+                        filterDescription: filterDescription,
+                        onClearFilters: clearAllFilters
+                    )
+                } else {
+                    // True empty state
+                    EmptyGamesView {
+                        showingGameCreation = true
+                    }
                 }
             } else {
                 List {
@@ -147,10 +240,14 @@ struct GamesView: View {
                         }
                     }
                 }
+                .refreshable {
+                    await refreshGames()
+                }
             }
         }
         .navigationTitle("Games")
         .navigationBarTitleDisplayMode(.large)
+        .searchable(text: $searchText, prompt: "Search by opponent or date")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button(action: { showingGameCreation = true }) {
@@ -158,10 +255,66 @@ struct GamesView: View {
                 }
                 .accessibilityLabel("Add new game")
             }
-            
+
             if hasGames {
                 ToolbarItem(placement: .topBarLeading) {
                     EditButton()
+                }
+
+                // Season filter menu
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Button {
+                            selectedSeasonFilter = nil
+                        } label: {
+                            HStack {
+                                Text("All Seasons")
+                                if selectedSeasonFilter == nil {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+
+                        Divider()
+
+                        ForEach(availableSeasons) { season in
+                            Button {
+                                selectedSeasonFilter = season.id.uuidString
+                            } label: {
+                                HStack {
+                                    Text(season.displayName)
+                                    if selectedSeasonFilter == season.id.uuidString {
+                                        Image(systemName: "checkmark")
+                                    }
+                                }
+                            }
+                        }
+
+                        // Show "No Season" option if there are games without a season
+                        if allGames.contains(where: { $0.season == nil }) {
+                            Divider()
+                            Button {
+                                selectedSeasonFilter = "no_season"
+                            } label: {
+                                HStack {
+                                    Text("No Season")
+                                    if selectedSeasonFilter == "no_season" {
+                                        Image(systemName: "checkmark")
+                                    }
+                                }
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "line.3.horizontal.decrease.circle")
+                            if selectedSeasonFilter != nil {
+                                Image(systemName: "circle.fill")
+                                    .font(.system(size: 6))
+                                    .foregroundColor(.blue)
+                            }
+                        }
+                    }
+                    .accessibilityLabel("Filter by season")
                 }
             }
         }
@@ -177,6 +330,13 @@ struct GamesView: View {
                 print("🎮 GamesView: Updated ViewModel with \(allGames.count) games")
                 #endif
             }
+        }
+        .onChange(of: athlete?.id) { oldValue, newValue in
+            #if DEBUG
+            print("🎮 GamesView: Athlete changed from \(oldValue?.uuidString ?? "nil") to \(newValue?.uuidString ?? "nil")")
+            #endif
+            // Recreate ViewModel when athlete changes
+            viewModelHolder.viewModel = GamesViewModel(modelContext: modelContext, athlete: athlete, allGames: allGames)
         }
         .onChange(of: allGames) { oldValue, newValue in
             #if DEBUG
@@ -256,7 +416,15 @@ struct GamesView: View {
     private func refreshGames() {
         viewModelHolder.viewModel?.update(allGames: allGames)
     }
-    
+
+    @MainActor
+    private func refreshGames() async {
+        Haptics.light()
+        viewModelHolder.viewModel?.update(allGames: allGames)
+        // Small delay for haptic feedback
+        try? await Task.sleep(nanoseconds: 300_000_000)
+    }
+
     private func showError(_ message: String) {
         errorMessage = message
         showingError = true
@@ -280,15 +448,34 @@ struct GameRow: View {
                     .font(.headline)
                     .foregroundColor(.primary)
                 
-                // Date and status
+                // Date and season
                 HStack(spacing: 8) {
                     if let date = game.date {
                         Text(date, style: .date)
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
-                    
-                    // Removed tournament display here as per instructions
+
+                    // Season badge
+                    if let season = game.season {
+                        Text(season.displayName)
+                            .font(.caption2)
+                            .fontWeight(.medium)
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(season.isActive ? Color.blue : Color.gray)
+                            .cornerRadius(4)
+                    } else if let year = game.year {
+                        Text("\(year)")
+                            .font(.caption2)
+                            .fontWeight(.medium)
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.gray.opacity(0.6))
+                            .cornerRadius(4)
+                    }
                 }
             }
             
@@ -1077,13 +1264,35 @@ struct GameCreationView: View {
     @State private var makeGameLive = false
     @State private var showingValidationError = false
     @State private var validationMessage = ""
-    
+
+    // Get previous opponents for autocomplete
+    private var previousOpponents: [String] {
+        guard let athlete = athlete else { return [] }
+        let opponents = (athlete.games ?? [])
+            .map { $0.opponent }
+            .filter { !$0.isEmpty }
+        // Deduplicate and sort by frequency
+        let frequency = opponents.reduce(into: [:]) { counts, name in
+            counts[name, default: 0] += 1
+        }
+        return Array(Set(opponents))
+            .sorted { frequency[$0, default: 0] > frequency[$1, default: 0] }
+    }
+
+    // Filter opponents by current input
+    private var filteredOpponents: [String] {
+        guard !opponent.isEmpty else { return previousOpponents.prefix(5).map { $0 } }
+        return previousOpponents.filter {
+            $0.localizedCaseInsensitiveContains(opponent)
+        }.prefix(5).map { $0 }
+    }
+
     // Validation
     private var isValidOpponent: Bool {
         let trimmed = opponent.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.count >= 2 && trimmed.count <= 50
     }
-    
+
     private var canSave: Bool {
         isValidOpponent
     }
@@ -1095,7 +1304,7 @@ struct GameCreationView: View {
                     TextField("Opponent", text: $opponent)
                         .textInputAutocapitalization(.words)
                         .autocorrectionDisabled()
-                    
+
                     // Show validation feedback
                     if !opponent.isEmpty && !isValidOpponent {
                         Label {
@@ -1106,8 +1315,28 @@ struct GameCreationView: View {
                                 .foregroundColor(.orange)
                         }
                     }
-                    
+
                     DatePicker("Date & Time", selection: $date)
+                }
+
+                // Opponent Suggestions
+                if !filteredOpponents.isEmpty && opponent.count < 3 || !filteredOpponents.filter({ $0.localizedCaseInsensitiveContains(opponent) && $0 != opponent }).isEmpty {
+                    Section("Recent Opponents") {
+                        ForEach(filteredOpponents, id: \.self) { suggestion in
+                            Button {
+                                opponent = suggestion
+                            } label: {
+                                HStack {
+                                    Image(systemName: "clock.arrow.circlepath")
+                                        .foregroundColor(.blue)
+                                        .font(.caption)
+                                    Text(suggestion)
+                                        .foregroundColor(.primary)
+                                    Spacer()
+                                }
+                            }
+                        }
+                    }
                 }
 
                 Section("Game Options") {
@@ -1184,6 +1413,10 @@ struct GameCreationView: View {
             return
         }
         
+        #if DEBUG
+        print("🎮 GameCreationView: Saving game | Opponent: '\(opponent.trimmingCharacters(in: .whitespacesAndNewlines))' | makeGameLive: \(makeGameLive)")
+        #endif
+
         onSave(opponent.trimmingCharacters(in: .whitespacesAndNewlines), date, makeGameLive)
         dismiss()
     }
@@ -1191,6 +1424,12 @@ struct GameCreationView: View {
 
 // Helper extension for time formatting
 extension DateFormatter {
+    static let shortDate: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .short
+        return formatter
+    }()
+
     static let shortTime: DateFormatter = {
         let formatter = DateFormatter()
         formatter.timeStyle = .short

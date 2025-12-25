@@ -163,11 +163,11 @@ enum MainTab: Int {
     case games = 1
     case videos = 2
     case stats = 3
-    case more = 4
+    case practice = 4
+    case highlights = 5
+    case more = 6
 
-    // Legacy compatibility aliases
-    static var practice: MainTab { .more }
-    static var highlights: MainTab { .more }
+    // Legacy compatibility alias
     static var profile: MainTab { .more }
 }
 
@@ -761,7 +761,9 @@ struct ComprehensiveSignInView: View {
         // Auto-dismiss on successful authentication
         .onChange(of: authManager.isSignedIn) { _, isSignedIn in
             if isSignedIn {
+                // Add small delay to ensure view hierarchy is stable before dismissing
                 Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(100))
                     dismiss()
                 }
             }
@@ -1721,8 +1723,9 @@ struct UserMainFlow: View {
     @StateObject private var sharedFolderManager = SharedFolderManager.shared
     @State private var selectedAthlete: Athlete?
     @State private var showCreationToast = false
+    @State private var showingAthleteSelection = false
     private let userID: UUID
-    
+
     // NotificationCenter observer management using StateObject
     @StateObject private var notificationManager = NotificationObserverManager()
     
@@ -1753,7 +1756,21 @@ struct UserMainFlow: View {
                     .onAppear {
                         print("🎯 UserMainFlow - Showing CoachDashboardView for user: \(user.email)")
                     }
-            } 
+            }
+            // Show athlete selection if user explicitly requested it via "Manage Athletes"
+            else if showingAthleteSelection {
+                AthleteSelectionView(
+                    user: user,
+                    selectedAthlete: $selectedAthlete,
+                    authManager: authManager
+                )
+                .onChange(of: selectedAthlete) { _, newValue in
+                    // Reset the flag when an athlete is selected
+                    if newValue != nil {
+                        showingAthleteSelection = false
+                    }
+                }
+            }
             // Only check athlete-related logic if user is an athlete
             else if let athlete = resolvedAthlete {
                 MainTabView(
@@ -1808,16 +1825,21 @@ struct UserMainFlow: View {
             }
             #endif
             
+            // If a new athlete was created and we now have 2+ athletes, the newest one should already be selected
             // If exactly one athlete exists and none is selected, select it.
             if selectedAthlete == nil, newValue.count == 1, let only = newValue.first {
                 #if DEBUG
-                print("🟢 Auto-selecting athlete: \(only.name) (ID: \(only.id))")
+                print("🟢 Auto-selecting only athlete: \(only.name) (ID: \(only.id))")
                 #endif
                 selectedAthlete = only
                 showCreationToast = true
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
                     showCreationToast = false
                 }
+            } else if let current = selectedAthlete {
+                #if DEBUG
+                print("🟡 Athletes changed. Current selection: \(current.name) (ID: \(current.id))")
+                #endif
             }
         }
         .task {
@@ -1849,6 +1871,7 @@ struct UserMainFlow: View {
         notificationManager.observe(name: Notification.Name.showAthleteSelection) { _ in
             MainActor.assumeIsolated {
                 selectedAthlete = nil
+                showingAthleteSelection = true
             }
         }
     }
@@ -2381,7 +2404,7 @@ struct AddAthleteView: View {
                     // Auto-select the new athlete
                     selectedAthlete = athlete
                     #if DEBUG
-                    print("🟢 Selected new athlete: \(athlete.id)")
+                    print("🟢 Selected new athlete: \(athlete.name) (ID: \(athlete.id))")
                     #endif
                 }
                 
@@ -2869,6 +2892,9 @@ struct MainTabView: View {
         notificationManager.observe(name: Notification.Name.switchAthlete) { notification in
             MainActor.assumeIsolated {
                 if let athlete = notification.object as? Athlete {
+                    #if DEBUG
+                    print("🔄 Switching athlete to: \(athlete.name) (ID: \(athlete.id))")
+                    #endif
                     selectedAthlete = athlete
                     Haptics.light()
                 }
@@ -2920,6 +2946,8 @@ struct MainTabView: View {
             gamesTab
             videosTab
             statsTab
+            practiceTab
+            highlightsTab
             moreTab
         }
     }
@@ -2931,6 +2959,7 @@ struct MainTabView: View {
                 athlete: selectedAthlete,
                 authManager: authManager
             )
+            .id(selectedAthlete.id) // Force view to recreate when athlete changes
         }
         .tabItem {
             Label("Home", systemImage: "house.fill")
@@ -2943,6 +2972,7 @@ struct MainTabView: View {
     private var gamesTab: some View {
         NavigationStack {
             GamesView(athlete: selectedAthlete)
+                .id(selectedAthlete.id) // Force view to recreate when athlete changes
         }
         .tabItem {
             Label("Games", systemImage: "baseball.fill")
@@ -2951,10 +2981,11 @@ struct MainTabView: View {
         .accessibilityLabel("Games tab")
         .accessibilityHint("View and manage games")
     }
-    
+
     private var statsTab: some View {
         NavigationStack {
             StatisticsView(athlete: selectedAthlete)
+                .id(selectedAthlete.id) // Force view to recreate when athlete changes
         }
         .tabItem {
             Label("Stats", systemImage: "chart.bar.fill")
@@ -2963,10 +2994,11 @@ struct MainTabView: View {
         .accessibilityLabel("Statistics tab")
         .accessibilityHint("View batting statistics and performance metrics")
     }
-    
+
     private var practiceTab: some View {
         NavigationStack {
             PracticesView(athlete: selectedAthlete)
+                .id(selectedAthlete.id) // Force view to recreate when athlete changes
         }
         .tabItem {
             Label("Practice", systemImage: "figure.run")
@@ -2975,10 +3007,11 @@ struct MainTabView: View {
         .accessibilityLabel("Practice tab")
         .accessibilityHint("View and manage practice sessions")
     }
-    
+
     private var videosTab: some View {
         NavigationStack {
             VideoClipsView(athlete: selectedAthlete)
+                .id(selectedAthlete.id) // Force view to recreate when athlete changes
         }
         .tabItem {
             Label("Videos", systemImage: "video.fill")
@@ -2987,10 +3020,11 @@ struct MainTabView: View {
         .accessibilityLabel("Videos tab")
         .accessibilityHint("View and record video clips")
     }
-    
+
     private var highlightsTab: some View {
         NavigationStack {
             HighlightsView(athlete: selectedAthlete)
+                .id(selectedAthlete.id) // Force view to recreate when athlete changes
         }
         .tabItem {
             Label("Highlights", systemImage: "star.fill")
@@ -3096,6 +3130,8 @@ struct DashboardView: View {
                 ProgressView("Loading...")
             }
         }
+        .navigationTitle("Dashboard")
+        .navigationBarTitleDisplayMode(.large)
         .task {
             // Initialize ViewModel with environment modelContext once
             if viewModel == nil {
@@ -3107,6 +3143,17 @@ struct DashboardView: View {
             pulseAnimation = true
             #if DEBUG
             print("🔍 DashboardView liveGames count: \(liveGames.count) for athlete: \(athlete.name)")
+            // Debug: Check all games for this athlete
+            let allAthleteGames = try? modelContext.fetch(FetchDescriptor<Game>())
+            let athleteGames = allAthleteGames?.filter { $0.athlete?.id == athlete.id } ?? []
+            print("   Total games for athlete: \(athleteGames.count)")
+            let liveCount = athleteGames.filter { $0.isLive }.count
+            print("   Live games (manual filter): \(liveCount)")
+            if liveCount > 0 {
+                for game in athleteGames.filter({ $0.isLive }) {
+                    print("   - Live game: \(game.opponent), isLive=\(game.isLive), athlete.id=\(game.athlete?.id.uuidString ?? "nil")")
+                }
+            }
             #endif
         }
         .alert("Premium Feature", isPresented: $showCoachesPremiumAlert) {
@@ -3187,6 +3234,13 @@ struct DashboardView: View {
 
                 // LIVE GAMES SECTION - Shows when games are live
                 if !liveGames.isEmpty {
+                    #if DEBUG
+                    let _ = print("🔴 DashboardView: Showing \(liveGames.count) live game(s)")
+                    let _ = liveGames.enumerated().forEach { index, game in
+                        print("   [\(index)] \(game.opponent) | isLive: \(game.isLive) | date: \(game.date?.description ?? "nil")")
+                    }
+                    #endif
+
                     VStack(spacing: 12) {
                         // Header with pulsing indicator
                         HStack {
@@ -3489,7 +3543,6 @@ struct DashboardView: View {
             // Stop auto-refresh timer when view disappears
             viewModel.stopAutoRefresh()
         }
-        .scrollBounceBehavior(.basedOnSize)
         .navigationTitle(athlete.name)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -4484,6 +4537,7 @@ struct LiveGameCard: View {
                         .shadow(color: .red.opacity(0.3), radius: 4, x: 0, y: 2)
                 }
                 .buttonStyle(.plain)
+                .highPriorityGesture(TapGesture())
 
                 Image(systemName: "chevron.right")
                     .font(.caption)
@@ -4491,6 +4545,7 @@ struct LiveGameCard: View {
             }
         }
         .padding(16)
+        .contentShape(Rectangle())
         .background(
             RoundedRectangle(cornerRadius: 16)
                 .fill(

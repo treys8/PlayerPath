@@ -11,18 +11,22 @@ import SwiftData
 struct DashboardLiveSection: View {
     let athlete: Athlete
 
-    // Use @Query to directly observe live games - bypasses relationship refresh issues
-    @Query(
-        filter: #Predicate<Game> { game in
-            game.isLive == true
-        },
-        sort: \Game.date,
-        order: .reverse
-    ) private var allLiveGames: [Game]
+    // Query ALL games (no predicate) - SwiftData boolean predicates can be unreliable
+    @Query(sort: \Game.date, order: .reverse) private var allGames: [Game]
 
-    // Filter to only this athlete's live games
+    // Filter for live games for this athlete in memory (more reliable than @Query predicate)
     private var liveGames: [Game] {
-        allLiveGames.filter { $0.athlete?.id == athlete.id }
+        let filtered = allGames.filter { game in
+            game.isLive == true && game.athlete?.id == athlete.id
+        }
+        #if DEBUG
+        print("📊 DashboardLiveSection: allGames=\(allGames.count), live games for athlete '\(athlete.name)'=\(filtered.count)")
+        for game in filtered {
+            let athleteIdString = game.athlete.map { String($0.id.uuidString.prefix(8)) } ?? "nil"
+            print("  ✓ Live game: \(game.opponent) | isLive=\(game.isLive) | athleteId=\(athleteIdString)")
+        }
+        #endif
+        return filtered
     }
 
     var body: some View {

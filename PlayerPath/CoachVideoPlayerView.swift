@@ -9,6 +9,7 @@
 import SwiftUI
 import AVKit
 import Combine
+import CoreMedia
 
 struct CoachVideoPlayerView: View {
     let folder: SharedFolder
@@ -39,16 +40,40 @@ struct CoachVideoPlayerView: View {
     
     var body: some View {
         VStack(spacing: 0) {
-            // Video Player
+            // Video Player with annotation markers
             if let player = viewModel.player {
-                VideoPlayer(player: player)
-                    .frame(height: 250)
-                    .onAppear {
-                        player.play()
+                ZStack(alignment: .bottom) {
+                    VideoPlayer(player: player)
+                        .frame(height: 250)
+                        .onAppear {
+                            player.play()
+                            viewModel.startTimeObserver()
+                        }
+                        .onDisappear {
+                            player.pause()
+                            viewModel.stopTimeObserver()
+                        }
+
+                    // Annotation markers overlay
+                    if !viewModel.annotations.isEmpty, let duration = viewModel.videoDuration, duration > 0 {
+                        HStack(spacing: 0) {
+                            ForEach(viewModel.annotations) { annotation in
+                                Spacer()
+                                    .frame(width: (CGFloat(annotation.timestamp) / CGFloat(duration)) * UIScreen.main.bounds.width)
+                                VStack {
+                                    Spacer()
+                                    Rectangle()
+                                        .fill(annotation.isCoachComment ? Color.green : Color.blue)
+                                        .frame(width: 3, height: 20)
+                                        .shadow(color: .black.opacity(0.5), radius: 2)
+                                }
+                                Spacer()
+                            }
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                        .allowsHitTesting(false)
                     }
-                    .onDisappear {
-                        player.pause()
-                    }
+                }
             } else if viewModel.isLoading {
                 ZStack {
                     Rectangle()
@@ -93,6 +118,9 @@ struct CoachVideoPlayerView: View {
                             Task {
                                 await viewModel.deleteAnnotation(note)
                             }
+                        },
+                        onSeekToTimestamp: { timestamp in
+                            viewModel.seekToTimestamp(timestamp)
                         },
                         canComment: canComment
                     )
@@ -149,8 +177,9 @@ struct NotesTabView: View {
     let isLoading: Bool
     let onAddNote: () -> Void
     let onDeleteNote: (VideoAnnotation) -> Void
+    let onSeekToTimestamp: (Double) -> Void
     let canComment: Bool
-    
+
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
     
     var body: some View {
@@ -198,6 +227,10 @@ struct NotesTabView: View {
                                 canDelete: note.userID == authManager.userID,
                                 onDelete: {
                                     onDeleteNote(note)
+                                },
+                                onSeek: {
+                                    onSeekToTimestamp(note.timestamp)
+                                    Haptics.light()
                                 }
                             )
                         }
@@ -215,11 +248,13 @@ struct NoteCardView: View {
     let note: VideoAnnotation
     let canDelete: Bool
     let onDelete: () -> Void
-    
+    let onSeek: () -> Void
+
     @State private var showingDeleteAlert = false
-    
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        Button(action: onSeek) {
+            VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Image(systemName: note.isCoachComment ? "person.fill.checkmark" : "person.fill")
                     .font(.caption)
@@ -275,10 +310,12 @@ struct NoteCardView: View {
                     .font(.caption2)
                     .foregroundColor(.secondary)
             }
+            }
+            .padding()
+            .background(Color(.tertiarySystemBackground))
+            .cornerRadius(10)
         }
-        .padding()
-        .background(Color(.tertiarySystemBackground))
-        .cornerRadius(10)
+        .buttonStyle(.plain)
         .alert("Delete Note", isPresented: $showingDeleteAlert) {
             Button("Delete", role: .destructive) {
                 onDelete()
@@ -528,18 +565,60 @@ class CoachVideoPlayerViewModel: ObservableObject {
         do {
             guard let videoID = video.id as String?,
                   let annotationID = annotation.id else { return }
-            
+
             try await FirestoreManager.shared.deleteAnnotation(videoID: videoID, annotationID: annotationID)
-            
+
             annotations.removeAll { $0.id == annotationID }
-            
+
             HapticManager.shared.success()
-            
+
         } catch {
             errorMessage = "Failed to delete note: \(error.localizedDescription)"
             print("❌ Failed to delete annotation: \(error)")
             HapticManager.shared.error()
         }
+    }
+
+    // MARK: - Video Playback Control
+
+    @Published var videoDuration: Double?
+    private var timeObserver: Any?
+
+    func startTimeObserver() {
+        guard let player = player else { return }
+
+        // Observe duration
+        if let currentItem = player.currentItem {
+            Task {
+                do {
+                    let duration = try await currentItem.asset.load(.duration)
+                    await MainActor.run {
+                        self.videoDuration = duration.seconds
+                    }
+                } catch {
+                    print("Failed to load video duration: \(error)")
+                }
+            }
+        }
+
+        // Observe current time (for seeking functionality)
+        let interval = CMTime(seconds: 0.5, preferredTimescale: 600)
+        timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] _ in
+            // Update UI if needed
+        }
+    }
+
+    func stopTimeObserver() {
+        if let observer = timeObserver {
+            player?.removeTimeObserver(observer)
+            timeObserver = nil
+        }
+    }
+
+    func seekToTimestamp(_ timestamp: Double) {
+        let time = CMTime(seconds: timestamp, preferredTimescale: 600)
+        player?.seek(to: time, toleranceBefore: .zero, toleranceAfter: .zero)
+        player?.play()
     }
 }
 

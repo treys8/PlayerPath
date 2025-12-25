@@ -17,6 +17,7 @@ struct VideoThumbnailView: View {
     let showPlayButton: Bool
     let showPlayResult: Bool
     let showHighlight: Bool
+    let showSeason: Bool
     
     @State private var thumbnailImage: UIImage?
     @State private var isLoadingThumbnail = false
@@ -38,13 +39,15 @@ struct VideoThumbnailView: View {
     ///   - showPlayButton: Whether to show the play button overlay (default: true)
     ///   - showPlayResult: Whether to show the play result badge (default: true)
     ///   - showHighlight: Whether to show the highlight star (default: true)
+    ///   - showSeason: Whether to show the season badge (default: true)
     init(
         clip: VideoClip,
         size: CGSize = CGSize(width: 80, height: 60),
         cornerRadius: CGFloat = 8,
         showPlayButton: Bool = true,
         showPlayResult: Bool = true,
-        showHighlight: Bool = true
+        showHighlight: Bool = true,
+        showSeason: Bool = true
     ) {
         self.clip = clip
         self.size = size
@@ -52,6 +55,7 @@ struct VideoThumbnailView: View {
         self.showPlayButton = showPlayButton
         self.showPlayResult = showPlayResult
         self.showHighlight = showHighlight
+        self.showSeason = showSeason
     }
     
     // Convenience initializers for common sizes (16:9 landscape aspect ratio)
@@ -113,6 +117,11 @@ struct VideoThumbnailView: View {
             // Highlight Star Indicator
             if showHighlight && clip.isHighlight {
                 highlightIndicator
+            }
+
+            // Season Badge (top-right)
+            if showSeason {
+                seasonBadge
             }
         }
         .accessibilityElement(children: .combine)
@@ -266,6 +275,28 @@ struct VideoThumbnailView: View {
             )
             .offset(x: scaledValue(-4), y: scaledValue(4))
             .accessibilityHidden(true) // Already described in main accessibility label
+    }
+
+    @ViewBuilder
+    private var seasonBadge: some View {
+        VStack {
+            HStack {
+                Spacer()
+                if let season = clip.season {
+                    Text(season.displayName)
+                        .font(.system(size: scaledValue(8)))
+                        .fontWeight(.semibold)
+                        .foregroundColor(.white)
+                        .padding(.horizontal, scaledSpacing(4))
+                        .padding(.vertical, scaledSpacing(2))
+                        .background(season.isActive ? Color.blue.opacity(0.9) : Color.gray.opacity(0.9))
+                        .cornerRadius(scaledValue(3))
+                        .offset(x: scaledValue(-4), y: scaledValue(4))
+                        .accessibilityHidden(true)
+                }
+            }
+            Spacer()
+        }
     }
     
     // MARK: - Thumbnail Loading

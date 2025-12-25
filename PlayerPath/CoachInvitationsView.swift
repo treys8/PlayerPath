@@ -28,14 +28,10 @@ struct CoachInvitationsView: View {
                                 InvitationRow(
                                     invitation: invitation,
                                     onAccept: {
-                                        Task {
-                                            await viewModel.acceptInvitation(invitation)
-                                        }
+                                        await viewModel.acceptInvitation(invitation)
                                     },
                                     onDecline: {
-                                        Task {
-                                            await viewModel.declineInvitation(invitation)
-                                        }
+                                        await viewModel.declineInvitation(invitation)
                                     }
                                 )
                             }
@@ -99,72 +95,99 @@ struct CoachInvitationsView: View {
 
 struct InvitationRow: View {
     let invitation: CoachInvitation
-    let onAccept: () -> Void
-    let onDecline: () -> Void
-    
+    let onAccept: () async -> Void
+    let onDecline: () async -> Void
+
     @State private var isProcessing = false
-    
+    @State private var showingAcceptConfirmation = false
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Image(systemName: "person.crop.circle.badge.plus")
                     .font(.title2)
                     .foregroundColor(.blue)
-                
+
                 VStack(alignment: .leading, spacing: 4) {
                     Text(invitation.athleteName)
                         .font(.headline)
-                    
+
                     Text("Wants to share: \(invitation.folderName)")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                 }
-                
+
                 Spacer()
             }
-            
+
             Text("Sent \(invitation.createdAt.formatted(.relative(presentation: .named)))")
                 .font(.caption)
                 .foregroundColor(.secondary)
-            
-            HStack(spacing: 12) {
-                Button(action: {
-                    isProcessing = true
-                    onDecline()
-                }) {
-                    Text("Decline")
-                        .font(.subheadline)
-                        .fontWeight(.medium)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
-                        .background(Color(.systemGray5))
-                        .foregroundColor(.primary)
-                        .cornerRadius(8)
-                }
-                .disabled(isProcessing)
-                
-                Button(action: {
-                    isProcessing = true
-                    onAccept()
-                }) {
-                    Text("Accept")
-                        .font(.subheadline)
-                        .fontWeight(.medium)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
-                        .background(Color.green)
-                        .foregroundColor(.white)
-                        .cornerRadius(8)
-                }
-                .disabled(isProcessing)
-            }
-            
+
             if isProcessing {
-                ProgressView()
-                    .frame(maxWidth: .infinity)
+                HStack {
+                    Spacer()
+                    VStack(spacing: 8) {
+                        ProgressView()
+                        Text("Processing...")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    Spacer()
+                }
+                .padding(.vertical, 8)
+            } else {
+                HStack(spacing: 12) {
+                    Button {
+                        Task {
+                            isProcessing = true
+                            await onDecline()
+                            isProcessing = false
+                        }
+                    } label: {
+                        Text("Decline")
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 8)
+                            .background(Color(.systemGray5))
+                            .foregroundColor(.primary)
+                            .cornerRadius(8)
+                    }
+                    .disabled(isProcessing)
+
+                    Button {
+                        Haptics.light()
+                        showingAcceptConfirmation = true
+                    } label: {
+                        Text("Accept")
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 8)
+                            .background(Color.green)
+                            .foregroundColor(.white)
+                            .cornerRadius(8)
+                    }
+                    .disabled(isProcessing)
+                }
             }
         }
         .padding(.vertical, 8)
+        .alert("Accept Invitation", isPresented: $showingAcceptConfirmation) {
+            Button("Cancel", role: .cancel) {
+                Haptics.light()
+            }
+            Button("Accept") {
+                Task {
+                    isProcessing = true
+                    await onAccept()
+                    isProcessing = false
+                }
+            }
+        } message: {
+            Text("\(invitation.athleteName) wants to share \"\(invitation.folderName)\" with you. You'll be able to view and interact with their videos based on the permissions they grant.")
+        }
     }
 }
 
@@ -282,27 +305,45 @@ class CoachInvitationsViewModel: ObservableObject {
     
     func acceptInvitation(_ invitation: CoachInvitation) async {
         do {
+            // Step 1: Accept invitation in Firestore
             try await SharedFolderManager.shared.acceptInvitation(invitation)
 
-            // Update local state
-            if let index = invitations.firstIndex(where: { $0.id == invitation.id }) {
-                invitations[index] = CoachInvitation(
-                    id: invitation.id,
-                    folderID: invitation.folderID,
-                    folderName: invitation.folderName,
-                    athleteID: invitation.athleteID,
-                    athleteName: invitation.athleteName,
-                    coachEmail: invitation.coachEmail,
-                    permissions: invitation.permissions,
-                    createdAt: invitation.createdAt,
-                    status: .accepted
+            // Step 2: Verify the operation completed by checking invitations list exists
+            guard let index = invitations.firstIndex(where: { $0.id == invitation.id }) else {
+                throw NSError(
+                    domain: "CoachInvitationsView",
+                    code: -1,
+                    userInfo: [NSLocalizedDescriptionKey: "Invitation was accepted but local state is out of sync. Please refresh."]
                 )
             }
 
+            // Step 3: Update local state
+            invitations[index] = CoachInvitation(
+                id: invitation.id,
+                folderID: invitation.folderID,
+                folderName: invitation.folderName,
+                athleteID: invitation.athleteID,
+                athleteName: invitation.athleteName,
+                coachEmail: invitation.coachEmail,
+                permissions: invitation.permissions,
+                createdAt: invitation.createdAt,
+                status: .accepted
+            )
+
+            // Step 4: Only show success if everything completed
             Haptics.success()
+            print("✅ Successfully accepted invitation for folder: \(invitation.folderName)")
 
         } catch {
-            errorMessage = "Failed to accept invitation: \(error.localizedDescription)"
+            // Show user-friendly error message
+            if error.localizedDescription.contains("Network") {
+                errorMessage = "Network error. Please check your connection and try again."
+            } else if error.localizedDescription.contains("sync") {
+                errorMessage = "Invitation accepted, but please refresh to see updates."
+            } else {
+                errorMessage = "Failed to accept invitation: \(error.localizedDescription)"
+            }
+
             print("❌ Failed to accept invitation: \(error)")
             Haptics.error()
         }
@@ -310,27 +351,45 @@ class CoachInvitationsViewModel: ObservableObject {
     
     func declineInvitation(_ invitation: CoachInvitation) async {
         do {
+            // Step 1: Decline invitation in Firestore
             try await SharedFolderManager.shared.declineInvitation(invitation)
 
-            // Update local state
-            if let index = invitations.firstIndex(where: { $0.id == invitation.id }) {
-                invitations[index] = CoachInvitation(
-                    id: invitation.id,
-                    folderID: invitation.folderID,
-                    folderName: invitation.folderName,
-                    athleteID: invitation.athleteID,
-                    athleteName: invitation.athleteName,
-                    coachEmail: invitation.coachEmail,
-                    permissions: invitation.permissions,
-                    createdAt: invitation.createdAt,
-                    status: .declined
+            // Step 2: Verify the operation completed
+            guard let index = invitations.firstIndex(where: { $0.id == invitation.id }) else {
+                throw NSError(
+                    domain: "CoachInvitationsView",
+                    code: -1,
+                    userInfo: [NSLocalizedDescriptionKey: "Invitation was declined but local state is out of sync. Please refresh."]
                 )
             }
 
+            // Step 3: Update local state
+            invitations[index] = CoachInvitation(
+                id: invitation.id,
+                folderID: invitation.folderID,
+                folderName: invitation.folderName,
+                athleteID: invitation.athleteID,
+                athleteName: invitation.athleteName,
+                coachEmail: invitation.coachEmail,
+                permissions: invitation.permissions,
+                createdAt: invitation.createdAt,
+                status: .declined
+            )
+
+            // Step 4: Only show success if everything completed
             Haptics.success()
+            print("✅ Successfully declined invitation for folder: \(invitation.folderName)")
 
         } catch {
-            errorMessage = "Failed to decline invitation: \(error.localizedDescription)"
+            // Show user-friendly error message
+            if error.localizedDescription.contains("Network") {
+                errorMessage = "Network error. Please check your connection and try again."
+            } else if error.localizedDescription.contains("sync") {
+                errorMessage = "Invitation declined, but please refresh to see updates."
+            } else {
+                errorMessage = "Failed to decline invitation: \(error.localizedDescription)"
+            }
+
             print("❌ Failed to decline invitation: \(error)")
             Haptics.error()
         }

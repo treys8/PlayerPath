@@ -12,15 +12,21 @@ import Combine
 /// Shows the contents of a shared folder with Games and Practices sections
 struct CoachFolderDetailView: View {
     let folder: SharedFolder
-    
+
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @StateObject private var viewModel: CoachFolderViewModel
     @State private var selectedTab: FolderTab = .games
     @State private var showingUploadSheet = false
-    
+    @State private var verifiedFolder: SharedFolder?
+    @State private var permissionError: String?
+    @State private var showingPermissionError = false
+    @State private var isRefreshingPermissions = false
+    @State private var lastRefreshed: Date?
+
     init(folder: SharedFolder) {
         self.folder = folder
         _viewModel = StateObject(wrappedValue: CoachFolderViewModel(folder: folder))
+        _verifiedFolder = State(initialValue: folder)
     }
     
     enum FolderTab: String, CaseIterable {
@@ -40,7 +46,7 @@ struct CoachFolderDetailView: View {
     var body: some View {
         VStack(spacing: 0) {
             // Folder info header
-            FolderInfoHeader(folder: folder, videoCount: viewModel.videos.count)
+            FolderInfoHeader(folder: folder, videoCount: viewModel.videos.count, lastRefreshed: lastRefreshed)
             
             // Tab picker
             Picker("View", selection: $selectedTab) {
@@ -67,6 +73,23 @@ struct CoachFolderDetailView: View {
         .navigationTitle(folder.name)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            ToolbarItem(placement: .navigationBarLeading) {
+                Button {
+                    Task {
+                        await refreshPermissions()
+                    }
+                } label: {
+                    if isRefreshingPermissions {
+                        ProgressView()
+                    } else {
+                        Image(systemName: "arrow.clockwise")
+                            .foregroundColor(.blue)
+                    }
+                }
+                .disabled(isRefreshingPermissions)
+                .help("Refresh permissions")
+            }
+
             ToolbarItem(placement: .navigationBarTrailing) {
                 if canUpload {
                     Button {
@@ -79,16 +102,85 @@ struct CoachFolderDetailView: View {
             }
         }
         .sheet(isPresented: $showingUploadSheet) {
-            CoachVideoUploadView(folder: folder, selectedTab: selectedTab)
+            if let verified = verifiedFolder {
+                CoachVideoUploadView(folder: verified, selectedTab: selectedTab)
+            }
         }
         .task {
-            await viewModel.loadVideos()
+            await loadWithPermissionCheck()
+        }
+        .alert("Access Error", isPresented: $showingPermissionError) {
+            Button("OK") { }
+        } message: {
+            if let error = permissionError {
+                Text(error)
+            }
         }
     }
-    
+
+    @MainActor
+    private func loadWithPermissionCheck() async {
+        guard let coachID = authManager.userID,
+              let folderID = folder.id else {
+            return
+        }
+
+        // Verify permissions from Firestore
+        do {
+            let updated = try await SharedFolderManager.shared.verifyFolderAccess(
+                folderID: folderID,
+                coachID: coachID
+            )
+            verifiedFolder = updated
+            lastRefreshed = Date()
+            print("✅ Verified permissions for folder: \(folder.name)")
+        } catch {
+            // Handle permission errors
+            permissionError = error.localizedDescription
+            showingPermissionError = true
+            print("❌ Permission verification failed: \(error)")
+            return
+        }
+
+        // Load videos after verification
+        await viewModel.loadVideos()
+    }
+
+    @MainActor
+    private func refreshPermissions() async {
+        guard let coachID = authManager.userID,
+              let folderID = folder.id else {
+            return
+        }
+
+        isRefreshingPermissions = true
+        Haptics.light()
+
+        do {
+            let updated = try await SharedFolderManager.shared.verifyFolderAccess(
+                folderID: folderID,
+                coachID: coachID
+            )
+            verifiedFolder = updated
+            lastRefreshed = Date()
+            Haptics.success()
+            print("✅ Refreshed permissions for folder: \(folder.name)")
+        } catch {
+            permissionError = "Failed to refresh permissions: \(error.localizedDescription)"
+            showingPermissionError = true
+            Haptics.error()
+            print("❌ Permission refresh failed: \(error)")
+        }
+
+        isRefreshingPermissions = false
+    }
+
     private var canUpload: Bool {
-        guard let coachID = authManager.userID else { return false }
-        return folder.getPermissions(for: coachID)?.canUpload ?? false
+        guard let coachID = authManager.userID,
+              let verified = verifiedFolder else {
+            return false
+        }
+        return verified.getPermissions(for: coachID)?.canUpload ?? false
     }
 }
 
@@ -97,23 +189,35 @@ struct CoachFolderDetailView: View {
 struct FolderInfoHeader: View {
     let folder: SharedFolder
     let videoCount: Int
-    
+    let lastRefreshed: Date?
+
     var body: some View {
         VStack(spacing: 8) {
             HStack(spacing: 12) {
                 Image(systemName: "folder.fill")
                     .font(.title)
                     .foregroundColor(.blue)
-                
+
                 VStack(alignment: .leading, spacing: 4) {
                     Text(folder.name)
                         .font(.headline)
-                    
+
                     Text("\(videoCount) video\(videoCount == 1 ? "" : "s")")
                         .font(.caption)
                         .foregroundColor(.secondary)
+
+                    if let refreshed = lastRefreshed {
+                        HStack(spacing: 4) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.caption2)
+                                .foregroundColor(.green)
+                            Text("Updated \(refreshed.formatted(.relative(presentation: .named)))")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
+                    }
                 }
-                
+
                 Spacer()
             }
             .padding()

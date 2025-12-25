@@ -8,6 +8,7 @@
 import SwiftUI
 import SwiftData
 import AVFoundation
+import AVKit
 import PhotosUI
 import CoreMedia
 import UIKit
@@ -44,6 +45,8 @@ struct VideoRecorderView_Refactored: View {
     @State private var availableStorageGB: Double = 0
     @State private var showingQualityPicker = false
     @State private var saveTask: Task<Void, Never>?
+    @State private var showingTrimmer = false
+    @State private var trimmedVideoURL: URL?
 
     // Video recording constraints
     private let maxRecordingDuration: TimeInterval = 600 // 10 minutes - matches validation
@@ -68,6 +71,9 @@ struct VideoRecorderView_Refactored: View {
         navigationView
             .fullScreenCover(isPresented: $showingNativeCamera) {
                 nativeCameraView
+            }
+            .sheet(isPresented: $showingTrimmer) {
+                videoTrimmerView
             }
             .sheet(isPresented: $showingPlayResultOverlay) {
                 playResultOverlay
@@ -223,35 +229,81 @@ struct VideoRecorderView_Refactored: View {
 
     
     private var nativeCameraView: some View {
-        // Note: NativeCameraView should be updated to:
-        // 1. Accept maxRecordingDuration parameter
-        // 2. Set UIImagePickerController.videoMaximumDuration = maxRecordingDuration
-        // 3. Display a recording timer to the user
-        // 4. Show a warning when approaching the limit (e.g., at 9 minutes for 10 min max)
-        //
-        // Current signature only supports videoQuality - maxDuration support pending
-        NativeCameraView(videoQuality: selectedVideoQuality, onVideoRecorded: { videoURL in
-            print("VideoRecorder: onVideoRecorded called with URL: \(videoURL)")
-            recordedVideoURL = videoURL
-            showingNativeCamera = false
-            showingPlayResultOverlay = true
-        }, onCancel: {
-            print("VideoRecorder: onCancel called from NativeCameraView")
-            showingNativeCamera = false
-        })
+        NativeCameraView(
+            videoQuality: selectedVideoQuality,
+            maxDuration: maxRecordingDuration,
+            onVideoRecorded: { videoURL in
+                print("VideoRecorder: onVideoRecorded called with URL: \(videoURL)")
+                recordedVideoURL = videoURL
+                showingNativeCamera = false
+                showingTrimmer = true
+            },
+            onCancel: {
+                print("VideoRecorder: onCancel called from NativeCameraView")
+                showingNativeCamera = false
+            },
+            onError: { error in
+                print("VideoRecorder: Camera error: \(error.localizedDescription)")
+                uploadService.errorHandler.handle(
+                    PlayerPathError.videoProcessingFailed(
+                        reason: error.localizedDescription
+                    ),
+                    context: "Video Recording"
+                )
+            }
+        )
         .accessibilityLabel("Native camera view")
     }
     
     @ViewBuilder
+    private var videoTrimmerView: some View {
+        if let videoURL = recordedVideoURL {
+            NavigationStack {
+                PreUploadTrimmerView(
+                    videoURL: videoURL,
+                    onSave: { trimmedURL in
+                        // Use trimmed video if available, otherwise original
+                        trimmedVideoURL = trimmedURL
+                        showingTrimmer = false
+                        showingPlayResultOverlay = true
+                    },
+                    onSkip: {
+                        // Skip trimming, use original video
+                        trimmedVideoURL = nil
+                        showingTrimmer = false
+                        showingPlayResultOverlay = true
+                    },
+                    onCancel: {
+                        // Discard recording
+                        pendingDismissAction = {
+                            VideoFileManager.cleanup(url: videoURL)
+                            if let trimmed = trimmedVideoURL {
+                                VideoFileManager.cleanup(url: trimmed)
+                            }
+                            self.recordedVideoURL = nil
+                            self.trimmedVideoURL = nil
+                            self.showingTrimmer = false
+                        }
+                        showingDiscardConfirmation = true
+                    }
+                )
+            }
+        }
+    }
+
+    @ViewBuilder
     private var playResultOverlay: some View {
         if let videoURL = recordedVideoURL {
+            // Use trimmed video if available, otherwise original
+            let finalVideoURL = trimmedVideoURL ?? videoURL
+
             PlayResultOverlayView(
-                videoURL: videoURL,
+                videoURL: finalVideoURL,
                 athlete: athlete,
                 game: game,
                 practice: practice,
                 onSave: { result in
-                    saveVideoWithResult(videoURL: videoURL, playResult: result)
+                    saveVideoWithResult(videoURL: finalVideoURL, playResult: result)
                     dismiss()
                 },
                 onCancel: {
@@ -259,7 +311,11 @@ struct VideoRecorderView_Refactored: View {
                     UIAccessibility.post(notification: .announcement, argument: "Confirm discard recording")
                     pendingDismissAction = {
                         VideoFileManager.cleanup(url: videoURL)
+                        if let trimmed = trimmedVideoURL {
+                            VideoFileManager.cleanup(url: trimmed)
+                        }
                         self.recordedVideoURL = nil
+                        self.trimmedVideoURL = nil
                         self.showingPlayResultOverlay = false
                         UIAccessibility.post(notification: .announcement, argument: "Recording discarded")
                     }
@@ -883,5 +939,353 @@ class NetworkMonitor: ObservableObject {
     // Minimal inline mock for preview purposes
     let mockPractice = Practice(date: Date())
     VideoRecorderView_Refactored(athlete: nil, game: nil, practice: mockPractice)
+}
+
+// MARK: - Pre-Upload Trimmer View
+
+struct PreUploadTrimmerView: View {
+    let videoURL: URL
+    let onSave: (URL) -> Void
+    let onSkip: () -> Void
+    let onCancel: () -> Void
+
+    @State private var player: AVPlayer?
+    @State private var startTime: Double = 0
+    @State private var endTime: Double = 0
+    @State private var duration: Double = 0
+    @State private var isExporting = false
+    @State private var exportError: String?
+    @State private var currentTime: Double = 0
+    @State private var isPlaying = false
+    @State private var timeObserver: Any?
+
+    var body: some View {
+        VStack(spacing: 20) {
+            // Header
+            VStack(spacing: 8) {
+                Text("Trim Video")
+                    .font(.title2)
+                    .fontWeight(.bold)
+
+                Text("Cut out unwanted footage before saving")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            .padding(.top)
+
+            // Video Player
+            if let player = player {
+                ZStack(alignment: .bottom) {
+                    VideoPlayer(player: player)
+                        .frame(height: 300)
+                        .cornerRadius(12)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .strokeBorder(Color.blue.opacity(0.3), lineWidth: 2)
+                        )
+
+                    // Playback controls
+                    HStack(spacing: 16) {
+                        Button {
+                            seekTo(time: startTime)
+                        } label: {
+                            Image(systemName: "backward.end.fill")
+                                .font(.title3)
+                                .foregroundColor(.white)
+                                .padding(12)
+                                .background(.ultraThinMaterial)
+                                .clipShape(Circle())
+                        }
+
+                        Button {
+                            if isPlaying {
+                                player.pause()
+                            } else {
+                                player.play()
+                            }
+                            isPlaying.toggle()
+                            Haptics.light()
+                        } label: {
+                            Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                                .font(.title2)
+                                .foregroundColor(.white)
+                                .padding(16)
+                                .background(.ultraThinMaterial)
+                                .clipShape(Circle())
+                        }
+
+                        Button {
+                            seekTo(time: endTime)
+                        } label: {
+                            Image(systemName: "forward.end.fill")
+                                .font(.title3)
+                                .foregroundColor(.white)
+                                .padding(12)
+                                .background(.ultraThinMaterial)
+                                .clipShape(Circle())
+                        }
+                    }
+                    .padding(.bottom, 12)
+                }
+            }
+
+            // Trim controls
+            if duration > 0 {
+                VStack(spacing: 16) {
+                    // Time indicator
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Start")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            Text(formatTime(startTime))
+                                .font(.headline)
+                                .monospacedDigit()
+                        }
+
+                        Spacer()
+
+                        VStack(spacing: 4) {
+                            Text("Duration")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            Text(formatTime(endTime - startTime))
+                                .font(.headline)
+                                .monospacedDigit()
+                                .foregroundColor(.blue)
+                        }
+
+                        Spacer()
+
+                        VStack(alignment: .trailing, spacing: 4) {
+                            Text("End")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            Text(formatTime(endTime))
+                                .font(.headline)
+                                .monospacedDigit()
+                        }
+                    }
+                    .padding(.horizontal)
+
+                    // Start slider
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Trim Start")
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+
+                        Slider(value: $startTime, in: 0...max(0, endTime - 0.5), step: 0.1) {
+                            Text("Start")
+                        }
+                        .tint(.green)
+                        .onChange(of: startTime) { _, newValue in
+                            seekTo(time: newValue)
+                        }
+                    }
+                    .padding(.horizontal)
+
+                    // End slider
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Trim End")
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+
+                        Slider(value: $endTime, in: min(duration, startTime + 0.5)...duration, step: 0.1) {
+                            Text("End")
+                        }
+                        .tint(.red)
+                        .onChange(of: endTime) { _, newValue in
+                            seekTo(time: newValue)
+                        }
+                    }
+                    .padding(.horizontal)
+                }
+            }
+
+            if let error = exportError {
+                Text(error)
+                    .foregroundColor(.red)
+                    .font(.footnote)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal)
+            }
+
+            Spacer()
+
+            // Action buttons
+            VStack(spacing: 12) {
+                Button {
+                    Haptics.success()
+                    Task { await exportTrimmedVideo() }
+                } label: {
+                    if isExporting {
+                        HStack {
+                            ProgressView()
+                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                            Text("Trimming...")
+                        }
+                    } else {
+                        Label("Save Trimmed Video", systemImage: "scissors")
+                    }
+                }
+                .font(.headline)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 16)
+                .background(Color.blue)
+                .foregroundColor(.white)
+                .cornerRadius(12)
+                .disabled(isExporting || endTime - startTime < 0.5)
+
+                HStack(spacing: 12) {
+                    Button {
+                        Haptics.light()
+                        onSkip()
+                    } label: {
+                        Text("Use Full Video")
+                            .font(.subheadline)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(Color(uiColor: .systemGray5))
+                            .foregroundColor(.primary)
+                            .cornerRadius(10)
+                    }
+                    .disabled(isExporting)
+
+                    Button {
+                        Haptics.warning()
+                        onCancel()
+                    } label: {
+                        Text("Discard")
+                            .font(.subheadline)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(Color.red.opacity(0.1))
+                            .foregroundColor(.red)
+                            .cornerRadius(10)
+                    }
+                    .disabled(isExporting)
+                }
+            }
+            .padding(.horizontal)
+            .padding(.bottom)
+        }
+        .onAppear {
+            setupPlayer()
+        }
+        .onDisappear {
+            cleanup()
+        }
+    }
+
+    private func setupPlayer() {
+        let newPlayer = AVPlayer(url: videoURL)
+        player = newPlayer
+
+        // Add time observer for playback position
+        let interval = CMTime(seconds: 0.1, preferredTimescale: 600)
+        timeObserver = newPlayer.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [self] time in
+            currentTime = time.seconds
+        }
+
+        Task {
+            let asset = AVURLAsset(url: videoURL)
+            do {
+                let loadedDuration = try await asset.load(.duration)
+                let seconds = CMTimeGetSeconds(loadedDuration)
+                await MainActor.run {
+                    self.duration = seconds
+                    self.startTime = 0
+                    self.endTime = seconds
+                }
+            } catch {
+                await MainActor.run {
+                    self.exportError = "Unable to load video: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+
+    private func seekTo(time: Double) {
+        player?.seek(to: CMTime(seconds: time, preferredTimescale: 600))
+        player?.pause()
+        isPlaying = false
+    }
+
+    private func cleanup() {
+        if let observer = timeObserver {
+            player?.removeTimeObserver(observer)
+            timeObserver = nil
+        }
+        player?.pause()
+        player = nil
+    }
+
+    private func exportTrimmedVideo() async {
+        isExporting = true
+        exportError = nil
+
+        let asset = AVURLAsset(url: videoURL)
+        guard let session = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetHighestQuality) else {
+            exportError = "Export session could not be created."
+            isExporting = false
+            return
+        }
+
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("trimmed_\(UUID().uuidString).mp4")
+
+        let start = CMTime(seconds: startTime, preferredTimescale: 600)
+        let end = CMTime(seconds: endTime, preferredTimescale: 600)
+        session.timeRange = CMTimeRangeFromTimeToTime(start: start, end: end)
+        session.outputURL = outputURL
+        session.outputFileType = .mp4
+
+        if #available(iOS 18.0, *) {
+            do {
+                try await session.export(to: outputURL, as: .mp4)
+                await MainActor.run {
+                    isExporting = false
+                    Haptics.success()
+                    onSave(outputURL)
+                }
+            } catch {
+                await MainActor.run {
+                    try? FileManager.default.removeItem(at: outputURL)
+                    isExporting = false
+                    exportError = error.localizedDescription
+                }
+            }
+        } else {
+            await session.export()
+            await MainActor.run {
+                switch session.status {
+                case .completed:
+                    isExporting = false
+                    Haptics.success()
+                    onSave(outputURL)
+                case .failed:
+                    try? FileManager.default.removeItem(at: outputURL)
+                    isExporting = false
+                    exportError = session.error?.localizedDescription ?? "Export failed"
+                case .cancelled:
+                    try? FileManager.default.removeItem(at: outputURL)
+                    isExporting = false
+                    exportError = "Export was cancelled"
+                default:
+                    try? FileManager.default.removeItem(at: outputURL)
+                    isExporting = false
+                    exportError = "Export ended with unknown status"
+                }
+            }
+        }
+    }
+
+    private func formatTime(_ time: Double) -> String {
+        let minutes = Int(time) / 60
+        let seconds = Int(time) % 60
+        let milliseconds = Int((time.truncatingRemainder(dividingBy: 1)) * 10)
+        return String(format: "%02d:%02d.%01d", minutes, seconds, milliseconds)
+    }
 }
 

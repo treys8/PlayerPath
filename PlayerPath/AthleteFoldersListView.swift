@@ -498,19 +498,37 @@ struct CoachPermissionRow: View {
     let coachID: String
     let permissions: FolderPermissions
     let onRemove: () -> Void
-    
+
+    @State private var coachName: String?
+    @State private var coachEmail: String?
+    @State private var isLoadingName = true
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Image(systemName: "person.circle.fill")
                     .font(.title3)
                     .foregroundColor(.purple)
-                
-                Text("Coach ID: \(coachID.prefix(8))...") // TODO: Load actual coach name from Firestore
-                    .font(.headline)
-                
+
+                VStack(alignment: .leading, spacing: 2) {
+                    if isLoadingName {
+                        Text("Loading...")
+                            .font(.headline)
+                            .foregroundColor(.secondary)
+                    } else {
+                        Text(coachName ?? "Unknown Coach")
+                            .font(.headline)
+
+                        if let email = coachEmail {
+                            Text(email)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+
                 Spacer()
-                
+
                 Button(role: .destructive, action: onRemove) {
                     Image(systemName: "minus.circle.fill")
                         .foregroundColor(.red)
@@ -540,6 +558,25 @@ struct CoachPermissionRow: View {
             .font(.caption)
         }
         .padding(.vertical, 4)
+        .task {
+            await loadCoachDetails()
+        }
+    }
+
+    @MainActor
+    private func loadCoachDetails() async {
+        do {
+            let coachInfo = try await FirestoreManager.shared.fetchCoachInfo(coachID: coachID)
+            self.coachName = coachInfo.name
+            self.coachEmail = coachInfo.email
+            isLoadingName = false
+        } catch {
+            // If fetch fails, show coach ID as fallback
+            self.coachName = "Coach \(coachID.prefix(8))"
+            self.coachEmail = nil
+            isLoadingName = false
+            print("⚠️ Failed to load coach details for \(coachID): \(error)")
+        }
     }
 }
 

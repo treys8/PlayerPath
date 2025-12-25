@@ -24,30 +24,54 @@ struct VideoClipsView: View {
     @State private var isImporting = false
     @State private var videoToDelete: VideoClip?
     @State private var showingDeleteConfirmation = false
+    @State private var selectedSeasonFilter: String? = nil // nil = All Seasons
+
+    // Get all unique seasons from videos
+    private var availableSeasons: [Season] {
+        let seasons = (athlete.videoClips ?? []).compactMap { $0.season }
+        let uniqueSeasons = Array(Set(seasons))
+        return uniqueSeasons.sorted { ($0.startDate ?? Date.distantPast) > ($1.startDate ?? Date.distantPast) }
+    }
+
+    // Check if filters are active
+    private var hasActiveFilters: Bool {
+        selectedSeasonFilter != nil ||
+        !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    // Check if we have any videos at all (before filtering)
+    private var hasAnyVideos: Bool {
+        !(athlete.videoClips?.isEmpty ?? true)
+    }
 
     private var filteredVideos: [VideoClip] {
         // Force refresh by accessing refreshTrigger
         _ = refreshTrigger
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !query.isEmpty else {
-            return (athlete.videoClips ?? []).sorted { (lhs: VideoClip, rhs: VideoClip) in
-                switch (lhs.createdAt, rhs.createdAt) {
-                case let (l?, r?):
-                    return l > r
-                case (nil, _?):
-                    return false
-                case (_?, nil):
-                    return true
-                case (nil, nil):
-                    return false
+
+        var videos = athlete.videoClips ?? []
+
+        // Filter by season
+        if let seasonFilter = selectedSeasonFilter {
+            videos = videos.filter { video in
+                if seasonFilter == "no_season" {
+                    return video.season == nil
+                } else {
+                    return video.season?.id.uuidString == seasonFilter
                 }
             }
         }
-        
-        return (athlete.videoClips ?? []).filter { video in
-            video.fileName.lowercased().contains(query) ||
-            (video.playResult?.type.displayName.lowercased().contains(query) ?? false)
-        }.sorted { (lhs: VideoClip, rhs: VideoClip) in
+
+        // Filter by search text
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if !query.isEmpty {
+            videos = videos.filter { video in
+                video.fileName.lowercased().contains(query) ||
+                (video.playResult?.type.displayName.lowercased().contains(query) ?? false)
+            }
+        }
+
+        // Sort by creation date
+        return videos.sorted { (lhs: VideoClip, rhs: VideoClip) in
             switch (lhs.createdAt, rhs.createdAt) {
             case let (l?, r?):
                 return l > r
@@ -60,11 +84,46 @@ struct VideoClipsView: View {
             }
         }
     }
+
+    private var filterDescription: String {
+        var parts: [String] = []
+
+        if let seasonID = selectedSeasonFilter {
+            if seasonID == "no_season" {
+                parts.append("season: None")
+            } else if let season = availableSeasons.first(where: { $0.id.uuidString == seasonID }) {
+                parts.append("season: \(season.displayName)")
+            }
+        }
+
+        if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            parts.append("search: \"\(searchText)\"")
+        }
+
+        return parts.isEmpty ? "your filters" : parts.joined(separator: ", ")
+    }
+
+    private func clearAllFilters() {
+        Haptics.light()
+        withAnimation {
+            selectedSeasonFilter = nil
+            searchText = ""
+        }
+    }
     
     var body: some View {
         Group {
-            if athlete.videoClips?.isEmpty ?? true {
-                emptyStateView
+            if filteredVideos.isEmpty {
+                if hasActiveFilters && hasAnyVideos {
+                    // Filtered empty state
+                    FilteredEmptyStateView(
+                        filterDescription: filterDescription,
+                        onClearFilters: clearAllFilters
+                    )
+                } else {
+                    // True empty state
+                    emptyStateView
+                }
             } else {
                 videoListView
             }
@@ -73,15 +132,31 @@ struct VideoClipsView: View {
         .navigationBarTitleDisplayMode(.large)
         .searchable(text: $searchText, prompt: "Search videos")
         .toolbar {
+            // Primary action: Record Video (most common action)
             ToolbarItem(placement: .primaryAction) {
+                Button {
+                    Haptics.light()
+                    showingRecorder = true
+                } label: {
+                    Image(systemName: "video.badge.plus")
+                }
+                .accessibilityLabel("Record video")
+            }
+
+            // Season filter menu
+            if !(athlete.videoClips?.isEmpty ?? true) {
+                ToolbarItem(placement: .topBarLeading) {
+                    SeasonFilterMenu(
+                        selectedSeasonID: $selectedSeasonFilter,
+                        availableSeasons: availableSeasons,
+                        showNoSeasonOption: (athlete.videoClips ?? []).contains(where: { $0.season == nil })
+                    )
+                }
+            }
+
+            // Secondary actions menu (upload)
+            ToolbarItem(placement: .topBarTrailing) {
                 Menu {
-                    Button {
-                        Haptics.light()
-                        showingRecorder = true
-                    } label: {
-                        Label("Record Video", systemImage: "video.badge.plus")
-                    }
-                    
                     Button {
                         Haptics.light()
                         showingUploadPicker = true
@@ -89,9 +164,9 @@ struct VideoClipsView: View {
                         Label("Upload from Library", systemImage: "square.and.arrow.up")
                     }
                 } label: {
-                    Image(systemName: "plus")
+                    Image(systemName: "ellipsis.circle")
                 }
-                .accessibilityLabel("Add video")
+                .accessibilityLabel("More options")
             }
         }
         .sheet(isPresented: $showingRecorder) {
@@ -242,6 +317,17 @@ struct VideoClipsView: View {
             }
             .padding()
         }
+        .refreshable {
+            await refreshVideos()
+        }
+    }
+
+    @MainActor
+    private func refreshVideos() async {
+        Haptics.light()
+        refreshTrigger = UUID()
+        // Small delay for haptic feedback
+        try? await Task.sleep(nanoseconds: 300_000_000)
     }
 }
 
@@ -250,59 +336,22 @@ struct VideoClipCard: View {
     let onPlay: () -> Void
     let onDelete: () -> Void
     @Environment(\.modelContext) private var modelContext
-    @State private var thumbnailImage: UIImage?
     @State private var errorMessage: String?
     @State private var showingError = false
-    
+
     var body: some View {
         Button(action: onPlay) {
             VStack(spacing: 0) {
-                // Thumbnail with aspect ratio
-                GeometryReader { geometry in
-                    ZStack {
-                        if let image = thumbnailImage {
-                            Image(uiImage: image)
-                                .resizable()
-                                .scaledToFill()
-                                .frame(width: geometry.size.width, height: geometry.size.height)
-                                .clipped()
-                        } else {
-                            Rectangle()
-                                .fill(LinearGradient(
-                                    colors: [.gray.opacity(0.3), .gray.opacity(0.2)],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                ))
-                            
-                            ProgressView()
-                        }
-                        
-                        // Play button overlay
-                        Image(systemName: "play.circle.fill")
-                            .font(.system(size: 40))
-                            .foregroundColor(.white)
-                            .shadow(color: .black.opacity(0.5), radius: 4)
-                        
-                        // Highlight star badge in corner
-                        if video.isHighlight {
-                            VStack {
-                                HStack {
-                                    Spacer()
-                                    Image(systemName: "star.fill")
-                                        .foregroundColor(.yellow)
-                                        .font(.caption)
-                                        .padding(6)
-                                        .background(Circle().fill(.black.opacity(0.6)))
-                                }
-                                Spacer()
-                            }
-                            .padding(8)
-                        }
-                    }
-                }
-                .aspectRatio(16/9, contentMode: .fit) // Landscape video aspect ratio
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                
+                // Use the dedicated VideoThumbnailView component
+                VideoThumbnailView(
+                    clip: video,
+                    size: CGSize(width: 200, height: 112), // 16:9 aspect
+                    cornerRadius: 8,
+                    showPlayButton: true,
+                    showPlayResult: true,
+                    showHighlight: true
+                )
+
                 // Info section - more compact
                 VStack(alignment: .leading, spacing: 6) {
                     if let result = video.playResult {
@@ -316,13 +365,19 @@ struct VideoClipCard: View {
                             .fontWeight(.semibold)
                             .lineLimit(1)
                     }
-                    
-                    if let created = video.createdAt {
-                        Text(created, format: .dateTime.month().day())
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
+
+                    HStack(spacing: 8) {
+                        if let created = video.createdAt {
+                            Text(created, format: .dateTime.month().day())
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
+
+                        if let season = video.season {
+                            SeasonBadge(season: season, fontSize: 8)
+                        }
                     }
-                    
+
                     if let game = video.game {
                         HStack(spacing: 3) {
                             Image(systemName: "baseball.fill")
@@ -385,55 +440,6 @@ struct VideoClipCard: View {
             Button("OK", role: .cancel) { }
         } message: {
             Text(errorMessage ?? "An unknown error occurred")
-        }
-        .task {
-            await loadThumbnail()
-        }
-    }
-    
-    private func loadThumbnail() async {
-        guard thumbnailImage == nil else { return }
-        
-        if let path = video.thumbnailPath {
-            do {
-                let image = try await ThumbnailCache.shared.loadThumbnail(at: path)
-                await MainActor.run {
-                    thumbnailImage = image
-                }
-            } catch {
-                // Generate thumbnail if it doesn't exist
-                await generateThumbnail()
-            }
-        } else {
-            await generateThumbnail()
-        }
-    }
-    
-    private func generateThumbnail() async {
-        let url = URL(fileURLWithPath: video.filePath)
-        guard FileManager.default.fileExists(atPath: video.filePath) else { return }
-
-        let result = await VideoFileManager.generateThumbnail(from: url)
-
-        switch result {
-        case .success(let path):
-            await MainActor.run {
-                video.thumbnailPath = path
-                // Load the generated thumbnail
-                Task {
-                    if let image = try? await ThumbnailCache.shared.loadThumbnail(at: path) {
-                        thumbnailImage = image
-                    }
-                }
-                do {
-                    try modelContext.save()
-                } catch {
-                    // Silent failure for thumbnail save - not critical
-                }
-            }
-        case .failure:
-            // Silent failure for thumbnail generation - will show placeholder
-            return
         }
     }
 }
