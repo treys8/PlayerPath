@@ -14,10 +14,48 @@ struct SeasonsView: View {
     @State private var showingCreateSeason = false
     @State private var selectedSeason: Season?
     @State private var seasons: [Season] = []
-    
+    @State private var showNoActiveSeasonAlert = false
+
+    var hasActiveSeason: Bool {
+        seasons.contains(where: { $0.isActive })
+    }
+
     var body: some View {
         ScrollView {
             LazyVStack(spacing: 16) {
+                    // No Active Season Alert
+                    if !seasons.isEmpty && !hasActiveSeason {
+                        VStack(spacing: 12) {
+                            HStack {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundStyle(.orange)
+                                    .font(.title3)
+
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("No Active Season")
+                                        .font(.headline)
+                                        .fontWeight(.semibold)
+
+                                    Text("Create or activate a season to track your progress")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+
+                                Spacer()
+                            }
+                        }
+                        .padding()
+                        .background(
+                            RoundedRectangle(cornerRadius: 16)
+                                .fill(.orange.opacity(0.1))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16)
+                                .stroke(.orange.opacity(0.3), lineWidth: 1.5)
+                        )
+                        .padding(.horizontal)
+                    }
+
                     // Active Season Banner (if exists)
                     if let activeSeason = athlete.activeSeason {
                         VStack(alignment: .leading, spacing: 12) {
@@ -165,31 +203,30 @@ struct SeasonStatBadge: View {
 
 struct SeasonRow: View {
     let season: Season
-    
+
     var body: some View {
         HStack(spacing: 12) {
             // Season icon
-            Image(systemName: season.isActive ? "calendar.circle.fill" : "calendar")
+            Image(systemName: season.status.icon)
                 .font(.title3)
-                .foregroundStyle(season.isActive ? .blue : .secondary)
+                .foregroundStyle(seasonStatusColor)
                 .frame(width: 32, height: 32)
-            
+
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 8) {
                     Text(season.displayName)
                         .font(.headline)
                         .fontWeight(.semibold)
-                    
-                    if season.isActive {
-                        Text("ACTIVE")
-                            .font(.caption2)
-                            .fontWeight(.bold)
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(.blue)
-                            .clipShape(Capsule())
-                    }
+
+                    // Status Badge
+                    Text(season.status.displayName.uppercased())
+                        .font(.caption2)
+                        .fontWeight(.bold)
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(seasonStatusColor)
+                        .clipShape(Capsule())
                 }
                 
                 HStack(spacing: 12) {
@@ -208,7 +245,7 @@ struct SeasonRow: View {
             }
             
             Spacer()
-            
+
             Image(systemName: "chevron.right")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
@@ -223,6 +260,17 @@ struct SeasonRow: View {
                 .stroke(Color(.systemGray5), lineWidth: 1)
         )
         .padding(.horizontal)
+    }
+
+    private var seasonStatusColor: Color {
+        switch season.status {
+        case .active:
+            return .blue
+        case .ended:
+            return .gray
+        case .inactive:
+            return .orange
+        }
     }
 }
 

@@ -149,6 +149,46 @@ final class Season {
     var isArchived: Bool {
         return !isActive && endDate != nil
     }
+
+    /// Is this season ended?
+    var isEnded: Bool {
+        return isArchived
+    }
+
+    /// Current status of the season
+    var status: SeasonStatus {
+        if isActive {
+            return .active
+        } else if isArchived {
+            return .ended
+        } else {
+            return .inactive
+        }
+    }
+
+    enum SeasonStatus: String {
+        case active = "Active"
+        case ended = "Ended"
+        case inactive = "Inactive"
+
+        var displayName: String { rawValue }
+
+        var color: String {
+            switch self {
+            case .active: return "blue"
+            case .ended: return "gray"
+            case .inactive: return "orange"
+            }
+        }
+
+        var icon: String {
+            switch self {
+            case .active: return "calendar.circle.fill"
+            case .ended: return "calendar.badge.checkmark"
+            case .inactive: return "calendar"
+            }
+        }
+    }
     
     /// Total number of games played in this season
     var totalGames: Int {
@@ -221,6 +261,13 @@ final class Season {
     
     /// Activate this season (deactivates other seasons for this athlete)
     func activate() {
+        // Deactivate all other seasons for this athlete
+        if let athlete = self.athlete {
+            for season in (athlete.seasons ?? []) where season.id != self.id {
+                season.isActive = false
+            }
+        }
+
         self.isActive = true
         self.endDate = nil
     }
@@ -303,6 +350,43 @@ final class Practice {
         self.id = UUID()
         self.date = date
         self.createdAt = Date()
+    }
+
+    /// Properly delete practice with all associated files and data
+    func delete(in context: ModelContext) {
+        // Delete video files and thumbnails
+        for videoClip in (self.videoClips ?? []) {
+            // Delete video file from disk
+            if FileManager.default.fileExists(atPath: videoClip.filePath) {
+                try? FileManager.default.removeItem(atPath: videoClip.filePath)
+            }
+
+            // Delete thumbnail file from disk
+            if let thumbnailPath = videoClip.thumbnailPath {
+                try? FileManager.default.removeItem(atPath: thumbnailPath)
+
+                // Remove from cache on main actor
+                Task { @MainActor in
+                    ThumbnailCache.shared.removeThumbnail(at: thumbnailPath)
+                }
+            }
+
+            // Delete associated play result
+            if let playResult = videoClip.playResult {
+                context.delete(playResult)
+            }
+
+            // Delete video clip database record
+            context.delete(videoClip)
+        }
+
+        // Delete notes
+        for note in (self.notes ?? []) {
+            context.delete(note)
+        }
+
+        // SwiftData handles relationship cleanup automatically
+        context.delete(self)
     }
 }
 

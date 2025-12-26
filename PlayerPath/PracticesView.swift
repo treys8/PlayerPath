@@ -20,11 +20,30 @@ struct PracticesView: View {
     @State private var searchText: String = ""
     @State private var selectedSeasonFilter: String? = nil
 
+    enum SortOrder: String, CaseIterable, Identifiable {
+        case newestFirst = "Newest First"
+        case oldestFirst = "Oldest First"
+        case mostVideos = "Most Videos"
+        case mostNotes = "Most Notes"
+
+        var id: String { rawValue }
+    }
+
+    @State private var sortOrder: SortOrder = .newestFirst
+    @State private var editMode: EditMode = .inactive
+    @State private var selection = Set<Practice.ID>()
+
     var practices: [Practice] {
-        (athlete?.practices ?? []).sorted { (lhs, rhs) in
-            let l = lhs.date ?? .distantPast
-            let r = rhs.date ?? .distantPast
-            return l > r
+        let items = athlete?.practices ?? []
+        switch sortOrder {
+        case .newestFirst:
+            return items.sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
+        case .oldestFirst:
+            return items.sorted { ($0.date ?? .distantPast) < ($1.date ?? .distantPast) }
+        case .mostVideos:
+            return items.sorted { ($0.videoClips?.count ?? 0) > ($1.videoClips?.count ?? 0) }
+        case .mostNotes:
+            return items.sorted { ($0.notes?.count ?? 0) > ($1.notes?.count ?? 0) }
         }
     }
 
@@ -113,7 +132,15 @@ struct PracticesView: View {
         let matchesVideoCount: Bool = videoCountString.contains(q)
         let matchesNoteCount: Bool = noteCountString.contains(q)
 
-        return matchesDate || matchesVideoCount || matchesNoteCount
+        // NEW: Search notes content
+        let matchesNotes: Bool = (practice.notes ?? []).contains { note in
+            note.content.lowercased().contains(q)
+        }
+
+        // NEW: Search season name
+        let matchesSeason: Bool = practice.season?.displayName.lowercased().contains(q) ?? false
+
+        return matchesDate || matchesVideoCount || matchesNoteCount || matchesNotes || matchesSeason
     }
     
     var body: some View {
@@ -133,21 +160,54 @@ struct PracticesView: View {
                         }
                     }
                 } else {
-                    List {
-                        ForEach(filteredPractices, id: \.persistentModelID) { practice in
-                            PracticeListRow(practice: practice) {
-                                deleteSinglePractice(practice)
+                    VStack(spacing: 0) {
+                        // Statistics summary
+                        if !practices.isEmpty && editMode == .inactive {
+                            HStack {
+                                Image(systemName: "chart.bar.fill")
+                                    .foregroundColor(.green)
+                                    .font(.caption)
+
+                                Text(practicesSummary)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.8)
+
+                                Spacer()
+                            }
+                            .padding(.horizontal)
+                            .padding(.vertical, 8)
+                            .background(Color(.secondarySystemBackground))
+                        }
+
+                        List(selection: $selection) {
+                            ForEach(filteredPractices, id: \.persistentModelID) { practice in
+                                if editMode == .active {
+                                    PracticeRow(practice: practice)
+                                        .tag(practice.id)
+                                } else {
+                                    PracticeListRow(practice: practice) {
+                                        deleteSinglePractice(practice)
+                                    }
+                                }
+                            }
+                            .onDelete { offsets in deletePracticesFromFiltered(offsets: offsets) }
+                        }
+                        .environment(\.editMode, $editMode)
+                        .refreshable {
+                            await refreshPractices()
+                        }
+                        .safeAreaInset(edge: .bottom) {
+                            if editMode == .active {
+                                bottomToolbar
                             }
                         }
-                        .onDelete { offsets in deletePracticesFromFiltered(offsets: offsets) }
-                    }
-                    .refreshable {
-                        await refreshPractices()
                     }
                 }
             }
         }
-        .navigationTitle("Practices")
+        .navigationTitle("Practices (\(practices.count))")
         .navigationBarTitleDisplayMode(.large)
         .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic))
         .animation(.default, value: filteredPractices.count)
@@ -170,10 +230,37 @@ struct PracticesView: View {
                 }
             }
 
+            // Sort menu
+            if !practices.isEmpty && editMode == .inactive {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Picker("Sort", selection: $sortOrder) {
+                            ForEach(SortOrder.allCases) { order in
+                                Label(order.rawValue, systemImage: getSortIcon(order)).tag(order)
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "arrow.up.arrow.down.circle")
+                    }
+                    .accessibilityLabel("Sort practices")
+                }
+            }
+
             // Edit button
             if !practices.isEmpty {
                 ToolbarItem(placement: .topBarTrailing) {
-                    EditButton()
+                    Button {
+                        withAnimation {
+                            if editMode == .active {
+                                editMode = .inactive
+                                selection.removeAll()
+                            } else {
+                                editMode = .active
+                            }
+                        }
+                    } label: {
+                        Text(editMode == .active ? "Done" : "Edit")
+                    }
                 }
             }
         }
@@ -184,45 +271,12 @@ struct PracticesView: View {
     
     private func deleteSinglePractice(_ practice: Practice) {
         withAnimation {
-            // Remove from athlete's practices array
-            if let athlete = practice.athlete,
-               let practices = athlete.practices,
-               let practiceIndex = practices.firstIndex(of: practice) {
-                athlete.practices?.remove(at: practiceIndex)
-                log.debug("Removed practice from athlete's array")
-            }
-
-            // Delete associated video clips and their play results
-            for videoClip in (practice.videoClips ?? []) {
-                if let athlete = videoClip.athlete,
-                   let videoClips = athlete.videoClips,
-                   let clipIndex = videoClips.firstIndex(of: videoClip) {
-                    athlete.videoClips?.remove(at: clipIndex)
-                }
-                
-                // Delete associated play result
-                if let playResult = videoClip.playResult {
-                    modelContext.delete(playResult)
-                    log.debug("Deleted associated play result")
-                }
-                
-                modelContext.delete(videoClip)
-                log.debug("Deleted associated video clip: \(videoClip.fileName)")
-            }
-
-            // Delete associated notes
-            for note in (practice.notes ?? []) {
-                modelContext.delete(note)
-                log.debug("Deleted associated note")
-            }
-
-            modelContext.delete(practice)
-            log.info("Deleted practice from context")
+            practice.delete(in: modelContext)
 
             do {
                 try modelContext.save()
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
-                log.info("Successfully saved practice deletion")
+                log.info("Successfully deleted practice")
             } catch {
                 UINotificationFeedbackGenerator().notificationOccurred(.error)
                 log.error("Failed to delete practice: \(error.localizedDescription)")
@@ -239,9 +293,134 @@ struct PracticesView: View {
     @MainActor
     private func refreshPractices() async {
         Haptics.light()
-        // Practices automatically refresh via SwiftData @Query
-        // Small delay for haptic feedback
-        try? await Task.sleep(nanoseconds: 300_000_000)
+        // Practices automatically refresh via SwiftData
+    }
+
+    private var practicesSummary: String {
+        let practiceCount = practices.count
+        guard practiceCount > 0 else { return "" }
+
+        let videoCount = practices.reduce(0) { $0 + ($1.videoClips?.count ?? 0) }
+        let noteCount = practices.reduce(0) { $0 + ($1.notes?.count ?? 0) }
+
+        guard let oldest = practices.last?.date,
+              let newest = practices.first?.date else {
+            return "\(practiceCount) practice\(practiceCount == 1 ? "" : "s") • \(videoCount) videos"
+        }
+
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateStyle = .medium
+        let dateRange = "\(dateFormatter.string(from: oldest)) - \(dateFormatter.string(from: newest))"
+
+        return "\(practiceCount) practices • \(videoCount) videos • \(noteCount) notes • \(dateRange)"
+    }
+
+    private func getSortIcon(_ order: SortOrder) -> String {
+        switch order {
+        case .newestFirst:
+            return "arrow.down"
+        case .oldestFirst:
+            return "arrow.up"
+        case .mostVideos:
+            return "video.fill"
+        case .mostNotes:
+            return "note.text"
+        }
+    }
+
+    private var bottomToolbar: some View {
+        HStack(spacing: 20) {
+            Menu {
+                Button(role: .destructive) {
+                    batchDeleteSelected()
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                }
+
+                Button {
+                    batchAssignToActiveSeason()
+                } label: {
+                    Label("Assign to Active Season", systemImage: "calendar.badge.plus")
+                }
+            } label: {
+                Label("Actions", systemImage: "ellipsis.circle")
+            }
+            .disabled(selection.isEmpty)
+
+            Spacer()
+
+            Button {
+                selectAll()
+            } label: {
+                Label("Select All", systemImage: "checkmark.circle")
+            }
+            .disabled(practices.isEmpty)
+
+            Spacer()
+
+            Button {
+                selection.removeAll()
+            } label: {
+                Label("Deselect All", systemImage: "xmark.circle")
+            }
+            .disabled(selection.isEmpty)
+        }
+        .padding()
+        .background(.regularMaterial)
+    }
+
+    private func selectAll() {
+        Haptics.light()
+        selection = Set(filteredPractices.map { $0.id })
+    }
+
+    private func batchDeleteSelected() {
+        let toDelete = practices.filter { selection.contains($0.id) }
+        guard !toDelete.isEmpty else { return }
+
+        withAnimation {
+            for practice in toDelete {
+                practice.delete(in: modelContext)
+            }
+
+            do {
+                try modelContext.save()
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                log.info("Successfully deleted \(toDelete.count) practices")
+            } catch {
+                UINotificationFeedbackGenerator().notificationOccurred(.error)
+                log.error("Failed to delete practices: \(error.localizedDescription)")
+            }
+        }
+
+        selection.removeAll()
+        editMode = .inactive
+    }
+
+    private func batchAssignToActiveSeason() {
+        guard let athlete = athlete else { return }
+        let toAssign = practices.filter { selection.contains($0.id) }
+        guard !toAssign.isEmpty else { return }
+
+        withAnimation {
+            for practice in toAssign {
+                SeasonManager.linkPracticeToActiveSeason(practice, for: athlete, in: modelContext)
+            }
+
+            do {
+                try modelContext.save()
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                log.info("Successfully assigned \(toAssign.count) practices to active season")
+                Haptics.success()
+            } catch {
+                UINotificationFeedbackGenerator().notificationOccurred(.error)
+                log.error("Failed to assign practices: \(error.localizedDescription)")
+                Haptics.error()
+            }
+        }
+
+        selection.removeAll()
+        editMode = .inactive
     }
 }
 
@@ -556,44 +735,12 @@ struct PracticeDetailView: View {
     }
     
     private func deletePractice() {
-        // Remove from athlete's practices array
-        if let athlete = practice.athlete,
-           let practices = athlete.practices,
-           let practiceIndex = practices.firstIndex(of: practice) {
-            athlete.practices?.remove(at: practiceIndex)
-            log.debug("Removed practice from athlete's array")
-        }
-        
-        // Delete associated video clips
-        for videoClip in (practice.videoClips ?? []) {
-            if let athlete = videoClip.athlete,
-               let videoClips = athlete.videoClips,
-               let clipIndex = videoClips.firstIndex(of: videoClip) {
-                athlete.videoClips?.remove(at: clipIndex)
-            }
-            
-            if let playResult = videoClip.playResult {
-                modelContext.delete(playResult)
-            }
-            
-            modelContext.delete(videoClip)
-            log.debug("Deleted associated video clip: \(videoClip.fileName)")
-        }
-        
-        // Delete associated notes
-        for note in (practice.notes ?? []) {
-            modelContext.delete(note)
-            log.debug("Deleted associated note")
-        }
-        
-        // Delete the practice itself
-        modelContext.delete(practice)
-        log.info("Deleted practice from context")
-        
+        practice.delete(in: modelContext)
+
         do {
             try modelContext.save()
             UINotificationFeedbackGenerator().notificationOccurred(.success)
-            log.info("Successfully saved practice deletion")
+            log.info("Successfully deleted practice")
             dismiss()
         } catch {
             UINotificationFeedbackGenerator().notificationOccurred(.error)

@@ -15,11 +15,15 @@ struct VideoRecordingOptionsView: View {
     var isUploadDisabled: Bool = false
     var isLoading: Bool = false
     var errorMessage: String? = nil
+    var hideUpload: Bool = false // Hide upload for live games
 
     var body: some View {
         VStack(spacing: 16) {
             recordVideoButton
-            uploadVideoButton
+
+            if !hideUpload {
+                uploadVideoButton
+            }
 
             if let errorMessage {
                 errorMessageView(text: errorMessage)
@@ -48,8 +52,17 @@ struct VideoRecordingOptionsView: View {
         }
         .buttonStyle(.plain)
         .disabled(isRecordingDisabled || isLoading)
+        .simultaneousGesture(
+            LongPressGesture(minimumDuration: 0.6)
+                .onEnded { _ in
+                    if !isRecordingDisabled && !isLoading {
+                        Haptics.heavy()
+                        onRecordVideo()
+                    }
+                }
+        )
         .accessibilityLabel("Record new video using device camera")
-        .accessibilityHint(isRecordingDisabled ? "Camera is not available" : "Opens camera to record a new video")
+        .accessibilityHint(isRecordingDisabled ? "Camera is not available" : "Opens camera to record a new video. Long press for quick record.")
         .contentShape(Rectangle())
     }
 

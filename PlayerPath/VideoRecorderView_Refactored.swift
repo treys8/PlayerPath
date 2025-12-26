@@ -42,11 +42,23 @@ struct VideoRecorderView_Refactored: View {
     @State private var showingDiscardConfirmation = false
     @State private var pendingDismissAction: (() -> Void)?
     @State private var showingLowStorageAlert = false
-    @State private var availableStorageGB: Double = 0
     @State private var showingQualityPicker = false
     @State private var saveTask: Task<Void, Never>?
     @State private var showingTrimmer = false
     @State private var trimmedVideoURL: URL?
+    @State private var useModernCamera = true // Default to modern camera
+
+    // System monitoring
+    @State private var availableStorageGB: Double = 0
+    @State private var batteryLevel: Float = 1.0
+    @State private var batteryState: UIDevice.BatteryState = .unknown
+    @State private var estimatedRecordingMinutes: Int = 0
+    @State private var showingBatteryWarning = false
+
+    // Smart features
+    @State private var smartSuggestion: String?
+    @State private var recordedClipsCount: Int = 0
+    @State private var autoOpeningCamera = false
 
     // Video recording constraints
     private let maxRecordingDuration: TimeInterval = 600 // 10 minutes - matches validation
@@ -127,25 +139,51 @@ struct VideoRecorderView_Refactored: View {
                 // Start network monitoring
                 networkMonitor.startMonitoring()
 
+                // Enable battery monitoring
+                UIDevice.current.isBatteryMonitoringEnabled = true
+                updateBatteryStatus()
+
                 // Load saved quality preference
                 if let savedQuality = UserDefaults.standard.value(forKey: "selectedVideoQuality") as? Int {
                     selectedVideoQuality = UIImagePickerController.QualityType(rawValue: savedQuality) ?? .typeHigh
                 }
 
-                // Check storage on appear
+                // Check storage and calculate estimates
                 checkAvailableStorage()
+                calculateRecordingTime()
+                updateRecordedClipsCount()
+                generateSmartSuggestion()
 
-                // Auto-open camera when launched for a live game to streamline recording
+                // Battery warning if low
+                if batteryLevel < 0.2 && batteryState != .charging {
+                    showingBatteryWarning = true
+                }
+
+                // Quick record for live games
                 if game?.isLive == true {
-                    try? await Task.sleep(nanoseconds: 300_000_000) // 0.3s
-                    guard !Task.isCancelled else { return }
+                    autoOpeningCamera = true
+                    try? await Task.sleep(nanoseconds: 1_500_000_000) // 1.5s delay to show context
+                    guard !Task.isCancelled, autoOpeningCamera else { return }
                     checkCameraPermission()
+                    autoOpeningCamera = false
                 }
             }
             .onDisappear {
                 // Clean up resources when view disappears
                 networkMonitor.stopMonitoring()
                 saveTask?.cancel()
+                UIDevice.current.isBatteryMonitoringEnabled = false
+            }
+            .alert("Low Battery", isPresented: $showingBatteryWarning) {
+                Button("Continue Anyway", role: .none) { }
+                Button("Cancel", role: .cancel) {
+                    dismiss()
+                }
+            } message: {
+                let suggestion = batteryLevel < 0.1 && VideoRecordingSettings.shared.quality == .ultra4K
+                    ? "Your battery is low. Consider using 1080p instead of 4K to conserve power."
+                    : "Your battery is at \(Int(batteryLevel * 100))%. Recording may drain it quickly."
+                Text(suggestion)
             }
     }
     
@@ -179,38 +217,132 @@ struct VideoRecorderView_Refactored: View {
             .fontWeight(.semibold)
             .accessibilityLabel("Cancel recording")
         }
-        
+
         ToolbarItem(placement: .principal) {
-            Button {
-                showingQualityPicker = true
-            } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "video.badge.waveform")
-                        .font(.caption)
-                    if qualityEstimates[selectedVideoQuality] != nil {
-                        Text(qualityName(for: selectedVideoQuality))
-                            .font(.caption)
-                            .fontWeight(.medium)
-                    }
-                }
-                .foregroundColor(.white.opacity(0.8))
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(
-                    Capsule()
-                        .fill(Color.white.opacity(0.15))
-                )
+            // Storage & Battery Status
+            HStack(spacing: 8) {
+                // Storage indicator
+                storageIndicator
+
+                // Battery indicator
+                batteryIndicator
             }
-            .accessibilityLabel("Video quality: \(qualityName(for: selectedVideoQuality)). Tap to change.")
         }
-        
+
         ToolbarItem(placement: .topBarTrailing) {
-            Button {
-                handleDoneTapped()
-            } label: {
-                Label("Done", systemImage: "checkmark")
+            // Context-aware button
+            if recordedVideoURL != nil {
+                Button {
+                    handleDoneTapped()
+                } label: {
+                    Label("Done", systemImage: "checkmark")
+                }
+                .accessibilityLabel("Save and close")
+            } else {
+                Menu {
+                    Button {
+                        showingQualityPicker = true
+                    } label: {
+                        Label("Video Quality", systemImage: "video.badge.waveform")
+                    }
+
+                    if let suggestion = smartSuggestion {
+                        Divider()
+                        Text(suggestion)
+                            .font(.caption)
+                    }
+                } label: {
+                    Image(systemName: "gearshape")
+                        .fontWeight(.semibold)
+                }
+                .accessibilityLabel("Settings and quality")
             }
-            .accessibilityLabel("Close recorder")
+        }
+    }
+
+    private var storageIndicator: some View {
+        HStack(spacing: 4) {
+            Image(systemName: storageIcon)
+                .font(.caption)
+            Text("\(Int(availableStorageGB)) GB")
+                .font(.caption2)
+                .fontWeight(.medium)
+            if estimatedRecordingMinutes > 0 {
+                Text("• \(estimatedRecordingMinutes)min")
+                    .font(.caption2)
+            }
+        }
+        .foregroundColor(storageColor)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background(
+            Capsule()
+                .fill(storageColor.opacity(0.2))
+        )
+        .accessibilityLabel("Storage: \(Int(availableStorageGB)) gigabytes available, approximately \(estimatedRecordingMinutes) minutes of recording time")
+    }
+
+    private var batteryIndicator: some View {
+        HStack(spacing: 4) {
+            Image(systemName: batteryIcon)
+                .font(.caption)
+            Text("\(Int(batteryLevel * 100))%")
+                .font(.caption2)
+                .fontWeight(.medium)
+        }
+        .foregroundColor(batteryColor)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background(
+            Capsule()
+                .fill(batteryColor.opacity(0.2))
+        )
+        .accessibilityLabel("Battery: \(Int(batteryLevel * 100)) percent")
+    }
+
+    private var storageColor: Color {
+        if availableStorageGB < 2 {
+            return .red
+        } else if availableStorageGB < 5 {
+            return .orange
+        } else {
+            return .green
+        }
+    }
+
+    private var storageIcon: String {
+        if availableStorageGB < 2 {
+            return "externaldrive.fill.badge.exclamationmark"
+        } else if availableStorageGB < 5 {
+            return "externaldrive.fill.badge.minus"
+        } else {
+            return "externaldrive.fill"
+        }
+    }
+
+    private var batteryColor: Color {
+        if batteryLevel < 0.1 {
+            return .red
+        } else if batteryLevel < 0.2 {
+            return .orange
+        } else {
+            return .green
+        }
+    }
+
+    private var batteryIcon: String {
+        if batteryState == .charging || batteryState == .full {
+            return "battery.100.bolt"
+        } else if batteryLevel < 0.1 {
+            return "battery.0"
+        } else if batteryLevel < 0.25 {
+            return "battery.25"
+        } else if batteryLevel < 0.5 {
+            return "battery.50"
+        } else if batteryLevel < 0.75 {
+            return "battery.75"
+        } else {
+            return "battery.100"
         }
     }
     
@@ -227,32 +359,61 @@ struct VideoRecorderView_Refactored: View {
     }
 
 
-    
+
+    @ViewBuilder
     private var nativeCameraView: some View {
-        NativeCameraView(
-            videoQuality: selectedVideoQuality,
-            maxDuration: maxRecordingDuration,
-            onVideoRecorded: { videoURL in
-                print("VideoRecorder: onVideoRecorded called with URL: \(videoURL)")
-                recordedVideoURL = videoURL
-                showingNativeCamera = false
-                showingTrimmer = true
-            },
-            onCancel: {
-                print("VideoRecorder: onCancel called from NativeCameraView")
-                showingNativeCamera = false
-            },
-            onError: { error in
-                print("VideoRecorder: Camera error: \(error.localizedDescription)")
-                uploadService.errorHandler.handle(
-                    PlayerPathError.videoProcessingFailed(
-                        reason: error.localizedDescription
-                    ),
-                    context: "Video Recording"
-                )
-            }
-        )
-        .accessibilityLabel("Native camera view")
+        if useModernCamera {
+            // Modern SwiftUI Camera with full control
+            ModernCameraView(
+                settings: .shared,
+                onVideoRecorded: { videoURL in
+                    print("VideoRecorder: Modern camera recorded video: \(videoURL)")
+                    recordedVideoURL = videoURL
+                    showingNativeCamera = false
+                    showingTrimmer = true
+                },
+                onCancel: {
+                    print("VideoRecorder: Modern camera cancelled")
+                    showingNativeCamera = false
+                },
+                onError: { error in
+                    print("VideoRecorder: Modern camera error: \(error.localizedDescription)")
+                    uploadService.errorHandler.handle(
+                        PlayerPathError.videoProcessingFailed(
+                            reason: error.localizedDescription
+                        ),
+                        context: "Modern Camera Recording"
+                    )
+                }
+            )
+            .accessibilityLabel("Modern camera view")
+        } else {
+            // Classic UIImagePickerController Camera
+            NativeCameraView(
+                videoQuality: selectedVideoQuality,
+                maxDuration: maxRecordingDuration,
+                onVideoRecorded: { videoURL in
+                    print("VideoRecorder: Classic camera recorded video: \(videoURL)")
+                    recordedVideoURL = videoURL
+                    showingNativeCamera = false
+                    showingTrimmer = true
+                },
+                onCancel: {
+                    print("VideoRecorder: Classic camera cancelled")
+                    showingNativeCamera = false
+                },
+                onError: { error in
+                    print("VideoRecorder: Classic camera error: \(error.localizedDescription)")
+                    uploadService.errorHandler.handle(
+                        PlayerPathError.videoProcessingFailed(
+                            reason: error.localizedDescription
+                        ),
+                        context: "Classic Camera Recording"
+                    )
+                }
+            )
+            .accessibilityLabel("Classic camera view")
+        }
     }
     
     @ViewBuilder
@@ -424,7 +585,11 @@ struct VideoRecorderView_Refactored: View {
                 onUploadVideo: {
                     print("VideoRecorder: Upload Video button tapped")
                     showingPhotoPicker = true
-                }
+                },
+                tipText: game?.isLive == true
+                    ? "Tip: Capture the action as it happens! Position camera for best angle"
+                    : "Tip: Position camera to capture the full swing and follow-through",
+                hideUpload: game?.isLive == true // Hide upload for live games
             )
             
             // Recording guidelines
@@ -474,12 +639,21 @@ struct VideoRecorderView_Refactored: View {
     }
     
     private var headerSection: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 12) {
             if let game = game {
-                HStack {
-                    Text("LIVE GAME")
-                        .font(.caption)
-                        .fontWeight(.bold)
+                // Live game header with rich context
+                VStack(spacing: 8) {
+                    HStack {
+                        // Live badge
+                        HStack(spacing: 6) {
+                            Circle()
+                                .fill(Color.red)
+                                .frame(width: 6, height: 6)
+
+                            Text("LIVE GAME")
+                                .font(.caption)
+                                .fontWeight(.bold)
+                        }
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
                         .background(
@@ -487,17 +661,49 @@ struct VideoRecorderView_Refactored: View {
                                 .fill(Color.red)
                         )
                         .foregroundColor(.white)
-                        .accessibilityLabel("Live game")
-                    
-                    Spacer()
+
+                        Spacer()
+
+                        // Clips counter
+                        if recordedClipsCount > 0 {
+                            HStack(spacing: 4) {
+                                Image(systemName: "video.fill")
+                                    .font(.caption2)
+                                Text("\(recordedClipsCount)")
+                                    .font(.caption)
+                                    .fontWeight(.semibold)
+                            }
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(
+                                Capsule()
+                                    .fill(Color.white.opacity(0.2))
+                            )
+                        }
+                    }
+
+                    // Opponent & Score
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("vs \(game.opponent)")
+                                .font(.title2)
+                                .fontWeight(.bold)
+                                .foregroundColor(.white)
+
+                            // Game date
+                            if let date = game.date {
+                                Text(date, style: .date)
+                                    .font(.caption)
+                                    .foregroundColor(.white.opacity(0.8))
+                            }
+                        }
+
+                        Spacer()
+                    }
                 }
-                
-                Text("vs \(game.opponent)")
-                    .font(.title2)
-                    .fontWeight(.bold)
-                    .foregroundColor(.white)
-                    .minimumScaleFactor(0.8)
-                    .accessibilityLabel("Versus \(game.opponent)")
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Live game versus \(game.opponent), \(recordedClipsCount) clips recorded")
             } else if let practice = practice {
                 VStack(spacing: 4) {
                     Text("Practice Session")
@@ -538,15 +744,40 @@ struct VideoRecorderView_Refactored: View {
         }
     }
 
-    
     @ViewBuilder
     private var loadingOverlays: some View {
         if uploadService.isProcessingVideo {
             LoadingOverlay(message: "Processing video...")
         }
-        
+
         if permissionManager.isRequestingPermissions {
             LoadingOverlay(message: "Requesting permissions...")
+        }
+
+        // Auto-opening camera for live games
+        if autoOpeningCamera {
+            ZStack {
+                Color.black.opacity(0.8)
+                    .ignoresSafeArea()
+
+                VStack(spacing: 20) {
+                    ProgressView()
+                        .scaleEffect(1.5)
+                        .tint(.white)
+
+                    Text("Opening Camera...")
+                        .font(.headline)
+                        .foregroundColor(.white)
+
+                    Button("Cancel") {
+                        autoOpeningCamera = false
+                        Haptics.light()
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(.white)
+                }
+            }
+            .transition(.opacity)
         }
     }
     
@@ -752,20 +983,132 @@ struct VideoRecorderView_Refactored: View {
         do {
             let fileURL = URL(fileURLWithPath: NSHomeDirectory() as String)
             let values = try fileURL.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
-            
+
             if let capacity = values.volumeAvailableCapacityForImportantUsage {
                 availableStorageGB = Double(capacity) / 1_000_000_000.0 // Convert to GB
                 print("Storage check: \(String(format: "%.2f", availableStorageGB)) GB available")
-                
+
                 // Check if we have at least minimum required storage
                 return capacity >= minRequiredStorageBytes
             }
         } catch {
             print("Error checking storage: \(error)")
         }
-        
+
         // If we can't determine storage, allow recording (fail open)
         return true
+    }
+
+    private func updateBatteryStatus() {
+        batteryLevel = UIDevice.current.batteryLevel
+        batteryState = UIDevice.current.batteryState
+
+        // If battery level is unknown, assume full
+        if batteryLevel < 0 {
+            batteryLevel = 1.0
+        }
+
+        print("Battery: \(Int(batteryLevel * 100))%, state: \(batteryState.rawValue)")
+    }
+
+    private func calculateRecordingTime() {
+        guard availableStorageGB > 0 else { return }
+
+        // Get current quality estimate (MB per minute)
+        let mbPerMinute = VideoRecordingSettings.shared.estimatedFileSizePerMinute
+
+        // Calculate how many minutes we can record
+        let availableMB = availableStorageGB * 1000
+        let minutes = Int(availableMB / mbPerMinute)
+
+        estimatedRecordingMinutes = min(minutes, Int(maxRecordingDuration / 60))
+
+        print("Can record ~\(estimatedRecordingMinutes) min at current quality")
+    }
+
+    private func updateRecordedClipsCount() {
+        guard let athlete = athlete else {
+            recordedClipsCount = 0
+            return
+        }
+
+        // Capture IDs for use in predicates
+        let athleteID = athlete.id
+
+        // Count clips for this game/practice
+        let predicate: Predicate<VideoClip>
+
+        if let game = game {
+            let gameID = game.id
+            predicate = #Predicate<VideoClip> { clip in
+                clip.athlete?.id == athleteID && clip.game?.id == gameID
+            }
+        } else if let practice = practice {
+            let practiceID = practice.id
+            predicate = #Predicate<VideoClip> { clip in
+                clip.athlete?.id == athleteID && clip.practice?.id == practiceID
+            }
+        } else {
+            // No specific context, count recent clips
+            predicate = #Predicate<VideoClip> { clip in
+                clip.athlete?.id == athleteID
+            }
+        }
+
+        do {
+            var descriptor = FetchDescriptor(predicate: predicate)
+            descriptor.fetchLimit = 100
+
+            let clips = try modelContext.fetch(descriptor)
+            recordedClipsCount = clips.count
+
+            print("Found \(recordedClipsCount) existing clips for this context")
+        } catch {
+            print("Error counting clips: \(error)")
+            recordedClipsCount = 0
+        }
+    }
+
+    private func generateSmartSuggestion() {
+        let currentQuality = VideoRecordingSettings.shared.quality
+        let currentFPS = VideoRecordingSettings.shared.frameRate
+        let isIndoor = false // Could detect based on time of day or user setting
+        let isPitching = game != nil // Simplification - could be more sophisticated
+
+        // Battery-based suggestions
+        if batteryLevel < 0.15 && batteryState != .charging {
+            if currentQuality == .ultra4K {
+                smartSuggestion = "Low battery - Switch to 1080p to conserve power"
+                return
+            } else {
+                smartSuggestion = "Low battery - Consider reducing quality"
+                return
+            }
+        }
+
+        // Storage-based suggestions
+        if availableStorageGB < 3 {
+            if currentQuality == .ultra4K {
+                smartSuggestion = "Low storage - 4K uses ~200MB/min. Consider 1080p"
+                return
+            } else if currentQuality == .high1080p {
+                smartSuggestion = "Low storage - Consider 720p to save space"
+                return
+            }
+        }
+
+        // Context-based suggestions
+        if isPitching && currentFPS.fps < 60 {
+            smartSuggestion = "Tip: Enable 60fps or higher for better slow-motion"
+            return
+        }
+
+        if availableStorageGB > 20 && currentQuality != .ultra4K {
+            smartSuggestion = "Plenty of storage - Consider 4K for maximum quality"
+            return
+        }
+
+        smartSuggestion = nil
     }
     
     private func saveVideoWithResult(videoURL: URL, playResult: PlayResultType?) {

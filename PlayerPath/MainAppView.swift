@@ -3130,8 +3130,49 @@ struct DashboardView: View {
                 ProgressView("Loading...")
             }
         }
-        .navigationTitle("Dashboard")
-        .navigationBarTitleDisplayMode(.large)
+        .navigationTitle(athlete.name)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Menu {
+                    // Show all athletes with checkmark for current
+                    ForEach((user.athletes ?? []).sorted(by: { $0.name < $1.name })) { ath in
+                        Button {
+                            // Switch to this athlete
+                            NotificationCenter.default.post(
+                                name: Notification.Name.switchAthlete,
+                                object: ath
+                            )
+                            Haptics.light()
+                        } label: {
+                            HStack {
+                                Text(ath.name)
+                                if ath.id == athlete.id {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                    }
+
+                    Divider()
+
+                    Button {
+                        NotificationCenter.default.post(name: Notification.Name.showAthleteSelection, object: nil)
+                        Haptics.light()
+                    } label: {
+                        Label("Manage Athletes", systemImage: "person.2.fill")
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Text(athlete.name)
+                            .fontWeight(.semibold)
+                        Image(systemName: "chevron.down")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
         .task {
             // Initialize ViewModel with environment modelContext once
             if viewModel == nil {
@@ -3290,7 +3331,7 @@ struct DashboardView: View {
                     }
                     .padding(.horizontal)
                 }
-                
+
                 // Quick Actions Section
                 VStack(spacing: 16) {
                     HStack {
@@ -3299,7 +3340,7 @@ struct DashboardView: View {
                             .fontWeight(.bold)
                         Spacer()
                     }
-                    
+
                     HStack(spacing: 12) {
                         QuickActionButton(
                             icon: "plus.circle.fill",
@@ -3312,7 +3353,7 @@ struct DashboardView: View {
                                 #if DEBUG
                                 print("🎮 New Game quick action - switching to Games tab")
                                 #endif
-                                
+
                                 // Removed tournament context usage, always nil
                                 // Ask the Games module to present its Add Game UI
                                 NotificationCenter.default.post(name: Notification.Name.presentAddGame, object: nil)
@@ -3350,14 +3391,14 @@ struct DashboardView: View {
                                     print("🎬 No live games - quick record mode")
                                 }
                                 #endif
-                                
+
                                 // Switch to Videos tab
                                 postSwitchTab(.videos)
-                                
+
                                 // Add a small delay to ensure the Videos tab is ready before posting notification
                                 // This ensures VideoClipsView has mounted and is listening for the notification
                                 try? await Task.sleep(for: .milliseconds(150))
-                                
+
                                 // Post notification with game context
                                 // The Videos tab will handle this when it appears
                                 NotificationCenter.default.post(name: Notification.Name.presentVideoRecorder, object: gameContext)
@@ -3370,7 +3411,7 @@ struct DashboardView: View {
                     }
                 }
                 .padding(.horizontal)
-                
+
                 // Management Section
                 VStack(spacing: 16) {
                     HStack {
@@ -3457,7 +3498,7 @@ struct DashboardView: View {
                             subtitle: "\((athlete.seasons ?? []).count) Total",
                             color: .teal
                         ) {
-                            postSwitchTab(.home)
+                            postSwitchTab(.more)
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                                 NotificationCenter.default.post(name: Notification.Name.presentSeasons, object: athlete)
                             }
@@ -3465,7 +3506,7 @@ struct DashboardView: View {
                     }
                 }
                 .padding(.horizontal)
-                
+
                 // Quick Stats Section
                 VStack(spacing: 16) {
                     HStack {
@@ -3497,7 +3538,7 @@ struct DashboardView: View {
                     }
                 }
                 .padding(.horizontal)
-                
+
                 // Recent Videos Section
                 if !viewModel.recentVideos.isEmpty {
                     VStack(spacing: 16) {
@@ -3542,49 +3583,6 @@ struct DashboardView: View {
         .onDisappear {
             // Stop auto-refresh timer when view disappears
             viewModel.stopAutoRefresh()
-        }
-        .navigationTitle(athlete.name)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                Menu {
-                    // Show all athletes with checkmark for current
-                    ForEach((user.athletes ?? []).sorted(by: { $0.name < $1.name })) { ath in
-                        Button {
-                            // Switch to this athlete
-                            NotificationCenter.default.post(
-                                name: Notification.Name.switchAthlete,
-                                object: ath
-                            )
-                            Haptics.light()
-                        } label: {
-                            HStack {
-                                Text(ath.name)
-                                if ath.id == athlete.id {
-                                    Image(systemName: "checkmark")
-                                }
-                            }
-                        }
-                    }
-                    
-                    Divider()
-                    
-                    Button {
-                        NotificationCenter.default.post(name: Notification.Name.showAthleteSelection, object: nil)
-                        Haptics.light()
-                    } label: {
-                        Label("Manage Athletes", systemImage: "person.2.fill")
-                    }
-                } label: {
-                    HStack(spacing: 6) {
-                        Text(athlete.name)
-                            .fontWeight(.semibold)
-                        Image(systemName: "chevron.down")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
         }
     }
     

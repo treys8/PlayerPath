@@ -24,7 +24,7 @@ struct HighlightsView: View {
     enum SortOrder: String, CaseIterable, Identifiable { case newest, oldest; var id: String { rawValue } }
     @State private var sortOrder: SortOrder = .newest
     @State private var selection = Set<VideoClip.ID>()
-    @State private var hasMigratedHighlights = false
+    @AppStorage("hasCompletedHighlightMigration") private var hasCompletedMigration = false
     @State private var expandedGroups = Set<UUID>()
     @State private var selectedSeasonFilter: String? = nil // nil = All Seasons
     
@@ -145,7 +145,7 @@ struct HighlightsView: View {
     
     var body: some View {
         contentView
-            .navigationTitle(athlete?.name ?? "Highlights")
+            .navigationTitle("\(athlete?.name ?? "Highlights") (\(highlights.count))")
             .navigationBarTitleDisplayMode(.large)
             .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always))
             .toolbar {
@@ -176,9 +176,8 @@ struct HighlightsView: View {
     }
 
     private func migrateHitVideosToHighlights() {
-        // Only run migration once per view lifecycle
-        guard !hasMigratedHighlights, let athlete = athlete else { return }
-        hasMigratedHighlights = true
+        // Only run migration once per app install
+        guard !hasCompletedMigration, let athlete = athlete else { return }
 
         // Find all videos with hit play results that aren't marked as highlights
         guard let allVideos = athlete.videoClips else { return }
@@ -199,9 +198,13 @@ struct HighlightsView: View {
             do {
                 try modelContext.save()
                 print("HighlightsView: Migrated \(migrationCount) hit videos to highlights")
+                hasCompletedMigration = true
             } catch {
                 print("HighlightsView: Failed to migrate highlights: \(error)")
             }
+        } else {
+            // No videos to migrate, mark as complete anyway
+            hasCompletedMigration = true
         }
     }
 
@@ -320,8 +323,6 @@ struct HighlightsView: View {
         Haptics.light()
         // Trigger re-migration check
         migrateHitVideosToHighlights()
-        // Small delay for haptic feedback
-        try? await Task.sleep(nanoseconds: 300_000_000)
     }
 
     private func toggleGroupExpansion(_ groupID: UUID) {
@@ -394,18 +395,52 @@ struct HighlightsView: View {
     
     @ViewBuilder
     private var bottomBarButtons: some View {
-        Button(role: .destructive) {
-            batchDeleteSelected()
+        Menu {
+            Button(role: .destructive) {
+                batchDeleteSelected()
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+
+            Button {
+                batchRemoveFromHighlights()
+            } label: {
+                Label("Remove from Highlights", systemImage: "star.slash")
+            }
+
+            Button {
+                batchUploadSelected()
+            } label: {
+                Label("Upload to Cloud", systemImage: "icloud.and.arrow.up")
+            }
+
+            Button {
+                batchShareSelected()
+            } label: {
+                Label("Share", systemImage: "square.and.arrow.up")
+            }
         } label: {
-            Label("Delete", systemImage: "trash")
+            Label("Actions", systemImage: "ellipsis.circle")
         }
         .disabled(selection.isEmpty)
+
         Spacer()
+
+        Button {
+            selectAll()
+        } label: {
+            Label("Select All", systemImage: "checkmark.circle")
+        }
+        .disabled(highlights.isEmpty)
+
+        Spacer()
+
         Button {
             selection.removeAll()
         } label: {
-            Label("Clear", systemImage: "xmark.circle")
+            Label("Deselect All", systemImage: "xmark.circle")
         }
+        .disabled(selection.isEmpty)
     }
     
     private func deleteHighlight(_ clip: VideoClip) {
@@ -414,7 +449,7 @@ struct HighlightsView: View {
             try? FileManager.default.removeItem(atPath: clip.filePath)
             print("Deleted video file: \(clip.filePath)")
         }
-        
+
         // Delete the thumbnail file and remove from cache
         if let thumbnailPath = clip.thumbnailPath {
             do {
@@ -427,40 +462,16 @@ struct HighlightsView: View {
                 print("Failed to delete thumbnail file: \(error)")
             }
         }
-        
+
         withAnimation {
-            // Remove from athlete's video clips array
-            if let athlete = athlete, var videoClips = athlete.videoClips {
-                if let index = videoClips.firstIndex(of: clip) {
-                    videoClips.remove(at: index)
-                    athlete.videoClips = videoClips
-                }
-            }
-            
-            // Remove from game's video clips array if applicable
-            if let game = clip.game, var videoClips = game.videoClips {
-                if let index = videoClips.firstIndex(of: clip) {
-                    videoClips.remove(at: index)
-                    game.videoClips = videoClips
-                }
-            }
-            
-            // Remove from practice's video clips array if applicable
-            if let practice = clip.practice, var videoClips = practice.videoClips {
-                if let index = videoClips.firstIndex(of: clip) {
-                    videoClips.remove(at: index)
-                    practice.videoClips = videoClips
-                }
-            }
-            
-            // Delete any associated play results
+            // SwiftData handles relationship cleanup automatically
+            // Just delete the clip and its associated PlayResult
             if let playResult = clip.playResult {
                 modelContext.delete(playResult)
             }
-            
-            // Delete the clip itself
+
             modelContext.delete(clip)
-            
+
             do {
                 try modelContext.save()
                 print("Successfully deleted highlight")
@@ -487,14 +498,107 @@ struct HighlightsView: View {
         }
     }
 
+    private func selectAll() {
+        Haptics.light()
+        selection = Set(highlights.map { $0.id })
+    }
+
     private func batchDeleteSelected() {
         let clips = highlights.filter { selection.contains($0.id) }
         guard !clips.isEmpty else { return }
-        for clip in clips { 
+        for clip in clips {
             deleteHighlight(clip)
         }
         selection.removeAll()
         withAnimation { editMode = .inactive }
+    }
+
+    private func batchRemoveFromHighlights() {
+        let clips = highlights.filter { selection.contains($0.id) }
+        guard !clips.isEmpty else { return }
+
+        withAnimation {
+            for clip in clips {
+                clip.isHighlight = false
+            }
+
+            do {
+                try modelContext.save()
+                print("Successfully removed \(clips.count) clips from highlights")
+                Haptics.success()
+            } catch {
+                print("Failed to remove from highlights: \(error)")
+                Haptics.error()
+            }
+        }
+
+        selection.removeAll()
+        withAnimation { editMode = .inactive }
+    }
+
+    private func batchUploadSelected() {
+        let clips = highlights.filter { selection.contains($0.id) }
+        guard !clips.isEmpty, let athlete = athlete else { return }
+
+        Task {
+            for clip in clips {
+                guard clip.needsUpload else { continue }
+
+                do {
+                    let cloudURL = try await VideoCloudManager.shared.uploadVideo(clip, athlete: athlete)
+
+                    await MainActor.run {
+                        clip.cloudURL = cloudURL
+                        clip.isUploaded = true
+                        clip.lastSyncDate = Date()
+                    }
+                } catch {
+                    print("Failed to upload \(clip.fileName): \(error)")
+                }
+            }
+
+            await MainActor.run {
+                do {
+                    try modelContext.save()
+                    print("Successfully uploaded \(clips.count) highlights")
+                    Haptics.success()
+                } catch {
+                    print("Failed to save after uploads: \(error)")
+                    Haptics.error()
+                }
+
+                selection.removeAll()
+                withAnimation { editMode = .inactive }
+            }
+        }
+    }
+
+    private func batchShareSelected() {
+        let clips = highlights.filter { selection.contains($0.id) }
+        guard !clips.isEmpty else { return }
+
+        // Get file URLs for all selected clips
+        let fileURLs = clips.compactMap { clip -> URL? in
+            guard FileManager.default.fileExists(atPath: clip.filePath) else { return nil }
+            return URL(fileURLWithPath: clip.filePath)
+        }
+
+        guard !fileURLs.isEmpty else {
+            print("No valid files to share")
+            return
+        }
+
+        // Present share sheet
+        let activityVC = UIActivityViewController(activityItems: fileURLs, applicationActivities: nil)
+
+        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+           let window = windowScene.windows.first,
+           let rootVC = window.rootViewController {
+            activityVC.popoverPresentationController?.sourceView = rootVC.view
+            rootVC.present(activityVC, animated: true)
+        }
+
+        Haptics.light()
     }
 }
 

@@ -32,14 +32,20 @@ struct ProfileView: View {
     @State private var showingPaywall = false
     @State private var showCoachesPremiumAlert = false
     @State private var sortedAthletes: [Athlete] = []
+    @State private var searchText = ""
+    @State private var showingQuickSearch = false
+    @State private var showingSeasons = false
+    @State private var seasonsAthlete: Athlete?
 
     var body: some View {
         List {
+            quickSearchSection
             userProfileSection
             athletesSection
             settingsSection
             accountSection
         }
+        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search settings...")
         .tabRootNavigationBar(title: ProfileStrings.title)
         .sheet(isPresented: $showingAddAthlete) {
             AddAthleteView(user: user, selectedAthlete: $selectedAthlete, isFirstAthlete: (user.athletes ?? []).isEmpty)
@@ -96,6 +102,19 @@ struct ProfileView: View {
         .onChange(of: user.athletes) { _, _ in
             updateSortedAthletes()
         }
+        .sheet(isPresented: $showingSeasons) {
+            if let athlete = seasonsAthlete {
+                NavigationStack {
+                    SeasonsView(athlete: athlete)
+                }
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name.presentSeasons)) { notification in
+            if let athlete = notification.object as? Athlete {
+                seasonsAthlete = athlete
+                showingSeasons = true
+            }
+        }
     }
 
     // MARK: - Actions
@@ -124,6 +143,168 @@ struct ProfileView: View {
     }
     
     // MARK: - View Components
+
+    private var quickSearchSection: some View {
+        Group {
+            if !searchText.isEmpty {
+                Section("Search Results") {
+                    ForEach(filteredSearchResults, id: \.title) { result in
+                        result.link
+                    }
+                }
+            }
+        }
+    }
+
+    private var filteredSearchResults: [SearchResult] {
+        let query = searchText.lowercased()
+        return allSearchableItems.filter { item in
+            item.title.lowercased().contains(query) ||
+            item.keywords.contains(where: { $0.lowercased().contains(query) })
+        }
+    }
+
+    private var allSearchableItems: [SearchResult] {
+        var items: [SearchResult] = []
+
+        // Athletes Section
+        if let selectedAthlete = selectedAthlete {
+            items.append(SearchResult(
+                title: "Manage Athletes",
+                icon: "person.2.fill",
+                keywords: ["athletes", "manage", "players"],
+                link: AnyView(
+                    NavigationLink {
+                        AthleteManagementView(user: user, selectedAthlete: $selectedAthlete)
+                    } label: {
+                        Label("Manage Athletes", systemImage: "person.2.fill")
+                    }
+                )
+            ))
+
+            items.append(SearchResult(
+                title: "Seasons",
+                icon: "calendar",
+                keywords: ["seasons", "manage", "year"],
+                link: AnyView(
+                    NavigationLink {
+                        SeasonsView(athlete: selectedAthlete)
+                    } label: {
+                        Label("Seasons", systemImage: "calendar")
+                    }
+                )
+            ))
+        }
+
+        // Settings Section
+        items.append(SearchResult(
+            title: "Settings",
+            icon: "gearshape",
+            keywords: ["settings", "preferences", "options"],
+            link: AnyView(
+                NavigationLink {
+                    SettingsView(user: user)
+                } label: {
+                    Label("Settings", systemImage: "gearshape")
+                }
+            )
+        ))
+
+        items.append(SearchResult(
+            title: "Security Settings",
+            icon: "lock.shield",
+            keywords: ["security", "password", "authentication", "biometric", "face id", "touch id"],
+            link: AnyView(
+                NavigationLink {
+                    SecuritySettingsView(user: user)
+                } label: {
+                    Label("Security Settings", systemImage: "lock.shield")
+                }
+            )
+        ))
+
+        items.append(SearchResult(
+            title: "Video Recording",
+            icon: "video.badge.gearshape",
+            keywords: ["video", "recording", "4k", "quality", "camera", "resolution", "fps"],
+            link: AnyView(
+                NavigationLink {
+                    VideoRecordingSettingsView()
+                } label: {
+                    Label("Video Recording", systemImage: "video.badge.gearshape")
+                }
+            )
+        ))
+
+        items.append(SearchResult(
+            title: "Notifications",
+            icon: "bell",
+            keywords: ["notifications", "alerts", "push"],
+            link: AnyView(
+                NavigationLink {
+                    NotificationSettingsView()
+                } label: {
+                    Label("Notifications", systemImage: "bell")
+                }
+            )
+        ))
+
+        items.append(SearchResult(
+            title: "Help & Support",
+            icon: "questionmark.circle",
+            keywords: ["help", "support", "contact", "faq", "assistance"],
+            link: AnyView(
+                NavigationLink {
+                    HelpSupportView()
+                } label: {
+                    Label("Help & Support", systemImage: "questionmark.circle")
+                }
+            )
+        ))
+
+        items.append(SearchResult(
+            title: "About PlayerPath",
+            icon: "info.circle",
+            keywords: ["about", "version", "info", "information"],
+            link: AnyView(
+                NavigationLink {
+                    AboutView()
+                } label: {
+                    Label("About PlayerPath", systemImage: "info.circle")
+                }
+            )
+        ))
+
+        if user.isPremium {
+            items.append(SearchResult(
+                title: "Shared Folders",
+                icon: "folder.badge.person.crop",
+                keywords: ["shared", "folders", "coach", "sharing"],
+                link: AnyView(
+                    NavigationLink {
+                        AthleteFoldersListView()
+                    } label: {
+                        Label("Shared Folders", systemImage: "folder.badge.person.crop")
+                    }
+                )
+            ))
+        }
+
+        items.append(SearchResult(
+            title: "Subscription",
+            icon: "crown.fill",
+            keywords: ["subscription", "premium", "upgrade", "billing", "payment"],
+            link: AnyView(
+                NavigationLink {
+                    SubscriptionView(user: user)
+                } label: {
+                    Label(user.isPremium ? "Subscription" : "Upgrade to Premium", systemImage: user.isPremium ? "crown.fill" : "crown")
+                }
+            )
+        ))
+
+        return items
+    }
 
     private var userProfileSection: some View {
         Section {
@@ -234,6 +415,12 @@ struct ProfileView: View {
                 SecuritySettingsView(user: user)
             } label: {
                 Label("Security Settings", systemImage: "lock.shield")
+            }
+
+            NavigationLink {
+                VideoRecordingSettingsView()
+            } label: {
+                Label("Video Recording", systemImage: "video.badge.gearshape")
             }
 
             NavigationLink {
@@ -986,5 +1173,15 @@ struct SubscriptionFeatureRow: View {
         }
         .padding(.vertical, 4)
     }
+}
+
+// MARK: - Search Result Helper
+
+struct SearchResult: Identifiable {
+    let id = UUID()
+    let title: String
+    let icon: String
+    let keywords: [String]
+    let link: AnyView
 }
 
