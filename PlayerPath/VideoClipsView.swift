@@ -184,24 +184,7 @@ struct VideoClipsView: View {
             })
         }
         .sheet(item: $selectedVideo) { video in
-            if FileManager.default.fileExists(atPath: video.filePath) {
-                VideoPlayer(player: AVPlayer(url: URL(fileURLWithPath: video.filePath)))
-                    .ignoresSafeArea()
-            } else {
-                VStack(spacing: 16) {
-                    Image(systemName: "exclamationmark.triangle")
-                        .font(.system(size: 60))
-                        .foregroundColor(.orange)
-                    Text("Video File Not Found")
-                        .font(.title2)
-                        .fontWeight(.semibold)
-                    Text("The video file may have been deleted or moved.")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
-                }
-                .padding()
-            }
+            VideoDetailView(video: video)
         }
         .onReceive(NotificationCenter.default.publisher(for: .presentVideoRecorder)) { notification in
             liveGameContext = notification.object as? Game
@@ -440,6 +423,128 @@ struct VideoClipCard: View {
             Button("OK", role: .cancel) { }
         } message: {
             Text(errorMessage ?? "An unknown error occurred")
+        }
+    }
+}
+
+// MARK: - Video Detail View
+
+struct VideoDetailView: View {
+    let video: VideoClip
+    @Environment(\.dismiss) private var dismiss
+    @State private var showMetadata = false
+
+    var body: some View {
+        ZStack {
+            if FileManager.default.fileExists(atPath: video.filePath) {
+                // Video Player - FULL SCREEN
+                VideoPlayer(player: AVPlayer(url: URL(fileURLWithPath: video.filePath)))
+                    .ignoresSafeArea()
+                    .onTapGesture {
+                        withAnimation {
+                            showMetadata.toggle()
+                        }
+                    }
+
+                // Overlay metadata when tapped
+                if showMetadata {
+                    VStack {
+                        Spacer()
+
+                        // Compact metadata bar at bottom
+                        HStack(spacing: 12) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                if let result = video.playResult {
+                                    Text(result.type.displayName)
+                                        .font(.headline)
+                                        .foregroundColor(.white)
+                                } else {
+                                    Text(video.fileName)
+                                        .font(.headline)
+                                        .foregroundColor(.white)
+                                        .lineLimit(1)
+                                }
+
+                                HStack(spacing: 8) {
+                                    if let game = video.game {
+                                        Text("vs \(game.opponent)")
+                                            .font(.caption)
+                                            .foregroundColor(.white.opacity(0.9))
+                                    }
+
+                                    if let season = video.season {
+                                        Text(season.displayName)
+                                            .font(.caption2)
+                                            .fontWeight(.medium)
+                                            .foregroundColor(.white)
+                                            .padding(.horizontal, 6)
+                                            .padding(.vertical, 2)
+                                            .background(Color.blue.opacity(0.8))
+                                            .cornerRadius(4)
+                                    }
+
+                                    if video.isHighlight {
+                                        Image(systemName: "star.fill")
+                                            .foregroundColor(.yellow)
+                                            .font(.caption)
+                                    }
+                                }
+                            }
+
+                            Spacer()
+                        }
+                        .padding()
+                        .background(
+                            LinearGradient(
+                                colors: [.clear, .black.opacity(0.7)],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        )
+                    }
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+
+                // Done button (always visible)
+                VStack {
+                    HStack {
+                        Spacer()
+                        Button {
+                            dismiss()
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.title2)
+                                .foregroundColor(.white)
+                                .padding()
+                                .background(Circle().fill(Color.black.opacity(0.5)))
+                        }
+                        .padding()
+                    }
+                    Spacer()
+                }
+            } else {
+                // Error state
+                VStack(spacing: 16) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.system(size: 60))
+                        .foregroundColor(.orange)
+                    Text("Video File Not Found")
+                        .font(.title2)
+                        .fontWeight(.semibold)
+                    Text("The video file may have been deleted or moved.")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+
+                    Button("Close") {
+                        dismiss()
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+                .padding()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color(.systemBackground))
+            }
         }
     }
 }

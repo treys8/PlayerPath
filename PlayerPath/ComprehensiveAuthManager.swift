@@ -11,7 +11,13 @@ final class ComprehensiveAuthManager: ObservableObject {
     @Published var isNewUser: Bool = false // Track if this was a signup vs signin
     
     @Published var localUser: User?
-    @Published var hasCompletedOnboarding: Bool = false
+    @Published var hasCompletedOnboarding: Bool = false {
+        didSet {
+            // Persist onboarding completion to UserDefaults to survive app restarts
+            UserDefaults.standard.set(hasCompletedOnboarding, forKey: AuthConstants.UserDefaultsKeys.hasCompletedOnboarding)
+            print("💾 Persisted hasCompletedOnboarding to UserDefaults: \(hasCompletedOnboarding)")
+        }
+    }
     
     // Make isSignedIn a @Published property for better UI reactivity
     @Published private(set) var isSignedIn: Bool = false
@@ -57,6 +63,12 @@ final class ComprehensiveAuthManager: ObservableObject {
             print("💾 Restored userRole from UserDefaults: \(persistedRole.rawValue)")
         }
 
+        // Restore persisted onboarding completion from UserDefaults
+        hasCompletedOnboarding = UserDefaults.standard.bool(forKey: AuthConstants.UserDefaultsKeys.hasCompletedOnboarding)
+        if hasCompletedOnboarding {
+            print("💾 Restored hasCompletedOnboarding from UserDefaults: true")
+        }
+
         authStateDidChangeListenerHandle = Auth.auth().addStateDidChangeListener { [weak self] _, user in
             // ✅ Consolidated into a single MainActor Task to prevent race conditions
             Task { @MainActor in
@@ -74,6 +86,7 @@ final class ComprehensiveAuthManager: ObservableObject {
                     self?.isPremiumUser = false
                     self?.trialDaysRemaining = 30
                     UserDefaults.standard.removeObject(forKey: AuthConstants.UserDefaultsKeys.userRole)
+                    UserDefaults.standard.removeObject(forKey: AuthConstants.UserDefaultsKeys.hasCompletedOnboarding)
                     print("🔄 Cleared all user data on sign out")
                 } else {
                     // User signed in - ensure local user exists
@@ -121,13 +134,21 @@ final class ComprehensiveAuthManager: ObservableObject {
         do {
             let users = try context.fetch(fetchDescriptor)
             if let existingUser = users.first {
+                // Sync role from authManager to SwiftData if different
+                if existingUser.role != self.userRole.rawValue {
+                    existingUser.role = self.userRole.rawValue
+                    try context.save()
+                    print("🔄 Synced user role to SwiftData: \(self.userRole.rawValue)")
+                }
                 await MainActor.run {
                     self.localUser = existingUser
                 }
             } else {
-                let newUser = User(username: firebaseUser.displayName ?? email, email: email)
+                // Create new user with current role from authManager
+                let newUser = User(username: firebaseUser.displayName ?? email, email: email, role: self.userRole.rawValue)
                 context.insert(newUser)
                 try context.save()
+                print("✅ Created new SwiftData user with role: \(self.userRole.rawValue)")
                 await MainActor.run {
                     self.localUser = newUser
                 }
@@ -147,15 +168,19 @@ final class ComprehensiveAuthManager: ObservableObject {
         isLoading = true
         errorMessage = nil
         isNewUser = false // This is a sign-in, not a new user
-        
+
         do {
             let result = try await Auth.auth().signIn(withEmail: email, password: password)
             currentFirebaseUser = result.user
             isSignedIn = true
-            
+
             // Load user profile from Firestore
             await loadUserProfile()
-            
+
+            // Track successful sign in
+            AnalyticsService.shared.setUserID(result.user.uid)
+            AnalyticsService.shared.trackSignIn(method: "email")
+
             isLoading = false
             print("🟢 Sign in successful for: \(result.user.email ?? "unknown") as \(userRole.rawValue)")
         } catch {
@@ -201,7 +226,11 @@ final class ComprehensiveAuthManager: ObservableObject {
                 print("⚠️ WARNING: userRole was changed after createUserProfile, resetting to athlete")
                 userRole = .athlete
             }
-            
+
+            // Track successful sign up
+            AnalyticsService.shared.setUserID(result.user.uid)
+            AnalyticsService.shared.trackSignUp(method: "email")
+
             isLoading = false
             print("🟢 Sign up successful for athlete: \(result.user.email ?? "unknown") with role: \(userRole.rawValue)")
         } catch {
@@ -348,8 +377,22 @@ final class ComprehensiveAuthManager: ObservableObject {
                     print("⏳ Profile not found for \(email) on attempt \(attempt)/\(maxAttempts), retrying in \(delay)s...")
                     try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                 } else {
-                    // Last attempt and still not found
+                    // Last attempt and still not found - create profile as fallback
                     print("⚠️ Profile not found for \(email) after \(maxAttempts) attempts")
+                    print("🔧 Creating fallback Firestore profile with current role: \(self.userRole.rawValue)")
+
+                    // Create profile with current role (from UserDefaults/SwiftData)
+                    do {
+                        try await createUserProfile(
+                            userID: userID,
+                            email: email,
+                            displayName: self.currentFirebaseUser?.displayName ?? email,
+                            role: self.userRole
+                        )
+                        print("✅ Successfully created fallback Firestore profile")
+                    } catch {
+                        print("❌ Failed to create fallback profile: \(error)")
+                    }
                     return
                 }
             } catch {
@@ -359,6 +402,20 @@ final class ComprehensiveAuthManager: ObservableObject {
                     try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                 } else {
                     print("❌ Failed to load user profile after \(maxAttempts) attempts: \(error)")
+                    print("🔧 Creating fallback Firestore profile with current role: \(self.userRole.rawValue)")
+
+                    // Create profile with current role as fallback
+                    do {
+                        try await createUserProfile(
+                            userID: userID,
+                            email: email,
+                            displayName: self.currentFirebaseUser?.displayName ?? email,
+                            role: self.userRole
+                        )
+                        print("✅ Successfully created fallback Firestore profile after errors")
+                    } catch {
+                        print("❌ Failed to create fallback profile: \(error)")
+                    }
                 }
             }
         }
@@ -428,6 +485,10 @@ final class ComprehensiveAuthManager: ObservableObject {
         errorMessage = nil
 
         do {
+            // Track sign out before clearing user data
+            AnalyticsService.shared.trackSignOut()
+            AnalyticsService.shared.clearUserID()
+
             try Auth.auth().signOut()
             currentFirebaseUser = nil
             isSignedIn = false
@@ -436,8 +497,9 @@ final class ComprehensiveAuthManager: ObservableObject {
             errorMessage = nil
             userRole = .athlete // Reset to default
 
-            // Clear persisted role from UserDefaults
+            // Clear persisted role and onboarding completion from UserDefaults
             UserDefaults.standard.removeObject(forKey: AuthConstants.UserDefaultsKeys.userRole)
+            UserDefaults.standard.removeObject(forKey: AuthConstants.UserDefaultsKeys.hasCompletedOnboarding)
 
             // Clear biometric credentials on logout for security
             BiometricAuthenticationManager.shared.disableBiometric()
@@ -484,6 +546,9 @@ final class ComprehensiveAuthManager: ObservableObject {
 
             print("🗑️ Starting account deletion for user: \(user.email ?? "unknown")")
 
+            // Track account deletion request
+            AnalyticsService.shared.trackAccountDeletionRequested(userID: userID)
+
             // Step 1: Delete all user videos from Firebase Storage
             print("🗑️ Deleting user videos from Storage...")
             do {
@@ -521,8 +586,13 @@ final class ComprehensiveAuthManager: ObservableObject {
             isNewUser = false
             userRole = .athlete
 
-            // Clear persisted role from UserDefaults
+            // Clear persisted role and onboarding completion from UserDefaults
             UserDefaults.standard.removeObject(forKey: AuthConstants.UserDefaultsKeys.userRole)
+            UserDefaults.standard.removeObject(forKey: AuthConstants.UserDefaultsKeys.hasCompletedOnboarding)
+
+            // Track account deletion completion
+            AnalyticsService.shared.trackAccountDeletionCompleted(userID: userID)
+            AnalyticsService.shared.clearUserID()
 
             print("✅ Account deletion successful")
 

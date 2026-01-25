@@ -46,7 +46,7 @@ struct VideoRecorderView_Refactored: View {
     @State private var saveTask: Task<Void, Never>?
     @State private var showingTrimmer = false
     @State private var trimmedVideoURL: URL?
-    @State private var useModernCamera = true // Default to modern camera
+    @State private var useModernCamera = false // Use classic camera for stability
 
     // System monitoring
     @State private var availableStorageGB: Double = 0
@@ -162,7 +162,7 @@ struct VideoRecorderView_Refactored: View {
                 // Quick record for live games
                 if game?.isLive == true {
                     autoOpeningCamera = true
-                    try? await Task.sleep(nanoseconds: 1_500_000_000) // 1.5s delay to show context
+                    try? await Task.sleep(for: .milliseconds(300)) // Brief delay for smooth transition
                     guard !Task.isCancelled, autoOpeningCamera else { return }
                     checkCameraPermission()
                     autoOpeningCamera = false
@@ -219,13 +219,19 @@ struct VideoRecorderView_Refactored: View {
         }
 
         ToolbarItem(placement: .principal) {
-            // Storage & Battery Status
-            HStack(spacing: 8) {
-                // Storage indicator
-                storageIndicator
-
-                // Battery indicator
-                batteryIndicator
+            // Show context instead of system indicators
+            if let game = game {
+                Text("vs \(game.opponent)")
+                    .font(.headline)
+                    .foregroundColor(.white)
+            } else if let practice = practice {
+                Text("Practice Session")
+                    .font(.headline)
+                    .foregroundColor(.white)
+            } else {
+                Text("Record Video")
+                    .font(.headline)
+                    .foregroundColor(.white)
             }
         }
 
@@ -601,41 +607,17 @@ struct VideoRecorderView_Refactored: View {
     }
     
     private var recordingGuidelinesSection: some View {
-        VStack(spacing: 8) {
-            Text("Recording Guidelines")
+        HStack(spacing: 12) {
+            Image(systemName: "info.circle.fill")
                 .font(.caption)
-                .fontWeight(.semibold)
-                .foregroundColor(.white.opacity(0.8))
-                .accessibilityAddTraits(.isHeader)
-            
-            HStack(spacing: 16) {
-                GuidelineItem(
-                    icon: "clock.fill",
-                    text: "Max \(Int(maxRecordingDuration / 60)) min",
-                    color: .blue
-                )
-                
-                if let estimate = qualityEstimates[selectedVideoQuality] {
-                    let estimatedMaxSize = estimate.mbPerMinute * (maxRecordingDuration / 60.0)
-                    GuidelineItem(
-                        icon: "arrow.down.circle.fill",
-                        text: "~\(Int(estimatedMaxSize))MB max",
-                        color: .green
-                    )
-                }
-            }
-            
-            // Show quality-specific tip
-            if let estimate = qualityEstimates[selectedVideoQuality] {
-                Text("At \(estimate.name) quality: ~\(Int(estimate.mbPerMinute))MB per minute")
-                    .font(.caption2)
-                    .foregroundColor(.white.opacity(0.6))
-                    .padding(.top, 4)
-            }
+                .foregroundColor(.blue)
+
+            Text("Up to \(Int(maxRecordingDuration / 60)) minutes • \(qualityName(for: selectedVideoQuality)) quality")
+                .font(.caption)
+                .foregroundColor(.white.opacity(0.7))
         }
         .padding(.horizontal)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Recording limits: Maximum \(Int(maxRecordingDuration / 60)) minutes at \(qualityName(for: selectedVideoQuality)) quality")
+        .accessibilityLabel("Recording limit: Maximum \(Int(maxRecordingDuration / 60)) minutes at \(qualityName(for: selectedVideoQuality)) quality")
     }
     
     private var headerSection: some View {

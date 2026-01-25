@@ -303,6 +303,33 @@ struct ProfileView: View {
             )
         ))
 
+        items.append(SearchResult(
+            title: "Export My Data",
+            icon: "arrow.down.doc",
+            keywords: ["export", "data", "download", "backup", "gdpr", "json"],
+            link: AnyView(
+                NavigationLink {
+                    DataExportView()
+                } label: {
+                    Label("Export My Data", systemImage: "arrow.down.doc")
+                }
+            )
+        ))
+
+        items.append(SearchResult(
+            title: "Delete Account",
+            icon: "trash",
+            keywords: ["delete", "account", "remove", "close", "gdpr"],
+            link: AnyView(
+                NavigationLink {
+                    AccountDeletionView()
+                } label: {
+                    Label("Delete Account", systemImage: "trash")
+                        .foregroundColor(.red)
+                }
+            )
+        ))
+
         return items
     }
 
@@ -465,6 +492,21 @@ struct ProfileView: View {
                 } else {
                     Label("Upgrade to Premium", systemImage: "crown")
                 }
+            }
+
+            // Data Export (GDPR Compliance)
+            NavigationLink {
+                DataExportView()
+            } label: {
+                Label("Export My Data", systemImage: "arrow.down.doc")
+            }
+
+            // Account Deletion (GDPR Compliance)
+            NavigationLink {
+                AccountDeletionView()
+            } label: {
+                Label("Delete Account", systemImage: "trash")
+                    .foregroundColor(.red)
             }
 
             Button(ProfileStrings.signOut) {
@@ -831,39 +873,8 @@ struct NotificationSettingsView: View {
 
 struct HelpSupportView: View {
     var body: some View {
-        List {
-            Section("Getting Started") {
-                NavigationLink("How to record videos") {
-                    Text("Tutorial content here")
-                }
-                NavigationLink("Understanding statistics") {
-                    Text("Statistics explanation here")
-                }
-                NavigationLink("Managing tournaments") {
-                    Text("Tournament guide here")
-                }
-            }
-
-            Section("Contact") {
-                if let emailURL = URL(string: "mailto:\(AuthConstants.supportEmail)") {
-                    Link("Email Support", destination: emailURL)
-                }
-                if let websiteURL = URL(string: "https://playerpath.app") {
-                    Link("Visit Website", destination: websiteURL)
-                }
-            }
-
-            Section("Legal") {
-                NavigationLink("Privacy Policy") {
-                    Text("Privacy policy content")
-                }
-                NavigationLink("Terms of Service") {
-                    Text("Terms of service content")
-                }
-            }
-        }
-        .navigationTitle("Help & Support")
-        .navigationBarTitleDisplayMode(.inline)
+        // Use the comprehensive HelpView created in Views/Help/HelpView.swift
+        HelpView()
     }
 }
 

@@ -18,6 +18,9 @@ struct VideoRecordingSettingsView: View {
     @State private var unsupportedMessage = ""
     @State private var lastSaveTime: Date?
     
+    @AppStorage("autoShowTrimmer") private var autoShowTrimmer = false
+    @AppStorage("skipTrimmerForShortClips") private var skipTrimmerForShortClips = true
+
     var body: some View {
         @Bindable var settings = settings
         Form {
@@ -26,6 +29,7 @@ struct VideoRecordingSettingsView: View {
             frameRateSection
             slowMotionSection
             additionalSettingsSection
+            workflowSection
             summarySection
             resetSection
         }
@@ -173,7 +177,7 @@ struct VideoRecordingSettingsView: View {
                     Text("Record Audio")
                 }
             }
-            
+
             Picker("Stabilization", selection: $settings.stabilizationMode) {
                 ForEach(StabilizationMode.allCases) { mode in
                     Label(mode.displayName, systemImage: mode.systemIcon)
@@ -184,6 +188,54 @@ struct VideoRecordingSettingsView: View {
             Text("Additional Settings")
         } footer: {
             Text("Video stabilization reduces shake and improves footage quality. \(settings.stabilizationMode.description).")
+        }
+    }
+
+    private var workflowSection: some View {
+        Section {
+            Toggle(isOn: $autoShowTrimmer) {
+                HStack {
+                    Image(systemName: "scissors")
+                        .foregroundStyle(.orange)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Always Show Trimmer")
+                            .font(.body)
+                        Text("Edit video length after recording")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .onChange(of: autoShowTrimmer) { _, newValue in
+                Haptics.light()
+            }
+
+            if !autoShowTrimmer {
+                Toggle(isOn: $skipTrimmerForShortClips) {
+                    HStack {
+                        Image(systemName: "timer")
+                            .foregroundStyle(.blue)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Auto-Skip for Short Clips")
+                                .font(.body)
+                            Text("Skip trimmer for videos under 15 seconds")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .onChange(of: skipTrimmerForShortClips) { _, newValue in
+                    Haptics.light()
+                }
+            }
+        } header: {
+            Text("Recording Workflow")
+        } footer: {
+            if autoShowTrimmer {
+                Text("The video trimmer will appear after every recording, allowing you to precisely edit start and end points.")
+            } else {
+                Text("Quick Record will skip the trimmer step for faster tagging. You can still trim videos later from the library.")
+            }
         }
     }
     

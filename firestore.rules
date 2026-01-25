@@ -75,15 +75,76 @@ service cloud.firestore {
     // ========================================================================
     // USER PROFILES
     // ========================================================================
-    
+
     match /users/{userID} {
       // Anyone authenticated can read any user profile (for display names, etc.)
       allow read: if isAuthenticated();
-      
+
       // Users can only write their own profile
       allow write: if isOwner(userID);
+
+      // ======================================================================
+      // ATHLETES (SUBCOLLECTION) - Cross-Device Sync
+      // ======================================================================
+
+      match /athletes/{athleteID} {
+        // Read: Users can only read their own athletes
+        allow read: if isAuthenticated() && isOwner(userID);
+
+        // Create: Users can create athletes under their own profile
+        // Must set correct userId in the document
+        allow create: if isAuthenticated()
+                      && isOwner(userID)
+                      && request.resource.data.userId == userID;
+
+        // Update: Users can only update their own athletes
+        allow update: if isAuthenticated() && isOwner(userID);
+
+        // Delete: Users can only delete their own athletes (soft delete)
+        allow delete: if isAuthenticated() && isOwner(userID);
+      }
+
+      // ======================================================================
+      // SEASONS (SUBCOLLECTION) - Cross-Device Sync
+      // ======================================================================
+
+      match /seasons/{seasonID} {
+        // Read: Users can only read their own seasons
+        allow read: if isAuthenticated() && isOwner(userID);
+
+        // Create: Users can create seasons under their own profile
+        // Must set correct athleteId in the document
+        allow create: if isAuthenticated()
+                      && isOwner(userID);
+
+        // Update: Users can only update their own seasons
+        allow update: if isAuthenticated() && isOwner(userID);
+
+        // Delete: Users can only delete their own seasons (soft delete)
+        allow delete: if isAuthenticated() && isOwner(userID);
+      }
+
+      // ======================================================================
+      // GAMES (SUBCOLLECTION) - Cross-Device Sync
+      // ======================================================================
+
+      match /games/{gameID} {
+        // Read: Users can only read their own games
+        allow read: if isAuthenticated() && isOwner(userID);
+
+        // Create: Users can create games under their own profile
+        // Must set correct athleteId in the document
+        allow create: if isAuthenticated()
+                      && isOwner(userID);
+
+        // Update: Users can only update their own games
+        allow update: if isAuthenticated() && isOwner(userID);
+
+        // Delete: Users can only delete their own games (soft delete)
+        allow delete: if isAuthenticated() && isOwner(userID);
+      }
     }
-    
+
     // ========================================================================
     // SHARED FOLDERS
     // ========================================================================

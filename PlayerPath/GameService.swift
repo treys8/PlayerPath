@@ -173,12 +173,27 @@ class GameService {
         stats.game = game
         game.gameStats = stats
 
+        // Mark for Firestore sync (Phase 2)
+        game.needsSync = true
+
         modelContext.insert(game)
         modelContext.insert(stats)
 
         // Save and notify
         do {
             try modelContext.save()
+
+            // Trigger immediate sync to Firestore
+            Task {
+                guard let user = athlete.user else { return }
+                do {
+                    try await SyncCoordinator.shared.syncGames(for: user)
+                    print("✅ Game synced to Firestore successfully")
+                } catch {
+                    print("⚠️ Failed to sync game to Firestore: \(error)")
+                    // Don't block game creation on sync failure
+                }
+            }
 
             #if DEBUG
             let seasonInfo = game.season?.name ?? "year \(game.year ?? 0)"
@@ -215,9 +230,24 @@ class GameService {
         
         // Start this game
         game.isLive = true
-        
+
+        // Mark for Firestore sync (Phase 2)
+        game.needsSync = true
+
         do {
             try modelContext.save()
+
+            // Trigger immediate sync to Firestore
+            Task {
+                guard let user = athlete.user else { return }
+                do {
+                    try await SyncCoordinator.shared.syncGames(for: user)
+                    print("✅ Game start synced to Firestore successfully")
+                } catch {
+                    print("⚠️ Failed to sync game start to Firestore: \(error)")
+                }
+            }
+
             print("Started game for athlete \(athlete.name).")
             NotificationCenter.default.post(name: Notification.Name("GameBecameLive"), object: game)
         } catch {
@@ -228,7 +258,10 @@ class GameService {
     func end(_ game: Game) async {
         game.isLive = false
         game.isComplete = true
-        
+
+        // Mark for Firestore sync (Phase 2)
+        game.needsSync = true
+
         if let athlete = game.athlete {
             // Create athlete statistics if they don't exist
             if athlete.statistics == nil {
@@ -268,6 +301,19 @@ class GameService {
         
         do {
             try modelContext.save()
+
+            // Trigger immediate sync to Firestore
+            Task {
+                if let athlete = game.athlete, let user = athlete.user {
+                    do {
+                        try await SyncCoordinator.shared.syncGames(for: user)
+                        print("✅ Game end synced to Firestore successfully")
+                    } catch {
+                        print("⚠️ Failed to sync game end to Firestore: \(error)")
+                    }
+                }
+            }
+
             print("Ended game and saved changes.")
         } catch {
             print("Error saving context after ending game: \(error.localizedDescription)")

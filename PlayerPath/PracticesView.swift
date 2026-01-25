@@ -161,6 +161,15 @@ struct PracticesView: View {
                     }
                 } else {
                     VStack(spacing: 0) {
+                        // Season recommendation banner
+                        if let athlete = athlete {
+                            let seasonRecommendation = SeasonManager.checkSeasonStatus(for: athlete)
+                            if seasonRecommendation.message != nil {
+                                SeasonRecommendationBanner(athlete: athlete, recommendation: seasonRecommendation)
+                                    .padding()
+                            }
+                        }
+
                         // Statistics summary
                         if !practices.isEmpty && editMode == .inactive {
                             HStack {

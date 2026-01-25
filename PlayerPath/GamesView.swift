@@ -467,7 +467,7 @@ struct GameRow: View {
                             .background(season.isActive ? Color.blue : Color.gray)
                             .cornerRadius(4)
                     } else if let year = game.year {
-                        Text("\(year)")
+                        Text(String(year))
                             .font(.caption2)
                             .fontWeight(.medium)
                             .foregroundColor(.white)

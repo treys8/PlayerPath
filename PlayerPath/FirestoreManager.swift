@@ -813,6 +813,346 @@ class FirestoreManager: ObservableObject {
         }
     }
 
+    // MARK: - Athletes Sync
+
+    /// Creates a new athlete in Firestore for cross-device sync
+    /// - Parameters:
+    ///   - userId: The user ID who owns this athlete
+    ///   - data: Athlete data dictionary (from Athlete.toFirestoreData())
+    /// - Returns: The Firestore document ID for the created athlete
+    func createAthlete(userId: String, data: [String: Any]) async throws -> String {
+        isLoading = true
+        defer { isLoading = false }
+
+        var athleteData = data
+        athleteData["createdAt"] = FieldValue.serverTimestamp()
+        athleteData["updatedAt"] = FieldValue.serverTimestamp()
+
+        do {
+            let docRef = try await db
+                .collection("users")
+                .document(userId)
+                .collection("athletes")
+                .addDocument(data: athleteData)
+
+            print("✅ Created athlete in Firestore: \(docRef.documentID)")
+            return docRef.documentID
+        } catch {
+            print("❌ Failed to create athlete: \(error)")
+            errorMessage = "Failed to create athlete: \(error.localizedDescription)"
+            throw error
+        }
+    }
+
+    /// Updates an existing athlete in Firestore
+    /// - Parameters:
+    ///   - userId: The user ID who owns this athlete
+    ///   - athleteId: The Firestore document ID of the athlete
+    ///   - data: Updated athlete data dictionary
+    func updateAthlete(userId: String, athleteId: String, data: [String: Any]) async throws {
+        isLoading = true
+        defer { isLoading = false }
+
+        var updateData = data
+        updateData["updatedAt"] = FieldValue.serverTimestamp()
+
+        do {
+            try await db
+                .collection("users")
+                .document(userId)
+                .collection("athletes")
+                .document(athleteId)
+                .setData(updateData, merge: true)
+
+            print("✅ Updated athlete in Firestore: \(athleteId)")
+        } catch {
+            print("❌ Failed to update athlete: \(error)")
+            errorMessage = "Failed to update athlete: \(error.localizedDescription)"
+            throw error
+        }
+    }
+
+    /// Fetches all athletes for a user from Firestore
+    /// - Parameter userId: The user ID to fetch athletes for
+    /// - Returns: Array of FirestoreAthlete objects
+    func fetchAthletes(userId: String) async throws -> [FirestoreAthlete] {
+        isLoading = true
+        defer { isLoading = false }
+
+        do {
+            let snapshot = try await db
+                .collection("users")
+                .document(userId)
+                .collection("athletes")
+                .whereField("isDeleted", isEqualTo: false)
+                .order(by: "createdAt", descending: false)
+                .getDocuments()
+
+            let athletes = snapshot.documents.compactMap { doc -> FirestoreAthlete? in
+                var athlete = try? doc.data(as: FirestoreAthlete.self)
+                athlete?.id = doc.documentID
+                return athlete
+            }
+
+            print("✅ Fetched \(athletes.count) athletes for user \(userId)")
+            return athletes
+        } catch {
+            print("❌ Failed to fetch athletes: \(error)")
+            errorMessage = "Failed to load athletes: \(error.localizedDescription)"
+            throw error
+        }
+    }
+
+    /// Soft deletes an athlete in Firestore (marks as deleted, doesn't remove)
+    /// - Parameters:
+    ///   - userId: The user ID who owns this athlete
+    ///   - athleteId: The Firestore document ID of the athlete
+    func deleteAthlete(userId: String, athleteId: String) async throws {
+        isLoading = true
+        defer { isLoading = false }
+
+        do {
+            try await db
+                .collection("users")
+                .document(userId)
+                .collection("athletes")
+                .document(athleteId)
+                .updateData([
+                    "isDeleted": true,
+                    "deletedAt": FieldValue.serverTimestamp(),
+                    "updatedAt": FieldValue.serverTimestamp()
+                ])
+
+            print("✅ Soft deleted athlete in Firestore: \(athleteId)")
+        } catch {
+            print("❌ Failed to delete athlete: \(error)")
+            errorMessage = "Failed to delete athlete: \(error.localizedDescription)"
+            throw error
+        }
+    }
+
+    // MARK: - Seasons Sync
+
+    /// Creates a new season in Firestore for cross-device sync
+    /// - Parameters:
+    ///   - userId: The user ID who owns this season
+    ///   - data: Season data dictionary (from Season.toFirestoreData())
+    /// - Returns: The Firestore document ID for the created season
+    func createSeason(userId: String, data: [String: Any]) async throws -> String {
+        isLoading = true
+        defer { isLoading = false }
+
+        do {
+            let docRef = try await db
+                .collection("users")
+                .document(userId)
+                .collection("seasons")
+                .addDocument(data: data)
+
+            print("✅ Created season in Firestore: \(docRef.documentID)")
+            return docRef.documentID
+        } catch {
+            print("❌ Failed to create season: \(error)")
+            errorMessage = "Failed to create season: \(error.localizedDescription)"
+            throw error
+        }
+    }
+
+    /// Updates an existing season in Firestore
+    /// - Parameters:
+    ///   - userId: The user ID who owns this season
+    ///   - seasonId: The Firestore document ID of the season
+    ///   - data: Updated season data dictionary
+    func updateSeason(userId: String, seasonId: String, data: [String: Any]) async throws {
+        isLoading = true
+        defer { isLoading = false }
+
+        var updateData = data
+        updateData["updatedAt"] = FieldValue.serverTimestamp()
+
+        do {
+            try await db
+                .collection("users")
+                .document(userId)
+                .collection("seasons")
+                .document(seasonId)
+                .setData(updateData, merge: true)
+
+            print("✅ Updated season in Firestore: \(seasonId)")
+        } catch {
+            print("❌ Failed to update season: \(error)")
+            errorMessage = "Failed to update season: \(error.localizedDescription)"
+            throw error
+        }
+    }
+
+    /// Fetches all seasons for a user from Firestore
+    /// - Parameter userId: The user ID to fetch seasons for
+    /// - Returns: Array of FirestoreSeason objects
+    func fetchSeasons(userId: String) async throws -> [FirestoreSeason] {
+        isLoading = true
+        defer { isLoading = false }
+
+        do {
+            let snapshot = try await db
+                .collection("users")
+                .document(userId)
+                .collection("seasons")
+                .whereField("isDeleted", isEqualTo: false)
+                .getDocuments()
+
+            let seasons = snapshot.documents.compactMap { doc -> FirestoreSeason? in
+                try? doc.data(as: FirestoreSeason.self)
+            }
+
+            print("✅ Fetched \(seasons.count) seasons from Firestore")
+            return seasons
+        } catch {
+            print("❌ Failed to fetch seasons: \(error)")
+            errorMessage = "Failed to fetch seasons: \(error.localizedDescription)"
+            throw error
+        }
+    }
+
+    /// Soft deletes a season in Firestore
+    /// - Parameters:
+    ///   - userId: The user ID who owns this season
+    ///   - seasonId: The Firestore document ID of the season
+    func deleteSeason(userId: String, seasonId: String) async throws {
+        isLoading = true
+        defer { isLoading = false }
+
+        do {
+            try await db
+                .collection("users")
+                .document(userId)
+                .collection("seasons")
+                .document(seasonId)
+                .updateData([
+                    "isDeleted": true,
+                    "deletedAt": FieldValue.serverTimestamp(),
+                    "updatedAt": FieldValue.serverTimestamp()
+                ])
+
+            print("✅ Soft deleted season in Firestore: \(seasonId)")
+        } catch {
+            print("❌ Failed to delete season: \(error)")
+            errorMessage = "Failed to delete season: \(error.localizedDescription)"
+            throw error
+        }
+    }
+
+    // MARK: - Games Sync
+
+    /// Creates a new game in Firestore for cross-device sync
+    /// - Parameters:
+    ///   - userId: The user ID who owns this game
+    ///   - data: Game data dictionary (from Game.toFirestoreData())
+    /// - Returns: The Firestore document ID for the created game
+    func createGame(userId: String, data: [String: Any]) async throws -> String {
+        isLoading = true
+        defer { isLoading = false }
+
+        do {
+            let docRef = try await db
+                .collection("users")
+                .document(userId)
+                .collection("games")
+                .addDocument(data: data)
+
+            print("✅ Created game in Firestore: \(docRef.documentID)")
+            return docRef.documentID
+        } catch {
+            print("❌ Failed to create game: \(error)")
+            errorMessage = "Failed to create game: \(error.localizedDescription)"
+            throw error
+        }
+    }
+
+    /// Updates an existing game in Firestore
+    /// - Parameters:
+    ///   - userId: The user ID who owns this game
+    ///   - gameId: The Firestore document ID of the game
+    ///   - data: Updated game data dictionary
+    func updateGame(userId: String, gameId: String, data: [String: Any]) async throws {
+        isLoading = true
+        defer { isLoading = false }
+
+        var updateData = data
+        updateData["updatedAt"] = FieldValue.serverTimestamp()
+
+        do {
+            try await db
+                .collection("users")
+                .document(userId)
+                .collection("games")
+                .document(gameId)
+                .setData(updateData, merge: true)
+
+            print("✅ Updated game in Firestore: \(gameId)")
+        } catch {
+            print("❌ Failed to update game: \(error)")
+            errorMessage = "Failed to update game: \(error.localizedDescription)"
+            throw error
+        }
+    }
+
+    /// Fetches all games for a user from Firestore
+    /// - Parameter userId: The user ID to fetch games for
+    /// - Returns: Array of FirestoreGame objects
+    func fetchGames(userId: String) async throws -> [FirestoreGame] {
+        isLoading = true
+        defer { isLoading = false }
+
+        do {
+            let snapshot = try await db
+                .collection("users")
+                .document(userId)
+                .collection("games")
+                .whereField("isDeleted", isEqualTo: false)
+                .getDocuments()
+
+            let games = snapshot.documents.compactMap { doc -> FirestoreGame? in
+                try? doc.data(as: FirestoreGame.self)
+            }
+
+            print("✅ Fetched \(games.count) games from Firestore")
+            return games
+        } catch {
+            print("❌ Failed to fetch games: \(error)")
+            errorMessage = "Failed to fetch games: \(error.localizedDescription)"
+            throw error
+        }
+    }
+
+    /// Soft deletes a game in Firestore
+    /// - Parameters:
+    ///   - userId: The user ID who owns this game
+    ///   - gameId: The Firestore document ID of the game
+    func deleteGame(userId: String, gameId: String) async throws {
+        isLoading = true
+        defer { isLoading = false }
+
+        do {
+            try await db
+                .collection("users")
+                .document(userId)
+                .collection("games")
+                .document(gameId)
+                .updateData([
+                    "isDeleted": true,
+                    "deletedAt": FieldValue.serverTimestamp(),
+                    "updatedAt": FieldValue.serverTimestamp()
+                ])
+
+            print("✅ Soft deleted game in Firestore: \(gameId)")
+        } catch {
+            print("❌ Failed to delete game: \(error)")
+            errorMessage = "Failed to delete game: \(error.localizedDescription)"
+            throw error
+        }
+    }
+
     // MARK: - Helper Methods for Coach Views
     
     /// Fetches videos for a shared folder (convenience method)
@@ -1136,11 +1476,99 @@ struct UserProfile: Codable, Identifiable {
     let isPremium: Bool?
     let createdAt: Date?
     let updatedAt: Date?
-    
+
     // Role-specific profiles would be nested objects in Firestore
-    
+
     var userRole: UserRole {
         UserRole(rawValue: role) ?? .athlete
+    }
+}
+
+/// Athlete model for Firestore sync
+struct FirestoreAthlete: Codable, Identifiable {
+    var id: String?           // Firestore document ID (auto-generated, not encoded)
+    let swiftDataId: String   // Original SwiftData UUID
+    let name: String
+    let userId: String
+    let createdAt: Date?
+    let updatedAt: Date?
+    let version: Int
+    let isDeleted: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case swiftDataId = "id"  // Maps to "id" field in Firestore document
+        case name
+        case userId
+        case createdAt
+        case updatedAt
+        case version
+        case isDeleted
+    }
+}
+
+/// Season model for Firestore sync
+struct FirestoreSeason: Codable, Identifiable {
+    var id: String?           // Firestore document ID (auto-generated, not encoded)
+    let swiftDataId: String   // Original SwiftData UUID
+    let name: String
+    let athleteId: String
+    let startDate: Date?
+    let endDate: Date?
+    let isActive: Bool
+    let sport: String
+    let notes: String
+    let createdAt: Date?
+    let updatedAt: Date?
+    let version: Int
+    let isDeleted: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case swiftDataId = "id"  // Maps to "id" field in Firestore document
+        case name
+        case athleteId
+        case startDate
+        case endDate
+        case isActive
+        case sport
+        case notes
+        case createdAt
+        case updatedAt
+        case version
+        case isDeleted
+    }
+}
+
+/// Game model for Firestore sync
+struct FirestoreGame: Codable, Identifiable {
+    var id: String?           // Firestore document ID (auto-generated, not encoded)
+    let swiftDataId: String   // Original SwiftData UUID
+    let athleteId: String
+    let seasonId: String?
+    let tournamentId: String?
+    let opponent: String
+    let date: Date?
+    let year: Int
+    let isLive: Bool
+    let isComplete: Bool
+    let createdAt: Date?
+    let updatedAt: Date?
+    let version: Int
+    let isDeleted: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case swiftDataId = "id"  // Maps to "id" field in Firestore document
+        case athleteId
+        case seasonId
+        case tournamentId
+        case opponent
+        case date
+        case year
+        case isLive
+        case isComplete
+        case createdAt
+        case updatedAt
+        case version
+        case isDeleted
     }
 }
 

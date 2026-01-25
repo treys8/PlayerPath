@@ -148,8 +148,23 @@ struct SeasonManagementView: View {
         // Archive the season
         season.archive()
 
+        // Mark for Firestore sync (Phase 2)
+        season.needsSync = true
+
         do {
             try modelContext.save()
+
+            // Trigger immediate sync to Firestore
+            Task {
+                guard let user = season.athlete?.user else { return }
+                do {
+                    try await SyncCoordinator.shared.syncSeasons(for: user)
+                    print("✅ Season archive synced to Firestore successfully")
+                } catch {
+                    print("⚠️ Failed to sync season archive to Firestore: \(error)")
+                }
+            }
+
             // Success - animate the change
             withAnimation {
                 isProcessing = false
@@ -465,11 +480,27 @@ struct CreateSeasonView: View {
         athlete.seasons = athlete.seasons ?? []
         athlete.seasons?.append(newSeason)
 
+        // Mark for Firestore sync (Phase 2)
+        newSeason.needsSync = true
+
         // Insert and save
         modelContext.insert(newSeason)
 
         do {
             try modelContext.save()
+
+            // Trigger immediate sync to Firestore
+            Task {
+                guard let user = athlete.user else { return }
+                do {
+                    try await SyncCoordinator.shared.syncSeasons(for: user)
+                    print("✅ Season synced to Firestore successfully")
+                } catch {
+                    print("⚠️ Failed to sync season to Firestore: \(error)")
+                    // Don't block season creation on sync failure
+                }
+            }
+
             // Success - provide feedback and dismiss
             Haptics.medium()
             dismiss()
@@ -724,8 +755,23 @@ struct SeasonDetailView: View {
         // End the season
         season.archive()
 
+        // Mark for Firestore sync (Phase 2)
+        season.needsSync = true
+
         do {
             try modelContext.save()
+
+            // Trigger immediate sync to Firestore
+            Task {
+                guard let user = season.athlete?.user else { return }
+                do {
+                    try await SyncCoordinator.shared.syncSeasons(for: user)
+                    print("✅ Season end synced to Firestore successfully")
+                } catch {
+                    print("⚠️ Failed to sync season end to Firestore: \(error)")
+                }
+            }
+
             withAnimation {
                 isProcessing = false
             }
@@ -762,8 +808,26 @@ struct SeasonDetailView: View {
         // Reactivate this season
         season.activate()
 
+        // Mark for Firestore sync (Phase 2)
+        season.needsSync = true
+        if let previousActive = athlete.activeSeason, previousActive.id != season.id {
+            previousActive.needsSync = true
+        }
+
         do {
             try modelContext.save()
+
+            // Trigger immediate sync to Firestore
+            Task {
+                guard let user = season.athlete?.user else { return }
+                do {
+                    try await SyncCoordinator.shared.syncSeasons(for: user)
+                    print("✅ Season reactivation synced to Firestore successfully")
+                } catch {
+                    print("⚠️ Failed to sync season reactivation to Firestore: \(error)")
+                }
+            }
+
             withAnimation {
                 isProcessing = false
             }

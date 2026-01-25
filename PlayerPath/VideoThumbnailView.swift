@@ -237,29 +237,29 @@ struct VideoThumbnailView: View {
             HStack(spacing: scaledSpacing(2)) {
                 playResultIcon(for: playResult.type)
                     .foregroundColor(.white)
-                    .font(.system(size: scaledValue(10)))
+                    .font(.system(size: min(scaledValue(10), 14)))
 
                 Text(playResultAbbreviation(for: playResult.type))
-                    .font(.system(size: scaledValue(10)))
+                    .font(.system(size: min(scaledValue(10), 14)))
                     .fontWeight(.bold)
                     .foregroundColor(.white)
             }
-            .padding(.horizontal, scaledSpacing(6))
-            .padding(.vertical, scaledSpacing(2))
+            .padding(.horizontal, min(scaledSpacing(6), 8))
+            .padding(.vertical, min(scaledSpacing(2), 3))
             .background(playResultColor(for: playResult.type))
-            .cornerRadius(scaledValue(4))
-            .offset(x: scaledValue(4), y: scaledValue(-4))
+            .cornerRadius(min(scaledValue(4), 6))
+            .offset(x: min(scaledValue(4), 6), y: min(scaledValue(-4), -6))
             .accessibilityHidden(true) // Already described in main accessibility label
         } else {
             // Unrecorded indicator
             Text("?")
-                .font(.system(size: scaledValue(10)))
+                .font(.system(size: min(scaledValue(10), 14)))
                 .fontWeight(.bold)
                 .foregroundColor(.white)
-                .frame(width: scaledValue(16), height: scaledValue(16))
+                .frame(width: min(scaledValue(16), 20), height: min(scaledValue(16), 20))
                 .background(Color.gray)
                 .clipShape(Circle())
-                .offset(x: scaledValue(4), y: scaledValue(-4))
+                .offset(x: min(scaledValue(4), 6), y: min(scaledValue(-4), -6))
                 .accessibilityHidden(true) // Already described in main accessibility label
         }
     }
@@ -284,14 +284,14 @@ struct VideoThumbnailView: View {
                 Spacer()
                 if let season = clip.season {
                     Text(season.displayName)
-                        .font(.system(size: scaledValue(8)))
+                        .font(.system(size: min(scaledValue(8), 12)))
                         .fontWeight(.semibold)
                         .foregroundColor(.white)
-                        .padding(.horizontal, scaledSpacing(4))
-                        .padding(.vertical, scaledSpacing(2))
+                        .padding(.horizontal, min(scaledSpacing(4), 6))
+                        .padding(.vertical, min(scaledSpacing(2), 3))
                         .background(season.isActive ? Color.blue.opacity(0.9) : Color.gray.opacity(0.9))
-                        .cornerRadius(scaledValue(3))
-                        .offset(x: scaledValue(-4), y: scaledValue(4))
+                        .cornerRadius(min(scaledValue(3), 5))
+                        .offset(x: min(scaledValue(-4), -6), y: min(scaledValue(4), 6))
                         .accessibilityHidden(true)
                 }
             }

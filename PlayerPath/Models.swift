@@ -47,15 +47,17 @@ final class User {
     var id: UUID = UUID()
     var username: String = ""
     var email: String = ""
+    var role: String = "athlete" // "athlete" or "coach"
     var profileImagePath: String?
     var createdAt: Date?
     var isPremium: Bool = false
     @Relationship(inverse: \Athlete.user) var athletes: [Athlete]?
 
-    init(username: String, email: String) {
+    init(username: String, email: String, role: String = "athlete") {
         self.id = UUID()
         self.username = username
         self.email = email
+        self.role = role
         self.createdAt = Date()
     }
 }
@@ -74,9 +76,21 @@ final class Athlete {
     @Relationship(inverse: \AthleteStatistics.athlete) var statistics: AthleteStatistics?
     @Relationship(inverse: \Coach.athlete) var coaches: [Coach]?
 
+    // MARK: - Firestore Sync Metadata
+    var firestoreId: String?        // Maps to Firestore document ID
+    var lastSyncDate: Date?         // Last successful sync timestamp
+    var needsSync: Bool = false     // Dirty flag - needs upload to Firestore
+    var isDeletedRemotely: Bool = false  // Soft delete from another device
+    var version: Int = 0            // Version number for conflict resolution
+
     /// The currently active season for this athlete (only one can be active at a time)
     var activeSeason: Season? {
         seasons?.first(where: { $0.isActive })
+    }
+
+    /// Whether this athlete is synced to Firestore
+    var isSynced: Bool {
+        needsSync == false && firestoreId != nil
     }
 
     /// All archived (completed) seasons, sorted by start date descending
@@ -90,6 +104,19 @@ final class Athlete {
         self.id = UUID()
         self.name = name
         self.createdAt = Date()
+    }
+
+    // MARK: - Firestore Conversion
+    func toFirestoreData() -> [String: Any] {
+        return [
+            "id": id.uuidString,
+            "name": name,
+            "userId": user?.id.uuidString ?? "",
+            "createdAt": createdAt ?? Date(),
+            "updatedAt": Date(),
+            "version": version,
+            "isDeleted": false
+        ]
     }
 }
 
@@ -116,7 +143,29 @@ final class Season {
     
     /// Sport for this season (baseball or softball)
     var sport: SportType = SportType.baseball
-    
+
+    // MARK: - Firestore Sync Metadata (Phase 2)
+
+    /// Firestore document ID (maps to cloud storage)
+    var firestoreId: String?
+
+    /// Last successful sync timestamp
+    var lastSyncDate: Date?
+
+    /// Dirty flag - true when local changes need uploading
+    var needsSync: Bool = false
+
+    /// Soft delete flag - true when deleted on another device
+    var isDeletedRemotely: Bool = false
+
+    /// Version number for conflict resolution
+    var version: Int = 0
+
+    /// Computed sync status
+    var isSynced: Bool {
+        needsSync == false && firestoreId != nil
+    }
+
     /// Computed display name with year range
     var displayName: String {
         // If name already contains a year (4 digits), just return it
@@ -271,6 +320,25 @@ final class Season {
         self.isActive = true
         self.endDate = nil
     }
+
+    // MARK: - Firestore Conversion
+
+    func toFirestoreData() -> [String: Any] {
+        return [
+            "id": id.uuidString,
+            "name": name,
+            "athleteId": athlete?.id.uuidString ?? "",
+            "startDate": startDate ?? Date(),
+            "endDate": endDate as Any,
+            "isActive": isActive,
+            "sport": sport.rawValue,
+            "notes": notes,
+            "createdAt": createdAt ?? Date(),
+            "updatedAt": Date(),
+            "version": version,
+            "isDeleted": false
+        ]
+    }
 }
 
 // MARK: - Tournament and Game Models
@@ -324,6 +392,28 @@ final class Game {
     @Relationship(inverse: \VideoClip.game) var videoClips: [VideoClip]?
     @Relationship(inverse: \GameStatistics.game) var gameStats: GameStatistics?
 
+    // MARK: - Firestore Sync Metadata (Phase 2)
+
+    /// Firestore document ID (maps to cloud storage)
+    var firestoreId: String?
+
+    /// Last successful sync timestamp
+    var lastSyncDate: Date?
+
+    /// Dirty flag - true when local changes need uploading
+    var needsSync: Bool = false
+
+    /// Soft delete flag - true when deleted on another device
+    var isDeletedRemotely: Bool = false
+
+    /// Version number for conflict resolution
+    var version: Int = 0
+
+    /// Computed sync status
+    var isSynced: Bool {
+        needsSync == false && firestoreId != nil
+    }
+
     init(date: Date, opponent: String) {
         self.id = UUID()
         self.date = date
@@ -332,6 +422,26 @@ final class Game {
         // Auto-set year from date
         let calendar = Calendar.current
         self.year = calendar.component(.year, from: date)
+    }
+
+    // MARK: - Firestore Conversion
+
+    func toFirestoreData() -> [String: Any] {
+        return [
+            "id": id.uuidString,
+            "athleteId": athlete?.id.uuidString ?? "",
+            "seasonId": season?.id.uuidString as Any,
+            "tournamentId": tournament?.id.uuidString as Any,
+            "opponent": opponent,
+            "date": date ?? Date(),
+            "year": year ?? Calendar.current.component(.year, from: date ?? Date()),
+            "isLive": isLive,
+            "isComplete": isComplete,
+            "createdAt": createdAt ?? Date(),
+            "updatedAt": Date(),
+            "version": version,
+            "isDeleted": false
+        ]
     }
 }
 
