@@ -84,81 +84,146 @@ class VideoCloudManager: ObservableObject {
         return true
     }
     
-    // Simulated upload with realistic progress updates
+    /// Uploads a video file to Firebase Storage for an athlete
+    /// - Parameters:
+    ///   - videoClip: The video clip to upload
+    ///   - athlete: The athlete who owns the video
+    /// - Returns: The download URL for the uploaded video
     func uploadVideo(_ videoClip: VideoClip, athlete: Athlete) async throws -> String {
         let clipId = videoClip.id
-        
+
         // Mark as uploading
         isUploading[clipId] = true
         uploadProgress[clipId] = 0.0
-        
+
         defer {
             isUploading[clipId] = false
             uploadProgress[clipId] = nil
         }
-        
-        // Simulate realistic upload progress
-        do {
-            for i in 1...20 {
-                try await Task.sleep(nanoseconds: UInt64.random(in: 50_000_000...200_000_000)) // 0.05-0.2 seconds
-                
-                let progress = Double(i) / 20.0
-                uploadProgress[clipId] = progress
-                
-                print("VideoCloudManager: Upload progress for \(videoClip.fileName): \(Int(progress * 100))%")
+
+        // Verify local file exists
+        let localURL = URL(fileURLWithPath: videoClip.filePath)
+        guard FileManager.default.fileExists(atPath: localURL.path) else {
+            throw VideoCloudError.uploadFailed("Local file not found at \(videoClip.filePath)")
+        }
+
+        // Create storage reference for athlete videos
+        let storage = Storage.storage()
+        let storageRef = storage.reference()
+        let videoRef = storageRef.child("athlete_videos/\(athlete.id.uuidString)/\(videoClip.fileName)")
+
+        // Create upload task with metadata
+        let metadata = StorageMetadata()
+        metadata.contentType = "video/quicktime"
+        metadata.customMetadata = [
+            "athleteId": athlete.id.uuidString,
+            "athleteName": athlete.name,
+            "videoClipId": clipId.uuidString
+        ]
+
+        // Use file-based upload for streaming (prevents OOM on large files)
+        return try await withCheckedThrowingContinuation { continuation in
+            let uploadTask = videoRef.putFile(from: localURL, metadata: metadata) { metadata, error in
+                if let error = error {
+                    print("VideoCloudManager: Upload failed for \(videoClip.fileName): \(error)")
+                    continuation.resume(throwing: error)
+                    return
+                }
+
+                // Get download URL
+                videoRef.downloadURL { url, error in
+                    if let error = error {
+                        continuation.resume(throwing: error)
+                    } else if let url = url {
+                        print("VideoCloudManager: Upload completed successfully for \(videoClip.fileName)")
+                        continuation.resume(returning: url.absoluteString)
+                    } else {
+                        continuation.resume(throwing: VideoCloudError.invalidURL)
+                    }
+                }
             }
-            
-            // Simulate potential upload errors (10% chance)
-            if Bool.random() && Double.random(in: 0...1) < 0.1 {
-                throw VideoCloudError.uploadFailed("Network timeout during upload")
+
+            // Monitor upload progress with throttling
+            uploadTask.observe(.progress) { [weak self] snapshot in
+                guard let progress = snapshot.progress else { return }
+                let percentComplete = Double(progress.completedUnitCount) / Double(progress.totalUnitCount)
+
+                Task { @MainActor in
+                    guard let self = self else { return }
+
+                    // Update progress with throttling
+                    _ = self.throttledProgressUpdate(
+                        key: "upload_\(clipId.uuidString)",
+                        progress: percentComplete
+                    ) { progress in
+                        self.uploadProgress[clipId] = progress
+                        print("VideoCloudManager: Upload progress for \(videoClip.fileName): \(Int(progress * 100))%")
+                    }
+                }
             }
-            
-            // Generate a realistic cloud URL
-            let fileName = videoClip.fileName.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? "video.mov"
-            let cloudURL = "https://firebasestorage.googleapis.com/v0/b/playerpath-app.appspot.com/o/videos%2F\(athlete.id.uuidString)%2F\(fileName)?alt=media&token=\(UUID().uuidString)"
-            
-            print("VideoCloudManager: Upload completed successfully for \(videoClip.fileName)")
-            return cloudURL
-            
-        } catch {
-            print("VideoCloudManager: Upload failed for \(videoClip.fileName): \(error)")
-            throw error
         }
     }
     
-    func downloadVideo(from url: String, to localPath: String) async throws {
-        // Extract clip ID from the path for progress tracking
-        let clipId = UUID() // In real implementation, this would be derived from context
-        
+    /// Downloads a video file from Firebase Storage to local storage
+    /// - Parameters:
+    ///   - url: The cloud storage URL (from videoClip.cloudURL)
+    ///   - localPath: Local file path where the video should be saved
+    ///   - clipId: Optional UUID for progress tracking (defaults to new UUID)
+    func downloadVideo(from url: String, to localPath: String, clipId: UUID = UUID()) async throws {
         isDownloading[clipId] = true
         downloadProgress[clipId] = 0.0
-        
+
         defer {
             isDownloading[clipId] = false
             downloadProgress[clipId] = nil
         }
-        
-        // Simulate realistic download progress
-        do {
-            for i in 1...15 {
-                try await Task.sleep(nanoseconds: UInt64.random(in: 100_000_000...300_000_000)) // 0.1-0.3 seconds
-                
-                let progress = Double(i) / 15.0
-                downloadProgress[clipId] = progress
-                
-                print("VideoCloudManager: Download progress: \(Int(progress * 100))%")
+
+        // Parse the Firebase Storage URL to get the storage path
+        guard let storageURL = URL(string: url) else {
+            throw VideoCloudError.invalidURL
+        }
+
+        // Create local file URL
+        let localURL = URL(fileURLWithPath: localPath)
+
+        // Ensure parent directory exists
+        let parentDirectory = localURL.deletingLastPathComponent()
+        try? FileManager.default.createDirectory(at: parentDirectory, withIntermediateDirectories: true)
+
+        // Create storage reference from URL
+        let storage = Storage.storage()
+        let storageRef = try storage.reference(for: storageURL)
+
+        // Download file with progress monitoring
+        return try await withCheckedThrowingContinuation { continuation in
+            let downloadTask = storageRef.write(toFile: localURL) { url, error in
+                if let error = error {
+                    print("VideoCloudManager: Download failed: \(error)")
+                    continuation.resume(throwing: error)
+                } else {
+                    print("VideoCloudManager: Download completed successfully to \(localPath)")
+                    continuation.resume()
+                }
             }
-            
-            // Simulate potential download errors (5% chance)
-            if Bool.random() && Double.random(in: 0...1) < 0.05 {
-                throw VideoCloudError.downloadFailed("Network timeout during download")
+
+            // Monitor download progress with throttling
+            downloadTask.observe(.progress) { [weak self] snapshot in
+                guard let progress = snapshot.progress else { return }
+                let percentComplete = Double(progress.completedUnitCount) / Double(progress.totalUnitCount)
+
+                Task { @MainActor in
+                    guard let self = self else { return }
+
+                    // Update progress with throttling
+                    _ = self.throttledProgressUpdate(
+                        key: "download_\(clipId.uuidString)",
+                        progress: percentComplete
+                    ) { progress in
+                        self.downloadProgress[clipId] = progress
+                        print("VideoCloudManager: Download progress: \(Int(progress * 100))%")
+                    }
+                }
             }
-            
-            print("VideoCloudManager: Download completed successfully")
-            
-        } catch {
-            print("VideoCloudManager: Download failed: \(error)")
-            throw error
         }
     }
     
@@ -170,16 +235,33 @@ class VideoCloudManager: ObservableObject {
         return []
     }
     
+    /// Deletes a video clip from Firebase Storage for an athlete
+    /// - Parameters:
+    ///   - videoClip: The video clip to delete
+    ///   - athlete: The athlete who owns the video
     func deleteVideo(_ videoClip: VideoClip, athlete: Athlete) async throws {
-        // Simulate cloud deletion
-        try await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
-        
-        // Simulate potential deletion errors (2% chance)
-        if Bool.random() && Double.random(in: 0...1) < 0.02 {
-            throw VideoCloudError.deletionFailed("Failed to delete video from cloud storage")
+        let storage = Storage.storage()
+        let storageRef = storage.reference()
+        let videoRef = storageRef.child("athlete_videos/\(athlete.id.uuidString)/\(videoClip.fileName)")
+
+        return try await withCheckedThrowingContinuation { continuation in
+            videoRef.delete { error in
+                if let error = error {
+                    // Check if file doesn't exist (not really an error in deletion context)
+                    let nsError = error as NSError
+                    if nsError.domain == "FIRStorageErrorDomain" && nsError.code == StorageErrorCode.objectNotFound.rawValue {
+                        print("⚠️ Video file not found in storage, treating as already deleted: \(videoClip.fileName)")
+                        continuation.resume()
+                    } else {
+                        print("VideoCloudManager: Failed to delete video \(videoClip.fileName): \(error)")
+                        continuation.resume(throwing: error)
+                    }
+                } else {
+                    print("VideoCloudManager: Video deleted from cloud successfully: \(videoClip.fileName)")
+                    continuation.resume()
+                }
+            }
         }
-        
-        print("VideoCloudManager: Video deleted from cloud successfully")
     }
     
     func getUploadStatus(for clipId: UUID) -> UploadStatus {

@@ -46,19 +46,30 @@ import UIKit
     // MARK: - Public API
     
     /// Load a thumbnail from cache or disk (deduplicates concurrent requests)
-    func loadThumbnail(at path: String) async throws -> UIImage {
+    /// - Parameters:
+    ///   - path: File path to the thumbnail
+    ///   - targetSize: Optional target size for downsampling (reduces memory usage)
+    func loadThumbnail(at path: String, targetSize: CGSize? = nil) async throws -> UIImage {
         let key = path as NSString
-        
+
         // Check memory cache first (NSCache is thread-safe)
         if let cachedImage = cache.object(forKey: key) {
+            Task { @MainActor in
+                PerformanceMonitor.shared.recordCacheHit()
+            }
             return cachedImage
         }
-        
+
+        // Record cache miss
+        Task { @MainActor in
+            PerformanceMonitor.shared.recordCacheMiss()
+        }
+
         // Check if already loading this path
         if let existingTask = loadingTasks[path] {
             return try await existingTask.value
         }
-        
+
         // Create new loading task
         let task = Task<UIImage, Error> {
             // Perform disk IO off the main actor
@@ -68,6 +79,16 @@ import UIKit
                         continuation.resume(throwing: ThumbnailError.fileNotFound)
                         return
                     }
+
+                    // Use downsampling if target size is provided
+                    if let targetSize = targetSize {
+                        if let downsampledImage = self.downsampleImage(at: URL(fileURLWithPath: path), to: targetSize) {
+                            continuation.resume(returning: downsampledImage)
+                            return
+                        }
+                    }
+
+                    // Fall back to regular loading
                     guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
                           let image = UIImage(data: data) else {
                         continuation.resume(throwing: ThumbnailError.invalidImage)
@@ -99,11 +120,30 @@ import UIKit
     }
     
     /// Preload a thumbnail into cache (useful for scroll prefetching)
-    func preloadThumbnail(at path: String) async {
+    /// - Parameters:
+    ///   - path: File path to the thumbnail
+    ///   - targetSize: Optional target size for downsampling
+    func preloadThumbnail(at path: String, targetSize: CGSize? = nil) async {
         do {
-            _ = try await loadThumbnail(at: path)
+            _ = try await loadThumbnail(at: path, targetSize: targetSize)
         } catch {
             // Silently fail for preloading
+        }
+    }
+
+    /// Prefetch multiple thumbnails in the background (useful for scroll anticipation)
+    /// - Parameters:
+    ///   - paths: Array of thumbnail paths to prefetch
+    ///   - targetSize: Optional target size for downsampling
+    func prefetchThumbnails(paths: [String], targetSize: CGSize? = nil) {
+        Task.detached(priority: .utility) {
+            await withTaskGroup(of: Void.self) { group in
+                for path in paths.prefix(10) { // Limit to 10 concurrent prefetches
+                    group.addTask {
+                        await self.preloadThumbnail(at: path, targetSize: targetSize)
+                    }
+                }
+            }
         }
     }
     
@@ -120,6 +160,36 @@ import UIKit
         cache.removeAllObjects()
         loadingTasks.values.forEach { $0.cancel() }
         loadingTasks.removeAll()
+    }
+
+    // MARK: - Private Helpers
+
+    /// Downsample an image to reduce memory usage
+    /// This is much more memory-efficient than loading full resolution and then scaling
+    private nonisolated func downsampleImage(at imageURL: URL, to pointSize: CGSize) -> UIImage? {
+        // Calculate scale for screen
+        let scale = UIScreen.main.scale
+        let pixelSize = CGSize(width: pointSize.width * scale, height: pointSize.height * scale)
+
+        // Create image source
+        guard let imageSource = CGImageSourceCreateWithURL(imageURL as CFURL, nil) else {
+            return nil
+        }
+
+        // Configure downsampling options
+        let options: [CFString: Any] = [
+            kCGImageSourceThumbnailMaxPixelSize: max(pixelSize.width, pixelSize.height),
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceShouldCache: false,
+            kCGImageSourceCreateThumbnailWithTransform: true
+        ]
+
+        // Generate downsampled image
+        guard let downsampledImage = CGImageSourceCreateThumbnailAtIndex(imageSource, 0, options as CFDictionary) else {
+            return nil
+        }
+
+        return UIImage(cgImage: downsampledImage)
     }
 }
 

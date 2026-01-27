@@ -49,8 +49,22 @@ struct AuthenticatedFlow: View {
                 // Configure SyncCoordinator with ModelContext
                 SyncCoordinator.shared.configure(modelContext: modelContext)
 
+                // Configure UploadQueueManager with ModelContext
+                UploadQueueManager.shared.configure(modelContext: modelContext)
+
+                // Setup iOS Home Screen Quick Actions
+                QuickActionsManager.shared.setupQuickActions()
+
                 // Load user
                 await loadUser()
+
+                // Migrate videos from Caches to Documents (one-time operation)
+                do {
+                    try await ClipPersistenceService().migrateVideosToDocuments(context: modelContext)
+                } catch {
+                    print("⚠️ Video migration failed (non-blocking): \(error)")
+                    // Don't block app launch on migration failure
+                }
 
                 // Trigger initial sync after user loads
                 if let user = currentUser {

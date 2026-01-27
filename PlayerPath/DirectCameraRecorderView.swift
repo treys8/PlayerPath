@@ -76,12 +76,12 @@ struct DirectCameraRecorderView: View {
         }
         .alert("Error", isPresented: errorBinding) {
             Button("OK", role: .cancel) {
-                uploadService.errorHandler.dismissError()
+                ErrorHandlerService.shared.dismissError()
                 dismiss()
             }
         } message: {
-            if let error = uploadService.errorHandler.currentError {
-                Text(error.localizedDescription)
+            if let error = ErrorHandlerService.shared.currentError {
+                Text(error.errorDescription ?? "An error occurred")
             }
         }
         .task {
@@ -170,8 +170,8 @@ struct DirectCameraRecorderView: View {
                 dismiss()
             },
             onError: { error in
-                uploadService.errorHandler.handle(
-                    PlayerPathError.videoProcessingFailed(reason: error.localizedDescription),
+                ErrorHandlerService.shared.handle(
+                    AppError.videoRecordingFailed(error.localizedDescription),
                     context: "Camera Recording"
                 )
                 showingCamera = false
@@ -232,8 +232,8 @@ struct DirectCameraRecorderView: View {
 
     private var errorBinding: Binding<Bool> {
         Binding(
-            get: { uploadService.errorHandler.isShowingError },
-            set: { _ in uploadService.errorHandler.dismissError() }
+            get: { ErrorHandlerService.shared.showErrorAlert },
+            set: { _ in ErrorHandlerService.shared.dismissError() }
         )
     }
 
@@ -304,8 +304,8 @@ struct DirectCameraRecorderView: View {
                 Haptics.success()
             } catch {
                 await MainActor.run {
-                    uploadService.errorHandler.handle(
-                        PlayerPathError.videoProcessingFailed(reason: error.localizedDescription),
+                    ErrorHandlerService.shared.handle(
+                        AppError.videoRecordingFailed(error.localizedDescription),
                         context: "Saving Video"
                     )
                 }

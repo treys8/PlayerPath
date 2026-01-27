@@ -223,34 +223,31 @@ struct HighlightsView: View {
 
     @ViewBuilder
     private var contentView: some View {
-        VStack(spacing: 0) {
-            // Type filter segmented control (only show if we have highlights)
-            if !highlights.isEmpty {
-                Picker("Type", selection: $filter) {
-                    Text("All").tag(Filter.all)
-                    Text("Games").tag(Filter.game)
-                    Text("Practice").tag(Filter.practice)
-                }
-                .pickerStyle(.segmented)
-                .padding(.horizontal)
-                .padding(.vertical, 8)
-            }
-
-            // Main content
-            if highlights.isEmpty {
-                if hasActiveFilters && hasAnyHighlights {
-                    // Filtered empty state - user has highlights but filters exclude them
-                    FilteredEmptyStateView(
-                        filterDescription: filterDescription,
-                        onClearFilters: clearAllFilters
-                    )
-                } else {
-                    // True empty state - no highlights at all
-                    EmptyHighlightsView()
-                }
+        if highlights.isEmpty {
+            if hasActiveFilters && hasAnyHighlights {
+                // Filtered empty state - user has highlights but filters exclude them
+                FilteredEmptyStateView(
+                    filterDescription: filterDescription,
+                    onClearFilters: clearAllFilters
+                )
             } else {
-                highlightGridView
+                // True empty state - no highlights at all
+                EmptyHighlightsView()
             }
+        } else {
+            highlightGridView
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    // Type filter segmented control pinned at top
+                    Picker("Type", selection: $filter) {
+                        Text("All").tag(Filter.all)
+                        Text("Games").tag(Filter.game)
+                        Text("Practice").tag(Filter.practice)
+                    }
+                    .pickerStyle(.segmented)
+                    .padding(.horizontal)
+                    .padding(.vertical, 8)
+                    .background(.regularMaterial)
+                }
         }
     }
 
@@ -474,6 +471,10 @@ struct HighlightsView: View {
 
             do {
                 try modelContext.save()
+
+                // Track video deletion analytics
+                AnalyticsService.shared.trackVideoDeleted(videoID: clip.id.uuidString)
+
                 print("Successfully deleted highlight")
             } catch {
                 print("Failed to delete highlight: \(error)")

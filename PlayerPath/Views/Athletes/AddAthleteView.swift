@@ -259,6 +259,12 @@ struct AddAthleteView: View {
                 print("🟢 Successfully saved athlete '\(trimmedName)' with ID: \(athlete.id)")
                 #endif
 
+                // Track athlete creation analytics
+                AnalyticsService.shared.trackAthleteCreated(
+                    athleteID: athlete.id.uuidString,
+                    isFirstAthlete: isFirstAthlete
+                )
+
                 // SwiftData should have already updated the relationship via inverse
                 // But we verify and log for debugging
                 await MainActor.run {
@@ -268,6 +274,10 @@ struct AddAthleteView: View {
 
                     // Auto-select the new athlete
                     selectedAthlete = athlete
+
+                    // Track athlete selection analytics
+                    AnalyticsService.shared.trackAthleteSelected(athleteID: athlete.id.uuidString)
+
                     #if DEBUG
                     print("🟢 Selected new athlete: \(athlete.name) (ID: \(athlete.id))")
                     #endif

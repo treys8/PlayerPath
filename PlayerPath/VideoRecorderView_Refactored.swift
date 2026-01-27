@@ -384,10 +384,8 @@ struct VideoRecorderView_Refactored: View {
                 },
                 onError: { error in
                     print("VideoRecorder: Modern camera error: \(error.localizedDescription)")
-                    uploadService.errorHandler.handle(
-                        PlayerPathError.videoProcessingFailed(
-                            reason: error.localizedDescription
-                        ),
+                    ErrorHandlerService.shared.handle(
+                        AppError.videoRecordingFailed(error.localizedDescription),
                         context: "Modern Camera Recording"
                     )
                 }
@@ -410,10 +408,8 @@ struct VideoRecorderView_Refactored: View {
                 },
                 onError: { error in
                     print("VideoRecorder: Classic camera error: \(error.localizedDescription)")
-                    uploadService.errorHandler.handle(
-                        PlayerPathError.videoProcessingFailed(
-                            reason: error.localizedDescription
-                        ),
+                    ErrorHandlerService.shared.handle(
+                        AppError.videoRecordingFailed(error.localizedDescription),
                         context: "Classic Camera Recording"
                     )
                 }
@@ -495,8 +491,8 @@ struct VideoRecorderView_Refactored: View {
     
     private var errorAlertBinding: Binding<Bool> {
         Binding(
-            get: { uploadService.errorHandler.isShowingError },
-            set: { _ in uploadService.errorHandler.dismissError() }
+            get: { ErrorHandlerService.shared.showErrorAlert },
+            set: { _ in ErrorHandlerService.shared.dismissError() }
         )
     }
     
@@ -512,8 +508,9 @@ struct VideoRecorderView_Refactored: View {
     
     @ViewBuilder
     private var errorAlert: some View {
-        if let error = uploadService.errorHandler.currentError {
-            if error.isRetryable {
+        if let error = ErrorHandlerService.shared.currentError {
+            // Show retry for errors that make sense to retry
+            if error.suggestedActions.contains(.retry) {
                 Button("Retry", role: .none) {
                     retryLastAction()
                 }
@@ -522,16 +519,16 @@ struct VideoRecorderView_Refactored: View {
                 copyErrorToClipboard(error)
             }
         }
-        Button("OK", role: .cancel) { 
-            uploadService.errorHandler.dismissError()
+        Button("OK", role: .cancel) {
+            ErrorHandlerService.shared.dismissError()
         }
     }
     
     @ViewBuilder
     private var errorMessage: some View {
-        if let error = uploadService.errorHandler.currentError {
+        if let error = ErrorHandlerService.shared.currentError {
             VStack(spacing: 12) {
-                Text(error.localizedDescription)
+                Text(error.errorDescription ?? "An error occurred")
                     .font(.body)
                     .multilineTextAlignment(.center)
                 
@@ -552,23 +549,25 @@ struct VideoRecorderView_Refactored: View {
         }
     }
     
-    private func copyErrorToClipboard(_ error: PlayerPathError) {
-        var details = "Error: \(error.localizedDescription)\n"
+    private func copyErrorToClipboard(_ error: AppError) {
+        var details = "PlayerPath Error Report\n"
+        details += "Generated: \(Date().formatted())\n\n"
+        details += "Error: \(error.errorDescription ?? "Unknown error")\n"
         if let recovery = error.recoverySuggestion {
             details += "Suggestion: \(recovery)\n"
         }
-        details += "Error ID: \(error.id)\n"
-        details += "Retryable: \(error.isRetryable ? "Yes" : "No")"
-        
+        details += "Severity: \(error.severity)\n"
+        details += "Suggested Actions: \(error.suggestedActions.map { String(describing: $0) }.joined(separator: ", "))\n"
+
         UIPasteboard.general.string = details
-        uploadService.errorHandler.dismissError()
+        ErrorHandlerService.shared.dismissError()
         UINotificationFeedbackGenerator().notificationOccurred(.success)
     }
     
     private func retryLastAction() {
-        uploadService.errorHandler.dismissError()
+        ErrorHandlerService.shared.dismissError()
         UINotificationFeedbackGenerator().notificationOccurred(.success)
-        
+
         // Retry the last selected video if there was one
         if let lastItem = selectedVideoItem {
             handleSelectedVideo(lastItem)

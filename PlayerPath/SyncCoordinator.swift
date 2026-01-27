@@ -572,18 +572,183 @@ final class SyncCoordinator {
         print("✅ Game conflict resolution complete (using local-first)")
     }
 
+    // MARK: - Practices Sync (Phase 3)
+
+    func syncPractices(for user: User) async throws {
+        guard let context = modelContext else {
+            print("⚠️ Cannot sync practices - ModelContext not configured")
+            return
+        }
+
+        print("🔄 Starting practice sync for user: \(user.email)")
+
+        do {
+            // Step 1: Upload local changes to Firestore
+            try await uploadLocalPractices(user, context: context)
+
+            // Step 2: Download remote changes from Firestore
+            try await downloadRemotePractices(user, context: context)
+
+            // Step 3: Resolve conflicts (if any)
+            try await resolvePracticeConflicts(user: user, context: context)
+
+            print("✅ Practice sync completed successfully")
+
+        } catch {
+            print("❌ Practice sync failed: \(error)")
+            syncErrors.append(SyncError(
+                type: .syncFailed,
+                entityId: user.id.uuidString,
+                message: "Practice sync failed: \(error.localizedDescription)"
+            ))
+            throw error
+        }
+    }
+
+    private func uploadLocalPractices(_ user: User, context: ModelContext) async throws {
+        let athletes = user.athletes ?? []
+        var allPractices: [Practice] = []
+
+        // Collect all practices from all athletes
+        for athlete in athletes {
+            let practices = athlete.practices ?? []
+            allPractices.append(contentsOf: practices)
+        }
+
+        let dirtyPractices = allPractices.filter { $0.needsSync }
+
+        guard !dirtyPractices.isEmpty else {
+            print("No local practice changes to upload")
+            return
+        }
+
+        print("Uploading \(dirtyPractices.count) practices...")
+
+        for practice in dirtyPractices {
+            if practice.isDeletedRemotely {
+                print("Skipping \(practice.id) - deleted remotely")
+                continue
+            }
+
+            do {
+                if let firestoreId = practice.firestoreId {
+                    // Update existing
+                    try await FirestoreManager.shared.updatePractice(
+                        userId: user.id.uuidString,
+                        practiceId: firestoreId,
+                        data: practice.toFirestoreData()
+                    )
+                    print("✅ Updated practice \(practice.id)")
+                } else {
+                    // Create new
+                    let docId = try await FirestoreManager.shared.createPractice(
+                        userId: user.id.uuidString,
+                        data: practice.toFirestoreData()
+                    )
+                    practice.firestoreId = docId
+                    print("✅ Created practice \(practice.id) with Firestore ID \(docId)")
+                }
+
+                practice.needsSync = false
+                practice.lastSyncDate = Date()
+                practice.version += 1
+
+            } catch {
+                syncErrors.append(SyncError(
+                    type: .uploadFailed,
+                    entityId: practice.id.uuidString,
+                    message: "Practice upload failed: \(error.localizedDescription)"
+                ))
+                print("❌ Failed to sync practice \(practice.id): \(error)")
+            }
+        }
+
+        try context.save()
+    }
+
+    private func downloadRemotePractices(_ user: User, context: ModelContext) async throws {
+        print("Downloading remote practices...")
+
+        let remotePractices = try await FirestoreManager.shared.fetchPractices(
+            userId: user.id.uuidString
+        )
+
+        guard !remotePractices.isEmpty else {
+            print("No remote practices found")
+            return
+        }
+
+        print("Found \(remotePractices.count) remote practices")
+
+        let athletes = user.athletes ?? []
+
+        for remoteData in remotePractices {
+            // Find athlete by athleteId
+            guard let athlete = athletes.first(where: { $0.id.uuidString == remoteData.athleteId }) else {
+                print("⚠️ Skipping practice - athlete not found: \(remoteData.athleteId)")
+                continue
+            }
+
+            // Find local practice by firestoreId
+            let localPractice = (athlete.practices ?? []).first {
+                $0.firestoreId == remoteData.id
+            }
+
+            if let local = localPractice {
+                // Practice exists locally - check if remote is newer
+                let remoteUpdatedAt = remoteData.updatedAt ?? Date.distantPast
+                let localSyncDate = local.lastSyncDate ?? Date.distantPast
+
+                if remoteUpdatedAt > localSyncDate {
+                    print("Updating local practice \(local.id) with remote data")
+                    local.date = remoteData.date
+                    local.lastSyncDate = Date()
+                    local.version = remoteData.version
+                    local.needsSync = false
+                }
+            } else {
+                // New practice from remote - create locally
+                print("Creating new local practice from remote")
+                let newPractice = Practice(date: remoteData.date ?? Date())
+                newPractice.firestoreId = remoteData.id
+                newPractice.createdAt = remoteData.createdAt
+                newPractice.lastSyncDate = Date()
+                newPractice.needsSync = false
+                newPractice.version = remoteData.version
+                newPractice.athlete = athlete
+
+                // Link to season if seasonId provided
+                if let seasonId = remoteData.seasonId {
+                    if let season = athlete.seasons?.first(where: { $0.id.uuidString == seasonId }) {
+                        newPractice.season = season
+                    }
+                }
+
+                context.insert(newPractice)
+            }
+        }
+
+        try context.save()
+    }
+
+    private func resolvePracticeConflicts(user: User, context: ModelContext) async throws {
+        // For now, local changes win (already marked needsSync)
+        print("✅ Practice conflict resolution complete (using local-first)")
+    }
+
     // MARK: - Comprehensive Sync (All Entities)
 
     /// Syncs all entities for a user in dependency order
-    /// Order: Athletes → Seasons → Games
+    /// Order: Athletes → Seasons → Games → Practices
     /// - Parameter user: The SwiftData User to sync all entities for
     func syncAll(for user: User) async throws {
-        print("🔄 Starting comprehensive sync (Athletes → Seasons → Games)")
+        print("🔄 Starting comprehensive sync (Athletes → Seasons → Games → Practices)")
 
         // Sync in dependency order
         try await syncAthletes(for: user)
         try await syncSeasons(for: user)
         try await syncGames(for: user)
+        try await syncPractices(for: user)
 
         lastSyncDate = Date()
         print("✅ Comprehensive sync completed successfully")

@@ -14,8 +14,6 @@ struct DashboardFeatureCard: View {
     let color: Color
     let action: () -> Void
 
-    @State private var isPressed = false
-
     var body: some View {
         Button(action: action) {
             VStack(spacing: 12) {
@@ -44,14 +42,7 @@ struct DashboardFeatureCard: View {
         }
         .appCard()
         .accessibilityElement(children: .combine)
-        .buttonStyle(.plain)
-        .scaleEffect(isPressed ? 0.96 : 1.0)
-        .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isPressed)
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { _ in isPressed = true }
-                .onEnded { _ in isPressed = false }
-        )
+        .buttonStyle(ScaleButtonStyle())
         .accessibilityLabel(title)
         .accessibilityHint("Opens \(title)")
     }

@@ -1153,6 +1153,124 @@ class FirestoreManager: ObservableObject {
         }
     }
 
+    // MARK: - Practices Sync
+
+    /// Creates a new practice in Firestore for cross-device sync
+    /// - Parameters:
+    ///   - userId: The user ID who owns this practice
+    ///   - data: Practice data dictionary (from Practice.toFirestoreData())
+    /// - Returns: The Firestore document ID for the created practice
+    func createPractice(userId: String, data: [String: Any]) async throws -> String {
+        isLoading = true
+        defer { isLoading = false }
+
+        var practiceData = data
+        practiceData["createdAt"] = FieldValue.serverTimestamp()
+        practiceData["updatedAt"] = FieldValue.serverTimestamp()
+
+        do {
+            let docRef = try await db
+                .collection("users")
+                .document(userId)
+                .collection("practices")
+                .addDocument(data: practiceData)
+
+            print("✅ Created practice in Firestore: \(docRef.documentID)")
+            return docRef.documentID
+        } catch {
+            print("❌ Failed to create practice: \(error)")
+            errorMessage = "Failed to create practice: \(error.localizedDescription)"
+            throw error
+        }
+    }
+
+    /// Updates an existing practice in Firestore
+    /// - Parameters:
+    ///   - userId: The user ID who owns this practice
+    ///   - practiceId: The Firestore document ID of the practice
+    ///   - data: Updated practice data dictionary
+    func updatePractice(userId: String, practiceId: String, data: [String: Any]) async throws {
+        isLoading = true
+        defer { isLoading = false }
+
+        var updateData = data
+        updateData["updatedAt"] = FieldValue.serverTimestamp()
+
+        do {
+            try await db
+                .collection("users")
+                .document(userId)
+                .collection("practices")
+                .document(practiceId)
+                .setData(updateData, merge: true)
+
+            print("✅ Updated practice in Firestore: \(practiceId)")
+        } catch {
+            print("❌ Failed to update practice: \(error)")
+            errorMessage = "Failed to update practice: \(error.localizedDescription)"
+            throw error
+        }
+    }
+
+    /// Fetches all practices for a user from Firestore
+    /// - Parameter userId: The user ID to fetch practices for
+    /// - Returns: Array of FirestorePractice objects
+    func fetchPractices(userId: String) async throws -> [FirestorePractice] {
+        isLoading = true
+        defer { isLoading = false }
+
+        do {
+            let snapshot = try await db
+                .collection("users")
+                .document(userId)
+                .collection("practices")
+                .whereField("isDeleted", isEqualTo: false)
+                .order(by: "date", descending: true)
+                .getDocuments()
+
+            let practices = snapshot.documents.compactMap { doc -> FirestorePractice? in
+                var practice = try? doc.data(as: FirestorePractice.self)
+                practice?.id = doc.documentID
+                return practice
+            }
+
+            print("✅ Fetched \(practices.count) practices for user \(userId)")
+            return practices
+        } catch {
+            print("❌ Failed to fetch practices: \(error)")
+            errorMessage = "Failed to load practices: \(error.localizedDescription)"
+            throw error
+        }
+    }
+
+    /// Soft deletes a practice in Firestore (marks as deleted, doesn't remove)
+    /// - Parameters:
+    ///   - userId: The user ID who owns this practice
+    ///   - practiceId: The Firestore document ID of the practice
+    func deletePractice(userId: String, practiceId: String) async throws {
+        isLoading = true
+        defer { isLoading = false }
+
+        do {
+            try await db
+                .collection("users")
+                .document(userId)
+                .collection("practices")
+                .document(practiceId)
+                .updateData([
+                    "isDeleted": true,
+                    "deletedAt": FieldValue.serverTimestamp(),
+                    "updatedAt": FieldValue.serverTimestamp()
+                ])
+
+            print("✅ Soft deleted practice in Firestore: \(practiceId)")
+        } catch {
+            print("❌ Failed to delete practice: \(error)")
+            errorMessage = "Failed to delete practice: \(error.localizedDescription)"
+            throw error
+        }
+    }
+
     // MARK: - Helper Methods for Coach Views
     
     /// Fetches videos for a shared folder (convenience method)
@@ -1565,6 +1683,29 @@ struct FirestoreGame: Codable, Identifiable {
         case year
         case isLive
         case isComplete
+        case createdAt
+        case updatedAt
+        case version
+        case isDeleted
+    }
+}
+
+struct FirestorePractice: Codable, Identifiable {
+    var id: String?           // Firestore document ID (auto-generated, not encoded)
+    let swiftDataId: String   // Original SwiftData UUID
+    let athleteId: String
+    let seasonId: String?
+    let date: Date?
+    let createdAt: Date?
+    let updatedAt: Date?
+    let version: Int
+    let isDeleted: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case swiftDataId = "id"  // Maps to "id" field in Firestore document
+        case athleteId
+        case seasonId
+        case date
         case createdAt
         case updatedAt
         case version

@@ -150,11 +150,28 @@ extension PlayerPathAppDelegate {
     
     func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {
         // Handle scene connection
-        
+
         // Check if launched from notification
         if let notificationResponse = connectionOptions.notificationResponse {
             handleNotificationLaunch(notificationResponse)
         }
+
+        // Check if launched from quick action shortcut
+        if let shortcutItem = connectionOptions.shortcutItem {
+            handleQuickAction(shortcutItem)
+        }
+    }
+
+    func windowScene(_ windowScene: UIWindowScene, performActionFor shortcutItem: UIApplicationShortcutItem, completionHandler: @escaping (Bool) -> Void) {
+        // Handle quick action when app is already running
+        let handled = handleQuickAction(shortcutItem)
+        completionHandler(handled)
+    }
+
+    private func handleQuickAction(_ shortcutItem: UIApplicationShortcutItem) -> Bool {
+        // Forward to QuickActionsManager
+        appLog.info("Handling quick action: \(shortcutItem.type, privacy: .public)")
+        return QuickActionsManager.shared.handleQuickAction(shortcutItem)
     }
     
     func sceneDidBecomeActive(_ scene: UIScene) {

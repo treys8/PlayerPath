@@ -183,6 +183,13 @@ class GameService {
         do {
             try modelContext.save()
 
+            // Track game creation analytics
+            AnalyticsService.shared.trackGameCreated(
+                gameID: game.id.uuidString,
+                opponent: opponent,
+                isLive: isLive
+            )
+
             // Trigger immediate sync to Firestore
             Task {
                 guard let user = athlete.user else { return }
@@ -236,6 +243,9 @@ class GameService {
 
         do {
             try modelContext.save()
+
+            // Track game start analytics
+            AnalyticsService.shared.trackGameStarted(gameID: game.id.uuidString)
 
             // Trigger immediate sync to Firestore
             Task {
@@ -301,6 +311,14 @@ class GameService {
         
         do {
             try modelContext.save()
+
+            // Track game end analytics
+            let gameStats = game.gameStats
+            AnalyticsService.shared.trackGameEnded(
+                gameID: game.id.uuidString,
+                atBats: gameStats?.atBats ?? 0,
+                hits: gameStats?.hits ?? 0
+            )
 
             // Trigger immediate sync to Firestore
             Task {

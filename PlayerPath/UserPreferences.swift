@@ -31,6 +31,7 @@ final class UserPreferences {
     // Clamped in MB to a reasonable range (50MB–10GB)
     var maxVideoFileSize: Int = 500 { didSet { maxVideoFileSize = max(50, min(maxVideoFileSize, 10_000)); markAsModified() } }
     var autoDeleteAfterUpload: Bool = false { didSet { markAsModified() } }
+    var allowCellularUploads: Bool = false { didSet { markAsModified() } }
 
     // MARK: - Analytics Preferences
     var enableAnalytics: Bool = true { didSet { markAsModified() } }
@@ -62,6 +63,7 @@ final class UserPreferences {
         self.syncHighlightsOnly = false
         self.maxVideoFileSize = 500 // MB
         self.autoDeleteAfterUpload = false
+        self.allowCellularUploads = false
 
         self.enableAnalytics = true
         self.shareUsageData = false

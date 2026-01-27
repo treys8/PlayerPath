@@ -456,38 +456,54 @@ final class Practice {
     @Relationship(inverse: \VideoClip.practice) var videoClips: [VideoClip]?
     @Relationship(inverse: \PracticeNote.practice) var notes: [PracticeNote]?
 
+    // MARK: - Firestore Sync Metadata (Phase 3)
+
+    /// Firestore document ID (maps to cloud storage)
+    var firestoreId: String?
+
+    /// Last successful sync timestamp
+    var lastSyncDate: Date?
+
+    /// Dirty flag - true when local changes need uploading
+    var needsSync: Bool = false
+
+    /// Soft delete flag - true when deleted on another device
+    var isDeletedRemotely: Bool = false
+
+    /// Version number for conflict resolution
+    var version: Int = 0
+
+    /// Computed sync status
+    var isSynced: Bool {
+        needsSync == false && firestoreId != nil
+    }
+
     init(date: Date) {
         self.id = UUID()
         self.date = date
         self.createdAt = Date()
     }
 
+    // MARK: - Firestore Conversion
+
+    func toFirestoreData() -> [String: Any] {
+        return [
+            "id": id.uuidString,
+            "athleteId": athlete?.id.uuidString ?? "",
+            "seasonId": season?.id.uuidString as Any,
+            "date": date ?? Date(),
+            "createdAt": createdAt ?? Date(),
+            "updatedAt": Date(),
+            "version": version,
+            "isDeleted": false
+        ]
+    }
+
     /// Properly delete practice with all associated files and data
     func delete(in context: ModelContext) {
-        // Delete video files and thumbnails
+        // Delete video clips using their delete method for proper cleanup
         for videoClip in (self.videoClips ?? []) {
-            // Delete video file from disk
-            if FileManager.default.fileExists(atPath: videoClip.filePath) {
-                try? FileManager.default.removeItem(atPath: videoClip.filePath)
-            }
-
-            // Delete thumbnail file from disk
-            if let thumbnailPath = videoClip.thumbnailPath {
-                try? FileManager.default.removeItem(atPath: thumbnailPath)
-
-                // Remove from cache on main actor
-                Task { @MainActor in
-                    ThumbnailCache.shared.removeThumbnail(at: thumbnailPath)
-                }
-            }
-
-            // Delete associated play result
-            if let playResult = videoClip.playResult {
-                context.delete(playResult)
-            }
-
-            // Delete video clip database record
-            context.delete(videoClip)
+            videoClip.delete(in: context)
         }
 
         // Delete notes
@@ -531,21 +547,120 @@ final class VideoClip {
     var practice: Practice?
     var athlete: Athlete?
     var season: Season?
-    
+
+    // MARK: - Firestore Sync Metadata (Phase 3)
+
+    /// Firestore document ID for video metadata (not the video file itself)
+    var firestoreId: String?
+
+    /// Dirty flag - true when metadata needs uploading to Firestore
+    var needsSync: Bool = false
+
+    /// Soft delete flag - true when deleted on another device
+    var isDeletedRemotely: Bool = false
+
+    /// Version number for conflict resolution
+    var version: Int = 0
+
+    /// Computed sync status for metadata
+    var isSynced: Bool {
+        needsSync == false && firestoreId != nil
+    }
+
     init(fileName: String, filePath: String) {
         self.id = UUID()
         self.fileName = fileName
         self.filePath = filePath
         self.createdAt = Date()
     }
-    
+
     // Computed properties for sync status
     var needsUpload: Bool {
         return !isUploaded && cloudURL == nil
     }
-    
+
     var isAvailableOffline: Bool {
         return FileManager.default.fileExists(atPath: filePath)
+    }
+
+    // MARK: - Firestore Conversion
+
+    /// Converts video metadata to Firestore document
+    /// Note: This syncs metadata only - actual video files are in Firebase Storage
+    func toFirestoreData() -> [String: Any] {
+        var data: [String: Any] = [
+            "id": id.uuidString,
+            "athleteId": athlete?.id.uuidString ?? "",
+            "fileName": fileName,
+            "isHighlight": isHighlight,
+            "isUploaded": isUploaded,
+            "createdAt": createdAt ?? Date(),
+            "updatedAt": Date(),
+            "version": version,
+            "isDeleted": false
+        ]
+
+        // Optional fields
+        if let gameId = game?.id.uuidString {
+            data["gameId"] = gameId
+        }
+        if let practiceId = practice?.id.uuidString {
+            data["practiceId"] = practiceId
+        }
+        if let seasonId = season?.id.uuidString {
+            data["seasonId"] = seasonId
+        }
+        if let cloudURL = cloudURL {
+            data["cloudURL"] = cloudURL
+        }
+        if let playResult = playResult {
+            data["playResultType"] = playResult.type.rawValue
+        }
+
+        return data
+    }
+
+    /// Properly delete video clip with all associated files and data
+    func delete(in context: ModelContext) {
+        // Delete local video file
+        if FileManager.default.fileExists(atPath: filePath) {
+            try? FileManager.default.removeItem(atPath: filePath)
+            print("VideoClip: Deleted local video file: \(fileName)")
+        }
+
+        // Delete thumbnail file and remove from cache
+        if let thumbPath = thumbnailPath {
+            if FileManager.default.fileExists(atPath: thumbPath) {
+                try? FileManager.default.removeItem(atPath: thumbPath)
+                print("VideoClip: Deleted thumbnail file")
+            }
+
+            // Remove from cache on main actor
+            Task { @MainActor in
+                ThumbnailCache.shared.removeThumbnail(at: thumbPath)
+            }
+        }
+
+        // Delete from cloud storage if uploaded
+        if isUploaded, let athlete = athlete {
+            Task {
+                do {
+                    try await VideoCloudManager.shared.deleteVideo(self, athlete: athlete)
+                    print("VideoClip: Deleted video from cloud: \(fileName)")
+                } catch {
+                    print("VideoClip: Failed to delete from cloud: \(error.localizedDescription)")
+                    // Don't block deletion if cloud delete fails
+                }
+            }
+        }
+
+        // Delete associated play result
+        if let playResult = playResult {
+            context.delete(playResult)
+        }
+
+        // Delete video clip database record
+        context.delete(self)
     }
 }
 
@@ -661,7 +776,11 @@ final class AthleteStatistics {
         let totalBases = singles + (doubles * 2) + (triples * 3) + (homeRuns * 4)
         return Double(totalBases) / Double(atBats)
     }
-    
+
+    var ops: Double {
+        return onBasePercentage + sluggingPercentage
+    }
+
     init() {
         self.id = UUID()
         self.updatedAt = Date()
@@ -741,12 +860,33 @@ final class GameStatistics {
     var strikeouts: Int = 0
     var walks: Int = 0
     var createdAt: Date?
-    
+
+    // MARK: - Computed Statistics
+
+    var battingAverage: Double {
+        return atBats > 0 ? Double(hits) / Double(atBats) : 0.0
+    }
+
+    var onBasePercentage: Double {
+        let totalPlateAppearances = atBats + walks
+        return totalPlateAppearances > 0 ? Double(hits + walks) / Double(totalPlateAppearances) : 0.0
+    }
+
+    var sluggingPercentage: Double {
+        guard atBats > 0 else { return 0.0 }
+        let totalBases = singles + (doubles * 2) + (triples * 3) + (homeRuns * 4)
+        return Double(totalBases) / Double(atBats)
+    }
+
+    var ops: Double {
+        return onBasePercentage + sluggingPercentage
+    }
+
     init() {
         self.id = UUID()
         self.createdAt = Date()
     }
-    
+
     func addPlayResult(_ playResult: PlayResultType) {
         // Update at-bats (only if this result counts as an at-bat)
         if playResult.countsAsAtBat {

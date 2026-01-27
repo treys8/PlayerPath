@@ -145,22 +145,21 @@ struct PracticesView: View {
     
     var body: some View {
         Group {
-            VStack {
-                if filteredPractices.isEmpty {
-                    if hasActiveFilters && hasAnyPractices {
-                        // Filtered empty state
-                        FilteredEmptyStateView(
-                            filterDescription: filterDescription,
-                            onClearFilters: clearAllFilters
-                        )
-                    } else {
-                        // True empty state
-                        EmptyPracticesView {
-                            showingAddPractice = true
-                        }
-                    }
+            if filteredPractices.isEmpty {
+                if hasActiveFilters && hasAnyPractices {
+                    // Filtered empty state
+                    FilteredEmptyStateView(
+                        filterDescription: filterDescription,
+                        onClearFilters: clearAllFilters
+                    )
                 } else {
-                    VStack(spacing: 0) {
+                    // True empty state
+                    EmptyPracticesView {
+                        showingAddPractice = true
+                    }
+                }
+            } else {
+                VStack(spacing: 0) {
                         // Season recommendation banner
                         if let athlete = athlete {
                             let seasonRecommendation = SeasonManager.checkSeasonStatus(for: athlete)
@@ -212,7 +211,6 @@ struct PracticesView: View {
                                 bottomToolbar
                             }
                         }
-                    }
                 }
             }
         }
@@ -581,20 +579,43 @@ struct AddPracticeView: View {
         
         let practice = Practice(date: date)
         practice.athlete = athlete
-        
+
+        // Mark for Firestore sync (Phase 3)
+        practice.needsSync = true
+
         if athlete.practices == nil {
             athlete.practices = []
         }
         athlete.practices?.append(practice)
         modelContext.insert(practice)
-        
+
         // ✅ Link practice to active season
         SeasonManager.linkPracticeToActiveSeason(practice, for: athlete, in: modelContext)
-        
+
         do {
             try modelContext.save()
+
+            // Track practice creation analytics
+            AnalyticsService.shared.trackPracticeCreated(
+                practiceID: practice.id.uuidString,
+                seasonID: practice.season?.id.uuidString
+            )
+
+            // Trigger immediate sync to Firestore
+            Task {
+                if let user = athlete.user {
+                    do {
+                        try await SyncCoordinator.shared.syncPractices(for: user)
+                        print("✅ Practice synced to Firestore successfully")
+                    } catch {
+                        print("⚠️ Failed to sync practice to Firestore: \(error)")
+                        // Don't block practice creation on sync failure
+                    }
+                }
+            }
+
             UINotificationFeedbackGenerator().notificationOccurred(.success)
-            
+
             if shouldUploadVideo {
                 createdPractice = practice
             } else {
@@ -744,6 +765,23 @@ struct PracticeDetailView: View {
     }
     
     private func deletePractice() {
+        // Sync deletion to Firestore if practice was synced
+        if let firestoreId = practice.firestoreId,
+           let athlete = practice.athlete,
+           let user = athlete.user {
+            Task {
+                do {
+                    try await FirestoreManager.shared.deletePractice(
+                        userId: user.id.uuidString,
+                        practiceId: firestoreId
+                    )
+                    print("✅ Practice deletion synced to Firestore")
+                } catch {
+                    print("⚠️ Failed to sync practice deletion: \(error)")
+                }
+            }
+        }
+
         practice.delete(in: modelContext)
 
         do {
@@ -861,6 +899,10 @@ struct AddPracticeNoteView: View {
         
         do {
             try modelContext.save()
+
+            // Track practice note added analytics
+            AnalyticsService.shared.trackPracticeNoteAdded(practiceID: practice.id.uuidString)
+
             UINotificationFeedbackGenerator().notificationOccurred(.success)
             dismiss()
         } catch {

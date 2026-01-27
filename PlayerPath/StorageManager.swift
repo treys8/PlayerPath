@@ -7,6 +7,7 @@
 
 import Foundation
 import os
+import SwiftData
 
 private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.app", category: "StorageManager")
 
@@ -118,7 +119,7 @@ struct StorageManager {
         guard let info = getStorageInfo() else {
             return "Unable to determine available storage space."
         }
-        
+
         if info.isCriticallyLowStorage {
             return "Your device has critically low storage (\(info.formattedAvailableSpace) remaining). Please free up space before recording."
         } else if info.isLowStorage {
@@ -126,5 +127,139 @@ struct StorageManager {
         } else {
             return "You have \(info.formattedAvailableSpace) of storage available."
         }
+    }
+
+    // MARK: - App Storage Usage
+
+    /// Calculates total storage used by app videos and thumbnails
+    /// - Returns: Tuple of (videos size, thumbnails size) in bytes
+    static func calculateAppStorageUsage() async -> (videosSize: Int64, thumbnailsSize: Int64) {
+        guard let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
+            return (0, 0)
+        }
+
+        let clipsDirectory = documentsURL.appendingPathComponent("Clips", isDirectory: true)
+        let thumbnailsDirectory = documentsURL.appendingPathComponent("Thumbnails", isDirectory: true)
+
+        let videosSize = await calculateDirectorySize(at: clipsDirectory)
+        let thumbnailsSize = await calculateDirectorySize(at: thumbnailsDirectory)
+
+        return (videosSize, thumbnailsSize)
+    }
+
+    private static func calculateDirectorySize(at url: URL) async -> Int64 {
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            return 0
+        }
+
+        var totalSize: Int64 = 0
+
+        do {
+            let files = try FileManager.default.contentsOfDirectory(
+                at: url,
+                includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey],
+                options: .skipsHiddenFiles
+            )
+
+            for fileURL in files {
+                let resourceValues = try fileURL.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
+
+                guard let isRegularFile = resourceValues.isRegularFile, isRegularFile else {
+                    continue
+                }
+
+                if let fileSize = resourceValues.fileSize {
+                    totalSize += Int64(fileSize)
+                }
+            }
+        } catch {
+            logger.error("Failed to calculate directory size: \(error.localizedDescription)")
+        }
+
+        return totalSize
+    }
+
+    // MARK: - Orphaned File Cleanup
+
+    /// Finds videos with missing database entries (orphaned files)
+    /// - Parameter context: SwiftData ModelContext
+    /// - Returns: Array of file URLs that don't have corresponding database entries
+    static func findOrphanedVideoFiles(context: ModelContext) async -> [URL] {
+        guard let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
+            return []
+        }
+
+        let clipsDirectory = documentsURL.appendingPathComponent("Clips", isDirectory: true)
+
+        guard FileManager.default.fileExists(atPath: clipsDirectory.path) else {
+            return []
+        }
+
+        do {
+            // Get all video files on disk
+            let videoFiles = try FileManager.default.contentsOfDirectory(
+                at: clipsDirectory,
+                includingPropertiesForKeys: [.isRegularFileKey],
+                options: .skipsHiddenFiles
+            ).filter { url in
+                let ext = url.pathExtension.lowercased()
+                return ext == "mov" || ext == "mp4"
+            }
+
+            // Get all video filenames from database
+            let descriptor = FetchDescriptor<VideoClip>()
+            let allClips = try context.fetch(descriptor)
+            let dbFileNames = Set(allClips.map { $0.fileName })
+
+            // Find files not in database
+            let orphanedFiles = videoFiles.filter { url in
+                !dbFileNames.contains(url.lastPathComponent)
+            }
+
+            return orphanedFiles
+        } catch {
+            logger.error("Failed to find orphaned files: \(error.localizedDescription)")
+            return []
+        }
+    }
+
+    /// Deletes orphaned video files that don't have database entries
+    /// - Parameter context: SwiftData ModelContext
+    /// - Returns: Number of files deleted and total bytes freed
+    static func cleanupOrphanedFiles(context: ModelContext) async -> (filesDeleted: Int, bytesFreed: Int64) {
+        let orphanedFiles = await findOrphanedVideoFiles(context: context)
+
+        var filesDeleted = 0
+        var bytesFreed: Int64 = 0
+
+        for fileURL in orphanedFiles {
+            do {
+                // Get file size before deletion
+                let resourceValues = try fileURL.resourceValues(forKeys: [.fileSizeKey])
+                let fileSize = Int64(resourceValues.fileSize ?? 0)
+
+                // Delete the file
+                try FileManager.default.removeItem(at: fileURL)
+
+                filesDeleted += 1
+                bytesFreed += fileSize
+
+                logger.info("Deleted orphaned file: \(fileURL.lastPathComponent) (\(formatBytes(fileSize)))")
+            } catch {
+                logger.error("Failed to delete orphaned file \(fileURL.lastPathComponent): \(error.localizedDescription)")
+            }
+        }
+
+        return (filesDeleted, bytesFreed)
+    }
+
+    // MARK: - Formatting Helpers
+
+    /// Formats bytes to human-readable string (e.g., "1.5 GB")
+    static func formatBytes(_ bytes: Int64) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useGB, .useMB, .useKB]
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: bytes)
     }
 }

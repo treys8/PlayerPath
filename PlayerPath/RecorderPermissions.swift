@@ -85,24 +85,27 @@ struct RecorderPermissions {
 
     /// Optionally route permission failures through ErrorHandlerService for consistent UX.
     private static func reportPermissionFailure(_ status: PermissionStatus, context: String, resource: String) {
-        let error: PlayerPathError
+        let error: AppError
         switch status {
         case .denied:
-            // Map to authenticationRequired to encourage user action (open Settings, etc.)
-            error = .authenticationRequired
+            // Map to camera/microphone permission denied
+            if resource.lowercased().contains("camera") {
+                error = .cameraPermissionDenied
+            } else if resource.lowercased().contains("microphone") {
+                error = .microphonePermissionDenied
+            } else {
+                error = .authenticationFailed("\(resource) access denied")
+            }
         case .restricted:
-            // Use unknownError with a specific message for parental/device restrictions.
-            error = .unknownError("\(resource) access is restricted on this device.")
+            // Use specific message for parental/device restrictions
+            error = .authenticationFailed("\(resource) access is restricted on this device.")
         case .granted:
             return
         }
         ErrorHandlerService.shared.handle(
             error,
             context: context,
-            severity: .high,
-            canRetry: false,
-            autoRetry: false,
-            userInfo: ["resource": resource]
+            showAlert: true
         )
     }
 }

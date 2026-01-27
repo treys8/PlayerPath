@@ -8,6 +8,7 @@
 import SwiftUI
 import AVFoundation
 import Observation
+import SwiftData
 
 /// View for configuring video recording settings including quality, format, frame rate, and slow-motion
 struct VideoRecordingSettingsView: View {
@@ -17,9 +18,17 @@ struct VideoRecordingSettingsView: View {
     @State private var showingUnsupportedAlert = false
     @State private var unsupportedMessage = ""
     @State private var lastSaveTime: Date?
-    
+
     @AppStorage("autoShowTrimmer") private var autoShowTrimmer = false
     @AppStorage("skipTrimmerForShortClips") private var skipTrimmerForShortClips = true
+
+    // User preferences for cloud upload settings
+    @Environment(\.modelContext) private var modelContext
+    @Query private var userPreferences: [UserPreferences]
+
+    private var preferences: UserPreferences? {
+        userPreferences.first
+    }
 
     var body: some View {
         @Bindable var settings = settings
@@ -29,6 +38,7 @@ struct VideoRecordingSettingsView: View {
             frameRateSection
             slowMotionSection
             additionalSettingsSection
+            cloudUploadSection
             workflowSection
             summarySection
             resetSection
@@ -188,6 +198,94 @@ struct VideoRecordingSettingsView: View {
             Text("Additional Settings")
         } footer: {
             Text("Video stabilization reduces shake and improves footage quality. \(settings.stabilizationMode.description).")
+        }
+    }
+
+    private var cloudUploadSection: some View {
+        Section {
+            if let prefs = preferences {
+                Toggle(isOn: Binding(
+                    get: { prefs.autoUploadToCloud },
+                    set: { prefs.autoUploadToCloud = $0; try? modelContext.save() }
+                )) {
+                    HStack {
+                        Image(systemName: prefs.autoUploadToCloud ? "icloud.and.arrow.up.fill" : "icloud.slash.fill")
+                            .foregroundStyle(prefs.autoUploadToCloud ? .blue : .secondary)
+                        Text("Auto-Upload to Cloud")
+                    }
+                }
+
+                if prefs.autoUploadToCloud {
+                    Toggle(isOn: Binding(
+                        get: { prefs.syncHighlightsOnly },
+                        set: { prefs.syncHighlightsOnly = $0; try? modelContext.save() }
+                    )) {
+                        HStack {
+                            Image(systemName: "star.fill")
+                                .foregroundStyle(prefs.syncHighlightsOnly ? .yellow : .secondary)
+                            Text("Highlights Only")
+                        }
+                    }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Max File Size: \(prefs.maxVideoFileSize) MB")
+                            .font(.subheadline)
+
+                        Slider(
+                            value: Binding(
+                                get: { Double(prefs.maxVideoFileSize) },
+                                set: { prefs.maxVideoFileSize = Int($0); try? modelContext.save() }
+                            ),
+                            in: 50...2000,
+                            step: 50
+                        )
+
+                        HStack {
+                            Text("50 MB")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Text("2 GB")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(.vertical, 4)
+
+                    Toggle(isOn: Binding(
+                        get: { prefs.allowCellularUploads },
+                        set: { prefs.allowCellularUploads = $0; try? modelContext.save() }
+                    )) {
+                        HStack {
+                            Image(systemName: prefs.allowCellularUploads ? "antenna.radiowaves.left.and.right" : "wifi")
+                                .foregroundStyle(prefs.allowCellularUploads ? .orange : .blue)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Allow Cellular Uploads")
+                                Text("May use significant mobile data")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+            } else {
+                Text("Loading preferences...")
+                    .foregroundStyle(.secondary)
+            }
+        } header: {
+            Text("Cloud Upload")
+        } footer: {
+            if let prefs = preferences, prefs.autoUploadToCloud {
+                if prefs.allowCellularUploads {
+                    Text("Videos will upload automatically on WiFi and cellular. ⚠️ This may use significant mobile data.")
+                } else if prefs.syncHighlightsOnly {
+                    Text("Only highlight videos will upload automatically when connected to WiFi.")
+                } else {
+                    Text("All videos will upload automatically when connected to WiFi.")
+                }
+            } else {
+                Text("Videos will only be stored locally on this device. Enable auto-upload to backup videos to the cloud and share with coaches.")
+            }
         }
     }
 

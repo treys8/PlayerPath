@@ -23,11 +23,33 @@ struct UserMainFlow: View {
     // NotificationCenter observer management using StateObject
     @StateObject private var notificationManager = NotificationObserverManager()
 
+    // Quick Actions manager
+    @StateObject private var quickActionsManager = QuickActionsManager.shared
+
+    // Onboarding
+    @StateObject private var onboardingManager = OnboardingManager.shared
+    @State private var showingWelcomeTutorial = false
+    @State private var showingSampleDataPrompt = false
+
     init(user: User, isNewUserFlag: Bool, hasCompletedOnboarding: Bool) {
         self.user = user
         self.isNewUserFlag = isNewUserFlag
         self.hasCompletedOnboarding = hasCompletedOnboarding
         self.userID = user.id
+    }
+
+    // Helper for athlete selection persistence (user-specific)
+    private var lastSelectedAthleteID: String? {
+        get {
+            UserDefaults.standard.string(forKey: "lastSelectedAthleteID_\(userID.uuidString)")
+        }
+        nonmutating set {
+            if let value = newValue {
+                UserDefaults.standard.set(value, forKey: "lastSelectedAthleteID_\(userID.uuidString)")
+            } else {
+                UserDefaults.standard.removeObject(forKey: "lastSelectedAthleteID_\(userID.uuidString)")
+            }
+        }
     }
 
     private var athletesForUser: [Athlete] {
@@ -149,11 +171,69 @@ struct UserMainFlow: View {
             #if DEBUG
             print("🟡 UserMainFlow task - User: \(user.id), Athletes: \(athletesForUser.count)")
             #endif
-            if selectedAthlete == nil, athletesForUser.count == 1, let only = athletesForUser.first {
+
+            // Restore last selected athlete from persistence
+            if selectedAthlete == nil {
+                if let savedID = lastSelectedAthleteID,
+                   let savedUUID = UUID(uuidString: savedID),
+                   let savedAthlete = athletesForUser.first(where: { $0.id == savedUUID }) {
+                    #if DEBUG
+                    print("🟢 Restoring saved athlete: \(savedAthlete.name) (ID: \(savedAthlete.id))")
+                    #endif
+                    selectedAthlete = savedAthlete
+                } else if athletesForUser.count == 1, let only = athletesForUser.first {
+                    #if DEBUG
+                    print("🟢 Task auto-selecting athlete: \(only.name) (ID: \(only.id))")
+                    #endif
+                    selectedAthlete = only
+                }
+            }
+        }
+        .onChange(of: selectedAthlete) { _, newValue in
+            // Persist athlete selection
+            if let athlete = newValue {
+                lastSelectedAthleteID = athlete.id.uuidString
                 #if DEBUG
-                print("🟢 Task auto-selecting athlete: \(only.name) (ID: \(only.id))")
+                print("💾 Saved athlete selection: \(athlete.name) (ID: \(athlete.id))")
                 #endif
-                selectedAthlete = only
+            } else {
+                lastSelectedAthleteID = nil
+            }
+        }
+        .onChange(of: quickActionsManager.selectedQuickAction) { _, newAction in
+            // Execute quick action when it changes
+            if let action = newAction {
+                #if DEBUG
+                print("🎯 UserMainFlow - Executing quick action: \(action.title)")
+                #endif
+                quickActionsManager.executeAction(action)
+            }
+        }
+        .sheet(isPresented: $showingWelcomeTutorial) {
+            WelcomeTutorialView()
+        }
+        .sheet(isPresented: $showingSampleDataPrompt) {
+            SampleDataPromptView(user: user)
+        }
+        .onAppear {
+            checkOnboardingStatus()
+        }
+    }
+
+    // MARK: - Onboarding Logic
+
+    private func checkOnboardingStatus() {
+        // Show welcome tutorial for new users who haven't seen it
+        if isNewUserFlag && !onboardingManager.hasSeenWelcomeTutorial {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                showingWelcomeTutorial = true
+            }
+        }
+
+        // Offer sample data if user has no athletes and no games
+        if athletesForUser.isEmpty && !SampleDataGenerator.hasSampleData(for: user) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                showingSampleDataPrompt = true
             }
         }
     }

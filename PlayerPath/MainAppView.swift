@@ -58,5 +58,6 @@ struct PlayerPathMainView: View {
         .environmentObject(authManager)
         .tint(.blue)
         .dynamicTypeSize(...DynamicTypeSize.accessibility5)
+        .withErrorHandling() // Global error handling
     }
 }

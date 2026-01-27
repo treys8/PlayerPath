@@ -63,6 +63,7 @@ struct StatisticsView: View {
     @State private var exportError: String?
     @State private var showingExportError = false
     @State private var showingSeasonComparison = false
+    @State private var showingCharts = false
 
     var body: some View {
         contentView
@@ -70,6 +71,16 @@ struct StatisticsView: View {
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
                 if statistics != nil, let ath = athlete {
+                    // View Charts button
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button {
+                            showingCharts = true
+                        } label: {
+                            Label("View Charts", systemImage: "chart.xyaxis.line")
+                        }
+                        .accessibilityLabel("View performance charts")
+                    }
+
                     // Compare seasons button
                     ToolbarItem(placement: .topBarLeading) {
                         Button {
@@ -130,6 +141,20 @@ struct StatisticsView: View {
                     SeasonComparisonView(athlete: ath)
                 }
             }
+            .sheet(isPresented: $showingCharts) {
+                if let ath = athlete {
+                    NavigationStack {
+                        StatisticsChartsView(athlete: ath)
+                            .toolbar {
+                                ToolbarItem(placement: .cancellationAction) {
+                                    Button("Done") {
+                                        showingCharts = false
+                                    }
+                                }
+                            }
+                    }
+                }
+            }
             .alert("Export Error", isPresented: $showingExportError) {
                 Button("OK", role: .cancel) {}
             } message: {
@@ -188,6 +213,11 @@ struct StatisticsView: View {
                         },
                         showGameSelection: { activeSheet = .gameSelection }
                     )
+
+                    // Charts Prompt Card
+                    ChartsPromptCard {
+                        showingCharts = true
+                    }
 
                     // Show different stats based on filter
                     if selectedSeasonFilter == nil {
@@ -1190,6 +1220,73 @@ extension View {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .fill(Color(uiColor: .secondarySystemGroupedBackground))
             )
+    }
+}
+
+// MARK: - Charts Prompt Card
+
+struct ChartsPromptCard: View {
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 16) {
+                Image(systemName: "chart.xyaxis.line")
+                    .font(.system(size: 40))
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [.blue, .purple],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Visualize Your Performance")
+                        .font(.headline)
+                        .fontWeight(.bold)
+                        .foregroundColor(.primary)
+
+                    Text("View interactive charts and trends")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+            }
+            .padding()
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color.blue.opacity(0.1),
+                                Color.purple.opacity(0.1)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(
+                        LinearGradient(
+                            colors: [.blue.opacity(0.3), .purple.opacity(0.3)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 1
+                    )
+            )
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal)
     }
 }
 

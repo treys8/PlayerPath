@@ -23,6 +23,8 @@ struct VideoPlayerView: View {
     @State private var showingTrimmer = false
     @State private var showingPlayResultEditor = false
     @State private var setupTask: Task<Void, Never>?
+    @State private var isDownloadingFromCloud = false
+    @State private var downloadProgress: Double = 0.0
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.modelContext) private var modelContext
     
@@ -45,24 +47,33 @@ struct VideoPlayerView: View {
             .aspectRatio(videoAspect ?? (16.0/9.0), contentMode: .fit)
             .overlay(
                 VStack(spacing: 12) {
-                    ProgressView()
-                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                        .scaleEffect(1.5)
-                    Text("Loading video...")
-                        .font(.headline)
-                        .foregroundColor(.white)
+                    if isDownloadingFromCloud {
+                        ProgressView(value: downloadProgress)
+                            .progressViewStyle(LinearProgressViewStyle(tint: .white))
+                            .frame(width: 200)
+                            .padding(.bottom, 8)
+                        Text("Downloading from cloud...")
+                            .font(.headline)
+                            .foregroundColor(.white)
+                        Text("\(Int(downloadProgress * 100))%")
+                            .font(.caption)
+                            .foregroundColor(.white.opacity(0.8))
+                    } else {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                            .scaleEffect(1.5)
+                        Text("Loading video...")
+                            .font(.headline)
+                            .foregroundColor(.white)
+                    }
                 }
             )
     }
     
     private func activePlayerView(player: AVPlayer) -> some View {
-        VideoPlayer(player: player)
+        EnhancedVideoPlayer(player: player)
             .aspectRatio(videoAspect ?? (16.0/9.0), contentMode: .fit)
             .accessibilityLabel("Video player")
-            .onAppear {
-                print("VideoPlayerView: VideoPlayer appeared, starting playback")
-                player.play()
-            }
             .onDisappear {
                 print("VideoPlayerView: VideoPlayer disappeared, pausing playback")
                 player.pause()
@@ -215,6 +226,8 @@ struct VideoPlayerView: View {
             errorMessage = ""
             player = nil
             isPlayerReady = false
+            isDownloadingFromCloud = false
+            downloadProgress = 0.0
         }
 
         guard !Task.isCancelled else {
@@ -224,7 +237,7 @@ struct VideoPlayerView: View {
 
         print("VideoPlayerView: File path: \(clip.filePath)")
 
-        guard let url = findVideoURL() else {
+        guard let url = await findVideoURL() else {
             print("VideoPlayerView: No valid video file found")
             await MainActor.run {
                 isLoading = false
@@ -241,7 +254,7 @@ struct VideoPlayerView: View {
         await loadPlayer(from: url)
     }
     
-    private func findVideoURL() -> URL? {
+    private func findVideoURL() async -> URL? {
         let primaryURL = URL(fileURLWithPath: clip.filePath)
 
         if FileManager.default.fileExists(atPath: clip.filePath) {
@@ -261,6 +274,60 @@ struct VideoPlayerView: View {
             return alternateURL
         }
 
+        // Try downloading from cloud if cloudURL exists and file is uploaded
+        if let cloudURL = clip.cloudURL, clip.isUploaded {
+            print("VideoPlayerView: File not found locally, attempting cloud download from: \(cloudURL)")
+
+            do {
+                await MainActor.run {
+                    isDownloadingFromCloud = true
+                    downloadProgress = 0.0
+                }
+
+                // Create destination path in Documents/Clips directory
+                let clipsDirectory = documentsPath.appendingPathComponent("Clips", isDirectory: true)
+                try? FileManager.default.createDirectory(at: clipsDirectory, withIntermediateDirectories: true)
+                let destinationPath = clipsDirectory.appendingPathComponent(clip.fileName).path
+
+                // Download from cloud with progress updates
+                let cloudManager = await VideoCloudManager.shared
+
+                // Start monitoring download progress
+                let progressTask = Task { @MainActor in
+                    while isDownloadingFromCloud {
+                        if let progress = cloudManager.downloadProgress[clip.id] {
+                            downloadProgress = progress
+                        }
+                        try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
+                    }
+                }
+
+                try await cloudManager.downloadVideo(from: cloudURL, to: destinationPath, clipId: clip.id)
+
+                // Stop progress monitoring
+                progressTask.cancel()
+
+                // Update clip's filePath in database
+                await MainActor.run {
+                    clip.filePath = destinationPath
+                    try? modelContext.save()
+                    isDownloadingFromCloud = false
+                }
+
+                print("VideoPlayerView: Successfully downloaded video from cloud to: \(destinationPath)")
+                return URL(fileURLWithPath: destinationPath)
+
+            } catch {
+                print("VideoPlayerView: Failed to download from cloud: \(error.localizedDescription)")
+                await MainActor.run {
+                    isDownloadingFromCloud = false
+                    errorMessage = "Failed to download video from cloud: \(error.localizedDescription)"
+                }
+                return nil
+            }
+        }
+
+        print("VideoPlayerView: No cloud URL available for download")
         return nil
     }
     

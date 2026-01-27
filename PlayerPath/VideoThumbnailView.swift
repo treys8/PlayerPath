@@ -332,8 +332,10 @@ struct VideoThumbnailView: View {
         }
 
         do {
-            // Load thumbnail asynchronously using cache
-            let image = try await ThumbnailCache.shared.loadThumbnail(at: thumbnailPath)
+            // Load thumbnail asynchronously using cache with downsampling for memory efficiency
+            // Downsample to 2x target size for retina display quality
+            let targetSize = CGSize(width: size.width * 2, height: size.height * 2)
+            let image = try await ThumbnailCache.shared.loadThumbnail(at: thumbnailPath, targetSize: targetSize)
 
             // Check for cancellation after loading
             guard !Task.isCancelled else {

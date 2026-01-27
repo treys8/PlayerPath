@@ -8,6 +8,7 @@ enum ClipPersistenceError: LocalizedError {
     case invalidURL(URL)
     case failedToCopy(from: URL, to: URL, underlying: Error)
     case failedToCreateAsset(URL, underlying: Error?)
+    case corruptedVideo(URL, underlying: Error)
 
     var errorDescription: String? {
         switch self {
@@ -19,6 +20,8 @@ enum ClipPersistenceError: LocalizedError {
             return "Failed to copy from \(from.lastPathComponent) to \(to.lastPathComponent): \(underlying.localizedDescription)"
         case .failedToCreateAsset(let url, let underlying):
             return "Failed to create AVAsset for \(url.lastPathComponent): \(underlying?.localizedDescription ?? "Unknown error")"
+        case .corruptedVideo(let url, let underlying):
+            return "Video file appears to be corrupted: \(url.lastPathComponent) - \(underlying.localizedDescription)"
         }
     }
 }
@@ -38,17 +41,109 @@ final class ClipPersistenceService {
     }
 
     private func ensureClipsDirectory() throws -> URL {
-        let cachesURL = try fileManager.url(
-            for: .cachesDirectory,
+        let documentsURL = try fileManager.url(
+            for: .documentDirectory,
             in: .userDomainMask,
             appropriateFor: nil,
             create: true
         )
-        let clipsDirectoryURL = cachesURL.appendingPathComponent(Constants.clipsFolderName, isDirectory: true)
+        let clipsDirectoryURL = documentsURL.appendingPathComponent(Constants.clipsFolderName, isDirectory: true)
         if !fileManager.fileExists(atPath: clipsDirectoryURL.path) {
             try fileManager.createDirectory(at: clipsDirectoryURL, withIntermediateDirectories: true)
         }
         return clipsDirectoryURL
+    }
+
+    /// Migrates video files from Caches to Documents directory
+    /// This is a one-time migration to prevent iOS from deleting videos
+    func migrateVideosToDocuments(context: ModelContext) async throws {
+        let migrationKey = "hasCompletedVideoStorageMigration"
+
+        // Check if migration already completed
+        if UserDefaults.standard.bool(forKey: migrationKey) {
+            print("ClipPersistenceService: Video storage migration already completed")
+            return
+        }
+
+        print("ClipPersistenceService: Starting video storage migration from Caches to Documents...")
+
+        // Get old Caches directory
+        let cachesURL = try fileManager.url(
+            for: .cachesDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: false
+        )
+        let oldClipsDirectory = cachesURL.appendingPathComponent(Constants.clipsFolderName, isDirectory: true)
+
+        // Get new Documents directory
+        let newClipsDirectory = try ensureClipsDirectory()
+
+        // Check if old directory exists
+        guard fileManager.fileExists(atPath: oldClipsDirectory.path) else {
+            print("ClipPersistenceService: No old Caches directory found, marking migration complete")
+            UserDefaults.standard.set(true, forKey: migrationKey)
+            return
+        }
+
+        // Get all video files from old directory
+        let oldVideoFiles = try fileManager.contentsOfDirectory(
+            at: oldClipsDirectory,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: .skipsHiddenFiles
+        ).filter { $0.pathExtension.lowercased() == "mov" || $0.pathExtension.lowercased() == "mp4" }
+
+        print("ClipPersistenceService: Found \(oldVideoFiles.count) video files to migrate")
+
+        var migratedCount = 0
+        var failedCount = 0
+
+        for oldVideoURL in oldVideoFiles {
+            let newVideoURL = newClipsDirectory.appendingPathComponent(oldVideoURL.lastPathComponent)
+
+            do {
+                // Move file to new location
+                if fileManager.fileExists(atPath: newVideoURL.path) {
+                    // File already exists in new location, just delete old one
+                    try fileManager.removeItem(at: oldVideoURL)
+                } else {
+                    try fileManager.moveItem(at: oldVideoURL, to: newVideoURL)
+                }
+
+                // Update VideoClip path in SwiftData
+                let fileName = oldVideoURL.lastPathComponent
+                let predicate = #Predicate<VideoClip> { clip in
+                    clip.fileName == fileName
+                }
+                let descriptor = FetchDescriptor(predicate: predicate)
+                let clips = try context.fetch(descriptor)
+
+                for clip in clips {
+                    clip.filePath = newVideoURL.path
+                }
+
+                migratedCount += 1
+                print("ClipPersistenceService: Migrated \(fileName)")
+
+            } catch {
+                print("ClipPersistenceService: Failed to migrate \(oldVideoURL.lastPathComponent): \(error.localizedDescription)")
+                failedCount += 1
+            }
+        }
+
+        // Save updated paths
+        try context.save()
+
+        // Clean up old directory if empty
+        if let remainingFiles = try? fileManager.contentsOfDirectory(atPath: oldClipsDirectory.path),
+           remainingFiles.isEmpty {
+            try? fileManager.removeItem(at: oldClipsDirectory)
+        }
+
+        // Mark migration complete
+        UserDefaults.standard.set(true, forKey: migrationKey)
+
+        print("ClipPersistenceService: Migration complete - \(migratedCount) succeeded, \(failedCount) failed")
     }
 
     private func uniqueDestinationURL(basedOn destinationURL: URL) -> URL {
@@ -62,6 +157,93 @@ final class ClipPersistenceService {
             counter += 1
         }
         return candidate
+    }
+
+    /// Generates a thumbnail image from a video file
+    /// - Parameters:
+    ///   - videoURL: The URL of the video file
+    ///   - time: The time in the video to capture (defaults to 1 second)
+    /// - Returns: The file path where the thumbnail was saved
+    /// Verifies that a video file is playable and not corrupted
+    /// - Parameters:
+    ///   - asset: The AVAsset to verify
+    ///   - url: The URL of the video file
+    private func verifyVideoPlayability(asset: AVAsset, url: URL) async throws {
+        // Check 1: Verify file size is reasonable (not suspiciously small)
+        let attributes = try fileManager.attributesOfItem(atPath: url.path)
+        guard let fileSize = attributes[.size] as? Int64, fileSize > 10000 else { // At least 10KB
+            throw NSError(domain: "ClipPersistence", code: -1, userInfo: [NSLocalizedDescriptionKey: "Video file size is suspiciously small (\(attributes[.size] ?? 0) bytes)"])
+        }
+
+        // Check 2: Verify the asset has video tracks
+        let allTracks = try await asset.load(.tracks)
+        let videoTracks = allTracks.filter { $0.mediaType == .video }
+        guard !videoTracks.isEmpty else {
+            throw NSError(domain: "ClipPersistence", code: -2, userInfo: [NSLocalizedDescriptionKey: "No video tracks found in file"])
+        }
+
+        // Check 3: Verify first video track has valid dimensions
+        if let firstVideoTrack = videoTracks.first {
+            let naturalSize = firstVideoTrack.naturalSize
+            guard naturalSize.width > 0 && naturalSize.height > 0 else {
+                throw NSError(domain: "ClipPersistence", code: -3, userInfo: [NSLocalizedDescriptionKey: "Video track has invalid dimensions"])
+            }
+        }
+
+        // Check 4: Verify asset is playable
+        let isPlayable = try await asset.load(.isPlayable)
+        guard isPlayable else {
+            throw NSError(domain: "ClipPersistence", code: -4, userInfo: [NSLocalizedDescriptionKey: "Video is marked as not playable"])
+        }
+
+        // Check 5: Verify duration matches expected format
+        let duration = try await asset.load(.duration)
+        let durationSeconds = CMTimeGetSeconds(duration)
+        guard durationSeconds > 0 && durationSeconds.isFinite && durationSeconds < 3600 else { // Max 1 hour
+            throw NSError(domain: "ClipPersistence", code: -5, userInfo: [NSLocalizedDescriptionKey: "Video duration is invalid (\(durationSeconds) seconds)"])
+        }
+
+        print("ClipPersistenceService: ✅ Video verified as playable - \(Int(durationSeconds))s, \(fileSize / 1024 / 1024)MB")
+    }
+
+    private func generateThumbnail(for videoURL: URL, at time: CMTime = CMTime(seconds: 1.0, preferredTimescale: 600)) async throws -> String {
+        let asset = AVURLAsset(url: videoURL)
+        let imageGenerator = AVAssetImageGenerator(asset: asset)
+        imageGenerator.appliesPreferredTrackTransform = true
+        imageGenerator.requestedTimeToleranceAfter = .zero
+        imageGenerator.requestedTimeToleranceBefore = .zero
+
+        // Generate thumbnail image
+        let cgImage = try await imageGenerator.image(at: time).image
+
+        // Create thumbnails directory
+        let documentsURL = try fileManager.url(
+            for: .documentDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: true
+        )
+        let thumbnailsDirectory = documentsURL.appendingPathComponent("Thumbnails", isDirectory: true)
+        if !fileManager.fileExists(atPath: thumbnailsDirectory.path) {
+            try fileManager.createDirectory(at: thumbnailsDirectory, withIntermediateDirectories: true)
+        }
+
+        // Generate thumbnail filename based on video filename
+        let videoFileName = videoURL.deletingPathExtension().lastPathComponent
+        let thumbnailFileName = "\(videoFileName)_thumb.jpg"
+        let thumbnailURL = thumbnailsDirectory.appendingPathComponent(thumbnailFileName)
+
+        // Convert CGImage to JPEG and save
+        #if os(iOS)
+        let uiImage = UIImage(cgImage: cgImage)
+        guard let jpegData = uiImage.jpegData(compressionQuality: 0.8) else {
+            throw ClipPersistenceError.failedToCreateAsset(thumbnailURL, underlying: nil)
+        }
+        try jpegData.write(to: thumbnailURL)
+        #endif
+
+        print("ClipPersistenceService: Generated thumbnail at \(thumbnailURL.path)")
+        return thumbnailURL.path
     }
 
     func saveClip(
@@ -112,12 +294,32 @@ final class ClipPersistenceService {
             throw ClipPersistenceError.failedToCreateAsset(destinationURL, underlying: nil)
         }
 
+        // Verify video is actually playable (corruption detection)
+        do {
+            try await verifyVideoPlayability(asset: asset, url: destinationURL)
+        } catch {
+            // Delete corrupted file
+            try? fileManager.removeItem(at: destinationURL)
+            throw ClipPersistenceError.corruptedVideo(destinationURL, underlying: error)
+        }
+
+        // Generate thumbnail for the video
+        let thumbnailPath: String?
+        do {
+            thumbnailPath = try await generateThumbnail(for: destinationURL)
+        } catch {
+            print("⚠️ ClipPersistenceService: Failed to generate thumbnail: \(error.localizedDescription)")
+            thumbnailPath = nil
+            // Continue without thumbnail - not critical
+        }
+
         // Create new VideoClip instance using app's model
         let videoClip = VideoClip(
             fileName: destinationURL.lastPathComponent,
             filePath: destinationURL.path
         )
         videoClip.createdAt = now()
+        videoClip.thumbnailPath = thumbnailPath
 
         // Create and link PlayResult model if provided
         if let playResultType = playResult {
@@ -171,8 +373,49 @@ final class ClipPersistenceService {
         context.insert(videoClip)
         try context.save()
 
+        // Track video recorded analytics
+        AnalyticsService.shared.trackVideoRecorded(
+            duration: durationSeconds,
+            quality: "high", // TODO: Pass actual quality from recorder
+            isQuickRecord: false // TODO: Pass actual quick record flag
+        )
+
+        // Track video tagging analytics
+        if let playResultType = playResult {
+            AnalyticsService.shared.trackVideoTagged(
+                playResult: playResultType.displayName,
+                videoID: videoClip.id.uuidString
+            )
+        }
+
         // Notify dashboard to refresh
         NotificationCenter.default.post(name: Notification.Name("VideoRecorded"), object: videoClip)
+
+        // Automatically queue for cloud upload if enabled in preferences
+        Task { @MainActor in
+            // Check user preferences for auto-upload setting
+            let descriptor = FetchDescriptor<UserPreferences>()
+            if let preferences = try? context.fetch(descriptor).first,
+               preferences.autoUploadToCloud {
+                // Check file size limit
+                let fileSize = FileManager.default.fileSize(atPath: videoClip.filePath)
+                let fileSizeMB = fileSize / 1024 / 1024
+
+                if fileSizeMB <= preferences.maxVideoFileSize {
+                    // Check if we should only upload highlights
+                    if !preferences.syncHighlightsOnly || videoClip.isHighlight {
+                        UploadQueueManager.shared.enqueue(videoClip, athlete: athlete, priority: .normal)
+                        print("ClipPersistenceService: Queued video for automatic upload: \(videoClip.fileName)")
+                    } else {
+                        print("ClipPersistenceService: Skipping upload (not a highlight, highlights-only mode enabled)")
+                    }
+                } else {
+                    print("ClipPersistenceService: Skipping upload (file size \(fileSizeMB)MB exceeds limit of \(preferences.maxVideoFileSize)MB)")
+                }
+            } else {
+                print("ClipPersistenceService: Auto-upload disabled in preferences")
+            }
+        }
 
         return videoClip
     }

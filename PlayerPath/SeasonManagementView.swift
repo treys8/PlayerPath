@@ -489,6 +489,18 @@ struct CreateSeasonView: View {
         do {
             try modelContext.save()
 
+            // Track season creation analytics
+            AnalyticsService.shared.trackSeasonCreated(
+                seasonID: newSeason.id.uuidString,
+                sport: selectedSport.rawValue,
+                isActive: makeActive
+            )
+
+            // Track season activation if making active
+            if makeActive {
+                AnalyticsService.shared.trackSeasonActivated(seasonID: newSeason.id.uuidString)
+            }
+
             // Trigger immediate sync to Firestore
             Task {
                 guard let user = athlete.user else { return }
@@ -761,6 +773,13 @@ struct SeasonDetailView: View {
         do {
             try modelContext.save()
 
+            // Track season end analytics
+            let gameCount = season.games?.count ?? 0
+            AnalyticsService.shared.trackSeasonEnded(
+                seasonID: season.id.uuidString,
+                totalGames: gameCount
+            )
+
             // Trigger immediate sync to Firestore
             Task {
                 guard let user = season.athlete?.user else { return }
@@ -816,6 +835,9 @@ struct SeasonDetailView: View {
 
         do {
             try modelContext.save()
+
+            // Track season reactivation analytics
+            AnalyticsService.shared.trackSeasonActivated(seasonID: season.id.uuidString)
 
             // Trigger immediate sync to Firestore
             Task {

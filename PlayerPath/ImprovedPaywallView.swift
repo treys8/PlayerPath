@@ -71,11 +71,14 @@ struct ImprovedPaywallView: View {
                 }
             }
             .task {
+                // Track paywall shown analytics
+                AnalyticsService.shared.trackPaywallShown(source: "main_app")
+
                 // Load products if needed
                 if storeManager.products.isEmpty {
                     await storeManager.loadProducts()
                 }
-                
+
                 // Select monthly by default
                 if selectedProduct == nil {
                     selectedProduct = storeManager.monthlyProduct
@@ -83,10 +86,18 @@ struct ImprovedPaywallView: View {
             }
             .onChange(of: storeManager.isPremium) { _, isPremium in
                 if isPremium {
+                    // Track subscription started analytics
+                    if let product = selectedProduct {
+                        AnalyticsService.shared.trackSubscriptionStarted(
+                            planType: product.id,
+                            price: product.displayPrice
+                        )
+                    }
+
                     // Update user model
                     user.isPremium = true
                     try? modelContext.save()
-                    
+
                     // Dismiss immediately - no delay needed
                     dismiss()
                 }
