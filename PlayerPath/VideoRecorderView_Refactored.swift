@@ -224,7 +224,7 @@ struct VideoRecorderView_Refactored: View {
                 Text("vs \(game.opponent)")
                     .font(.headline)
                     .foregroundColor(.white)
-            } else if let practice = practice {
+            } else if practice != nil {
                 Text("Practice Session")
                     .font(.headline)
                     .foregroundColor(.white)
@@ -1053,7 +1053,6 @@ struct VideoRecorderView_Refactored: View {
     private func generateSmartSuggestion() {
         let currentQuality = VideoRecordingSettings.shared.quality
         let currentFPS = VideoRecordingSettings.shared.frameRate
-        let isIndoor = false // Could detect based on time of day or user setting
         let isPitching = game != nil // Simplification - could be more sophisticated
 
         // Battery-based suggestions

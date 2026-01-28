@@ -22,6 +22,7 @@ struct VideoPlayerView: View {
     @State private var videoAspect: CGFloat? // width / height
     @State private var showingTrimmer = false
     @State private var showingPlayResultEditor = false
+    @State private var showingGameLinker = false
     @State private var setupTask: Task<Void, Never>?
     @State private var isDownloadingFromCloud = false
     @State private var downloadProgress: Double = 0.0
@@ -42,9 +43,7 @@ struct VideoPlayerView: View {
     }
     
     private var loadingView: some View {
-        Rectangle()
-            .fill(Color.black)
-            .aspectRatio(videoAspect ?? (16.0/9.0), contentMode: .fit)
+        Color.black
             .overlay(
                 VStack(spacing: 12) {
                     if isDownloadingFromCloud {
@@ -72,7 +71,6 @@ struct VideoPlayerView: View {
     
     private func activePlayerView(player: AVPlayer) -> some View {
         EnhancedVideoPlayer(player: player)
-            .aspectRatio(videoAspect ?? (16.0/9.0), contentMode: .fit)
             .accessibilityLabel("Video player")
             .onDisappear {
                 print("VideoPlayerView: VideoPlayer disappeared, pausing playback")
@@ -81,9 +79,7 @@ struct VideoPlayerView: View {
     }
     
     private var errorView: some View {
-        Rectangle()
-            .fill(Color.black)
-            .aspectRatio(videoAspect ?? (16.0/9.0), contentMode: .fit)
+        Color.black
             .overlay(
                 VStack(spacing: 8) {
                     Image(systemName: "exclamationmark.triangle")
@@ -115,13 +111,16 @@ struct VideoPlayerView: View {
     
     var body: some View {
         NavigationStack {
-            VStack {
-                // Video Player
+            VStack(spacing: 0) {
+                // Video Player - fills available space
                 videoPlayerContent
-                
-                // Video Info
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color.black)
+
+                // Video Info - compact at bottom
                 VideoClipInfoCard(clip: clip)
             }
+            .ignoresSafeArea(edges: .bottom)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
@@ -136,6 +135,13 @@ struct VideoPlayerView: View {
                             Label("Edit Play Result", systemImage: "pencil.circle")
                         }
                         .accessibilityLabel("Edit the play result for this video")
+
+                        Button {
+                            showingGameLinker = true
+                        } label: {
+                            Label(clip.game == nil ? "Link to Game" : "Change Game", systemImage: "sportscourt")
+                        }
+                        .accessibilityLabel(clip.game == nil ? "Link this video to a game" : "Change which game this video is linked to")
 
                         Divider()
 
@@ -196,6 +202,9 @@ struct VideoPlayerView: View {
         }
         .sheet(isPresented: $showingPlayResultEditor) {
             PlayResultEditorView(clip: clip, modelContext: modelContext)
+        }
+        .sheet(isPresented: $showingGameLinker) {
+            GameLinkerView(clip: clip)
         }
         .onChange(of: scenePhase) { _, phase in
             switch phase {
@@ -415,70 +424,50 @@ struct VideoPlayerView: View {
 // MARK: - Video Clip Info Card
 struct VideoClipInfoCard: View {
     let clip: VideoClip
-    
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 15) {
-            HStack {
-                VStack(alignment: .leading) {
-                    if let playResult = clip.playResult {
-                        Text(playResult.type.displayName)
-                            .font(.title2)
-                            .fontWeight(.bold)
-                    } else {
-                        Text("Unrecorded Play")
-                            .font(.title2)
-                            .foregroundColor(.secondary)
-                    }
-                    
-                    if let game = clip.game {
-                        Text("vs \(game.opponent)")
-                            .font(.subheadline)
-                            .foregroundColor(.blue)
-                        if let date = game.date {
-                            Text(date, style: .date)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                    } else if let practice = clip.practice {
-                        Text("Practice Session")
-                            .font(.subheadline)
-                            .foregroundColor(.green)
-                        if let date = practice.date {
-                            Text(date, formatter: DateFormatter.pp_shortDate)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                }
-                
-                Spacer()
-                
-                if clip.isHighlight {
-                    VStack {
-                        Image(systemName: "star.fill")
-                            .foregroundColor(.yellow)
-                            .font(.title2)
-                        Text("Highlight")
-                            .font(.caption)
-                            .fontWeight(.semibold)
-                    }
-                }
-            }
-            
-            if let createdAt = clip.createdAt {
-                Text("Recorded: \(createdAt, format: .dateTime.month().day().hour().minute())")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+        HStack(spacing: 12) {
+            // Play result or unrecorded
+            if let playResult = clip.playResult {
+                Text(playResult.type.displayName)
+                    .font(.headline)
+                    .fontWeight(.bold)
             } else {
-                Text("Recorded date unavailable")
-                    .font(.caption)
+                Text("Unrecorded")
+                    .font(.headline)
+                    .foregroundColor(.secondary)
+            }
+
+            // Game/practice context
+            if let game = clip.game {
+                Text("vs \(game.opponent)")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            } else if clip.practice != nil {
+                Text("Practice")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
+
+            Spacer()
+
+            // Highlight badge
+            if clip.isHighlight {
+                Image(systemName: "star.fill")
+                    .foregroundColor(.yellow)
+                    .font(.body)
+            }
+
+            // Date
+            if let createdAt = clip.createdAt {
+                Text(createdAt, format: .dateTime.month(.abbreviated).day())
+                    .font(.subheadline)
                     .foregroundColor(.secondary)
             }
         }
-        .padding()
-        .background(Color(uiColor: .systemGray6))
-        .cornerRadius(12)
-        .padding()
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(Color(uiColor: .systemBackground))
     }
 }
 
@@ -916,6 +905,125 @@ struct VideoTrimmerSheet: View {
         let minutes = Int(time) / 60
         let seconds = Int(time) % 60
         return String(format: "%02d:%02d", minutes, seconds)
+    }
+}
+
+// MARK: - Game Linker View
+
+struct GameLinkerView: View {
+    let clip: VideoClip
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
+    @Query(sort: \Game.date, order: .reverse) private var allGames: [Game]
+
+    @State private var selectedGame: Game?
+    @State private var hasChanges = false
+
+    private var athleteGames: [Game] {
+        guard let athleteId = clip.athlete?.id else { return [] }
+        return allGames.filter { $0.athlete?.id == athleteId }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                // Option to unlink
+                Section {
+                    Button {
+                        selectedGame = nil
+                        hasChanges = (clip.game != nil)
+                    } label: {
+                        HStack {
+                            Label("No Game", systemImage: "minus.circle")
+                                .foregroundColor(.primary)
+                            Spacer()
+                            if selectedGame == nil && clip.game == nil {
+                                Image(systemName: "checkmark")
+                                    .foregroundColor(.blue)
+                            } else if selectedGame == nil && hasChanges {
+                                Image(systemName: "checkmark")
+                                    .foregroundColor(.blue)
+                            }
+                        }
+                    }
+                } footer: {
+                    Text("Video will not be associated with any game")
+                }
+
+                // Games list
+                if athleteGames.isEmpty {
+                    Section {
+                        Text("No games found for this athlete")
+                            .foregroundColor(.secondary)
+                    }
+                } else {
+                    Section("Games") {
+                        ForEach(athleteGames) { game in
+                            Button {
+                                selectedGame = game
+                                hasChanges = (clip.game?.id != game.id)
+                            } label: {
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text("vs \(game.opponent.isEmpty ? "Unknown" : game.opponent)")
+                                            .foregroundColor(.primary)
+                                        if let date = game.date {
+                                            Text(date, format: .dateTime.month(.abbreviated).day().year())
+                                                .font(.caption)
+                                                .foregroundColor(.secondary)
+                                        }
+                                        if let season = game.season {
+                                            Text(season.displayName)
+                                                .font(.caption2)
+                                                .foregroundColor(.blue)
+                                        }
+                                    }
+                                    Spacer()
+                                    if (selectedGame?.id == game.id) || (!hasChanges && clip.game?.id == game.id) {
+                                        Image(systemName: "checkmark")
+                                            .foregroundColor(.blue)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Link to Game")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        saveChanges()
+                    }
+                    .disabled(!hasChanges)
+                }
+            }
+            .onAppear {
+                selectedGame = clip.game
+            }
+        }
+    }
+
+    private func saveChanges() {
+        clip.game = selectedGame
+        // Also update the season to match the game's season if linking to a game
+        if let game = selectedGame {
+            clip.season = game.season
+        }
+
+        do {
+            try modelContext.save()
+            Haptics.success()
+            dismiss()
+        } catch {
+            print("Failed to save game link: \(error)")
+        }
     }
 }
 

@@ -184,7 +184,7 @@ final class ClipPersistenceService {
 
         // Check 3: Verify first video track has valid dimensions
         if let firstVideoTrack = videoTracks.first {
-            let naturalSize = firstVideoTrack.naturalSize
+            let naturalSize = try await firstVideoTrack.load(.naturalSize)
             guard naturalSize.width > 0 && naturalSize.height > 0 else {
                 throw NSError(domain: "ClipPersistence", code: -3, userInfo: [NSLocalizedDescriptionKey: "Video track has invalid dimensions"])
             }

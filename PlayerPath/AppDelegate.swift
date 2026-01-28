@@ -168,6 +168,7 @@ extension PlayerPathAppDelegate {
         completionHandler(handled)
     }
 
+    @discardableResult
     private func handleQuickAction(_ shortcutItem: UIApplicationShortcutItem) -> Bool {
         // Forward to QuickActionsManager
         appLog.info("Handling quick action: \(shortcutItem.type, privacy: .public)")

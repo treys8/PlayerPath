@@ -613,90 +613,63 @@ struct VideoClipCard: View {
 
     var body: some View {
         Button(action: onPlay) {
-            VStack(spacing: 0) {
-                // Larger thumbnail - fills most of the card
-                ZStack(alignment: .topTrailing) {
-                    VideoThumbnailView(
-                        clip: video,
-                        size: CGSize(width: 200, height: 150), // Taller for more video visibility
-                        cornerRadius: 12,
-                        showPlayButton: false, // Remove play button - users know it's a video
-                        showPlayResult: false, // Move to info section below
-                        showHighlight: true, // Keep highlight star
-                        showSeason: false // Remove duplicate season badge
-                    )
-                    .overlay(
-                        // Selection mode overlay
-                        Group {
-                            if isSelectionMode {
-                                ZStack {
-                                    Color.black.opacity(isSelected ? 0.3 : 0.1)
+            GeometryReader { geometry in
+                VStack(spacing: 0) {
+                    // Thumbnail - fills width, 4:3 aspect ratio
+                    ZStack(alignment: .topTrailing) {
+                        VideoThumbnailView(
+                            clip: video,
+                            size: CGSize(width: geometry.size.width, height: geometry.size.width * 0.75),
+                            cornerRadius: 0,
+                            showPlayButton: false,
+                            showPlayResult: false,
+                            showHighlight: true,
+                            showSeason: false
+                        )
+                        .overlay(selectionOverlay)
 
-                                    VStack {
-                                        HStack {
-                                            Spacer()
-                                            Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                                                .font(.system(size: 28))
-                                                .foregroundColor(isSelected ? .blue : .white)
-                                                .padding(8)
-                                        }
-                                        Spacer()
-                                    }
-                                }
+                        // Backup status badge (top-right)
+                        if !isSelectionMode {
+                            backupStatusBadge
+                                .padding(8)
+                        }
+                    }
+
+                    // Info section
+                    HStack(spacing: 8) {
+                        // Play result badge
+                        if let result = video.playResult {
+                            HStack(spacing: 4) {
+                                playResultIcon(for: result.type)
+                                    .font(.system(size: 11))
+                                Text(playResultAbbreviation(for: result.type))
+                                    .font(.system(size: 12, weight: .semibold))
                             }
-                        }
-                    )
-
-                    // Backup status badge (top-right corner) - only show when not in selection mode
-                    if !isSelectionMode {
-                        backupStatusBadge
-                            .padding(8)
-                    }
-                }
-
-                // Compact single-line info section
-                HStack(spacing: 6) {
-                    // Play result badge
-                    if let result = video.playResult {
-                        HStack(spacing: 3) {
-                            playResultIcon(for: result.type)
-                                .font(.system(size: 10))
-                            Text(playResultAbbreviation(for: result.type))
-                                .font(.system(size: 11, weight: .bold))
-                        }
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 3)
-                        .background(playResultColor(for: result.type))
-                        .cornerRadius(5)
-                    }
-
-                    // Date
-                    if let created = video.createdAt {
-                        Text(created, format: .dateTime.month().day())
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-
-                    // Season badge
-                    if let season = video.season {
-                        Text(season.displayName)
-                            .font(.system(size: 10, weight: .medium))
                             .foregroundColor(.white)
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 2)
-                            .background(season.isActive ? Color.blue : Color.gray)
-                            .cornerRadius(4)
-                    }
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(playResultColor(for: result.type))
+                            .cornerRadius(6)
+                        }
 
-                    Spacer()
+                        // Date
+                        if let created = video.createdAt {
+                            Text(created, format: .dateTime.month(.abbreviated).day())
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                        }
+
+                        Spacer()
+                    }
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color(.systemBackground))
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
-                .background(Color(.secondarySystemBackground))
             }
+            .aspectRatio(4/5, contentMode: .fit)
+            .background(Color(.systemBackground))
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .shadow(color: .black.opacity(0.1), radius: 3, x: 0, y: 2)
+            .shadow(color: .black.opacity(0.08), radius: 4, x: 0, y: 2)
         }
         .buttonStyle(.plain)
         .contextMenu {
@@ -762,6 +735,29 @@ struct VideoClipCard: View {
             Button("OK", role: .cancel) { }
         } message: {
             Text(errorMessage ?? "An unknown error occurred")
+        }
+    }
+
+    // MARK: - Selection Overlay
+
+    @ViewBuilder
+    private var selectionOverlay: some View {
+        if isSelectionMode {
+            ZStack {
+                Color.black.opacity(isSelected ? 0.3 : 0.1)
+
+                VStack {
+                    HStack {
+                        Spacer()
+                        Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                            .font(.system(size: 28))
+                            .foregroundColor(isSelected ? .blue : .white)
+                            .shadow(color: .black.opacity(0.3), radius: 2, x: 0, y: 1)
+                            .padding(10)
+                    }
+                    Spacer()
+                }
+            }
         }
     }
 

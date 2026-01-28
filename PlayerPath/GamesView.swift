@@ -20,7 +20,6 @@ struct GamesView: View {
     @StateObject private var viewModelHolder = ViewModelHolder()
     
     // Error handling
-    @State private var showingError = false
     @State private var errorMessage = ""
 
     // Loading states
@@ -41,6 +40,17 @@ struct GamesView: View {
     @State private var newGameOpponent = ""
     @State private var newGameDate = Date()
     @State private var makeGameLive = false
+
+    // Season check states
+    @State private var showingSeasonCreation = false
+
+    // Alert state
+    private enum AlertType: Identifiable {
+        case error
+        case noSeason
+        var id: Self { self }
+    }
+    @State private var activeAlert: AlertType?
     
     // Computed properties for cleaner code
     private var hasGames: Bool {
@@ -78,6 +88,40 @@ struct GamesView: View {
     // Check if we have any filtered results
     private var hasFilteredResults: Bool {
         !liveGames.isEmpty || !upcomingGames.isEmpty || !pastGames.isEmpty || !completedGames.isEmpty
+    }
+
+    // Check if athlete has any seasons
+    private var hasSeasons: Bool {
+        guard let athlete = athlete else { return false }
+        return !(athlete.seasons?.isEmpty ?? true)
+    }
+
+    // Handle add game action with season check
+    private func handleAddGame() {
+        if hasSeasons {
+            showingGameCreation = true
+        } else {
+            activeAlert = .noSeason
+        }
+    }
+
+    // Game creation sheet content
+    @ViewBuilder
+    private var gameCreationSheet: some View {
+        GameCreationView(
+            athlete: athlete,
+            onSave: { opponent, date, isLive in
+                createGame(opponent: opponent, date: date, isLive: isLive)
+            }
+        )
+    }
+
+    // Season creation sheet content
+    @ViewBuilder
+    private var seasonCreationSheet: some View {
+        if let athlete = athlete {
+            CreateSeasonView(athlete: athlete)
+        }
     }
 
     private func filterGames(_ games: [Game]) -> [Game] {
@@ -250,7 +294,7 @@ struct GamesView: View {
         .searchable(text: $searchText, prompt: "Search by opponent or date")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Button(action: { showingGameCreation = true }) {
+                Button(action: { handleAddGame() }) {
                     Image(systemName: "plus")
                 }
                 .accessibilityLabel("Add new game")
@@ -349,20 +393,32 @@ struct GamesView: View {
             viewModelHolder.viewModel?.update(allGames: newValue)
         }
         .sheet(isPresented: $showingGameCreation) {
-            GameCreationView(
-                athlete: athlete,
-                onSave: { opponent, date, isLive in
-                    createGame(opponent: opponent, date: date, isLive: isLive)
-                }
-            )
+            gameCreationSheet
         }
-        .alert("Error", isPresented: $showingError) {
-            Button("OK") { }
-        } message: {
-            Text(errorMessage)
+        .sheet(isPresented: $showingSeasonCreation) {
+            seasonCreationSheet
+        }
+        .alert(item: $activeAlert) { alertType in
+            switch alertType {
+            case .error:
+                Alert(
+                    title: Text("Error"),
+                    message: Text(errorMessage),
+                    dismissButton: .default(Text("OK"))
+                )
+            case .noSeason:
+                Alert(
+                    title: Text("Create a Season First"),
+                    message: Text("Games belong to a season. Create a season to start tracking games."),
+                    primaryButton: .default(Text("Create Season")) {
+                        showingSeasonCreation = true
+                    },
+                    secondaryButton: .cancel()
+                )
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .presentAddGame)) { _ in
-            showingGameCreation = true
+            handleAddGame()
         }
     }
     
@@ -427,7 +483,7 @@ struct GamesView: View {
 
     private func showError(_ message: String) {
         errorMessage = message
-        showingError = true
+        activeAlert = .error
     }
 }
 
@@ -1022,7 +1078,7 @@ struct AddGameView: View {
 
             await MainActor.run {
                 switch result {
-                case .success(let game):
+                case .success:
                     // Success - dismiss
                     let calendar = Calendar.current
                     let year = calendar.component(.year, from: date)

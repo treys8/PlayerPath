@@ -256,12 +256,12 @@ extension AppleSignInManager: ASAuthorizationControllerPresentationContextProvid
         }
 
         // Absolute last resort: create a basic window without a scene
-        // This is deprecated but prevents a crash in the extremely rare case where no scenes exist
+        // This prevents a crash in the extremely rare case where no scenes exist
         print("❌ No window scene available, creating basic UIWindow for Apple Sign In")
         #if DEBUG
         assertionFailure("No window scene available - app may be in an invalid state")
         #endif
-        return UIWindow(frame: UIScreen.main.bounds)
+        return UIWindow()
     }
 }
 

@@ -99,13 +99,14 @@ struct VideoThumbnailView: View {
                 if let thumbnail = thumbnailImage {
                     Image(uiImage: thumbnail)
                         .resizable()
-                        .aspectRatio(contentMode: .fit)
+                        .aspectRatio(contentMode: .fill)
                         .frame(width: safeSize.width, height: safeSize.height)
+                        .clipped()
                 } else {
                     placeholderView
                 }
             }
-            .background(Color.black.opacity(0.1)) // Background for letterboxing
+            .background(Color.black)
             .cornerRadius(cornerRadius)
             .overlay(playButtonOverlay)
 
@@ -124,6 +125,7 @@ struct VideoThumbnailView: View {
                 seasonBadge
             }
         }
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityDescription)
         .task {
@@ -267,13 +269,13 @@ struct VideoThumbnailView: View {
     private var highlightIndicator: some View {
         Image(systemName: "star.fill")
             .foregroundColor(.yellow)
-            .font(.system(size: scaledValue(10)))
-            .padding(scaledValue(4))
+            .font(.system(size: scaledValue(12)))
+            .padding(scaledValue(5))
             .background(
                 Circle()
                     .fill(Color.black.opacity(0.6))
             )
-            .offset(x: scaledValue(-4), y: scaledValue(4))
+            .padding(scaledValue(6))
             .accessibilityHidden(true) // Already described in main accessibility label
     }
 

@@ -184,10 +184,15 @@ struct EnhancedVideoPlayer: View {
     // MARK: - Player Control Methods
 
     private func setupPlayer() {
-        // Get duration
+        // Get duration asynchronously
         if let currentItem = player.currentItem {
-            let duration = currentItem.asset.duration
-            self.duration = CMTimeGetSeconds(duration)
+            Task {
+                if let loadedDuration = try? await currentItem.asset.load(.duration) {
+                    await MainActor.run {
+                        self.duration = CMTimeGetSeconds(loadedDuration)
+                    }
+                }
+            }
         }
 
         // Add time observer

@@ -56,18 +56,20 @@ struct CoachVideoPlayerView: View {
 
                     // Annotation markers overlay
                     if !viewModel.annotations.isEmpty, let duration = viewModel.videoDuration, duration > 0 {
-                        HStack(spacing: 0) {
-                            ForEach(viewModel.annotations) { annotation in
-                                Spacer()
-                                    .frame(width: (CGFloat(annotation.timestamp) / CGFloat(duration)) * UIScreen.main.bounds.width)
-                                VStack {
+                        GeometryReader { geometry in
+                            HStack(spacing: 0) {
+                                ForEach(viewModel.annotations) { annotation in
                                     Spacer()
-                                    Rectangle()
-                                        .fill(annotation.isCoachComment ? Color.green : Color.blue)
-                                        .frame(width: 3, height: 20)
-                                        .shadow(color: .black.opacity(0.5), radius: 2)
+                                        .frame(width: (CGFloat(annotation.timestamp) / CGFloat(duration)) * geometry.size.width)
+                                    VStack {
+                                        Spacer()
+                                        Rectangle()
+                                            .fill(annotation.isCoachComment ? Color.green : Color.blue)
+                                            .frame(width: 3, height: 20)
+                                            .shadow(color: .black.opacity(0.5), radius: 2)
+                                    }
+                                    Spacer()
                                 }
-                                Spacer()
                             }
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)

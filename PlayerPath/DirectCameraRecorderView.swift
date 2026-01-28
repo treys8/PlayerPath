@@ -238,7 +238,7 @@ struct DirectCameraRecorderView: View {
     }
 
     private func getVideoDuration(_ url: URL) async -> Double {
-        let asset = AVAsset(url: url)
+        let asset = AVURLAsset(url: url)
         do {
             let duration = try await asset.load(.duration)
             return CMTimeGetSeconds(duration)

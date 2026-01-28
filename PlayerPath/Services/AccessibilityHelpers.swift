@@ -79,7 +79,7 @@ extension AccessibilityTraits {
     static func combine(_ traits: AccessibilityTraits...) -> AccessibilityTraits {
         var combined: AccessibilityTraits = []
         for trait in traits {
-            combined.insert(trait)
+            combined.formUnion(trait)
         }
         return combined
     }
@@ -172,7 +172,7 @@ extension View {
     /// Conditional modifier helper
     @ViewBuilder
     func `if`<T, Transform: View>(
-        let optional: T?,
+        `let` optional: T?,
         transform: (Self, T) -> Transform
     ) -> some View {
         if let value = optional {

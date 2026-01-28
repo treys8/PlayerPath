@@ -71,6 +71,7 @@ struct AthleteOnboardingFlow: View {
                             .font(.largeTitle)
                             .fontWeight(.bold)
                             .multilineTextAlignment(.center)
+                            .minimumScaleFactor(0.8)
                             .accessibilityAddTraits(.isHeader)
 
                         Text("Let's get you set up to begin tracking")
