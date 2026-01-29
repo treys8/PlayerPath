@@ -484,6 +484,10 @@ struct DashboardView: View {
                             HStack(spacing: 12) {
                                 ForEach(viewModel.recentVideos, id: \.id) { video in
                                     DashboardVideoCard(video: video)
+                                        .onTapGesture {
+                                            Haptics.light()
+                                            NotificationCenter.default.post(name: Notification.Name.presentFullscreenVideo, object: video)
+                                        }
                                 }
                             }
                             .padding(.horizontal)

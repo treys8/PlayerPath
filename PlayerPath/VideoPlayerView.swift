@@ -8,6 +8,7 @@
 import SwiftUI
 import AVKit
 import SwiftData
+import Photos
 
 struct VideoPlayerView: View {
     let clip: VideoClip
@@ -26,6 +27,8 @@ struct VideoPlayerView: View {
     @State private var setupTask: Task<Void, Never>?
     @State private var isDownloadingFromCloud = false
     @State private var downloadProgress: Double = 0.0
+    @State private var showingSaveSuccess = false
+    @State private var saveErrorMessage: String?
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.modelContext) private var modelContext
     
@@ -158,6 +161,12 @@ struct VideoPlayerView: View {
                         }
                         .accessibilityLabel("Trim this video")
                         Divider()
+                        Button {
+                            saveToPhotos()
+                        } label: {
+                            Label("Save to Photos", systemImage: "square.and.arrow.down")
+                        }
+                        .accessibilityLabel("Save video to Photos library")
                         ShareLink(item: URL(fileURLWithPath: clip.filePath)) {
                             Label("Share Video", systemImage: "square.and.arrow.up")
                         }
@@ -220,8 +229,51 @@ struct VideoPlayerView: View {
                 player?.pause()
             }
         }
+        .alert("Saved to Photos", isPresented: $showingSaveSuccess) {
+            Button("OK") { }
+        } message: {
+            Text("Video has been saved to your Photos library.")
+        }
+        .alert("Save Failed", isPresented: Binding(
+            get: { saveErrorMessage != nil },
+            set: { if !$0 { saveErrorMessage = nil } }
+        )) {
+            Button("OK") { }
+        } message: {
+            Text(saveErrorMessage ?? "Unknown error")
+        }
     }
-    
+
+    private func saveToPhotos() {
+        let videoURL = URL(fileURLWithPath: clip.filePath)
+        guard FileManager.default.fileExists(atPath: clip.filePath) else {
+            saveErrorMessage = "Video file not found"
+            return
+        }
+
+        PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
+            guard status == .authorized || status == .limited else {
+                DispatchQueue.main.async {
+                    self.saveErrorMessage = "Photo library access denied. Please enable in Settings."
+                }
+                return
+            }
+
+            PHPhotoLibrary.shared().performChanges {
+                PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: videoURL)
+            } completionHandler: { success, error in
+                DispatchQueue.main.async {
+                    if success {
+                        Haptics.success()
+                        self.showingSaveSuccess = true
+                    } else {
+                        self.saveErrorMessage = error?.localizedDescription ?? "Failed to save video"
+                    }
+                }
+            }
+        }
+    }
+
     private func setupPlayer() async {
         print("VideoPlayerView: Starting player setup for clip: \(clip.fileName)")
 

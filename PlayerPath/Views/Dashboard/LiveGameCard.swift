@@ -147,10 +147,8 @@ struct LiveGameCard: View {
         .shadow(color: .red.opacity(0.15), radius: 8, x: 0, y: 4)
         .scaleEffect(isPressed ? 0.98 : 1.0)
         .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isPressed)
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { _ in isPressed = true }
-                .onEnded { _ in isPressed = false }
-        )
+        .onLongPressGesture(minimumDuration: 0.01, maximumDistance: 10, pressing: { pressing in
+            isPressed = pressing
+        }, perform: {})
     }
 }

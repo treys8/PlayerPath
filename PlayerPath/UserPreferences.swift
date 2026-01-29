@@ -17,9 +17,21 @@ final class UserPreferences {
 
     // MARK: - Video Recording Preferences
     var defaultVideoQuality: VideoQuality? { didSet { markAsModified() } }
-    var autoUploadToCloud: Bool = true { didSet { markAsModified() } }
+    var autoUploadMode: AutoUploadMode? { didSet { markAsModified() } }
     var saveToPhotosLibrary: Bool = false { didSet { markAsModified() } }
     var enableHapticFeedback: Bool = true { didSet { markAsModified() } }
+
+    // Legacy property for backwards compatibility - computed from autoUploadMode
+    var autoUploadToCloud: Bool {
+        get { autoUploadMode != .off }
+        set { autoUploadMode = newValue ? .wifiOnly : .off }
+    }
+
+    // Legacy property for backwards compatibility - computed from autoUploadMode
+    var allowCellularUploads: Bool {
+        get { autoUploadMode == .always }
+        set { if newValue && autoUploadMode != .off { autoUploadMode = .always } }
+    }
 
     // MARK: - UI Preferences
     var preferredTheme: AppTheme? { didSet { markAsModified() } }
@@ -31,7 +43,6 @@ final class UserPreferences {
     // Clamped in MB to a reasonable range (50MB–10GB)
     var maxVideoFileSize: Int = 500 { didSet { maxVideoFileSize = max(50, min(maxVideoFileSize, 10_000)); markAsModified() } }
     var autoDeleteAfterUpload: Bool = false { didSet { markAsModified() } }
-    var allowCellularUploads: Bool = false { didSet { markAsModified() } }
 
     // MARK: - Analytics Preferences
     var enableAnalytics: Bool = true { didSet { markAsModified() } }
@@ -52,7 +63,7 @@ final class UserPreferences {
 
         // Defaults
         self.defaultVideoQuality = .high
-        self.autoUploadToCloud = true
+        self.autoUploadMode = .off  // Default to off, let user choose during onboarding
         self.saveToPhotosLibrary = false
         self.enableHapticFeedback = true
 
@@ -63,7 +74,6 @@ final class UserPreferences {
         self.syncHighlightsOnly = false
         self.maxVideoFileSize = 500 // MB
         self.autoDeleteAfterUpload = false
-        self.allowCellularUploads = false
 
         self.enableAnalytics = true
         self.shareUsageData = false
@@ -115,6 +125,37 @@ final class UserPreferences {
         let prefs = UserPreferences()
         context.insert(prefs)
         return prefs
+    }
+}
+
+/// Auto-upload mode for videos after recording
+enum AutoUploadMode: String, CaseIterable, Codable {
+    case off = "off"
+    case wifiOnly = "wifi_only"
+    case always = "always"
+
+    var displayName: String {
+        switch self {
+        case .off: return "Off"
+        case .wifiOnly: return "Wi-Fi Only"
+        case .always: return "Always"
+        }
+    }
+
+    var description: String {
+        switch self {
+        case .off: return "Upload videos manually"
+        case .wifiOnly: return "Auto-upload on Wi-Fi (recommended)"
+        case .always: return "Auto-upload on Wi-Fi & Cellular"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .off: return "icloud.slash"
+        case .wifiOnly: return "wifi"
+        case .always: return "icloud.and.arrow.up"
+        }
     }
 }
 

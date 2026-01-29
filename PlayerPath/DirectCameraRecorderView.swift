@@ -301,6 +301,11 @@ struct DirectCameraRecorderView: View {
                     )
                 }
 
+                // Check auto-upload preference and enqueue if enabled
+                if let athlete = athlete {
+                    await checkAndEnqueueAutoUpload(clip: clip, athlete: athlete)
+                }
+
                 Haptics.success()
             } catch {
                 await MainActor.run {
@@ -310,6 +315,46 @@ struct DirectCameraRecorderView: View {
                     )
                 }
             }
+        }
+    }
+
+    private func checkAndEnqueueAutoUpload(clip: VideoClip, athlete: Athlete) async {
+        // Get user preferences
+        let prefs = UserPreferences.shared(in: modelContext)
+        let uploadMode = prefs.autoUploadMode ?? .off
+
+        guard uploadMode != .off else {
+            #if DEBUG
+            print("🎬 Auto-upload disabled - video saved locally only")
+            #endif
+            return
+        }
+
+        // Check network status
+        let networkMonitor = ConnectivityMonitor.shared
+        let isOnWifi = networkMonitor.connectionType == .wifi
+        let isConnected = networkMonitor.isConnected
+
+        // Determine if we should upload based on mode and network
+        let shouldUpload: Bool
+        switch uploadMode {
+        case .off:
+            shouldUpload = false
+        case .wifiOnly:
+            shouldUpload = isOnWifi
+        case .always:
+            shouldUpload = isConnected
+        }
+
+        if shouldUpload {
+            #if DEBUG
+            print("🎬 Auto-uploading video (mode: \(uploadMode.rawValue), wifi: \(isOnWifi))")
+            #endif
+            UploadQueueManager.shared.enqueue(clip, athlete: athlete, priority: .normal)
+        } else {
+            #if DEBUG
+            print("🎬 Skipping auto-upload - mode: \(uploadMode.rawValue), wifi: \(isOnWifi), connected: \(isConnected)")
+            #endif
         }
     }
 

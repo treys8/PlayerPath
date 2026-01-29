@@ -615,13 +615,13 @@ struct VideoClipCard: View {
         Button(action: onPlay) {
             GeometryReader { geometry in
                 VStack(spacing: 0) {
-                    // Thumbnail - fills width, 4:3 aspect ratio
-                    ZStack(alignment: .topTrailing) {
+                    // Thumbnail - 16:9 aspect ratio like Highlights
+                    ZStack {
                         VideoThumbnailView(
                             clip: video,
-                            size: CGSize(width: geometry.size.width, height: geometry.size.width * 0.75),
-                            cornerRadius: 0,
-                            showPlayButton: false,
+                            size: CGSize(width: geometry.size.width, height: geometry.size.width * 9/16),
+                            cornerRadius: 8,
+                            showPlayButton: true,
                             showPlayResult: false,
                             showHighlight: true,
                             showSeason: false
@@ -630,8 +630,14 @@ struct VideoClipCard: View {
 
                         // Backup status badge (top-right)
                         if !isSelectionMode {
-                            backupStatusBadge
-                                .padding(8)
+                            VStack {
+                                HStack {
+                                    Spacer()
+                                    backupStatusBadge
+                                        .padding(8)
+                                }
+                                Spacer()
+                            }
                         }
                     }
 
@@ -661,15 +667,15 @@ struct VideoClipCard: View {
 
                         Spacer()
                     }
-                    .padding(10)
+                    .padding(12)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color(.systemBackground))
+                    .background(Color(.systemGray6))
                 }
             }
             .aspectRatio(4/5, contentMode: .fit)
-            .background(Color(.systemBackground))
+            .background(Color(.systemGray6))
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .shadow(color: .black.opacity(0.08), radius: 4, x: 0, y: 2)
+            .shadow(color: .black.opacity(0.1), radius: 5, x: 0, y: 2)
         }
         .buttonStyle(.plain)
         .contextMenu {

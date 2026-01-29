@@ -135,26 +135,34 @@ struct UserPreferencesView: View {
                 set: { viewModel.update(\.defaultVideoQuality, to: $0) }
             )) {
                 ForEach(VideoQuality.allCases, id: \.self) { quality in
-                    Text(quality.rawValue).tag(quality)
+                    Text(quality.displayName).tag(quality)
                 }
             }
-            
-            Toggle("Auto-upload to Cloud", isOn: Binding(
-                get: { viewModel.preferences?.autoUploadToCloud ?? false },
-                set: { viewModel.update(\.autoUploadToCloud, to: $0) }
-            ))
-            
+
+            Picker("Auto-Upload Videos", selection: Binding<AutoUploadMode>(
+                get: { viewModel.preferences?.autoUploadMode ?? .off },
+                set: { viewModel.update(\.autoUploadMode, to: $0) }
+            )) {
+                ForEach(AutoUploadMode.allCases, id: \.self) { mode in
+                    Label(mode.displayName, systemImage: mode.icon).tag(mode)
+                }
+            }
+
             Toggle("Save to Photos Library", isOn: Binding(
                 get: { viewModel.preferences?.saveToPhotosLibrary ?? false },
                 set: { viewModel.update(\.saveToPhotosLibrary, to: $0) }
             ))
-            
+
             Toggle("Haptic Feedback", isOn: Binding(
                 get: { viewModel.preferences?.enableHapticFeedback ?? false },
                 set: { viewModel.update(\.enableHapticFeedback, to: $0) }
             ))
         } header: {
             Text("Video Recording")
+        } footer: {
+            if let mode = viewModel.preferences?.autoUploadMode {
+                Text(mode.description)
+            }
         }
     }
     

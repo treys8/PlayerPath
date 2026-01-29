@@ -236,18 +236,6 @@ struct HighlightsView: View {
             }
         } else {
             highlightGridView
-                .safeAreaInset(edge: .top, spacing: 0) {
-                    // Type filter segmented control pinned at top
-                    Picker("Type", selection: $filter) {
-                        Text("All").tag(Filter.all)
-                        Text("Games").tag(Filter.game)
-                        Text("Practice").tag(Filter.practice)
-                    }
-                    .pickerStyle(.segmented)
-                    .padding(.horizontal)
-                    .padding(.vertical, 8)
-                    .background(.regularMaterial)
-                }
         }
     }
 
@@ -343,7 +331,23 @@ struct HighlightsView: View {
             }
         }
 
-        // Filter/Sort menu
+        // Type filter menu
+        if !groupedHighlights.isEmpty {
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Picker("Type", selection: $filter) {
+                        Label("All", systemImage: "square.grid.2x2").tag(Filter.all)
+                        Label("Games", systemImage: "sportscourt").tag(Filter.game)
+                        Label("Practice", systemImage: "figure.baseball").tag(Filter.practice)
+                    }
+                } label: {
+                    Image(systemName: filter == .all ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
+                }
+                .accessibilityLabel("Filter highlights")
+            }
+        }
+
+        // Sort menu
         if !groupedHighlights.isEmpty {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
@@ -355,17 +359,6 @@ struct HighlightsView: View {
                     Image(systemName: "arrow.up.arrow.down.circle")
                 }
                 .accessibilityLabel("Sort highlights")
-            }
-        }
-
-        // More options menu
-        ToolbarItem(placement: .primaryAction) {
-            Menu {
-                NavigationLink(destination: SimpleCloudStorageView()) {
-                    Label("Cloud Storage", systemImage: "icloud")
-                }
-            } label: {
-                Image(systemName: "ellipsis.circle")
             }
         }
 
@@ -1395,27 +1388,21 @@ struct GameHighlightSection: View {
         onDelete: @escaping () -> Void
     ) -> some View {
         ZStack(alignment: .topLeading) {
-            VStack(spacing: 8) {
-                HighlightCard(
-                    clip: clip,
-                    editMode: editMode,
-                    onTap: onTap
-                )
-                .contextMenu {
-                    Button {
-                        onTap()
-                    } label: {
-                        Label("Play", systemImage: "play.fill")
-                    }
-                    Button {
-                        onDelete()
-                    } label: {
-                        Label("Delete", systemImage: "trash")
-                    }
+            HighlightCard(
+                clip: clip,
+                editMode: editMode,
+                onTap: onTap
+            )
+            .contextMenu {
+                Button {
+                    onTap()
+                } label: {
+                    Label("Play", systemImage: "play.fill")
                 }
-
-                if editMode == .inactive {
-                    SimpleCloudProgressView(clip: clip, athlete: clip.athlete)
+                Button {
+                    onDelete()
+                } label: {
+                    Label("Delete", systemImage: "trash")
                 }
             }
 

@@ -29,7 +29,6 @@ struct UserMainFlow: View {
     // Onboarding
     @StateObject private var onboardingManager = OnboardingManager.shared
     @State private var showingWelcomeTutorial = false
-    @State private var showingSampleDataPrompt = false
 
     init(user: User, isNewUserFlag: Bool, hasCompletedOnboarding: Bool) {
         self.user = user
@@ -86,6 +85,24 @@ struct UserMainFlow: View {
                         showingAthleteSelection = false
                     }
                 }
+            }
+            // After athlete exists but no seasons - show season creation
+            else if let athlete = resolvedAthlete,
+                    isNewUserFlag,
+                    (athlete.seasons ?? []).isEmpty {
+                OnboardingSeasonCreationView(athlete: athlete)
+                    .onAppear {
+                        print("🎯 UserMainFlow - Showing OnboardingSeasonCreationView for athlete: \(athlete.name)")
+                    }
+            }
+            // After season exists but still new user - show backup preference
+            else if let athlete = resolvedAthlete,
+                    isNewUserFlag,
+                    !(athlete.seasons ?? []).isEmpty {
+                OnboardingBackupView(athlete: athlete)
+                    .onAppear {
+                        print("🎯 UserMainFlow - Showing OnboardingBackupView for athlete: \(athlete.name)")
+                    }
             }
             // Only check athlete-related logic if user is an athlete
             else if let athlete = resolvedAthlete {
@@ -212,9 +229,6 @@ struct UserMainFlow: View {
         .sheet(isPresented: $showingWelcomeTutorial) {
             WelcomeTutorialView()
         }
-        .sheet(isPresented: $showingSampleDataPrompt) {
-            SampleDataPromptView(user: user)
-        }
         .onAppear {
             checkOnboardingStatus()
         }
@@ -227,13 +241,6 @@ struct UserMainFlow: View {
         if isNewUserFlag && !onboardingManager.hasSeenWelcomeTutorial {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 showingWelcomeTutorial = true
-            }
-        }
-
-        // Offer sample data if user has no athletes and no games
-        if athletesForUser.isEmpty && !SampleDataGenerator.hasSampleData(for: user) {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                showingSampleDataPrompt = true
             }
         }
     }

@@ -93,7 +93,7 @@ struct VideoThumbnailView: View {
             height: max(size.height, 1)
         )
 
-        ZStack(alignment: .bottomLeading) {
+        ZStack {
             // Thumbnail Image
             Group {
                 if let thumbnail = thumbnailImage {
@@ -110,14 +110,26 @@ struct VideoThumbnailView: View {
             .cornerRadius(cornerRadius)
             .overlay(playButtonOverlay)
 
-            // Play Result Badge Overlay
+            // Play Result Badge Overlay (bottom-left)
             if showPlayResult {
-                playResultBadge
+                VStack {
+                    Spacer()
+                    HStack {
+                        playResultBadge
+                        Spacer()
+                    }
+                }
             }
 
-            // Highlight Star Indicator
+            // Highlight Star Indicator (top-left)
             if showHighlight && clip.isHighlight {
-                highlightIndicator
+                VStack {
+                    HStack {
+                        highlightIndicator
+                        Spacer()
+                    }
+                    Spacer()
+                }
             }
 
             // Season Badge (top-right)
@@ -269,13 +281,13 @@ struct VideoThumbnailView: View {
     private var highlightIndicator: some View {
         Image(systemName: "star.fill")
             .foregroundColor(.yellow)
-            .font(.system(size: scaledValue(12)))
-            .padding(scaledValue(5))
+            .font(.system(size: scaledValue(8)))
+            .padding(scaledValue(4))
             .background(
                 Circle()
                     .fill(Color.black.opacity(0.6))
             )
-            .padding(scaledValue(6))
+            .padding(scaledValue(4))
             .accessibilityHidden(true) // Already described in main accessibility label
     }
 

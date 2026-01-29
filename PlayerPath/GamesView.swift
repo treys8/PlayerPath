@@ -425,6 +425,12 @@ struct GamesView: View {
     // MARK: - Helper Methods
     
     private func startGame(_ game: Game) {
+        // Check if game has a season
+        guard game.season != nil else {
+            errorMessage = "This game needs a season before it can be started. Please assign a season to the game first."
+            activeAlert = .error
+            return
+        }
         viewModelHolder.viewModel?.start(game)
         refreshGames()
     }

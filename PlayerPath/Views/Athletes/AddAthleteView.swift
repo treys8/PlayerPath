@@ -294,7 +294,8 @@ struct AddAthleteView: View {
                     }
                 }
 
-                // If this was the first athlete, mark onboarding complete and clear the new user flag
+                // If this was the first athlete, mark onboarding complete but DON'T reset new user flag yet
+                // The new user flag will be reset when the first season is created
                 if isFirstAthlete {
                     await MainActor.run {
                         // Create onboarding progress record to persist completion
@@ -315,10 +316,9 @@ struct AddAthleteView: View {
                         // Mark onboarding complete in auth manager (for session state)
                         authManager.markOnboardingComplete()
 
-                        // Reset the new user flag
-                        authManager.resetNewUserFlag()
+                        // DON'T reset new user flag here - let season creation do it
                         #if DEBUG
-                        print("🟢 First athlete created - onboarding completed and new user flag reset")
+                        print("🟢 First athlete created - user still flagged as new until season created")
                         #endif
                     }
                 }
@@ -326,15 +326,22 @@ struct AddAthleteView: View {
                 // Haptics
                 Haptics.medium()
 
-                // Success messaging
-                let message = isFirstAthlete
-                    ? "Welcome to PlayerPath! Athlete '\(trimmedName)' has been created and you're ready to start tracking performance."
-                    : "Athlete '\(trimmedName)' has been added successfully! You can now start tracking their performance."
-                await MainActor.run {
-                    successMessage = message
-                    isCreatingAthlete = false
-                    athleteName = ""
-                    showingSuccessAlert = true
+                // For first athlete, don't show success alert - transition directly to season creation
+                // For additional athletes, show success alert
+                if isFirstAthlete {
+                    await MainActor.run {
+                        isCreatingAthlete = false
+                        athleteName = ""
+                        // Don't show alert or dismiss - UserMainFlow will navigate to season creation
+                    }
+                } else {
+                    let message = "Athlete '\(trimmedName)' has been added successfully! You can now start tracking their performance."
+                    await MainActor.run {
+                        successMessage = message
+                        isCreatingAthlete = false
+                        athleteName = ""
+                        showingSuccessAlert = true
+                    }
                 }
             } catch {
                 await MainActor.run {
