@@ -121,35 +121,19 @@ struct PlayResultOverlayView: View {
                     Spacer()
                     
                     VStack(spacing: 20) {
-                        if practice != nil {
-                            Text("Select Play Result")
-                                .font(.title3)
-                                .fontWeight(.bold)
-                                .foregroundColor(.white)
-                                .multilineTextAlignment(.center)
-                                .minimumScaleFactor(0.8)
-                                .lineLimit(1)
-                                .accessibilityAddTraits(.isHeader)
-                            
-                            Text("Add a result to track statistics")
-                                .font(.subheadline)
-                                .foregroundColor(.white.opacity(0.8))
-                                .multilineTextAlignment(.center)
-                        } else {
-                            Text("Select Play Result")
-                                .font(.title2)
-                                .fontWeight(.bold)
-                                .foregroundColor(.white)
-                                .multilineTextAlignment(.center)
-                                .minimumScaleFactor(0.8)
-                                .lineLimit(1)
-                                .accessibilityAddTraits(.isHeader)
-                            
-                            Text("Choose what happened on this play")
-                                .font(.subheadline)
-                                .foregroundColor(.white.opacity(0.8))
-                                .multilineTextAlignment(.center)
-                        }
+                        Text("Select Play Result")
+                            .font(.title2)
+                            .fontWeight(.bold)
+                            .foregroundColor(.white)
+                            .multilineTextAlignment(.center)
+                            .minimumScaleFactor(0.8)
+                            .lineLimit(1)
+                            .accessibilityAddTraits(.isHeader)
+
+                        Text(practice != nil ? "Add a result to track statistics" : "Choose what happened on this play")
+                            .font(.subheadline)
+                            .foregroundColor(.white.opacity(0.8))
+                            .multilineTextAlignment(.center)
                         
                         // Play Result Grid - Improved Layout
                         VStack(spacing: 12) {
@@ -510,12 +494,12 @@ struct PlayResultButton: View {
             .frame(maxWidth: fullWidth ? .infinity : nil)
             .frame(height: 64)
             .background(
-                RoundedRectangle(cornerRadius: 14)
+                RoundedRectangle(cornerRadius: 12)
                     .fill(result.uiColor)
                     .shadow(color: result.uiColor.opacity(0.4), radius: isSelected ? 8 : 4, y: 2)
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 14)
+                RoundedRectangle(cornerRadius: 12)
                     .strokeBorder(Color.white.opacity(isSelected ? 0.4 : 0.15), lineWidth: isSelected ? 2 : 1)
             )
             .scaleEffect(isSelected ? 1.02 : 1.0)

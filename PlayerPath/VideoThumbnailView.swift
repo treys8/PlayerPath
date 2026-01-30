@@ -35,19 +35,19 @@ struct VideoThumbnailView: View {
     /// - Parameters:
     ///   - clip: The video clip to display
     ///   - size: The size of the thumbnail (default: 80x60)
-    ///   - cornerRadius: Corner radius for the thumbnail (default: 8)
+    ///   - cornerRadius: Corner radius for the thumbnail (default: 12)
     ///   - showPlayButton: Whether to show the play button overlay (default: true)
     ///   - showPlayResult: Whether to show the play result badge (default: true)
     ///   - showHighlight: Whether to show the highlight star (default: true)
-    ///   - showSeason: Whether to show the season badge (default: true)
+    ///   - showSeason: Whether to show the season badge (default: false)
     init(
         clip: VideoClip,
         size: CGSize = CGSize(width: 80, height: 60),
-        cornerRadius: CGFloat = 8,
+        cornerRadius: CGFloat = 12,
         showPlayButton: Bool = true,
         showPlayResult: Bool = true,
         showHighlight: Bool = true,
-        showSeason: Bool = true
+        showSeason: Bool = false
     ) {
         self.clip = clip
         self.size = size
@@ -60,28 +60,28 @@ struct VideoThumbnailView: View {
     
     // Convenience initializers for common sizes (16:9 landscape aspect ratio)
     static func small(clip: VideoClip) -> VideoThumbnailView {
-        VideoThumbnailView(clip: clip, size: CGSize(width: 50, height: 28), cornerRadius: 6)
+        VideoThumbnailView(clip: clip, size: CGSize(width: 50, height: 28), cornerRadius: 8)
     }
 
     static func medium(clip: VideoClip) -> VideoThumbnailView {
-        VideoThumbnailView(clip: clip, size: CGSize(width: 80, height: 45), cornerRadius: 8)
+        VideoThumbnailView(clip: clip, size: CGSize(width: 80, height: 45), cornerRadius: 12)
     }
 
     static func large(clip: VideoClip) -> VideoThumbnailView {
-        VideoThumbnailView(clip: clip, size: CGSize(width: 120, height: 68), cornerRadius: 10)
+        VideoThumbnailView(clip: clip, size: CGSize(width: 120, height: 68), cornerRadius: 12)
     }
 
     // Portrait orientation (9:16 aspect ratio)
     static func smallPortrait(clip: VideoClip) -> VideoThumbnailView {
-        VideoThumbnailView(clip: clip, size: CGSize(width: 28, height: 50), cornerRadius: 6)
+        VideoThumbnailView(clip: clip, size: CGSize(width: 28, height: 50), cornerRadius: 8)
     }
 
     static func mediumPortrait(clip: VideoClip) -> VideoThumbnailView {
-        VideoThumbnailView(clip: clip, size: CGSize(width: 45, height: 80), cornerRadius: 8)
+        VideoThumbnailView(clip: clip, size: CGSize(width: 45, height: 80), cornerRadius: 12)
     }
 
     static func largePortrait(clip: VideoClip) -> VideoThumbnailView {
-        VideoThumbnailView(clip: clip, size: CGSize(width: 68, height: 120), cornerRadius: 10)
+        VideoThumbnailView(clip: clip, size: CGSize(width: 68, height: 120), cornerRadius: 12)
     }
     
     // MARK: - Body
@@ -110,34 +110,35 @@ struct VideoThumbnailView: View {
             .cornerRadius(cornerRadius)
             .overlay(playButtonOverlay)
 
-            // Play Result Badge Overlay (bottom-left)
+            // Play Result Badge Overlay (top-right, vertical layout)
             if showPlayResult {
                 VStack {
-                    Spacer()
                     HStack {
-                        playResultBadge
                         Spacer()
+                        playResultBadge
                     }
+                    Spacer()
                 }
             }
 
-            // Highlight Star Indicator (top-left)
+            // Highlight Star Indicator (bottom-left, larger)
             if showHighlight && clip.isHighlight {
                 VStack {
+                    Spacer()
                     HStack {
                         highlightIndicator
                         Spacer()
                     }
-                    Spacer()
                 }
             }
 
-            // Season Badge (top-right)
-            if showSeason {
+            // Season Badge (top-right) - only if explicitly enabled and no play result shown
+            if showSeason && !showPlayResult {
                 seasonBadge
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+        .shadow(color: .black.opacity(0.1), radius: 5, x: 0, y: 2)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityDescription)
         .task {
@@ -191,33 +192,62 @@ struct VideoThumbnailView: View {
         )
 
         return Rectangle()
-            .fill(Color.gray.opacity(0.3))
+            .fill(
+                LinearGradient(
+                    colors: playResultGradient,
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
             .frame(width: safeSize.width, height: safeSize.height)
             .overlay(
-                VStack(spacing: scaledSpacing(4)) {
+                VStack(spacing: scaledSpacing(8)) {
                     if isLoadingThumbnail {
                         ProgressView()
                             .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                            .scaleEffect(scaledValue(0.7))
+                            .scaleEffect(scaledValue(1.0))
                     } else if loadError != nil {
                         Image(systemName: "exclamationmark.triangle")
                             .foregroundColor(.yellow)
-                            .font(.system(size: scaledValue(20)))
+                            .font(.system(size: scaledValue(24)))
                             .accessibilityHidden(true)
                     } else {
                         Image(systemName: "video")
                             .foregroundColor(.white)
-                            .font(.system(size: scaledValue(20)))
+                            .font(.system(size: scaledValue(24)))
                             .accessibilityHidden(true)
                     }
 
                     Text(placeholderText)
                         .font(.system(size: scaledValue(10)))
-                        .foregroundColor(.white)
+                        .foregroundColor(.white.opacity(0.8))
                         .multilineTextAlignment(.center)
                 }
                 .padding(scaledSpacing(4))
             )
+    }
+
+    /// Gradient colors based on play result type (matches HighlightCard style)
+    private var playResultGradient: [Color] {
+        guard let playResult = clip.playResult else {
+            return [Color.gray.opacity(0.5), Color.gray.opacity(0.7)]
+        }
+        switch playResult.type {
+        case .single:
+            return [Color.green.opacity(0.5), Color.green.opacity(0.7)]
+        case .double:
+            return [Color.blue.opacity(0.5), Color.blue.opacity(0.7)]
+        case .triple:
+            return [Color.orange.opacity(0.5), Color.orange.opacity(0.7)]
+        case .homeRun:
+            return [Color.red.opacity(0.5), Color.red.opacity(0.7)]
+        case .walk:
+            return [Color.cyan.opacity(0.5), Color.cyan.opacity(0.7)]
+        case .strikeout:
+            return [Color.red.opacity(0.4), Color.red.opacity(0.6)]
+        case .groundOut, .flyOut:
+            return [Color.gray.opacity(0.5), Color.gray.opacity(0.7)]
+        }
     }
 
     private var placeholderText: String {
@@ -235,11 +265,11 @@ struct VideoThumbnailView: View {
         if showPlayButton {
             Circle()
                 .fill(Color.black.opacity(0.6))
-                .frame(width: scaledValue(24), height: scaledValue(24))
+                .frame(width: scaledValue(44), height: scaledValue(44))
                 .overlay(
                     Image(systemName: "play.fill")
                         .foregroundColor(.white)
-                        .font(.system(size: scaledValue(10)))
+                        .font(.title3)
                         .accessibilityHidden(true)
                 )
         }
@@ -248,46 +278,56 @@ struct VideoThumbnailView: View {
     @ViewBuilder
     private var playResultBadge: some View {
         if let playResult = clip.playResult {
-            HStack(spacing: scaledSpacing(2)) {
-                playResultIcon(for: playResult.type)
+            VStack(spacing: 2) {
+                Image(systemName: playResultIcon(for: playResult.type))
                     .foregroundColor(.white)
-                    .font(.system(size: min(scaledValue(10), 14)))
+                    .font(.caption)
 
                 Text(playResultAbbreviation(for: playResult.type))
-                    .font(.system(size: min(scaledValue(10), 14)))
+                    .font(.caption2)
                     .fontWeight(.bold)
                     .foregroundColor(.white)
             }
-            .padding(.horizontal, min(scaledSpacing(6), 8))
-            .padding(.vertical, min(scaledSpacing(2), 3))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
             .background(playResultColor(for: playResult.type))
-            .cornerRadius(min(scaledValue(4), 6))
-            .offset(x: min(scaledValue(4), 6), y: min(scaledValue(-4), -6))
+            .cornerRadius(8)
+            .padding(.top, 8)
+            .padding(.trailing, 8)
             .accessibilityHidden(true) // Already described in main accessibility label
         } else {
             // Unrecorded indicator
-            Text("?")
-                .font(.system(size: min(scaledValue(10), 14)))
-                .fontWeight(.bold)
-                .foregroundColor(.white)
-                .frame(width: min(scaledValue(16), 20), height: min(scaledValue(16), 20))
-                .background(Color.gray)
-                .clipShape(Circle())
-                .offset(x: min(scaledValue(4), 6), y: min(scaledValue(-4), -6))
-                .accessibilityHidden(true) // Already described in main accessibility label
+            VStack(spacing: 2) {
+                Image(systemName: "questionmark.circle.fill")
+                    .foregroundColor(.white)
+                    .font(.caption)
+
+                Text("?")
+                    .font(.caption2)
+                    .fontWeight(.bold)
+                    .foregroundColor(.white)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .background(Color.gray)
+            .cornerRadius(8)
+            .padding(.top, 8)
+            .padding(.trailing, 8)
+            .accessibilityHidden(true) // Already described in main accessibility label
         }
     }
     
     private var highlightIndicator: some View {
         Image(systemName: "star.fill")
+            .font(.title3)
             .foregroundColor(.yellow)
-            .font(.system(size: scaledValue(8)))
-            .padding(scaledValue(4))
             .background(
                 Circle()
                     .fill(Color.black.opacity(0.6))
+                    .frame(width: 32, height: 32)
             )
-            .padding(scaledValue(4))
+            .padding(.bottom, 8)
+            .padding(.leading, 8)
             .accessibilityHidden(true) // Already described in main accessibility label
     }
 
@@ -480,25 +520,25 @@ struct VideoThumbnailView: View {
     }
     
     // MARK: - Play Result Helpers
-    
-    private func playResultIcon(for type: PlayResultType) -> Image {
+
+    private func playResultIcon(for type: PlayResultType) -> String {
         switch type {
         case .single:
-            return Image(systemName: "1.circle.fill")
+            return "1.circle.fill"
         case .double:
-            return Image(systemName: "2.circle.fill")
+            return "2.circle.fill"
         case .triple:
-            return Image(systemName: "3.circle.fill")
+            return "3.circle.fill"
         case .homeRun:
-            return Image(systemName: "4.circle.fill")
+            return "4.circle.fill"
         case .walk:
-            return Image(systemName: "figure.walk")
+            return "figure.walk"
         case .strikeout:
-            return Image(systemName: "k.circle.fill")
+            return "k.circle.fill"
         case .groundOut:
-            return Image(systemName: "arrow.down.circle.fill")
+            return "arrow.down.circle.fill"
         case .flyOut:
-            return Image(systemName: "arrow.up.circle.fill")
+            return "arrow.up.circle.fill"
         }
     }
     

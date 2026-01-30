@@ -187,10 +187,10 @@ struct RecordingOptionButtonContent: View {
     }
 
     private var buttonBackground: some View {
-        RoundedRectangle(cornerRadius: 16, style: .continuous)
+        RoundedRectangle(cornerRadius: 12, style: .continuous)
             .fill(Color(.secondarySystemBackground))
             .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .strokeBorder(Color(.separator), lineWidth: 1)
             )
     }

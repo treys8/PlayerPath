@@ -7,6 +7,7 @@
 
 import SwiftUI
 import SwiftData
+import UIKit
 
 struct DashboardView: View {
     let user: User
@@ -19,6 +20,7 @@ struct DashboardView: View {
     @State private var showCoachesPremiumAlert = false
     @State private var showingPaywall = false
     @State private var showingDirectCamera = false
+    @State private var currentVideoQuality: UIImagePickerController.QualityType = .typeHigh
 
     // Dynamic live games query configured via init to safely capture athleteID
     private let athleteID: UUID
@@ -43,6 +45,21 @@ struct DashboardView: View {
 
     private var firstLiveGame: Game? {
         liveGames.first
+    }
+
+    private var videoQualityBadge: String {
+        switch currentVideoQuality {
+        case .typeHigh, .typeIFrame1280x720:
+            return "1080p"
+        case .typeMedium, .type640x480:
+            return "720p"
+        case .typeLow:
+            return "480p"
+        case .typeIFrame960x540:
+            return "540p"
+        @unknown default:
+            return "HD"
+        }
     }
 
     // MARK: - Body
@@ -107,6 +124,12 @@ struct DashboardView: View {
                 )
             }
             pulseAnimation = true
+
+            // Load video quality setting
+            if let savedQuality = UserDefaults.standard.value(forKey: "selectedVideoQuality") as? Int,
+               let quality = UIImagePickerController.QualityType(rawValue: savedQuality) {
+                currentVideoQuality = quality
+            }
             #if DEBUG
             print("🔍 DashboardView liveGames count: \(liveGames.count) for athlete: \(athlete.name)")
             // Debug: Check all games for this athlete
@@ -301,7 +324,8 @@ struct DashboardView: View {
                         QuickActionButton(
                             icon: hasLiveGame ? "record.circle" : "video.badge.plus",
                             title: hasLiveGame ? "Record Live" : "Quick Record",
-                            color: .red
+                            color: .red,
+                            badge: videoQualityBadge
                         ) {
                             Task { @MainActor in
                                 #if DEBUG

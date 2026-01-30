@@ -120,10 +120,10 @@ struct VideoPlayerView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(Color.black)
 
-                // Video Info - compact at bottom
+                // Video Info - compact at bottom with safe area padding
                 VideoClipInfoCard(clip: clip)
+                    .padding(.bottom, 8)
             }
-            .ignoresSafeArea(edges: .bottom)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {

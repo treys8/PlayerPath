@@ -180,21 +180,16 @@ private struct BackupOptionCard: View {
 
                 // Text content
                 VStack(alignment: .leading, spacing: 4) {
-                    HStack {
+                    HStack(spacing: 6) {
                         Text(mode.displayName)
                             .font(.headline)
                             .fontWeight(.semibold)
                             .foregroundColor(.primary)
 
                         if mode == .wifiOnly {
-                            Text("Recommended")
-                                .font(.caption2)
-                                .fontWeight(.medium)
-                                .foregroundColor(.white)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(Color.green)
-                                .clipShape(Capsule())
+                            Image(systemName: "star.fill")
+                                .font(.system(size: 10))
+                                .foregroundColor(.green)
                         }
                     }
 
