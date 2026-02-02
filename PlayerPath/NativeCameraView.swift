@@ -336,11 +336,13 @@ struct NativeCameraView: UIViewControllerRepresentable {
 
                     // Request background time to prevent video loss if app is backgrounded during export
                     var backgroundTask: UIBackgroundTaskIdentifier = .invalid
-                    backgroundTask = await UIApplication.shared.beginBackgroundTask {
-                        // Timeout handler - clean up if we run out of time
-                        if backgroundTask != .invalid {
-                            UIApplication.shared.endBackgroundTask(backgroundTask)
-                            backgroundTask = .invalid
+                    backgroundTask = await MainActor.run {
+                        UIApplication.shared.beginBackgroundTask {
+                            // Timeout handler - clean up if we run out of time
+                            if backgroundTask != .invalid {
+                                UIApplication.shared.endBackgroundTask(backgroundTask)
+                                backgroundTask = .invalid
+                            }
                         }
                     }
 

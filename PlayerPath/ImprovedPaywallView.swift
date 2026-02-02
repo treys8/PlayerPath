@@ -81,7 +81,13 @@ struct ImprovedPaywallView: View {
 
                 // Select monthly by default
                 if selectedProduct == nil {
-                    selectedProduct = storeManager.monthlyProduct
+                    selectedProduct = storeManager.monthlyProduct ?? storeManager.products.first
+                }
+            }
+            .onChange(of: storeManager.products) { _, products in
+                // Auto-select first product when products load
+                if selectedProduct == nil, !products.isEmpty {
+                    selectedProduct = storeManager.monthlyProduct ?? products.first
                 }
             }
             .onChange(of: storeManager.isPremium) { _, isPremium in
@@ -159,7 +165,7 @@ struct ImprovedPaywallView: View {
             )
             
             PremiumFeatureRow(
-                icon: "video.fill",
+                icon: "video",
                 iconColor: .red,
                 title: "Unlimited Videos",
                 description: "Record and store unlimited video clips"
@@ -216,7 +222,7 @@ struct ImprovedPaywallView: View {
             .cornerRadius(12)
             .shadow(color: .blue.opacity(0.3), radius: 8, x: 0, y: 4)
         }
-        .disabled(selectedProduct == nil || isPurchasing)
+        .disabled(selectedProduct == nil || isPurchasing || storeManager.products.isEmpty)
     }
     
     // MARK: - Restore Button
@@ -269,33 +275,35 @@ struct ImprovedPaywallView: View {
     
     private func purchaseSelected() async {
         guard let product = selectedProduct else { return }
-        
+
         isPurchasing = true
-        defer { isPurchasing = false }
-        
+
         let result = await storeManager.purchase(product)
-        
+
         switch result {
         case .success:
             // Success is handled in onChange
-            break
+            isPurchasing = false
         case .cancelled:
             // User cancelled, do nothing
-            break
+            isPurchasing = false
         case .pending:
             // Show pending message
+            isPurchasing = false
             showingError = true
         case .failed:
+            isPurchasing = false
             showingError = true
         case .unknown:
+            isPurchasing = false
             showingError = true
         }
     }
     
     private func restorePurchases() async {
         isPurchasing = true
-        defer { isPurchasing = false }
         await storeManager.restorePurchases()
+        isPurchasing = false
     }
 }
 

@@ -43,7 +43,7 @@ struct DataExportView: View {
                 ExportDataRow(icon: "calendar", title: "Seasons", description: "All season data and settings")
                 ExportDataRow(icon: "sportscourt.fill", title: "Games", description: "Game details and results")
                 ExportDataRow(icon: "chart.bar.fill", title: "Statistics", description: "All calculated statistics")
-                ExportDataRow(icon: "video.fill", title: "Video Metadata", description: "Video tags and timestamps (files not included)")
+                ExportDataRow(icon: "video", title: "Video Metadata", description: "Video tags and timestamps (files not included)")
                 ExportDataRow(icon: "figure.run", title: "Practice Sessions", description: "Practice logs and notes")
             }
 

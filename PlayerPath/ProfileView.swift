@@ -1443,7 +1443,7 @@ struct SubscriptionView: View {
             SubscriptionFeatureRow(icon: "person.2.fill", title: "Unlimited Athletes", description: "Add as many athletes as you need")
             SubscriptionFeatureRow(icon: "chart.bar.fill", title: "Advanced Statistics", description: "Detailed performance analytics")
             SubscriptionFeatureRow(icon: "icloud.fill", title: "Cloud Storage", description: "Automatic backup and sync")
-            SubscriptionFeatureRow(icon: "video.fill", title: "Unlimited Videos", description: "Record and store unlimited video clips")
+            SubscriptionFeatureRow(icon: "video", title: "Unlimited Videos", description: "Record and store unlimited video clips")
             SubscriptionFeatureRow(icon: "star.fill", title: "Highlight Reels", description: "Automatically generated highlights")
         }
     }
@@ -1465,7 +1465,7 @@ struct SubscriptionView: View {
             SubscriptionFeatureRow(icon: "person.2.fill", title: "Unlimited Athletes", description: "Currently limited to 3 athletes")
             SubscriptionFeatureRow(icon: "chart.bar.fill", title: "Advanced Statistics", description: "Detailed performance analytics and trends")
             SubscriptionFeatureRow(icon: "icloud.fill", title: "Cloud Storage", description: "Never lose your data with automatic backup")
-            SubscriptionFeatureRow(icon: "video.fill", title: "Unlimited Videos", description: "Record and store unlimited video clips")
+            SubscriptionFeatureRow(icon: "video", title: "Unlimited Videos", description: "Record and store unlimited video clips")
             SubscriptionFeatureRow(icon: "star.fill", title: "Highlight Reels", description: "Automatically generated highlight videos")
         }
     }

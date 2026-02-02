@@ -88,7 +88,7 @@ struct SeasonsView: View {
                                     label: "Games"
                                 )
                                 SeasonStatBadge(
-                                    icon: "video.fill",
+                                    icon: "video",
                                     value: activeSeason.totalVideos,
                                     label: "Videos"
                                 )
@@ -307,7 +307,7 @@ struct SeasonVideoRow: View {
     
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: "video.fill")
+            Image(systemName: "video")
                 .foregroundStyle(.purple)
                 .frame(width: 24)
             

@@ -208,7 +208,7 @@ struct FolderRow: View {
                 
                 HStack(spacing: 12) {
                     // Video count
-                    Label("\(folder.videoCount ?? 0)", systemImage: "video.fill")
+                    Label("\(folder.videoCount ?? 0)", systemImage: "video")
                         .font(.caption)
                         .foregroundColor(.secondary)
                     
@@ -380,7 +380,7 @@ private struct AthleteFolderDetailContent: View {
                         .font(.headline)
 
                     HStack(spacing: 12) {
-                        Label("\(viewModel.videos.count) videos", systemImage: "video.fill")
+                        Label("\(viewModel.videos.count) videos", systemImage: "video")
                             .font(.caption)
                             .foregroundColor(.secondary)
 

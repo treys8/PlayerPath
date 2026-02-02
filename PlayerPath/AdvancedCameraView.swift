@@ -63,7 +63,7 @@ class AdvancedCameraViewController: UIViewController {
 
     // MARK: - Properties
 
-    var settings: VideoRecordingSettings = .shared
+    var settings: VideoRecordingSettings!
     var onVideoRecorded: ((URL) -> Void)?
     var onCancel: (() -> Void)?
 
@@ -259,6 +259,12 @@ class AdvancedCameraViewController: UIViewController {
             return
         }
 
+        // Capture settings values before async boundary (MainActor isolation)
+        let qualityPreset = settings.quality.avPreset
+        let targetFPS = settings.frameRate.fps
+        let audioEnabled = settings.audioEnabled
+        let stabilizationMode = settings.stabilizationMode.avMode
+
         // Perform heavy camera setup on background queue to avoid blocking UI
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
@@ -272,7 +278,7 @@ class AdvancedCameraViewController: UIViewController {
             }
 
             // Configure session preset based on quality
-            self.captureSession.sessionPreset = self.settings.quality.avPreset
+            self.captureSession.sessionPreset = qualityPreset
 
             // Get camera device
             guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) else {
@@ -287,7 +293,6 @@ class AdvancedCameraViewController: UIViewController {
                 try device.lockForConfiguration()
 
                 // Set frame rate
-                let targetFPS = self.settings.frameRate.fps
                 if let formatForFPS = self.findFormatForFrameRate(device: device, targetFPS: targetFPS) {
                     device.activeFormat = formatForFPS
                     device.activeVideoMinFrameDuration = CMTime(value: 1, timescale: CMTimeScale(targetFPS))
@@ -315,7 +320,7 @@ class AdvancedCameraViewController: UIViewController {
             }
 
             // Add audio input if enabled
-            if self.settings.audioEnabled {
+            if audioEnabled {
                 if let audioDevice = AVCaptureDevice.default(for: .audio) {
                     do {
                         let input = try AVCaptureDeviceInput(device: audioDevice)
@@ -339,7 +344,7 @@ class AdvancedCameraViewController: UIViewController {
                 if let connection = output.connection(with: .video) {
                     // Set stabilization
                     if connection.isVideoStabilizationSupported {
-                        connection.preferredVideoStabilizationMode = self.settings.stabilizationMode.avMode
+                        connection.preferredVideoStabilizationMode = stabilizationMode
                     }
 
                     // Set orientation

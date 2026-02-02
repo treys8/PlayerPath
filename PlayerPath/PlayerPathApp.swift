@@ -131,7 +131,6 @@ struct PlayerPathApp: App {
             User.self,
             Athlete.self,
             Season.self,
-            Tournament.self,
             Game.self,
             Practice.self,
             PracticeNote.self,
@@ -140,7 +139,8 @@ struct PlayerPathApp: App {
             AthleteStatistics.self,
             GameStatistics.self,
             UserPreferences.self,
-            OnboardingProgress.self
+            OnboardingProgress.self,
+            PendingUpload.self
         ])
     }
 }

@@ -648,7 +648,7 @@ struct VideoRecorderView_Refactored: View {
                         // Clips counter
                         if recordedClipsCount > 0 {
                             HStack(spacing: 4) {
-                                Image(systemName: "video.fill")
+                                Image(systemName: "video")
                                     .font(.caption2)
                                 Text("\(recordedClipsCount)")
                                     .font(.caption)

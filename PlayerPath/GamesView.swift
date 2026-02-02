@@ -496,87 +496,37 @@ struct GamesView: View {
 // MARK: - Game Row View
 struct GameRow: View {
     let game: Game
-    
-    var body: some View {
-        HStack(spacing: 12) {
-            // Status indicator
-            Circle()
-                .fill(statusColor)
-                .frame(width: 8, height: 8)
-            
-            VStack(alignment: .leading, spacing: 4) {
-                // Opponent name
-                Text("vs \(game.opponent)")
-                    .font(.headline)
-                    .foregroundColor(.primary)
-                
-                // Date and season
-                HStack(spacing: 8) {
-                    if let date = game.date {
-                        Text(date, style: .date)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
+    @State private var isPressed = false
+    @State private var livePulse = false
 
-                    // Season badge
-                    if let season = game.season {
-                        Text(season.displayName)
-                            .font(.caption2)
-                            .fontWeight(.medium)
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(season.isActive ? Color.blue : Color.gray)
-                            .cornerRadius(4)
-                    } else if let year = game.year {
-                        Text(String(year))
-                            .font(.caption2)
-                            .fontWeight(.medium)
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Color.gray.opacity(0.6))
-                            .cornerRadius(4)
-                    }
-                }
+    var body: some View {
+        HStack(spacing: 0) {
+            // Accent bar
+            RoundedRectangle(cornerRadius: 2)
+                .fill(statusColor)
+                .frame(width: 4)
+                .padding(.vertical, 4)
+
+            HStack(spacing: 12) {
+                GameInfoView(game: game)
+                Spacer()
+                RightStatusView(game: game)
             }
-            
-            Spacer()
-            
-            // Status badge
-            if game.isLive {
-                Text("LIVE")
-                    .font(.caption2)
-                    .fontWeight(.bold)
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(Color.red)
-                    .cornerRadius(4)
-            } else if game.isComplete {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundColor(.green)
-            }
-            
-            // Stats summary (if available)
-            if let stats = game.gameStats, stats.atBats > 0 {
-                VStack(alignment: .trailing, spacing: 2) {
-                    Text("\(stats.hits)-\(stats.atBats)")
-                        .font(.caption)
-                        .fontWeight(.semibold)
-                        .foregroundColor(.blue)
-                    Text(String(format: "%.3f", Double(stats.hits) / Double(stats.atBats)))
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                }
-            }
+            .padding(.leading, 12)
+            .padding(.trailing, 16)
+            .padding(.vertical, 12)
         }
-        .padding(.vertical, 4)
+        .background(Color(.systemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .shadow(color: .black.opacity(0.06), radius: 8, x: 0, y: 2)
+        .shadow(color: .black.opacity(0.04), radius: 2, x: 0, y: 1)
+        .scaleEffect(isPressed ? 0.98 : 1.0)
+        .animation(.spring(response: 0.25, dampingFraction: 0.7), value: isPressed)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Game against \(game.opponent)")
         .accessibilityValue(game.isLive ? "Live" : game.isComplete ? "Completed" : "Scheduled")
     }
-    
+
     private var statusColor: Color {
         if game.isLive {
             return .red
@@ -588,34 +538,237 @@ struct GameRow: View {
             return .blue
         }
     }
+    
+    private struct RightStatusView: View {
+        let game: Game
+
+        var body: some View {
+            HStack(spacing: 12) {
+                // Stats summary (if available)
+                if let stats = game.gameStats, stats.atBats > 0 {
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text("\(stats.hits)-\(stats.atBats)")
+                            .font(.subheadline)
+                            .fontWeight(.bold)
+                            .foregroundColor(.primary)
+                        Text(String(format: ".%03d", Int(Double(stats.hits) / Double(stats.atBats) * 1000)))
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                }
+
+                // Status badge
+                Group {
+                    if game.isLive {
+                        LiveBadge()
+                    } else if game.isComplete {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.title3)
+                            .foregroundStyle(
+                                LinearGradient(
+                                    colors: [.green, .green.opacity(0.7)],
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                )
+                            )
+                    } else {
+                        Image(systemName: "chevron.right")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+            }
+        }
+    }
+
+    private struct GameInfoView: View {
+        let game: Game
+
+        var body: some View {
+            VStack(alignment: .leading, spacing: 6) {
+                // Opponent name
+                Text("vs \(game.opponent)")
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.primary)
+
+                // Date and season
+                HStack(spacing: 8) {
+                    if let date = game.date {
+                        HStack(spacing: 4) {
+                            Image(systemName: "calendar")
+                                .font(.caption2)
+                            Text(date, style: .date)
+                                .font(.caption)
+                        }
+                        .foregroundColor(.secondary)
+                    }
+
+                    if let season = game.season {
+                        Text(season.displayName)
+                            .font(.caption2)
+                            .fontWeight(.medium)
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(
+                                Capsule()
+                                    .fill(season.isActive ? Color.blue : Color.gray)
+                            )
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Pulsing live badge
+struct LiveBadge: View {
+    @State private var isPulsing = false
+
+    var body: some View {
+        ZStack {
+            // Glow
+            Capsule()
+                .fill(Color.red.opacity(0.3))
+                .frame(width: 52, height: 26)
+                .scaleEffect(isPulsing ? 1.3 : 1.0)
+                .opacity(isPulsing ? 0 : 0.6)
+
+            // Badge
+            HStack(spacing: 4) {
+                Circle()
+                    .fill(.white)
+                    .frame(width: 6, height: 6)
+
+                Text("LIVE")
+                    .font(.caption2)
+                    .fontWeight(.bold)
+            }
+            .foregroundColor(.white)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(
+                Capsule()
+                    .fill(
+                        LinearGradient(
+                            colors: [.red, .red.opacity(0.8)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+            )
+            .shadow(color: .red.opacity(0.4), radius: 4, x: 0, y: 2)
+        }
+        .onAppear {
+            withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: false)) {
+                isPulsing = true
+            }
+        }
+    }
 }
 
 struct EmptyGamesView: View {
     let onAddGame: () -> Void
-    
+
+    @State private var isAnimating = false
+    @State private var floatOffset: CGFloat = 0
+
     var body: some View {
-        VStack(spacing: 30) {
-            Image(systemName: "sportscourt")
-                .font(.system(size: 80))
-                .foregroundColor(.green)
-            
-            Text("No Games Yet")
-                .font(.title)
-                .fontWeight(.bold)
-            
-            Text("Create your first game to record and track performance")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-            
-            Button(action: onAddGame) {
-                Text("Add Game")
-                    .frame(maxWidth: .infinity)
+        ZStack {
+            // Subtle background decoration
+            Circle()
+                .fill(
+                    RadialGradient(
+                        colors: [.green.opacity(0.08), .clear],
+                        center: .center,
+                        startRadius: 0,
+                        endRadius: 200
+                    )
+                )
+                .frame(width: 400, height: 400)
+                .blur(radius: 60)
+                .offset(y: -50)
+
+            VStack(spacing: 28) {
+                // Floating icon with glow
+                ZStack {
+                    // Glow effect
+                    Image(systemName: "sportscourt")
+                        .font(.system(size: 72, weight: .light))
+                        .foregroundStyle(.green.opacity(0.3))
+                        .blur(radius: 20)
+
+                    Image(systemName: "sportscourt")
+                        .font(.system(size: 72, weight: .light))
+                        .foregroundStyle(
+                            LinearGradient(
+                                colors: [.green, .green.opacity(0.6)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .symbolRenderingMode(.hierarchical)
+                }
+                .offset(y: floatOffset)
+                .scaleEffect(isAnimating ? 1.0 : 0.8)
+                .opacity(isAnimating ? 1.0 : 0.0)
+
+                VStack(spacing: 10) {
+                    Text("No Games Yet")
+                        .font(.title3)
+                        .fontWeight(.bold)
+                        .foregroundColor(.primary)
+
+                    Text("Create your first game to record\nand track performance")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .lineSpacing(2)
+                }
+                .opacity(isAnimating ? 1.0 : 0.0)
+                .offset(y: isAnimating ? 0 : 10)
+
+                Button {
+                    Haptics.medium()
+                    onAddGame()
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "plus.circle.fill")
+                            .font(.body)
+                        Text("Add Game")
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                    }
+                    .foregroundColor(.white)
+                    .frame(maxWidth: 200)
+                    .padding(.vertical, 14)
+                    .background(
+                        LinearGradient(
+                            colors: [.green, .green.opacity(0.85)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .clipShape(Capsule())
+                    .shadow(color: .green.opacity(0.3), radius: 12, x: 0, y: 6)
+                }
+                .buttonStyle(PremiumButtonStyle())
+                .opacity(isAnimating ? 1.0 : 0.0)
+                .offset(y: isAnimating ? 0 : 20)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(.green)
+            .padding(.horizontal, 40)
         }
-        .padding()
+        .onAppear {
+            withAnimation(.spring(response: 0.8, dampingFraction: 0.7)) {
+                isAnimating = true
+            }
+            // Floating animation
+            withAnimation(.easeInOut(duration: 2.5).repeatForever(autoreverses: true)) {
+                floatOffset = -8
+            }
+        }
     }
 }
 
@@ -1300,9 +1453,13 @@ struct VideoClipRow: View {
         case .strikeout: return "K"
         case .groundOut: return "GO"
         case .flyOut: return "FO"
+        case .ball: return "B"
+        case .strike: return "S"
+        case .hitByPitch: return "HBP"
+        case .wildPitch: return "WP"
         }
     }
-    
+
     private func playResultColor(for type: PlayResultType) -> Color {
         switch type {
         case .single: return .green
@@ -1312,6 +1469,10 @@ struct VideoClipRow: View {
         case .walk: return .cyan
         case .strikeout: return .red.opacity(0.8)
         case .groundOut, .flyOut: return .gray
+        case .ball: return .orange
+        case .strike: return .green
+        case .hitByPitch: return .purple
+        case .wildPitch: return .red
         }
     }
 }
@@ -1793,21 +1954,3 @@ struct PreviewStatRow: View {
     }
 }
 
-extension GameService {
-    func createGame(
-        for athlete: Athlete,
-        opponent: String,
-        date: Date,
-        isLive: Bool,
-        allowWithoutSeason: Bool = false
-    ) async -> Result<Game, GameService.GameCreationError> {
-        return await createGame(
-            for: athlete,
-            opponent: opponent,
-            date: date,
-            tournament: nil,
-            isLive: isLive,
-            allowWithoutSeason: allowWithoutSeason
-        )
-    }
-}

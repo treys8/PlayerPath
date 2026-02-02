@@ -118,6 +118,11 @@ struct VideoPicker: UIViewControllerRepresentable {
                 thumbnailPath = nil
             }
 
+            // Get video duration
+            let asset = AVURLAsset(url: destinationURL)
+            let duration = try? await asset.load(.duration)
+            let durationSeconds = duration.map { CMTimeGetSeconds($0) }
+
             // Create VideoClip model
             await MainActor.run {
                 let fileName = destinationURL.lastPathComponent
@@ -125,6 +130,8 @@ struct VideoPicker: UIViewControllerRepresentable {
                 videoClip.athlete = parent.athlete
                 videoClip.season = parent.athlete.activeSeason
                 videoClip.thumbnailPath = thumbnailPath
+                videoClip.duration = durationSeconds
+                videoClip.createdAt = Date()
 
                 parent.modelContext.insert(videoClip)
 

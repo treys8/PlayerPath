@@ -263,6 +263,11 @@ struct DirectCameraRecorderView: View {
                 // Determine season
                 let season = game?.season ?? practice?.season ?? athlete?.seasons?.first(where: { $0.isActive })
 
+                // Get video duration
+                let asset = AVURLAsset(url: videoURL)
+                let duration = try? await asset.load(.duration)
+                let durationSeconds = duration.map { CMTimeGetSeconds($0) }
+
                 // Create video clip
                 let clip = VideoClip(
                     fileName: videoURL.lastPathComponent,
@@ -270,6 +275,7 @@ struct DirectCameraRecorderView: View {
                 )
                 clip.thumbnailPath = thumbnailPath
                 clip.createdAt = Date()
+                clip.duration = durationSeconds
                 clip.athlete = athlete
                 clip.game = game
                 clip.practice = practice

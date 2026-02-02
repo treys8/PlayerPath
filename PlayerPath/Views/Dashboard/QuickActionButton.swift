@@ -33,7 +33,7 @@ struct QuickActionButton: View {
                                 Capsule()
                                     .fill(Color.white.opacity(0.3))
                             )
-                            .offset(x: 16, y: -8)
+                            .offset(x: 8, y: -4)
                     }
                 }
 

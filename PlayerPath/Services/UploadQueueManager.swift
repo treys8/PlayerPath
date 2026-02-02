@@ -8,11 +8,16 @@
 import Foundation
 import SwiftData
 import Combine
+import BackgroundTasks
+import UIKit
 
 @MainActor
 @Observable
 final class UploadQueueManager {
     static let shared = UploadQueueManager()
+
+    // Background task identifier
+    static let backgroundTaskIdentifier = "com.playerpath.video-upload"
 
     // MARK: - Published State
 
@@ -29,14 +34,100 @@ final class UploadQueueManager {
     private let retryDelays: [TimeInterval] = [5, 15, 60] // 5s, 15s, 1min
 
     private var modelContext: ModelContext?
+    private var isConfigured = false
 
     private init() {}
 
     /// Configure the manager with a ModelContext (call once at app startup)
     func configure(modelContext: ModelContext) {
+        guard !isConfigured else {
+            print("UploadQueueManager: Already configured, skipping")
+            return
+        }
+
         self.modelContext = modelContext
+        self.isConfigured = true
+
+        // Restore persisted queue from database
+        restoreQueueFromDatabase()
+
         setupNetworkMonitoring()
-        startProcessing()
+
+        // Start processing if there are pending uploads
+        if !pendingUploads.isEmpty {
+            print("UploadQueueManager: Restored \(pendingUploads.count) pending uploads from database")
+            startProcessing()
+        }
+    }
+
+    /// Register background tasks (call from AppDelegate didFinishLaunching)
+    static func registerBackgroundTasks() {
+        BGTaskScheduler.shared.register(
+            forTaskWithIdentifier: backgroundTaskIdentifier,
+            using: nil
+        ) { task in
+            Task { @MainActor in
+                UploadQueueManager.shared.handleBackgroundTask(task as! BGProcessingTask)
+            }
+        }
+        print("UploadQueueManager: Registered background task")
+    }
+
+    /// Schedule background upload task
+    func scheduleBackgroundUpload() {
+        let request = BGProcessingTaskRequest(identifier: Self.backgroundTaskIdentifier)
+        request.requiresNetworkConnectivity = true
+        request.requiresExternalPower = false
+
+        do {
+            try BGTaskScheduler.shared.submit(request)
+            print("UploadQueueManager: Scheduled background upload task")
+        } catch {
+            print("UploadQueueManager: Failed to schedule background task: \(error.localizedDescription)")
+        }
+    }
+
+    /// Handle background task execution
+    private func handleBackgroundTask(_ task: BGProcessingTask) {
+        print("UploadQueueManager: Background task started")
+
+        // Schedule next background task
+        scheduleBackgroundUpload()
+
+        // Set expiration handler
+        task.expirationHandler = { [weak self] in
+            Task { @MainActor in
+                self?.processingTask?.cancel()
+                self?.persistQueueToDatabase()
+                print("UploadQueueManager: Background task expired, queue persisted")
+            }
+        }
+
+        // Process uploads
+        Task { @MainActor in
+            // Process a limited batch in background
+            await processBackgroundBatch()
+
+            // Persist state and complete
+            persistQueueToDatabase()
+            task.setTaskCompleted(success: true)
+            print("UploadQueueManager: Background task completed")
+        }
+    }
+
+    /// Process a limited batch of uploads for background execution
+    private func processBackgroundBatch() async {
+        guard let modelContext = modelContext else { return }
+
+        // Process up to 3 uploads in background
+        let maxBackgroundUploads = 3
+        var processed = 0
+
+        while processed < maxBackgroundUploads && !pendingUploads.isEmpty {
+            guard let upload = pendingUploads.first else { break }
+            await processUpload(upload, context: modelContext)
+            processed += 1
+        }
     }
 
     private func setupNetworkMonitoring() {
@@ -54,6 +145,157 @@ final class UploadQueueManager {
                     self.startProcessing()
                 }
             }
+        }
+
+        // Listen for app going to background
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.didEnterBackgroundNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self = self else { return }
+                // Persist queue and schedule background task
+                self.persistQueueToDatabase()
+                if !self.pendingUploads.isEmpty {
+                    self.scheduleBackgroundUpload()
+                }
+            }
+        }
+
+        // Listen for app becoming active
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self = self else { return }
+                // Resume processing when app becomes active
+                if !self.isProcessing && !self.pendingUploads.isEmpty {
+                    self.startProcessing()
+                }
+            }
+        }
+    }
+
+    // MARK: - Queue Persistence
+
+    /// Persist pending uploads to database for recovery after app restart
+    func persistQueueToDatabase() {
+        guard let modelContext = modelContext else {
+            print("UploadQueueManager: Cannot persist - no ModelContext")
+            return
+        }
+
+        do {
+            // Fetch existing persisted uploads
+            let descriptor = FetchDescriptor<PendingUpload>()
+            let existingUploads = try modelContext.fetch(descriptor)
+
+            // Delete existing entries
+            for upload in existingUploads {
+                modelContext.delete(upload)
+            }
+
+            // Insert current pending uploads
+            for upload in pendingUploads {
+                let persistedUpload = PendingUpload(
+                    clipId: upload.clipId,
+                    athleteId: upload.athleteId,
+                    fileName: upload.fileName,
+                    filePath: upload.filePath,
+                    priority: upload.priority.rawValue,
+                    retryCount: upload.retryCount,
+                    lastAttempt: upload.lastAttempt,
+                    status: PendingUploadStatus.pending
+                )
+                modelContext.insert(persistedUpload)
+            }
+
+            // Also persist failed uploads
+            for upload in failedUploads {
+                let persistedUpload = PendingUpload(
+                    clipId: upload.clipId,
+                    athleteId: upload.athleteId,
+                    fileName: upload.fileName,
+                    filePath: upload.filePath,
+                    priority: upload.priority.rawValue,
+                    retryCount: upload.retryCount,
+                    lastAttempt: upload.lastAttempt,
+                    status: PendingUploadStatus.failed
+                )
+                modelContext.insert(persistedUpload)
+            }
+
+            try modelContext.save()
+            print("UploadQueueManager: Persisted \(pendingUploads.count) pending + \(failedUploads.count) failed uploads")
+        } catch {
+            print("UploadQueueManager: Failed to persist queue: \(error.localizedDescription)")
+        }
+    }
+
+    /// Restore pending uploads from database on app launch
+    private func restoreQueueFromDatabase() {
+        guard let modelContext = modelContext else {
+            print("UploadQueueManager: Cannot restore - no ModelContext")
+            return
+        }
+
+        do {
+            let descriptor = FetchDescriptor<PendingUpload>(
+                sortBy: [SortDescriptor(\PendingUpload.createdAt, order: .forward)]
+            )
+            let persistedUploads = try modelContext.fetch(descriptor)
+
+            // Restore to in-memory queues
+            for persisted in persistedUploads {
+                // Verify the video clip still exists
+                let clipIdToFind = persisted.clipId
+                let clipDescriptor = FetchDescriptor<VideoClip>(
+                    predicate: #Predicate<VideoClip> { clip in
+                        clip.id == clipIdToFind
+                    }
+                )
+                guard let clip = try modelContext.fetch(clipDescriptor).first else {
+                    // Clip no longer exists, delete persisted record
+                    modelContext.delete(persisted)
+                    continue
+                }
+
+                // Skip if already uploaded
+                if clip.isUploaded {
+                    modelContext.delete(persisted)
+                    continue
+                }
+
+                let queuedUpload = QueuedUpload(
+                    clipId: persisted.clipId,
+                    athleteId: persisted.athleteId,
+                    fileName: persisted.fileName,
+                    filePath: persisted.filePath,
+                    priority: UploadPriority(rawValue: persisted.priority) ?? .normal,
+                    retryCount: persisted.retryCount,
+                    lastAttempt: persisted.lastAttempt
+                )
+
+                if persisted.status == PendingUploadStatus.failed {
+                    failedUploads.append(queuedUpload)
+                } else {
+                    pendingUploads.append(queuedUpload)
+                }
+
+                // Delete persisted record (it's now in memory)
+                modelContext.delete(persisted)
+            }
+
+            // Sort by priority
+            pendingUploads.sort { $0.priority.rawValue > $1.priority.rawValue }
+
+            try modelContext.save()
+            print("UploadQueueManager: Restored \(pendingUploads.count) pending + \(failedUploads.count) failed uploads")
+        } catch {
+            print("UploadQueueManager: Failed to restore queue: \(error.localizedDescription)")
         }
     }
 
@@ -345,4 +587,52 @@ extension FileManager {
         }
         return size
     }
+}
+
+// MARK: - PendingUpload SwiftData Model
+
+/// Persisted upload queue entry for recovery after app restart
+@Model
+final class PendingUpload {
+    var id: UUID = UUID()
+    var clipId: UUID = UUID()
+    var athleteId: UUID = UUID()
+    var fileName: String = ""
+    var filePath: String = ""
+    var priority: Int = 1
+    var retryCount: Int = 0
+    var lastAttempt: Date?
+    var createdAt: Date = Date()
+    var statusRaw: String = "pending"
+
+    var status: PendingUploadStatus {
+        get { PendingUploadStatus(rawValue: statusRaw) ?? PendingUploadStatus.pending }
+        set { statusRaw = newValue.rawValue }
+    }
+
+    init(
+        clipId: UUID,
+        athleteId: UUID,
+        fileName: String,
+        filePath: String,
+        priority: Int,
+        retryCount: Int,
+        lastAttempt: Date?,
+        status: PendingUploadStatus
+    ) {
+        self.clipId = clipId
+        self.athleteId = athleteId
+        self.fileName = fileName
+        self.filePath = filePath
+        self.priority = priority
+        self.retryCount = retryCount
+        self.lastAttempt = lastAttempt
+        self.createdAt = Date()
+        self.statusRaw = status.rawValue
+    }
+}
+
+enum PendingUploadStatus: String, Codable {
+    case pending
+    case failed
 }

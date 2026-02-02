@@ -341,7 +341,7 @@ struct VideoRecordingSettingsView: View {
         Section {
             VStack(alignment: .leading, spacing: 12) {
                 SummaryRow(
-                    icon: "video.fill",
+                    icon: "video",
                     title: "Quality",
                     value: settings.quality.displayName
                 )

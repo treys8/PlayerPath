@@ -24,13 +24,15 @@ struct PlayResultOverlayView: View {
     @State private var selectedResult: PlayResultType?
     @State private var showingConfirmation = false
     @State private var player = AVPlayer()
+    @State private var recordingMode: AthleteRole = .batter
     
     @State private var isPlaying = true
     @State private var videoMetadata: VideoMetadata?
     @State private var metadataTask: Task<Void, Never>?
     @State private var isLooping = false
     @State private var hasLooped = false
-    
+    @State private var showContent = false
+
     init(videoURL: URL, athlete: Athlete?, game: Game? = nil, practice: Practice? = nil, onSave: @escaping (PlayResultType?) -> Void, onCancel: @escaping () -> Void) {
         self.videoURL = videoURL
         self.athlete = athlete
@@ -119,172 +121,124 @@ struct PlayResultOverlayView: View {
                 // Play Result Selection Overlay
                 VStack {
                     Spacer()
-                    
-                    VStack(spacing: 20) {
-                        Text("Select Play Result")
-                            .font(.title2)
-                            .fontWeight(.bold)
-                            .foregroundColor(.white)
-                            .multilineTextAlignment(.center)
-                            .minimumScaleFactor(0.8)
-                            .lineLimit(1)
-                            .accessibilityAddTraits(.isHeader)
 
-                        Text(practice != nil ? "Add a result to track statistics" : "Choose what happened on this play")
-                            .font(.subheadline)
-                            .foregroundColor(.white.opacity(0.8))
-                            .multilineTextAlignment(.center)
-                        
-                        // Play Result Grid - Improved Layout
+                    VStack(spacing: 18) {
+                        // Header
+                        VStack(spacing: 8) {
+                            Text("Select Play Result")
+                                .font(.title3)
+                                .fontWeight(.bold)
+                                .foregroundColor(.white)
+                                .multilineTextAlignment(.center)
+                                .accessibilityAddTraits(.isHeader)
+
+                            Text(practice != nil ? "Add a result to track statistics" : "Choose what happened on this play")
+                                .font(.caption)
+                                .foregroundColor(.white.opacity(0.7))
+                                .multilineTextAlignment(.center)
+                        }
+                        .opacity(showContent ? 1 : 0)
+                        .offset(y: showContent ? 0 : 20)
+
+                        // Recording Mode Picker - Custom styled
+                        PlayResultModePicker(selection: $recordingMode)
+                            .opacity(showContent ? 1 : 0)
+                            .offset(y: showContent ? 0 : 20)
+
+                        // Play Result Grid - Conditional based on mode
                         VStack(spacing: 12) {
-                            // Hits Section
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("Hits")
-                                    .font(.caption)
-                                    .fontWeight(.bold)
-                                    .foregroundColor(.white.opacity(0.7))
-                                    .padding(.horizontal, 4)
-                                    .accessibilityAddTraits(.isHeader)
-                                
-                                LazyVGrid(columns: [
-                                    GridItem(.flexible(), spacing: 8),
-                                    GridItem(.flexible(), spacing: 8)
-                                ], spacing: 8) {
-                                    ForEach([PlayResultType.single, .double, .triple, .homeRun], id: \.self) { result in
-                                        PlayResultButton(
-                                            result: result,
-                                            isSelected: selectedResult == result
-                                        ) {
-                                            selectedResult = result
-                                            Haptics.medium()
-                                            player.pause()
-                                            isPlaying = false
-                                            showingConfirmation = true
-                                        }
-                                    }
-                                }
-                            }
-                            
-                            Divider()
-                                .background(Color.white.opacity(0.3))
-                                .padding(.vertical, 4)
-                            
-                            // Walk Section
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("Walk")
-                                    .font(.caption)
-                                    .fontWeight(.bold)
-                                    .foregroundColor(.white.opacity(0.7))
-                                    .padding(.horizontal, 4)
-                                    .accessibilityAddTraits(.isHeader)
-                                
-                                PlayResultButton(
-                                    result: .walk,
-                                    isSelected: selectedResult == .walk,
-                                    fullWidth: true
-                                ) {
-                                    selectedResult = .walk
-                                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                                    player.pause()
-                                    isPlaying = false
-                                    showingConfirmation = true
-                                }
-                            }
-                            
-                            Divider()
-                                .background(Color.white.opacity(0.3))
-                                .padding(.vertical, 4)
-                            
-                            // Outs Section
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("Outs")
-                                    .font(.caption)
-                                    .fontWeight(.bold)
-                                    .foregroundColor(.white.opacity(0.7))
-                                    .padding(.horizontal, 4)
-                                    .accessibilityAddTraits(.isHeader)
-                                
-                                LazyVGrid(columns: [
-                                    GridItem(.flexible(), spacing: 8),
-                                    GridItem(.flexible(), spacing: 8)
-                                ], spacing: 8) {
-                                    ForEach([PlayResultType.strikeout, .groundOut, .flyOut], id: \.self) { result in
-                                        PlayResultButton(
-                                            result: result,
-                                            isSelected: selectedResult == result
-                                        ) {
-                                            selectedResult = result
-                                            Haptics.medium()
-                                            player.pause()
-                                            isPlaying = false
-                                            showingConfirmation = true
-                                        }
-                                    }
-                                }
+                            if recordingMode == .batter {
+                                battingResultsSection
+                            } else {
+                                pitchingResultsSection
                             }
                         }
-                        
+                        .opacity(showContent ? 1 : 0)
+                        .offset(y: showContent ? 0 : 30)
+
                         // Action Buttons
                         HStack(spacing: 12) {
-                            Button {
+                            PlayResultActionButton(
+                                title: "Cancel",
+                                icon: "xmark",
+                                style: .secondary
+                            ) {
                                 Haptics.warning()
                                 onCancel()
-                            } label: {
-                                Label("Cancel", systemImage: "xmark")
-                                    .font(.body.weight(.semibold))
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 16)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 12)
-                                            .fill(Color.white.opacity(0.15))
-                                    )
-                                    .foregroundColor(.white)
                             }
-                            .buttonStyle(.plain)
                             .accessibilityLabel("Cancel")
                             .accessibilityHint("Dismiss without saving a play result")
-                            
-                            Button {
+
+                            PlayResultActionButton(
+                                title: practice != nil ? "Save Video" : "Skip & Save",
+                                icon: "checkmark",
+                                style: .primary
+                            ) {
                                 Haptics.success()
                                 onSave(nil)
-                            } label: {
-                                Label(practice != nil ? "Save Video Only" : "Skip & Save", systemImage: "checkmark")
-                                    .font(.body.weight(.semibold))
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 16)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 12)
-                                            .fill(Color.blue)
-                                    )
-                                    .foregroundColor(.white)
                             }
-                            .buttonStyle(.plain)
                             .accessibilityLabel(practice != nil ? "Save Video Only" : "Skip and Save")
                             .accessibilityHint("Save without a play result")
                         }
+                        .opacity(showContent ? 1 : 0)
+                        .offset(y: showContent ? 0 : 20)
                     }
                     .padding(20)
                     .background(
-                        RoundedRectangle(cornerRadius: 24)
-                            .fill(.ultraThinMaterial)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 24)
+                        ZStack {
+                            // Glass background
+                            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                                .fill(.ultraThinMaterial)
+
+                            // Dark gradient overlay
+                            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                                .fill(
+                                    LinearGradient(
+                                        colors: [
+                                            Color.black.opacity(0.2),
+                                            Color.black.opacity(0.4)
+                                        ],
+                                        startPoint: .top,
+                                        endPoint: .bottom
+                                    )
+                                )
+
+                            // Top shine
+                            VStack {
+                                RoundedRectangle(cornerRadius: 28, style: .continuous)
                                     .fill(
                                         LinearGradient(
-                                            colors: [
-                                                Color.black.opacity(0.3),
-                                                Color.black.opacity(0.5)
-                                            ],
+                                            colors: [.white.opacity(0.15), .clear],
                                             startPoint: .top,
-                                            endPoint: .bottom
+                                            endPoint: .center
                                         )
                                     )
-                            )
-                            .shadow(color: .black.opacity(0.5), radius: 20, y: 10)
+                                    .frame(height: 100)
+                                Spacer()
+                            }
+                            .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+                        }
                     )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 28, style: .continuous)
+                            .strokeBorder(
+                                LinearGradient(
+                                    colors: [.white.opacity(0.3), .white.opacity(0.1)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                ),
+                                lineWidth: 1
+                            )
+                    )
+                    .shadow(color: .black.opacity(0.4), radius: 30, x: 0, y: 15)
                     .padding(.horizontal, 16)
                     .accessibilitySortPriority(1)
-                    
+                    .onAppear {
+                        withAnimation(.spring(response: 0.6, dampingFraction: 0.8).delay(0.2)) {
+                            showContent = true
+                        }
+                    }
+
                     Spacer().frame(height: 50)
                 }
                 
@@ -437,6 +391,127 @@ struct PlayResultOverlayView: View {
             }
         }
     }
+
+    // MARK: - Batting Results Section
+
+    private var battingResultsSection: some View {
+        VStack(spacing: 14) {
+            // Hits Section
+            VStack(alignment: .leading, spacing: 10) {
+                PlayResultSectionHeader(icon: "baseball.fill", title: "HITS", color: .green)
+
+                LazyVGrid(columns: [
+                    GridItem(.flexible(), spacing: 10),
+                    GridItem(.flexible(), spacing: 10)
+                ], spacing: 10) {
+                    ForEach([PlayResultType.single, .double, .triple, .homeRun], id: \.self) { result in
+                        PlayResultButton(
+                            result: result,
+                            isSelected: selectedResult == result
+                        ) {
+                            selectResult(result)
+                        }
+                    }
+                }
+            }
+
+            PlayResultDivider()
+
+            // Walk Section
+            VStack(alignment: .leading, spacing: 10) {
+                PlayResultSectionHeader(icon: "figure.walk", title: "WALK", color: .blue)
+
+                PlayResultButton(
+                    result: .walk,
+                    isSelected: selectedResult == .walk,
+                    fullWidth: true
+                ) {
+                    selectResult(.walk)
+                }
+            }
+
+            PlayResultDivider()
+
+            // Outs Section
+            VStack(alignment: .leading, spacing: 10) {
+                PlayResultSectionHeader(icon: "xmark.circle.fill", title: "OUTS", color: .red)
+
+                LazyVGrid(columns: [
+                    GridItem(.flexible(), spacing: 10),
+                    GridItem(.flexible(), spacing: 10)
+                ], spacing: 10) {
+                    ForEach([PlayResultType.strikeout, .groundOut, .flyOut], id: \.self) { result in
+                        PlayResultButton(
+                            result: result,
+                            isSelected: selectedResult == result
+                        ) {
+                            selectResult(result)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Pitching Results Section
+
+    private var pitchingResultsSection: some View {
+        VStack(spacing: 14) {
+            VStack(alignment: .leading, spacing: 10) {
+                PlayResultSectionHeader(icon: "figure.baseball", title: "PITCH RESULT", color: .purple)
+
+                LazyVGrid(columns: [
+                    GridItem(.flexible(), spacing: 10),
+                    GridItem(.flexible(), spacing: 10)
+                ], spacing: 10) {
+                    PlayResultButton(
+                        result: .ball,
+                        isSelected: selectedResult == .ball
+                    ) {
+                        selectResult(.ball)
+                    }
+                    PlayResultButton(
+                        result: .strike,
+                        isSelected: selectedResult == .strike
+                    ) {
+                        selectResult(.strike)
+                    }
+                }
+            }
+
+            PlayResultDivider()
+
+            VStack(alignment: .leading, spacing: 10) {
+                PlayResultSectionHeader(icon: "exclamationmark.triangle.fill", title: "SPECIAL", color: .orange)
+
+                LazyVGrid(columns: [
+                    GridItem(.flexible(), spacing: 10),
+                    GridItem(.flexible(), spacing: 10)
+                ], spacing: 10) {
+                    PlayResultButton(
+                        result: .hitByPitch,
+                        isSelected: selectedResult == .hitByPitch
+                    ) {
+                        selectResult(.hitByPitch)
+                    }
+                    PlayResultButton(
+                        result: .wildPitch,
+                        isSelected: selectedResult == .wildPitch
+                    ) {
+                        selectResult(.wildPitch)
+                    }
+                }
+            }
+        }
+    }
+
+    private func selectResult(_ result: PlayResultType) {
+        selectedResult = result
+        Haptics.medium()
+        player.pause()
+        isPlaying = false
+        showingConfirmation = true
+    }
 }
 
 extension PlayResultType {
@@ -450,17 +525,25 @@ extension PlayResultType {
         case .strikeout: return "k.circle.fill"
         case .groundOut: return "arrow.down.circle.fill"
         case .flyOut: return "arrow.up.circle.fill"
+        case .ball: return "circle"
+        case .strike: return "xmark.circle.fill"
+        case .hitByPitch: return "figure.fall"
+        case .wildPitch: return "arrow.up.right.and.arrow.down.left"
         }
     }
-    
+
     var uiColor: Color {
         switch self {
         case .single, .double, .triple, .homeRun: return .green
         case .walk: return .blue
         case .strikeout, .groundOut, .flyOut: return .red
+        case .ball: return .orange
+        case .strike: return .green
+        case .hitByPitch: return .purple
+        case .wildPitch: return .red
         }
     }
-    
+
     var accessibilityLabel: String { displayName }
 }
 
@@ -469,49 +552,340 @@ struct PlayResultButton: View {
     let isSelected: Bool
     var fullWidth: Bool = false
     let action: () -> Void
-    
+
+    @State private var isPressed = false
+
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 12) {
+            HStack(spacing: 10) {
+                // Icon
+                ZStack {
+                    // Glow behind icon when selected
+                    if isSelected {
+                        Circle()
+                            .fill(Color.white.opacity(0.3))
+                            .frame(width: 32, height: 32)
+                            .blur(radius: 8)
+                    }
+
+                    Image(systemName: result.iconName)
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(.white)
+                        .frame(width: 28, height: 28)
+                }
+
                 // Label
                 Text(result.displayName)
-                    .font(.body)
-                    .fontWeight(.semibold)
+                    .font(.subheadline)
+                    .fontWeight(.bold)
                     .foregroundColor(.white)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: .infinity)
-                
+
+                Spacer()
+
                 // Selection indicator
                 if isSelected {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.title3)
                         .foregroundColor(.white)
+                        .shadow(color: .white.opacity(0.5), radius: 4)
                         .transition(.scale.combined(with: .opacity))
                 }
             }
             .padding(.horizontal, 16)
-            .padding(.vertical, 14)
+            .padding(.vertical, 12)
             .frame(maxWidth: fullWidth ? .infinity : nil)
-            .frame(height: 64)
+            .frame(height: 56)
             .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(result.uiColor)
-                    .shadow(color: result.uiColor.opacity(0.4), radius: isSelected ? 8 : 4, y: 2)
+                ZStack {
+                    // Base gradient
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    result.uiColor,
+                                    result.uiColor.opacity(0.7)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+
+                    // Shine overlay
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    Color.white.opacity(isSelected ? 0.25 : 0.15),
+                                    Color.clear
+                                ],
+                                startPoint: .top,
+                                endPoint: .center
+                            )
+                        )
+
+                    // Selection glow
+                    if isSelected {
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .fill(Color.white.opacity(0.1))
+                    }
+                }
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .strokeBorder(Color.white.opacity(isSelected ? 0.4 : 0.15), lineWidth: isSelected ? 2 : 1)
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(isSelected ? 0.6 : 0.3),
+                                Color.white.opacity(isSelected ? 0.3 : 0.1)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: isSelected ? 2 : 1
+                    )
             )
-            .scaleEffect(isSelected ? 1.02 : 1.0)
-            .brightness(isSelected ? 0.1 : 0)
+            .shadow(color: result.uiColor.opacity(isSelected ? 0.6 : 0.3), radius: isSelected ? 12 : 6, x: 0, y: isSelected ? 6 : 3)
+            .shadow(color: .black.opacity(0.2), radius: 2, x: 0, y: 1)
+            .scaleEffect(isPressed ? 0.95 : (isSelected ? 1.02 : 1.0))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PlayResultButtonStyle(isPressed: $isPressed))
         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isSelected)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(Text(result.accessibilityLabel))
         .accessibilityHint(Text("Selects this play result and asks for confirmation"))
         .accessibilityAddTraits(.isButton)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+}
+
+struct PlayResultButtonStyle: ButtonStyle {
+    @Binding var isPressed: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .onChange(of: configuration.isPressed) { _, newValue in
+                isPressed = newValue
+            }
+    }
+}
+
+// MARK: - Section Header
+
+struct PlayResultSectionHeader: View {
+    let icon: String
+    let title: String
+    let color: Color
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon)
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(
+                    LinearGradient(
+                        colors: [color, color.opacity(0.7)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+
+            Text(title)
+                .font(.system(size: 11, weight: .bold))
+                .tracking(1.2)
+                .foregroundColor(.white.opacity(0.8))
+        }
+        .padding(.horizontal, 4)
+        .accessibilityAddTraits(.isHeader)
+    }
+}
+
+// MARK: - Divider
+
+struct PlayResultDivider: View {
+    var body: some View {
+        Rectangle()
+            .fill(
+                LinearGradient(
+                    colors: [.clear, .white.opacity(0.2), .clear],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+            )
+            .frame(height: 1)
+            .padding(.vertical, 2)
+    }
+}
+
+// MARK: - Custom Mode Picker
+
+struct PlayResultModePicker: View {
+    @Binding var selection: AthleteRole
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ModeButton(
+                title: "Batter",
+                icon: "figure.baseball",
+                isSelected: selection == .batter
+            ) {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                    selection = .batter
+                }
+                Haptics.light()
+            }
+
+            ModeButton(
+                title: "Pitcher",
+                icon: "figure.cricket",
+                isSelected: selection == .pitcher
+            ) {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                    selection = .pitcher
+                }
+                Haptics.light()
+            }
+        }
+        .padding(4)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.white.opacity(0.1))
+        )
+    }
+
+    struct ModeButton: View {
+        let title: String
+        let icon: String
+        let isSelected: Bool
+        let action: () -> Void
+
+        var body: some View {
+            Button(action: action) {
+                HStack(spacing: 6) {
+                    Image(systemName: icon)
+                        .font(.system(size: 14, weight: .semibold))
+
+                    Text(title)
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                }
+                .foregroundColor(isSelected ? .white : .white.opacity(0.6))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+                .background(
+                    ZStack {
+                        if isSelected {
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .fill(
+                                    LinearGradient(
+                                        colors: [.blue, .blue.opacity(0.8)],
+                                        startPoint: .top,
+                                        endPoint: .bottom
+                                    )
+                                )
+                                .shadow(color: .blue.opacity(0.4), radius: 8, x: 0, y: 2)
+                        }
+                    }
+                )
+            }
+            .buttonStyle(.plain)
+        }
+    }
+}
+
+// MARK: - Premium Action Button
+
+struct PlayResultActionButton: View {
+    let title: String
+    let icon: String
+    let style: ActionStyle
+    let action: () -> Void
+
+    enum ActionStyle {
+        case primary
+        case secondary
+        case destructive
+    }
+
+    @State private var isPressed = false
+
+    private var shadowColor: Color {
+        switch style {
+        case .primary: return .blue.opacity(0.4)
+        case .secondary: return .clear
+        case .destructive: return .red.opacity(0.4)
+        }
+    }
+
+    @ViewBuilder
+    private var backgroundView: some View {
+        switch style {
+        case .primary:
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [.blue, .blue.opacity(0.8)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+        case .secondary:
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color.white.opacity(0.15))
+        case .destructive:
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [.red, .red.opacity(0.8)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+        }
+    }
+
+    var body: some View {
+        Button(action: {
+            Haptics.medium()
+            action()
+        }) {
+            HStack(spacing: 8) {
+                Image(systemName: icon)
+                    .font(.body.weight(.semibold))
+
+                Text(title)
+                    .font(.body.weight(.semibold))
+            }
+            .foregroundColor(.white)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 16)
+            .background(backgroundView)
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(
+                        LinearGradient(
+                            colors: [.white.opacity(0.3), .white.opacity(0.1)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        ),
+                        lineWidth: 1
+                    )
+            )
+            .shadow(color: shadowColor, radius: 8, x: 0, y: 4)
+            .scaleEffect(isPressed ? 0.96 : 1.0)
+        }
+        .buttonStyle(ActionButtonStyle(isPressed: $isPressed))
+    }
+
+    struct ActionButtonStyle: ButtonStyle {
+        @Binding var isPressed: Bool
+
+        func makeBody(configuration: Configuration) -> some View {
+            configuration.label
+                .onChange(of: configuration.isPressed) { _, newValue in
+                    withAnimation(.spring(response: 0.2, dampingFraction: 0.7)) {
+                        isPressed = newValue
+                    }
+                }
+        }
     }
 }
 
@@ -558,7 +932,7 @@ struct VideoMetadataView: View {
             MetadataBadge(icon: "clock.fill", text: metadata.formattedDuration, color: .blue)
             MetadataBadge(icon: "doc.fill", text: metadata.formattedFileSize, color: .green)
             if let resolution = metadata.resolution {
-                MetadataBadge(icon: "video.fill", text: resolution, color: .purple)
+                MetadataBadge(icon: "video", text: resolution, color: .purple)
             }
         }
         .accessibilityElement(children: .combine)

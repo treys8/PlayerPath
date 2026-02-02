@@ -237,7 +237,7 @@ struct UploadStatisticsView: View {
                             .fill(Color.gray.opacity(0.2))
                             .frame(width: 60, height: 40)
                             .overlay {
-                                Image(systemName: "video.fill")
+                                Image(systemName: "video")
                                     .foregroundColor(.gray)
                                     .font(.caption)
                             }

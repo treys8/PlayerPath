@@ -115,24 +115,6 @@ struct SeasonManager {
         }
     }
     
-    /// Links a tournament to the athlete's active season
-    /// - Parameters:
-    ///   - tournament: The tournament to link
-    ///   - athlete: The athlete (from tournament.athletes)
-    ///   - modelContext: The SwiftData model context
-    static func linkTournamentToActiveSeason(_ tournament: Tournament, for athlete: Athlete, in modelContext: ModelContext) {
-        guard tournament.season == nil else { return }
-        
-        let activeSeason = ensureActiveSeason(for: athlete, in: modelContext)
-        tournament.season = activeSeason  // SwiftData handles inverse relationship automatically
-        
-        do {
-            try modelContext.save()
-        } catch {
-            print("❌ Error linking tournament to season: \(error)")
-        }
-    }
-    
     /// Generates a season summary report (useful for archive view)
     /// - Parameter season: The season to summarize
     /// - Returns: A formatted summary string
@@ -149,8 +131,7 @@ struct SeasonManager {
         summary += "• Games Played: \(season.totalGames)\n"
         summary += "• Practices: \((season.practices ?? []).count)\n"
         summary += "• Videos Recorded: \(season.totalVideos)\n"
-        summary += "• Highlights: \(season.highlights.count)\n"
-        summary += "• Tournaments: \((season.tournaments ?? []).count)\n\n"
+        summary += "• Highlights: \(season.highlights.count)\n\n"
         
         // Baseball stats if available
         if let stats = season.seasonStatistics, stats.atBats > 0 {

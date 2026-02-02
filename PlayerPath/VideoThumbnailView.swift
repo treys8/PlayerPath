@@ -247,6 +247,14 @@ struct VideoThumbnailView: View {
             return [Color.red.opacity(0.4), Color.red.opacity(0.6)]
         case .groundOut, .flyOut:
             return [Color.gray.opacity(0.5), Color.gray.opacity(0.7)]
+        case .ball:
+            return [Color.orange.opacity(0.5), Color.orange.opacity(0.7)]
+        case .strike:
+            return [Color.green.opacity(0.5), Color.green.opacity(0.7)]
+        case .hitByPitch:
+            return [Color.purple.opacity(0.5), Color.purple.opacity(0.7)]
+        case .wildPitch:
+            return [Color.red.opacity(0.5), Color.red.opacity(0.7)]
         }
     }
 
@@ -539,9 +547,17 @@ struct VideoThumbnailView: View {
             return "arrow.down.circle.fill"
         case .flyOut:
             return "arrow.up.circle.fill"
+        case .ball:
+            return "circle"
+        case .strike:
+            return "xmark.circle.fill"
+        case .hitByPitch:
+            return "figure.fall"
+        case .wildPitch:
+            return "arrow.up.right.and.arrow.down.left"
         }
     }
-    
+
     private func playResultAbbreviation(for type: PlayResultType) -> String {
         switch type {
         case .single: return "1B"
@@ -552,9 +568,13 @@ struct VideoThumbnailView: View {
         case .strikeout: return "K"
         case .groundOut: return "GO"
         case .flyOut: return "FO"
+        case .ball: return "B"
+        case .strike: return "S"
+        case .hitByPitch: return "HBP"
+        case .wildPitch: return "WP"
         }
     }
-    
+
     private func playResultColor(for type: PlayResultType) -> Color {
         switch type {
         case .single: return .green
@@ -564,6 +584,10 @@ struct VideoThumbnailView: View {
         case .walk: return .cyan
         case .strikeout: return .red.opacity(0.8)
         case .groundOut, .flyOut: return .gray
+        case .ball: return .orange
+        case .strike: return .green
+        case .hitByPitch: return .purple
+        case .wildPitch: return .red
         }
     }
 }

@@ -320,6 +320,7 @@ final class ClipPersistenceService {
         )
         videoClip.createdAt = now()
         videoClip.thumbnailPath = thumbnailPath
+        videoClip.duration = durationSeconds
 
         // Create and link PlayResult model if provided
         if let playResultType = playResult {

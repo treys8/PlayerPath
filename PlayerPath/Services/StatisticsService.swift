@@ -206,7 +206,7 @@ final class StatisticsService {
                     stats.walks += 1
                 case .strikeout:
                     stats.strikeouts += 1
-                case .groundOut, .flyOut:
+                case .groundOut, .flyOut, .ball, .strike, .hitByPitch, .wildPitch:
                     break // Not tracked separately in GameStatistics
                 }
             }
@@ -245,6 +245,18 @@ final class StatisticsService {
             stats.groundOuts += 1
         case .flyOut:
             stats.flyOuts += 1
+        case .ball:
+            stats.totalPitches += 1
+            stats.balls += 1
+        case .strike:
+            stats.totalPitches += 1
+            stats.strikes += 1
+        case .hitByPitch:
+            stats.totalPitches += 1
+            stats.hitByPitches += 1
+        case .wildPitch:
+            stats.totalPitches += 1
+            stats.wildPitches += 1
         }
     }
 

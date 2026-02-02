@@ -20,7 +20,7 @@ struct DashboardView: View {
     @State private var showCoachesPremiumAlert = false
     @State private var showingPaywall = false
     @State private var showingDirectCamera = false
-    @State private var currentVideoQuality: UIImagePickerController.QualityType = .typeHigh
+    @State private var selectedVideoForPlayback: VideoClip?
 
     // Dynamic live games query configured via init to safely capture athleteID
     private let athleteID: UUID
@@ -45,21 +45,6 @@ struct DashboardView: View {
 
     private var firstLiveGame: Game? {
         liveGames.first
-    }
-
-    private var videoQualityBadge: String {
-        switch currentVideoQuality {
-        case .typeHigh, .typeIFrame1280x720:
-            return "1080p"
-        case .typeMedium, .type640x480:
-            return "720p"
-        case .typeLow:
-            return "480p"
-        case .typeIFrame960x540:
-            return "540p"
-        @unknown default:
-            return "HD"
-        }
     }
 
     // MARK: - Body
@@ -124,12 +109,6 @@ struct DashboardView: View {
                 )
             }
             pulseAnimation = true
-
-            // Load video quality setting
-            if let savedQuality = UserDefaults.standard.value(forKey: "selectedVideoQuality") as? Int,
-               let quality = UIImagePickerController.QualityType(rawValue: savedQuality) {
-                currentVideoQuality = quality
-            }
             #if DEBUG
             print("🔍 DashboardView liveGames count: \(liveGames.count) for athlete: \(athlete.name)")
             // Debug: Check all games for this athlete
@@ -159,6 +138,14 @@ struct DashboardView: View {
         }
         .fullScreenCover(isPresented: $showingDirectCamera) {
             DirectCameraRecorderView(athlete: athlete, game: firstLiveGame)
+        }
+        .fullScreenCover(item: $selectedVideoForPlayback) { video in
+            VideoPlayerView(clip: video)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .presentFullscreenVideo)) { notification in
+            if let video = notification.object as? VideoClip {
+                selectedVideoForPlayback = video
+            }
         }
     }
 
@@ -292,12 +279,7 @@ struct DashboardView: View {
 
                 // Quick Actions Section
                 VStack(spacing: 16) {
-                    HStack {
-                        Text("Quick Actions")
-                            .font(.title3)
-                            .fontWeight(.bold)
-                        Spacer()
-                    }
+                    DashboardSectionHeader(title: "Quick Actions", icon: "bolt.fill", color: .orange)
 
                     HStack(spacing: 12) {
                         QuickActionButton(
@@ -324,8 +306,7 @@ struct DashboardView: View {
                         QuickActionButton(
                             icon: hasLiveGame ? "record.circle" : "video.badge.plus",
                             title: hasLiveGame ? "Record Live" : "Quick Record",
-                            color: .red,
-                            badge: videoQualityBadge
+                            color: .red
                         ) {
                             Task { @MainActor in
                                 #if DEBUG
@@ -360,12 +341,7 @@ struct DashboardView: View {
 
                 // Management Section
                 VStack(spacing: 16) {
-                    HStack {
-                        Text("Management")
-                            .font(.title3)
-                            .fontWeight(.bold)
-                        Spacer()
-                    }
+                    DashboardSectionHeader(title: "Management", icon: "square.grid.2x2.fill", color: .blue)
 
                     LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 16) {
                         // 1. Games
@@ -380,7 +356,7 @@ struct DashboardView: View {
 
                         // 2. Video Clips
                         DashboardFeatureCard(
-                            icon: "video.fill",
+                            icon: "video",
                             title: "Video Clips",
                             subtitle: "\(viewModel.totalVideos) Recorded",
                             color: .purple
@@ -455,12 +431,7 @@ struct DashboardView: View {
 
                 // Quick Stats Section
                 VStack(spacing: 16) {
-                    HStack {
-                        Text("Quick Stats")
-                            .font(.title3)
-                            .fontWeight(.bold)
-                        Spacer()
-                    }
+                    DashboardSectionHeader(title: "Quick Stats", icon: "chart.bar.fill", color: .purple)
 
                     HStack(spacing: 12) {
                         DashboardStatCard(
@@ -489,16 +460,19 @@ struct DashboardView: View {
                 if !viewModel.recentVideos.isEmpty {
                     VStack(spacing: 16) {
                         HStack {
-                            Text("Recent Videos")
-                                .font(.title3)
-                                .fontWeight(.bold)
+                            DashboardSectionHeader(title: "Recent Videos", icon: "video", color: .red)
                             Spacer()
                             NavigationLink {
                                 VideoClipsView(athlete: athlete)
                             } label: {
-                                Text("See All")
-                                    .font(.subheadline)
-                                    .foregroundColor(.blue)
+                                HStack(spacing: 4) {
+                                    Text("See All")
+                                        .font(.subheadline)
+                                        .fontWeight(.medium)
+                                    Image(systemName: "chevron.right")
+                                        .font(.caption)
+                                }
+                                .foregroundColor(.blue)
                             }
                             .simultaneousGesture(TapGesture().onEnded { Haptics.light() })
                         }
@@ -535,5 +509,35 @@ struct DashboardView: View {
             viewModel.stopAutoRefresh()
         }
     }
-    
+
+}
+
+// MARK: - Dashboard Section Header
+
+struct DashboardSectionHeader: View {
+    let title: String
+    let icon: String
+    let color: Color
+
+    var body: some View {
+        HStack(spacing: 8) {
+            // Icon with gradient
+            Image(systemName: icon)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(
+                    LinearGradient(
+                        colors: [color, color.opacity(0.7)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+
+            Text(title)
+                .font(.title3)
+                .fontWeight(.bold)
+                .foregroundColor(.primary)
+
+            Spacer()
+        }
+    }
 }

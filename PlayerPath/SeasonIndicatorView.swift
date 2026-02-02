@@ -182,7 +182,7 @@ struct CreateFirstSeasonPrompt: View {
             
             VStack(alignment: .leading, spacing: 16) {
                 FeatureRow(icon: "figure.baseball", text: "Track games and tournaments")
-                FeatureRow(icon: "video.fill", text: "Record and organize videos")
+                FeatureRow(icon: "video", text: "Record and organize videos")
                 FeatureRow(icon: "chart.line.uptrend.xyaxis", text: "View season statistics")
                 FeatureRow(icon: "archivebox", text: "Archive seasons to keep history clean")
             }

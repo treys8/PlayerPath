@@ -610,9 +610,13 @@ struct VideoClipCard: View {
     @State private var errorMessage: String?
     @State private var showingError = false
     @State private var uploadManager = UploadQueueManager.shared
+    @State private var isPressed = false
 
     var body: some View {
-        Button(action: onPlay) {
+        Button(action: {
+            Haptics.light()
+            onPlay()
+        }) {
             GeometryReader { geometry in
                 VStack(spacing: 0) {
                     // Thumbnail - 16:9 aspect ratio like Highlights
@@ -620,64 +624,120 @@ struct VideoClipCard: View {
                         VideoThumbnailView(
                             clip: video,
                             size: CGSize(width: geometry.size.width, height: geometry.size.width * 9/16),
-                            cornerRadius: 8,
-                            showPlayButton: true,
-                            showPlayResult: false,
+                            cornerRadius: 0,
+                            showPlayButton: !isSelectionMode,
+                            showPlayResult: true,
                             showHighlight: true,
                             showSeason: false
                         )
-                        .overlay(selectionOverlay)
 
-                        // Backup status badge (top-right)
-                        if !isSelectionMode {
-                            VStack {
-                                HStack {
-                                    Spacer()
-                                    backupStatusBadge
+                        // Gradient overlay for better contrast
+                        VStack {
+                            Spacer()
+                            LinearGradient(
+                                colors: [.clear, .black.opacity(0.4)],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                            .frame(height: geometry.size.width * 9/16 * 0.4)
+                        }
+
+                        // Duration badge (bottom-left)
+                        VStack {
+                            Spacer()
+                            HStack {
+                                if let duration = video.duration, duration > 0 {
+                                    Text(formatDuration(duration))
+                                        .font(.caption2)
+                                        .fontWeight(.semibold)
+                                        .foregroundColor(.white)
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 3)
+                                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 4))
                                         .padding(8)
                                 }
                                 Spacer()
                             }
                         }
-                    }
 
-                    // Info section
-                    HStack(spacing: 8) {
-                        // Play result badge
-                        if let result = video.playResult {
-                            HStack(spacing: 4) {
-                                playResultIcon(for: result.type)
-                                    .font(.system(size: 11))
-                                Text(playResultAbbreviation(for: result.type))
-                                    .font(.system(size: 12, weight: .semibold))
+                        // Selection overlay
+                        selectionOverlay
+
+                        // Backup status badge (top-left, moved from top-right to not conflict with play result)
+                        if !isSelectionMode {
+                            VStack {
+                                HStack {
+                                    backupStatusBadge
+                                        .padding(8)
+                                    Spacer()
+                                }
+                                Spacer()
                             }
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(playResultColor(for: result.type))
-                            .cornerRadius(6)
+                        }
+                    }
+                    .clipShape(UnevenRoundedRectangle(topLeadingRadius: 12, bottomLeadingRadius: 0, bottomTrailingRadius: 0, topTrailingRadius: 12))
+
+                    // Info section - matches HighlightCard style
+                    VStack(alignment: .leading, spacing: 6) {
+                        // Play result type as headline
+                        if let result = video.playResult {
+                            Text(result.type.displayName)
+                                .font(.subheadline)
+                                .fontWeight(.bold)
+                                .foregroundColor(.primary)
+                                .lineLimit(1)
+                        } else {
+                            Text("Video Clip")
+                                .font(.subheadline)
+                                .fontWeight(.semibold)
+                                .foregroundColor(.primary)
+                        }
+
+                        // Opponent or Practice + Season badge
+                        if let game = video.game {
+                            HStack(spacing: 6) {
+                                Text("vs \(game.opponent)")
+                                    .font(.caption)
+                                    .foregroundColor(.blue)
+                                    .lineLimit(1)
+
+                                if let season = video.season {
+                                    SeasonBadge(season: season, fontSize: 8)
+                                }
+                            }
+                        } else if video.practice != nil {
+                            HStack(spacing: 6) {
+                                Text("Practice")
+                                    .font(.caption)
+                                    .foregroundColor(.green)
+
+                                if let season = video.season {
+                                    SeasonBadge(season: season, fontSize: 8)
+                                }
+                            }
                         }
 
                         // Date
                         if let created = video.createdAt {
-                            Text(created, format: .dateTime.month(.abbreviated).day())
-                                .font(.subheadline)
+                            Text(created, style: .date)
+                                .font(.caption2)
                                 .foregroundColor(.secondary)
                         }
-
-                        Spacer()
                     }
-                    .padding(12)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(Color(.systemGray6))
                 }
             }
-            .aspectRatio(4/5, contentMode: .fit)
+            .aspectRatio(3/4, contentMode: .fit)
             .background(Color(.systemGray6))
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .shadow(color: .black.opacity(0.1), radius: 5, x: 0, y: 2)
+            .shadow(color: .black.opacity(0.08), radius: 12, x: 0, y: 4)
+            .shadow(color: .black.opacity(0.04), radius: 2, x: 0, y: 1)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressableCardButtonStyle())
+        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isSelected)
         .contextMenu {
             Button {
                 Haptics.light()
@@ -837,6 +897,10 @@ struct VideoClipCard: View {
         case .strikeout: return Image(systemName: "k.circle.fill")
         case .groundOut: return Image(systemName: "arrow.down.circle.fill")
         case .flyOut: return Image(systemName: "arrow.up.circle.fill")
+        case .ball: return Image(systemName: "circle")
+        case .strike: return Image(systemName: "xmark.circle.fill")
+        case .hitByPitch: return Image(systemName: "figure.fall")
+        case .wildPitch: return Image(systemName: "arrow.up.right.and.arrow.down.left")
         }
     }
 
@@ -850,6 +914,10 @@ struct VideoClipCard: View {
         case .strikeout: return "K"
         case .groundOut: return "GO"
         case .flyOut: return "FO"
+        case .ball: return "B"
+        case .strike: return "S"
+        case .hitByPitch: return "HBP"
+        case .wildPitch: return "WP"
         }
     }
 
@@ -862,7 +930,28 @@ struct VideoClipCard: View {
         case .walk: return .cyan
         case .strikeout: return .red.opacity(0.8)
         case .groundOut, .flyOut: return .gray
+        case .ball: return .orange
+        case .strike: return .green
+        case .hitByPitch: return .purple
+        case .wildPitch: return .red
         }
+    }
+
+    private func formatDuration(_ seconds: Double) -> String {
+        let mins = Int(seconds) / 60
+        let secs = Int(seconds) % 60
+        return String(format: "%d:%02d", mins, secs)
+    }
+}
+
+// MARK: - Pressable Card Button Style
+
+struct PressableCardButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
+            .opacity(configuration.isPressed ? 0.9 : 1.0)
+            .animation(.spring(response: 0.25, dampingFraction: 0.7), value: configuration.isPressed)
     }
 }
 

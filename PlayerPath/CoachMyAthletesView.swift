@@ -141,7 +141,7 @@ struct AthleteGroupRow: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
-                    Label("\(group.totalVideos)", systemImage: "video.fill")
+                    Label("\(group.totalVideos)", systemImage: "video")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

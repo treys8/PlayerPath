@@ -15,6 +15,7 @@ struct EmptyStateView: View {
     let action: (() -> Void)?
 
     @State private var isAnimating = false
+    @State private var floatOffset: CGFloat = 0
 
     init(systemImage: String, title: String, message: String, actionTitle: String? = nil, action: (() -> Void)? = nil) {
         self.systemImage = systemImage
@@ -25,58 +26,111 @@ struct EmptyStateView: View {
     }
 
     var body: some View {
-        VStack(spacing: 32) {
-            Image(systemName: systemImage)
-                .font(.system(size: 80, weight: .light))
-                .foregroundStyle(
-                    LinearGradient(
-                        colors: [.blue.opacity(0.8), .blue.opacity(0.4)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
+        ZStack {
+            // Subtle background decoration
+            Circle()
+                .fill(
+                    RadialGradient(
+                        colors: [.blue.opacity(0.08), .clear],
+                        center: .center,
+                        startRadius: 0,
+                        endRadius: 200
                     )
                 )
-                .symbolRenderingMode(.hierarchical)
-                .symbolEffect(.bounce, value: isAnimating)
-                .scaleEffect(isAnimating ? 1.0 : 0.9)
-                .animation(.spring(response: 0.6, dampingFraction: 0.7), value: isAnimating)
+                .frame(width: 400, height: 400)
+                .blur(radius: 60)
+                .offset(y: -50)
 
-            VStack(spacing: 12) {
-                Text(title)
-                    .font(.title2)
-                    .fontWeight(.bold)
-                    .foregroundColor(.primary)
+            VStack(spacing: 28) {
+                // Floating icon with glow
+                ZStack {
+                    // Glow effect
+                    Image(systemName: systemImage)
+                        .font(.system(size: 72, weight: .light))
+                        .foregroundStyle(.blue.opacity(0.3))
+                        .blur(radius: 20)
 
-                Text(message)
-                    .font(.body)
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+                    Image(systemName: systemImage)
+                        .font(.system(size: 72, weight: .light))
+                        .foregroundStyle(
+                            LinearGradient(
+                                colors: [.blue, .blue.opacity(0.6)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .symbolRenderingMode(.hierarchical)
+                }
+                .offset(y: floatOffset)
+                .scaleEffect(isAnimating ? 1.0 : 0.8)
+                .opacity(isAnimating ? 1.0 : 0.0)
 
-            if let actionTitle, let action {
-                Button(action: action) {
-                    Text(actionTitle)
-                        .font(.headline)
-                        .fontWeight(.semibold)
+                VStack(spacing: 10) {
+                    Text(title)
+                        .font(.title3)
+                        .fontWeight(.bold)
+                        .foregroundColor(.primary)
+
+                    Text(message)
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .lineSpacing(2)
+                }
+                .opacity(isAnimating ? 1.0 : 0.0)
+                .offset(y: isAnimating ? 0 : 10)
+
+                if let actionTitle, let action {
+                    Button {
+                        Haptics.medium()
+                        action()
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "plus.circle.fill")
+                                .font(.body)
+                            Text(actionTitle)
+                                .font(.subheadline)
+                                .fontWeight(.semibold)
+                        }
                         .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
+                        .frame(maxWidth: 220)
                         .padding(.vertical, 14)
                         .background(
                             LinearGradient(
-                                colors: [.blue, .blue.opacity(0.8)],
-                                startPoint: .leading,
-                                endPoint: .trailing
+                                colors: [.blue, .blue.opacity(0.85)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
                             )
                         )
-                        .cornerRadius(12)
+                        .clipShape(Capsule())
+                        .shadow(color: .blue.opacity(0.3), radius: 12, x: 0, y: 6)
+                    }
+                    .buttonStyle(PremiumButtonStyle())
+                    .opacity(isAnimating ? 1.0 : 0.0)
+                    .offset(y: isAnimating ? 0 : 20)
                 }
-                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 40)
+        }
+        .onAppear {
+            withAnimation(.spring(response: 0.8, dampingFraction: 0.7)) {
+                isAnimating = true
+            }
+            // Floating animation
+            withAnimation(.easeInOut(duration: 2.5).repeatForever(autoreverses: true)) {
+                floatOffset = -8
             }
         }
-        .padding(.horizontal, 40)
-        .padding(.vertical, 60)
-        .onAppear {
-            isAnimating = true
-        }
+    }
+}
+
+// Premium button style with press effect
+struct PremiumButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.96 : 1.0)
+            .opacity(configuration.isPressed ? 0.9 : 1.0)
+            .animation(.spring(response: 0.2, dampingFraction: 0.7), value: configuration.isPressed)
     }
 }

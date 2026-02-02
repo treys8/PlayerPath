@@ -605,8 +605,8 @@ class CoachVideoPlayerViewModel: ObservableObject {
 
         // Observe current time (for seeking functionality)
         let interval = CMTime(seconds: 0.5, preferredTimescale: 600)
-        timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] _ in
-            // Update UI if needed
+        timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { _ in
+            // Observer registered for potential future UI updates
         }
     }
 

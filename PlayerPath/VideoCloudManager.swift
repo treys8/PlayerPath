@@ -7,7 +7,7 @@
 
 import Foundation
 import Combine
-import SwiftData
+@preconcurrency import SwiftData
 import FirebaseStorage
 import FirebaseFirestore
 
@@ -90,7 +90,12 @@ class VideoCloudManager: ObservableObject {
     ///   - athlete: The athlete who owns the video
     /// - Returns: The download URL for the uploaded video
     func uploadVideo(_ videoClip: VideoClip, athlete: Athlete) async throws -> String {
+        // Capture values from SwiftData model before async boundary (Sendable compliance)
         let clipId = videoClip.id
+        let clipFilePath = videoClip.filePath
+        let clipFileName = videoClip.fileName
+        let athleteId = athlete.id
+        let athleteName = athlete.name
 
         // Mark as uploading
         isUploading[clipId] = true
@@ -102,22 +107,22 @@ class VideoCloudManager: ObservableObject {
         }
 
         // Verify local file exists
-        let localURL = URL(fileURLWithPath: videoClip.filePath)
+        let localURL = URL(fileURLWithPath: clipFilePath)
         guard FileManager.default.fileExists(atPath: localURL.path) else {
-            throw VideoCloudError.uploadFailed("Local file not found at \(videoClip.filePath)")
+            throw VideoCloudError.uploadFailed("Local file not found at \(clipFilePath)")
         }
 
         // Create storage reference for athlete videos
         let storage = Storage.storage()
         let storageRef = storage.reference()
-        let videoRef = storageRef.child("athlete_videos/\(athlete.id.uuidString)/\(videoClip.fileName)")
+        let videoRef = storageRef.child("athlete_videos/\(athleteId.uuidString)/\(clipFileName)")
 
         // Create upload task with metadata
         let metadata = StorageMetadata()
         metadata.contentType = "video/quicktime"
         metadata.customMetadata = [
-            "athleteId": athlete.id.uuidString,
-            "athleteName": athlete.name,
+            "athleteId": athleteId.uuidString,
+            "athleteName": athleteName,
             "videoClipId": clipId.uuidString
         ]
 
@@ -125,7 +130,7 @@ class VideoCloudManager: ObservableObject {
         return try await withCheckedThrowingContinuation { continuation in
             let uploadTask = videoRef.putFile(from: localURL, metadata: metadata) { metadata, error in
                 if let error = error {
-                    print("VideoCloudManager: Upload failed for \(videoClip.fileName): \(error)")
+                    print("VideoCloudManager: Upload failed for \(clipFileName): \(error)")
                     continuation.resume(throwing: error)
                     return
                 }
@@ -135,7 +140,7 @@ class VideoCloudManager: ObservableObject {
                     if let error = error {
                         continuation.resume(throwing: error)
                     } else if let url = url {
-                        print("VideoCloudManager: Upload completed successfully for \(videoClip.fileName)")
+                        print("VideoCloudManager: Upload completed successfully for \(clipFileName)")
                         continuation.resume(returning: url.absoluteString)
                     } else {
                         continuation.resume(throwing: VideoCloudError.invalidURL)
@@ -157,7 +162,7 @@ class VideoCloudManager: ObservableObject {
                         progress: percentComplete
                     ) { progress in
                         self.uploadProgress[clipId] = progress
-                        print("VideoCloudManager: Upload progress for \(videoClip.fileName): \(Int(progress * 100))%")
+                        print("VideoCloudManager: Upload progress for \(clipFileName): \(Int(progress * 100))%")
                     }
                 }
             }
@@ -240,9 +245,13 @@ class VideoCloudManager: ObservableObject {
     ///   - videoClip: The video clip to delete
     ///   - athlete: The athlete who owns the video
     func deleteVideo(_ videoClip: VideoClip, athlete: Athlete) async throws {
+        // Capture values from SwiftData model before async boundary (Sendable compliance)
+        let clipFileName = videoClip.fileName
+        let athleteId = athlete.id
+
         let storage = Storage.storage()
         let storageRef = storage.reference()
-        let videoRef = storageRef.child("athlete_videos/\(athlete.id.uuidString)/\(videoClip.fileName)")
+        let videoRef = storageRef.child("athlete_videos/\(athleteId.uuidString)/\(clipFileName)")
 
         return try await withCheckedThrowingContinuation { continuation in
             videoRef.delete { error in
@@ -250,14 +259,14 @@ class VideoCloudManager: ObservableObject {
                     // Check if file doesn't exist (not really an error in deletion context)
                     let nsError = error as NSError
                     if nsError.domain == "FIRStorageErrorDomain" && nsError.code == StorageErrorCode.objectNotFound.rawValue {
-                        print("⚠️ Video file not found in storage, treating as already deleted: \(videoClip.fileName)")
+                        print("⚠️ Video file not found in storage, treating as already deleted: \(clipFileName)")
                         continuation.resume()
                     } else {
-                        print("VideoCloudManager: Failed to delete video \(videoClip.fileName): \(error)")
+                        print("VideoCloudManager: Failed to delete video \(clipFileName): \(error)")
                         continuation.resume(throwing: error)
                     }
                 } else {
-                    print("VideoCloudManager: Video deleted from cloud successfully: \(videoClip.fileName)")
+                    print("VideoCloudManager: Video deleted from cloud successfully: \(clipFileName)")
                     continuation.resume()
                 }
             }
@@ -281,27 +290,44 @@ class VideoCloudManager: ObservableObject {
     ///   - clips: Array of video clips to upload
     ///   - athlete: The athlete who owns the videos
     ///   - maxConcurrentUploads: Maximum number of simultaneous uploads (default: 3)
-    /// - Returns: Array of tuples containing each clip and its upload result
+    /// - Returns: Array of tuples containing each clip ID and its upload result
     func uploadMultipleVideos(
         _ clips: [VideoClip],
         athlete: Athlete,
         maxConcurrentUploads: Int = 3
-    ) async -> [(VideoClip, Result<String, Error>)] {
+    ) async -> [(UUID, Result<String, Error>)] {
+        // Capture clip data before async boundary (Sendable compliance)
+        // VideoClip is a SwiftData model and not Sendable
+        struct ClipData: Sendable {
+            let id: UUID
+            let filePath: String
+            let fileName: String
+        }
 
-        return await withTaskGroup(of: (VideoClip, Result<String, Error>).self) { group in
-            var results: [(VideoClip, Result<String, Error>)] = []
+        let clipDataArray = clips.map { ClipData(id: $0.id, filePath: $0.filePath, fileName: $0.fileName) }
+        let athleteId = athlete.id
+        let athleteName = athlete.name
+
+        return await withTaskGroup(of: (UUID, Result<String, Error>).self) { group in
+            var results: [(UUID, Result<String, Error>)] = []
             var activeUploads = 0
             var clipIndex = 0
 
             // Start initial batch of uploads
-            while clipIndex < clips.count && activeUploads < maxConcurrentUploads {
-                let clip = clips[clipIndex]
+            while clipIndex < clipDataArray.count && activeUploads < maxConcurrentUploads {
+                let clipData = clipDataArray[clipIndex]
                 group.addTask {
                     do {
-                        let cloudURL = try await self.uploadVideo(clip, athlete: athlete)
-                        return (clip, .success(cloudURL))
+                        let cloudURL = try await self.uploadVideoData(
+                            clipId: clipData.id,
+                            filePath: clipData.filePath,
+                            fileName: clipData.fileName,
+                            athleteId: athleteId,
+                            athleteName: athleteName
+                        )
+                        return (clipData.id, .success(cloudURL))
                     } catch {
-                        return (clip, .failure(error))
+                        return (clipData.id, .failure(error))
                     }
                 }
                 activeUploads += 1
@@ -314,14 +340,20 @@ class VideoCloudManager: ObservableObject {
                 activeUploads -= 1
 
                 // Start next upload if available
-                if clipIndex < clips.count {
-                    let clip = clips[clipIndex]
+                if clipIndex < clipDataArray.count {
+                    let clipData = clipDataArray[clipIndex]
                     group.addTask {
                         do {
-                            let cloudURL = try await self.uploadVideo(clip, athlete: athlete)
-                            return (clip, .success(cloudURL))
+                            let cloudURL = try await self.uploadVideoData(
+                                clipId: clipData.id,
+                                filePath: clipData.filePath,
+                                fileName: clipData.fileName,
+                                athleteId: athleteId,
+                                athleteName: athleteName
+                            )
+                            return (clipData.id, .success(cloudURL))
                         } catch {
-                            return (clip, .failure(error))
+                            return (clipData.id, .failure(error))
                         }
                     }
                     activeUploads += 1
@@ -330,6 +362,86 @@ class VideoCloudManager: ObservableObject {
             }
 
             return results
+        }
+    }
+
+    /// Internal upload method that works with primitive/Sendable types
+    private func uploadVideoData(
+        clipId: UUID,
+        filePath: String,
+        fileName: String,
+        athleteId: UUID,
+        athleteName: String
+    ) async throws -> String {
+        // Mark as uploading
+        isUploading[clipId] = true
+        uploadProgress[clipId] = 0.0
+
+        defer {
+            isUploading[clipId] = false
+            uploadProgress[clipId] = nil
+        }
+
+        // Verify local file exists
+        let localURL = URL(fileURLWithPath: filePath)
+        guard FileManager.default.fileExists(atPath: localURL.path) else {
+            throw VideoCloudError.uploadFailed("Local file not found at \(filePath)")
+        }
+
+        // Create storage reference for athlete videos
+        let storage = Storage.storage()
+        let storageRef = storage.reference()
+        let videoRef = storageRef.child("athlete_videos/\(athleteId.uuidString)/\(fileName)")
+
+        // Create upload task with metadata
+        let metadata = StorageMetadata()
+        metadata.contentType = "video/quicktime"
+        metadata.customMetadata = [
+            "athleteId": athleteId.uuidString,
+            "athleteName": athleteName,
+            "videoClipId": clipId.uuidString
+        ]
+
+        // Use file-based upload for streaming (prevents OOM on large files)
+        return try await withCheckedThrowingContinuation { continuation in
+            let uploadTask = videoRef.putFile(from: localURL, metadata: metadata) { metadata, error in
+                if let error = error {
+                    print("VideoCloudManager: Upload failed for \(fileName): \(error)")
+                    continuation.resume(throwing: error)
+                    return
+                }
+
+                // Get download URL
+                videoRef.downloadURL { url, error in
+                    if let error = error {
+                        continuation.resume(throwing: error)
+                    } else if let url = url {
+                        print("VideoCloudManager: Upload completed successfully for \(fileName)")
+                        continuation.resume(returning: url.absoluteString)
+                    } else {
+                        continuation.resume(throwing: VideoCloudError.invalidURL)
+                    }
+                }
+            }
+
+            // Monitor upload progress with throttling
+            uploadTask.observe(.progress) { [weak self] snapshot in
+                guard let progress = snapshot.progress else { return }
+                let percentComplete = Double(progress.completedUnitCount) / Double(progress.totalUnitCount)
+
+                Task { @MainActor in
+                    guard let self = self else { return }
+
+                    // Update progress with throttling
+                    _ = self.throttledProgressUpdate(
+                        key: "upload_\(clipId.uuidString)",
+                        progress: percentComplete
+                    ) { progress in
+                        self.uploadProgress[clipId] = progress
+                        print("VideoCloudManager: Upload progress for \(fileName): \(Int(progress * 100))%")
+                    }
+                }
+            }
         }
     }
     
@@ -558,7 +670,7 @@ class VideoCloudManager: ObservableObject {
 
         } catch {
             // Metadata write failed - rollback the upload
-            if let url = uploadedURL {
+            if uploadedURL != nil {
                 #if DEBUG
                 print("⚠️ Metadata write failed, rolling back Storage upload: \(fileName)")
                 #endif

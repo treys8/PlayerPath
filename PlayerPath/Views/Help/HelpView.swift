@@ -29,7 +29,7 @@ struct HelpView: View {
                     HelpArticleDetailView(article: .recordingVideos)
                 } label: {
                     HelpRowLabel(
-                        icon: "video.fill",
+                        icon: "video",
                         title: "Recording Videos",
                         subtitle: "Learn how to capture at-bats"
                     )

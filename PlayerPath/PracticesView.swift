@@ -329,7 +329,7 @@ struct PracticesView: View {
         case .oldestFirst:
             return "arrow.up"
         case .mostVideos:
-            return "video.fill"
+            return "video"
         case .mostNotes:
             return "note.text"
         }
@@ -493,7 +493,7 @@ struct PracticeRow: View {
                 Spacer()
 
                 HStack(spacing: 6) {
-                    Label("\((practice.videoClips ?? []).count)", systemImage: "video.fill")
+                    Label("\((practice.videoClips ?? []).count)", systemImage: "video")
                         .labelStyle(.iconOnly)
                         .foregroundColor(.blue)
                     Text("\((practice.videoClips ?? []).count)")
@@ -819,7 +819,7 @@ struct PracticeVideoClipRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Image(systemName: "video.fill")
+                Image(systemName: "video")
                     .foregroundColor(.blue)
                     .font(.title3)
                 

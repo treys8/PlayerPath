@@ -15,7 +15,6 @@ struct ContentView: View {
         .modelContainer(for: [
             User.self,
             Athlete.self,
-            Tournament.self,
             Game.self,
             Practice.self,
             PracticeNote.self,

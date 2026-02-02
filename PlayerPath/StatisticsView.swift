@@ -247,6 +247,11 @@ struct StatisticsView: View {
 
                     // Play Results Breakdown
                     PlayResultsSection(statistics: stats)
+
+                    // Pitching Statistics (only if athlete has pitching data)
+                    if stats.hasPitchingData {
+                        PitchingStatsSection(statistics: stats)
+                    }
                 }
                 .padding()
             }
@@ -268,67 +273,187 @@ struct EmptyStatisticsView: View {
     let showGameSelection: () -> Void
     @Environment(\.dismiss) private var dismiss
 
+    @State private var isAnimating = false
+    @State private var floatOffset: CGFloat = 0
+
     var body: some View {
-        VStack(spacing: 30) {
-            Image(systemName: "chart.bar")
-                .font(.system(size: 80))
-                .foregroundColor(.blue)
+        ZStack {
+            // Subtle background decoration
+            Circle()
+                .fill(
+                    RadialGradient(
+                        colors: [.blue.opacity(0.08), .clear],
+                        center: .center,
+                        startRadius: 0,
+                        endRadius: 200
+                    )
+                )
+                .frame(width: 400, height: 400)
+                .blur(radius: 60)
+                .offset(y: -50)
 
-            Text("No Statistics Yet")
-                .font(.title)
-                .fontWeight(.bold)
+            VStack(spacing: 28) {
+                // Floating icon with glow
+                ZStack {
+                    // Glow effect
+                    Image(systemName: "chart.bar")
+                        .font(.system(size: 72, weight: .light))
+                        .foregroundStyle(.blue.opacity(0.3))
+                        .blur(radius: 20)
 
-            Text("Record plays to start building your stats")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal)
-
-            VStack(spacing: 12) {
-                if isQuickEntryEnabled {
-                    Button(action: {
-                        Haptics.light()
-                        showQuickEntry()
-                    }) {
-                        Label("Record Live Game Stats", systemImage: "chart.bar.doc.horizontal.fill")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.green)
-
-                    Button(action: {
-                        Haptics.light()
-                        showGameSelection()
-                    }) {
-                        Label("Add Past Game Statistics", systemImage: "plus.circle.fill")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.bordered)
-                } else {
-                    // No live game - prioritize going to Games to create one
-                    Button {
-                        Haptics.light()
-                        NotificationCenter.default.post(name: .switchToGamesTab, object: nil)
-                        dismiss()
-                    } label: {
-                        Label("Go to Games", systemImage: "baseball.fill")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent)
-
-                    Button(action: {
-                        Haptics.light()
-                        showGameSelection()
-                    }) {
-                        Label("Add Past Game Statistics", systemImage: "plus.circle.fill")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.bordered)
+                    Image(systemName: "chart.bar")
+                        .font(.system(size: 72, weight: .light))
+                        .foregroundStyle(
+                            LinearGradient(
+                                colors: [.blue, .blue.opacity(0.6)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .symbolRenderingMode(.hierarchical)
                 }
+                .offset(y: floatOffset)
+                .scaleEffect(isAnimating ? 1.0 : 0.8)
+                .opacity(isAnimating ? 1.0 : 0.0)
+
+                VStack(spacing: 10) {
+                    Text("No Statistics Yet")
+                        .font(.title3)
+                        .fontWeight(.bold)
+                        .foregroundColor(.primary)
+
+                    Text("Record plays to start\nbuilding your stats")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .lineSpacing(2)
+                }
+                .opacity(isAnimating ? 1.0 : 0.0)
+                .offset(y: isAnimating ? 0 : 10)
+
+                VStack(spacing: 12) {
+                    if isQuickEntryEnabled {
+                        Button {
+                            Haptics.medium()
+                            showQuickEntry()
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: "chart.bar.doc.horizontal.fill")
+                                    .font(.body)
+                                Text("Record Live Game Stats")
+                                    .font(.subheadline)
+                                    .fontWeight(.semibold)
+                            }
+                            .foregroundColor(.white)
+                            .frame(maxWidth: 240)
+                            .padding(.vertical, 14)
+                            .background(
+                                LinearGradient(
+                                    colors: [.green, .green.opacity(0.85)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                            .clipShape(Capsule())
+                            .shadow(color: .green.opacity(0.3), radius: 12, x: 0, y: 6)
+                        }
+                        .buttonStyle(StatsPremiumButtonStyle())
+
+                        Button {
+                            Haptics.light()
+                            showGameSelection()
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: "plus.circle.fill")
+                                    .font(.body)
+                                Text("Add Past Game Statistics")
+                                    .font(.subheadline)
+                                    .fontWeight(.medium)
+                            }
+                            .foregroundColor(.blue)
+                            .frame(maxWidth: 240)
+                            .padding(.vertical, 12)
+                            .background(
+                                Capsule()
+                                    .strokeBorder(Color.blue.opacity(0.3), lineWidth: 1.5)
+                            )
+                        }
+                        .buttonStyle(StatsPremiumButtonStyle())
+                    } else {
+                        Button {
+                            Haptics.medium()
+                            NotificationCenter.default.post(name: .switchToGamesTab, object: nil)
+                            dismiss()
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: "baseball.fill")
+                                    .font(.body)
+                                Text("Go to Games")
+                                    .font(.subheadline)
+                                    .fontWeight(.semibold)
+                            }
+                            .foregroundColor(.white)
+                            .frame(maxWidth: 200)
+                            .padding(.vertical, 14)
+                            .background(
+                                LinearGradient(
+                                    colors: [.blue, .blue.opacity(0.85)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                            .clipShape(Capsule())
+                            .shadow(color: .blue.opacity(0.3), radius: 12, x: 0, y: 6)
+                        }
+                        .buttonStyle(StatsPremiumButtonStyle())
+
+                        Button {
+                            Haptics.light()
+                            showGameSelection()
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: "plus.circle.fill")
+                                    .font(.body)
+                                Text("Add Past Game Statistics")
+                                    .font(.subheadline)
+                                    .fontWeight(.medium)
+                            }
+                            .foregroundColor(.blue)
+                            .frame(maxWidth: 240)
+                            .padding(.vertical, 12)
+                            .background(
+                                Capsule()
+                                    .strokeBorder(Color.blue.opacity(0.3), lineWidth: 1.5)
+                            )
+                        }
+                        .buttonStyle(StatsPremiumButtonStyle())
+                    }
+                }
+                .opacity(isAnimating ? 1.0 : 0.0)
+                .offset(y: isAnimating ? 0 : 20)
             }
-            .padding(.horizontal)
+            .padding(.horizontal, 40)
         }
-        .padding()
+        .onAppear {
+            withAnimation(.spring(response: 0.8, dampingFraction: 0.7)) {
+                isAnimating = true
+            }
+            // Floating animation
+            withAnimation(.easeInOut(duration: 2.5).repeatForever(autoreverses: true)) {
+                floatOffset = -8
+            }
+        }
+    }
+}
+
+// Premium button style for statistics view
+struct StatsPremiumButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.96 : 1.0)
+            .opacity(configuration.isPressed ? 0.9 : 1.0)
+            .animation(.spring(response: 0.2, dampingFraction: 0.7), value: configuration.isPressed)
     }
 }
 
@@ -439,11 +564,13 @@ struct CareerSeasonComparisonSection: View {
     let seasonStats: AthleteStatistics
     let seasonName: String
 
+    @State private var isVisible = false
+
     var body: some View {
         VStack(alignment: .leading, spacing: 15) {
-            Text("Statistics Comparison")
-                .font(.headline)
-                .fontWeight(.bold)
+            SectionHeader(title: "Statistics Comparison", icon: "arrow.left.arrow.right")
+                .opacity(isVisible ? 1 : 0)
+                .offset(y: isVisible ? 0 : 10)
 
             // Batting Average Comparison
             ComparisonStatCard(
@@ -485,6 +612,11 @@ struct CareerSeasonComparisonSection: View {
                 color: .purple
             )
         }
+        .onAppear {
+            withAnimation(.easeOut(duration: 0.4)) {
+                isVisible = true
+            }
+        }
     }
 }
 
@@ -496,60 +628,117 @@ struct ComparisonStatCard: View {
     let seasonSubtitle: String
     let color: Color
 
+    @State private var isAnimating = false
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 12) {
             Text(title)
-                .font(.subheadline)
+                .font(.caption)
                 .fontWeight(.semibold)
                 .foregroundColor(.secondary)
+                .textCase(.uppercase)
+                .tracking(0.5)
 
-            HStack(spacing: 12) {
+            HStack(spacing: 16) {
                 // Career Stats
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Career")
-                        .font(.caption)
+                        .font(.caption2)
+                        .fontWeight(.medium)
                         .foregroundColor(.secondary)
                     Text(careerValue)
-                        .font(.title2)
-                        .fontWeight(.bold)
-                        .foregroundColor(color)
+                        .font(.system(size: 24, weight: .bold, design: .rounded))
+                        .foregroundStyle(
+                            LinearGradient(
+                                colors: [color.opacity(0.7), color.opacity(0.5)],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        )
+                        .scaleEffect(isAnimating ? 1.0 : 0.8)
+                        .opacity(isAnimating ? 1.0 : 0)
                     Text(careerSubtitle)
                         .font(.caption2)
                         .foregroundColor(.secondary)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-                Divider()
-
-                // Season Stats
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("This Season")
-                        .font(.caption)
-                        .foregroundColor(.blue)
-                    Text(seasonValue)
-                        .font(.title2)
+                // VS indicator
+                ZStack {
+                    Circle()
+                        .fill(color.opacity(0.1))
+                        .frame(width: 32, height: 32)
+                    Text("vs")
+                        .font(.caption2)
                         .fontWeight(.bold)
                         .foregroundColor(color)
+                }
+
+                // Season Stats
+                VStack(alignment: .trailing, spacing: 4) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "star.fill")
+                            .font(.system(size: 8))
+                        Text("This Season")
+                            .font(.caption2)
+                            .fontWeight(.medium)
+                    }
+                    .foregroundColor(.blue)
+                    Text(seasonValue)
+                        .font(.system(size: 24, weight: .bold, design: .rounded))
+                        .foregroundStyle(
+                            LinearGradient(
+                                colors: [color, color.opacity(0.7)],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        )
+                        .scaleEffect(isAnimating ? 1.0 : 0.8)
+                        .opacity(isAnimating ? 1.0 : 0)
                     Text(seasonSubtitle)
                         .font(.caption2)
                         .foregroundColor(.secondary)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .trailing)
             }
         }
-        .padding()
-        .statCardBackground()
+        .padding(16)
+        .background(
+            ZStack {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(Color(uiColor: .secondarySystemGroupedBackground))
+
+                // Subtle gradient accent
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [color.opacity(0.05), .clear],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+            }
+        )
+        .shadow(color: color.opacity(0.08), radius: 8, x: 0, y: 4)
+        .shadow(color: .black.opacity(0.04), radius: 2, x: 0, y: 1)
+        .onAppear {
+            withAnimation(.spring(response: 0.6, dampingFraction: 0.7).delay(0.1)) {
+                isAnimating = true
+            }
+        }
     }
 }
 
 struct KeyStatsSection: View {
     let statistics: AthleteStatistics
 
+    @State private var isVisible = false
+
     var body: some View {
         VStack(alignment: .leading, spacing: 15) {
-            Text("Key Statistics")
-                .font(.headline)
-                .fontWeight(.bold)
+            SectionHeader(title: "Key Statistics", icon: "chart.bar.fill")
+                .opacity(isVisible ? 1 : 0)
+                .offset(y: isVisible ? 0 : 10)
 
             LazyVGrid(columns: [
                 GridItem(.flexible()),
@@ -584,6 +773,41 @@ struct KeyStatsSection: View {
                 )
             }
         }
+        .onAppear {
+            withAnimation(.easeOut(duration: 0.4)) {
+                isVisible = true
+            }
+        }
+    }
+}
+
+// Premium section header
+struct SectionHeader: View {
+    let title: String
+    let icon: String?
+
+    init(title: String, icon: String? = nil) {
+        self.title = title
+        self.icon = icon
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            if let icon = icon {
+                Image(systemName: icon)
+                    .font(.subheadline)
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [.blue, .blue.opacity(0.6)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+            }
+            Text(title)
+                .font(.headline)
+                .fontWeight(.bold)
+        }
     }
 }
 
@@ -592,45 +816,99 @@ struct StatCard: View {
     let value: String
     let color: Color
     let subtitle: String?
-    
+
+    @State private var isAnimating = false
+
     init(title: String, value: String, color: Color, subtitle: String? = nil) {
         self.title = title
         self.value = value
         self.color = color
         self.subtitle = subtitle
     }
-    
+
     var body: some View {
         VStack(spacing: 8) {
             Text(title)
-                .font(.subheadline)
+                .font(.caption)
+                .fontWeight(.medium)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
-            
+                .textCase(.uppercase)
+                .tracking(0.5)
+
             Text(value)
-                .font(.title)
-                .fontWeight(.bold)
-                .foregroundColor(color)
+                .font(.system(size: 28, weight: .bold, design: .rounded))
+                .foregroundStyle(
+                    LinearGradient(
+                        colors: [color, color.opacity(0.7)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
-            
+                .scaleEffect(isAnimating ? 1.0 : 0.8)
+                .opacity(isAnimating ? 1.0 : 0)
+
             if let subtitle = subtitle {
                 Text(subtitle)
-                    .font(.caption)
+                    .font(.caption2)
                     .foregroundColor(.secondary)
             }
         }
         .frame(height: 100)
         .frame(maxWidth: .infinity)
-        .statCardBackground()
+        .padding(12)
+        .background(
+            ZStack {
+                // Base background
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(Color(uiColor: .secondarySystemGroupedBackground))
+
+                // Subtle top gradient accent
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [color.opacity(0.1), .clear],
+                            startPoint: .top,
+                            endPoint: .center
+                        )
+                    )
+
+                // Top accent line
+                VStack {
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(
+                            LinearGradient(
+                                colors: [color, color.opacity(0.5)],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                        .frame(height: 3)
+                        .padding(.horizontal, 20)
+                        .padding(.top, 8)
+                    Spacer()
+                }
+            }
+        )
+        .shadow(color: color.opacity(0.1), radius: 8, x: 0, y: 4)
+        .shadow(color: .black.opacity(0.05), radius: 2, x: 0, y: 1)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(title), \(value)\(subtitle.map { ", \($0)" } ?? "")")
+        .onAppear {
+            withAnimation(.spring(response: 0.6, dampingFraction: 0.7).delay(0.1)) {
+                isAnimating = true
+            }
+        }
     }
 }
 
 struct BattingChartSection: View {
     let statistics: AthleteStatistics
-    
+
+    @State private var isVisible = false
+
     private var chartData: [PlayTypeData] {
         [
             PlayTypeData(type: "Singles", count: statistics.singles, color: .green),
@@ -639,38 +917,67 @@ struct BattingChartSection: View {
             PlayTypeData(type: "Home Runs", count: statistics.homeRuns, color: .red)
         ].filter { $0.count > 0 }
     }
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 15) {
-            Text("Hit Distribution")
-                .font(.headline)
-                .fontWeight(.bold)
-            
+            SectionHeader(title: "Hit Distribution", icon: "chart.bar.xaxis")
+                .opacity(isVisible ? 1 : 0)
+                .offset(y: isVisible ? 0 : 10)
+
             if !chartData.isEmpty {
                 Chart(chartData, id: \.type) { data in
                     BarMark(
                         x: .value("Count", data.count),
                         y: .value("Type", data.type)
                     )
-                    .foregroundStyle(data.color)
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [data.color, data.color.opacity(0.7)],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .cornerRadius(4)
                     .annotation(position: .trailing) {
                         Text("\(data.count)")
                             .font(.caption2)
+                            .fontWeight(.semibold)
                             .foregroundColor(.secondary)
                     }
                     .accessibilityLabel("\(data.type): \(data.count)")
                 }
                 .chartXScale(domain: 0...max(1, chartData.map(\.count).max() ?? 1))
-                .frame(height: 200)
-                .padding()
-                .statCardBackground()
+                .chartXAxis(.hidden)
+                .frame(height: 140)
+                .padding(.vertical, 12)
+                .padding(.horizontal, 16)
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(Color(uiColor: .secondarySystemGroupedBackground))
+                )
+                .shadow(color: .black.opacity(0.04), radius: 8, x: 0, y: 2)
+                .opacity(isVisible ? 1 : 0)
+                .offset(y: isVisible ? 0 : 20)
             } else {
-                Text("No hits recorded yet")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                    .frame(height: 100)
-                    .frame(maxWidth: .infinity)
-                    .statCardBackground()
+                VStack(spacing: 8) {
+                    Image(systemName: "chart.bar")
+                        .font(.title2)
+                        .foregroundColor(.secondary.opacity(0.5))
+                    Text("No hits recorded yet")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+                .frame(height: 100)
+                .frame(maxWidth: .infinity)
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(Color(uiColor: .secondarySystemGroupedBackground))
+                )
+            }
+        }
+        .onAppear {
+            withAnimation(.easeOut(duration: 0.4).delay(0.1)) {
+                isVisible = true
             }
         }
     }
@@ -684,13 +991,15 @@ struct PlayTypeData {
 
 struct DetailedStatsSection: View {
     let statistics: AthleteStatistics
-    
+
+    @State private var isVisible = false
+
     var body: some View {
         VStack(alignment: .leading, spacing: 15) {
-            Text("Detailed Statistics")
-                .font(.headline)
-                .fontWeight(.bold)
-            
+            SectionHeader(title: "Detailed Statistics", icon: "list.bullet.clipboard")
+                .opacity(isVisible ? 1 : 0)
+                .offset(y: isVisible ? 0 : 10)
+
             VStack(spacing: 0) {
                 DetailedStatRow(label: "At Bats", value: "\(statistics.atBats)")
                 DetailedStatRow(label: "Hits", value: "\(statistics.hits)")
@@ -699,7 +1008,18 @@ struct DetailedStatsSection: View {
                 DetailedStatRow(label: "Ground Outs", value: "\(statistics.groundOuts)")
                 DetailedStatRow(label: "Fly Outs", value: "\(statistics.flyOuts)", isLast: true)
             }
-            .statCardBackground()
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(Color(uiColor: .secondarySystemGroupedBackground))
+            )
+            .shadow(color: .black.opacity(0.04), radius: 8, x: 0, y: 2)
+            .opacity(isVisible ? 1 : 0)
+            .offset(y: isVisible ? 0 : 20)
+        }
+        .onAppear {
+            withAnimation(.easeOut(duration: 0.4).delay(0.2)) {
+                isVisible = true
+            }
         }
     }
 }
@@ -746,7 +1066,9 @@ struct DetailedStatRow: View {
 
 struct PlayResultsSection: View {
     let statistics: AthleteStatistics
-    
+
+    @State private var isVisible = false
+
     private var playResults: [PlayResultData] {
         [
             PlayResultData(type: "Singles", count: statistics.singles, color: .green),
@@ -759,13 +1081,13 @@ struct PlayResultsSection: View {
             PlayResultData(type: "Strikeouts", count: statistics.strikeouts, color: .red)
         ]
     }
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 15) {
-            Text("Play Results")
-                .font(.headline)
-                .fontWeight(.bold)
-            
+            SectionHeader(title: "Play Results", icon: "baseball")
+                .opacity(isVisible ? 1 : 0)
+                .offset(y: isVisible ? 0 : 10)
+
             LazyVGrid(columns: [
                 GridItem(.flexible()),
                 GridItem(.flexible()),
@@ -779,6 +1101,11 @@ struct PlayResultsSection: View {
             .accessibilityElement(children: .contain)
             .accessibilityLabel("Play results summary")
         }
+        .onAppear {
+            withAnimation(.easeOut(duration: 0.4).delay(0.3)) {
+                isVisible = true
+            }
+        }
     }
 }
 
@@ -790,24 +1117,112 @@ struct PlayResultData {
 
 struct PlayResultCard: View {
     let data: PlayResultData
-    
+
+    @State private var isAnimating = false
+
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 6) {
             Text("\(data.count)")
-                .font(.title)
-                .fontWeight(.bold)
-                .foregroundColor(data.color)
-            
+                .font(.system(size: 24, weight: .bold, design: .rounded))
+                .foregroundStyle(
+                    LinearGradient(
+                        colors: [data.color, data.color.opacity(0.7)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+                .scaleEffect(isAnimating ? 1.0 : 0.5)
+                .opacity(isAnimating ? 1.0 : 0)
+
             Text(data.type)
-                .font(.caption)
+                .font(.caption2)
+                .fontWeight(.medium)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .minimumScaleFactor(0.8)
         }
         .frame(height: 70)
         .frame(maxWidth: .infinity)
-        .statCardBackground()
+        .padding(8)
+        .background(
+            ZStack {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color(uiColor: .secondarySystemGroupedBackground))
+
+                // Subtle color tint at bottom
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [.clear, data.color.opacity(0.05)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+            }
+        )
+        .shadow(color: data.color.opacity(0.08), radius: 4, x: 0, y: 2)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(data.type): \(data.count)")
+        .onAppear {
+            withAnimation(.spring(response: 0.5, dampingFraction: 0.6).delay(Double.random(in: 0...0.2))) {
+                isAnimating = true
+            }
+        }
+    }
+}
+
+// MARK: - Pitching Statistics Section
+
+struct PitchingStatsSection: View {
+    let statistics: AthleteStatistics
+
+    @State private var isVisible = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 15) {
+            SectionHeader(title: "Pitching Statistics", icon: "figure.baseball")
+                .opacity(isVisible ? 1 : 0)
+                .offset(y: isVisible ? 0 : 10)
+
+            LazyVGrid(columns: [
+                GridItem(.flexible()),
+                GridItem(.flexible())
+            ], spacing: 15) {
+                StatCard(
+                    title: "Total Pitches",
+                    value: "\(statistics.totalPitches)",
+                    color: .purple,
+                    subtitle: nil
+                )
+
+                StatCard(
+                    title: "Strike %",
+                    value: String(format: "%.1f%%", statistics.strikePercentage * 100),
+                    color: .green,
+                    subtitle: "\(statistics.strikes)/\(statistics.totalPitches)"
+                )
+            }
+
+            VStack(spacing: 0) {
+                DetailedStatRow(label: "Strikes", value: "\(statistics.strikes)")
+                DetailedStatRow(label: "Balls", value: "\(statistics.balls)")
+                DetailedStatRow(label: "Hit By Pitch", value: "\(statistics.hitByPitches)")
+                DetailedStatRow(label: "Wild Pitches", value: "\(statistics.wildPitches)", isLast: true)
+            }
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(Color(uiColor: .secondarySystemGroupedBackground))
+            )
+            .shadow(color: .black.opacity(0.04), radius: 8, x: 0, y: 2)
+            .opacity(isVisible ? 1 : 0)
+            .offset(y: isVisible ? 0 : 20)
+        }
+        .onAppear {
+            withAnimation(.easeOut(duration: 0.4).delay(0.4)) {
+                isVisible = true
+            }
+        }
     }
 }
 
@@ -869,8 +1284,15 @@ struct QuickStatisticsEntryView: View {
                 
                 Section("Record Play Result") {
                     Picker("Play Result", selection: $playResultType) {
-                        ForEach(PlayResultType.allCases, id: \.self) { playType in
-                            Text(playType.displayName).tag(playType)
+                        Section("Batting") {
+                            ForEach(PlayResultType.battingCases, id: \.self) { playType in
+                                Text(playType.displayName).tag(playType)
+                            }
+                        }
+                        Section("Pitching") {
+                            ForEach(PlayResultType.pitchingCases, id: \.self) { playType in
+                                Text(playType.displayName).tag(playType)
+                            }
                         }
                     }
                     .pickerStyle(.menu)

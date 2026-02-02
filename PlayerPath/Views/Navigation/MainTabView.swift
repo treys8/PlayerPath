@@ -259,7 +259,7 @@ struct MainTabView: View {
                 .id(selectedAthlete.id) // Force view to recreate when athlete changes
         }
         .tabItem {
-            Label("Videos", systemImage: "video.fill")
+            Label("Videos", systemImage: "video")
         }
         .tag(MainTab.videos.rawValue)
         .accessibilityLabel("Videos tab")
@@ -287,10 +287,10 @@ struct MainTabView: View {
             ))
         }
         .tabItem {
-            Label("More", systemImage: "ellipsis.circle.fill")
+            Label("Profile & Settings", systemImage: "person.circle.fill")
         }
         .tag(MainTab.more.rawValue)
-        .accessibilityLabel("More tab")
+        .accessibilityLabel("Profile and Settings tab")
         .accessibilityHint("Access your profile, settings, and additional features")
     }
     

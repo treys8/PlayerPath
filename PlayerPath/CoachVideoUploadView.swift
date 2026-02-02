@@ -38,7 +38,7 @@ struct CoachVideoUploadView: View {
                     Button(action: {
                         viewModel.showingCamera = true
                     }) {
-                        Label("Record Video", systemImage: "video.fill")
+                        Label("Record Video", systemImage: "video")
                     }
                 }
                 

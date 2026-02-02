@@ -77,14 +77,6 @@ class GameService {
             athlete.games = athleteGames
         }
         
-        // Remove game from tournament's games if applicable
-        if let tournament = game.tournament,
-           var tournamentGames = tournament.games,
-           let index = tournamentGames.firstIndex(of: game) {
-            tournamentGames.remove(at: index)
-            tournament.games = tournamentGames
-        }
-        
         // Delete gameStats if exists
         if let gameStats = game.gameStats {
             modelContext.delete(gameStats)
@@ -120,7 +112,7 @@ class GameService {
         }
     }
 
-    func createGame(for athlete: Athlete, opponent: String, date: Date, tournament: Tournament?, isLive: Bool, allowWithoutSeason: Bool = false) async -> Result<Game, GameCreationError> {
+    func createGame(for athlete: Athlete, opponent: String, date: Date, isLive: Bool, allowWithoutSeason: Bool = false) async -> Result<Game, GameCreationError> {
         // Check if athlete has an active season
         let hasActiveSeason = athlete.activeSeason != nil
 
@@ -163,10 +155,6 @@ class GameService {
         game.isLive = isLive
         game.athlete = athlete
         game.season = athlete.activeSeason // Will be nil if no active season
-
-        if let tournament = tournament {
-            game.tournament = tournament
-        }
 
         // Create and link statistics
         let stats = GameStatistics()

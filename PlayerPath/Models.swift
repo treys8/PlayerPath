@@ -14,7 +14,6 @@ import SwiftData
 
  User.athletes <-> Athlete.user
  Athlete.seasons <-> Season.athlete
- Athlete.tournaments <-> Tournament.athletes
  Athlete.games <-> Game.athlete
  Athlete.practices <-> Practice.athlete
  Athlete.videoClips <-> VideoClip.athlete
@@ -24,11 +23,8 @@ import SwiftData
  Season.games <-> Game.season
  Season.practices <-> Practice.season
  Season.videoClips <-> VideoClip.season
- Season.tournaments <-> Tournament.season
  Season.seasonStatistics <-> AthleteStatistics (to-one)
 
- Tournament.games <-> Game.tournament
- Tournament.season <-> Season.tournaments
  Game.videoClips <-> VideoClip.game
  Game.gameStats <-> GameStatistics.game (to-one)
  Game.season <-> Season.games
@@ -62,14 +58,28 @@ final class User {
     }
 }
 
+enum AthleteRole: String, Codable, CaseIterable {
+    case batter
+    case pitcher
+    case both
+
+    var displayName: String {
+        switch self {
+        case .batter: return "Batter"
+        case .pitcher: return "Pitcher"
+        case .both: return "Both"
+        }
+    }
+}
+
 @Model
 final class Athlete {
     var id: UUID = UUID()
     var name: String = ""
     var createdAt: Date?
     var user: User?
+    var primaryRole: AthleteRole = AthleteRole.batter
     @Relationship(inverse: \Season.athlete) var seasons: [Season]?
-    var tournaments: [Tournament]?
     @Relationship(inverse: \Game.athlete) var games: [Game]?
     @Relationship(inverse: \Practice.athlete) var practices: [Practice]?
     @Relationship(inverse: \VideoClip.athlete) var videoClips: [VideoClip]?
@@ -133,7 +143,6 @@ final class Season {
     @Relationship(inverse: \Game.season) var games: [Game]?
     @Relationship(inverse: \Practice.season) var practices: [Practice]?
     @Relationship(inverse: \VideoClip.season) var videoClips: [VideoClip]?
-    @Relationship(inverse: \Tournament.season) var tournaments: [Tournament]?
 
     /// Season-specific statistics (calculated when season is archived)
     @Relationship(inverse: \AthleteStatistics.season) var seasonStatistics: AthleteStatistics?
@@ -341,42 +350,7 @@ final class Season {
     }
 }
 
-// MARK: - Tournament and Game Models
-@Model
-final class Tournament {
-    var id: UUID = UUID()
-    var name: String = ""
-    var date: Date?
-    var location: String = ""
-    var info: String = ""
-    var isActive: Bool = false
-    var createdAt: Date?
-    @Relationship(inverse: \Athlete.tournaments) var athletes: [Athlete]?
-    @Relationship(inverse: \Game.tournament) var games: [Game]?
-    var season: Season?
-    
-    // Backward-compatibility shim for older code paths
-    var isLive: Bool {
-        get { isActive }
-        set { isActive = newValue }
-    }
-    
-    // Dashboard sorting shim: some views reference startDate
-    var startDate: Date? {
-        get { date }
-        set { date = newValue }
-    }
-    
-    init(name: String, date: Date, location: String, info: String = "") {
-        self.id = UUID()
-        self.name = name
-        self.date = date
-        self.location = location
-        self.info = info
-        self.createdAt = Date()
-    }
-}
-
+// MARK: - Game Model
 @Model
 final class Game {
     var id: UUID = UUID()
@@ -386,7 +360,6 @@ final class Game {
     var isComplete: Bool = false
     var createdAt: Date?
     var year: Int? // Year for tracking when no season is active
-    var tournament: Tournament?
     var athlete: Athlete?
     var season: Season?
     @Relationship(inverse: \VideoClip.game) var videoClips: [VideoClip]?
@@ -431,7 +404,6 @@ final class Game {
             "id": id.uuidString,
             "athleteId": athlete?.id.uuidString ?? "",
             "seasonId": season?.id.uuidString as Any,
-            "tournamentId": tournament?.id.uuidString as Any,
             "opponent": opponent,
             "date": date ?? Date(),
             "year": year ?? Calendar.current.component(.year, from: date ?? Date()),
@@ -541,6 +513,7 @@ final class VideoClip {
     var isUploaded: Bool = false           // Sync status
     var lastSyncDate: Date?        // Last successful sync
     var createdAt: Date?
+    var duration: Double?          // Video duration in seconds
     @Relationship(inverse: \PlayResult.videoClip) var playResult: PlayResult?
     var isHighlight: Bool = false
     var game: Game?
@@ -665,15 +638,30 @@ final class VideoClip {
 }
 
 enum PlayResultType: Int, CaseIterable, Codable {
-    case single
-    case double
-    case triple
-    case homeRun
-    case walk
-    case strikeout
-    case groundOut
-    case flyOut
-    
+    // Batting results
+    case single = 0
+    case double = 1
+    case triple = 2
+    case homeRun = 3
+    case walk = 4
+    case strikeout = 5
+    case groundOut = 6
+    case flyOut = 7
+
+    // Pitching results
+    case ball = 10
+    case strike = 11
+    case hitByPitch = 12
+    case wildPitch = 13
+
+    var isPitchingResult: Bool {
+        rawValue >= 10
+    }
+
+    var isBattingResult: Bool {
+        rawValue < 10
+    }
+
     var isHit: Bool {
         switch self {
         case .single, .double, .triple, .homeRun:
@@ -682,18 +670,20 @@ enum PlayResultType: Int, CaseIterable, Codable {
             return false
         }
     }
-    
+
     /// Determines if this result counts as an official at-bat
     /// Baseball rules: Walks, HBP, sac flies, and sac bunts do NOT count as at-bats
     var countsAsAtBat: Bool {
         switch self {
-        case .walk:
-            return false // Walks don't count as at-bats
+        case .walk, .hitByPitch:
+            return false // Walks and HBP don't count as at-bats
         case .single, .double, .triple, .homeRun, .strikeout, .groundOut, .flyOut:
             return true // Hits and outs count as at-bats
+        default:
+            return false // Pitching results don't count as at-bats
         }
     }
-    
+
     var isHighlight: Bool {
         switch self {
         case .single, .double, .triple, .homeRun:
@@ -702,7 +692,7 @@ enum PlayResultType: Int, CaseIterable, Codable {
             return false
         }
     }
-    
+
     var bases: Int {
         switch self {
         case .single: return 1
@@ -712,7 +702,7 @@ enum PlayResultType: Int, CaseIterable, Codable {
         default: return 0
         }
     }
-    
+
     var displayName: String {
         switch self {
         case .single: return "Single"
@@ -723,7 +713,21 @@ enum PlayResultType: Int, CaseIterable, Codable {
         case .strikeout: return "Strikeout"
         case .groundOut: return "Ground Out"
         case .flyOut: return "Fly Out"
+        case .ball: return "Ball"
+        case .strike: return "Strike"
+        case .hitByPitch: return "Hit By Pitch"
+        case .wildPitch: return "Wild Pitch"
         }
+    }
+
+    /// Returns only batting result types for filtering in UI
+    static var battingCases: [PlayResultType] {
+        allCases.filter { $0.isBattingResult }
+    }
+
+    /// Returns only pitching result types for filtering in UI
+    static var pitchingCases: [PlayResultType] {
+        allCases.filter { $0.isPitchingResult }
     }
 }
 
@@ -760,8 +764,15 @@ final class AthleteStatistics {
     var strikeouts: Int = 0
     var groundOuts: Int = 0
     var flyOuts: Int = 0
+
+    // Pitching statistics
+    var totalPitches: Int = 0
+    var balls: Int = 0
+    var strikes: Int = 0
+    var hitByPitches: Int = 0
+    var wildPitches: Int = 0
     var updatedAt: Date?
-    
+
     var battingAverage: Double {
         return atBats > 0 ? Double(hits) / Double(atBats) : 0.0
     }
@@ -781,11 +792,20 @@ final class AthleteStatistics {
         return onBasePercentage + sluggingPercentage
     }
 
+    var strikePercentage: Double {
+        guard totalPitches > 0 else { return 0.0 }
+        return Double(strikes) / Double(totalPitches)
+    }
+
+    var hasPitchingData: Bool {
+        totalPitches > 0
+    }
+
     init() {
         self.id = UUID()
         self.updatedAt = Date()
     }
-    
+
     func addPlayResult(_ playResult: PlayResultType) {
         // Update at-bats (only if this result counts as an at-bat)
         if playResult.countsAsAtBat {
@@ -814,10 +834,22 @@ final class AthleteStatistics {
             self.groundOuts += 1
         case .flyOut:
             self.flyOuts += 1
+        case .ball:
+            self.totalPitches += 1
+            self.balls += 1
+        case .strike:
+            self.totalPitches += 1
+            self.strikes += 1
+        case .hitByPitch:
+            self.totalPitches += 1
+            self.hitByPitches += 1
+        case .wildPitch:
+            self.totalPitches += 1
+            self.wildPitches += 1
         }
         self.updatedAt = Date()
     }
-    
+
     func addCompletedGame() {
         self.totalGames += 1
         self.updatedAt = Date()
@@ -916,6 +948,9 @@ final class GameStatistics {
             break
         case .flyOut:
             // Note: flyOuts are not tracked separately in GameStatistics
+            break
+        case .ball, .strike, .hitByPitch, .wildPitch:
+            // Note: Pitching stats are not tracked in GameStatistics - only in AthleteStatistics
             break
         }
         print("GameStatistics: Added play result \(playResult.rawValue). New totals - Hits: \(self.hits), At Bats: \(self.atBats)")

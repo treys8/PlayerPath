@@ -38,7 +38,7 @@ struct CoachFolderDetailView: View {
             switch self {
             case .games: return "figure.baseball"
             case .practices: return "figure.run"
-            case .all: return "video.fill"
+            case .all: return "video"
             }
         }
     }

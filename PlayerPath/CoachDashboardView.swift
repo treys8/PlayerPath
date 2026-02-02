@@ -311,7 +311,7 @@ struct CoachFolderRowView: View {
                     .foregroundColor(.primary)
 
                 HStack(spacing: 12) {
-                    Label("\(folder.videoCount ?? 0)", systemImage: "video.fill")
+                    Label("\(folder.videoCount ?? 0)", systemImage: "video")
                         .font(.caption)
                         .foregroundColor(.secondary)
 

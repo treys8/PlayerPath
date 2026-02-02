@@ -286,7 +286,7 @@ enum OnboardingMilestone: String, CaseIterable {
         switch self {
         case .initialOnboarding: return "checkmark.circle.fill"
         case .welcomeTutorial: return "graduationcap.fill"
-        case .firstVideo: return "video.fill"
+        case .firstVideo: return "video"
         case .firstGame: return "baseball.fill"
         case .firstPractice: return "figure.baseball"
         case .viewStats: return "chart.bar.fill"
@@ -317,7 +317,7 @@ enum Tutorial: CaseIterable {
                 .init(
                     title: "Record Your Swings",
                     description: "Capture video of every at-bat to analyze your technique",
-                    imageName: "video.fill",
+                    imageName: "video",
                     targetView: "videos_tab"
                 ),
                 .init(
@@ -365,7 +365,7 @@ enum Tutorial: CaseIterable {
                 .init(
                     title: "Record During the Game",
                     description: "Videos recorded during a game are automatically linked",
-                    imageName: "video.fill",
+                    imageName: "video",
                     targetView: nil
                 )
             ]

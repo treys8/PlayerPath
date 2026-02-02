@@ -61,7 +61,7 @@ struct GettingStartedView: View {
                 GettingStartedStep(
                     number: 3,
                     title: "Record Your First Video",
-                    icon: "video.fill",
+                    icon: "video",
                     iconColor: .red,
                     description: "Capture an at-bat or practice swing",
                     steps: [

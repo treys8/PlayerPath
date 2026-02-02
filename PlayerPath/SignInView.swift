@@ -1137,7 +1137,7 @@ private struct AthleteOnboardingView: View {
                         onboardingCard(
                             title: "Record and upload",
                             message: "Capture your swings and drills. Upload videos to your library for analysis.",
-                            icon: "video.fill")
+                            icon: "video")
 
                         onboardingCard(
                             title: "Organize into folders",

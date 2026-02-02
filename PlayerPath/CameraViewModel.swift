@@ -7,7 +7,7 @@
 //
 
 import SwiftUI
-import AVFoundation
+@preconcurrency import AVFoundation
 import Combine
 
 class CameraViewModel: NSObject, ObservableObject {
@@ -58,21 +58,29 @@ class CameraViewModel: NSObject, ObservableObject {
 
     // MARK: - Initialization
 
-    init(settings: VideoRecordingSettings = .shared) {
-        self.settings = settings
+    @MainActor
+    init(settings: VideoRecordingSettings? = nil) {
+        self.settings = settings ?? VideoRecordingSettings.shared
         super.init()
     }
 
     deinit {
-        stopSession()
+        // Stop capture session on session queue (non-isolated context)
+        sessionQueue.sync {
+            captureSession.stopRunning()
+        }
         recordingTimer?.invalidate()
         pulseTimer?.invalidate()
     }
 
     // MARK: - Session Management
 
+    @MainActor
     func startSession() async {
         await checkPermissions()
+
+        // Capture settings value before async boundary
+        let qualityPreset = settings.quality.avPreset
 
         sessionQueue.async { [weak self] in
             guard let self = self else { return }
@@ -80,8 +88,8 @@ class CameraViewModel: NSObject, ObservableObject {
             self.captureSession.beginConfiguration()
 
             // Set session preset based on quality
-            if self.captureSession.canSetSessionPreset(self.settings.quality.avPreset) {
-                self.captureSession.sessionPreset = self.settings.quality.avPreset
+            if self.captureSession.canSetSessionPreset(qualityPreset) {
+                self.captureSession.sessionPreset = qualityPreset
             }
 
             self.setupCamera()
@@ -91,12 +99,13 @@ class CameraViewModel: NSObject, ObservableObject {
             self.captureSession.commitConfiguration()
             self.captureSession.startRunning()
 
-            Task { @MainActor in
-                self.isSessionReady = true
+            Task { @MainActor [weak self] in
+                self?.isSessionReady = true
             }
         }
     }
 
+    @MainActor
     func stopSession() {
         if isRecording {
             stopRecording()
@@ -106,11 +115,10 @@ class CameraViewModel: NSObject, ObservableObject {
             self?.captureSession.stopRunning()
         }
 
-        Task { @MainActor in
-            self.isSessionReady = false
-        }
+        isSessionReady = false
     }
 
+    @MainActor
     private func checkPermissions() async {
         let cameraStatus = AVCaptureDevice.authorizationStatus(for: .video)
         let audioStatus = AVCaptureDevice.authorizationStatus(for: .audio)
@@ -118,7 +126,7 @@ class CameraViewModel: NSObject, ObservableObject {
         if cameraStatus != .authorized {
             let granted = await AVCaptureDevice.requestAccess(for: .video)
             if !granted {
-                await handleError("Camera access denied", isFatal: true)
+                handleError("Camera access denied", isFatal: true)
                 return
             }
         }
@@ -126,7 +134,7 @@ class CameraViewModel: NSObject, ObservableObject {
         if settings.audioEnabled && audioStatus != .authorized {
             let granted = await AVCaptureDevice.requestAccess(for: .audio)
             if !granted {
-                await handleError("Microphone access denied. Video will record without audio.", isFatal: false)
+                handleError("Microphone access denied. Video will record without audio.", isFatal: false)
             }
         }
     }
@@ -324,13 +332,13 @@ class CameraViewModel: NSObject, ObservableObject {
     @MainActor
     private func startRecordingTimer() {
         recordingTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-            guard let self = self, let startTime = self.recordingStartTime else { return }
+            Task { @MainActor [weak self] in
+                guard let self = self, let startTime = self.recordingStartTime else { return }
 
-            let elapsed = Date().timeIntervalSince(startTime)
-            let minutes = Int(elapsed) / 60
-            let seconds = Int(elapsed) % 60
+                let elapsed = Date().timeIntervalSince(startTime)
+                let minutes = Int(elapsed) / 60
+                let seconds = Int(elapsed) % 60
 
-            Task { @MainActor in
                 self.recordingTimeString = String(format: "%d:%02d", minutes, seconds)
 
                 // Warning at 9 minutes
@@ -344,7 +352,7 @@ class CameraViewModel: NSObject, ObservableObject {
     @MainActor
     private func startPulseTimer() {
         pulseTimer = Timer.scheduledTimer(withTimeInterval: 0.8, repeats: true) { [weak self] _ in
-            Task { @MainActor in
+            Task { @MainActor [weak self] in
                 self?.recordingPulse.toggle()
             }
         }

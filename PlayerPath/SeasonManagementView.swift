@@ -230,7 +230,7 @@ struct ActiveSeasonCard: View {
             // Stats Grid - using computed values for live updates
             HStack(spacing: 20) {
                 StatBadge(value: completedGames, label: "Games", icon: "figure.baseball")
-                StatBadge(value: totalVideos, label: "Videos", icon: "video.fill")
+                StatBadge(value: totalVideos, label: "Videos", icon: "video")
                 StatBadge(value: highlights, label: "Highlights", icon: "star.fill")
             }
         }
@@ -534,6 +534,14 @@ struct CreateSeasonView: View {
 
 // MARK: - Season Detail View
 
+enum SeasonContentFilter: String, CaseIterable {
+    case all = "All"
+    case games = "Games"
+    case videos = "Videos"
+    case highlights = "Highlights"
+    case practices = "Practices"
+}
+
 struct SeasonDetailView: View {
     let season: Season
     let athlete: Athlete
@@ -546,14 +554,14 @@ struct SeasonDetailView: View {
     @State private var isProcessing = false
     @State private var showingError = false
     @State private var errorMessage = ""
+    @State private var selectedFilter: SeasonContentFilter = .all
 
     // Cached stats - updated via relationships
     @State private var completedGames: Int = 0
     @State private var totalVideos: Int = 0
     @State private var highlights: Int = 0
     @State private var practices: Int = 0
-    @State private var tournaments: Int = 0
-    
+
     var body: some View {
         List {
             // Overview Section
@@ -601,32 +609,110 @@ struct SeasonDetailView: View {
                 }
             }
             
-            // Statistics - using computed values for live updates
-            Section("Season Stats") {
-                LabeledContent("Total Games", value: "\(completedGames)")
-                LabeledContent("Total Videos", value: "\(totalVideos)")
-                LabeledContent("Highlights", value: "\(highlights)")
-                LabeledContent("Practices", value: "\(practices)")
-                LabeledContent("Tournaments", value: "\(tournaments)")
+            // Content Filter
+            Section {
+                Picker("Filter", selection: $selectedFilter) {
+                    ForEach(SeasonContentFilter.allCases, id: \.self) { filter in
+                        Text(filter.rawValue).tag(filter)
+                    }
+                }
+                .pickerStyle(.segmented)
             }
-            
-            // Baseball Stats (if available)
-            if let stats = season.seasonStatistics, stats.atBats > 0 {
-                Section("Batting Statistics") {
-                    LabeledContent("Batting Average", value: String(format: ".%03d", Int(stats.battingAverage * 1000)))
-                    LabeledContent("At Bats", value: "\(stats.atBats)")
-                    LabeledContent("Hits", value: "\(stats.hits)")
-                    LabeledContent("Home Runs", value: "\(stats.homeRuns)")
-                    LabeledContent("RBIs", value: "\(stats.rbis)")
-                    LabeledContent("Walks", value: "\(stats.walks)")
-                    LabeledContent("Strikeouts", value: "\(stats.strikeouts)")
+
+            // Statistics - using computed values for live updates (shown for All filter)
+            if selectedFilter == .all {
+                Section("Season Stats") {
+                    LabeledContent("Total Games", value: "\(completedGames)")
+                    LabeledContent("Total Videos", value: "\(totalVideos)")
+                    LabeledContent("Highlights", value: "\(highlights)")
+                    LabeledContent("Practices", value: "\(practices)")
+                }
+
+                // Baseball Stats (if available)
+                if let stats = season.seasonStatistics, stats.atBats > 0 {
+                    Section("Batting Statistics") {
+                        LabeledContent("Batting Average", value: String(format: ".%03d", Int(stats.battingAverage * 1000)))
+                        LabeledContent("At Bats", value: "\(stats.atBats)")
+                        LabeledContent("Hits", value: "\(stats.hits)")
+                        LabeledContent("Home Runs", value: "\(stats.homeRuns)")
+                        LabeledContent("RBIs", value: "\(stats.rbis)")
+                        LabeledContent("Walks", value: "\(stats.walks)")
+                        LabeledContent("Strikeouts", value: "\(stats.strikeouts)")
+                    }
+                }
+
+                // Notes
+                if !season.notes.isEmpty {
+                    Section("Notes") {
+                        Text(season.notes)
+                    }
                 }
             }
-            
-            // Notes
-            if !season.notes.isEmpty {
-                Section("Notes") {
-                    Text(season.notes)
+
+            // Filtered Content
+            if selectedFilter == .games || selectedFilter == .all {
+                if let games = season.games, !games.isEmpty, selectedFilter == .games {
+                    Section("Games (\(games.count))") {
+                        ForEach(games.sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }) { game in
+                            SeasonGameRow(game: game)
+                        }
+                    }
+                }
+            }
+
+            if selectedFilter == .videos || selectedFilter == .all {
+                if let videos = season.videoClips?.filter({ !$0.isHighlight }), !videos.isEmpty, selectedFilter == .videos {
+                    Section("Videos (\(videos.count))") {
+                        ForEach(videos.sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }) { video in
+                            SeasonVideoRow(video: video)
+                        }
+                    }
+                }
+            }
+
+            if selectedFilter == .highlights || selectedFilter == .all {
+                if let highlightVideos = season.videoClips?.filter({ $0.isHighlight }), !highlightVideos.isEmpty, selectedFilter == .highlights {
+                    Section("Highlights (\(highlightVideos.count))") {
+                        ForEach(highlightVideos.sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }) { video in
+                            SeasonVideoRow(video: video)
+                        }
+                    }
+                }
+            }
+
+            if selectedFilter == .practices || selectedFilter == .all {
+                if let practicesList = season.practices, !practicesList.isEmpty, selectedFilter == .practices {
+                    Section("Practices (\(practicesList.count))") {
+                        ForEach(practicesList.sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }) { practice in
+                            HStack {
+                                Image(systemName: "figure.run")
+                                    .foregroundStyle(.green)
+                                    .frame(width: 24)
+
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Practice")
+                                        .font(.subheadline)
+                                        .fontWeight(.medium)
+
+                                    if let date = practice.date {
+                                        Text(date.formatted(date: .abbreviated, time: .omitted))
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+
+                                Spacer()
+
+                                let videoCount = practice.videoClips?.count ?? 0
+                                if videoCount > 0 {
+                                    Text("\(videoCount) videos")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            .padding(.vertical, 4)
+                        }
+                    }
                 }
             }
             
@@ -709,9 +795,6 @@ struct SeasonDetailView: View {
         .onChange(of: season.practices) { _, _ in
             updateStats()
         }
-        .onChange(of: season.tournaments) { _, _ in
-            updateStats()
-        }
     }
 
     private func updateStats() {
@@ -719,7 +802,6 @@ struct SeasonDetailView: View {
         totalVideos = season.videoClips?.count ?? 0
         highlights = season.videoClips?.filter { $0.isHighlight }.count ?? 0
         practices = season.practices?.count ?? 0
-        tournaments = season.tournaments?.count ?? 0
     }
     
     private func deleteSeason() {
@@ -729,13 +811,11 @@ struct SeasonDetailView: View {
         let games = season.games
         let practices = season.practices
         let videoClips = season.videoClips
-        let tournaments = season.tournaments
 
         // Delink relationships - let SwiftData handle updates efficiently
         season.games = nil
         season.practices = nil
         season.videoClips = nil
-        season.tournaments = nil
 
         modelContext.delete(season)
 
@@ -748,7 +828,6 @@ struct SeasonDetailView: View {
             season.games = games
             season.practices = practices
             season.videoClips = videoClips
-            season.tournaments = tournaments
 
             isProcessing = false
             errorMessage = "Failed to delete season: \(error.localizedDescription)"

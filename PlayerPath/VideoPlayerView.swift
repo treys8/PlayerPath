@@ -351,7 +351,7 @@ struct VideoPlayerView: View {
                 let destinationPath = clipsDirectory.appendingPathComponent(clip.fileName).path
 
                 // Download from cloud with progress updates
-                let cloudManager = await VideoCloudManager.shared
+                let cloudManager = VideoCloudManager.shared
 
                 // Start monitoring download progress
                 let progressTask = Task { @MainActor in

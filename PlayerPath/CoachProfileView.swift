@@ -64,7 +64,7 @@ struct CoachProfileView: View {
                     }
 
                     HStack {
-                        Label("Total Videos", systemImage: "video.fill")
+                        Label("Total Videos", systemImage: "video")
                         Spacer()
                         Text("\(totalVideoCount)")
                             .foregroundColor(.secondary)

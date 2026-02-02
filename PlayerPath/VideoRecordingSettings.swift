@@ -13,6 +13,7 @@ import SwiftUI
 
 /// Stores user preferences for video recording quality, format, frame rate, and slow-motion
 @Observable
+@MainActor
 final class VideoRecordingSettings {
 
     // MARK: - Singleton

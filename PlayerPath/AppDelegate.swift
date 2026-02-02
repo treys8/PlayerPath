@@ -8,6 +8,7 @@
 import UIKit
 import UserNotifications
 import FirebaseCore
+import BackgroundTasks
 import OSLog
 
 private let appLog = Logger(subsystem: "com.playerpath.app", category: "AppDelegate")
@@ -233,28 +234,11 @@ extension PlayerPathAppDelegate {
 // MARK: - Background Tasks
 
 extension PlayerPathAppDelegate {
-    
+
     func registerBackgroundTasks() {
-        // Background tasks registration removed - not currently used
-        // If needed in future, implement BGTaskScheduler with proper identifiers in Info.plist
+        // Register video upload background task
+        UploadQueueManager.registerBackgroundTasks()
+        appLog.info("Background tasks registered")
     }
-    
-    /*
-    // Removed - not currently implemented
-    private func handleDataSyncBackgroundTask(_ task: BGProcessingTask) {
-        // Handle data synchronization in background
-        let operation = DataSyncOperation()
-        
-        task.expirationHandler = {
-            operation.cancel()
-        }
-        
-        operation.completionBlock = {
-            task.setTaskCompleted(success: !operation.isCancelled)
-        }
-        
-        OperationQueue().addOperation(operation)
-    }
-    */
 }
 

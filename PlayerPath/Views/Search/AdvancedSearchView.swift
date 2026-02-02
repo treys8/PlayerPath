@@ -567,7 +567,7 @@ enum ContentType: String, CaseIterable, Identifiable {
 
     var icon: String {
         switch self {
-        case .videos: return "video.fill"
+        case .videos: return "video"
         case .games: return "baseball.fill"
         case .practices: return "figure.run"
         }
@@ -679,7 +679,7 @@ struct VideoSearchResultCard: View {
                     .frame(width: 80, height: 60)
                     .cornerRadius(8)
                     .overlay(
-                        Image(systemName: "video.fill")
+                        Image(systemName: "video")
                             .foregroundColor(.white)
                     )
             }

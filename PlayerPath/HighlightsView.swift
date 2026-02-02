@@ -331,34 +331,27 @@ struct HighlightsView: View {
             }
         }
 
-        // Type filter menu
+        // Combined Filter & Sort menu
         if !groupedHighlights.isEmpty {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
-                    Picker("Type", selection: $filter) {
-                        Label("All", systemImage: "square.grid.2x2").tag(Filter.all)
-                        Label("Games", systemImage: "sportscourt").tag(Filter.game)
-                        Label("Practice", systemImage: "figure.baseball").tag(Filter.practice)
+                    Section("Filter") {
+                        Picker("Type", selection: $filter) {
+                            Label("All", systemImage: "square.grid.2x2").tag(Filter.all)
+                            Label("Games", systemImage: "sportscourt").tag(Filter.game)
+                            Label("Practice", systemImage: "figure.baseball").tag(Filter.practice)
+                        }
+                    }
+                    Section("Sort") {
+                        Picker("Sort", selection: $sortOrder) {
+                            Label("Newest", systemImage: "arrow.down").tag(SortOrder.newest)
+                            Label("Oldest", systemImage: "arrow.up").tag(SortOrder.oldest)
+                        }
                     }
                 } label: {
-                    Image(systemName: filter == .all ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
+                    Image(systemName: (filter != .all || sortOrder != .newest) ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
                 }
-                .accessibilityLabel("Filter highlights")
-            }
-        }
-
-        // Sort menu
-        if !groupedHighlights.isEmpty {
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Picker("Sort", selection: $sortOrder) {
-                        Label("Newest", systemImage: "arrow.down").tag(SortOrder.newest)
-                        Label("Oldest", systemImage: "arrow.up").tag(SortOrder.oldest)
-                    }
-                } label: {
-                    Image(systemName: "arrow.up.arrow.down.circle")
-                }
-                .accessibilityLabel("Sort highlights")
+                .accessibilityLabel("Filter and sort highlights")
             }
         }
 
@@ -598,36 +591,101 @@ struct HighlightsView: View {
 
 struct EmptyHighlightsView: View {
     @Environment(\.dismiss) private var dismiss
+    @State private var isAnimating = false
+    @State private var floatOffset: CGFloat = 0
 
     var body: some View {
-        VStack(spacing: 30) {
-            Image(systemName: "star")
-                .font(.system(size: 80))
-                .foregroundColor(.yellow)
+        ZStack {
+            // Subtle background glow
+            Circle()
+                .fill(
+                    RadialGradient(
+                        colors: [.yellow.opacity(0.1), .clear],
+                        center: .center,
+                        startRadius: 0,
+                        endRadius: 180
+                    )
+                )
+                .frame(width: 360, height: 360)
+                .blur(radius: 50)
+                .offset(y: -40)
 
-            Text("No Highlights Yet")
-                .font(.title)
-                .fontWeight(.bold)
+            VStack(spacing: 28) {
+                // Floating star with glow
+                ZStack {
+                    Image(systemName: "star.fill")
+                        .font(.system(size: 64))
+                        .foregroundStyle(.yellow.opacity(0.3))
+                        .blur(radius: 15)
 
-            Text("Star great plays! Hits automatically become highlights")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal)
+                    Image(systemName: "star.fill")
+                        .font(.system(size: 64))
+                        .foregroundStyle(
+                            LinearGradient(
+                                colors: [.yellow, .orange.opacity(0.8)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                }
+                .offset(y: floatOffset)
+                .scaleEffect(isAnimating ? 1.0 : 0.8)
+                .opacity(isAnimating ? 1.0 : 0.0)
 
-            Button {
-                Haptics.light()
-                // Navigate to Videos tab
-                NotificationCenter.default.post(name: .switchToVideosTab, object: nil)
-                dismiss()
-            } label: {
-                Label("Go to Videos", systemImage: "video.fill")
-                    .frame(maxWidth: .infinity)
+                VStack(spacing: 10) {
+                    Text("No Highlights Yet")
+                        .font(.title3)
+                        .fontWeight(.bold)
+                        .foregroundColor(.primary)
+
+                    Text("Star your best plays!\nHits automatically become highlights")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .lineSpacing(2)
+                }
+                .opacity(isAnimating ? 1.0 : 0.0)
+                .offset(y: isAnimating ? 0 : 10)
+
+                Button {
+                    Haptics.medium()
+                    NotificationCenter.default.post(name: .switchToVideosTab, object: nil)
+                    dismiss()
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "video")
+                            .font(.body)
+                        Text("Go to Videos")
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                    }
+                    .foregroundColor(.white)
+                    .frame(maxWidth: 200)
+                    .padding(.vertical, 14)
+                    .background(
+                        LinearGradient(
+                            colors: [.blue, .blue.opacity(0.85)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .clipShape(Capsule())
+                    .shadow(color: .blue.opacity(0.3), radius: 12, x: 0, y: 6)
+                }
+                .buttonStyle(PremiumButtonStyle())
+                .opacity(isAnimating ? 1.0 : 0.0)
+                .offset(y: isAnimating ? 0 : 20)
             }
-            .buttonStyle(.borderedProminent)
-            .padding(.horizontal)
+            .padding(.horizontal, 40)
         }
-        .padding()
+        .onAppear {
+            withAnimation(.spring(response: 0.8, dampingFraction: 0.7)) {
+                isAnimating = true
+            }
+            withAnimation(.easeInOut(duration: 2.5).repeatForever(autoreverses: true)) {
+                floatOffset = -8
+            }
+        }
     }
 }
 
@@ -641,9 +699,13 @@ struct HighlightCard: View {
     let onTap: () -> Void
     @State private var thumbnailImage: UIImage?
     @State private var isLoadingThumbnail = false
-    
+    @State private var shimmerPhase: CGFloat = 0
+
     var body: some View {
-        Button(action: onTap) {
+        Button(action: {
+            Haptics.light()
+            onTap()
+        }) {
             VStack(spacing: 0) {
                 // Video thumbnail area with proper thumbnail loading
                 GeometryReader { geometry in
@@ -656,6 +718,7 @@ struct HighlightCard: View {
                                     .frame(width: geometry.size.width, height: geometry.size.height)
                                     .clipped()
                             } else {
+                                // Shimmer loading placeholder
                                 Rectangle()
                                     .fill(
                                         LinearGradient(
@@ -665,99 +728,118 @@ struct HighlightCard: View {
                                         )
                                     )
                                     .overlay(
+                                        shimmerOverlay
+                                            .opacity(isLoadingThumbnail ? 1 : 0)
+                                    )
+                                    .overlay(
                                         VStack(spacing: 8) {
-                                            if isLoadingThumbnail {
-                                                ProgressView()
-                                                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                                                    .scaleEffect(1.2)
-                                            } else {
-                                                Image(systemName: "video")
-                                                    .font(.title2)
-                                                    .foregroundColor(.white)
-                                                
-                                                Text("Loading...")
-                                                    .font(.caption)
-                                                    .foregroundColor(.white.opacity(0.8))
-                                            }
+                                            Image(systemName: "play.circle.fill")
+                                                .font(.system(size: 36))
+                                                .foregroundColor(.white.opacity(0.8))
                                         }
+                                        .opacity(isLoadingThumbnail ? 0 : 1)
                                     )
                             }
                         }
-                    
-                    // Play button overlay (only in normal mode)
-                    if editMode == .inactive {
-                        Circle()
-                            .fill(Color.black.opacity(0.6))
-                            .frame(width: 44, height: 44)
-                            .overlay(
-                                Image(systemName: "play.fill")
-                                    .font(.title3)
-                                    .foregroundColor(.white)
-                            )
-                    }
-                    
-                    // Play result badge in top-right corner (always visible)
-                    VStack {
-                        HStack {
-                            Spacer()
-                            
-                            if let playResult = clip.playResult {
-                                VStack(spacing: 2) {
-                                    Image(systemName: playResultIcon(for: playResult.type))
+
+                        // Gradient overlay for better contrast
+                        LinearGradient(
+                            colors: [.clear, .clear, .black.opacity(0.5)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+
+                        // Play button overlay (only in normal mode)
+                        if editMode == .inactive && thumbnailImage != nil {
+                            Circle()
+                                .fill(.ultraThinMaterial)
+                                .frame(width: 48, height: 48)
+                                .overlay(
+                                    Image(systemName: "play.fill")
+                                        .font(.title3)
                                         .foregroundColor(.white)
-                                        .font(.caption)
-                                    
-                                    Text(playResultAbbreviation(for: playResult.type))
-                                        .font(.caption2)
-                                        .fontWeight(.bold)
-                                        .foregroundColor(.white)
+                                        .offset(x: 2)
+                                )
+                                .shadow(color: .black.opacity(0.3), radius: 8, x: 0, y: 4)
+                        }
+
+                        // Play result badge in top-right corner
+                        VStack {
+                            HStack {
+                                Spacer()
+
+                                if let playResult = clip.playResult {
+                                    VStack(spacing: 2) {
+                                        Image(systemName: playResultIcon(for: playResult.type))
+                                            .foregroundColor(.white)
+                                            .font(.caption)
+
+                                        Text(playResultAbbreviation(for: playResult.type))
+                                            .font(.caption2)
+                                            .fontWeight(.bold)
+                                            .foregroundColor(.white)
+                                    }
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 6)
+                                    .background(playResultColor(for: playResult.type))
+                                    .cornerRadius(8)
+                                    .shadow(color: .black.opacity(0.3), radius: 4, x: 0, y: 2)
+                                    .padding(.top, 8)
+                                    .padding(.trailing, 8)
                                 }
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 6)
-                                .background(playResultColor(for: playResult.type))
-                                .cornerRadius(8)
-                                .padding(.top, 8)
-                                .padding(.trailing, 8)
+                            }
+
+                            Spacer()
+
+                            // Bottom row: highlight star and duration
+                            HStack(alignment: .bottom) {
+                                // Highlight star
+                                Image(systemName: "star.fill")
+                                    .font(.system(size: 14))
+                                    .foregroundColor(.yellow)
+                                    .padding(6)
+                                    .background(.ultraThinMaterial, in: Circle())
+                                    .shadow(color: .black.opacity(0.2), radius: 4, x: 0, y: 2)
+                                    .padding(.bottom, 8)
+                                    .padding(.leading, 8)
+
+                                Spacer()
+
+                                // Duration badge
+                                if let duration = clip.duration, duration > 0 {
+                                    Text(formatDuration(duration))
+                                        .font(.caption2)
+                                        .fontWeight(.semibold)
+                                        .foregroundColor(.white)
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 3)
+                                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 4))
+                                        .padding(.bottom, 8)
+                                        .padding(.trailing, 8)
+                                }
                             }
                         }
-                        
-                        Spacer()
-                        
-                        // Highlight star in bottom-left corner (always visible)
-                        HStack {
-                            Image(systemName: "star.fill")
-                                .font(.title3)
-                                .foregroundColor(.yellow)
-                                .background(
-                                    Circle()
-                                        .fill(Color.black.opacity(0.6))
-                                        .frame(width: 32, height: 32)
-                                )
-                                .padding(.bottom, 8)
-                                .padding(.leading, 8)
-                            
-                            Spacer()
-                        }
-                    }
                     }
                 }
-                .aspectRatio(16/9, contentMode: .fit) // Landscape video aspect ratio
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                
-                // Info overlay at bottom
-                VStack(alignment: .leading, spacing: 4) {
+                .aspectRatio(16/9, contentMode: .fit)
+                .clipShape(UnevenRoundedRectangle(topLeadingRadius: 12, bottomLeadingRadius: 0, bottomTrailingRadius: 0, topTrailingRadius: 12))
+
+                // Info section at bottom
+                VStack(alignment: .leading, spacing: 6) {
                     if let playResult = clip.playResult {
                         Text(playResult.type.displayName)
-                            .font(.headline)
+                            .font(.subheadline)
                             .fontWeight(.bold)
                             .foregroundColor(.primary)
+                            .lineLimit(1)
                     }
 
                     if let game = clip.game {
-                        HStack(spacing: 8) {
+                        HStack(spacing: 6) {
                             Text("vs \(game.opponent)")
-                                .font(.subheadline)
+                                .font(.caption)
                                 .foregroundColor(.blue)
+                                .lineLimit(1)
 
                             if let season = clip.season {
                                 SeasonBadge(season: season, fontSize: 8)
@@ -765,10 +847,12 @@ struct HighlightCard: View {
                         }
 
                         Text((game.date ?? Date()), style: .date)
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
                     } else {
-                        HStack(spacing: 8) {
+                        HStack(spacing: 6) {
                             Text("Practice")
-                                .font(.subheadline)
+                                .font(.caption)
                                 .foregroundColor(.green)
 
                             if let season = clip.season {
@@ -777,24 +861,58 @@ struct HighlightCard: View {
                         }
 
                         Text((clip.createdAt ?? Date()), style: .date)
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
                     }
                 }
-                .padding(12)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(Color(.systemGray6))
             }
         }
-        .buttonStyle(PlainButtonStyle())
+        .buttonStyle(PressableCardButtonStyle())
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityLabel)
         .accessibilityHint(editMode == .active ? "Tap to select. Use bottom toolbar to delete." : "Tap to play the highlight.")
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .shadow(color: .black.opacity(0.1), radius: 5, x: 0, y: 2)
-        .scaleEffect(editMode == .active ? 0.95 : 1.0) // Slightly smaller in edit mode
-        .animation(.easeInOut(duration: 0.2), value: editMode)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .shadow(color: .black.opacity(0.08), radius: 12, x: 0, y: 4)
+        .shadow(color: .black.opacity(0.04), radius: 2, x: 0, y: 1)
+        .scaleEffect(editMode == .active ? 0.96 : 1.0)
+        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: editMode)
         .task {
             await loadThumbnail()
         }
+        .onAppear {
+            // Start shimmer animation
+            withAnimation(.linear(duration: 1.5).repeatForever(autoreverses: false)) {
+                shimmerPhase = 1
+            }
+        }
+    }
+
+    // Shimmer loading effect
+    private var shimmerOverlay: some View {
+        GeometryReader { geometry in
+            LinearGradient(
+                colors: [
+                    .white.opacity(0),
+                    .white.opacity(0.3),
+                    .white.opacity(0)
+                ],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+            .frame(width: geometry.size.width * 0.6)
+            .offset(x: -geometry.size.width * 0.3 + geometry.size.width * 1.3 * shimmerPhase)
+        }
+        .clipped()
+    }
+
+    private func formatDuration(_ seconds: Double) -> String {
+        let mins = Int(seconds) / 60
+        let secs = Int(seconds) % 60
+        return String(format: "%d:%02d", mins, secs)
     }
     
     private var accessibilityLabel: String {
@@ -890,9 +1008,17 @@ struct HighlightCard: View {
             return "arrow.down.circle.fill"
         case .flyOut:
             return "arrow.up.circle.fill"
+        case .ball:
+            return "circle"
+        case .strike:
+            return "xmark.circle.fill"
+        case .hitByPitch:
+            return "figure.fall"
+        case .wildPitch:
+            return "arrow.up.right.and.arrow.down.left"
         }
     }
-    
+
     private func playResultAbbreviation(for type: PlayResultType) -> String {
         switch type {
         case .single:
@@ -911,9 +1037,17 @@ struct HighlightCard: View {
             return "GO"
         case .flyOut:
             return "FO"
+        case .ball:
+            return "B"
+        case .strike:
+            return "S"
+        case .hitByPitch:
+            return "HBP"
+        case .wildPitch:
+            return "WP"
         }
     }
-    
+
     private func playResultColor(for type: PlayResultType) -> Color {
         switch type {
         case .single:
@@ -930,6 +1064,14 @@ struct HighlightCard: View {
             return .red.opacity(0.8)
         case .groundOut, .flyOut:
             return .gray
+        case .ball:
+            return .orange
+        case .strike:
+            return .green
+        case .hitByPitch:
+            return .purple
+        case .wildPitch:
+            return .red
         }
     }
 }
@@ -1337,7 +1479,7 @@ struct GameHighlightSection: View {
                                     .foregroundColor(.secondary)
 
                                 HStack(spacing: 4) {
-                                    Image(systemName: "video.fill")
+                                    Image(systemName: "video")
                                         .font(.caption2)
                                     Text("\(group.hitCount) hit\(group.hitCount == 1 ? "" : "s")")
                                         .font(.caption)

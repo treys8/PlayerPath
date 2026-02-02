@@ -54,7 +54,7 @@ struct AthleteCard: View {
                 // Quick stats if available
                 HStack(spacing: 16) {
                     AthleteStatBadge(
-                        icon: "video.fill",
+                        icon: "video",
                         count: (athlete.videoClips ?? []).count,
                         label: "Videos"
                     )

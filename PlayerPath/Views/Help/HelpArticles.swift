@@ -36,7 +36,7 @@ enum HelpArticle {
 
     var icon: String {
         switch self {
-        case .recordingVideos: return "video.fill"
+        case .recordingVideos: return "video"
         case .taggingPlays: return "tag.fill"
         case .understandingStats: return "chart.bar.fill"
         case .managingAthletes: return "person.fill"

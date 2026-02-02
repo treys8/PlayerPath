@@ -314,7 +314,7 @@ struct SampleDataPromptView: View {
             }
 
             do {
-                try await SampleDataGenerator.generateSampleData(for: user, context: modelContext)
+                try SampleDataGenerator.generateSampleData(for: user, context: modelContext)
 
                 await MainActor.run {
                     Haptics.success()

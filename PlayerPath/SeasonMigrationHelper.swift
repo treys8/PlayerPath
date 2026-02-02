@@ -27,19 +27,16 @@ struct SeasonMigrationHelper {
         let gamesWithoutSeason = (athlete.games ?? []).filter { $0.season == nil }
         let practicesWithoutSeason = (athlete.practices ?? []).filter { $0.season == nil }
         let videosWithoutSeason = (athlete.videoClips ?? []).filter { $0.season == nil }
-        let tournamentsWithoutSeason = (athlete.tournaments ?? []).filter { $0.season == nil }
-        
-        guard !gamesWithoutSeason.isEmpty || !practicesWithoutSeason.isEmpty || 
-              !videosWithoutSeason.isEmpty || !tournamentsWithoutSeason.isEmpty else {
+        guard !gamesWithoutSeason.isEmpty || !practicesWithoutSeason.isEmpty ||
+              !videosWithoutSeason.isEmpty else {
             return
         }
-        
+
         // Group items by date ranges to create appropriate seasons
         let seasons = createSeasonsFromData(
             games: gamesWithoutSeason,
             practices: practicesWithoutSeason,
-            videos: videosWithoutSeason,
-            tournaments: tournamentsWithoutSeason
+            videos: videosWithoutSeason
         )
         
         // Create season objects and link data
@@ -73,11 +70,7 @@ struct SeasonMigrationHelper {
             for video in items.videos {
                 video.season = season
             }
-            
-            for tournament in items.tournaments {
-                tournament.season = season
-            }
-            
+
             modelContext.insert(season)
         }
         
@@ -93,17 +86,15 @@ struct SeasonMigrationHelper {
     private static func createSeasonsFromData(
         games: [Game],
         practices: [Practice],
-        videos: [VideoClip],
-        tournaments: [Tournament]
+        videos: [VideoClip]
     ) -> [(seasonInfo: SeasonInfo, items: SeasonItems)] {
-        
+
         // Collect all dates
         var allDates: [Date] = []
         allDates += games.compactMap { $0.date }
         allDates += practices.compactMap { $0.date }
         allDates += videos.compactMap { $0.createdAt }
-        allDates += tournaments.compactMap { $0.date }
-        
+
         guard !allDates.isEmpty else {
             // No dates available, create a single default season
             let now = Date()
@@ -117,8 +108,7 @@ struct SeasonMigrationHelper {
                 items: SeasonItems(
                     games: games,
                     practices: practices,
-                    videos: videos,
-                    tournaments: tournaments
+                    videos: videos
                 )
             )]
         }
@@ -150,13 +140,6 @@ struct SeasonMigrationHelper {
             seasonGroups[key, default: SeasonItems()].videos.append(video)
         }
         
-        // Process tournaments
-        for tournament in tournaments {
-            guard let date = tournament.date else { continue }
-            let key = seasonKey(for: date, calendar: calendar)
-            seasonGroups[key, default: SeasonItems()].tournaments.append(tournament)
-        }
-        
         // Convert to sorted array
         let sortedKeys = seasonGroups.keys.sorted { $0.year > $1.year || ($0.year == $1.year && $0.season > $1.season) }
         
@@ -169,7 +152,6 @@ struct SeasonMigrationHelper {
             dates += items.games.compactMap { $0.date }
             dates += items.practices.compactMap { $0.date }
             dates += items.videos.compactMap { $0.createdAt }
-            dates += items.tournaments.compactMap { $0.date }
             dates.sort()
             
             let startDate = dates.first ?? Date()
@@ -216,10 +198,9 @@ struct SeasonMigrationHelper {
         var games: [Game] = []
         var practices: [Practice] = []
         var videos: [VideoClip] = []
-        var tournaments: [Tournament] = []
-        
+
         var totalItems: Int {
-            games.count + practices.count + videos.count + tournaments.count
+            games.count + practices.count + videos.count
         }
     }
     
@@ -254,16 +235,14 @@ struct SeasonMigrationHelper {
         // If athlete has no seasons but has data, they need migration
         let seasons = athlete.seasons ?? []
         if seasons.isEmpty {
-            return !(athlete.games ?? []).isEmpty || 
-                   !(athlete.practices ?? []).isEmpty || 
-                   !(athlete.videoClips ?? []).isEmpty ||
-                   !(athlete.tournaments ?? []).isEmpty
+            return !(athlete.games ?? []).isEmpty ||
+                   !(athlete.practices ?? []).isEmpty ||
+                   !(athlete.videoClips ?? []).isEmpty
         }
-        
+
         // Check if there's any data without a season
         return (athlete.games ?? []).contains(where: { $0.season == nil }) ||
                (athlete.practices ?? []).contains(where: { $0.season == nil }) ||
-               (athlete.videoClips ?? []).contains(where: { $0.season == nil }) ||
-               (athlete.tournaments ?? []).contains(where: { $0.season == nil })
+               (athlete.videoClips ?? []).contains(where: { $0.season == nil })
     }
 }

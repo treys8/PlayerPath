@@ -371,7 +371,7 @@ struct ComparisonRow<Value>: View {
                 .padding(.vertical, 8)
 
             ForEach(seasons) { season in
-                Text("\(getValue(season))")
+                Text(String(describing: getValue(season)))
                     .font(.caption)
                     .frame(width: 100, alignment: .center)
                     .padding(.horizontal, 8)

@@ -25,13 +25,15 @@ struct ModernCameraView: View {
     @State private var showingTutorial = false
     @State private var dragOffset: CGFloat = 0
 
+    @MainActor
     init(
-        settings: VideoRecordingSettings = .shared,
+        settings: VideoRecordingSettings? = nil,
         onVideoRecorded: @escaping (URL) -> Void,
         onCancel: @escaping () -> Void,
         onError: ((Error) -> Void)? = nil
     ) {
-        self._viewModel = StateObject(wrappedValue: CameraViewModel(settings: settings))
+        let effectiveSettings = settings ?? VideoRecordingSettings.shared
+        self._viewModel = StateObject(wrappedValue: CameraViewModel(settings: effectiveSettings))
         self.onVideoRecorded = onVideoRecorded
         self.onCancel = onCancel
         self.onError = onError
