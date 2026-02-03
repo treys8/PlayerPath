@@ -356,6 +356,8 @@ final class Game {
     var id: UUID = UUID()
     var date: Date?
     var opponent: String = ""
+    var location: String?
+    var notes: String?
     var isLive: Bool = false
     var isComplete: Bool = false
     var createdAt: Date?
@@ -400,7 +402,7 @@ final class Game {
     // MARK: - Firestore Conversion
 
     func toFirestoreData() -> [String: Any] {
-        return [
+        var data: [String: Any] = [
             "id": id.uuidString,
             "athleteId": athlete?.id.uuidString ?? "",
             "seasonId": season?.id.uuidString as Any,
@@ -414,6 +416,10 @@ final class Game {
             "version": version,
             "isDeleted": false
         ]
+        // Optional fields
+        if let location = location { data["location"] = location }
+        if let notes = notes { data["notes"] = notes }
+        return data
     }
 }
 

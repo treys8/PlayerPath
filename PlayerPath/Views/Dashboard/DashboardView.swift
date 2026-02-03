@@ -368,7 +368,7 @@ struct DashboardView: View {
                         DashboardFeatureCard(
                             icon: "chart.bar.fill",
                             title: "Statistics",
-                            subtitle: (athlete.statistics.map { String(format: "%.3f AVG", $0.battingAverage) }) ?? "0.000 AVG",
+                            subtitle: (athlete.statistics.map { formatBattingAverage($0.battingAverage) + " AVG" }) ?? ".000 AVG",
                             color: .blue
                         ) {
                             postSwitchTab(.stats)
@@ -394,7 +394,20 @@ struct DashboardView: View {
                             postSwitchTab(.practice)
                         }
 
-                        // 6. Coaches (Premium Only)
+                        // 6. Seasons
+                        DashboardFeatureCard(
+                            icon: "calendar",
+                            title: "Seasons",
+                            subtitle: "\((athlete.seasons ?? []).count) Total",
+                            color: .teal
+                        ) {
+                            postSwitchTab(.more)
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                NotificationCenter.default.post(name: Notification.Name.presentSeasons, object: athlete)
+                            }
+                        }
+
+                        // 7. Coaches (Premium Only)
                         DashboardPremiumFeatureCard(
                             icon: "person.3.fill",
                             title: "Coaches",
@@ -412,19 +425,6 @@ struct DashboardView: View {
                                 showCoachesPremiumAlert = true
                             }
                         }
-
-                        // 7. Seasons
-                        DashboardFeatureCard(
-                            icon: "calendar",
-                            title: "Seasons",
-                            subtitle: "\((athlete.seasons ?? []).count) Total",
-                            color: .teal
-                        ) {
-                            postSwitchTab(.more)
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                                NotificationCenter.default.post(name: Notification.Name.presentSeasons, object: athlete)
-                            }
-                        }
                     }
                 }
                 .padding(.horizontal)
@@ -436,13 +436,13 @@ struct DashboardView: View {
                     HStack(spacing: 12) {
                         DashboardStatCard(
                             title: "AVG",
-                            value: athlete.statistics.map { String(format: "%.3f", $0.battingAverage) } ?? "0.000",
+                            value: athlete.statistics.map { formatBattingAverage($0.battingAverage) } ?? ".000",
                             icon: "square.grid.2x2.fill",
                             color: .blue
                         )
                         DashboardStatCard(
                             title: "SLG",
-                            value: athlete.statistics.map { String(format: "%.3f", $0.sluggingPercentage) } ?? "0.000",
+                            value: athlete.statistics.map { formatBattingAverage($0.sluggingPercentage) } ?? ".000",
                             icon: "chart.bar.fill",
                             color: .purple
                         )
@@ -456,44 +456,6 @@ struct DashboardView: View {
                 }
                 .padding(.horizontal)
 
-                // Recent Videos Section
-                if !viewModel.recentVideos.isEmpty {
-                    VStack(spacing: 16) {
-                        HStack {
-                            DashboardSectionHeader(title: "Recent Videos", icon: "video", color: .red)
-                            Spacer()
-                            NavigationLink {
-                                VideoClipsView(athlete: athlete)
-                            } label: {
-                                HStack(spacing: 4) {
-                                    Text("See All")
-                                        .font(.subheadline)
-                                        .fontWeight(.medium)
-                                    Image(systemName: "chevron.right")
-                                        .font(.caption)
-                                }
-                                .foregroundColor(.blue)
-                            }
-                            .simultaneousGesture(TapGesture().onEnded { Haptics.light() })
-                        }
-                        .padding(.horizontal)
-
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 12) {
-                                ForEach(viewModel.recentVideos, id: \.id) { video in
-                                    DashboardVideoCard(video: video)
-                                        .onTapGesture {
-                                            Haptics.light()
-                                            NotificationCenter.default.post(name: Notification.Name.presentFullscreenVideo, object: video)
-                                        }
-                                }
-                            }
-                            .padding(.horizontal)
-                        }
-                    }
-                    .transition(.move(edge: .top).combined(with: .opacity))
-                    .animation(.easeInOut(duration: 0.25), value: viewModel.recentVideos.count)
-                }
             }
             .padding(.vertical)
         }
@@ -508,6 +470,17 @@ struct DashboardView: View {
             // Stop auto-refresh timer when view disappears
             viewModel.stopAutoRefresh()
         }
+    }
+
+    // MARK: - Helper Functions
+
+    /// Formats batting average without leading zero (e.g., .333 instead of 0.333)
+    private func formatBattingAverage(_ value: Double) -> String {
+        let formatted = String(format: "%.3f", value)
+        if formatted.hasPrefix("0.") {
+            return String(formatted.dropFirst()) // Remove the leading "0"
+        }
+        return formatted
     }
 
 }

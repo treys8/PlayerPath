@@ -169,6 +169,9 @@ final class ComprehensiveAuthManager: ObservableObject {
         errorMessage = nil
         isNewUser = false // This is a sign-in, not a new user
 
+        // Clear any existing upload queues from previous session (handles account switching)
+        UploadQueueManager.shared.clearAllQueues()
+
         do {
             let result = try await Auth.auth().signIn(withEmail: email, password: password)
             currentFirebaseUser = result.user
@@ -194,6 +197,9 @@ final class ComprehensiveAuthManager: ObservableObject {
         isLoading = true
         errorMessage = nil
         isNewUser = true // This is a signup, mark as new user
+
+        // Clear any existing upload queues from previous session
+        UploadQueueManager.shared.clearAllQueues()
         
         // Set the role IMMEDIATELY before any async operations
         // This ensures the UI sees the correct role right away
@@ -426,6 +432,9 @@ final class ComprehensiveAuthManager: ObservableObject {
         isLoading = true
         errorMessage = nil
         isNewUser = true
+
+        // Clear any existing upload queues from previous session
+        UploadQueueManager.shared.clearAllQueues()
         
         // Set the role IMMEDIATELY before any async operations
         // This ensures the UI sees the correct role right away
@@ -503,6 +512,9 @@ final class ComprehensiveAuthManager: ObservableObject {
 
             // Clear biometric credentials on logout for security
             BiometricAuthenticationManager.shared.disableBiometric()
+
+            // Clear upload queues to prevent cross-account data leakage
+            UploadQueueManager.shared.clearAllQueues()
 
             print("🟢 Sign out successful")
         } catch {

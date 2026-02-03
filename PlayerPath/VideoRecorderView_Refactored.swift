@@ -159,10 +159,10 @@ struct VideoRecorderView_Refactored: View {
                     showingBatteryWarning = true
                 }
 
-                // Quick record for live games
+                // Quick record for live games - skip options and go straight to camera
                 if game?.isLive == true {
                     autoOpeningCamera = true
-                    try? await Task.sleep(for: .milliseconds(300)) // Brief delay for smooth transition
+                    try? await Task.sleep(for: .milliseconds(100)) // Minimal delay for view to appear
                     guard !Task.isCancelled, autoOpeningCamera else { return }
                     checkCameraPermission()
                     autoOpeningCamera = false
@@ -580,29 +580,50 @@ struct VideoRecorderView_Refactored: View {
         VStack(spacing: 25) {
             headerSection
             Spacer()
-            
-            // Use dedicated options view
-            VideoRecordingOptionsView(
-                onRecordVideo: {
-                    print("VideoRecorder: Record Video button tapped")
-                    checkCameraPermission()
-                },
-                onUploadVideo: {
-                    print("VideoRecorder: Upload Video button tapped")
-                    showingPhotoPicker = true
-                },
-                tipText: game?.isLive == true
-                    ? "Tip: Capture the action as it happens! Position camera for best angle"
-                    : "Tip: Position camera to capture the full swing and follow-through",
-                hideUpload: game?.isLive == true // Hide upload for live games
-            )
-            
-            // Recording guidelines
-            recordingGuidelinesSection
-            
+
+            // For live games, skip the options screen and show loading while camera opens
+            if game?.isLive == true {
+                liveGameLoadingView
+            } else {
+                // Use dedicated options view for non-live games
+                VideoRecordingOptionsView(
+                    onRecordVideo: {
+                        print("VideoRecorder: Record Video button tapped")
+                        checkCameraPermission()
+                    },
+                    onUploadVideo: {
+                        print("VideoRecorder: Upload Video button tapped")
+                        showingPhotoPicker = true
+                    },
+                    tipText: "Tip: Position camera to capture the full swing and follow-through",
+                    hideUpload: false
+                )
+
+                // Recording guidelines
+                recordingGuidelinesSection
+            }
+
             Spacer()
         }
         .padding()
+    }
+
+    private var liveGameLoadingView: some View {
+        VStack(spacing: 20) {
+            ProgressView()
+                .scaleEffect(1.5)
+                .tint(.white)
+
+            Text("Opening Camera...")
+                .font(.headline)
+                .foregroundColor(.white)
+
+            Text("Get ready to capture the play!")
+                .font(.subheadline)
+                .foregroundColor(.white.opacity(0.7))
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 40)
     }
     
     private var recordingGuidelinesSection: some View {

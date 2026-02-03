@@ -780,6 +780,7 @@ struct GameDetailView: View {
     @State private var showingVideoRecorder = false
     @State private var showingDeleteConfirmation = false
     @State private var showingManualStats = false
+    @State private var showingEditGame = false
     @State private var gameService: GameService? = nil
     
     var videoClips: [VideoClip] {
@@ -812,11 +813,21 @@ struct GameDetailView: View {
                         }
                     }
                     
+                    if let location = game.location, !location.isEmpty {
+                        HStack {
+                            Text("Location")
+                                .fontWeight(.semibold)
+                            Spacer()
+                            Text(location)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+
                     HStack {
                         Text("Status")
                             .fontWeight(.semibold)
                         Spacer()
-                        
+
                         Group {
                             if game.isLive {
                                 Text("LIVE")
@@ -844,8 +855,16 @@ struct GameDetailView: View {
                         .font(.caption)
                         .fontWeight(.bold)
                     }
-                    
-                    // Removed tournament display here as per instructions
+
+                    if let notes = game.notes, !notes.isEmpty {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Notes")
+                                .fontWeight(.semibold)
+                            Text(notes)
+                                .foregroundColor(.secondary)
+                                .font(.subheadline)
+                        }
+                    }
                 }
                 .padding(.vertical, 5)
             }
@@ -879,6 +898,11 @@ struct GameDetailView: View {
                     }
                 }
                 
+                // Edit Game Details - available for all games
+                Button(action: { showingEditGame = true }) {
+                    Label("Edit Game", systemImage: "pencil")
+                }
+
                 // Manual Statistics Entry
                 Button(action: { showingManualStats = true }) {
                     Label("Enter Statistics", systemImage: "chart.bar.doc.horizontal")
@@ -993,11 +1017,16 @@ struct GameDetailView: View {
                     
                     Divider()
                     
+                    // Edit Game Details
+                    Button(action: { showingEditGame = true }) {
+                        Label("Edit Game", systemImage: "pencil")
+                    }
+
                     // Statistics Action
                     Button(action: { showingManualStats = true }) {
                         Label("Enter Statistics", systemImage: "chart.bar.doc.horizontal")
                     }
-                    
+
                     Divider()
                     
                     // Destructive Actions
@@ -1034,6 +1063,9 @@ struct GameDetailView: View {
         .sheet(isPresented: $showingManualStats) {
             ManualStatisticsEntryView(game: game)
         }
+        .sheet(isPresented: $showingEditGame) {
+            EditGameSheet(game: game)
+        }
         .onAppear {
             if gameService == nil { gameService = GameService(modelContext: modelContext) }
         }
@@ -1055,6 +1087,122 @@ struct GameDetailView: View {
         Task { await gameService?.deleteGameDeep(game) }
         // Dismiss the view after deletion attempt
         dismiss()
+    }
+}
+
+// MARK: - Edit Game Sheet
+
+struct EditGameSheet: View {
+    @Bindable var game: Game
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
+
+    @State private var opponent: String = ""
+    @State private var date: Date = Date()
+    @State private var location: String = ""
+    @State private var notes: String = ""
+    @State private var showingSaveError = false
+
+    private var isValidOpponent: Bool {
+        let trimmed = opponent.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.count >= 2 && trimmed.count <= 50
+    }
+
+    private var hasChanges: Bool {
+        opponent != game.opponent ||
+        date != (game.date ?? Date()) ||
+        location != (game.location ?? "") ||
+        notes != (game.notes ?? "")
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Game Details") {
+                    TextField("Opponent", text: $opponent)
+                        .textInputAutocapitalization(.words)
+                        .autocorrectionDisabled()
+
+                    if !opponent.isEmpty && !isValidOpponent {
+                        Label("Opponent name must be 2-50 characters", systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption)
+                            .foregroundColor(.orange)
+                    }
+
+                    DatePicker("Date & Time", selection: $date)
+                }
+
+                Section("Location (Optional)") {
+                    TextField("Location", text: $location)
+                        .textInputAutocapitalization(.words)
+                }
+
+                Section("Notes (Optional)") {
+                    TextField("Game notes", text: $notes, axis: .vertical)
+                        .lineLimit(3...6)
+                }
+
+                if game.isLive {
+                    Section {
+                        Label("This game is currently live", systemImage: "circle.fill")
+                            .foregroundColor(.red)
+                            .font(.caption)
+                    }
+                } else if game.isComplete {
+                    Section {
+                        Label("This game has been completed", systemImage: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                            .font(.caption)
+                    }
+                }
+            }
+            .navigationTitle("Edit Game")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        saveChanges()
+                    }
+                    .disabled(!isValidOpponent || !hasChanges)
+                    .fontWeight(.semibold)
+                }
+            }
+            .onAppear {
+                // Initialize with current values
+                opponent = game.opponent
+                date = game.date ?? Date()
+                location = game.location ?? ""
+                notes = game.notes ?? ""
+            }
+            .alert("Save Error", isPresented: $showingSaveError) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text("Failed to save changes. Please try again.")
+            }
+        }
+    }
+
+    private func saveChanges() {
+        game.opponent = opponent.trimmingCharacters(in: .whitespacesAndNewlines)
+        game.date = date
+        game.location = location.isEmpty ? nil : location.trimmingCharacters(in: .whitespacesAndNewlines)
+        game.notes = notes.isEmpty ? nil : notes.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        do {
+            try modelContext.save()
+            Haptics.success()
+            dismiss()
+        } catch {
+            print("Failed to save game changes: \(error)")
+            showingSaveError = true
+            Haptics.error()
+        }
     }
 }
 

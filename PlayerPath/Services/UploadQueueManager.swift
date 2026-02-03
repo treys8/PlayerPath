@@ -357,6 +357,36 @@ final class UploadQueueManager {
         print("UploadQueueManager: Cancelled upload for clip \(clipId)")
     }
 
+    /// Clears all upload queues - call on logout or account switch
+    func clearAllQueues() {
+        // Stop any active processing
+        processingTask?.cancel()
+        processingTask = nil
+
+        // Clear in-memory queues
+        pendingUploads.removeAll()
+        failedUploads.removeAll()
+        activeUploads.removeAll()
+        isProcessing = false
+
+        // Clear persisted records from database
+        guard let modelContext = modelContext else { return }
+
+        do {
+            let descriptor = FetchDescriptor<PendingUpload>()
+            let persistedUploads = try modelContext.fetch(descriptor)
+
+            for upload in persistedUploads {
+                modelContext.delete(upload)
+            }
+
+            try modelContext.save()
+            print("UploadQueueManager: Cleared all upload queues")
+        } catch {
+            print("UploadQueueManager: Failed to clear persisted uploads: \(error)")
+        }
+    }
+
     /// Gets total pending upload count
     var totalPendingCount: Int {
         pendingUploads.count
@@ -463,7 +493,14 @@ final class UploadQueueManager {
             progressTask.cancel()
             activeUploads.removeValue(forKey: upload.clipId)
 
-            print("UploadQueueManager: ✅ Successfully uploaded \(upload.fileName)")
+            // Save metadata to Firestore for cross-device sync
+            do {
+                try await cloudManager.saveVideoMetadataToFirestore(clip, athlete: athlete, downloadURL: cloudURL)
+                print("UploadQueueManager: ✅ Successfully uploaded and synced \(upload.fileName)")
+            } catch {
+                // Log but don't fail - local upload succeeded
+                print("UploadQueueManager: ⚠️ Upload succeeded but Firestore sync failed: \(error.localizedDescription)")
+            }
 
             // Track analytics (estimate upload duration from last attempt)
             let uploadDuration = upload.lastAttempt.map { Date().timeIntervalSince($0) } ?? 0

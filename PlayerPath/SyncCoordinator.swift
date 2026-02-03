@@ -736,19 +736,200 @@ final class SyncCoordinator {
         print("✅ Practice conflict resolution complete (using local-first)")
     }
 
+    // MARK: - Videos Sync (Cross-Device)
+
+    /// Syncs video metadata for all athletes
+    /// Note: Video files are uploaded to Storage via UploadQueueManager
+    /// This syncs the Firestore metadata for cross-device discovery
+    /// - Parameter user: The SwiftData User to sync videos for
+    func syncVideos(for user: User) async throws {
+        guard let context = modelContext else {
+            print("⚠️ Cannot sync videos - ModelContext not configured")
+            return
+        }
+
+        print("🔄 Starting video sync for user: \(user.email)")
+
+        do {
+            // Step 1: Upload local video metadata that isn't synced yet
+            try await uploadLocalVideoMetadata(user, context: context)
+
+            // Step 2: Download remote videos from Firestore
+            try await downloadRemoteVideos(user, context: context)
+
+            print("✅ Video sync completed successfully")
+
+        } catch {
+            print("❌ Video sync failed: \(error)")
+            syncErrors.append(SyncError(
+                type: .syncFailed,
+                entityId: user.id.uuidString,
+                message: "Video sync failed: \(error.localizedDescription)"
+            ))
+            throw error
+        }
+    }
+
+    private func uploadLocalVideoMetadata(_ user: User, context: ModelContext) async throws {
+        let athletes = user.athletes ?? []
+
+        // Get all videos that are uploaded to Storage but not synced to Firestore
+        var videosToSync: [(VideoClip, Athlete)] = []
+
+        for athlete in athletes {
+            let videos = athlete.videoClips ?? []
+            let unsyncedVideos = videos.filter { clip in
+                clip.isUploaded && clip.cloudURL != nil && clip.firestoreId == nil
+            }
+            for video in unsyncedVideos {
+                videosToSync.append((video, athlete))
+            }
+        }
+
+        guard !videosToSync.isEmpty else {
+            print("✅ No local video metadata needs Firestore sync")
+            return
+        }
+
+        print("📤 Syncing \(videosToSync.count) video metadata to Firestore")
+
+        for (clip, athlete) in videosToSync {
+            guard let cloudURL = clip.cloudURL else { continue }
+
+            do {
+                try await VideoCloudManager.shared.saveVideoMetadataToFirestore(
+                    clip,
+                    athlete: athlete,
+                    downloadURL: cloudURL
+                )
+
+                // Mark as synced to Firestore
+                clip.firestoreId = clip.id.uuidString
+                clip.needsSync = false
+
+                print("✅ Synced video metadata: \(clip.fileName)")
+
+            } catch {
+                print("❌ Failed to sync video metadata \(clip.fileName): \(error)")
+            }
+        }
+
+        try context.save()
+    }
+
+    private func downloadRemoteVideos(_ user: User, context: ModelContext) async throws {
+        let athletes = user.athletes ?? []
+
+        for athlete in athletes {
+            // Get video metadata from Firestore
+            let remoteVideos = try await VideoCloudManager.shared.syncVideos(for: athlete)
+
+            // Get local video IDs
+            let localVideoIds = Set((athlete.videoClips ?? []).map { $0.id })
+
+            // Find videos that exist remotely but not locally
+            let newRemoteVideos = remoteVideos.filter { !localVideoIds.contains($0.id) }
+
+            guard !newRemoteVideos.isEmpty else {
+                continue
+            }
+
+            print("📥 Found \(newRemoteVideos.count) new videos from Firestore for \(athlete.name)")
+
+            for remoteVideo in newRemoteVideos {
+                // Create local VideoClip from remote metadata
+                let newClip = VideoClip(
+                    fileName: remoteVideo.fileName,
+                    filePath: "" // Will be set when downloaded
+                )
+                newClip.id = remoteVideo.id
+                newClip.cloudURL = remoteVideo.downloadURL
+                newClip.isUploaded = true // It's already in the cloud
+                newClip.createdAt = remoteVideo.createdAt
+                newClip.isHighlight = remoteVideo.isHighlight
+                newClip.firestoreId = remoteVideo.id.uuidString
+                newClip.needsSync = false
+                newClip.athlete = athlete
+
+                // Link to game if gameOpponent exists
+                if let gameOpponent = remoteVideo.gameOpponent {
+                    let games = athlete.games ?? []
+                    if let matchingGame = games.first(where: { $0.opponent == gameOpponent }) {
+                        newClip.game = matchingGame
+                    }
+                }
+
+                context.insert(newClip)
+                print("✅ Created local VideoClip from remote: \(remoteVideo.fileName)")
+
+                // Queue video for download (in background)
+                Task {
+                    await downloadVideoFile(clip: newClip, context: context)
+                }
+            }
+        }
+
+        try context.save()
+    }
+
+    /// Downloads the actual video file from Firebase Storage
+    private func downloadVideoFile(clip: VideoClip, context: ModelContext) async {
+        guard let cloudURL = clip.cloudURL else {
+            print("⚠️ Cannot download video - no cloud URL")
+            return
+        }
+
+        // Generate local file path
+        let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        let clipsDirectory = documentsURL.appendingPathComponent("Clips", isDirectory: true)
+
+        // Ensure directory exists
+        try? FileManager.default.createDirectory(at: clipsDirectory, withIntermediateDirectories: true)
+
+        let localPath = clipsDirectory.appendingPathComponent(clip.fileName).path
+
+        // Skip if already downloaded
+        if FileManager.default.fileExists(atPath: localPath) {
+            clip.filePath = localPath
+            try? context.save()
+            print("✅ Video already exists locally: \(clip.fileName)")
+            return
+        }
+
+        do {
+            try await VideoCloudManager.shared.downloadVideo(
+                from: cloudURL,
+                to: localPath,
+                clipId: clip.id
+            )
+
+            // Update local path
+            await MainActor.run {
+                clip.filePath = localPath
+                try? context.save()
+            }
+
+            print("✅ Downloaded video: \(clip.fileName)")
+
+        } catch {
+            print("❌ Failed to download video \(clip.fileName): \(error)")
+        }
+    }
+
     // MARK: - Comprehensive Sync (All Entities)
 
     /// Syncs all entities for a user in dependency order
-    /// Order: Athletes → Seasons → Games → Practices
+    /// Order: Athletes → Seasons → Games → Practices → Videos
     /// - Parameter user: The SwiftData User to sync all entities for
     func syncAll(for user: User) async throws {
-        print("🔄 Starting comprehensive sync (Athletes → Seasons → Games → Practices)")
+        print("🔄 Starting comprehensive sync (Athletes → Seasons → Games → Practices → Videos)")
 
         // Sync in dependency order
         try await syncAthletes(for: user)
         try await syncSeasons(for: user)
         try await syncGames(for: user)
         try await syncPractices(for: user)
+        try await syncVideos(for: user)
 
         lastSyncDate = Date()
         print("✅ Comprehensive sync completed successfully")

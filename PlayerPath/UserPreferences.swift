@@ -63,7 +63,7 @@ final class UserPreferences {
 
         // Defaults
         self.defaultVideoQuality = .high
-        self.autoUploadMode = .off  // Default to off, let user choose during onboarding
+        self.autoUploadMode = .wifiOnly  // Default to auto-upload on WiFi
         self.saveToPhotosLibrary = false
         self.enableHapticFeedback = true
 

@@ -232,12 +232,260 @@ class VideoCloudManager: ObservableObject {
         }
     }
     
+    // MARK: - Firestore Video Metadata Sync
+
+    /// Saves video metadata to Firestore for cross-device sync
+    /// - Parameters:
+    ///   - videoClip: The video clip to save metadata for
+    ///   - athlete: The athlete who owns the video
+    ///   - downloadURL: The Firebase Storage download URL
+    func saveVideoMetadataToFirestore(_ videoClip: VideoClip, athlete: Athlete, downloadURL: String) async throws {
+        // Capture values before async boundary (Sendable compliance)
+        let clipId = videoClip.id
+        let clipFileName = videoClip.fileName
+        let clipIsHighlight = videoClip.isHighlight
+        let clipCreatedAt = videoClip.createdAt ?? Date()
+        let clipDuration = videoClip.duration
+        let clipThumbnailPath = videoClip.thumbnailPath
+        let playResultType = videoClip.playResult?.type
+        let gameOpponent = videoClip.game?.opponent
+        let gameId = videoClip.game?.id
+        let practiceId = videoClip.practice?.id
+        let seasonId = videoClip.season?.id
+        let athleteId = athlete.id
+        let athleteName = athlete.name
+
+        // Get file size
+        let fileSize = FileManager.default.fileSize(atPath: videoClip.filePath)
+
+        let db = Firestore.firestore()
+
+        // Build document data
+        var data: [String: Any] = [
+            "id": clipId.uuidString,
+            "athleteId": athleteId.uuidString,
+            "athleteName": athleteName,
+            "fileName": clipFileName,
+            "downloadURL": downloadURL,
+            "isHighlight": clipIsHighlight,
+            "createdAt": Timestamp(date: clipCreatedAt),
+            "updatedAt": Timestamp(date: Date()),
+            "fileSize": fileSize,
+            "isDeleted": false
+        ]
+
+        // Optional fields
+        if let duration = clipDuration {
+            data["duration"] = duration
+        }
+        if let playResult = playResultType {
+            data["playResult"] = playResult.rawValue
+            data["playResultName"] = playResult.displayName
+        }
+        if let opponent = gameOpponent {
+            data["gameOpponent"] = opponent
+        }
+        if let gameId = gameId {
+            data["gameId"] = gameId.uuidString
+        }
+        if let practiceId = practiceId {
+            data["practiceId"] = practiceId.uuidString
+        }
+        if let seasonId = seasonId {
+            data["seasonId"] = seasonId.uuidString
+        }
+
+        // Upload thumbnail to Storage if exists, then add URL to metadata
+        if let thumbnailPath = clipThumbnailPath,
+           FileManager.default.fileExists(atPath: thumbnailPath) {
+            do {
+                let thumbnailURL = URL(fileURLWithPath: thumbnailPath)
+                let cloudThumbnailURL = try await uploadAthleteVideoThumbnail(
+                    thumbnailURL: thumbnailURL,
+                    videoFileName: clipFileName,
+                    athleteId: athleteId
+                )
+                data["thumbnailURL"] = cloudThumbnailURL
+            } catch {
+                print("VideoCloudManager: Failed to upload thumbnail, continuing without: \(error)")
+            }
+        }
+
+        // Save to Firestore - use clipId as document ID for easy lookup
+        try await db.collection("videos").document(clipId.uuidString).setData(data)
+
+        print("VideoCloudManager: ✅ Saved video metadata to Firestore: \(clipFileName)")
+    }
+
+    /// Uploads a thumbnail image for an athlete's video
+    private func uploadAthleteVideoThumbnail(
+        thumbnailURL: URL,
+        videoFileName: String,
+        athleteId: UUID
+    ) async throws -> String {
+        let storage = Storage.storage()
+        let storageRef = storage.reference()
+
+        let thumbnailFileName = (videoFileName as NSString).deletingPathExtension + "_thumbnail.jpg"
+        let thumbnailRef = storageRef.child("athlete_videos/\(athleteId.uuidString)/thumbnails/\(thumbnailFileName)")
+
+        let metadata = StorageMetadata()
+        metadata.contentType = "image/jpeg"
+        metadata.cacheControl = "public, max-age=31536000"
+
+        return try await withCheckedThrowingContinuation { continuation in
+            thumbnailRef.putFile(from: thumbnailURL, metadata: metadata) { _, error in
+                if let error = error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+
+                thumbnailRef.downloadURL { url, error in
+                    if let error = error {
+                        continuation.resume(throwing: error)
+                    } else if let url = url {
+                        continuation.resume(returning: url.absoluteString)
+                    } else {
+                        continuation.resume(throwing: VideoCloudError.invalidURL)
+                    }
+                }
+            }
+        }
+    }
+
+    /// Fetches video metadata from Firestore for cross-device sync
+    /// - Parameter athlete: The athlete whose videos to fetch
+    /// - Returns: Array of video metadata from Firestore
     func syncVideos(for athlete: Athlete) async throws -> [VideoClipMetadata] {
-        // Simulate fetching video metadata from cloud
-        try await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
-        
-        // Return empty array for now - in real implementation would fetch from Firebase
-        return []
+        let athleteId = athlete.id
+        let db = Firestore.firestore()
+
+        // Query videos for this athlete that aren't deleted
+        let snapshot = try await db.collection("videos")
+            .whereField("athleteId", isEqualTo: athleteId.uuidString)
+            .whereField("isDeleted", isEqualTo: false)
+            .order(by: "createdAt", descending: true)
+            .getDocuments()
+
+        var videos: [VideoClipMetadata] = []
+
+        for document in snapshot.documents {
+            let data = document.data()
+
+            guard let idString = data["id"] as? String,
+                  let id = UUID(uuidString: idString),
+                  let fileName = data["fileName"] as? String,
+                  let downloadURL = data["downloadURL"] as? String,
+                  let athleteName = data["athleteName"] as? String else {
+                continue
+            }
+
+            // Parse optional fields
+            let createdAt: Date
+            if let timestamp = data["createdAt"] as? Timestamp {
+                createdAt = timestamp.dateValue()
+            } else {
+                createdAt = Date()
+            }
+
+            let isHighlight = data["isHighlight"] as? Bool ?? false
+            let playResultName = data["playResultName"] as? String
+            let gameOpponent = data["gameOpponent"] as? String
+            let fileSize = data["fileSize"] as? Int64 ?? 0
+            let thumbnailURL = data["thumbnailURL"] as? String
+
+            let metadata = VideoClipMetadata(
+                id: id,
+                fileName: fileName,
+                downloadURL: downloadURL,
+                createdAt: createdAt,
+                isHighlight: isHighlight,
+                playResult: playResultName,
+                gameOpponent: gameOpponent,
+                athleteName: athleteName,
+                fileSize: fileSize,
+                thumbnailURL: thumbnailURL
+            )
+
+            videos.append(metadata)
+        }
+
+        print("VideoCloudManager: Synced \(videos.count) videos from Firestore for \(athlete.name)")
+        return videos
+    }
+
+    /// Marks a video as deleted in Firestore (soft delete for sync)
+    /// - Parameter clipId: The ID of the video clip to mark as deleted
+    func markVideoDeletedInFirestore(_ clipId: UUID) async throws {
+        let db = Firestore.firestore()
+
+        try await db.collection("videos").document(clipId.uuidString).updateData([
+            "isDeleted": true,
+            "deletedAt": Timestamp(date: Date())
+        ])
+
+        print("VideoCloudManager: Marked video as deleted in Firestore: \(clipId)")
+    }
+
+    /// Sets up a real-time listener for new videos from other devices
+    /// - Parameters:
+    ///   - athlete: The athlete to listen for
+    ///   - onNewVideo: Callback when a new video is discovered
+    /// - Returns: A listener registration that can be used to remove the listener
+    func listenForNewVideos(
+        for athlete: Athlete,
+        onNewVideo: @escaping (VideoClipMetadata) -> Void
+    ) -> ListenerRegistration {
+        let athleteId = athlete.id
+        let db = Firestore.firestore()
+
+        let listener = db.collection("videos")
+            .whereField("athleteId", isEqualTo: athleteId.uuidString)
+            .whereField("isDeleted", isEqualTo: false)
+            .addSnapshotListener { snapshot, error in
+                guard let snapshot = snapshot else {
+                    print("VideoCloudManager: Listener error: \(error?.localizedDescription ?? "Unknown")")
+                    return
+                }
+
+                // Process only added documents (new videos)
+                for change in snapshot.documentChanges where change.type == .added {
+                    let data = change.document.data()
+
+                    guard let idString = data["id"] as? String,
+                          let id = UUID(uuidString: idString),
+                          let fileName = data["fileName"] as? String,
+                          let downloadURL = data["downloadURL"] as? String,
+                          let athleteName = data["athleteName"] as? String else {
+                        continue
+                    }
+
+                    let createdAt: Date
+                    if let timestamp = data["createdAt"] as? Timestamp {
+                        createdAt = timestamp.dateValue()
+                    } else {
+                        createdAt = Date()
+                    }
+
+                    let metadata = VideoClipMetadata(
+                        id: id,
+                        fileName: fileName,
+                        downloadURL: downloadURL,
+                        createdAt: createdAt,
+                        isHighlight: data["isHighlight"] as? Bool ?? false,
+                        playResult: data["playResultName"] as? String,
+                        gameOpponent: data["gameOpponent"] as? String,
+                        athleteName: athleteName,
+                        fileSize: data["fileSize"] as? Int64 ?? 0,
+                        thumbnailURL: data["thumbnailURL"] as? String
+                    )
+
+                    onNewVideo(metadata)
+                }
+            }
+
+        print("VideoCloudManager: Started listening for new videos for \(athlete.name)")
+        return listener
     }
     
     /// Deletes a video clip from Firebase Storage for an athlete
