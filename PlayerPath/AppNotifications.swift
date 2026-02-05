@@ -32,6 +32,7 @@ extension Notification.Name {
     static let presentSeasons = Notification.Name("presentSeasons")
     static let presentCoaches = Notification.Name("presentCoaches")
     static let presentProfileEditor = Notification.Name("presentProfileEditor")
+    static let showPaywall = Notification.Name("showPaywall")
 }
 
 @inline(__always)

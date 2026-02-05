@@ -20,241 +20,271 @@ struct ComprehensiveSignInView: View {
     @State private var showingResetPasswordSheet = false
     @State private var selectedRole: UserRole = .athlete
 
+    // Computed validation states
+    private var emailValidationState: FieldValidationState {
+        guard !email.isEmpty else { return .idle }
+        return isValidEmail(email) ? .valid : .invalid
+    }
+
+    private var passwordValidationState: FieldValidationState {
+        guard !password.isEmpty else { return .idle }
+        return isValidPassword(password) ? .valid : .warning
+    }
+
+    private var displayNameValidationState: FieldValidationState {
+        guard !displayName.isEmpty else { return .idle }
+        return isValidDisplayName(displayName) ? .valid : .warning
+    }
+
     var body: some View {
         NavigationStack {
-            VStack(spacing: 30) {
-                // Header
-                VStack(spacing: 16) {
-                    Text(isSignUpMode ? "Create Account" : "Sign In")
-                        .font(.title)
-                        .fontWeight(.bold)
+            ScrollView {
+                VStack(spacing: 28) {
+                    // Header with icon
+                    VStack(spacing: 16) {
+                        ZStack {
+                            Circle()
+                                .fill(
+                                    LinearGradient(
+                                        colors: [.blue.opacity(0.2), .blue.opacity(0.05)],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    )
+                                )
+                                .frame(width: 80, height: 80)
 
-                    Text(isSignUpMode ? (selectedRole == .athlete ? "Join PlayerPath to track your baseball journey" : "Join PlayerPath to coach your athletes") : "Welcome back to PlayerPath")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
-                }
-                .padding(.top)
+                            Image(systemName: isSignUpMode ? "person.crop.circle.badge.plus" : "person.crop.circle.fill")
+                                .font(.system(size: 36, weight: .medium))
+                                .foregroundStyle(
+                                    LinearGradient(
+                                        colors: [.blue, .blue.opacity(0.7)],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    )
+                                )
+                        }
 
-                // Role Selection (Sign Up only)
-                if isSignUpMode {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("I am a:")
-                            .font(.subheadline)
-                            .fontWeight(.semibold)
-                            .foregroundColor(.secondary)
+                        VStack(spacing: 8) {
+                            Text(isSignUpMode ? "Create Account" : "Welcome Back")
+                                .font(.title2)
+                                .fontWeight(.bold)
 
-                        HStack(spacing: 12) {
-                            RoleSelectionButton(
-                                role: .athlete,
-                                isSelected: selectedRole == .athlete,
-                                icon: "figure.baseball",
-                                title: "Athlete",
-                                description: "Track my progress"
-                            ) {
-                                Haptics.light()
-                                selectedRole = .athlete
-                            }
-
-                            RoleSelectionButton(
-                                role: .coach,
-                                isSelected: selectedRole == .coach,
-                                icon: "person.2.fill",
-                                title: "Coach",
-                                description: "Work with athletes"
-                            ) {
-                                Haptics.light()
-                                selectedRole = .coach
-                            }
+                            Text(isSignUpMode ? (selectedRole == .athlete ? "Join PlayerPath to track your baseball journey" : "Join PlayerPath to coach your athletes") : "Sign in to continue to PlayerPath")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                                .multilineTextAlignment(.center)
                         }
                     }
-                    .padding(.horizontal)
-                }
+                    .padding(.top, 8)
 
-                VStack(spacing: 20) {
+                    // Role Selection (Sign Up only)
                     if isSignUpMode {
-                        TextField("Display Name", text: $displayName)
-                            .textFieldStyle(RoundedBorderTextFieldStyle())
-                            .accessibilityLabel("Display name")
-                            .accessibilityHint("Enter your preferred display name")
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("I am a:")
+                                .font(.subheadline)
+                                .fontWeight(.semibold)
+                                .foregroundColor(.secondary)
 
-                        // Display name validation
-                        if !displayName.isEmpty {
-                            HStack {
-                                Image(systemName: isValidDisplayName(displayName) ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                                    .foregroundColor(isValidDisplayName(displayName) ? .green : .orange)
-                                    .font(.caption)
-                                Text(getDisplayNameValidationMessage(displayName))
-                                    .font(.caption2)
-                                    .foregroundColor(isValidDisplayName(displayName) ? .green : .orange)
-                                Spacer()
-                            }
-                            .padding(.horizontal)
-                        }
-                    }
+                            HStack(spacing: 12) {
+                                RoleSelectionButton(
+                                    role: .athlete,
+                                    isSelected: selectedRole == .athlete,
+                                    icon: "figure.baseball",
+                                    title: "Athlete",
+                                    description: "Track my progress"
+                                ) {
+                                    Haptics.light()
+                                    selectedRole = .athlete
+                                }
 
-                    TextField("Email", text: $email)
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                        .keyboardType(.emailAddress)
-                        .textContentType(.emailAddress)
-                        .textInputAutocapitalization(.never)
-                        .disableAutocorrection(true)
-                        .accessibilityLabel("Email address")
-                        .accessibilityHint("Enter your email address")
-                        .onSubmit {
-                            if canSubmitForm() && !authManager.isLoading {
-                                performAuth()
-                            }
-                        }
-                        .submitLabel(isSignUpMode ? .next : .go)
-
-                    // Email validation feedback
-                    if !email.isEmpty {
-                        HStack {
-                            Image(systemName: isValidEmail(email) ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                                .foregroundColor(isValidEmail(email) ? .green : .orange)
-                                .font(.caption)
-                            Text(isValidEmail(email) ? "Valid email format" : "Please enter a valid email address")
-                                .font(.caption2)
-                                .foregroundColor(isValidEmail(email) ? .green : .orange)
-                            Spacer()
-                        }
-                        .padding(.horizontal)
-                    }
-
-                    SecureField("Password", text: $password)
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                        .textContentType(.password)
-                        .textInputAutocapitalization(.never)
-                        .disableAutocorrection(true)
-                        .keyboardType(.asciiCapable)
-                        .accessibilityLabel("Password")
-                        .accessibilityHint("Enter your password")
-                        .onSubmit {
-                            if canSubmitForm() && !authManager.isLoading {
-                                performAuth()
-                            }
-                        }
-                        .submitLabel(.go)
-
-                    // Password validation feedback
-                    if !password.isEmpty {
-                        VStack(alignment: .leading, spacing: 4) {
-                            HStack {
-                                Image(systemName: isValidPassword(password) ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                                    .foregroundColor(isValidPassword(password) ? .green : .orange)
-                                    .font(.caption)
-                                Text(isValidPassword(password) ? "Strong password" : "Password requirements:")
-                                    .font(.caption2)
-                                    .foregroundColor(isValidPassword(password) ? .green : .orange)
-                                Spacer()
-                            }
-
-                            if !isValidPassword(password) && isSignUpMode {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    ValidationRequirement(
-                                        text: "At least 8 characters",
-                                        isMet: password.count >= 8
-                                    )
-                                    ValidationRequirement(
-                                        text: "Contains uppercase letter",
-                                        isMet: password.range(of: "[A-Z]", options: .regularExpression) != nil
-                                    )
-                                    ValidationRequirement(
-                                        text: "Contains lowercase letter",
-                                        isMet: password.range(of: "[a-z]", options: .regularExpression) != nil
-                                    )
-                                    ValidationRequirement(
-                                        text: "Contains number",
-                                        isMet: password.range(of: "[0-9]", options: .regularExpression) != nil
-                                    )
+                                RoleSelectionButton(
+                                    role: .coach,
+                                    isSelected: selectedRole == .coach,
+                                    icon: "person.2.fill",
+                                    title: "Coach",
+                                    description: "Work with athletes"
+                                ) {
+                                    Haptics.light()
+                                    selectedRole = .coach
                                 }
                             }
                         }
-                        .padding(.horizontal)
                     }
-                }
 
-                // Form validation summary
-                if !email.isEmpty || !password.isEmpty || (isSignUpMode && !displayName.isEmpty) {
-                    HStack {
-                        Image(systemName: canSubmitForm() ? "checkmark.circle.fill" : "info.circle.fill")
-                            .foregroundColor(canSubmitForm() ? .green : .blue)
-                            .font(.caption)
+                    // Form Fields
+                    VStack(spacing: 16) {
+                        if isSignUpMode {
+                            ModernTextField(
+                                placeholder: "Your name",
+                                text: $displayName,
+                                icon: "person.fill",
+                                textContentType: .name,
+                                autocapitalization: .words,
+                                validationState: displayNameValidationState
+                            )
+                            .accessibilityLabel("Display name")
+                            .accessibilityHint("Enter your preferred display name")
+                        }
 
-                        Text(getFormValidationSummary())
-                            .font(.caption2)
-                            .foregroundColor(canSubmitForm() ? .green : .blue)
-
-                        Spacer()
-                    }
-                    .padding(.horizontal)
-                }
-
-                VStack(spacing: 15) {
-                    Button(action: { Haptics.light(); performAuth() }) {
-                        HStack {
-                            if authManager.isLoading {
-                                ProgressView()
-                                    .scaleEffect(0.8)
-                                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                        ModernTextField(
+                            placeholder: "you@example.com",
+                            text: $email,
+                            icon: "envelope.fill",
+                            keyboardType: .emailAddress,
+                            textContentType: .emailAddress,
+                            autocapitalization: .never,
+                            validationState: emailValidationState,
+                            onSubmit: {
+                                if canSubmitForm() && !authManager.isLoading {
+                                    performAuth()
+                                }
                             }
-                            Text(authManager.isLoading ? (isSignUpMode ? "Creating Account..." : "Signing In...") : (isSignUpMode ? "Create Account" : "Sign In"))
-                        }
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 50)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(!canSubmitForm() || authManager.isLoading)
+                        )
+                        .accessibilityLabel("Email address")
+                        .accessibilityHint("Enter your email address")
 
-                    if !isSignUpMode {
-                        Button("Forgot Password?") {
-                            showingResetPasswordSheet = true
-                        }
-                        .foregroundColor(.gray)
-                    }
-                }
+                        ModernTextField(
+                            placeholder: "Password",
+                            text: $password,
+                            icon: "lock.fill",
+                            isSecure: true,
+                            textContentType: isSignUpMode ? .newPassword : .password,
+                            autocapitalization: .never,
+                            validationState: passwordValidationState,
+                            onSubmit: {
+                                if canSubmitForm() && !authManager.isLoading {
+                                    performAuth()
+                                }
+                            }
+                        )
+                        .accessibilityLabel("Password")
+                        .accessibilityHint("Enter your password")
 
-                if let errorMessage = authManager.errorMessage {
-                    VStack(spacing: 8) {
-                        HStack {
+                        // Password strength indicator for sign up
+                        if isSignUpMode && !password.isEmpty {
+                            VStack(alignment: .leading, spacing: 8) {
+                                PasswordStrengthIndicator(password: password)
+
+                                if !isValidPassword(password) {
+                                    PasswordRequirementsList(password: password)
+                                        .padding(.top, 4)
+                                }
+                            }
+                            .padding(.horizontal, 4)
+                            .transition(.opacity.combined(with: .move(edge: .top)))
+                        }
+                    }
+                    .animation(.easeInOut(duration: 0.2), value: password.isEmpty)
+
+                    // Action Buttons
+                    VStack(spacing: 16) {
+                        Button(action: { Haptics.medium(); performAuth() }) {
+                            HStack(spacing: 10) {
+                                if authManager.isLoading {
+                                    ProgressView()
+                                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                        .scaleEffect(0.9)
+                                } else {
+                                    Image(systemName: isSignUpMode ? "arrow.right.circle.fill" : "arrow.forward.circle.fill")
+                                        .font(.title3)
+                                }
+                                Text(authManager.isLoading ? (isSignUpMode ? "Creating Account..." : "Signing In...") : (isSignUpMode ? "Create Account" : "Sign In"))
+                                    .fontWeight(.semibold)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 54)
+                            .background(
+                                LinearGradient(
+                                    colors: canSubmitForm() && !authManager.isLoading
+                                        ? [.blue, .blue.opacity(0.85)]
+                                        : [Color(.systemGray4), Color(.systemGray4)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                            .foregroundColor(.white)
+                            .cornerRadius(14)
+                            .shadow(
+                                color: canSubmitForm() && !authManager.isLoading ? .blue.opacity(0.3) : .clear,
+                                radius: 8,
+                                x: 0,
+                                y: 4
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(!canSubmitForm() || authManager.isLoading)
+
+                        if !isSignUpMode {
+                            Button {
+                                Haptics.light()
+                                showingResetPasswordSheet = true
+                            } label: {
+                                Text("Forgot Password?")
+                                    .font(.subheadline)
+                                    .fontWeight(.medium)
+                                    .foregroundColor(.blue)
+                            }
+                        }
+                    }
+
+                    // Error Message
+                    if let errorMessage = authManager.errorMessage {
+                        HStack(alignment: .top, spacing: 12) {
                             Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.title3)
                                 .foregroundColor(.red)
-                                .font(.caption)
-                            Text("Authentication Error")
-                                .font(.caption)
-                                .fontWeight(.medium)
-                                .foregroundColor(.red)
+
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Authentication Error")
+                                    .font(.subheadline)
+                                    .fontWeight(.semibold)
+                                    .foregroundColor(.red)
+
+                                Text(errorMessage)
+                                    .font(.caption)
+                                    .foregroundColor(.red.opacity(0.8))
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+
                             Spacer()
 
-                            Button("Dismiss") {
+                            Button {
+                                Haptics.light()
                                 authManager.clearError()
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.title3)
+                                    .foregroundColor(.red.opacity(0.6))
                             }
-                            .font(.caption2)
-                            .foregroundColor(.red)
                         }
-
-                        Text(errorMessage)
-                            .font(.caption2)
-                            .foregroundColor(.red)
-                            .multilineTextAlignment(.leading)
+                        .padding()
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(Color.red.opacity(0.08))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .stroke(Color.red.opacity(0.2), lineWidth: 1)
+                                )
+                        )
+                        .transition(.opacity.combined(with: .move(edge: .top)))
                     }
-                    .padding(.horizontal)
-                    .padding(.vertical, 8)
-                    .background(Color.red.opacity(0.1))
-                    .cornerRadius(8)
-                    .padding(.horizontal)
-                }
 
-                Spacer()
+                    Spacer(minLength: 20)
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 16)
             }
-            .padding()
-            .navigationTitle(isSignUpMode ? "Create Account" : "Sign In")
+            .background(Color(.systemGroupedBackground))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
+                    Button {
                         dismiss()
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.title3)
+                            .symbolRenderingMode(.hierarchical)
+                            .foregroundStyle(.secondary)
                     }
                 }
             }

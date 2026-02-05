@@ -13,8 +13,11 @@ import SwiftData
 struct CoachesView: View {
     let athlete: Athlete
     @Environment(\.modelContext) private var modelContext
+    @EnvironmentObject private var authManager: ComprehensiveAuthManager
 
     @State private var showingAddCoach = false
+    @State private var showingInviteCoach = false
+    @State private var showingPremiumAlert = false
     @State private var coachToDelete: Coach?
     @State private var showingDeleteConfirmation = false
 
@@ -34,22 +37,67 @@ struct CoachesView: View {
     var body: some View {
         Group {
             if coaches.isEmpty {
-                EmptyCoachesView {
-                    Haptics.light()
-                    showingAddCoach = true
-                }
+                EmptyCoachesView(
+                    onAddCoach: {
+                        Haptics.light()
+                        showingAddCoach = true
+                    },
+                    onInviteCoach: {
+                        if authManager.isPremiumUser {
+                            Haptics.medium()
+                            showingInviteCoach = true
+                        } else {
+                            Haptics.warning()
+                            showingPremiumAlert = true
+                        }
+                    },
+                    isPremium: authManager.isPremiumUser
+                )
             } else {
                 List {
-                    ForEach(coaches) { coach in
-                        NavigationLink(destination: CoachDetailView(coach: coach, athlete: athlete)) {
-                            CoachRow(coach: coach)
-                        }
-                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            Button(role: .destructive) {
-                                coachToDelete = coach
-                                showingDeleteConfirmation = true
+                    // Invite Coach Banner (Premium)
+                    if authManager.isPremiumUser {
+                        Section {
+                            Button {
+                                Haptics.medium()
+                                showingInviteCoach = true
                             } label: {
-                                Label("Delete", systemImage: "trash")
+                                HStack {
+                                    Image(systemName: "person.badge.plus")
+                                        .font(.title2)
+                                        .foregroundColor(.indigo)
+
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("Invite a Coach")
+                                            .font(.headline)
+                                            .foregroundColor(.primary)
+                                        Text("Share videos and get feedback")
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                    }
+
+                                    Spacer()
+
+                                    Image(systemName: "chevron.right")
+                                        .foregroundColor(.gray)
+                                }
+                                .padding(.vertical, 4)
+                            }
+                        }
+                    }
+
+                    Section("Your Coaches") {
+                        ForEach(coaches) { coach in
+                            NavigationLink(destination: CoachDetailView(coach: coach, athlete: athlete)) {
+                                CoachRow(coach: coach)
+                            }
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                Button(role: .destructive) {
+                                    coachToDelete = coach
+                                    showingDeleteConfirmation = true
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
                             }
                         }
                     }
@@ -60,9 +108,25 @@ struct CoachesView: View {
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Button {
-                    Haptics.light()
-                    showingAddCoach = true
+                Menu {
+                    Button {
+                        Haptics.light()
+                        showingAddCoach = true
+                    } label: {
+                        Label("Add Coach Contact", systemImage: "person.crop.circle.badge.plus")
+                    }
+
+                    Button {
+                        if authManager.isPremiumUser {
+                            Haptics.medium()
+                            showingInviteCoach = true
+                        } else {
+                            Haptics.warning()
+                            showingPremiumAlert = true
+                        }
+                    } label: {
+                        Label("Invite Coach to Share", systemImage: "paperplane")
+                    }
                 } label: {
                     Image(systemName: "plus")
                 }
@@ -70,6 +134,18 @@ struct CoachesView: View {
         }
         .sheet(isPresented: $showingAddCoach) {
             AddCoachView(athlete: athlete)
+        }
+        .sheet(isPresented: $showingInviteCoach) {
+            InviteCoachSheet(athlete: athlete)
+        }
+        .alert("Premium Feature", isPresented: $showingPremiumAlert) {
+            Button("Maybe Later", role: .cancel) { }
+            Button("Upgrade") {
+                // Post notification to show paywall
+                NotificationCenter.default.post(name: .showPaywall, object: nil)
+            }
+        } message: {
+            Text("Inviting coaches to share videos is a Premium feature. Upgrade to share your game videos and receive feedback from your coaches.")
         }
         .alert("Delete Coach", isPresented: $showingDeleteConfirmation, presenting: coachToDelete) { coach in
             Button("Cancel", role: .cancel) {
@@ -101,32 +177,85 @@ struct CoachesView: View {
 // MARK: - Empty State
 
 struct EmptyCoachesView: View {
-    let action: () -> Void
+    let onAddCoach: () -> Void
+    let onInviteCoach: () -> Void
+    let isPremium: Bool
 
     var body: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "person.2.badge.gearshape")
-                .font(.system(size: 60))
-                .foregroundStyle(.purple)
+        VStack(spacing: 24) {
+            Spacer()
 
-            Text("No Coaches Yet")
-                .font(.title2)
-                .fontWeight(.semibold)
+            ZStack {
+                Circle()
+                    .fill(Color.indigo.opacity(0.1))
+                    .frame(width: 100, height: 100)
 
-            Text("Add coaches to track contact info and notes")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal)
-
-            Button {
-                action()
-            } label: {
-                Label("Add Coach", systemImage: "plus.circle.fill")
+                Image(systemName: "person.2.badge.gearshape")
+                    .font(.system(size: 45))
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [.indigo, .purple],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
             }
-            .buttonStyle(.borderedProminent)
+
+            VStack(spacing: 12) {
+                Text("No Coaches Yet")
+                    .font(.title2)
+                    .fontWeight(.bold)
+
+                Text("Add coach contact info or invite coaches to share videos and get feedback")
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 32)
+            }
+
+            Spacer()
+
+            VStack(spacing: 12) {
+                // Primary: Invite Coach (Premium)
+                Button(action: onInviteCoach) {
+                    HStack(spacing: 10) {
+                        Image(systemName: "paperplane.fill")
+                            .font(.title3)
+                        Text("Invite Coach to Share")
+                            .fontWeight(.semibold)
+                        if !isPremium {
+                            Image(systemName: "crown.fill")
+                                .font(.caption)
+                                .foregroundColor(.yellow)
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 54)
+                    .background(Color.indigo)
+                    .foregroundColor(.white)
+                    .cornerRadius(14)
+                }
+                .buttonStyle(.plain)
+
+                // Secondary: Add Contact
+                Button(action: onAddCoach) {
+                    HStack(spacing: 10) {
+                        Image(systemName: "person.crop.circle.badge.plus")
+                            .font(.title3)
+                        Text("Add Coach Contact")
+                            .fontWeight(.medium)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 54)
+                    .background(Color(.systemGray6))
+                    .foregroundColor(.primary)
+                    .cornerRadius(14)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 24)
+            .padding(.bottom, 40)
         }
-        .padding()
     }
 }
 

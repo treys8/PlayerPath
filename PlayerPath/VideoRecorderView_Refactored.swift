@@ -46,7 +46,6 @@ struct VideoRecorderView_Refactored: View {
     @State private var saveTask: Task<Void, Never>?
     @State private var showingTrimmer = false
     @State private var trimmedVideoURL: URL?
-    @State private var useModernCamera = false // Use classic camera for stability
 
     // System monitoring
     @State private var availableStorageGB: Double = 0
@@ -368,54 +367,23 @@ struct VideoRecorderView_Refactored: View {
 
     @ViewBuilder
     private var nativeCameraView: some View {
-        if useModernCamera {
-            // Modern SwiftUI Camera with full control
-            ModernCameraView(
-                settings: .shared,
-                onVideoRecorded: { videoURL in
-                    print("VideoRecorder: Modern camera recorded video: \(videoURL)")
-                    recordedVideoURL = videoURL
-                    showingNativeCamera = false
-                    showingTrimmer = true
-                },
-                onCancel: {
-                    print("VideoRecorder: Modern camera cancelled")
-                    showingNativeCamera = false
-                },
-                onError: { error in
-                    print("VideoRecorder: Modern camera error: \(error.localizedDescription)")
-                    ErrorHandlerService.shared.handle(
-                        AppError.videoRecordingFailed(error.localizedDescription),
-                        context: "Modern Camera Recording"
-                    )
-                }
-            )
-            .accessibilityLabel("Modern camera view")
-        } else {
-            // Classic UIImagePickerController Camera
-            NativeCameraView(
-                videoQuality: selectedVideoQuality,
-                maxDuration: maxRecordingDuration,
-                onVideoRecorded: { videoURL in
-                    print("VideoRecorder: Classic camera recorded video: \(videoURL)")
-                    recordedVideoURL = videoURL
-                    showingNativeCamera = false
-                    showingTrimmer = true
-                },
-                onCancel: {
-                    print("VideoRecorder: Classic camera cancelled")
-                    showingNativeCamera = false
-                },
-                onError: { error in
-                    print("VideoRecorder: Classic camera error: \(error.localizedDescription)")
-                    ErrorHandlerService.shared.handle(
-                        AppError.videoRecordingFailed(error.localizedDescription),
-                        context: "Classic Camera Recording"
-                    )
-                }
-            )
-            .accessibilityLabel("Classic camera view")
-        }
+        ModernCameraView(
+            settings: .shared,
+            onVideoRecorded: { videoURL in
+                recordedVideoURL = videoURL
+                showingNativeCamera = false
+                showingTrimmer = true
+            },
+            onCancel: {
+                showingNativeCamera = false
+            },
+            onError: { error in
+                ErrorHandlerService.shared.handle(
+                    AppError.videoRecordingFailed(error.localizedDescription),
+                    context: "Camera Recording"
+                )
+            }
+        )
     }
     
     @ViewBuilder

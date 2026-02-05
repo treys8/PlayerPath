@@ -15,27 +15,90 @@ struct FirstAthleteCreationView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 20) {
-                Image(systemName: "person.crop.circle.badge.plus")
-                    .font(.system(size: 80))
-                    .foregroundColor(.blue)
-                Text("Create Your First Athlete")
-                    .font(.title2).bold()
-                Text("Tap the + button to add your first athlete from the selection screen.")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal)
+            VStack(spacing: 32) {
+                Spacer()
+
+                // Icon with gradient background
+                ZStack {
+                    Circle()
+                        .fill(
+                            RadialGradient(
+                                colors: [.blue.opacity(0.25), .blue.opacity(0.05)],
+                                center: .center,
+                                startRadius: 20,
+                                endRadius: 80
+                            )
+                        )
+                        .frame(width: 140, height: 140)
+                        .blur(radius: 15)
+
+                    Circle()
+                        .fill(
+                            LinearGradient(
+                                colors: [.blue.opacity(0.15), .blue.opacity(0.08)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .frame(width: 100, height: 100)
+
+                    Image(systemName: "person.crop.circle.badge.plus")
+                        .font(.system(size: 48, weight: .medium))
+                        .foregroundStyle(
+                            LinearGradient(
+                                colors: [.blue, .blue.opacity(0.8)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                }
+
+                VStack(spacing: 12) {
+                    Text("Create Your First Athlete")
+                        .font(.title2)
+                        .fontWeight(.bold)
+                        .multilineTextAlignment(.center)
+
+                    Text("Add an athlete profile to start tracking games, recording videos, and monitoring progress.")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 24)
+                }
+
+                Spacer()
+
+                // Add Athlete Button
                 Button {
-                    // Fallback: present the add athlete sheet by posting selection request
+                    Haptics.medium()
                     NotificationCenter.default.post(name: Notification.Name.showAthleteSelection, object: nil)
                 } label: {
-                    Label("Add Athlete", systemImage: "plus")
-                        .frame(maxWidth: .infinity)
+                    HStack(spacing: 10) {
+                        Image(systemName: "plus.circle.fill")
+                            .font(.title3)
+                        Text("Add Athlete")
+                            .fontWeight(.semibold)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 54)
+                    .background(
+                        LinearGradient(
+                            colors: [.blue, .blue.opacity(0.85)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .foregroundColor(.white)
+                    .cornerRadius(14)
+                    .shadow(color: .blue.opacity(0.3), radius: 8, x: 0, y: 4)
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.plain)
+                .padding(.horizontal, 24)
+
+                Spacer()
             }
             .padding()
+            .background(Color(.systemGroupedBackground))
             .navigationTitle("Get Started")
             .navigationBarTitleDisplayMode(.inline)
         }

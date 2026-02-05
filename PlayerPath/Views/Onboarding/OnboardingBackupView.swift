@@ -19,27 +19,24 @@ struct OnboardingBackupView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 40) {
-                    Spacer()
-                        .frame(height: 20)
-
+                VStack(spacing: 24) {
                     // Header with icon
-                    VStack(spacing: 24) {
+                    VStack(spacing: 20) {
                         ZStack {
                             Circle()
                                 .fill(
                                     RadialGradient(
                                         colors: [.blue.opacity(0.3), .clear],
                                         center: .center,
-                                        startRadius: 20,
-                                        endRadius: 80
+                                        startRadius: 15,
+                                        endRadius: 60
                                     )
                                 )
-                                .frame(width: 160, height: 160)
-                                .blur(radius: 20)
+                                .frame(width: 120, height: 120)
+                                .blur(radius: 15)
 
                             Image(systemName: "icloud.and.arrow.up")
-                                .font(.system(size: 80, weight: .medium))
+                                .font(.system(size: 60, weight: .medium))
                                 .foregroundStyle(
                                     LinearGradient(
                                         colors: [.blue, .cyan],
@@ -51,14 +48,14 @@ struct OnboardingBackupView: View {
                                 .shadow(color: .blue.opacity(0.4), radius: 15, x: 0, y: 8)
                         }
 
-                        VStack(spacing: 16) {
+                        VStack(spacing: 12) {
                             Text("Back Up Your Videos")
-                                .font(.largeTitle)
+                                .font(.title)
                                 .fontWeight(.bold)
                                 .multilineTextAlignment(.center)
 
                             Text("Keep your videos safe in the cloud and access them from anywhere")
-                                .font(.title3)
+                                .font(.body)
                                 .foregroundColor(.secondary)
                                 .multilineTextAlignment(.center)
                                 .padding(.horizontal)
@@ -117,9 +114,10 @@ struct OnboardingBackupView: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
-                        .padding(.bottom, 40)
+                        .padding(.bottom, 20)
                 }
-                .padding()
+                .padding(.horizontal)
+                .padding(.top, 16)
             }
             .toolbar(.hidden, for: .navigationBar)
         }

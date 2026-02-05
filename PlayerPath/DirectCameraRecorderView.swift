@@ -3,13 +3,12 @@
 //  PlayerPath
 //
 //  Instant camera access for Quick Record - bypasses options screen
-//  Opens camera immediately, then flows to trimmer → play result tagging
+//  Opens ModernCameraView immediately, then flows to trimmer → play result tagging
 //
 
 import SwiftUI
 import SwiftData
 import AVFoundation
-import PhotosUI
 
 /// Streamlined video recorder that opens camera immediately
 /// Used for Quick Record from Dashboard and live game recording
@@ -22,17 +21,18 @@ struct DirectCameraRecorderView: View {
     let game: Game?
     let practice: Practice?
 
+    /// Phases of the Quick Record flow, rendered inline within a single fullScreenCover
+    private enum RecordingPhase: Equatable {
+        case camera
+        case trimming
+        case tagging
+    }
+
     // Core state
+    @State private var phase: RecordingPhase = .camera
     @State private var recordedVideoURL: URL?
     @State private var trimmedVideoURL: URL?
-    @State private var showingCamera = true
-    @State private var showingTrimmer = false
-    @State private var showingPlayResultOverlay = false
     @State private var showingDiscardConfirmation = false
-    @State private var selectedVideoQuality: UIImagePickerController.QualityType = .typeHigh
-
-    // Services
-    @StateObject private var uploadService = VideoUploadService()
 
     // Cleanup task
     @State private var saveTask: Task<Void, Never>?
@@ -47,20 +47,14 @@ struct DirectCameraRecorderView: View {
         ZStack {
             Color.black.ignoresSafeArea()
 
-            // Show context header while camera is opening
-            if showingCamera && game != nil {
-                contextHeader
-                    .transition(.opacity)
+            switch phase {
+            case .camera:
+                cameraPhaseView
+            case .trimming:
+                trimmerPhaseView
+            case .tagging:
+                playResultPhaseView
             }
-        }
-        .fullScreenCover(isPresented: $showingCamera) {
-            nativeCameraView
-        }
-        .sheet(isPresented: $showingTrimmer) {
-            trimmerView
-        }
-        .sheet(isPresented: $showingPlayResultOverlay) {
-            playResultOverlay
         }
         .confirmationDialog(
             "Discard Recording?",
@@ -84,118 +78,105 @@ struct DirectCameraRecorderView: View {
                 Text(error.errorDescription ?? "An error occurred")
             }
         }
-        .task {
-            // Load quality preference
-            if let savedQuality = UserDefaults.standard.value(forKey: "selectedVideoQuality") as? Int {
-                selectedVideoQuality = UIImagePickerController.QualityType(rawValue: savedQuality) ?? .typeHigh
-            }
-        }
         .onDisappear {
             saveTask?.cancel()
         }
     }
 
-    // MARK: - Context Header
+    // MARK: - Camera Phase
 
     @ViewBuilder
-    private var contextHeader: some View {
-        if let game = game {
-            VStack {
-                VStack(spacing: 8) {
-                    // Live game badge
-                    if game.isLive {
-                        HStack(spacing: 6) {
-                            Circle()
-                                .fill(Color.red)
-                                .frame(width: 6, height: 6)
-                            Text("LIVE GAME")
-                                .font(.caption)
-                                .fontWeight(.bold)
+    private var cameraPhaseView: some View {
+        ZStack {
+            ModernCameraView(
+                settings: .shared,
+                onVideoRecorded: { videoURL in
+                    recordedVideoURL = videoURL
+
+                    // Smart trimmer logic
+                    Task {
+                        let duration = await getVideoDuration(videoURL)
+                        let shouldShowTrimmer = UserDefaults.standard.bool(forKey: "autoShowTrimmer")
+
+                        // Skip trimmer for very short clips (< 15 seconds) unless user wants it
+                        if duration < 15 && !shouldShowTrimmer {
+                            withAnimation(.easeInOut(duration: 0.25)) {
+                                phase = .tagging
+                            }
+                        } else {
+                            withAnimation(.easeInOut(duration: 0.25)) {
+                                phase = .trimming
+                            }
                         }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(Capsule().fill(Color.red))
-                        .foregroundColor(.white)
                     }
-
-                    // Opponent
-                    Text("vs \(game.opponent)")
-                        .font(.title2)
-                        .fontWeight(.bold)
-                        .foregroundColor(.white)
-
-                    Text("Opening camera...")
-                        .font(.caption)
-                        .foregroundColor(.white.opacity(0.7))
+                },
+                onCancel: {
+                    dismiss()
+                },
+                onError: { error in
+                    ErrorHandlerService.shared.handle(
+                        AppError.videoRecordingFailed(error.localizedDescription),
+                        context: "Camera Recording"
+                    )
                 }
-                .padding()
-                .background(
-                    RoundedRectangle(cornerRadius: 16)
-                        .fill(Color.black.opacity(0.7))
-                        .background(.ultraThinMaterial)
-                )
-                .padding(.top, 100)
+            )
 
-                Spacer()
+            // Live game context overlay on top of camera
+            if let game = game, game.isLive {
+                VStack {
+                    liveGameBadge(for: game)
+                        .padding(.top, 70)
+                    Spacer()
+                }
             }
         }
     }
 
-    // MARK: - Native Camera
+    // MARK: - Live Game Badge
 
     @ViewBuilder
-    private var nativeCameraView: some View {
-        NativeCameraView(
-            videoQuality: selectedVideoQuality,
-            maxDuration: 600, // 10 minutes
-            onVideoRecorded: { videoURL in
-                recordedVideoURL = videoURL
-                showingCamera = false
-
-                // Smart trimmer logic
-                Task {
-                    let duration = await getVideoDuration(videoURL)
-                    let shouldShowTrimmer = UserDefaults.standard.bool(forKey: "autoShowTrimmer")
-
-                    // Skip trimmer for very short clips (< 15 seconds) unless user wants it
-                    if duration < 15 && !shouldShowTrimmer {
-                        showingPlayResultOverlay = true
-                    } else {
-                        showingTrimmer = true
-                    }
-                }
-            },
-            onCancel: {
-                showingCamera = false
-                dismiss()
-            },
-            onError: { error in
-                ErrorHandlerService.shared.handle(
-                    AppError.videoRecordingFailed(error.localizedDescription),
-                    context: "Camera Recording"
-                )
-                showingCamera = false
-            }
+    private func liveGameBadge(for game: Game) -> some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(Color.red)
+                .frame(width: 8, height: 8)
+            Text("LIVE")
+                .font(.caption)
+                .fontWeight(.bold)
+                .foregroundColor(.white)
+            Text("vs \(game.opponent)")
+                .font(.caption)
+                .fontWeight(.semibold)
+                .foregroundColor(.white)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .background(
+            Capsule()
+                .fill(.ultraThinMaterial)
         )
+        .allowsHitTesting(false)
     }
 
-    // MARK: - Trimmer
+    // MARK: - Trimmer Phase
 
     @ViewBuilder
-    private var trimmerView: some View {
+    private var trimmerPhaseView: some View {
         if let videoURL = recordedVideoURL {
             NavigationStack {
                 PreUploadTrimmerView(
                     videoURL: videoURL,
                     onSave: { trimmedURL in
                         trimmedVideoURL = trimmedURL
-                        showingTrimmer = false
-                        showingPlayResultOverlay = true
+                        withAnimation(.easeInOut(duration: 0.25)) {
+                            phase = .tagging
+                        }
                     },
                     onSkip: {
                         trimmedVideoURL = nil
-                        showingTrimmer = false
-                        showingPlayResultOverlay = true
+                        withAnimation(.easeInOut(duration: 0.25)) {
+                            phase = .tagging
+                        }
                     },
                     onCancel: {
                         showingDiscardConfirmation = true
@@ -205,10 +186,10 @@ struct DirectCameraRecorderView: View {
         }
     }
 
-    // MARK: - Play Result Overlay
+    // MARK: - Play Result Phase
 
     @ViewBuilder
-    private var playResultOverlay: some View {
+    private var playResultPhaseView: some View {
         if let videoURL = recordedVideoURL {
             let finalVideoURL = trimmedVideoURL ?? videoURL
 

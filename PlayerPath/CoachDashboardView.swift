@@ -349,34 +349,90 @@ struct CoachFolderRowView: View {
 
 struct CoachEmptyStateView: View {
     @Binding var showingInvitations: Bool
+    @State private var showingInviteAthlete = false
 
     var body: some View {
-        VStack(spacing: 20) {
-            Image(systemName: "person.3.sequence")
-                .font(.system(size: 70))
-                .foregroundColor(.gray.opacity(0.5))
+        VStack(spacing: 24) {
+            Spacer()
 
-            Text("No Athletes Yet")
-                .font(.title2)
-                .fontWeight(.semibold)
+            // Icon
+            ZStack {
+                Circle()
+                    .fill(Color.green.opacity(0.1))
+                    .frame(width: 120, height: 120)
 
-            Text("You'll see shared folders here once athletes invite you to view their content.")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal)
-
-            Button(action: {
-                Haptics.light()
-                showingInvitations = true
-            }) {
-                Label("Check Invitations", systemImage: "envelope.open")
-                    .font(.headline)
+                Image(systemName: "person.3.sequence")
+                    .font(.system(size: 50))
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [.green, .green.opacity(0.6)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
             }
-            .buttonStyle(.borderedProminent)
-            .tint(.green)
+
+            // Welcome text
+            VStack(spacing: 12) {
+                Text("Welcome, Coach!")
+                    .font(.title)
+                    .fontWeight(.bold)
+
+                Text("Connect with athletes to view their game videos, send practice drills, and provide feedback.")
+                    .font(.body)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 32)
+            }
+
+            Spacer()
+
+            // Action buttons
+            VStack(spacing: 12) {
+                // Primary: Invite Athlete
+                Button(action: {
+                    Haptics.medium()
+                    showingInviteAthlete = true
+                }) {
+                    HStack(spacing: 10) {
+                        Image(systemName: "person.badge.plus")
+                            .font(.title3)
+                        Text("Invite an Athlete")
+                            .fontWeight(.semibold)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 54)
+                    .background(Color.green)
+                    .foregroundColor(.white)
+                    .cornerRadius(14)
+                }
+                .buttonStyle(.plain)
+
+                // Secondary: Check Invitations
+                Button(action: {
+                    Haptics.light()
+                    showingInvitations = true
+                }) {
+                    HStack(spacing: 10) {
+                        Image(systemName: "envelope.open")
+                            .font(.title3)
+                        Text("Check Pending Invitations")
+                            .fontWeight(.medium)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 54)
+                    .background(Color(.systemGray6))
+                    .foregroundColor(.primary)
+                    .cornerRadius(14)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 24)
+            .padding(.bottom, 40)
         }
-        .padding()
+        .sheet(isPresented: $showingInviteAthlete) {
+            InviteAthleteSheet()
+        }
     }
 }
 

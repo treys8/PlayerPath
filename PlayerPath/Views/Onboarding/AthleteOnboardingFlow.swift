@@ -83,35 +83,39 @@ struct AthleteOnboardingFlow: View {
                 }
 
                 // Onboarding benefits
-                VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 12) {
                     Text("What You Can Do:")
                         .font(.headline)
-                        .fontWeight(.semibold)
-                        .padding(.bottom, 8)
+                        .fontWeight(.bold)
+                        .padding(.bottom, 4)
                         .accessibilityAddTraits(.isHeader)
 
                     FeatureHighlight(
                         icon: "person.crop.circle.badge.plus",
                         title: "Create Athlete Profiles",
-                        description: "Track multiple players and their progress"
+                        description: "Track multiple players and their progress",
+                        color: .blue
                     )
 
                     FeatureHighlight(
                         icon: "video.circle.fill",
                         title: "Record & Analyze",
-                        description: "Capture sessions and games"
+                        description: "Capture sessions and games",
+                        color: .red
                     )
 
                     FeatureHighlight(
                         icon: "chart.line.uptrend.xyaxis.circle.fill",
                         title: "Track Statistics",
-                        description: "Monitor batting averages and performance"
+                        description: "Monitor batting averages and performance",
+                        color: .purple
                     )
 
                     FeatureHighlight(
                         icon: "arrow.triangle.2.circlepath.circle.fill",
                         title: "Sync Everywhere",
-                        description: "Access your data on all your devices"
+                        description: "Access your data on all your devices",
+                        color: .green
                     )
                 }
                 .padding(.horizontal)

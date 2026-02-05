@@ -127,10 +127,6 @@ struct VideoPlayerView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Done") { dismiss() }
-                }
-
-                ToolbarItem(placement: .navigationBarTrailing) {
                     Menu {
                         Button {
                             showingPlayResultEditor = true
@@ -174,6 +170,18 @@ struct VideoPlayerView: View {
                         Image(systemName: "ellipsis.circle")
                             .accessibilityLabel("More actions")
                     }
+                }
+
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.title2)
+                            .symbolRenderingMode(.hierarchical)
+                            .foregroundStyle(.secondary)
+                    }
+                    .accessibilityLabel("Close video player")
                 }
             }
         }

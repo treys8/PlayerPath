@@ -639,17 +639,130 @@ class FirestoreManager: ObservableObject {
     func declineInvitation(invitationID: String) async throws {
         isLoading = true
         defer { isLoading = false }
-        
+
         do {
             try await db.collection("invitations").document(invitationID).updateData([
                 "status": "declined",
                 "declinedAt": FieldValue.serverTimestamp()
             ])
-            
+
             print("✅ Declined invitation \(invitationID)")
         } catch {
             print("❌ Failed to decline invitation: \(error)")
             errorMessage = "Failed to decline invitation: \(error.localizedDescription)"
+            throw error
+        }
+    }
+
+    /// Creates an invitation from a coach to an athlete (coach-initiated)
+    /// This is for when coaches want to proactively invite athletes to connect
+    func createCoachToAthleteInvitation(
+        coachID: String,
+        coachEmail: String,
+        coachName: String,
+        athleteEmail: String,
+        athleteName: String,
+        message: String?
+    ) async throws -> String {
+        isLoading = true
+        defer { isLoading = false }
+
+        var invitationData: [String: Any] = [
+            "type": "coach_to_athlete",
+            "coachID": coachID,
+            "coachEmail": coachEmail.lowercased(),
+            "coachName": coachName,
+            "athleteEmail": athleteEmail.lowercased(),
+            "athleteName": athleteName,
+            "status": "pending",
+            "sentAt": FieldValue.serverTimestamp(),
+            "expiresAt": Date().addingTimeInterval(30 * 24 * 60 * 60) // 30 days
+        ]
+
+        if let message = message {
+            invitationData["message"] = message
+        }
+
+        do {
+            let docRef = try await db.collection("invitations").addDocument(data: invitationData)
+            print("✅ Created coach-to-athlete invitation for \(athleteEmail)")
+
+            // TODO: Trigger Cloud Function to send email notification
+            // For now, the invitation will be visible when the athlete logs in
+
+            return docRef.documentID
+        } catch {
+            print("❌ Failed to create coach-to-athlete invitation: \(error)")
+            errorMessage = "Failed to send invitation: \(error.localizedDescription)"
+            throw error
+        }
+    }
+
+    /// Fetches pending invitations from coaches for an athlete (by email)
+    func fetchPendingCoachInvitations(forAthleteEmail email: String) async throws -> [CoachToAthleteInvitation] {
+        do {
+            let snapshot = try await db.collection("invitations")
+                .whereField("type", isEqualTo: "coach_to_athlete")
+                .whereField("athleteEmail", isEqualTo: email.lowercased())
+                .whereField("status", isEqualTo: "pending")
+                .getDocuments()
+
+            let invitations = snapshot.documents.compactMap { doc -> CoachToAthleteInvitation? in
+                let data = doc.data()
+                return CoachToAthleteInvitation(
+                    id: doc.documentID,
+                    coachID: data["coachID"] as? String ?? "",
+                    coachEmail: data["coachEmail"] as? String ?? "",
+                    coachName: data["coachName"] as? String ?? "",
+                    athleteEmail: data["athleteEmail"] as? String ?? "",
+                    athleteName: data["athleteName"] as? String ?? "",
+                    message: data["message"] as? String,
+                    status: data["status"] as? String ?? "pending",
+                    sentAt: (data["sentAt"] as? Timestamp)?.dateValue()
+                )
+            }
+
+            print("✅ Found \(invitations.count) pending coach invitations for \(email)")
+            return invitations
+        } catch {
+            print("❌ Failed to fetch coach invitations: \(error)")
+            throw error
+        }
+    }
+
+    /// Accepts a coach-to-athlete invitation
+    func acceptCoachToAthleteInvitation(invitationID: String, athleteUserID: String) async throws {
+        isLoading = true
+        defer { isLoading = false }
+
+        do {
+            try await db.collection("invitations").document(invitationID).updateData([
+                "status": "accepted",
+                "acceptedAt": FieldValue.serverTimestamp(),
+                "athleteUserID": athleteUserID
+            ])
+
+            print("✅ Accepted coach-to-athlete invitation \(invitationID)")
+        } catch {
+            print("❌ Failed to accept coach invitation: \(error)")
+            throw error
+        }
+    }
+
+    /// Declines a coach-to-athlete invitation
+    func declineCoachToAthleteInvitation(invitationID: String) async throws {
+        isLoading = true
+        defer { isLoading = false }
+
+        do {
+            try await db.collection("invitations").document(invitationID).updateData([
+                "status": "declined",
+                "declinedAt": FieldValue.serverTimestamp()
+            ])
+
+            print("✅ Declined coach-to-athlete invitation \(invitationID)")
+        } catch {
+            print("❌ Failed to decline coach invitation: \(error)")
             throw error
         }
     }
@@ -1584,6 +1697,19 @@ struct CoachInvitation: Codable, Identifiable {
         case accepted
         case declined
     }
+}
+
+/// Coach-to-Athlete invitation (when coach initiates the connection)
+struct CoachToAthleteInvitation: Identifiable {
+    let id: String
+    let coachID: String
+    let coachEmail: String
+    let coachName: String
+    let athleteEmail: String
+    let athleteName: String
+    let message: String?
+    let status: String
+    let sentAt: Date?
 }
 
 /// User profile model

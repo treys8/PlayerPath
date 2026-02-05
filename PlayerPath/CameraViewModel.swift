@@ -429,7 +429,7 @@ class CameraViewModel: NSObject, ObservableObject {
         // Convert tap point to device coordinates (0-1 range)
         // Note: This assumes portrait orientation. In production, you'd convert based on preview layer bounds
         // and handle all orientations properly
-        let screenBounds = CGRect(x: 0, y: 0, width: 393, height: 852) // Default iPhone bounds
+        let screenBounds = UIScreen.main.bounds
         let devicePoint = CGPoint(
             x: point.y / screenBounds.height,
             y: 1.0 - (point.x / screenBounds.width)

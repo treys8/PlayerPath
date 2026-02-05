@@ -211,6 +211,10 @@ struct DashboardView: View {
         ScrollView {
             LazyVStack(spacing: 32) {
 
+                // COACH INVITATIONS BANNER - Shows pending invitations from coaches
+                AthleteInvitationsBanner()
+                    .padding(.horizontal)
+
                 // SEASON RECOMMENDATION BANNER - Shows when athlete needs a season
                 let seasonRecommendation = SeasonManager.checkSeasonStatus(for: athlete)
                 if seasonRecommendation.message != nil {

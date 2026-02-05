@@ -65,29 +65,32 @@ struct WelcomeFlow: View {
                 }
 
                 // Feature highlights
-                VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 12) {
                     Text("Track Your Performance")
                         .font(.headline)
-                        .fontWeight(.semibold)
-                        .padding(.bottom, 8)
+                        .fontWeight(.bold)
+                        .padding(.bottom, 4)
                         .accessibilityAddTraits(.isHeader)
 
                     FeatureHighlight(
                         icon: "video.circle.fill",
                         title: "Record & Analyze",
-                        description: "Capture practice sessions and games with smart analysis"
+                        description: "Capture practice sessions and games with smart analysis",
+                        color: .red
                     )
 
                     FeatureHighlight(
                         icon: "chart.line.uptrend.xyaxis.circle.fill",
                         title: "Track Statistics",
-                        description: "Monitor batting averages and performance metrics"
+                        description: "Monitor batting averages and performance metrics",
+                        color: .blue
                     )
 
                     FeatureHighlight(
                         icon: "arrow.triangle.2.circlepath.circle.fill",
                         title: "Sync Everywhere",
-                        description: "Your data syncs securely across all devices"
+                        description: "Your data syncs securely across all devices",
+                        color: .green
                     )
                 }
                 .padding(.horizontal)

@@ -82,59 +82,82 @@ struct CoachOnboardingFlow: View {
                 }
 
                 // Coach-specific onboarding benefits
-                VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 12) {
                     Text("As a Coach, You Can:")
                         .font(.headline)
-                        .fontWeight(.semibold)
-                        .padding(.bottom, 8)
+                        .fontWeight(.bold)
+                        .padding(.bottom, 4)
                         .accessibilityAddTraits(.isHeader)
 
                     FeatureHighlight(
                         icon: "folder.badge.person.crop",
                         title: "Access Shared Folders",
-                        description: "View folders shared with you by your athletes"
+                        description: "View folders shared with you by your athletes",
+                        color: .blue
                     )
 
                     FeatureHighlight(
                         icon: "video.badge.plus",
                         title: "Upload & Review Videos",
-                        description: "Add videos and provide feedback"
+                        description: "Add videos and provide feedback",
+                        color: .red
                     )
 
                     FeatureHighlight(
                         icon: "bubble.left.and.bubble.right.fill",
                         title: "Annotate & Comment",
-                        description: "Add coaching insights and notes"
+                        description: "Add coaching insights and notes",
+                        color: .purple
                     )
 
                     FeatureHighlight(
                         icon: "person.3.fill",
                         title: "Manage Multiple Athletes",
-                        description: "Support all your athletes in one place"
+                        description: "Support all your athletes in one place",
+                        color: .green
                     )
                 }
                 .padding(.horizontal)
 
                 // Info message
-                VStack(spacing: 8) {
-                    HStack(alignment: .top, spacing: 12) {
-                        Image(systemName: "info.circle.fill")
-                            .font(.title2)
-                            .foregroundColor(.blue)
+                HStack(alignment: .center, spacing: 14) {
+                    ZStack {
+                        Circle()
+                            .fill(
+                                LinearGradient(
+                                    colors: [.blue.opacity(0.15), .blue.opacity(0.08)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                            .frame(width: 44, height: 44)
 
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("How It Works")
-                                .font(.subheadline)
-                                .fontWeight(.semibold)
-                            Text("Athletes share folders via email. They'll appear in your dashboard.")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
+                        Image(systemName: "info.circle.fill")
+                            .font(.system(size: 20, weight: .medium))
+                            .foregroundColor(.blue)
                     }
-                    .padding()
-                    .background(Color.blue.opacity(0.1))
-                    .cornerRadius(12)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("How It Works")
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                        Text("Athletes share folders via email. They'll appear in your dashboard.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+
+                    Spacer()
                 }
+                .padding()
+                .background(
+                    RoundedRectangle(cornerRadius: 14)
+                        .fill(Color(.systemBackground))
+                        .shadow(color: .black.opacity(0.06), radius: 4, x: 0, y: 2)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14)
+                        .stroke(Color(.systemGray5), lineWidth: 1)
+                )
                 .padding(.horizontal)
 
                 Spacer()
