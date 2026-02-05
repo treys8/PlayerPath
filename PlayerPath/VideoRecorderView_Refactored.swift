@@ -170,7 +170,9 @@ struct VideoRecorderView_Refactored: View {
             .onDisappear {
                 // Clean up resources when view disappears
                 networkMonitor.stopMonitoring()
-                saveTask?.cancel()
+                // Don't cancel saveTask here — if the user tapped Save, the task must
+                // complete even after the view disappears. cleanupAndDismiss() handles
+                // the discard path separately.
                 UIDevice.current.isBatteryMonitoringEnabled = false
             }
             .alert("Low Battery", isPresented: $showingBatteryWarning) {
@@ -434,8 +436,7 @@ struct VideoRecorderView_Refactored: View {
                 game: game,
                 practice: practice,
                 onSave: { result in
-                    saveVideoWithResult(videoURL: finalVideoURL, playResult: result)
-                    dismiss()
+                    saveVideoWithResult(videoURL: finalVideoURL, playResult: result) { dismiss() }
                 },
                 onCancel: {
                     // Show confirmation before discarding from overlay
@@ -1080,7 +1081,7 @@ struct VideoRecorderView_Refactored: View {
         smartSuggestion = nil
     }
     
-    private func saveVideoWithResult(videoURL: URL, playResult: PlayResultType?) {
+    private func saveVideoWithResult(videoURL: URL, playResult: PlayResultType?, onComplete: @escaping () -> Void) {
         guard let athlete = athlete else {
             print("ERROR: No athlete selected for video save")
             UINotificationFeedbackGenerator().notificationOccurred(.error)
@@ -1107,15 +1108,11 @@ struct VideoRecorderView_Refactored: View {
                     practice: practice
                 )
 
-                guard !Task.isCancelled else {
-                    print("VideoRecorder: Save task cancelled after save")
-                    return
-                }
-
                 // Success feedback
                 await MainActor.run {
                     UINotificationFeedbackGenerator().notificationOccurred(.success)
                     UIAccessibility.post(notification: .announcement, argument: "Video saved successfully")
+                    onComplete()
                 }
             } catch {
                 guard !Task.isCancelled else {

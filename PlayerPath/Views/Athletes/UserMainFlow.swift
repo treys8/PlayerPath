@@ -124,12 +124,12 @@ struct UserMainFlow: View {
                 )
             } else if athletesForUser.isEmpty && isNewUserFlag {
                 // New athletes need to create their first athlete profile
-                // Note: We check isNewUserFlag (not hasCompletedOnboarding) because athlete
-                // onboarding completes BEFORE athlete creation, but we still need to force creation
-                FirstAthleteCreationView(
+                // Show AddAthleteView directly (not FirstAthleteCreationView → AthleteSelectionView)
+                // to avoid asking for athlete creation twice
+                AddAthleteView(
                     user: user,
                     selectedAthlete: $selectedAthlete,
-                    authManager: authManager
+                    isFirstAthlete: true
                 )
             } else {
                 // Fallback: show athlete selection

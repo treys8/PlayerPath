@@ -32,6 +32,7 @@ struct PlayResultOverlayView: View {
     @State private var isLooping = false
     @State private var hasLooped = false
     @State private var showContent = false
+    @State private var videoEndObserver: NSObjectProtocol?
 
     init(videoURL: URL, athlete: Athlete?, game: Game? = nil, practice: Practice? = nil, onSave: @escaping (PlayResultType?) -> Void, onCancel: @escaping () -> Void) {
         self.videoURL = videoURL
@@ -965,11 +966,12 @@ struct MetadataBadge: View {
 
 extension PlayResultOverlayView {
     private func addVideoEndObserver() {
-        NotificationCenter.default.addObserver(
+        removeVideoEndObserver()
+        videoEndObserver = NotificationCenter.default.addObserver(
             forName: .AVPlayerItemDidPlayToEndTime,
             object: player.currentItem,
             queue: .main
-        ) { [self] _ in
+        ) { _ in
             hasLooped = true
             isLooping = true
 
@@ -986,11 +988,10 @@ extension PlayResultOverlayView {
     }
 
     private func removeVideoEndObserver() {
-        NotificationCenter.default.removeObserver(
-            self,
-            name: .AVPlayerItemDidPlayToEndTime,
-            object: player.currentItem
-        )
+        if let observer = videoEndObserver {
+            NotificationCenter.default.removeObserver(observer)
+            videoEndObserver = nil
+        }
     }
 
     private func loadVideoMetadata() {

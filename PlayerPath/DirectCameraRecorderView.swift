@@ -79,7 +79,9 @@ struct DirectCameraRecorderView: View {
             }
         }
         .onDisappear {
-            saveTask?.cancel()
+            // Don't cancel saveTask here — if the user tapped Save, the task must
+            // complete even after the view disappears. cleanupAndDismiss() handles
+            // the discard path separately.
         }
     }
 
@@ -199,8 +201,7 @@ struct DirectCameraRecorderView: View {
                 game: game,
                 practice: practice,
                 onSave: { result in
-                    saveVideoWithResult(videoURL: finalVideoURL, playResult: result)
-                    dismiss()
+                    saveVideoWithResult(videoURL: finalVideoURL, playResult: result) { dismiss() }
                 },
                 onCancel: {
                     showingDiscardConfirmation = true
@@ -228,13 +229,9 @@ struct DirectCameraRecorderView: View {
         }
     }
 
-    private func saveVideoWithResult(videoURL: URL, playResult: PlayResultType?) {
-        guard !Task.isCancelled else { return }
-
+    private func saveVideoWithResult(videoURL: URL, playResult: PlayResultType?, onComplete: @escaping () -> Void) {
         saveTask = Task { @MainActor in
             defer { saveTask = nil }
-
-            guard !Task.isCancelled else { return }
 
             do {
                 // Generate thumbnail
@@ -294,13 +291,12 @@ struct DirectCameraRecorderView: View {
                 }
 
                 Haptics.success()
+                onComplete()
             } catch {
-                await MainActor.run {
-                    ErrorHandlerService.shared.handle(
-                        AppError.videoRecordingFailed(error.localizedDescription),
-                        context: "Saving Video"
-                    )
-                }
+                ErrorHandlerService.shared.handle(
+                    AppError.videoRecordingFailed(error.localizedDescription),
+                    context: "Saving Video"
+                )
             }
         }
     }
