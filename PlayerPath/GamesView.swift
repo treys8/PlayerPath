@@ -1822,6 +1822,8 @@ struct ManualStatisticsEntryView: View {
     @State private var rbis: String = ""
     @State private var strikeouts: String = ""
     @State private var walks: String = ""
+    @State private var groundOuts: String = ""
+    @State private var flyOuts: String = ""
     @State private var showingValidationAlert = false
     @State private var alertMessage = ""
     
@@ -1838,9 +1840,11 @@ struct ManualStatisticsEntryView: View {
     var newRbis: Int { Int(rbis) ?? 0 }
     var newStrikeouts: Int { Int(strikeouts) ?? 0 }
     var newWalks: Int { Int(walks) ?? 0 }
-    
+    var newGroundOuts: Int { Int(groundOuts) ?? 0 }
+    var newFlyOuts: Int { Int(flyOuts) ?? 0 }
+
     var newHits: Int { newSingles + newDoubles + newTriples + newHomeRuns }
-    var newAtBats: Int { newHits + newStrikeouts }
+    var newAtBats: Int { newHits + newStrikeouts + newGroundOuts + newFlyOuts }
     
     var totalHits: Int { gameStats.hits + newHits }
     var totalAtBats: Int { gameStats.atBats + newAtBats }
@@ -1889,6 +1893,8 @@ struct ManualStatisticsEntryView: View {
                 
                 Section("Plate Appearance Outcomes") {
                     StatEntryRow(title: "Strikeouts (K's)", value: $strikeouts, icon: "k.circle.fill", color: .red)
+                    StatEntryRow(title: "Ground Outs", value: $groundOuts, icon: "arrow.down.circle.fill", color: .brown)
+                    StatEntryRow(title: "Fly Outs", value: $flyOuts, icon: "arrow.up.circle.fill", color: .indigo)
                     StatEntryRow(title: "Walks (BB's)", value: $walks, icon: "figure.walk", color: .cyan)
                 }
                 
@@ -1964,12 +1970,13 @@ struct ManualStatisticsEntryView: View {
     
     private var hasAnyInput: Bool {
         !singles.isEmpty || !doubles.isEmpty || !triples.isEmpty || !homeRuns.isEmpty ||
-        !runs.isEmpty || !rbis.isEmpty || !strikeouts.isEmpty || !walks.isEmpty
+        !runs.isEmpty || !rbis.isEmpty || !strikeouts.isEmpty || !walks.isEmpty ||
+        !groundOuts.isEmpty || !flyOuts.isEmpty
     }
     
     private func saveStatistics() {
         // Validation
-        if newAtBats < 0 || newHits < 0 || newRuns < 0 || newRbis < 0 || newStrikeouts < 0 || newWalks < 0 {
+        if newAtBats < 0 || newHits < 0 || newRuns < 0 || newRbis < 0 || newStrikeouts < 0 || newWalks < 0 || newGroundOuts < 0 || newFlyOuts < 0 {
             alertMessage = "Statistics cannot be negative numbers."
             showingValidationAlert = true
             return
@@ -1994,15 +2001,17 @@ struct ManualStatisticsEntryView: View {
                 runs: newRuns,
                 rbis: newRbis,
                 strikeouts: newStrikeouts,
-                walks: newWalks
+                walks: newWalks,
+                groundOuts: newGroundOuts,
+                flyOuts: newFlyOuts
             )
-            
+
             print("Updated game statistics: \(gameStats.hits) hits in \(gameStats.atBats) at bats, \(gameStats.runs) runs, \(gameStats.rbis) RBIs")
-            
+
             // Also update athlete's overall statistics if they exist
             if let athlete = game.athlete,
                let athleteStats = athlete.statistics {
-                
+
                 athleteStats.addManualStatistic(
                     singles: newSingles,
                     doubles: newDoubles,
@@ -2011,7 +2020,9 @@ struct ManualStatisticsEntryView: View {
                     runs: newRuns,
                     rbis: newRbis,
                     strikeouts: newStrikeouts,
-                    walks: newWalks
+                    walks: newWalks,
+                    groundOuts: newGroundOuts,
+                    flyOuts: newFlyOuts
                 )
                 
                 print("Updated athlete overall statistics: \(athleteStats.hits) total hits in \(athleteStats.atBats) total at bats")

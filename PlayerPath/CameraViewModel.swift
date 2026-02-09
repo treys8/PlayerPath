@@ -42,6 +42,8 @@ class CameraViewModel: NSObject, ObservableObject {
     private var recordingTimer: Timer?
     private var pulseTimer: Timer?
     private var sessionQueue = DispatchQueue(label: "com.playerpath.camera")
+    private var orientationObserver: NSObjectProtocol?
+    @MainActor @Published var currentOrientation: UIDeviceOrientation = .portrait
 
     var minZoom: CGFloat = 1.0
     var maxZoom: CGFloat = 10.0
@@ -65,6 +67,9 @@ class CameraViewModel: NSObject, ObservableObject {
     }
 
     deinit {
+        if let observer = orientationObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
         // Stop capture session on session queue (non-isolated context)
         sessionQueue.sync {
             captureSession.stopRunning()
@@ -73,11 +78,71 @@ class CameraViewModel: NSObject, ObservableObject {
         pulseTimer?.invalidate()
     }
 
+    // MARK: - Orientation
+
+    @MainActor
+    private func startOrientationMonitoring() {
+        UIDevice.current.beginGeneratingDeviceOrientationNotifications()
+        currentOrientation = UIDevice.current.orientation.isValidInterfaceOrientation
+            ? UIDevice.current.orientation : .portrait
+
+        orientationObserver = NotificationCenter.default.addObserver(
+            forName: UIDevice.orientationDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                let orientation = UIDevice.current.orientation
+                guard orientation.isValidInterfaceOrientation else { return }
+                self.currentOrientation = orientation
+            }
+        }
+    }
+
+    private func stopOrientationMonitoring() {
+        if let observer = orientationObserver {
+            NotificationCenter.default.removeObserver(observer)
+            orientationObserver = nil
+        }
+        UIDevice.current.endGeneratingDeviceOrientationNotifications()
+    }
+
+    /// Updates an AVCaptureConnection's orientation to match the given device orientation.
+    private func updateConnectionOrientation(_ connection: AVCaptureConnection, for orientation: UIDeviceOrientation? = nil) {
+        let deviceOrientation = orientation ?? .portrait
+
+        if #available(iOS 17.0, *) {
+            let angle: CGFloat = switch deviceOrientation {
+            case .landscapeLeft: 0       // Home button on right → natural landscape
+            case .landscapeRight: 180    // Home button on left
+            case .portraitUpsideDown: 270
+            default: 90                  // Portrait (default)
+            }
+            if connection.isVideoRotationAngleSupported(angle) {
+                connection.videoRotationAngle = angle
+            }
+        } else {
+            let videoOrientation: AVCaptureVideoOrientation = switch deviceOrientation {
+            case .landscapeLeft: .landscapeRight   // Inverted mapping (camera vs device)
+            case .landscapeRight: .landscapeLeft
+            case .portraitUpsideDown: .portraitUpsideDown
+            default: .portrait
+            }
+            if connection.isVideoOrientationSupported {
+                connection.videoOrientation = videoOrientation
+            }
+        }
+    }
+
     // MARK: - Session Management
 
     @MainActor
     func startSession() async {
         await checkPermissions()
+
+        // Start monitoring orientation
+        startOrientationMonitoring()
 
         // Capture settings value before async boundary
         let qualityPreset = settings.quality.avPreset
@@ -110,6 +175,8 @@ class CameraViewModel: NSObject, ObservableObject {
         if isRecording {
             stopRecording()
         }
+
+        stopOrientationMonitoring()
 
         sessionQueue.async { [weak self] in
             self?.captureSession.stopRunning()
@@ -260,16 +327,8 @@ class CameraViewModel: NSObject, ObservableObject {
                 connection.preferredVideoStabilizationMode = settings.stabilizationMode.avMode
             }
 
-            // Set orientation
-            if #available(iOS 17.0, *) {
-                if connection.isVideoRotationAngleSupported(0) {
-                    connection.videoRotationAngle = 0
-                }
-            } else {
-                if connection.isVideoOrientationSupported {
-                    connection.videoOrientation = .portrait
-                }
-            }
+            // Set orientation based on current device orientation
+            updateConnectionOrientation(connection)
         }
 
         if captureSession.canAddOutput(output) {
@@ -295,8 +354,16 @@ class CameraViewModel: NSObject, ObservableObject {
             .appendingPathComponent(UUID().uuidString)
             .appendingPathExtension("mov")
 
-        // Start recording
-        sessionQueue.async {
+        // Lock orientation for this recording
+        let orientation = currentOrientation
+
+        // Start recording with correct orientation
+        sessionQueue.async { [weak self] in
+            guard let self else { return }
+            // Update connection orientation right before recording starts
+            if let connection = output.connection(with: .video) {
+                self.updateConnectionOrientation(connection, for: orientation)
+            }
             output.startRecording(to: outputURL, recordingDelegate: self)
         }
 

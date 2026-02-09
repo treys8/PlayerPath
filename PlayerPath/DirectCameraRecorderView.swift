@@ -281,7 +281,7 @@ struct DirectCameraRecorderView: View {
                 if let resultType = playResult {
                     NotificationCenter.default.post(
                         name: .recordedHitResult,
-                        object: ["hitType": resultType.rawValue]
+                        object: ["hitType": resultType.displayName]
                     )
                 }
 

@@ -16,6 +16,11 @@ struct StatisticsHelpers {
             "walk": .walk, "bb": .walk,
             "strikeout": .strikeout, "k": .strikeout,
             "groundout": .groundOut, "ground out": .groundOut, "go": .groundOut,
+            "flyout": .flyOut, "fly out": .flyOut, "fo": .flyOut,
+            "ball": .ball,
+            "strike": .strike,
+            "hitbypitch": .hitByPitch, "hit by pitch": .hitByPitch, "hbp": .hitByPitch,
+            "wildpitch": .wildPitch, "wild pitch": .wildPitch, "wp": .wildPitch,
             // Treat generic outs as ground outs by convention unless the caller is explicit.
             "out": .groundOut
         ]

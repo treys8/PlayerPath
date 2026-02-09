@@ -42,7 +42,7 @@ struct ModernCameraView: View {
     var body: some View {
         ZStack {
             // Camera Preview Layer
-            CameraPreviewLayer(session: viewModel.captureSession)
+            CameraPreviewLayer(session: viewModel.captureSession, orientation: viewModel.currentOrientation)
                 .ignoresSafeArea()
                 .opacity(viewModel.isSessionReady ? 1 : 0)
 
@@ -313,16 +313,44 @@ struct ModernCameraView: View {
 
 struct CameraPreviewLayer: UIViewRepresentable {
     let session: AVCaptureSession
+    let orientation: UIDeviceOrientation
 
     func makeUIView(context: Context) -> PreviewView {
         let view = PreviewView()
         view.videoPreviewLayer.session = session
         view.videoPreviewLayer.videoGravity = .resizeAspectFill
+        updatePreviewOrientation(view)
         return view
     }
 
     func updateUIView(_ uiView: PreviewView, context: Context) {
-        // Session updates handled by ViewModel
+        updatePreviewOrientation(uiView)
+    }
+
+    private func updatePreviewOrientation(_ view: PreviewView) {
+        guard let connection = view.videoPreviewLayer.connection else { return }
+
+        if #available(iOS 17.0, *) {
+            let angle: CGFloat = switch orientation {
+            case .landscapeLeft: 0
+            case .landscapeRight: 180
+            case .portraitUpsideDown: 270
+            default: 90
+            }
+            if connection.isVideoRotationAngleSupported(angle) {
+                connection.videoRotationAngle = angle
+            }
+        } else {
+            let videoOrientation: AVCaptureVideoOrientation = switch orientation {
+            case .landscapeLeft: .landscapeRight
+            case .landscapeRight: .landscapeLeft
+            case .portraitUpsideDown: .portraitUpsideDown
+            default: .portrait
+            }
+            if connection.isVideoOrientationSupported {
+                connection.videoOrientation = videoOrientation
+            }
+        }
     }
 
     class PreviewView: UIView {

@@ -863,11 +863,12 @@ final class AthleteStatistics {
     }
     
     func addManualStatistic(singles: Int = 0, doubles: Int = 0, triples: Int = 0, homeRuns: Int = 0,
-                           runs: Int = 0, rbis: Int = 0, strikeouts: Int = 0, walks: Int = 0) {
+                           runs: Int = 0, rbis: Int = 0, strikeouts: Int = 0, walks: Int = 0,
+                           groundOuts: Int = 0, flyOuts: Int = 0) {
         // Add hits and at bats
         let totalHits = singles + doubles + triples + homeRuns
-        let totalAtBats = singles + doubles + triples + homeRuns + strikeouts
-        
+        let totalAtBats = singles + doubles + triples + homeRuns + strikeouts + groundOuts + flyOuts
+
         self.singles += singles
         self.doubles += doubles
         self.triples += triples
@@ -878,7 +879,9 @@ final class AthleteStatistics {
         self.rbis += rbis
         self.strikeouts += strikeouts
         self.walks += walks
-        
+        self.groundOuts += groundOuts
+        self.flyOuts += flyOuts
+
         self.updatedAt = Date()
     }
 }
@@ -897,6 +900,8 @@ final class GameStatistics {
     var rbis: Int = 0
     var strikeouts: Int = 0
     var walks: Int = 0
+    var groundOuts: Int = 0
+    var flyOuts: Int = 0
     var createdAt: Date?
 
     // MARK: - Computed Statistics
@@ -950,11 +955,9 @@ final class GameStatistics {
         case .strikeout:
             self.strikeouts += 1
         case .groundOut:
-            // Note: groundOuts are not tracked separately in GameStatistics
-            break
+            self.groundOuts += 1
         case .flyOut:
-            // Note: flyOuts are not tracked separately in GameStatistics
-            break
+            self.flyOuts += 1
         case .ball, .strike, .hitByPitch, .wildPitch:
             // Note: Pitching stats are not tracked in GameStatistics - only in AthleteStatistics
             break
@@ -963,11 +966,12 @@ final class GameStatistics {
     }
     
     func addManualStatistic(singles: Int = 0, doubles: Int = 0, triples: Int = 0, homeRuns: Int = 0,
-                           runs: Int = 0, rbis: Int = 0, strikeouts: Int = 0, walks: Int = 0) {
+                           runs: Int = 0, rbis: Int = 0, strikeouts: Int = 0, walks: Int = 0,
+                           groundOuts: Int = 0, flyOuts: Int = 0) {
         // Add hits and at bats
         let totalHits = singles + doubles + triples + homeRuns
-        let totalAtBats = singles + doubles + triples + homeRuns + strikeouts
-        
+        let totalAtBats = singles + doubles + triples + homeRuns + strikeouts + groundOuts + flyOuts
+
         self.singles += singles
         self.doubles += doubles
         self.triples += triples
@@ -978,6 +982,8 @@ final class GameStatistics {
         self.rbis += rbis
         self.strikeouts += strikeouts
         self.walks += walks
+        self.groundOuts += groundOuts
+        self.flyOuts += flyOuts
     }
 }
 

@@ -235,7 +235,7 @@ struct PlayResultOverlayView: View {
                     .padding(.horizontal, 16)
                     .accessibilitySortPriority(1)
                     .onAppear {
-                        withAnimation(.spring(response: 0.6, dampingFraction: 0.8).delay(0.2)) {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                             showContent = true
                         }
                     }

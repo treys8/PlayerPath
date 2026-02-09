@@ -12,7 +12,6 @@ struct LiveGameCard: View {
     var onEnd: (() -> Void)?
 
     @State private var isPulsing = false
-    @State private var isPressed = false
 
     var body: some View {
         HStack(spacing: 14) {
@@ -120,8 +119,7 @@ struct LiveGameCard: View {
                         .clipShape(Capsule())
                         .shadow(color: .red.opacity(0.3), radius: 4, x: 0, y: 2)
                 }
-                .buttonStyle(.plain)
-                .highPriorityGesture(TapGesture())
+                .buttonStyle(.borderless)
 
                 Image(systemName: "chevron.right")
                     .font(.caption)
@@ -145,10 +143,5 @@ struct LiveGameCard: View {
                 .stroke(Color.red.opacity(0.4), lineWidth: 2)
         )
         .shadow(color: .red.opacity(0.15), radius: 8, x: 0, y: 4)
-        .scaleEffect(isPressed ? 0.98 : 1.0)
-        .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isPressed)
-        .onLongPressGesture(minimumDuration: 0.01, maximumDistance: 10, pressing: { pressing in
-            isPressed = pressing
-        }, perform: {})
     }
 }
