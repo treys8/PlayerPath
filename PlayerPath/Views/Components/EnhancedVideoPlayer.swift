@@ -18,6 +18,7 @@ struct EnhancedVideoPlayer: View {
     @State private var playbackSpeed: PlaybackSpeed = .normal
     @State private var showControls = true
     @State private var timeObserver: Any?
+    @State private var endObserver: (any NSObjectProtocol)?
     @State private var hideControlsTask: Task<Void, Never>?
 
     var body: some View {
@@ -204,7 +205,7 @@ struct EnhancedVideoPlayer: View {
         }
 
         // Observe playback state
-        NotificationCenter.default.addObserver(
+        endObserver = NotificationCenter.default.addObserver(
             forName: .AVPlayerItemDidPlayToEndTime,
             object: player.currentItem,
             queue: .main
@@ -219,6 +220,9 @@ struct EnhancedVideoPlayer: View {
     private func cleanup() {
         if let observer = timeObserver {
             player.removeTimeObserver(observer)
+        }
+        if let observer = endObserver {
+            NotificationCenter.default.removeObserver(observer)
         }
         hideControlsTask?.cancel()
     }

@@ -83,7 +83,7 @@ struct VideoRecorderView_Refactored: View {
             .fullScreenCover(isPresented: $showingNativeCamera) {
                 nativeCameraView
             }
-            .sheet(isPresented: $showingTrimmer) {
+            .fullScreenCover(isPresented: $showingTrimmer) {
                 videoTrimmerView
             }
             .sheet(isPresented: $showingPlayResultOverlay) {
@@ -391,36 +391,34 @@ struct VideoRecorderView_Refactored: View {
     @ViewBuilder
     private var videoTrimmerView: some View {
         if let videoURL = recordedVideoURL {
-            NavigationStack {
-                PreUploadTrimmerView(
-                    videoURL: videoURL,
-                    onSave: { trimmedURL in
-                        // Use trimmed video if available, otherwise original
-                        trimmedVideoURL = trimmedURL
-                        showingTrimmer = false
-                        showingPlayResultOverlay = true
-                    },
-                    onSkip: {
-                        // Skip trimming, use original video
-                        trimmedVideoURL = nil
-                        showingTrimmer = false
-                        showingPlayResultOverlay = true
-                    },
-                    onCancel: {
-                        // Discard recording
-                        pendingDismissAction = {
-                            VideoFileManager.cleanup(url: videoURL)
-                            if let trimmed = trimmedVideoURL {
-                                VideoFileManager.cleanup(url: trimmed)
-                            }
-                            self.recordedVideoURL = nil
-                            self.trimmedVideoURL = nil
-                            self.showingTrimmer = false
+            PreUploadTrimmerView(
+                videoURL: videoURL,
+                onSave: { trimmedURL in
+                    // Use trimmed video if available, otherwise original
+                    trimmedVideoURL = trimmedURL
+                    showingTrimmer = false
+                    showingPlayResultOverlay = true
+                },
+                onSkip: {
+                    // Skip trimming, use original video
+                    trimmedVideoURL = nil
+                    showingTrimmer = false
+                    showingPlayResultOverlay = true
+                },
+                onCancel: {
+                    // Discard recording
+                    pendingDismissAction = {
+                        VideoFileManager.cleanup(url: videoURL)
+                        if let trimmed = trimmedVideoURL {
+                            VideoFileManager.cleanup(url: trimmed)
                         }
-                        showingDiscardConfirmation = true
+                        self.recordedVideoURL = nil
+                        self.trimmedVideoURL = nil
+                        self.showingTrimmer = false
                     }
-                )
-            }
+                    showingDiscardConfirmation = true
+                }
+            )
         }
     }
 
@@ -900,7 +898,7 @@ struct VideoRecorderView_Refactored: View {
             switch result {
             case .success(let videoURL):
                 recordedVideoURL = videoURL
-                showingPlayResultOverlay = true
+                showingTrimmer = true
                 #if canImport(UIKit)
                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                 #endif
@@ -914,32 +912,26 @@ struct VideoRecorderView_Refactored: View {
     private func checkCameraPermission() {
         // First check if we have enough storage
         let hasEnoughStorage = checkAvailableStorage()
-        
+
         guard hasEnoughStorage else {
             UINotificationFeedbackGenerator().notificationOccurred(.error)
             showingLowStorageAlert = true
             return
         }
-        
-        // Smart quality suggestion based on available storage
-        if availableStorageGB < 3.0 && selectedVideoQuality == .typeHigh {
-            // Suggest lower quality if storage is tight
-            Task {
-                await MainActor.run {
-                    // Show a helpful tip
-                    let generator = UINotificationFeedbackGenerator()
-                    generator.notificationOccurred(.warning)
-                }
-            }
-        }
-        
+
+        // Check if permissions are already granted (no dialog will be shown)
+        let alreadyAuthorized = AVCaptureDevice.authorizationStatus(for: .video) == .authorized
+            && AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+
         Task {
             let result = await permissionManager.checkPermissions()
             switch result {
             case .success:
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
-                // Add delay to ensure permission dialogs have fully dismissed
-                try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 second
+                // Only delay if permission dialogs were shown
+                if !alreadyAuthorized {
+                    try? await Task.sleep(nanoseconds: 500_000_000)
+                }
                 showingNativeCamera = true
             case .failure(let error):
                 UINotificationFeedbackGenerator().notificationOccurred(.error)
@@ -1108,8 +1100,18 @@ struct VideoRecorderView_Refactored: View {
                     practice: practice
                 )
 
-                // Success feedback
+                // Success — clean up temp files and dismiss
                 await MainActor.run {
+                    // Clean up temp files (the clip is now safely copied to Documents/Clips)
+                    if let recorded = self.recordedVideoURL {
+                        VideoFileManager.cleanup(url: recorded)
+                    }
+                    if let trimmed = self.trimmedVideoURL {
+                        VideoFileManager.cleanup(url: trimmed)
+                    }
+                    self.recordedVideoURL = nil
+                    self.trimmedVideoURL = nil
+
                     UINotificationFeedbackGenerator().notificationOccurred(.success)
                     UIAccessibility.post(notification: .announcement, argument: "Video saved successfully")
                     onComplete()
@@ -1265,49 +1267,29 @@ struct PreUploadTrimmerView: View {
     @State private var isExporting = false
     @State private var exportError: String?
     @State private var currentTime: Double = 0
-    @State private var isPlaying = false
+    @State private var isPlaying = true
     @State private var timeObserver: Any?
+    @State private var showContent = false
+    @State private var videoEndObserver: NSObjectProtocol?
 
     var body: some View {
-        VStack(spacing: 20) {
-            // Header
-            VStack(spacing: 8) {
-                Text("Trim Video")
-                    .font(.title2)
-                    .fontWeight(.bold)
-
-                Text("Cut out unwanted footage before saving")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-            }
-            .padding(.top)
-
-            // Video Player
+        ZStack {
+            // Full-screen video background
             if let player = player {
-                ZStack(alignment: .bottom) {
-                    VideoPlayer(player: player)
-                        .frame(height: 300)
-                        .cornerRadius(12)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12)
-                                .strokeBorder(Color.blue.opacity(0.3), lineWidth: 2)
-                        )
+                VideoPlayer(player: player)
+                    .allowsHitTesting(false)
+                    .ignoresSafeArea()
+                    .overlay(Color.black.opacity(0.15))
+            } else {
+                Color.black.ignoresSafeArea()
+            }
 
-                    // Playback controls
-                    HStack(spacing: 16) {
-                        Button {
-                            seekTo(time: startTime)
-                        } label: {
-                            Image(systemName: "backward.end.fill")
-                                .font(.title3)
-                                .foregroundColor(.white)
-                                .padding(12)
-                                .background(.ultraThinMaterial)
-                                .clipShape(Circle())
-                        }
-
-                        Button {
+            // Play/Pause button - bottom leading
+            VStack {
+                Spacer()
+                HStack {
+                    Button {
+                        if let player = player {
                             if isPlaying {
                                 player.pause()
                             } else {
@@ -1315,172 +1297,260 @@ struct PreUploadTrimmerView: View {
                             }
                             isPlaying.toggle()
                             Haptics.light()
-                        } label: {
-                            Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                                .font(.title2)
-                                .foregroundColor(.white)
-                                .padding(16)
-                                .background(.ultraThinMaterial)
-                                .clipShape(Circle())
                         }
-
-                        Button {
-                            seekTo(time: endTime)
-                        } label: {
-                            Image(systemName: "forward.end.fill")
-                                .font(.title3)
-                                .foregroundColor(.white)
-                                .padding(12)
-                                .background(.ultraThinMaterial)
-                                .clipShape(Circle())
-                        }
-                    }
-                    .padding(.bottom, 12)
-                }
-            }
-
-            // Trim controls
-            if duration > 0 {
-                VStack(spacing: 16) {
-                    // Time indicator
-                    HStack {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Start")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                            Text(formatTime(startTime))
-                                .font(.headline)
-                                .monospacedDigit()
-                        }
-
-                        Spacer()
-
-                        VStack(spacing: 4) {
-                            Text("Duration")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                            Text(formatTime(endTime - startTime))
-                                .font(.headline)
-                                .monospacedDigit()
-                                .foregroundColor(.blue)
-                        }
-
-                        Spacer()
-
-                        VStack(alignment: .trailing, spacing: 4) {
-                            Text("End")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                            Text(formatTime(endTime))
-                                .font(.headline)
-                                .monospacedDigit()
-                        }
-                    }
-                    .padding(.horizontal)
-
-                    // Start slider
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Trim Start")
-                            .font(.subheadline)
-                            .fontWeight(.medium)
-
-                        Slider(value: $startTime, in: 0...max(0, endTime - 0.5), step: 0.1) {
-                            Text("Start")
-                        }
-                        .tint(.green)
-                        .onChange(of: startTime) { _, newValue in
-                            seekTo(time: newValue)
-                        }
-                    }
-                    .padding(.horizontal)
-
-                    // End slider
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Trim End")
-                            .font(.subheadline)
-                            .fontWeight(.medium)
-
-                        Slider(value: $endTime, in: min(duration, startTime + 0.5)...duration, step: 0.1) {
-                            Text("End")
-                        }
-                        .tint(.red)
-                        .onChange(of: endTime) { _, newValue in
-                            seekTo(time: newValue)
-                        }
-                    }
-                    .padding(.horizontal)
-                }
-            }
-
-            if let error = exportError {
-                Text(error)
-                    .foregroundColor(.red)
-                    .font(.footnote)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal)
-            }
-
-            Spacer()
-
-            // Action buttons
-            VStack(spacing: 12) {
-                Button {
-                    Haptics.success()
-                    Task { await exportTrimmedVideo() }
-                } label: {
-                    if isExporting {
-                        HStack {
-                            ProgressView()
-                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                            Text("Trimming...")
-                        }
-                    } else {
-                        Label("Save Trimmed Video", systemImage: "scissors")
-                    }
-                }
-                .font(.headline)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 16)
-                .background(Color.blue)
-                .foregroundColor(.white)
-                .cornerRadius(12)
-                .disabled(isExporting || endTime - startTime < 0.5)
-
-                HStack(spacing: 12) {
-                    Button {
-                        Haptics.light()
-                        onSkip()
                     } label: {
-                        Text("Use Full Video")
-                            .font(.subheadline)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 12)
-                            .background(Color(uiColor: .systemGray5))
-                            .foregroundColor(.primary)
-                            .cornerRadius(10)
+                        Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundColor(.white)
+                            .padding(10)
+                            .background(.ultraThinMaterial)
+                            .clipShape(Circle())
+                            .shadow(radius: 4)
                     }
-                    .disabled(isExporting)
+                    .padding(.leading, 12)
+                    .padding(.bottom, 12)
+                    Spacer()
+                }
+            }
 
+            // Trim controls overlay
+            VStack {
+                // Top bar with back button
+                HStack {
                     Button {
                         Haptics.warning()
                         onCancel()
                     } label: {
-                        Text("Discard")
-                            .font(.subheadline)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 12)
-                            .background(Color.red.opacity(0.1))
-                            .foregroundColor(.red)
-                            .cornerRadius(10)
+                        HStack(spacing: 6) {
+                            Image(systemName: "chevron.left")
+                                .font(.body.weight(.semibold))
+                            Text("Back")
+                                .font(.body)
+                        }
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(
+                            Capsule()
+                                .fill(.ultraThinMaterial)
+                        )
                     }
-                    .disabled(isExporting)
+                    Spacer()
                 }
+                .padding(.horizontal, 16)
+                .padding(.top, 60)
+
+                Spacer()
+
+                // Bottom panel
+                VStack(spacing: 16) {
+                    // Header
+                    VStack(spacing: 6) {
+                        Text("Trim Video")
+                            .font(.title3)
+                            .fontWeight(.bold)
+                            .foregroundColor(.white)
+
+                        Text("Drag to set start and end points")
+                            .font(.caption)
+                            .foregroundColor(.white.opacity(0.7))
+                    }
+                    .opacity(showContent ? 1 : 0)
+                    .offset(y: showContent ? 0 : 20)
+
+                    // Time indicators
+                    HStack {
+                        TrimTimeBadge(label: "START", time: formatTime(startTime), color: .green)
+                        Spacer()
+                        TrimTimeBadge(label: "DURATION", time: formatTime(endTime - startTime), color: .blue)
+                        Spacer()
+                        TrimTimeBadge(label: "END", time: formatTime(endTime), color: .red)
+                    }
+                    .padding(.horizontal, 4)
+                    .opacity(showContent ? 1 : 0)
+                    .offset(y: showContent ? 0 : 20)
+
+                    // Trim sliders
+                    if duration > 0 {
+                        VStack(spacing: 14) {
+                            // Start trim
+                            HStack(spacing: 12) {
+                                Image(systemName: "arrow.right.to.line")
+                                    .font(.system(size: 12, weight: .bold))
+                                    .foregroundColor(.green)
+                                    .frame(width: 20)
+                                Slider(value: $startTime, in: 0...max(0, endTime - 0.5), step: 0.1)
+                                    .tint(.green)
+                                    .onChange(of: startTime) { _, newValue in
+                                        seekTo(time: newValue)
+                                    }
+                            }
+
+                            // End trim
+                            HStack(spacing: 12) {
+                                Image(systemName: "arrow.left.to.line")
+                                    .font(.system(size: 12, weight: .bold))
+                                    .foregroundColor(.red)
+                                    .frame(width: 20)
+                                Slider(value: $endTime, in: min(duration, startTime + 0.5)...duration, step: 0.1)
+                                    .tint(.red)
+                                    .onChange(of: endTime) { _, newValue in
+                                        seekTo(time: newValue)
+                                    }
+                            }
+                        }
+                        .padding(.horizontal, 4)
+                        .opacity(showContent ? 1 : 0)
+                        .offset(y: showContent ? 0 : 30)
+                    }
+
+                    if let error = exportError {
+                        Text(error)
+                            .foregroundColor(.red)
+                            .font(.caption)
+                            .multilineTextAlignment(.center)
+                    }
+
+                    // Action buttons
+                    VStack(spacing: 10) {
+                        // Primary: Save trimmed
+                        Button {
+                            Haptics.success()
+                            Task { await exportTrimmedVideo() }
+                        } label: {
+                            HStack(spacing: 8) {
+                                if isExporting {
+                                    ProgressView()
+                                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                    Text("Trimming...")
+                                        .font(.body.weight(.semibold))
+                                } else {
+                                    Image(systemName: "scissors")
+                                        .font(.body.weight(.semibold))
+                                    Text("Save Trimmed")
+                                        .font(.body.weight(.semibold))
+                                }
+                            }
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 16)
+                            .background(
+                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    .fill(
+                                        LinearGradient(
+                                            colors: [.blue, .blue.opacity(0.8)],
+                                            startPoint: .topLeading,
+                                            endPoint: .bottomTrailing
+                                        )
+                                    )
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    .strokeBorder(
+                                        LinearGradient(
+                                            colors: [.white.opacity(0.3), .white.opacity(0.1)],
+                                            startPoint: .top,
+                                            endPoint: .bottom
+                                        ),
+                                        lineWidth: 1
+                                    )
+                            )
+                            .shadow(color: .blue.opacity(0.4), radius: 8, x: 0, y: 4)
+                        }
+                        .disabled(isExporting || endTime - startTime < 0.5)
+                        .opacity(isExporting || endTime - startTime < 0.5 ? 0.6 : 1)
+
+                        // Secondary: Use Full Video
+                        Button {
+                            Haptics.light()
+                            onSkip()
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: "film")
+                                    .font(.body.weight(.semibold))
+                                Text("Use Full Video")
+                                    .font(.body.weight(.semibold))
+                            }
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 16)
+                            .background(
+                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    .fill(Color.white.opacity(0.15))
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    .strokeBorder(
+                                        LinearGradient(
+                                            colors: [.white.opacity(0.3), .white.opacity(0.1)],
+                                            startPoint: .top,
+                                            endPoint: .bottom
+                                        ),
+                                        lineWidth: 1
+                                    )
+                            )
+                        }
+                        .disabled(isExporting)
+                    }
+                    .opacity(showContent ? 1 : 0)
+                    .offset(y: showContent ? 0 : 20)
+                }
+                .padding(20)
+                .background(
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 28, style: .continuous)
+                            .fill(.ultraThinMaterial)
+
+                        RoundedRectangle(cornerRadius: 28, style: .continuous)
+                            .fill(
+                                LinearGradient(
+                                    colors: [
+                                        Color.black.opacity(0.2),
+                                        Color.black.opacity(0.4)
+                                    ],
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                )
+                            )
+
+                        VStack {
+                            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                                .fill(
+                                    LinearGradient(
+                                        colors: [.white.opacity(0.15), .clear],
+                                        startPoint: .top,
+                                        endPoint: .center
+                                    )
+                                )
+                                .frame(height: 100)
+                            Spacer()
+                        }
+                        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+                    }
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 28, style: .continuous)
+                        .strokeBorder(
+                            LinearGradient(
+                                colors: [.white.opacity(0.3), .white.opacity(0.1)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            lineWidth: 1
+                        )
+                )
+                .shadow(color: .black.opacity(0.4), radius: 30, x: 0, y: 15)
+                .padding(.horizontal, 16)
+
+                Spacer().frame(height: 40)
             }
-            .padding(.horizontal)
-            .padding(.bottom)
         }
+        .ignoresSafeArea()
         .onAppear {
             setupPlayer()
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                showContent = true
+            }
         }
         .onDisappear {
             cleanup()
@@ -1490,11 +1560,23 @@ struct PreUploadTrimmerView: View {
     private func setupPlayer() {
         let newPlayer = AVPlayer(url: videoURL)
         player = newPlayer
+        newPlayer.play()
 
         // Add time observer for playback position
         let interval = CMTime(seconds: 0.1, preferredTimescale: 600)
-        timeObserver = newPlayer.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [self] time in
+        timeObserver = newPlayer.addPeriodicTimeObserver(forInterval: interval, queue: .main) { time in
             currentTime = time.seconds
+        }
+
+        // Loop video at end
+        videoEndObserver = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime,
+            object: newPlayer.currentItem,
+            queue: .main
+        ) { _ in
+            newPlayer.seek(to: CMTime(seconds: startTime, preferredTimescale: 600))
+            newPlayer.play()
+            isPlaying = true
         }
 
         Task {
@@ -1525,6 +1607,10 @@ struct PreUploadTrimmerView: View {
         if let observer = timeObserver {
             player?.removeTimeObserver(observer)
             timeObserver = nil
+        }
+        if let observer = videoEndObserver {
+            NotificationCenter.default.removeObserver(observer)
+            videoEndObserver = nil
         }
         player?.pause()
         player = nil
@@ -1595,6 +1681,36 @@ struct PreUploadTrimmerView: View {
         let seconds = Int(time) % 60
         let milliseconds = Int((time.truncatingRemainder(dividingBy: 1)) * 10)
         return String(format: "%02d:%02d.%01d", minutes, seconds, milliseconds)
+    }
+}
+
+// MARK: - Trim Time Badge
+
+private struct TrimTimeBadge: View {
+    let label: String
+    let time: String
+    let color: Color
+
+    var body: some View {
+        VStack(spacing: 4) {
+            Text(label)
+                .font(.system(size: 10, weight: .bold))
+                .tracking(1)
+                .foregroundColor(color.opacity(0.9))
+            Text(time)
+                .font(.system(size: 16, weight: .bold, design: .monospaced))
+                .foregroundColor(.white)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(color.opacity(0.15))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(color.opacity(0.3), lineWidth: 1)
+        )
     }
 }
 

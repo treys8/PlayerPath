@@ -33,6 +33,7 @@ struct PlayResultOverlayView: View {
     @State private var hasLooped = false
     @State private var showContent = false
     @State private var videoEndObserver: NSObjectProtocol?
+    @State private var isSaving = false
 
     init(videoURL: URL, athlete: Athlete?, game: Game? = nil, practice: Practice? = nil, onSave: @escaping (PlayResultType?) -> Void, onCancel: @escaping () -> Void) {
         self.videoURL = videoURL
@@ -167,6 +168,7 @@ struct PlayResultOverlayView: View {
                                 Haptics.warning()
                                 onCancel()
                             }
+                            .disabled(isSaving)
                             .accessibilityLabel("Cancel")
                             .accessibilityHint("Dismiss without saving a play result")
 
@@ -175,9 +177,11 @@ struct PlayResultOverlayView: View {
                                 icon: "checkmark",
                                 style: .primary
                             ) {
+                                isSaving = true
                                 Haptics.success()
                                 onSave(nil)
                             }
+                            .disabled(isSaving)
                             .accessibilityLabel(practice != nil ? "Save Video Only" : "Skip and Save")
                             .accessibilityHint("Save without a play result")
                         }
@@ -333,8 +337,26 @@ struct PlayResultOverlayView: View {
                     
                     Spacer()
                 }
+
+                // Saving overlay
+                if isSaving {
+                    Color.black.opacity(0.5)
+                        .ignoresSafeArea()
+                        .allowsHitTesting(true)
+
+                    VStack(spacing: 16) {
+                        ProgressView()
+                            .scaleEffect(1.5)
+                            .tint(.white)
+                        Text("Saving...")
+                            .font(.headline)
+                            .foregroundColor(.white)
+                    }
+                    .transition(.opacity)
+                }
             }
             .ignoresSafeArea()
+            .animation(.easeInOut(duration: 0.2), value: isSaving)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -378,7 +400,7 @@ struct PlayResultOverlayView: View {
             ) {
                 Button("Save", role: .none) {
                     guard let result = selectedResult else { return }
-                    UINotificationFeedbackGenerator().notificationOccurred(.success)
+                    isSaving = true
                     onSave(result)
                     selectedResult = nil
                 }
@@ -971,7 +993,11 @@ extension PlayResultOverlayView {
             forName: .AVPlayerItemDidPlayToEndTime,
             object: player.currentItem,
             queue: .main
-        ) { _ in
+        ) { [weak player] _ in
+            // Loop the video from the beginning
+            player?.seek(to: .zero)
+            player?.play()
+
             hasLooped = true
             isLooping = true
 

@@ -1,10 +1,12 @@
 import SwiftUI
 import SwiftData
 import Combine
+import os
 
 @MainActor
 final class UserPreferencesViewModel: ObservableObject {
-    
+    private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.playerpath", category: "UserPreferences")
+
     struct SyncAlert: Identifiable {
         let id = UUID()
         let title: String
@@ -66,7 +68,7 @@ final class UserPreferencesViewModel: ObservableObject {
             }
             await loadFromCloudKit()
         } catch {
-            // Swallow errors here; optionally could add error handling
+            Self.logger.error("Failed to load preferences: \(error.localizedDescription)")
         }
     }
     
@@ -122,7 +124,7 @@ final class UserPreferencesViewModel: ObservableObject {
                 try saveLocal()
             }
         } catch {
-            // Silently ignore errors here for now
+            Self.logger.warning("Failed to load preferences from CloudKit: \(error.localizedDescription)")
         }
     }
     

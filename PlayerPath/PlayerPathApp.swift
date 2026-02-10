@@ -127,21 +127,7 @@ struct PlayerPathApp: App {
                     }
                 }
         }
-        .modelContainer(for: [
-            User.self,
-            Athlete.self,
-            Season.self,
-            Game.self,
-            Practice.self,
-            PracticeNote.self,
-            VideoClip.self,
-            PlayResult.self,
-            AthleteStatistics.self,
-            GameStatistics.self,
-            UserPreferences.self,
-            OnboardingProgress.self,
-            PendingUpload.self
-        ])
+        .modelContainer(for: SchemaV1.models)
     }
 }
 

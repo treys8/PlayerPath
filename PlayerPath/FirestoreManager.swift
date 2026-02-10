@@ -24,12 +24,11 @@ class FirestoreManager: ObservableObject {
     @Published var errorMessage: String?
     
     private init() {
-        // Enable offline persistence with modern cache settings
+        // Enable offline persistence with a 100MB cache cap
         let settings = FirestoreSettings()
-        settings.cacheSettings = PersistentCacheSettings(sizeBytes: NSNumber(value: FirestoreCacheSizeUnlimited))
+        let cacheSizeBytes = 100 * 1024 * 1024 // 100 MB
+        settings.cacheSettings = PersistentCacheSettings(sizeBytes: NSNumber(value: cacheSizeBytes))
         db.settings = settings
-        
-        print("FirestoreManager initialized with offline persistence")
     }
     
     // MARK: - Shared Folders

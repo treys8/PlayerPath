@@ -67,7 +67,11 @@ final class UploadQueueManager {
             using: nil
         ) { task in
             Task { @MainActor in
-                UploadQueueManager.shared.handleBackgroundTask(task as! BGProcessingTask)
+                guard let processingTask = task as? BGProcessingTask else {
+                    task.setTaskCompleted(success: false)
+                    return
+                }
+                UploadQueueManager.shared.handleBackgroundTask(processingTask)
             }
         }
         print("UploadQueueManager: Registered background task")

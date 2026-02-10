@@ -255,20 +255,9 @@ extension AppleSignInManager: ASAuthorizationControllerPresentationContextProvid
             return UIWindow(windowScene: windowScene)
         }
 
-        // This should never happen in normal app operation
-        // Log error - sign-in will fail but app won't crash
-        print("❌ No window scene available - app may be in an invalid state")
-        #if DEBUG
-        assertionFailure("No window scene available - app may be in an invalid state")
-        #endif
-        // Create a window from the first available scene or fail gracefully
-        // At this point we've exhausted all options for finding a valid window scene
-        guard let fallbackScene = UIApplication.shared.connectedScenes.first as? UIWindowScene else {
-            // Absolute last resort - create window for first scene or use deprecated init
-            // This edge case should essentially never occur in a running app
-            fatalError("No UIWindowScene available for Apple Sign In presentation anchor")
-        }
-        return UIWindow(windowScene: fallbackScene)
+        // Should never happen in normal app operation — return a detached window
+        // so the ASAuthorizationController delegate receives a failure instead of crashing.
+        return UIWindow(frame: UIScreen.main.bounds)
     }
 }
 

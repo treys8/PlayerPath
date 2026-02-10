@@ -8,13 +8,9 @@
 
 import Foundation
 import FirebaseAnalytics
+import FirebaseCrashlytics
 
 /// Centralized service for tracking analytics events and crashes
-///
-/// NOTE: Firebase Crashlytics is not currently integrated. To enable crash reporting:
-/// 1. Add FirebaseCrashlytics to Package.swift dependencies
-/// 2. Uncomment crashlytics-related code below
-/// 3. Add crashlytics initialization in AppDelegate
 @MainActor
 final class AnalyticsService {
     static let shared = AnalyticsService()
@@ -47,16 +43,12 @@ final class AnalyticsService {
 
     func setUserID(_ userID: String) {
         Analytics.setUserID(userID)
-        // TODO: Uncomment when Crashlytics is added
-        // Crashlytics.crashlytics().setUserID(userID)
-        print("📊 Analytics user ID set: \(userID.prefix(8))...")
+        Crashlytics.crashlytics().setUserID(userID)
     }
 
     func clearUserID() {
         Analytics.setUserID(nil)
-        // TODO: Uncomment when Crashlytics is added
-        // Crashlytics.crashlytics().setUserID("")
-        print("📊 Analytics user ID cleared")
+        Crashlytics.crashlytics().setUserID("")
     }
 
     func setUserProperty(_ value: String?, forKey key: String) {
@@ -312,8 +304,7 @@ final class AnalyticsService {
             "error_description": error.localizedDescription
         ])
 
-        // TODO: Uncomment when Crashlytics is added
-        // Crashlytics.crashlytics().record(error: error)
+        Crashlytics.crashlytics().record(error: error)
     }
 
     func trackNetworkError(statusCode: Int, endpoint: String) {
