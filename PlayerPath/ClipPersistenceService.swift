@@ -249,6 +249,7 @@ final class ClipPersistenceService {
     func saveClip(
         from url: URL,
         playResult: PlayResultType?,
+        pitchSpeed: Double? = nil,
         context: ModelContext,
         athlete: Athlete,
         game: Game?,
@@ -321,6 +322,7 @@ final class ClipPersistenceService {
         videoClip.createdAt = now()
         videoClip.thumbnailPath = thumbnailPath
         videoClip.duration = durationSeconds
+        videoClip.pitchSpeed = pitchSpeed
 
         // Create and link PlayResult model if provided
         if let playResultType = playResult {

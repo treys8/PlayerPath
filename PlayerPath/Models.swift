@@ -520,6 +520,7 @@ final class VideoClip {
     var lastSyncDate: Date?        // Last successful sync
     var createdAt: Date?
     var duration: Double?          // Video duration in seconds
+    var pitchSpeed: Double?        // Pitch speed in MPH (optional, radar gun input)
     @Relationship(inverse: \PlayResult.videoClip) var playResult: PlayResult?
     var isHighlight: Bool = false
     var game: Game?

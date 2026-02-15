@@ -200,8 +200,8 @@ struct DirectCameraRecorderView: View {
                 athlete: athlete,
                 game: game,
                 practice: practice,
-                onSave: { result in
-                    saveVideoWithResult(videoURL: finalVideoURL, playResult: result) { dismiss() }
+                onSave: { result, pitchSpeed in
+                    saveVideoWithResult(videoURL: finalVideoURL, playResult: result, pitchSpeed: pitchSpeed) { dismiss() }
                 },
                 onCancel: {
                     showingDiscardConfirmation = true
@@ -229,7 +229,7 @@ struct DirectCameraRecorderView: View {
         }
     }
 
-    private func saveVideoWithResult(videoURL: URL, playResult: PlayResultType?, onComplete: @escaping () -> Void) {
+    private func saveVideoWithResult(videoURL: URL, playResult: PlayResultType?, pitchSpeed: Double? = nil, onComplete: @escaping () -> Void) {
         saveTask = Task { @MainActor in
             defer { saveTask = nil }
 
@@ -254,6 +254,7 @@ struct DirectCameraRecorderView: View {
                 clip.thumbnailPath = thumbnailPath
                 clip.createdAt = Date()
                 clip.duration = durationSeconds
+                clip.pitchSpeed = pitchSpeed
                 clip.athlete = athlete
                 clip.game = game
                 clip.practice = practice

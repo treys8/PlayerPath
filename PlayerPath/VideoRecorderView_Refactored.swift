@@ -45,6 +45,7 @@ struct VideoRecorderView_Refactored: View {
     @State private var showingQualityPicker = false
     @State private var saveTask: Task<Void, Never>?
     @State private var showingTrimmer = false
+    @State private var showingTrimmerFromCamera = false
     @State private var trimmedVideoURL: URL?
 
     // System monitoring
@@ -373,8 +374,8 @@ struct VideoRecorderView_Refactored: View {
             settings: .shared,
             onVideoRecorded: { videoURL in
                 recordedVideoURL = videoURL
-                showingNativeCamera = false
-                showingTrimmer = true
+                // Present trimmer on top of camera (no dismiss gap)
+                showingTrimmerFromCamera = true
             },
             onCancel: {
                 showingNativeCamera = false
@@ -386,6 +387,38 @@ struct VideoRecorderView_Refactored: View {
                 )
             }
         )
+        .fullScreenCover(isPresented: $showingTrimmerFromCamera) {
+            if let videoURL = recordedVideoURL {
+                PreUploadTrimmerView(
+                    videoURL: videoURL,
+                    onSave: { trimmedURL in
+                        trimmedVideoURL = trimmedURL
+                        showingTrimmerFromCamera = false
+                        showingNativeCamera = false
+                        showingPlayResultOverlay = true
+                    },
+                    onSkip: {
+                        trimmedVideoURL = nil
+                        showingTrimmerFromCamera = false
+                        showingNativeCamera = false
+                        showingPlayResultOverlay = true
+                    },
+                    onCancel: {
+                        pendingDismissAction = {
+                            VideoFileManager.cleanup(url: videoURL)
+                            if let trimmed = trimmedVideoURL {
+                                VideoFileManager.cleanup(url: trimmed)
+                            }
+                            self.recordedVideoURL = nil
+                            self.trimmedVideoURL = nil
+                            self.showingTrimmerFromCamera = false
+                            self.showingNativeCamera = false
+                        }
+                        showingDiscardConfirmation = true
+                    }
+                )
+            }
+        }
     }
     
     @ViewBuilder
@@ -433,8 +466,8 @@ struct VideoRecorderView_Refactored: View {
                 athlete: athlete,
                 game: game,
                 practice: practice,
-                onSave: { result in
-                    saveVideoWithResult(videoURL: finalVideoURL, playResult: result) { dismiss() }
+                onSave: { result, pitchSpeed in
+                    saveVideoWithResult(videoURL: finalVideoURL, playResult: result, pitchSpeed: pitchSpeed) { dismiss() }
                 },
                 onCancel: {
                     // Show confirmation before discarding from overlay
@@ -1073,7 +1106,7 @@ struct VideoRecorderView_Refactored: View {
         smartSuggestion = nil
     }
     
-    private func saveVideoWithResult(videoURL: URL, playResult: PlayResultType?, onComplete: @escaping () -> Void) {
+    private func saveVideoWithResult(videoURL: URL, playResult: PlayResultType?, pitchSpeed: Double? = nil, onComplete: @escaping () -> Void) {
         guard let athlete = athlete else {
             print("ERROR: No athlete selected for video save")
             UINotificationFeedbackGenerator().notificationOccurred(.error)
@@ -1094,6 +1127,7 @@ struct VideoRecorderView_Refactored: View {
                 _ = try await ClipPersistenceService().saveClip(
                     from: videoURL,
                     playResult: playResult,
+                    pitchSpeed: pitchSpeed,
                     context: modelContext,
                     athlete: athlete,
                     game: game,
@@ -1143,6 +1177,7 @@ struct VideoRecorderView_Refactored: View {
             }
             showingPlayResultOverlay = false
             recordedVideoURL = nil
+            showingTrimmerFromCamera = false
             showingNativeCamera = false
             showingPhotoPicker = false
             selectedVideoItem = nil

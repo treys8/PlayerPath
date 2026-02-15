@@ -26,8 +26,9 @@ struct AuthenticatedFlow: View {
             } else if let user = currentUser {
                 let _ = print("🎯 AuthenticatedFlow - isNewUser: \(authManager.isNewUser), hasCompletedOnboarding: \(hasCompletedOnboarding), userRole: \(authManager.userRole.rawValue)")
                 
-                // Show onboarding for new users who haven't completed it yet
-                if authManager.isNewUser && !hasCompletedOnboarding {
+                // Show onboarding for new coaches who haven't completed it yet
+                // Athletes skip straight to UserMainFlow which handles first-athlete creation
+                if authManager.isNewUser && !hasCompletedOnboarding && authManager.userRole == .coach {
                     OnboardingFlow(user: user)
                 } else {
                     UserMainFlow(

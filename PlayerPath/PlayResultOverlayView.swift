@@ -15,7 +15,7 @@ struct PlayResultOverlayView: View {
     let athlete: Athlete?
     let game: Game?
     let practice: Practice?
-    let onSave: (PlayResultType?) -> Void
+    let onSave: (PlayResultType?, Double?) -> Void
     let onCancel: () -> Void
     
     @Environment(\.scenePhase) private var scenePhase
@@ -34,8 +34,9 @@ struct PlayResultOverlayView: View {
     @State private var showContent = false
     @State private var videoEndObserver: NSObjectProtocol?
     @State private var isSaving = false
+    @State private var pitchSpeedText = ""
 
-    init(videoURL: URL, athlete: Athlete?, game: Game? = nil, practice: Practice? = nil, onSave: @escaping (PlayResultType?) -> Void, onCancel: @escaping () -> Void) {
+    init(videoURL: URL, athlete: Athlete?, game: Game? = nil, practice: Practice? = nil, onSave: @escaping (PlayResultType?, Double?) -> Void, onCancel: @escaping () -> Void) {
         self.videoURL = videoURL
         self.athlete = athlete
         self.game = game
@@ -147,6 +148,38 @@ struct PlayResultOverlayView: View {
                             .opacity(showContent ? 1 : 0)
                             .offset(y: showContent ? 0 : 20)
 
+                        // Pitch Speed Input (pitcher mode only)
+                        if recordingMode == .pitcher {
+                            HStack(spacing: 12) {
+                                Image(systemName: "speedometer")
+                                    .font(.system(size: 16, weight: .semibold))
+                                    .foregroundColor(.white.opacity(0.8))
+
+                                TextField("", text: $pitchSpeedText, prompt: Text("Pitch Speed").foregroundStyle(.white.opacity(0.4)))
+                                    .keyboardType(.decimalPad)
+                                    .foregroundColor(.white)
+                                    .font(.subheadline.weight(.semibold))
+                                    .frame(maxWidth: .infinity)
+
+                                Text("MPH")
+                                    .font(.caption)
+                                    .fontWeight(.bold)
+                                    .foregroundColor(.white.opacity(0.6))
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 12)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .fill(Color.white.opacity(0.1))
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .strokeBorder(Color.white.opacity(0.2), lineWidth: 1)
+                            )
+                            .opacity(showContent ? 1 : 0)
+                            .offset(y: showContent ? 0 : 20)
+                        }
+
                         // Play Result Grid - Conditional based on mode
                         VStack(spacing: 12) {
                             if recordingMode == .batter {
@@ -179,7 +212,7 @@ struct PlayResultOverlayView: View {
                             ) {
                                 isSaving = true
                                 Haptics.success()
-                                onSave(nil)
+                                onSave(nil, parsedPitchSpeed)
                             }
                             .disabled(isSaving)
                             .accessibilityLabel(practice != nil ? "Save Video Only" : "Skip and Save")
@@ -401,7 +434,7 @@ struct PlayResultOverlayView: View {
                 Button("Save", role: .none) {
                     guard let result = selectedResult else { return }
                     isSaving = true
-                    onSave(result)
+                    onSave(result, parsedPitchSpeed)
                     selectedResult = nil
                 }
                 Button("Cancel", role: .cancel) {
@@ -505,6 +538,26 @@ struct PlayResultOverlayView: View {
             PlayResultDivider()
 
             VStack(alignment: .leading, spacing: 10) {
+                PlayResultSectionHeader(icon: "xmark.circle.fill", title: "OUTS", color: .red)
+
+                LazyVGrid(columns: [
+                    GridItem(.flexible(), spacing: 10),
+                    GridItem(.flexible(), spacing: 10)
+                ], spacing: 10) {
+                    ForEach([PlayResultType.strikeout, .groundOut, .flyOut], id: \.self) { result in
+                        PlayResultButton(
+                            result: result,
+                            isSelected: selectedResult == result
+                        ) {
+                            selectResult(result)
+                        }
+                    }
+                }
+            }
+
+            PlayResultDivider()
+
+            VStack(alignment: .leading, spacing: 10) {
                 PlayResultSectionHeader(icon: "exclamationmark.triangle.fill", title: "SPECIAL", color: .orange)
 
                 LazyVGrid(columns: [
@@ -526,6 +579,11 @@ struct PlayResultOverlayView: View {
                 }
             }
         }
+    }
+
+    private var parsedPitchSpeed: Double? {
+        guard recordingMode == .pitcher, !pitchSpeedText.isEmpty else { return nil }
+        return Double(pitchSpeedText)
     }
 
     private func selectResult(_ result: PlayResultType) {
@@ -1080,7 +1138,7 @@ extension PlayResultOverlayView {
         videoURL: URL(string: "https://sample-videos.com/zip/10/mp4/SampleVideo_1280x720_1mb.mp4")!,
         athlete: nil,
         game: nil,
-        onSave: { _ in },
+        onSave: { _, _ in },
         onCancel: { }
     )
 }

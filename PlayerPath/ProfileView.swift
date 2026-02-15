@@ -225,13 +225,13 @@ struct ProfileView: View {
 
         items.append(SearchResult(
             title: "Video Recording",
-            icon: "video.badge.gearshape",
+            icon: "video.fill",
             keywords: ["video", "recording", "4k", "quality", "camera", "resolution", "fps"],
             link: AnyView(
                 NavigationLink {
                     VideoRecordingSettingsView()
                 } label: {
-                    Label("Video Recording", systemImage: "video.badge.gearshape")
+                    Label("Video Recording", systemImage: "video.fill")
                 }
             )
         ))
@@ -503,7 +503,7 @@ struct ProfileView: View {
             NavigationLink {
                 VideoRecordingSettingsView()
             } label: {
-                Label("Video Recording", systemImage: "video.badge.gearshape")
+                Label("Video Recording", systemImage: "video.fill")
             }
 
             NavigationLink {

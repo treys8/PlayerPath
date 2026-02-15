@@ -45,12 +45,12 @@ struct AddAthleteView: View {
                                 .shadow(color: .blue.opacity(0.3), radius: 10, x: 0, y: 5)
 
                             VStack(spacing: 16) {
-                                Text("Ready to Track!")
+                                Text(isFirstAthlete ? "Ready to Track!" : "New Athlete")
                                     .font(.largeTitle)
                                     .fontWeight(.bold)
                                     .multilineTextAlignment(.center)
 
-                                Text("Create your first profile to get started.")
+                                Text(isFirstAthlete ? "Create your first profile to get started." : "Add another athlete to track.")
                                     .font(.title3)
                                     .foregroundColor(.secondary)
                                     .multilineTextAlignment(.center)
@@ -58,31 +58,33 @@ struct AddAthleteView: View {
                             }
                         }
 
-                        VStack(alignment: .leading, spacing: 16) {
-                            Text("What You Can Track:")
-                                .font(.headline)
-                                .fontWeight(.semibold)
-                                .padding(.bottom, 8)
+                        if !isFirstAthlete {
+                            VStack(alignment: .leading, spacing: 16) {
+                                Text("What You Can Track:")
+                                    .font(.headline)
+                                    .fontWeight(.semibold)
+                                    .padding(.bottom, 8)
 
-                            FeatureHighlight(
-                                icon: "video.circle.fill",
-                                title: "Record & Analyze",
-                                description: "Capture sessions and games"
-                            )
+                                FeatureHighlight(
+                                    icon: "video.circle.fill",
+                                    title: "Record & Analyze",
+                                    description: "Capture sessions and games"
+                                )
 
-                            FeatureHighlight(
-                                icon: "chart.line.uptrend.xyaxis.circle.fill",
-                                title: "Track Statistics",
-                                description: "Monitor batting averages and performance metrics"
-                            )
+                                FeatureHighlight(
+                                    icon: "chart.line.uptrend.xyaxis.circle.fill",
+                                    title: "Track Statistics",
+                                    description: "Monitor batting averages and performance metrics"
+                                )
 
-                            FeatureHighlight(
-                                icon: "arrow.triangle.2.circlepath.circle.fill",
-                                title: "Sync Everywhere",
-                                description: "Your data syncs securely across all devices"
-                            )
+                                FeatureHighlight(
+                                    icon: "arrow.triangle.2.circlepath.circle.fill",
+                                    title: "Sync Everywhere",
+                                    description: "Your data syncs securely across all devices"
+                                )
+                            }
+                            .padding(.horizontal)
                         }
-                        .padding(.horizontal)
 
                         VStack(spacing: 12) {
                             TextField("Athlete Name", text: $athleteName)
@@ -106,7 +108,7 @@ struct AddAthleteView: View {
                                     }
                                     Image(systemName: "plus.circle.fill")
                                         .font(.title2)
-                                    Text("Create First Athlete")
+                                    Text(isFirstAthlete ? "Create First Athlete" : "Create Athlete")
                                         .font(.headline)
                                         .fontWeight(.semibold)
                                 }
@@ -123,7 +125,7 @@ struct AddAthleteView: View {
                                 .cornerRadius(12)
                             }
                             .disabled(!isValidAthleteName(athleteName) || isCreatingAthlete)
-                            .accessibilityLabel("Create first athlete profile")
+                            .accessibilityLabel(isFirstAthlete ? "Create first athlete profile" : "Create athlete profile")
                             .accessibilityHint("Creates a new athlete profile to start tracking performance")
                             .accessibilityIdentifier("create_first_athlete")
                             .accessibilitySortPriority(1)
@@ -157,24 +159,29 @@ struct AddAthleteView: View {
                     }
                 }
 
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(action: saveAthlete) {
-                        HStack {
-                            if isCreatingAthlete {
-                                ProgressView()
-                                    .scaleEffect(0.8)
-                                    .progressViewStyle(CircularProgressViewStyle())
+                if !isFirstAthlete {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button(action: saveAthlete) {
+                            HStack {
+                                if isCreatingAthlete {
+                                    ProgressView()
+                                        .scaleEffect(0.8)
+                                        .progressViewStyle(CircularProgressViewStyle())
+                                }
+                                Text(isCreatingAthlete ? "Saving..." : "Save")
                             }
-                            Text(isCreatingAthlete ? "Saving..." : "Save")
                         }
+                        .disabled(!isValidAthleteName(athleteName) || isCreatingAthlete)
+                        .accessibilityLabel("Save athlete")
+                        .accessibilityHint("Creates the new athlete profile")
                     }
-                    .disabled(!isValidAthleteName(athleteName) || isCreatingAthlete)
-                    .accessibilityLabel("Save athlete")
-                    .accessibilityHint("Creates the new athlete profile")
                 }
             }
             .onAppear {
-                // Auto-focus the name field when the view appears
+                // Pre-fill with user's display name for first athlete (if not an email)
+                if isFirstAthlete && athleteName.isEmpty && !user.username.contains("@") {
+                    athleteName = user.username
+                }
                 isNameFieldFocused = true
             }
         }
