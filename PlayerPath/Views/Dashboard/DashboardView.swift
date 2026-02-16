@@ -307,36 +307,34 @@ struct DashboardView: View {
                                 Haptics.light()
                             }
                         }
-                        QuickActionButton(
-                            icon: hasLiveGame ? "record.circle" : "video.badge.plus",
-                            title: hasLiveGame ? "Record Live" : "Quick Record",
-                            color: .red
-                        ) {
-                            Task { @MainActor in
-                                #if DEBUG
-                                print("🎬 Quick Record tapped - Has live game: \(hasLiveGame)")
-                                #endif
-
-                                // Check permissions first
-                                let status = await RecorderPermissions.ensureCapturePermissions(context: "QuickRecord")
-                                guard status == .granted else {
+                        if hasLiveGame {
+                            QuickActionButton(
+                                icon: "record.circle",
+                                title: "Record Live",
+                                color: .red
+                            ) {
+                                Task { @MainActor in
                                     #if DEBUG
-                                    print("🛑 Permissions not granted for recording")
+                                    print("🎬 Record Live tapped")
                                     #endif
-                                    return
-                                }
 
-                                #if DEBUG
-                                if let game = firstLiveGame {
-                                    print("🎮 Opening camera for live game: \(game.opponent)")
-                                } else {
-                                    print("🎬 Opening camera for quick record")
-                                }
-                                #endif
+                                    let status = await RecorderPermissions.ensureCapturePermissions(context: "QuickRecord")
+                                    guard status == .granted else {
+                                        #if DEBUG
+                                        print("🛑 Permissions not granted for recording")
+                                        #endif
+                                        return
+                                    }
 
-                                // Open camera directly - NEW STREAMLINED FLOW
-                                showingDirectCamera = true
-                                Haptics.medium()
+                                    #if DEBUG
+                                    if let game = firstLiveGame {
+                                        print("🎮 Opening camera for live game: \(game.opponent)")
+                                    }
+                                    #endif
+
+                                    showingDirectCamera = true
+                                    Haptics.medium()
+                                }
                             }
                         }
                     }
