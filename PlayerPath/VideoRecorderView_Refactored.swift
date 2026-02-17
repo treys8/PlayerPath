@@ -34,7 +34,6 @@ struct VideoRecorderView_Refactored: View {
     
     // Simplified state management
     @State private var recordedVideoURL: URL?
-    @State private var showingPlayResultOverlay = false
     @State private var showingPhotoPicker = false
     @State private var selectedVideoItem: PhotosPickerItem?
     @State private var showingNativeCamera = false
@@ -47,6 +46,8 @@ struct VideoRecorderView_Refactored: View {
     @State private var showingTrimmer = false
     @State private var showingTrimmerFromCamera = false
     @State private var trimmedVideoURL: URL?
+    @State private var cameraFlowShowingPlayResult = false
+    @State private var uploadFlowShowingPlayResult = false
 
     // System monitoring
     @State private var availableStorageGB: Double = 0
@@ -86,9 +87,6 @@ struct VideoRecorderView_Refactored: View {
             }
             .fullScreenCover(isPresented: $showingTrimmer) {
                 videoTrimmerView
-            }
-            .sheet(isPresented: $showingPlayResultOverlay) {
-                playResultOverlay
             }
             .photosPicker(isPresented: $showingPhotoPicker, selection: $selectedVideoItem, matching: .videos)
             .sensoryFeedback(.start, trigger: showingNativeCamera)
@@ -388,20 +386,51 @@ struct VideoRecorderView_Refactored: View {
             }
         )
         .fullScreenCover(isPresented: $showingTrimmerFromCamera) {
-            if let videoURL = recordedVideoURL {
+            // Swap content from trimmer → play result inside the same fullScreenCover
+            // to avoid dismiss→present animation gap
+            if cameraFlowShowingPlayResult, let videoURL = recordedVideoURL {
+                let finalVideoURL = trimmedVideoURL ?? videoURL
+                PlayResultOverlayView(
+                    videoURL: finalVideoURL,
+                    athlete: athlete,
+                    game: game,
+                    practice: practice,
+                    onSave: { result, pitchSpeed, role in
+                        saveVideoWithResult(videoURL: finalVideoURL, playResult: result, pitchSpeed: pitchSpeed, role: role) {
+                            cameraFlowShowingPlayResult = false
+                            showingTrimmerFromCamera = false
+                            showingNativeCamera = false
+                        }
+                    },
+                    onCancel: {
+                        pendingDismissAction = {
+                            VideoFileManager.cleanup(url: videoURL)
+                            if let trimmed = trimmedVideoURL {
+                                VideoFileManager.cleanup(url: trimmed)
+                            }
+                            self.recordedVideoURL = nil
+                            self.trimmedVideoURL = nil
+                            self.cameraFlowShowingPlayResult = false
+                            self.showingTrimmerFromCamera = false
+                            self.showingNativeCamera = false
+                        }
+                        showingDiscardConfirmation = true
+                    }
+                )
+            } else if let videoURL = recordedVideoURL {
                 PreUploadTrimmerView(
                     videoURL: videoURL,
                     onSave: { trimmedURL in
                         trimmedVideoURL = trimmedURL
-                        showingTrimmerFromCamera = false
-                        showingNativeCamera = false
-                        showingPlayResultOverlay = true
+                        withAnimation(.easeInOut(duration: 0.25)) {
+                            cameraFlowShowingPlayResult = true
+                        }
                     },
                     onSkip: {
                         trimmedVideoURL = nil
-                        showingTrimmerFromCamera = false
-                        showingNativeCamera = false
-                        showingPlayResultOverlay = true
+                        withAnimation(.easeInOut(duration: 0.25)) {
+                            cameraFlowShowingPlayResult = true
+                        }
                     },
                     onCancel: {
                         pendingDismissAction = {
@@ -423,23 +452,50 @@ struct VideoRecorderView_Refactored: View {
     
     @ViewBuilder
     private var videoTrimmerView: some View {
-        if let videoURL = recordedVideoURL {
+        // Swap content from trimmer → play result inside the same fullScreenCover
+        if uploadFlowShowingPlayResult, let videoURL = recordedVideoURL {
+            let finalVideoURL = trimmedVideoURL ?? videoURL
+            PlayResultOverlayView(
+                videoURL: finalVideoURL,
+                athlete: athlete,
+                game: game,
+                practice: practice,
+                onSave: { result, pitchSpeed, role in
+                    saveVideoWithResult(videoURL: finalVideoURL, playResult: result, pitchSpeed: pitchSpeed, role: role) {
+                        uploadFlowShowingPlayResult = false
+                        showingTrimmer = false
+                    }
+                },
+                onCancel: {
+                    pendingDismissAction = {
+                        VideoFileManager.cleanup(url: videoURL)
+                        if let trimmed = trimmedVideoURL {
+                            VideoFileManager.cleanup(url: trimmed)
+                        }
+                        self.recordedVideoURL = nil
+                        self.trimmedVideoURL = nil
+                        self.uploadFlowShowingPlayResult = false
+                        self.showingTrimmer = false
+                    }
+                    showingDiscardConfirmation = true
+                }
+            )
+        } else if let videoURL = recordedVideoURL {
             PreUploadTrimmerView(
                 videoURL: videoURL,
                 onSave: { trimmedURL in
-                    // Use trimmed video if available, otherwise original
                     trimmedVideoURL = trimmedURL
-                    showingTrimmer = false
-                    showingPlayResultOverlay = true
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        uploadFlowShowingPlayResult = true
+                    }
                 },
                 onSkip: {
-                    // Skip trimming, use original video
                     trimmedVideoURL = nil
-                    showingTrimmer = false
-                    showingPlayResultOverlay = true
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        uploadFlowShowingPlayResult = true
+                    }
                 },
                 onCancel: {
-                    // Discard recording
                     pendingDismissAction = {
                         VideoFileManager.cleanup(url: videoURL)
                         if let trimmed = trimmedVideoURL {
@@ -455,39 +511,8 @@ struct VideoRecorderView_Refactored: View {
         }
     }
 
-    @ViewBuilder
-    private var playResultOverlay: some View {
-        if let videoURL = recordedVideoURL {
-            // Use trimmed video if available, otherwise original
-            let finalVideoURL = trimmedVideoURL ?? videoURL
-
-            PlayResultOverlayView(
-                videoURL: finalVideoURL,
-                athlete: athlete,
-                game: game,
-                practice: practice,
-                onSave: { result, pitchSpeed in
-                    saveVideoWithResult(videoURL: finalVideoURL, playResult: result, pitchSpeed: pitchSpeed) { dismiss() }
-                },
-                onCancel: {
-                    // Show confirmation before discarding from overlay
-                    UIAccessibility.post(notification: .announcement, argument: "Confirm discard recording")
-                    pendingDismissAction = {
-                        VideoFileManager.cleanup(url: videoURL)
-                        if let trimmed = trimmedVideoURL {
-                            VideoFileManager.cleanup(url: trimmed)
-                        }
-                        self.recordedVideoURL = nil
-                        self.trimmedVideoURL = nil
-                        self.showingPlayResultOverlay = false
-                        UIAccessibility.post(notification: .announcement, argument: "Recording discarded")
-                    }
-                    showingDiscardConfirmation = true
-                }
-            )
-            .transition(.move(edge: .bottom).combined(with: .opacity))
-        }
-    }
+    // playResultOverlay is now rendered inline within the trimmer fullScreenCovers
+    // (nativeCameraView and videoTrimmerView) to avoid dismiss→present animation gaps
     
     private var errorAlertBinding: Binding<Bool> {
         Binding(
@@ -888,7 +913,8 @@ struct VideoRecorderView_Refactored: View {
     // MARK: - Business Logic
     
     private func handleCancelTapped() {
-        if recordedVideoURL != nil && !showingPlayResultOverlay {
+        let showingPlayResult = cameraFlowShowingPlayResult || uploadFlowShowingPlayResult
+        if recordedVideoURL != nil && !showingPlayResult {
             // Video recorded but user is back at main screen - confirm discard
             UIAccessibility.post(notification: .announcement, argument: "Confirm discard recording")
             UINotificationFeedbackGenerator().notificationOccurred(.warning)
@@ -907,7 +933,8 @@ struct VideoRecorderView_Refactored: View {
     }
     
     private func handleDoneTapped() {
-        if recordedVideoURL != nil && !showingPlayResultOverlay {
+        let showingPlayResult = cameraFlowShowingPlayResult || uploadFlowShowingPlayResult
+        if recordedVideoURL != nil && !showingPlayResult {
             // Video recorded but not saved - confirm discard
             UIAccessibility.post(notification: .announcement, argument: "Confirm discard recording")
             UINotificationFeedbackGenerator().notificationOccurred(.warning)
@@ -1106,7 +1133,7 @@ struct VideoRecorderView_Refactored: View {
         smartSuggestion = nil
     }
     
-    private func saveVideoWithResult(videoURL: URL, playResult: PlayResultType?, pitchSpeed: Double? = nil, onComplete: @escaping () -> Void) {
+    private func saveVideoWithResult(videoURL: URL, playResult: PlayResultType?, pitchSpeed: Double? = nil, role: AthleteRole = .batter, onComplete: @escaping () -> Void) {
         guard let athlete = athlete else {
             print("ERROR: No athlete selected for video save")
             UINotificationFeedbackGenerator().notificationOccurred(.error)
@@ -1128,6 +1155,7 @@ struct VideoRecorderView_Refactored: View {
                     from: videoURL,
                     playResult: playResult,
                     pitchSpeed: pitchSpeed,
+                    role: role,
                     context: modelContext,
                     athlete: athlete,
                     game: game,
@@ -1175,10 +1203,12 @@ struct VideoRecorderView_Refactored: View {
             if let videoURL = recordedVideoURL {
                 VideoFileManager.cleanup(url: videoURL)
             }
-            showingPlayResultOverlay = false
+            cameraFlowShowingPlayResult = false
+            uploadFlowShowingPlayResult = false
             recordedVideoURL = nil
             showingTrimmerFromCamera = false
             showingNativeCamera = false
+            showingTrimmer = false
             showingPhotoPicker = false
             selectedVideoItem = nil
             print("VideoRecorder: State reset, attempting dismiss")

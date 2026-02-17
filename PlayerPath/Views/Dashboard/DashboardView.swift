@@ -21,6 +21,7 @@ struct DashboardView: View {
     @State private var showingPaywall = false
     @State private var showingDirectCamera = false
     @State private var selectedVideoForPlayback: VideoClip?
+    @State private var showingSeasons = false
 
     // Dynamic live games query configured via init to safely capture athleteID
     private let athleteID: UUID
@@ -135,6 +136,11 @@ struct DashboardView: View {
         }
         .sheet(isPresented: $showingPaywall) {
             ImprovedPaywallView(user: user)
+        }
+        .sheet(isPresented: $showingSeasons) {
+            NavigationStack {
+                SeasonsView(athlete: athlete)
+            }
         }
         .fullScreenCover(isPresented: $showingDirectCamera) {
             DirectCameraRecorderView(athlete: athlete, game: firstLiveGame)
@@ -403,10 +409,7 @@ struct DashboardView: View {
                             subtitle: "\((athlete.seasons ?? []).count) Total",
                             color: .teal
                         ) {
-                            postSwitchTab(.more)
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                                NotificationCenter.default.post(name: Notification.Name.presentSeasons, object: athlete)
-                            }
+                            showingSeasons = true
                         }
 
                         // 7. Coaches (Premium Only)

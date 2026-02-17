@@ -9,6 +9,7 @@ import SwiftUI
 import SwiftData
 import AVKit
 import PhotosUI
+import Photos
 
 struct VideoClipsView: View {
     let athlete: Athlete
@@ -609,6 +610,7 @@ struct VideoClipCard: View {
     @Environment(\.modelContext) private var modelContext
     @State private var errorMessage: String?
     @State private var showingError = false
+    @State private var showingSaveSuccess = false
     @State private var uploadManager = UploadQueueManager.shared
     @State private var isPressed = false
 
@@ -679,13 +681,29 @@ struct VideoClipCard: View {
 
                     // Info section - matches HighlightCard style
                     VStack(alignment: .leading, spacing: 6) {
-                        // Play result type as headline
+                        // Play result type as headline + pitch speed
                         if let result = video.playResult {
-                            Text(result.type.displayName)
+                            HStack(spacing: 6) {
+                                Text(result.type.displayName)
+                                    .font(.subheadline)
+                                    .fontWeight(.bold)
+                                    .foregroundColor(.primary)
+                                    .lineLimit(1)
+
+                                if let speed = video.pitchSpeed, speed > 0 {
+                                    Text("·")
+                                        .foregroundColor(.secondary)
+                                    Text("\(Int(speed)) MPH")
+                                        .font(.caption)
+                                        .fontWeight(.semibold)
+                                        .foregroundColor(.orange)
+                                }
+                            }
+                        } else if let speed = video.pitchSpeed, speed > 0 {
+                            Text("\(Int(speed)) MPH")
                                 .font(.subheadline)
                                 .fontWeight(.bold)
-                                .foregroundColor(.primary)
-                                .lineLimit(1)
+                                .foregroundColor(.orange)
                         } else {
                             Text("Video Clip")
                                 .font(.subheadline)
@@ -766,6 +784,12 @@ struct VideoClipCard: View {
                 ShareLink(item: URL(fileURLWithPath: video.filePath)) {
                     Label("Share", systemImage: "square.and.arrow.up")
                 }
+
+                Button {
+                    saveToPhotos()
+                } label: {
+                    Label("Save to Photos", systemImage: "square.and.arrow.down")
+                }
             }
 
             Divider()
@@ -801,6 +825,47 @@ struct VideoClipCard: View {
             Button("OK", role: .cancel) { }
         } message: {
             Text(errorMessage ?? "An unknown error occurred")
+        }
+        .alert("Saved to Photos", isPresented: $showingSaveSuccess) {
+            Button("OK") { }
+        } message: {
+            Text("Video has been saved to your Photos library.")
+        }
+    }
+
+    // MARK: - Save to Photos
+
+    private func saveToPhotos() {
+        guard FileManager.default.fileExists(atPath: video.filePath) else {
+            errorMessage = "Video file not found"
+            showingError = true
+            return
+        }
+
+        let videoURL = URL(fileURLWithPath: video.filePath)
+
+        PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
+            guard status == .authorized || status == .limited else {
+                DispatchQueue.main.async {
+                    self.errorMessage = "Photo library access denied. Please enable in Settings."
+                    self.showingError = true
+                }
+                return
+            }
+
+            PHPhotoLibrary.shared().performChanges {
+                PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: videoURL)
+            } completionHandler: { success, error in
+                DispatchQueue.main.async {
+                    if success {
+                        Haptics.success()
+                        self.showingSaveSuccess = true
+                    } else {
+                        self.errorMessage = error?.localizedDescription ?? "Failed to save video"
+                        self.showingError = true
+                    }
+                }
+            }
         }
     }
 

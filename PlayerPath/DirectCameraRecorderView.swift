@@ -200,8 +200,8 @@ struct DirectCameraRecorderView: View {
                 athlete: athlete,
                 game: game,
                 practice: practice,
-                onSave: { result, pitchSpeed in
-                    saveVideoWithResult(videoURL: finalVideoURL, playResult: result, pitchSpeed: pitchSpeed) { dismiss() }
+                onSave: { result, pitchSpeed, role in
+                    saveVideoWithResult(videoURL: finalVideoURL, playResult: result, pitchSpeed: pitchSpeed, role: role) { dismiss() }
                 },
                 onCancel: {
                     showingDiscardConfirmation = true
@@ -229,7 +229,7 @@ struct DirectCameraRecorderView: View {
         }
     }
 
-    private func saveVideoWithResult(videoURL: URL, playResult: PlayResultType?, pitchSpeed: Double? = nil, onComplete: @escaping () -> Void) {
+    private func saveVideoWithResult(videoURL: URL, playResult: PlayResultType?, pitchSpeed: Double? = nil, role: AthleteRole = .batter, onComplete: @escaping () -> Void) {
         saveTask = Task { @MainActor in
             defer { saveTask = nil }
 
@@ -267,8 +267,9 @@ struct DirectCameraRecorderView: View {
                     result.videoClip = clip
                     clip.playResult = result
 
-                    // Auto-highlight hits
-                    if [.single, .double, .triple, .homeRun].contains(resultType) {
+                    // Auto-highlight hits + pitcher outs
+                    let isPitcherOut = role == .pitcher && [.strikeout, .groundOut, .flyOut].contains(resultType)
+                    if [.single, .double, .triple, .homeRun].contains(resultType) || isPitcherOut {
                         clip.isHighlight = true
                     }
 

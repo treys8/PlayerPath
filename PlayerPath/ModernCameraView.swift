@@ -39,6 +39,12 @@ struct ModernCameraView: View {
         self.onError = onError
     }
 
+    // MARK: - Orientation
+
+    private var isLandscape: Bool {
+        viewModel.currentOrientation == .landscapeLeft || viewModel.currentOrientation == .landscapeRight
+    }
+
     var body: some View {
         ZStack {
             // Camera Preview Layer
@@ -70,13 +76,13 @@ struct ModernCameraView: View {
             }
 
             // Camera Controls Overlay
-            VStack(spacing: 0) {
-                topControls
-                Spacer()
-                bottomControls
+            if isLandscape {
+                landscapeLayout
+            } else {
+                portraitLayout
             }
-            .animation(.spring(response: 0.3), value: viewModel.isRecording)
         }
+        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: isLandscape)
         .preferredColorScheme(.dark)
         .statusBar(hidden: true)
         .gesture(
@@ -122,190 +128,266 @@ struct ModernCameraView: View {
         }
     }
 
-    // MARK: - Top Controls
+    // MARK: - Atomic Controls
 
-    private var topControls: some View {
-        HStack(alignment: .top) {
-            // Cancel Button
-            Button {
-                Haptics.light()
-                onCancel()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundColor(.white)
-                    .frame(width: 44, height: 44)
-                    .background(
-                        Circle()
-                            .fill(.ultraThinMaterial)
-                    )
-            }
-            .disabled(viewModel.isRecording)
-            .opacity(viewModel.isRecording ? 0.5 : 1)
-
-            Spacer()
-
-            // Recording Timer & Slow-Mo Indicator
-            VStack(spacing: 8) {
-                if viewModel.isRecording {
-                    HStack(spacing: 6) {
-                        Circle()
-                            .fill(.red)
-                            .frame(width: 8, height: 8)
-                            .opacity(viewModel.recordingPulse ? 0.3 : 1.0)
-
-                        Text(viewModel.recordingTimeString)
-                            .font(.system(size: 16, weight: .semibold, design: .monospaced))
-                            .foregroundColor(.white)
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(
-                        Capsule()
-                            .fill(.black.opacity(0.6))
-                    )
-                }
-
-                if viewModel.settings.slowMotionEnabled {
-                    Text("SLOW-MO")
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 4)
-                        .background(
-                            Capsule()
-                                .fill(.purple)
-                        )
-                }
-            }
-
-            Spacer()
-
-            // Top Right Controls Stack
-            VStack(spacing: 12) {
-                // Flash Toggle
-                Button {
-                    Haptics.light()
-                    viewModel.toggleFlash()
-                } label: {
-                    Image(systemName: viewModel.flashMode == .on ? "bolt.fill" : viewModel.flashMode == .auto ? "bolt.badge.automatic" : "bolt.slash.fill")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(viewModel.flashMode == .on ? .yellow : .white)
-                        .frame(width: 44, height: 44)
-                        .background(
-                            Circle()
-                                .fill(.ultraThinMaterial)
-                        )
-                }
-                .disabled(viewModel.isRecording)
-
-                // Flip Camera
-                Button {
-                    Haptics.medium()
-                    viewModel.flipCamera()
-                } label: {
-                    Image(systemName: "arrow.triangle.2.circlepath.camera")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(.white)
-                        .frame(width: 44, height: 44)
-                        .background(
-                            Circle()
-                                .fill(.ultraThinMaterial)
-                        )
-                }
-                .disabled(viewModel.isRecording)
-
-                // Grid Toggle
-                Button {
-                    Haptics.light()
-                    withAnimation {
-                        viewModel.showGrid.toggle()
-                    }
-                } label: {
-                    Image(systemName: viewModel.showGrid ? "grid.circle.fill" : "grid.circle")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(.white)
-                        .frame(width: 44, height: 44)
-                        .background(
-                            Circle()
-                                .fill(.ultraThinMaterial)
-                        )
-                }
-
-                // Settings
-                Button {
-                    Haptics.light()
-                    showingSettings = true
-                } label: {
-                    Image(systemName: "gearshape.fill")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(.white)
-                        .frame(width: 44, height: 44)
-                        .background(
-                            Circle()
-                                .fill(.ultraThinMaterial)
-                        )
-                }
-                .disabled(viewModel.isRecording)
-            }
+    private var cancelButton: some View {
+        Button {
+            Haptics.light()
+            onCancel()
+        } label: {
+            Image(systemName: "xmark")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundColor(.white)
+                .frame(width: 44, height: 44)
+                .background(
+                    Circle()
+                        .fill(.ultraThinMaterial)
+                )
         }
-        .padding(.horizontal, 20)
-        .padding(.top, 16)
+        .disabled(viewModel.isRecording)
+        .opacity(viewModel.isRecording ? 0.5 : 1)
     }
 
-    // MARK: - Bottom Controls
+    @ViewBuilder
+    private var recordingTimerBadge: some View {
+        if viewModel.isRecording {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(.red)
+                    .frame(width: 8, height: 8)
+                    .opacity(viewModel.recordingPulse ? 0.3 : 1.0)
 
-    private var bottomControls: some View {
-        VStack(spacing: 16) {
-            // Zoom Slider
-            if !viewModel.isRecording {
-                ZoomSlider(
-                    zoomFactor: viewModel.currentZoom,
-                    minZoom: viewModel.minZoom,
-                    maxZoom: viewModel.maxZoom,
-                    onZoomChange: { newZoom in
-                        viewModel.setZoom(newZoom)
-                    }
-                )
-                .padding(.horizontal, 40)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+                Text(viewModel.recordingTimeString)
+                    .font(.system(size: 16, weight: .semibold, design: .monospaced))
+                    .foregroundColor(.white)
             }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(
+                Capsule()
+                    .fill(.black.opacity(0.6))
+            )
+        }
+    }
 
-            // Record Button
-            Button {
-                Haptics.heavy()
-                if viewModel.isRecording {
-                    viewModel.stopRecording()
-                } else {
-                    viewModel.startRecording()
-                }
-            } label: {
-                ZStack {
-                    Circle()
-                        .strokeBorder(Color.white, lineWidth: 6)
-                        .frame(width: 80, height: 80)
-
-                    RoundedRectangle(cornerRadius: viewModel.isRecording ? 8 : 40)
-                        .fill(Color.red)
-                        .frame(width: viewModel.isRecording ? 40 : 64,
-                               height: viewModel.isRecording ? 40 : 64)
-                }
-            }
-            .disabled(!viewModel.isSessionReady)
-            .opacity(viewModel.isSessionReady ? 1 : 0.5)
-
-            // Quality & Settings Info
-            Text(viewModel.settings.settingsDescription)
-                .font(.caption)
-                .foregroundColor(.white.opacity(0.8))
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
+    @ViewBuilder
+    private var slowMoBadge: some View {
+        if viewModel.settings.slowMotionEnabled {
+            Text("SLOW-MO")
+                .font(.system(size: 11, weight: .bold))
+                .foregroundColor(.white)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
                 .background(
                     Capsule()
-                        .fill(.black.opacity(0.5))
+                        .fill(.purple)
                 )
         }
-        .padding(.bottom, 40)
+    }
+
+    private var flashButton: some View {
+        Button {
+            Haptics.light()
+            viewModel.toggleFlash()
+        } label: {
+            Image(systemName: viewModel.flashMode == .on ? "bolt.fill" : viewModel.flashMode == .auto ? "bolt.badge.automatic" : "bolt.slash.fill")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundColor(viewModel.flashMode == .on ? .yellow : .white)
+                .frame(width: 44, height: 44)
+                .background(
+                    Circle()
+                        .fill(.ultraThinMaterial)
+                )
+        }
+        .disabled(viewModel.isRecording)
+    }
+
+    private var flipButton: some View {
+        Button {
+            Haptics.medium()
+            viewModel.flipCamera()
+        } label: {
+            Image(systemName: "arrow.triangle.2.circlepath.camera")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundColor(.white)
+                .frame(width: 44, height: 44)
+                .background(
+                    Circle()
+                        .fill(.ultraThinMaterial)
+                )
+        }
+        .disabled(viewModel.isRecording)
+    }
+
+    private var gridButton: some View {
+        Button {
+            Haptics.light()
+            withAnimation {
+                viewModel.showGrid.toggle()
+            }
+        } label: {
+            Image(systemName: viewModel.showGrid ? "grid.circle.fill" : "grid.circle")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundColor(.white)
+                .frame(width: 44, height: 44)
+                .background(
+                    Circle()
+                        .fill(.ultraThinMaterial)
+                )
+        }
+    }
+
+    private var settingsButton: some View {
+        Button {
+            Haptics.light()
+            showingSettings = true
+        } label: {
+            Image(systemName: "gearshape.fill")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundColor(.white)
+                .frame(width: 44, height: 44)
+                .background(
+                    Circle()
+                        .fill(.ultraThinMaterial)
+                )
+        }
+        .disabled(viewModel.isRecording)
+    }
+
+    private var recordButton: some View {
+        Button {
+            Haptics.heavy()
+            if viewModel.isRecording {
+                viewModel.stopRecording()
+            } else {
+                viewModel.startRecording()
+            }
+        } label: {
+            ZStack {
+                Circle()
+                    .strokeBorder(Color.white, lineWidth: 6)
+                    .frame(width: 80, height: 80)
+
+                RoundedRectangle(cornerRadius: viewModel.isRecording ? 8 : 40)
+                    .fill(Color.red)
+                    .frame(width: viewModel.isRecording ? 40 : 64,
+                           height: viewModel.isRecording ? 40 : 64)
+            }
+        }
+        .disabled(!viewModel.isSessionReady)
+        .opacity(viewModel.isSessionReady ? 1 : 0.5)
+    }
+
+    @ViewBuilder
+    private var zoomSliderView: some View {
+        if !viewModel.isRecording {
+            ZoomSlider(
+                zoomFactor: viewModel.currentZoom,
+                minZoom: viewModel.minZoom,
+                maxZoom: viewModel.maxZoom,
+                onZoomChange: { newZoom in
+                    viewModel.setZoom(newZoom)
+                }
+            )
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
+    }
+
+    private var qualityText: some View {
+        Text(viewModel.settings.settingsDescription)
+            .font(.caption)
+            .foregroundColor(.white.opacity(0.8))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(
+                Capsule()
+                    .fill(.black.opacity(0.5))
+            )
+    }
+
+    // MARK: - Portrait Layout
+
+    private var portraitLayout: some View {
+        VStack(spacing: 0) {
+            // Top Controls
+            HStack(alignment: .top) {
+                cancelButton
+
+                Spacer()
+
+                VStack(spacing: 8) {
+                    recordingTimerBadge
+                    slowMoBadge
+                }
+
+                Spacer()
+
+                VStack(spacing: 12) {
+                    flashButton
+                    flipButton
+                    gridButton
+                    settingsButton
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 16)
+
+            Spacer()
+
+            // Bottom Controls
+            VStack(spacing: 16) {
+                zoomSliderView
+                    .padding(.horizontal, 40)
+
+                recordButton
+                qualityText
+            }
+            .padding(.bottom, 40)
+        }
+        .animation(.spring(response: 0.3), value: viewModel.isRecording)
+    }
+
+    // MARK: - Landscape Layout
+
+    private var landscapeLayout: some View {
+        HStack(spacing: 0) {
+            // Left column: cancel + utility buttons
+            VStack(spacing: 16) {
+                cancelButton
+                Spacer()
+                flashButton
+                flipButton
+                gridButton
+                settingsButton
+            }
+            .padding(.leading, 20)
+            .padding(.vertical, 20)
+
+            Spacer()
+
+            // Right column: record + zoom + quality
+            VStack(spacing: 16) {
+                Spacer()
+                recordButton
+
+                zoomSliderView
+                    .frame(maxWidth: 200)
+
+                qualityText
+                Spacer()
+            }
+            .padding(.trailing, 20)
+            .padding(.vertical, 20)
+        }
+        .overlay(alignment: .top) {
+            // Centered badges at top
+            HStack(spacing: 8) {
+                recordingTimerBadge
+                slowMoBadge
+            }
+            .padding(.top, 12)
+        }
+        .animation(.spring(response: 0.3), value: viewModel.isRecording)
     }
 }
 

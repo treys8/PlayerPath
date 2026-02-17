@@ -250,6 +250,7 @@ final class ClipPersistenceService {
         from url: URL,
         playResult: PlayResultType?,
         pitchSpeed: Double? = nil,
+        role: AthleteRole = .batter,
         context: ModelContext,
         athlete: Athlete,
         game: Game?,
@@ -329,8 +330,9 @@ final class ClipPersistenceService {
             let result = PlayResult(type: playResultType)
             videoClip.playResult = result
             context.insert(result)
-            // Mark as highlight for hit outcomes
-            videoClip.isHighlight = playResultType.isHighlight
+            // Mark as highlight for hit outcomes + pitcher outs
+            let isPitcherOut = role == .pitcher && [.strikeout, .groundOut, .flyOut].contains(playResultType)
+            videoClip.isHighlight = playResultType.isHighlight || isPitcherOut
 
             if let game = game {
                 // For game videos: Only update game statistics

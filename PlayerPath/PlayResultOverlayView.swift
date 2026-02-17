@@ -15,7 +15,7 @@ struct PlayResultOverlayView: View {
     let athlete: Athlete?
     let game: Game?
     let practice: Practice?
-    let onSave: (PlayResultType?, Double?) -> Void
+    let onSave: (PlayResultType?, Double?, AthleteRole) -> Void
     let onCancel: () -> Void
     
     @Environment(\.scenePhase) private var scenePhase
@@ -36,7 +36,7 @@ struct PlayResultOverlayView: View {
     @State private var isSaving = false
     @State private var pitchSpeedText = ""
 
-    init(videoURL: URL, athlete: Athlete?, game: Game? = nil, practice: Practice? = nil, onSave: @escaping (PlayResultType?, Double?) -> Void, onCancel: @escaping () -> Void) {
+    init(videoURL: URL, athlete: Athlete?, game: Game? = nil, practice: Practice? = nil, onSave: @escaping (PlayResultType?, Double?, AthleteRole) -> Void, onCancel: @escaping () -> Void) {
         self.videoURL = videoURL
         self.athlete = athlete
         self.game = game
@@ -212,7 +212,7 @@ struct PlayResultOverlayView: View {
                             ) {
                                 isSaving = true
                                 Haptics.success()
-                                onSave(nil, parsedPitchSpeed)
+                                onSave(nil, parsedPitchSpeed, recordingMode)
                             }
                             .disabled(isSaving)
                             .accessibilityLabel(practice != nil ? "Save Video Only" : "Skip and Save")
@@ -434,7 +434,7 @@ struct PlayResultOverlayView: View {
                 Button("Save", role: .none) {
                     guard let result = selectedResult else { return }
                     isSaving = true
-                    onSave(result, parsedPitchSpeed)
+                    onSave(result, parsedPitchSpeed, recordingMode)
                     selectedResult = nil
                 }
                 Button("Cancel", role: .cancel) {
@@ -1138,7 +1138,7 @@ extension PlayResultOverlayView {
         videoURL: URL(string: "https://sample-videos.com/zip/10/mp4/SampleVideo_1280x720_1mb.mp4")!,
         athlete: nil,
         game: nil,
-        onSave: { _, _ in },
+        onSave: { _, _, _ in },
         onCancel: { }
     )
 }
