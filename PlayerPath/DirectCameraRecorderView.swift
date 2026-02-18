@@ -230,6 +230,11 @@ struct DirectCameraRecorderView: View {
     }
 
     private func saveVideoWithResult(videoURL: URL, playResult: PlayResultType?, pitchSpeed: Double? = nil, role: AthleteRole = .batter, onComplete: @escaping () -> Void) {
+        // Dismiss immediately so the user isn't waiting
+        Haptics.success()
+        onComplete()
+
+        // Save in background
         saveTask = Task { @MainActor in
             defer { saveTask = nil }
 
@@ -291,9 +296,6 @@ struct DirectCameraRecorderView: View {
                 if let athlete = athlete {
                     await checkAndEnqueueAutoUpload(clip: clip, athlete: athlete)
                 }
-
-                Haptics.success()
-                onComplete()
             } catch {
                 ErrorHandlerService.shared.handle(
                     AppError.videoRecordingFailed(error.localizedDescription),

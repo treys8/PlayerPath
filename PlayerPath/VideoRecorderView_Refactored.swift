@@ -1143,12 +1143,14 @@ struct VideoRecorderView_Refactored: View {
         // Cancel any existing save task
         saveTask?.cancel()
 
-        // Store the new save task for cancellation on cleanup
+        // Dismiss immediately so the user isn't waiting
+        Haptics.success()
+        UIAccessibility.post(notification: .announcement, argument: "Video saved successfully")
+        onComplete()
+
+        // Save in background — video file stays on disk until copy completes
         saveTask = Task {
-            guard !Task.isCancelled else {
-                print("VideoRecorder: Save task cancelled before starting")
-                return
-            }
+            guard !Task.isCancelled else { return }
 
             do {
                 _ = try await ClipPersistenceService().saveClip(
@@ -1162,28 +1164,17 @@ struct VideoRecorderView_Refactored: View {
                     practice: practice
                 )
 
-                // Success — clean up temp files and dismiss
+                // Clean up temp files after successful save
                 await MainActor.run {
-                    // Clean up temp files (the clip is now safely copied to Documents/Clips)
-                    if let recorded = self.recordedVideoURL {
-                        VideoFileManager.cleanup(url: recorded)
-                    }
+                    VideoFileManager.cleanup(url: videoURL)
                     if let trimmed = self.trimmedVideoURL {
                         VideoFileManager.cleanup(url: trimmed)
                     }
                     self.recordedVideoURL = nil
                     self.trimmedVideoURL = nil
-
-                    UINotificationFeedbackGenerator().notificationOccurred(.success)
-                    UIAccessibility.post(notification: .announcement, argument: "Video saved successfully")
-                    onComplete()
                 }
             } catch {
-                guard !Task.isCancelled else {
-                    print("VideoRecorder: Save task cancelled during error handling")
-                    return
-                }
-
+                guard !Task.isCancelled else { return }
                 print("Failed to save video: \(error)")
                 await MainActor.run {
                     UINotificationFeedbackGenerator().notificationOccurred(.error)
@@ -1624,6 +1615,7 @@ struct PreUploadTrimmerView: View {
 
     private func setupPlayer() {
         let newPlayer = AVPlayer(url: videoURL)
+        newPlayer.isMuted = true
         player = newPlayer
         newPlayer.play()
 

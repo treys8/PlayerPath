@@ -43,7 +43,9 @@ struct PlayResultOverlayView: View {
         self.practice = practice
         self.onSave = onSave
         self.onCancel = onCancel
-        self._player = State(initialValue: AVPlayer(url: videoURL))
+        let newPlayer = AVPlayer(url: videoURL)
+        newPlayer.isMuted = true
+        self._player = State(initialValue: newPlayer)
     }
     
     var body: some View {
