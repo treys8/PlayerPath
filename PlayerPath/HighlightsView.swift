@@ -1229,9 +1229,8 @@ struct SimpleCloudStorageView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            List {
-                if pendingUploads.isEmpty {
+        List {
+            if pendingUploads.isEmpty {
                     VStack(spacing: 20) {
                         Image(systemName: "checkmark.icloud")
                             .font(.system(size: 50))
@@ -1329,7 +1328,6 @@ struct SimpleCloudStorageView: View {
             }
             .navigationTitle("Cloud Storage")
             .navigationBarTitleDisplayMode(.large)
-        }
     }
 
     private func uploadClip(_ clip: VideoClip) async {

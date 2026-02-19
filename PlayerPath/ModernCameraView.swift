@@ -90,6 +90,9 @@ struct ModernCameraView: View {
                 .onChanged { scale in
                     viewModel.handleZoom(scale: scale)
                 }
+                .onEnded { _ in
+                    viewModel.endZoomGesture()
+                }
         )
         .gesture(
             DragGesture(minimumDistance: 0)
@@ -287,6 +290,7 @@ struct ModernCameraView: View {
                 maxZoom: viewModel.maxZoom,
                 onZoomChange: { newZoom in
                     viewModel.setZoom(newZoom)
+                    viewModel.endZoomGesture()
                 }
             )
             .transition(.move(edge: .bottom).combined(with: .opacity))

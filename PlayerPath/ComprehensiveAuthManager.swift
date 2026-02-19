@@ -134,21 +134,30 @@ final class ComprehensiveAuthManager: ObservableObject {
         do {
             let users = try context.fetch(fetchDescriptor)
             if let existingUser = users.first {
+                var needsSave = false
                 // Sync role from authManager to SwiftData if different
                 if existingUser.role != self.userRole.rawValue {
                     existingUser.role = self.userRole.rawValue
-                    try context.save()
+                    needsSave = true
                     print("🔄 Synced user role to SwiftData: \(self.userRole.rawValue)")
                 }
+                // Store Firebase Auth UID so SyncCoordinator queries the correct Firestore path
+                if existingUser.firebaseAuthUid != firebaseUser.uid {
+                    existingUser.firebaseAuthUid = firebaseUser.uid
+                    needsSave = true
+                    print("🔄 Stored Firebase Auth UID: \(firebaseUser.uid)")
+                }
+                if needsSave { try context.save() }
                 await MainActor.run {
                     self.localUser = existingUser
                 }
             } else {
                 // Create new user with current role from authManager
                 let newUser = User(username: firebaseUser.displayName ?? email, email: email, role: self.userRole.rawValue)
+                newUser.firebaseAuthUid = firebaseUser.uid
                 context.insert(newUser)
                 try context.save()
-                print("✅ Created new SwiftData user with role: \(self.userRole.rawValue)")
+                print("✅ Created new SwiftData user with role: \(self.userRole.rawValue), Firebase UID: \(firebaseUser.uid)")
                 await MainActor.run {
                     self.localUser = newUser
                 }

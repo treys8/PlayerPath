@@ -18,113 +18,50 @@ struct PlayResultOverlayView: View {
     let onSave: (PlayResultType?, Double?, AthleteRole) -> Void
     let onCancel: () -> Void
     
-    @Environment(\.scenePhase) private var scenePhase
     @Environment(\.horizontalSizeClass) private var hSizeClass
     
     @State private var selectedResult: PlayResultType?
     @State private var showingConfirmation = false
-    @State private var player = AVPlayer()
     @State private var recordingMode: AthleteRole = .batter
-    
-    @State private var isPlaying = true
+
+    @State private var thumbnail: UIImage?
     @State private var videoMetadata: VideoMetadata?
     @State private var metadataTask: Task<Void, Never>?
-    @State private var isLooping = false
-    @State private var hasLooped = false
     @State private var showContent = false
-    @State private var videoEndObserver: NSObjectProtocol?
     @State private var isSaving = false
     @State private var pitchSpeedText = ""
-
-    init(videoURL: URL, athlete: Athlete?, game: Game? = nil, practice: Practice? = nil, onSave: @escaping (PlayResultType?, Double?, AthleteRole) -> Void, onCancel: @escaping () -> Void) {
-        self.videoURL = videoURL
-        self.athlete = athlete
-        self.game = game
-        self.practice = practice
-        self.onSave = onSave
-        self.onCancel = onCancel
-        let newPlayer = AVPlayer(url: videoURL)
-        newPlayer.isMuted = true
-        self._player = State(initialValue: newPlayer)
-    }
     
     var body: some View {
         NavigationStack {
             ZStack {
-                // Video Player Background with Play/Pause Button
-                ZStack(alignment: .bottomLeading) {
-                    ZStack(alignment: .topTrailing) {
-                        VideoPlayer(player: player)
-                            .allowsHitTesting(false)
-                            .overlay(Color.black.opacity(0.25))
-                            .onAppear {
-                                // Restore player item if it was cleared (e.g., after sheet dismissal)
-                                if player.currentItem == nil {
-                                    player.replaceCurrentItem(with: AVPlayerItem(url: videoURL))
-                                    player.isMuted = true
-                                }
-                                player.play()
-                                isPlaying = true
-                                loadVideoMetadata()
-                                addVideoEndObserver()
-                            }
-                            .onDisappear {
-                                player.pause()
-                                isPlaying = false
-                                if let task = metadataTask {
-                                    task.cancel()
-                                    metadataTask = nil
-                                }
-                                removeVideoEndObserver()
-                            }
-                        
-                        // Video metadata badge and replay indicator
-                        VStack(alignment: .trailing, spacing: 8) {
-                            if let metadata = videoMetadata {
-                                VideoMetadataView(metadata: metadata)
-                            }
-
-                            if hasLooped {
-                                HStack(spacing: 4) {
-                                    Image(systemName: "arrow.triangle.2.circlepath")
-                                        .font(.system(size: 10))
-                                    Text("Replaying")
-                                        .font(.system(size: 11, weight: .semibold))
-                                }
-                                .foregroundColor(.white)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 6)
-                                .background(
-                                    Capsule()
-                                        .fill(Color.orange.opacity(0.9))
-                                )
-                                .shadow(radius: 2)
-                                .transition(.scale.combined(with: .opacity))
-                            }
-                        }
-                        .padding(16)
-                        .padding(.top, 60) // Position higher and make room for toolbar
-                    }
-                    
-                    Button {
-                        if isPlaying {
-                            player.pause()
+                // Static Thumbnail Background
+                ZStack(alignment: .topTrailing) {
+                    Group {
+                        if let image = thumbnail {
+                            Image(uiImage: image)
+                                .resizable()
+                                .scaledToFill()
                         } else {
-                            player.play()
+                            Color.black
                         }
-                        isPlaying.toggle()
-                        Haptics.light()
-                    } label: {
-                        Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                            .font(.system(size: 16, weight: .bold))
-                            .foregroundColor(.white)
-                            .padding(10)
-                            .background(.ultraThinMaterial)
-                            .clipShape(Circle())
-                            .shadow(radius: 4)
                     }
-                    .padding(12)
-                    .accessibilityLabel(isPlaying ? "Pause video" : "Play video")
+                    .ignoresSafeArea()
+                    .overlay(Color.black.opacity(0.25))
+                    .onAppear {
+                        loadThumbnail()
+                        loadVideoMetadata()
+                    }
+                    .onDisappear {
+                        metadataTask?.cancel()
+                        metadataTask = nil
+                    }
+
+                    // Video metadata badge
+                    if let metadata = videoMetadata {
+                        VideoMetadataView(metadata: metadata)
+                            .padding(16)
+                            .padding(.top, 60)
+                    }
                 }
                 
                 // Play Result Selection Overlay
@@ -421,17 +358,6 @@ struct PlayResultOverlayView: View {
                 }
             }
             .toolbarBackground(.hidden, for: .navigationBar)
-            .onChange(of: scenePhase) { _, phase in
-                if phase == .active {
-                    if !showingConfirmation {
-                        player.play()
-                        isPlaying = true
-                    }
-                } else {
-                    player.pause()
-                    isPlaying = false
-                }
-            }
             .confirmationDialog(
                 "Confirm Play Result",
                 isPresented: $showingConfirmation,
@@ -445,8 +371,6 @@ struct PlayResultOverlayView: View {
                 }
                 Button("Cancel", role: .cancel) {
                     selectedResult = nil
-                    player.play()
-                    isPlaying = true
                 }
             } message: {
                 Text("Save this play as a \(selectedResult?.displayName ?? "play")?")
@@ -595,8 +519,6 @@ struct PlayResultOverlayView: View {
     private func selectResult(_ result: PlayResultType) {
         selectedResult = result
         Haptics.medium()
-        player.pause()
-        isPlaying = false
         showingConfirmation = true
     }
 }
@@ -1051,36 +973,18 @@ struct MetadataBadge: View {
 }
 
 extension PlayResultOverlayView {
-    private func addVideoEndObserver() {
-        removeVideoEndObserver()
-        videoEndObserver = NotificationCenter.default.addObserver(
-            forName: .AVPlayerItemDidPlayToEndTime,
-            object: player.currentItem,
-            queue: .main
-        ) { [weak player] _ in
-            // Loop the video from the beginning
-            player?.seek(to: .zero)
-            player?.play()
-
-            hasLooped = true
-            isLooping = true
-
-            // Auto-hide replay indicator after 3 seconds
-            Task {
-                try? await Task.sleep(nanoseconds: 3_000_000_000)
+    private func loadThumbnail() {
+        guard thumbnail == nil else { return }
+        Task {
+            let asset = AVURLAsset(url: videoURL)
+            let generator = AVAssetImageGenerator(asset: asset)
+            generator.appliesPreferredTrackTransform = true
+            generator.maximumSize = CGSize(width: 1080, height: 1920)
+            if let cgImage = try? await generator.image(at: .zero).image {
                 await MainActor.run {
-                    withAnimation {
-                        hasLooped = false
-                    }
+                    thumbnail = UIImage(cgImage: cgImage)
                 }
             }
-        }
-    }
-
-    private func removeVideoEndObserver() {
-        if let observer = videoEndObserver {
-            NotificationCenter.default.removeObserver(observer)
-            videoEndObserver = nil
         }
     }
 
@@ -1144,6 +1048,7 @@ extension PlayResultOverlayView {
         videoURL: URL(string: "https://sample-videos.com/zip/10/mp4/SampleVideo_1280x720_1mb.mp4")!,
         athlete: nil,
         game: nil,
+        practice: nil,
         onSave: { _, _, _ in },
         onCancel: { }
     )

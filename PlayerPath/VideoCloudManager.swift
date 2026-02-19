@@ -94,7 +94,8 @@ class VideoCloudManager: ObservableObject {
         let clipId = videoClip.id
         let clipFilePath = videoClip.filePath
         let clipFileName = videoClip.fileName
-        let athleteId = athlete.id
+        // Use firestoreId as stable cross-device key; fall back to SwiftData UUID if not yet synced
+        let athleteStableId = athlete.firestoreId ?? athlete.id.uuidString
         let athleteName = athlete.name
 
         // Mark as uploading
@@ -115,13 +116,13 @@ class VideoCloudManager: ObservableObject {
         // Create storage reference for athlete videos
         let storage = Storage.storage()
         let storageRef = storage.reference()
-        let videoRef = storageRef.child("athlete_videos/\(athleteId.uuidString)/\(clipFileName)")
+        let videoRef = storageRef.child("athlete_videos/\(athleteStableId)/\(clipFileName)")
 
         // Create upload task with metadata
         let metadata = StorageMetadata()
         metadata.contentType = "video/quicktime"
         metadata.customMetadata = [
-            "athleteId": athleteId.uuidString,
+            "athleteId": athleteStableId,
             "athleteName": athleteName,
             "videoClipId": clipId.uuidString
         ]
@@ -252,7 +253,8 @@ class VideoCloudManager: ObservableObject {
         let gameId = videoClip.game?.id
         let practiceId = videoClip.practice?.id
         let seasonId = videoClip.season?.id
-        let athleteId = athlete.id
+        // Use firestoreId as stable cross-device key; fall back to SwiftData UUID if not yet synced
+        let athleteStableId = athlete.firestoreId ?? athlete.id.uuidString
         let athleteName = athlete.name
 
         // Get file size
@@ -263,7 +265,7 @@ class VideoCloudManager: ObservableObject {
         // Build document data
         var data: [String: Any] = [
             "id": clipId.uuidString,
-            "athleteId": athleteId.uuidString,
+            "athleteId": athleteStableId,
             "athleteName": athleteName,
             "fileName": clipFileName,
             "downloadURL": downloadURL,
@@ -303,7 +305,7 @@ class VideoCloudManager: ObservableObject {
                 let cloudThumbnailURL = try await uploadAthleteVideoThumbnail(
                     thumbnailURL: thumbnailURL,
                     videoFileName: clipFileName,
-                    athleteId: athleteId
+                    athleteStableId: athleteStableId
                 )
                 data["thumbnailURL"] = cloudThumbnailURL
             } catch {
@@ -321,13 +323,13 @@ class VideoCloudManager: ObservableObject {
     private func uploadAthleteVideoThumbnail(
         thumbnailURL: URL,
         videoFileName: String,
-        athleteId: UUID
+        athleteStableId: String
     ) async throws -> String {
         let storage = Storage.storage()
         let storageRef = storage.reference()
 
         let thumbnailFileName = (videoFileName as NSString).deletingPathExtension + "_thumbnail.jpg"
-        let thumbnailRef = storageRef.child("athlete_videos/\(athleteId.uuidString)/thumbnails/\(thumbnailFileName)")
+        let thumbnailRef = storageRef.child("athlete_videos/\(athleteStableId)/thumbnails/\(thumbnailFileName)")
 
         let metadata = StorageMetadata()
         metadata.contentType = "image/jpeg"
@@ -357,12 +359,13 @@ class VideoCloudManager: ObservableObject {
     /// - Parameter athlete: The athlete whose videos to fetch
     /// - Returns: Array of video metadata from Firestore
     func syncVideos(for athlete: Athlete) async throws -> [VideoClipMetadata] {
-        let athleteId = athlete.id
+        // Use firestoreId as stable cross-device key; fall back to SwiftData UUID if not yet synced
+        let athleteStableId = athlete.firestoreId ?? athlete.id.uuidString
         let db = Firestore.firestore()
 
         // Query videos for this athlete that aren't deleted
         let snapshot = try await db.collection("videos")
-            .whereField("athleteId", isEqualTo: athleteId.uuidString)
+            .whereField("athleteId", isEqualTo: athleteStableId)
             .whereField("isDeleted", isEqualTo: false)
             .order(by: "createdAt", descending: true)
             .getDocuments()
@@ -436,11 +439,12 @@ class VideoCloudManager: ObservableObject {
         for athlete: Athlete,
         onNewVideo: @escaping (VideoClipMetadata) -> Void
     ) -> ListenerRegistration {
-        let athleteId = athlete.id
+        // Use firestoreId as stable cross-device key; fall back to SwiftData UUID if not yet synced
+        let athleteStableId = athlete.firestoreId ?? athlete.id.uuidString
         let db = Firestore.firestore()
 
         let listener = db.collection("videos")
-            .whereField("athleteId", isEqualTo: athleteId.uuidString)
+            .whereField("athleteId", isEqualTo: athleteStableId)
             .whereField("isDeleted", isEqualTo: false)
             .addSnapshotListener { snapshot, error in
                 guard let snapshot = snapshot else {
@@ -495,11 +499,11 @@ class VideoCloudManager: ObservableObject {
     func deleteVideo(_ videoClip: VideoClip, athlete: Athlete) async throws {
         // Capture values from SwiftData model before async boundary (Sendable compliance)
         let clipFileName = videoClip.fileName
-        let athleteId = athlete.id
+        let athleteStableId = athlete.firestoreId ?? athlete.id.uuidString
 
         let storage = Storage.storage()
         let storageRef = storage.reference()
-        let videoRef = storageRef.child("athlete_videos/\(athleteId.uuidString)/\(clipFileName)")
+        let videoRef = storageRef.child("athlete_videos/\(athleteStableId)/\(clipFileName)")
 
         return try await withCheckedThrowingContinuation { continuation in
             videoRef.delete { error in
@@ -553,7 +557,8 @@ class VideoCloudManager: ObservableObject {
         }
 
         let clipDataArray = clips.map { ClipData(id: $0.id, filePath: $0.filePath, fileName: $0.fileName) }
-        let athleteId = athlete.id
+        // Use firestoreId as stable cross-device key; fall back to SwiftData UUID if not yet synced
+        let athleteStableId = athlete.firestoreId ?? athlete.id.uuidString
         let athleteName = athlete.name
 
         return await withTaskGroup(of: (UUID, Result<String, Error>).self) { group in
@@ -570,7 +575,7 @@ class VideoCloudManager: ObservableObject {
                             clipId: clipData.id,
                             filePath: clipData.filePath,
                             fileName: clipData.fileName,
-                            athleteId: athleteId,
+                            athleteStableId: athleteStableId,
                             athleteName: athleteName
                         )
                         return (clipData.id, .success(cloudURL))
@@ -596,7 +601,7 @@ class VideoCloudManager: ObservableObject {
                                 clipId: clipData.id,
                                 filePath: clipData.filePath,
                                 fileName: clipData.fileName,
-                                athleteId: athleteId,
+                                athleteStableId: athleteStableId,
                                 athleteName: athleteName
                             )
                             return (clipData.id, .success(cloudURL))
@@ -618,7 +623,7 @@ class VideoCloudManager: ObservableObject {
         clipId: UUID,
         filePath: String,
         fileName: String,
-        athleteId: UUID,
+        athleteStableId: String,
         athleteName: String
     ) async throws -> String {
         // Mark as uploading
@@ -639,13 +644,13 @@ class VideoCloudManager: ObservableObject {
         // Create storage reference for athlete videos
         let storage = Storage.storage()
         let storageRef = storage.reference()
-        let videoRef = storageRef.child("athlete_videos/\(athleteId.uuidString)/\(fileName)")
+        let videoRef = storageRef.child("athlete_videos/\(athleteStableId)/\(fileName)")
 
         // Create upload task with metadata
         let metadata = StorageMetadata()
         metadata.contentType = "video/quicktime"
         metadata.customMetadata = [
-            "athleteId": athleteId.uuidString,
+            "athleteId": athleteStableId,
             "athleteName": athleteName,
             "videoClipId": clipId.uuidString
         ]

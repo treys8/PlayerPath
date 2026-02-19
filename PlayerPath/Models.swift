@@ -51,6 +51,8 @@ final class User {
     var profileImagePath: String?
     var createdAt: Date?
     var isPremium: Bool = false
+    /// Firebase Auth UID — used as the Firestore document key for all user data
+    var firebaseAuthUid: String?
     @Relationship(inverse: \Athlete.user) var athletes: [Athlete]?
 
     init(username: String, email: String, role: String = "athlete") {

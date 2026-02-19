@@ -50,6 +50,7 @@ class CameraViewModel: NSObject, ObservableObject {
 
     var minZoom: CGFloat = 1.0
     var maxZoom: CGFloat = 10.0
+    private var zoomGestureBase: CGFloat = 1.0  // Zoom captured at gesture start
 
     // MARK: - Constants
 
@@ -533,8 +534,14 @@ class CameraViewModel: NSObject, ObservableObject {
 
     @MainActor
     func handleZoom(scale: CGFloat) {
-        let newZoom = min(max(currentZoom * scale, minZoom), maxZoom)
+        // scale is cumulative from gesture start (1.0 = no change), so use zoomGestureBase
+        let newZoom = min(max(zoomGestureBase * scale, minZoom), maxZoom)
         setZoom(newZoom)
+    }
+
+    @MainActor
+    func endZoomGesture() {
+        zoomGestureBase = currentZoom
     }
 
     @MainActor
@@ -556,14 +563,26 @@ class CameraViewModel: NSObject, ObservableObject {
     func handleTapToFocus(at point: CGPoint) {
         guard let device = videoDevice else { return }
 
-        // Convert tap point to device coordinates (0-1 range)
-        // Note: This assumes portrait orientation. In production, you'd convert based on preview layer bounds
-        // and handle all orientations properly
+        // Convert tap point to device coordinates (0-1 range), accounting for orientation
         let screenBounds = UIScreen.main.bounds
-        let devicePoint = CGPoint(
-            x: point.y / screenBounds.height,
-            y: 1.0 - (point.x / screenBounds.width)
-        )
+        let devicePoint: CGPoint
+        switch currentOrientation {
+        case .landscapeRight:
+            devicePoint = CGPoint(
+                x: point.x / screenBounds.width,
+                y: point.y / screenBounds.height
+            )
+        case .landscapeLeft:
+            devicePoint = CGPoint(
+                x: 1.0 - (point.x / screenBounds.width),
+                y: 1.0 - (point.y / screenBounds.height)
+            )
+        default: // Portrait
+            devicePoint = CGPoint(
+                x: point.y / screenBounds.height,
+                y: 1.0 - (point.x / screenBounds.width)
+            )
+        }
 
         do {
             try device.lockForConfiguration()

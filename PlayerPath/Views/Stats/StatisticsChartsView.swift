@@ -308,17 +308,67 @@ struct StatisticsChartsView: View {
     private var seasonChartData: [ChartDataPoint] {
         let seasons = athlete.seasons ?? []
         let sortedSeasons = seasons
-            .filter { $0.seasonStatistics != nil }
+            .filter { $0.seasonStatistics != nil || $0.isActive }
             .sorted { ($0.startDate ?? Date.distantPast) < ($1.startDate ?? Date.distantPast) }
 
         return sortedSeasons.compactMap { season in
-            guard let stats = season.seasonStatistics else { return nil }
-            let value = getValue(from: stats, for: selectedMetric)
+            let value: Double
+            if let stats = season.seasonStatistics {
+                value = getValue(from: stats, for: selectedMetric)
+            } else {
+                // Active season with no archived snapshot — compute live from completed games
+                guard let liveValue = liveSeasonValue(for: season, metric: selectedMetric) else { return nil }
+                value = liveValue
+            }
+            let label = season.isActive ? "\(season.displayName) ↑" : season.displayName
             return ChartDataPoint(
                 date: season.startDate ?? Date(),
                 value: value,
-                label: season.displayName
+                label: label
             )
+        }
+    }
+
+    /// Computes a single metric value for an active season by aggregating its completed game stats.
+    private func liveSeasonValue(for season: Season, metric: StatMetric) -> Double? {
+        let completedGames = (season.games ?? []).filter { $0.isComplete && $0.gameStats != nil }
+        guard !completedGames.isEmpty else { return nil }
+
+        var atBats = 0, hits = 0, singles = 0, doubles = 0
+        var triples = 0, homeRuns = 0, walks = 0, runs = 0, rbis = 0
+
+        for game in completedGames {
+            guard let gs = game.gameStats else { continue }
+            atBats    += gs.atBats
+            hits      += gs.hits
+            singles   += gs.singles
+            doubles   += gs.doubles
+            triples   += gs.triples
+            homeRuns  += gs.homeRuns
+            walks     += gs.walks
+            runs      += gs.runs
+            rbis      += gs.rbis
+        }
+
+        switch metric {
+        case .battingAverage:
+            return atBats > 0 ? Double(hits) / Double(atBats) : 0
+        case .onBasePercentage:
+            let pa = atBats + walks
+            return pa > 0 ? Double(hits + walks) / Double(pa) : 0
+        case .sluggingPercentage:
+            let bases = singles + (doubles * 2) + (triples * 3) + (homeRuns * 4)
+            return atBats > 0 ? Double(bases) / Double(atBats) : 0
+        case .ops:
+            let pa = atBats + walks
+            let obp = pa > 0 ? Double(hits + walks) / Double(pa) : 0.0
+            let bases = singles + (doubles * 2) + (triples * 3) + (homeRuns * 4)
+            let slg = atBats > 0 ? Double(bases) / Double(atBats) : 0.0
+            return obp + slg
+        case .hits:     return Double(hits)
+        case .homeRuns: return Double(homeRuns)
+        case .rbis:     return Double(rbis)
+        case .runs:     return Double(runs)
         }
     }
 
@@ -402,6 +452,7 @@ struct StatisticsChartsView: View {
         let secondAvg = secondHalf.reduce(0, +) / Double(secondHalf.count)
 
         let change = secondAvg - firstAvg
+        guard firstAvg != 0.0 else { return .stable }
         let percentChange = (change / firstAvg) * 100
 
         if percentChange > 5 {

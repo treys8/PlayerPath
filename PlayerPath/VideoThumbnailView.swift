@@ -246,7 +246,7 @@ struct VideoThumbnailView: View {
         case .strikeout:
             return [Color.red.opacity(0.4), Color.red.opacity(0.6)]
         case .groundOut, .flyOut:
-            return [Color.gray.opacity(0.5), Color.gray.opacity(0.7)]
+            return [Color.red.opacity(0.5), Color.red.opacity(0.7)]
         case .ball:
             return [Color.orange.opacity(0.5), Color.orange.opacity(0.7)]
         case .strike:
@@ -583,7 +583,7 @@ struct VideoThumbnailView: View {
         case .homeRun: return .red
         case .walk: return .cyan
         case .strikeout: return .red.opacity(0.8)
-        case .groundOut, .flyOut: return .gray
+        case .groundOut, .flyOut: return .red.opacity(0.8)
         case .ball: return .orange
         case .strike: return .green
         case .hitByPitch: return .purple

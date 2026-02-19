@@ -84,7 +84,7 @@ final class SyncCoordinator {
             print("❌ Athlete sync failed: \(error)")
             syncErrors.append(SyncError(
                 type: .syncFailed,
-                entityId: user.id.uuidString,
+                entityId: (user.firebaseAuthUid ?? user.id.uuidString),
                 message: error.localizedDescription
             ))
             throw error
@@ -109,7 +109,7 @@ final class SyncCoordinator {
                 if let firestoreId = athlete.firestoreId {
                     // Update existing athlete in Firestore
                     try await FirestoreManager.shared.updateAthlete(
-                        userId: user.id.uuidString,
+                        userId: (user.firebaseAuthUid ?? user.id.uuidString),
                         athleteId: firestoreId,
                         data: athlete.toFirestoreData()
                     )
@@ -118,7 +118,7 @@ final class SyncCoordinator {
                 } else {
                     // Create new athlete in Firestore
                     let docId = try await FirestoreManager.shared.createAthlete(
-                        userId: user.id.uuidString,
+                        userId: (user.firebaseAuthUid ?? user.id.uuidString),
                         data: athlete.toFirestoreData()
                     )
                     athlete.firestoreId = docId
@@ -151,7 +151,7 @@ final class SyncCoordinator {
         print("📥 Downloading athletes from Firestore for user: \(user.email)")
 
         let remoteAthletes = try await FirestoreManager.shared.fetchAthletes(
-            userId: user.id.uuidString
+            userId: (user.firebaseAuthUid ?? user.id.uuidString)
         )
 
         guard !remoteAthletes.isEmpty else {
@@ -271,7 +271,7 @@ final class SyncCoordinator {
             print("❌ Season sync failed: \(error)")
             syncErrors.append(SyncError(
                 type: .syncFailed,
-                entityId: user.id.uuidString,
+                entityId: (user.firebaseAuthUid ?? user.id.uuidString),
                 message: "Season sync failed: \(error.localizedDescription)"
             ))
             throw error
@@ -296,7 +296,7 @@ final class SyncCoordinator {
                 if let firestoreId = season.firestoreId {
                     // Update existing season in Firestore
                     try await FirestoreManager.shared.updateSeason(
-                        userId: user.id.uuidString,
+                        userId: (user.firebaseAuthUid ?? user.id.uuidString),
                         seasonId: firestoreId,
                         data: season.toFirestoreData()
                     )
@@ -305,7 +305,7 @@ final class SyncCoordinator {
                 } else {
                     // Create new season in Firestore
                     let docId = try await FirestoreManager.shared.createSeason(
-                        userId: user.id.uuidString,
+                        userId: (user.firebaseAuthUid ?? user.id.uuidString),
                         data: season.toFirestoreData()
                     )
                     season.firestoreId = docId
@@ -333,7 +333,7 @@ final class SyncCoordinator {
     }
 
     private func downloadRemoteSeasons(_ user: User, context: ModelContext) async throws {
-        let remoteSeasons = try await FirestoreManager.shared.fetchSeasons(userId: user.id.uuidString)
+        let remoteSeasons = try await FirestoreManager.shared.fetchSeasons(userId: (user.firebaseAuthUid ?? user.id.uuidString))
 
         guard !remoteSeasons.isEmpty else {
             print("✅ No remote seasons to download")
@@ -429,7 +429,7 @@ final class SyncCoordinator {
             print("❌ Game sync failed: \(error)")
             syncErrors.append(SyncError(
                 type: .syncFailed,
-                entityId: user.id.uuidString,
+                entityId: (user.firebaseAuthUid ?? user.id.uuidString),
                 message: "Game sync failed: \(error.localizedDescription)"
             ))
             throw error
@@ -456,7 +456,7 @@ final class SyncCoordinator {
                 if let firestoreId = game.firestoreId {
                     // Update existing game in Firestore
                     try await FirestoreManager.shared.updateGame(
-                        userId: user.id.uuidString,
+                        userId: (user.firebaseAuthUid ?? user.id.uuidString),
                         gameId: firestoreId,
                         data: game.toFirestoreData()
                     )
@@ -465,7 +465,7 @@ final class SyncCoordinator {
                 } else {
                     // Create new game in Firestore
                     let docId = try await FirestoreManager.shared.createGame(
-                        userId: user.id.uuidString,
+                        userId: (user.firebaseAuthUid ?? user.id.uuidString),
                         data: game.toFirestoreData()
                     )
                     game.firestoreId = docId
@@ -493,7 +493,7 @@ final class SyncCoordinator {
     }
 
     private func downloadRemoteGames(_ user: User, context: ModelContext) async throws {
-        let remoteGames = try await FirestoreManager.shared.fetchGames(userId: user.id.uuidString)
+        let remoteGames = try await FirestoreManager.shared.fetchGames(userId: (user.firebaseAuthUid ?? user.id.uuidString))
 
         guard !remoteGames.isEmpty else {
             print("✅ No remote games to download")
@@ -598,7 +598,7 @@ final class SyncCoordinator {
             print("❌ Practice sync failed: \(error)")
             syncErrors.append(SyncError(
                 type: .syncFailed,
-                entityId: user.id.uuidString,
+                entityId: (user.firebaseAuthUid ?? user.id.uuidString),
                 message: "Practice sync failed: \(error.localizedDescription)"
             ))
             throw error
@@ -634,7 +634,7 @@ final class SyncCoordinator {
                 if let firestoreId = practice.firestoreId {
                     // Update existing
                     try await FirestoreManager.shared.updatePractice(
-                        userId: user.id.uuidString,
+                        userId: (user.firebaseAuthUid ?? user.id.uuidString),
                         practiceId: firestoreId,
                         data: practice.toFirestoreData()
                     )
@@ -642,7 +642,7 @@ final class SyncCoordinator {
                 } else {
                     // Create new
                     let docId = try await FirestoreManager.shared.createPractice(
-                        userId: user.id.uuidString,
+                        userId: (user.firebaseAuthUid ?? user.id.uuidString),
                         data: practice.toFirestoreData()
                     )
                     practice.firestoreId = docId
@@ -670,7 +670,7 @@ final class SyncCoordinator {
         print("Downloading remote practices...")
 
         let remotePractices = try await FirestoreManager.shared.fetchPractices(
-            userId: user.id.uuidString
+            userId: (user.firebaseAuthUid ?? user.id.uuidString)
         )
 
         guard !remotePractices.isEmpty else {
@@ -763,7 +763,7 @@ final class SyncCoordinator {
             print("❌ Video sync failed: \(error)")
             syncErrors.append(SyncError(
                 type: .syncFailed,
-                entityId: user.id.uuidString,
+                entityId: (user.firebaseAuthUid ?? user.id.uuidString),
                 message: "Video sync failed: \(error.localizedDescription)"
             ))
             throw error

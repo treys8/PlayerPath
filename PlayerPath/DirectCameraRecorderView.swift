@@ -98,17 +98,20 @@ struct DirectCameraRecorderView: View {
                     // Smart trimmer logic
                     Task {
                         let duration = await getVideoDuration(videoURL)
-                        let shouldShowTrimmer = UserDefaults.standard.bool(forKey: "autoShowTrimmer")
+                        let autoShowTrimmer = UserDefaults.standard.bool(forKey: "autoShowTrimmer")
+                        let skipShortClips = UserDefaults.standard.bool(forKey: "skipTrimmerForShortClips")
 
-                        // Skip trimmer for very short clips (< 15 seconds) unless user wants it
-                        if duration < 15 && !shouldShowTrimmer {
-                            withAnimation(.easeInOut(duration: 0.25)) {
-                                phase = .tagging
-                            }
+                        let shouldSkip: Bool
+                        if autoShowTrimmer {
+                            shouldSkip = false // Always show trimmer
+                        } else if duration < 15 && skipShortClips {
+                            shouldSkip = true  // Short clip + skip setting enabled
                         } else {
-                            withAnimation(.easeInOut(duration: 0.25)) {
-                                phase = .trimming
-                            }
+                            shouldSkip = false // Long clip or skip setting disabled
+                        }
+
+                        withAnimation(.easeInOut(duration: 0.25)) {
+                            phase = shouldSkip ? .tagging : .trimming
                         }
                     }
                 },
@@ -127,9 +130,10 @@ struct DirectCameraRecorderView: View {
             if let game = game, game.isLive {
                 VStack {
                     liveGameBadge(for: game)
-                        .padding(.top, 70)
+                        .padding(.top)
                     Spacer()
                 }
+                .padding(.top, 8)
             }
         }
     }
@@ -195,18 +199,26 @@ struct DirectCameraRecorderView: View {
         if let videoURL = recordedVideoURL {
             let finalVideoURL = trimmedVideoURL ?? videoURL
 
-            PlayResultOverlayView(
-                videoURL: finalVideoURL,
-                athlete: athlete,
-                game: game,
-                practice: practice,
-                onSave: { result, pitchSpeed, role in
-                    saveVideoWithResult(videoURL: finalVideoURL, playResult: result, pitchSpeed: pitchSpeed, role: role) { dismiss() }
-                },
-                onCancel: {
-                    showingDiscardConfirmation = true
-                }
-            )
+            if practice != nil {
+                // Practice videos skip the play result overlay — auto-save immediately
+                Color.black.ignoresSafeArea()
+                    .onAppear {
+                        saveVideoWithResult(videoURL: finalVideoURL, playResult: nil, role: .batter) { dismiss() }
+                    }
+            } else {
+                PlayResultOverlayView(
+                    videoURL: finalVideoURL,
+                    athlete: athlete,
+                    game: game,
+                    practice: practice,
+                    onSave: { result, pitchSpeed, role in
+                        saveVideoWithResult(videoURL: finalVideoURL, playResult: result, pitchSpeed: pitchSpeed, role: role) { dismiss() }
+                    },
+                    onCancel: {
+                        showingDiscardConfirmation = true
+                    }
+                )
+            }
         }
     }
 

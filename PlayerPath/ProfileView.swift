@@ -8,6 +8,7 @@
 import SwiftUI
 import SwiftData
 import UIKit
+import FirebaseAuth
 
 // MARK: - Profile View (Main "More" Tab Root)
 
@@ -211,19 +212,6 @@ struct ProfileView: View {
         ))
 
         items.append(SearchResult(
-            title: "Security Settings",
-            icon: "lock.shield",
-            keywords: ["security", "password", "authentication", "biometric", "face id", "touch id"],
-            link: AnyView(
-                NavigationLink {
-                    SecuritySettingsView(user: user)
-                } label: {
-                    Label("Security Settings", systemImage: "lock.shield")
-                }
-            )
-        ))
-
-        items.append(SearchResult(
             title: "Video Recording",
             icon: "video.fill",
             keywords: ["video", "recording", "4k", "quality", "camera", "resolution", "fps"],
@@ -356,19 +344,6 @@ struct ProfileView: View {
         ))
 
         items.append(SearchResult(
-            title: "Error Log",
-            icon: "exclamationmark.triangle",
-            keywords: ["error", "log", "errors", "issues", "problems", "debug", "support", "troubleshoot"],
-            link: AnyView(
-                NavigationLink {
-                    ErrorHistoryView()
-                } label: {
-                    Label("Error Log", systemImage: "exclamationmark.triangle")
-                }
-            )
-        ))
-
-        items.append(SearchResult(
             title: "Delete Account",
             icon: "trash",
             keywords: ["delete", "account", "remove", "close", "gdpr"],
@@ -495,12 +470,6 @@ struct ProfileView: View {
             }
 
             NavigationLink {
-                SecuritySettingsView(user: user)
-            } label: {
-                Label("Security Settings", systemImage: "lock.shield")
-            }
-
-            NavigationLink {
                 VideoRecordingSettingsView()
             } label: {
                 Label("Video Recording", systemImage: "video.fill")
@@ -562,19 +531,6 @@ struct ProfileView: View {
                 StatisticsExportView()
             } label: {
                 Label("Export Statistics", systemImage: "chart.bar.doc.horizontal")
-            }
-
-            // Error Log (Developer/Support)
-            NavigationLink {
-                ErrorHistoryView()
-            } label: {
-                let errorCount = ErrorHandlerService.shared.errorHistory.count
-                if errorCount > 0 {
-                    Label("Error Log", systemImage: "exclamationmark.triangle")
-                        .badge(errorCount)
-                } else {
-                    Label("Error Log", systemImage: "checkmark.circle")
-                }
             }
 
             // Onboarding Progress
@@ -721,46 +677,6 @@ struct AthleteProfileRow: View {
 }
 
 // MARK: - Settings Views
-
-struct SecuritySettingsView: View {
-    let user: User
-    @EnvironmentObject var authManager: ComprehensiveAuthManager
-
-    var body: some View {
-        Form {
-            Section("Account Information") {
-                HStack {
-                    Text("User ID")
-                    Spacer()
-                    Text(user.id.uuidString.prefix(8))
-                        .foregroundColor(.secondary)
-                        .font(.system(.body, design: .monospaced))
-                }
-
-                HStack {
-                    Text("Email")
-                    Spacer()
-                    Text(user.email)
-                        .foregroundColor(.secondary)
-                }
-            }
-
-            Section {
-                HStack(spacing: 8) {
-                    Image(systemName: "info.circle.fill")
-                        .foregroundColor(.blue)
-                        .font(.caption)
-                    Text("Additional security features such as password changes, two-factor authentication, and account management will be available in a future update.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-                .padding(.vertical, 4)
-            }
-        }
-        .navigationTitle("Security")
-        .navigationBarTitleDisplayMode(.inline)
-    }
-}
 
 struct SettingsView: View {
     let user: User
@@ -1067,6 +983,7 @@ struct EditAccountView: View {
     let user: User
     @State private var showSaveError = false
     @State private var saveErrorMessage = ""
+    @State private var showEmailVerificationAlert = false
     @State private var isSaving = false
 
     init(user: User) {
@@ -1138,6 +1055,11 @@ struct EditAccountView: View {
         } message: {
             Text(saveErrorMessage.isEmpty ? ProfileStrings.pleaseRetry : saveErrorMessage)
         }
+        .alert("Verify Your Email", isPresented: $showEmailVerificationAlert) {
+            Button("OK") { dismiss() }
+        } message: {
+            Text("A verification link was sent to \(email.trimmed). Click it to confirm your new email address.")
+        }
     }
 
     private func save() async {
@@ -1163,15 +1085,43 @@ struct EditAccountView: View {
         
         isSaving = true
         defer { isSaving = false }
-        
+
+        let emailChanged = trimmedEmail != user.email
+
+        // Update Firebase Auth email if changed
+        if emailChanged, let firebaseUser = Auth.auth().currentUser {
+            do {
+                try await firebaseUser.sendEmailVerification(beforeUpdatingEmail: trimmedEmail)
+            } catch AuthErrorCode.requiresRecentLogin {
+                saveErrorMessage = "For security, please sign out and sign back in before changing your email."
+                showSaveError = true
+                Haptics.error()
+                return
+            } catch AuthErrorCode.emailAlreadyInUse {
+                saveErrorMessage = "That email address is already associated with another account."
+                showSaveError = true
+                Haptics.error()
+                return
+            } catch {
+                saveErrorMessage = "Unable to update email: \(error.localizedDescription)"
+                showSaveError = true
+                Haptics.error()
+                return
+            }
+        }
+
         user.username = trimmedUsername
         user.email = trimmedEmail
-        
+
         do {
             try await Task.sleep(nanoseconds: 300_000_000) // Brief delay for UX
             try modelContext.save()
             Haptics.success()
-            dismiss()
+            if emailChanged {
+                showEmailVerificationAlert = true
+            } else {
+                dismiss()
+            }
         } catch {
             print("Failed to save user: \(error)")
             saveErrorMessage = String(format: ProfileStrings.saveFailed, error.localizedDescription)
@@ -1182,14 +1132,14 @@ struct EditAccountView: View {
 }
 
 struct NotificationSettingsView: View {
-    @State private var gameReminders = true
-    @State private var liveGameUpdates = true
+    @AppStorage("notif_gameReminders") private var gameReminders = true
+    @AppStorage("notif_liveGame") private var liveGameUpdates = true
 
-    @State private var weeklyStats = true
-    @State private var monthlyReports = true
+    @AppStorage("notif_weeklyStats") private var weeklyStats = true
+    @AppStorage("notif_monthlyReports") private var monthlyReports = true
 
-    @State private var achievements = true
-    @State private var milestoneAlerts = true
+    @AppStorage("notif_achievements") private var achievements = true
+    @AppStorage("notif_milestones") private var milestoneAlerts = true
 
     var body: some View {
         Form {
@@ -1223,7 +1173,7 @@ struct HelpSupportView: View {
 struct AboutView: View {
     var body: some View {
         VStack(spacing: 30) {
-            Image(systemName: "sportscourt.fill")
+            Image(systemName: "figure.baseball")
                 .font(.system(size: 80))
                 .foregroundColor(.blue)
 

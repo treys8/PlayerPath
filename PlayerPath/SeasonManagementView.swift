@@ -651,10 +651,19 @@ struct SeasonDetailView: View {
 
             // Filtered Content
             if selectedFilter == .games || selectedFilter == .all {
-                if let games = season.games, !games.isEmpty, selectedFilter == .games {
-                    Section("Games (\(games.count))") {
-                        ForEach(games.sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }) { game in
+                if let games = season.games, !games.isEmpty {
+                    let sortedGames = games.sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
+                    let displayGames = selectedFilter == .all ? Array(sortedGames.prefix(5)) : sortedGames
+                    Section(selectedFilter == .all ? "Recent Games" : "Games (\(games.count))") {
+                        ForEach(displayGames) { game in
                             SeasonGameRow(game: game)
+                        }
+                        if selectedFilter == .all && games.count > 5 {
+                            Button("See All \(games.count) Games") {
+                                selectedFilter = .games
+                            }
+                            .font(.subheadline)
+                            .foregroundStyle(.blue)
                         }
                     }
                 }

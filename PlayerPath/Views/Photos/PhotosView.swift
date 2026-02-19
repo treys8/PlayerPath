@@ -85,10 +85,11 @@ struct PhotosView: View {
             }
             Button("Cancel", role: .cancel) { }
         }
-        .sheet(isPresented: $showingCamera) {
-            ImagePicker(sourceType: .camera) { image in
+        .fullScreenCover(isPresented: $showingCamera) {
+            ImagePicker(sourceType: .camera, allowsEditing: false) { image in
                 savePhoto(image)
             }
+            .ignoresSafeArea()
         }
         .photosPicker(
             isPresented: $showingLibraryPicker,

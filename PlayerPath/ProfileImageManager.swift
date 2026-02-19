@@ -374,14 +374,15 @@ struct EditableProfileImageView: View {
 
 struct ImagePicker: UIViewControllerRepresentable {
     let sourceType: UIImagePickerController.SourceType
+    var allowsEditing: Bool = true
     let onImagePicked: (UIImage) -> Void
     @Environment(\.dismiss) private var dismiss
-    
+
     func makeUIViewController(context: Context) -> UIImagePickerController {
         let picker = UIImagePickerController()
         picker.sourceType = sourceType
         picker.delegate = context.coordinator
-        picker.allowsEditing = true
+        picker.allowsEditing = allowsEditing
         return picker
     }
     
