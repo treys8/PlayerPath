@@ -22,6 +22,7 @@ struct DashboardView: View {
     @State private var showingDirectCamera = false
     @State private var selectedVideoForPlayback: VideoClip?
     @State private var showingSeasons = false
+    @State private var showingPhotos = false
 
     // Dynamic live games query configured via init to safely capture athleteID
     private let athleteID: UUID
@@ -140,6 +141,11 @@ struct DashboardView: View {
         .sheet(isPresented: $showingSeasons) {
             NavigationStack {
                 SeasonsView(athlete: athlete)
+            }
+        }
+        .sheet(isPresented: $showingPhotos) {
+            NavigationStack {
+                PhotosView(athlete: athlete)
             }
         }
         .fullScreenCover(isPresented: $showingDirectCamera) {
@@ -412,7 +418,17 @@ struct DashboardView: View {
                             showingSeasons = true
                         }
 
-                        // 7. Coaches (Premium Only)
+                        // 7. Photos
+                        DashboardFeatureCard(
+                            icon: "photo.on.rectangle.angled",
+                            title: "Photos",
+                            subtitle: "\((athlete.photos ?? []).count) Photos",
+                            color: .pink
+                        ) {
+                            showingPhotos = true
+                        }
+
+                        // 8. Coaches (Premium Only)
                         DashboardPremiumFeatureCard(
                             icon: "person.3.fill",
                             title: "Coaches",

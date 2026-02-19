@@ -400,6 +400,7 @@ struct VideoRecorderView_Refactored: View {
                             cameraFlowShowingPlayResult = false
                             showingTrimmerFromCamera = false
                             showingNativeCamera = false
+                            dismiss()
                         }
                     },
                     onCancel: {
@@ -464,6 +465,7 @@ struct VideoRecorderView_Refactored: View {
                     saveVideoWithResult(videoURL: finalVideoURL, playResult: result, pitchSpeed: pitchSpeed, role: role) {
                         uploadFlowShowingPlayResult = false
                         showingTrimmer = false
+                        dismiss()
                     }
                 },
                 onCancel: {
@@ -1137,11 +1139,16 @@ struct VideoRecorderView_Refactored: View {
         guard let athlete = athlete else {
             print("ERROR: No athlete selected for video save")
             UINotificationFeedbackGenerator().notificationOccurred(.error)
+            onComplete() // Still dismiss UI to avoid stuck state
             return
         }
 
-        // Cancel any existing save task
-        saveTask?.cancel()
+        // If a save is already in progress, let it finish (cancelling mid-copy
+        // would orphan a partial file in Clips/ with no database record)
+        guard saveTask == nil else {
+            print("VideoRecorder: Save already in progress, ignoring duplicate")
+            return
+        }
 
         // Dismiss immediately so the user isn't waiting
         Haptics.success()
@@ -1194,9 +1201,13 @@ struct VideoRecorderView_Refactored: View {
             if let videoURL = recordedVideoURL {
                 VideoFileManager.cleanup(url: videoURL)
             }
+            if let trimmedURL = trimmedVideoURL {
+                VideoFileManager.cleanup(url: trimmedURL)
+            }
             cameraFlowShowingPlayResult = false
             uploadFlowShowingPlayResult = false
             recordedVideoURL = nil
+            trimmedVideoURL = nil
             showingTrimmerFromCamera = false
             showingNativeCamera = false
             showingTrimmer = false

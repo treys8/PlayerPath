@@ -39,7 +39,8 @@ enum SchemaV1: VersionedSchema {
             UserPreferences.self,
             OnboardingProgress.self,
             PendingUpload.self,
-            Coach.self
+            Coach.self,
+            Photo.self
         ]
     }
 }

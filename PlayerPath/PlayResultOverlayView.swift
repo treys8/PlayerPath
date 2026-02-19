@@ -58,6 +58,11 @@ struct PlayResultOverlayView: View {
                             .allowsHitTesting(false)
                             .overlay(Color.black.opacity(0.25))
                             .onAppear {
+                                // Restore player item if it was cleared (e.g., after sheet dismissal)
+                                if player.currentItem == nil {
+                                    player.replaceCurrentItem(with: AVPlayerItem(url: videoURL))
+                                    player.isMuted = true
+                                }
                                 player.play()
                                 isPlaying = true
                                 loadVideoMetadata()
@@ -65,7 +70,6 @@ struct PlayResultOverlayView: View {
                             }
                             .onDisappear {
                                 player.pause()
-                                player.replaceCurrentItem(with: nil)
                                 isPlaying = false
                                 if let task = metadataTask {
                                     task.cancel()

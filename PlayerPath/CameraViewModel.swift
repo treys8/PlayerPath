@@ -43,6 +43,9 @@ class CameraViewModel: NSObject, ObservableObject {
     private var pulseTimer: Timer?
     private var sessionQueue = DispatchQueue(label: "com.playerpath.camera")
     private var orientationObserver: NSObjectProtocol?
+    private var interruptionObserver: NSObjectProtocol?
+    private var interruptionEndObserver: NSObjectProtocol?
+    private var hasShownTimeWarning = false
     @MainActor @Published var currentOrientation: UIDeviceOrientation = .portrait
 
     var minZoom: CGFloat = 1.0
@@ -70,9 +73,17 @@ class CameraViewModel: NSObject, ObservableObject {
         if let observer = orientationObserver {
             NotificationCenter.default.removeObserver(observer)
         }
-        // Stop capture session on session queue (non-isolated context)
-        sessionQueue.sync {
-            captureSession.stopRunning()
+        if let observer = interruptionObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        if let observer = interruptionEndObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        // Stop capture session on session queue (async to avoid deadlock
+        // if deinit is called from the session queue itself)
+        let session = captureSession
+        sessionQueue.async {
+            session.stopRunning()
         }
         recordingTimer?.invalidate()
         pulseTimer?.invalidate()
@@ -147,6 +158,9 @@ class CameraViewModel: NSObject, ObservableObject {
         // Capture settings value before async boundary
         let qualityPreset = settings.quality.avPreset
 
+        // Observe session interruptions (phone calls, etc.)
+        setupInterruptionObservers()
+
         sessionQueue.async { [weak self] in
             guard let self = self else { return }
 
@@ -177,12 +191,59 @@ class CameraViewModel: NSObject, ObservableObject {
         }
 
         stopOrientationMonitoring()
+        removeInterruptionObservers()
 
         sessionQueue.async { [weak self] in
             self?.captureSession.stopRunning()
         }
 
         isSessionReady = false
+    }
+
+    // MARK: - Session Interruption Handling
+
+    @MainActor
+    private func setupInterruptionObservers() {
+        removeInterruptionObservers()
+
+        interruptionObserver = NotificationCenter.default.addObserver(
+            forName: .AVCaptureSessionWasInterrupted,
+            object: captureSession,
+            queue: .main
+        ) { [weak self] notification in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                let reason = (notification.userInfo?[AVCaptureSessionInterruptionReasonKey] as? Int)
+                    .flatMap { AVCaptureSession.InterruptionReason(rawValue: $0) }
+
+                print("⚠️ Camera session interrupted: \(String(describing: reason))")
+
+                // If recording, stop gracefully — the delegate will receive the file
+                if self.isRecording {
+                    self.stopRecording()
+                    self.handleError("Recording stopped — camera was interrupted", isFatal: false)
+                }
+            }
+        }
+
+        interruptionEndObserver = NotificationCenter.default.addObserver(
+            forName: .AVCaptureSessionInterruptionEnded,
+            object: captureSession,
+            queue: .main
+        ) { _ in
+            print("✅ Camera session interruption ended")
+        }
+    }
+
+    private func removeInterruptionObservers() {
+        if let observer = interruptionObserver {
+            NotificationCenter.default.removeObserver(observer)
+            interruptionObserver = nil
+        }
+        if let observer = interruptionEndObserver {
+            NotificationCenter.default.removeObserver(observer)
+            interruptionEndObserver = nil
+        }
     }
 
     @MainActor
@@ -370,6 +431,7 @@ class CameraViewModel: NSObject, ObservableObject {
         // Update UI
         isRecording = true
         recordingStartTime = Date()
+        hasShownTimeWarning = false
 
         // Start timers
         startRecordingTimer()
@@ -408,8 +470,9 @@ class CameraViewModel: NSObject, ObservableObject {
 
                 self.recordingTimeString = String(format: "%d:%02d", minutes, seconds)
 
-                // Warning at 9 minutes
-                if elapsed >= Constants.warningDuration && elapsed < Constants.warningDuration + 1 {
+                // Warning at 9 minutes (fire once)
+                if elapsed >= Constants.warningDuration && !self.hasShownTimeWarning {
+                    self.hasShownTimeWarning = true
                     Haptics.warning()
                 }
             }
@@ -568,6 +631,9 @@ extension CameraViewModel: AVCaptureFileOutputRecordingDelegate {
         if let error = error {
             print("🔴 Recording error: \(error.localizedDescription)")
             Task { @MainActor in
+                self.isRecording = false
+                self.recordingTimer?.invalidate()
+                self.pulseTimer?.invalidate()
                 self.handleError("Recording failed: \(error.localizedDescription)", isFatal: false)
             }
             return

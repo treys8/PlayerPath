@@ -230,61 +230,35 @@ struct DirectCameraRecorderView: View {
     }
 
     private func saveVideoWithResult(videoURL: URL, playResult: PlayResultType?, pitchSpeed: Double? = nil, role: AthleteRole = .batter, onComplete: @escaping () -> Void) {
+        guard let athlete = athlete else {
+            print("ERROR: No athlete selected for video save")
+            UINotificationFeedbackGenerator().notificationOccurred(.error)
+            onComplete() // Still dismiss UI to avoid stuck state
+            return
+        }
+
         // Dismiss immediately so the user isn't waiting
         Haptics.success()
         onComplete()
 
-        // Save in background
+        // Save in background using ClipPersistenceService for proper
+        // file management, stats, analytics, and playability verification
         saveTask = Task { @MainActor in
             defer { saveTask = nil }
 
             do {
-                // Generate thumbnail
-                let thumbnailResult = await VideoFileManager.generateThumbnail(from: videoURL)
-                let thumbnailPath = try? thumbnailResult.get()
-
-                // Determine season
-                let season = game?.season ?? practice?.season ?? athlete?.seasons?.first(where: { $0.isActive })
-
-                // Get video duration
-                let asset = AVURLAsset(url: videoURL)
-                let duration = try? await asset.load(.duration)
-                let durationSeconds = duration.map { CMTimeGetSeconds($0) }
-
-                // Create video clip
-                let clip = VideoClip(
-                    fileName: videoURL.lastPathComponent,
-                    filePath: videoURL.path
+                _ = try await ClipPersistenceService().saveClip(
+                    from: videoURL,
+                    playResult: playResult,
+                    pitchSpeed: pitchSpeed,
+                    role: role,
+                    context: modelContext,
+                    athlete: athlete,
+                    game: game,
+                    practice: practice
                 )
-                clip.thumbnailPath = thumbnailPath
-                clip.createdAt = Date()
-                clip.duration = durationSeconds
-                clip.pitchSpeed = pitchSpeed
-                clip.athlete = athlete
-                clip.game = game
-                clip.practice = practice
-                clip.season = season
 
-                // Tag play result
-                if let resultType = playResult {
-                    let result = PlayResult(type: resultType)
-                    result.createdAt = Date()
-                    result.videoClip = clip
-                    clip.playResult = result
-
-                    // Auto-highlight hits + pitcher outs
-                    let isPitcherOut = role == .pitcher && [.strikeout, .groundOut, .flyOut].contains(resultType)
-                    if [.single, .double, .triple, .homeRun].contains(resultType) || isPitcherOut {
-                        clip.isHighlight = true
-                    }
-
-                    modelContext.insert(result)
-                }
-
-                modelContext.insert(clip)
-                try modelContext.save()
-
-                // Post notification for stats update
+                // Post notification for stats update in tab view
                 if let resultType = playResult {
                     NotificationCenter.default.post(
                         name: .recordedHitResult,
@@ -292,56 +266,19 @@ struct DirectCameraRecorderView: View {
                     )
                 }
 
-                // Check auto-upload preference and enqueue if enabled
-                if let athlete = athlete {
-                    await checkAndEnqueueAutoUpload(clip: clip, athlete: athlete)
+                // Clean up temp files after successful save
+                VideoFileManager.cleanup(url: videoURL)
+                if let trimmed = trimmedVideoURL {
+                    VideoFileManager.cleanup(url: trimmed)
                 }
+                recordedVideoURL = nil
+                trimmedVideoURL = nil
             } catch {
                 ErrorHandlerService.shared.handle(
                     AppError.videoRecordingFailed(error.localizedDescription),
                     context: "Saving Video"
                 )
             }
-        }
-    }
-
-    private func checkAndEnqueueAutoUpload(clip: VideoClip, athlete: Athlete) async {
-        // Get user preferences
-        let prefs = UserPreferences.shared(in: modelContext)
-        let uploadMode = prefs.autoUploadMode ?? .off
-
-        guard uploadMode != .off else {
-            #if DEBUG
-            print("🎬 Auto-upload disabled - video saved locally only")
-            #endif
-            return
-        }
-
-        // Check network status
-        let networkMonitor = ConnectivityMonitor.shared
-        let isOnWifi = networkMonitor.connectionType == .wifi
-        let isConnected = networkMonitor.isConnected
-
-        // Determine if we should upload based on mode and network
-        let shouldUpload: Bool
-        switch uploadMode {
-        case .off:
-            shouldUpload = false
-        case .wifiOnly:
-            shouldUpload = isOnWifi
-        case .always:
-            shouldUpload = isConnected
-        }
-
-        if shouldUpload {
-            #if DEBUG
-            print("🎬 Auto-uploading video (mode: \(uploadMode.rawValue), wifi: \(isOnWifi))")
-            #endif
-            UploadQueueManager.shared.enqueue(clip, athlete: athlete, priority: .normal)
-        } else {
-            #if DEBUG
-            print("🎬 Skipping auto-upload - mode: \(uploadMode.rawValue), wifi: \(isOnWifi), connected: \(isConnected)")
-            #endif
         }
     }
 

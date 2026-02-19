@@ -43,6 +43,8 @@ class VideoUploadService: ObservableObject {
                 print("VideoUploadService: Video validation successful")
                 return .success(video.url)
             case .failure(let error):
+                // Clean up the imported file since validation failed
+                try? FileManager.default.removeItem(at: video.url)
                 // Convert VideoFileManager errors to AppError
                 let appError = convertVideoValidationError(error)
                 ErrorHandlerService.shared.handle(appError, context: "Video validation")

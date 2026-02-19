@@ -19,18 +19,22 @@ import SwiftData
  Athlete.videoClips <-> VideoClip.athlete
  Athlete.statistics <-> AthleteStatistics.athlete (to-one)
  Athlete.coaches <-> Coach.athlete
+ Athlete.photos <-> Photo.athlete
 
  Season.games <-> Game.season
  Season.practices <-> Practice.season
  Season.videoClips <-> VideoClip.season
  Season.seasonStatistics <-> AthleteStatistics (to-one)
+ Season.photos <-> Photo.season
 
  Game.videoClips <-> VideoClip.game
+ Game.photos <-> Photo.game
  Game.gameStats <-> GameStatistics.game (to-one)
  Game.season <-> Season.games
 
  Practice.videoClips <-> VideoClip.practice
  Practice.notes <-> PracticeNote.practice
+ Practice.photos <-> Photo.practice
  Practice.season <-> Season.practices
 
  VideoClip.season <-> Season.videoClips
@@ -85,6 +89,7 @@ final class Athlete {
     @Relationship(inverse: \VideoClip.athlete) var videoClips: [VideoClip]?
     @Relationship(inverse: \AthleteStatistics.athlete) var statistics: AthleteStatistics?
     @Relationship(inverse: \Coach.athlete) var coaches: [Coach]?
+    @Relationship(inverse: \Photo.athlete) var photos: [Photo]?
 
     // MARK: - Firestore Sync Metadata
     var firestoreId: String?        // Maps to Firestore document ID
@@ -143,6 +148,7 @@ final class Season {
     @Relationship(inverse: \Game.season) var games: [Game]?
     @Relationship(inverse: \Practice.season) var practices: [Practice]?
     @Relationship(inverse: \VideoClip.season) var videoClips: [VideoClip]?
+    @Relationship(inverse: \Photo.season) var photos: [Photo]?
 
     /// Season-specific statistics (calculated when season is archived)
     @Relationship(inverse: \AthleteStatistics.season) var seasonStatistics: AthleteStatistics?
@@ -366,6 +372,7 @@ final class Game {
     var season: Season?
     @Relationship(inverse: \VideoClip.game) var videoClips: [VideoClip]?
     @Relationship(inverse: \GameStatistics.game) var gameStats: GameStatistics?
+    @Relationship(inverse: \Photo.game) var photos: [Photo]?
 
     // MARK: - Firestore Sync Metadata (Phase 2)
 
@@ -433,6 +440,7 @@ final class Practice {
     var season: Season?
     @Relationship(inverse: \VideoClip.practice) var videoClips: [VideoClip]?
     @Relationship(inverse: \PracticeNote.practice) var notes: [PracticeNote]?
+    @Relationship(inverse: \Photo.practice) var photos: [Photo]?
 
     // MARK: - Firestore Sync Metadata (Phase 3)
 
@@ -1098,6 +1106,50 @@ final class Coach {
         if sharedFolderIDs.isEmpty {
             firebaseCoachID = nil
         }
+    }
+}
+
+// MARK: - Photo Model
+@Model
+final class Photo {
+    var id: UUID = UUID()
+    var fileName: String = ""
+    var filePath: String = ""
+    var thumbnailPath: String?
+    var caption: String?
+    var createdAt: Date?
+    var athlete: Athlete?
+    var game: Game?
+    var practice: Practice?
+    var season: Season?
+
+    init(fileName: String, filePath: String) {
+        self.id = UUID()
+        self.fileName = fileName
+        self.filePath = filePath
+        self.createdAt = Date()
+    }
+
+    /// Full-size image URL derived from filePath
+    var fileURL: URL? {
+        URL(fileURLWithPath: filePath)
+    }
+
+    /// Thumbnail image URL derived from thumbnailPath
+    var thumbnailURL: URL? {
+        guard let thumbnailPath else { return nil }
+        return URL(fileURLWithPath: thumbnailPath)
+    }
+
+    /// Delete photo with all associated files
+    func delete(in context: ModelContext) {
+        if FileManager.default.fileExists(atPath: filePath) {
+            try? FileManager.default.removeItem(atPath: filePath)
+        }
+        if let thumbPath = thumbnailPath, FileManager.default.fileExists(atPath: thumbPath) {
+            try? FileManager.default.removeItem(atPath: thumbPath)
+        }
+        context.delete(self)
     }
 }
 
