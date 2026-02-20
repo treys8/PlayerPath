@@ -207,7 +207,7 @@ struct InvitationDetailView: View {
                     ProgressView("Loading invitation...")
                 } else if let error = errorMessage {
                     VStack(spacing: 16) {
-                        Image(systemName: "exclamationmark.triangle")
+                        Image(systemName: "exclamationmark.triangle.fill")
                             .font(.system(size: 60))
                             .foregroundColor(.orange)
 

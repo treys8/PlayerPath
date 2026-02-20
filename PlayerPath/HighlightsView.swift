@@ -292,22 +292,18 @@ struct HighlightsView: View {
                         onDeleteClip: { clip in
                             clipToDelete = clip
                             showingDeleteAlert = true
+                        },
+                        onRemoveFromHighlights: { clip in
+                            removeClipFromHighlights(clip)
+                        },
+                        onShareClip: { clip in
+                            shareClip(clip)
                         }
                     )
                 }
             }
             .padding()
         }
-        .refreshable {
-            await refreshHighlights()
-        }
-    }
-
-    @MainActor
-    private func refreshHighlights() async {
-        Haptics.light()
-        // Trigger re-migration check
-        migrateHitVideosToHighlights()
     }
 
     private func toggleGroupExpansion(_ groupID: UUID) {
@@ -357,7 +353,7 @@ struct HighlightsView: View {
 
         // Edit button
         if !highlights.isEmpty {
-            ToolbarItem(placement: .secondaryAction) {
+            ToolbarItem(placement: .topBarTrailing) {
                 editButton
             }
         }
@@ -493,11 +489,61 @@ struct HighlightsView: View {
     private func batchDeleteSelected() {
         let clips = highlights.filter { selection.contains($0.id) }
         guard !clips.isEmpty else { return }
-        for clip in clips {
-            deleteHighlight(clip)
+
+        withAnimation {
+            for clip in clips {
+                // Delete files
+                if FileManager.default.fileExists(atPath: clip.filePath) {
+                    try? FileManager.default.removeItem(atPath: clip.filePath)
+                }
+                if let thumbnailPath = clip.thumbnailPath {
+                    try? FileManager.default.removeItem(atPath: thumbnailPath)
+                    ThumbnailCache.shared.removeThumbnail(at: thumbnailPath)
+                }
+                if let playResult = clip.playResult {
+                    modelContext.delete(playResult)
+                }
+                modelContext.delete(clip)
+                AnalyticsService.shared.trackVideoDeleted(videoID: clip.id.uuidString)
+            }
+            do {
+                try modelContext.save()
+                Haptics.success()
+            } catch {
+                print("Failed to batch delete highlights: \(error)")
+                Haptics.error()
+            }
         }
+
         selection.removeAll()
         withAnimation { editMode = .inactive }
+    }
+
+    private func removeClipFromHighlights(_ clip: VideoClip) {
+        clip.isHighlight = false
+        do {
+            try modelContext.save()
+            Haptics.success()
+        } catch {
+            print("Failed to remove clip from highlights: \(error)")
+            Haptics.error()
+        }
+    }
+
+    private func shareClip(_ clip: VideoClip) {
+        guard FileManager.default.fileExists(atPath: clip.filePath) else {
+            print("No file to share at: \(clip.filePath)")
+            return
+        }
+        let fileURL = URL(fileURLWithPath: clip.filePath)
+        let activityVC = UIActivityViewController(activityItems: [fileURL], applicationActivities: nil)
+        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+           let window = windowScene.windows.first,
+           let rootVC = window.rootViewController {
+            activityVC.popoverPresentationController?.sourceView = rootVC.view
+            rootVC.present(activityVC, animated: true)
+        }
+        Haptics.light()
     }
 
     private func batchRemoveFromHighlights() {
@@ -697,6 +743,7 @@ struct HighlightCard: View {
     let clip: VideoClip
     let editMode: EditMode
     let onTap: () -> Void
+    @Environment(\.modelContext) private var modelContext
     @State private var thumbnailImage: UIImage?
     @State private var isLoadingThumbnail = false
     @State private var shimmerPhase: CGFloat = 0
@@ -962,6 +1009,7 @@ struct HighlightCard: View {
             switch result {
             case .success(let thumbnailPath):
                 clip.thumbnailPath = thumbnailPath
+                try? modelContext.save() // persist so path survives app relaunch
                 Task {
                     await loadThumbnail()
                 }
@@ -1223,7 +1271,7 @@ struct SimpleCloudStorageView: View {
 
     init() {
         self._pendingUploads = Query(
-            filter: #Predicate<VideoClip> { $0.needsUpload },
+            filter: #Predicate<VideoClip> { !$0.isUploaded && $0.cloudURL == nil },
             sort: [SortDescriptor(\VideoClip.createdAt, order: .reverse)]
         )
     }
@@ -1454,6 +1502,8 @@ struct GameHighlightSection: View {
     let onToggleExpand: () -> Void
     let onClipTap: (VideoClip) -> Void
     let onDeleteClip: (VideoClip) -> Void
+    let onRemoveFromHighlights: (VideoClip) -> Void
+    let onShareClip: (VideoClip) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -1479,7 +1529,7 @@ struct GameHighlightSection: View {
                                 HStack(spacing: 4) {
                                     Image(systemName: "video")
                                         .font(.caption2)
-                                    Text("\(group.hitCount) hit\(group.hitCount == 1 ? "" : "s")")
+                                    Text("\(group.hitCount) clip\(group.hitCount == 1 ? "" : "s")")
                                         .font(.caption)
                                 }
                                 .foregroundColor(.blue)
@@ -1511,7 +1561,9 @@ struct GameHighlightSection: View {
                             editMode: editMode,
                             isSelected: selection.contains(clip.id),
                             onTap: { onClipTap(clip) },
-                            onDelete: { onDeleteClip(clip) }
+                            onDelete: { onDeleteClip(clip) },
+                            onRemoveFromHighlights: { onRemoveFromHighlights(clip) },
+                            onShare: { onShareClip(clip) }
                         )
                     }
                 }
@@ -1525,7 +1577,9 @@ struct GameHighlightSection: View {
         editMode: EditMode,
         isSelected: Bool,
         onTap: @escaping () -> Void,
-        onDelete: @escaping () -> Void
+        onDelete: @escaping () -> Void,
+        onRemoveFromHighlights: @escaping () -> Void,
+        onShare: @escaping () -> Void
     ) -> some View {
         ZStack(alignment: .topLeading) {
             HighlightCard(
@@ -1540,6 +1594,18 @@ struct GameHighlightSection: View {
                     Label("Play", systemImage: "play.fill")
                 }
                 Button {
+                    onShare()
+                } label: {
+                    Label("Share", systemImage: "square.and.arrow.up")
+                }
+                Divider()
+                Button {
+                    onRemoveFromHighlights()
+                } label: {
+                    Label("Remove from Highlights", systemImage: "star.slash")
+                }
+                Divider()
+                Button(role: .destructive) {
                     onDelete()
                 } label: {
                     Label("Delete", systemImage: "trash")

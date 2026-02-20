@@ -282,7 +282,7 @@ struct ModernCameraView: View {
     }
 
     @ViewBuilder
-    private var zoomSliderView: some View {
+    private func zoomSliderView(landscape: Bool = false) -> some View {
         if !viewModel.isRecording {
             ZoomSlider(
                 zoomFactor: viewModel.currentZoom,
@@ -293,7 +293,7 @@ struct ModernCameraView: View {
                     viewModel.endZoomGesture()
                 }
             )
-            .transition(.move(edge: .bottom).combined(with: .opacity))
+            .transition(landscape ? .opacity : .move(edge: .bottom).combined(with: .opacity))
         }
     }
 
@@ -340,7 +340,7 @@ struct ModernCameraView: View {
 
             // Bottom Controls
             VStack(spacing: 16) {
-                zoomSliderView
+                zoomSliderView()
                     .padding(.horizontal, 40)
 
                 recordButton
@@ -355,41 +355,43 @@ struct ModernCameraView: View {
 
     private var landscapeLayout: some View {
         HStack(spacing: 0) {
-            // Left column: cancel + utility buttons
-            VStack(spacing: 16) {
+            // Left column: cancel at top, status badges below, utility buttons at bottom
+            VStack(spacing: 12) {
                 cancelButton
+
+                // Timer + slow-mo badge below cancel in landscape
+                VStack(spacing: 6) {
+                    recordingTimerBadge
+                    slowMoBadge
+                }
+
                 Spacer()
+
                 flashButton
                 flipButton
                 gridButton
                 settingsButton
             }
             .padding(.leading, 20)
-            .padding(.vertical, 20)
+            .padding(.vertical, 16)
 
             Spacer()
 
-            // Right column: record + zoom + quality
-            VStack(spacing: 16) {
+            // Right column: zoom above, record button at vertical center, quality below
+            VStack(spacing: 12) {
                 Spacer()
+
+                zoomSliderView(landscape: true)
+                    .frame(maxWidth: 180)
+
                 recordButton
 
-                zoomSliderView
-                    .frame(maxWidth: 200)
-
                 qualityText
+
                 Spacer()
             }
             .padding(.trailing, 20)
-            .padding(.vertical, 20)
-        }
-        .overlay(alignment: .top) {
-            // Centered badges at top
-            HStack(spacing: 8) {
-                recordingTimerBadge
-                slowMoBadge
-            }
-            .padding(.top, 12)
+            .padding(.vertical, 16)
         }
         .animation(.spring(response: 0.3), value: viewModel.isRecording)
     }

@@ -1339,9 +1339,12 @@ struct PreUploadTrimmerView: View {
     @State private var showContent = false
     @State private var videoEndObserver: NSObjectProtocol?
 
+    @Environment(\.verticalSizeClass) private var vSizeClass
+    private var isLandscape: Bool { vSizeClass == .compact }
+
     var body: some View {
         ZStack {
-            // Full-screen video background
+            // Full-screen video background — fills physical screen edges
             if let player = player {
                 VideoPlayer(player: player)
                     .allowsHitTesting(false)
@@ -1351,268 +1354,12 @@ struct PreUploadTrimmerView: View {
                 Color.black.ignoresSafeArea()
             }
 
-            // Play/Pause button - bottom leading
-            VStack {
-                Spacer()
-                HStack {
-                    Button {
-                        if let player = player {
-                            if isPlaying {
-                                player.pause()
-                            } else {
-                                player.play()
-                            }
-                            isPlaying.toggle()
-                            Haptics.light()
-                        }
-                    } label: {
-                        Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                            .font(.system(size: 16, weight: .bold))
-                            .foregroundColor(.white)
-                            .padding(10)
-                            .background(.ultraThinMaterial)
-                            .clipShape(Circle())
-                            .shadow(radius: 4)
-                    }
-                    .padding(.leading, 12)
-                    .padding(.bottom, 12)
-                    Spacer()
-                }
-            }
-
-            // Trim controls overlay
-            VStack {
-                // Top bar with back button
-                HStack {
-                    Button {
-                        Haptics.warning()
-                        onCancel()
-                    } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: "chevron.left")
-                                .font(.body.weight(.semibold))
-                            Text("Back")
-                                .font(.body)
-                        }
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(
-                            Capsule()
-                                .fill(.ultraThinMaterial)
-                        )
-                    }
-                    Spacer()
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 60)
-
-                Spacer()
-
-                // Bottom panel
-                VStack(spacing: 16) {
-                    // Header
-                    VStack(spacing: 6) {
-                        Text("Trim Video")
-                            .font(.title3)
-                            .fontWeight(.bold)
-                            .foregroundColor(.white)
-
-                        Text("Drag to set start and end points")
-                            .font(.caption)
-                            .foregroundColor(.white.opacity(0.7))
-                    }
-                    .opacity(showContent ? 1 : 0)
-                    .offset(y: showContent ? 0 : 20)
-
-                    // Time indicators
-                    HStack {
-                        TrimTimeBadge(label: "START", time: formatTime(startTime), color: .green)
-                        Spacer()
-                        TrimTimeBadge(label: "DURATION", time: formatTime(endTime - startTime), color: .blue)
-                        Spacer()
-                        TrimTimeBadge(label: "END", time: formatTime(endTime), color: .red)
-                    }
-                    .padding(.horizontal, 4)
-                    .opacity(showContent ? 1 : 0)
-                    .offset(y: showContent ? 0 : 20)
-
-                    // Trim sliders
-                    if duration > 0 {
-                        VStack(spacing: 14) {
-                            // Start trim
-                            HStack(spacing: 12) {
-                                Image(systemName: "arrow.right.to.line")
-                                    .font(.system(size: 12, weight: .bold))
-                                    .foregroundColor(.green)
-                                    .frame(width: 20)
-                                Slider(value: $startTime, in: 0...max(0, endTime - 0.5), step: 0.1)
-                                    .tint(.green)
-                                    .onChange(of: startTime) { _, newValue in
-                                        seekTo(time: newValue)
-                                    }
-                            }
-
-                            // End trim
-                            HStack(spacing: 12) {
-                                Image(systemName: "arrow.left.to.line")
-                                    .font(.system(size: 12, weight: .bold))
-                                    .foregroundColor(.red)
-                                    .frame(width: 20)
-                                Slider(value: $endTime, in: min(duration, startTime + 0.5)...duration, step: 0.1)
-                                    .tint(.red)
-                                    .onChange(of: endTime) { _, newValue in
-                                        seekTo(time: newValue)
-                                    }
-                            }
-                        }
-                        .padding(.horizontal, 4)
-                        .opacity(showContent ? 1 : 0)
-                        .offset(y: showContent ? 0 : 30)
-                    }
-
-                    if let error = exportError {
-                        Text(error)
-                            .foregroundColor(.red)
-                            .font(.caption)
-                            .multilineTextAlignment(.center)
-                    }
-
-                    // Action buttons
-                    VStack(spacing: 10) {
-                        // Primary: Save trimmed
-                        Button {
-                            Haptics.success()
-                            Task { await exportTrimmedVideo() }
-                        } label: {
-                            HStack(spacing: 8) {
-                                if isExporting {
-                                    ProgressView()
-                                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                                    Text("Trimming...")
-                                        .font(.body.weight(.semibold))
-                                } else {
-                                    Image(systemName: "scissors")
-                                        .font(.body.weight(.semibold))
-                                    Text("Save Trimmed")
-                                        .font(.body.weight(.semibold))
-                                }
-                            }
-                            .foregroundColor(.white)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 16)
-                            .background(
-                                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                    .fill(
-                                        LinearGradient(
-                                            colors: [.blue, .blue.opacity(0.8)],
-                                            startPoint: .topLeading,
-                                            endPoint: .bottomTrailing
-                                        )
-                                    )
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                    .strokeBorder(
-                                        LinearGradient(
-                                            colors: [.white.opacity(0.3), .white.opacity(0.1)],
-                                            startPoint: .top,
-                                            endPoint: .bottom
-                                        ),
-                                        lineWidth: 1
-                                    )
-                            )
-                            .shadow(color: .blue.opacity(0.4), radius: 8, x: 0, y: 4)
-                        }
-                        .disabled(isExporting || endTime - startTime < 0.5)
-                        .opacity(isExporting || endTime - startTime < 0.5 ? 0.6 : 1)
-
-                        // Secondary: Use Full Video
-                        Button {
-                            Haptics.light()
-                            onSkip()
-                        } label: {
-                            HStack(spacing: 8) {
-                                Image(systemName: "film")
-                                    .font(.body.weight(.semibold))
-                                Text("Use Full Video")
-                                    .font(.body.weight(.semibold))
-                            }
-                            .foregroundColor(.white)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 16)
-                            .background(
-                                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                    .fill(Color.white.opacity(0.15))
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                    .strokeBorder(
-                                        LinearGradient(
-                                            colors: [.white.opacity(0.3), .white.opacity(0.1)],
-                                            startPoint: .top,
-                                            endPoint: .bottom
-                                        ),
-                                        lineWidth: 1
-                                    )
-                            )
-                        }
-                        .disabled(isExporting)
-                    }
-                    .opacity(showContent ? 1 : 0)
-                    .offset(y: showContent ? 0 : 20)
-                }
-                .padding(20)
-                .background(
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 28, style: .continuous)
-                            .fill(.ultraThinMaterial)
-
-                        RoundedRectangle(cornerRadius: 28, style: .continuous)
-                            .fill(
-                                LinearGradient(
-                                    colors: [
-                                        Color.black.opacity(0.2),
-                                        Color.black.opacity(0.4)
-                                    ],
-                                    startPoint: .top,
-                                    endPoint: .bottom
-                                )
-                            )
-
-                        VStack {
-                            RoundedRectangle(cornerRadius: 28, style: .continuous)
-                                .fill(
-                                    LinearGradient(
-                                        colors: [.white.opacity(0.15), .clear],
-                                        startPoint: .top,
-                                        endPoint: .center
-                                    )
-                                )
-                                .frame(height: 100)
-                            Spacer()
-                        }
-                        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
-                    }
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 28, style: .continuous)
-                        .strokeBorder(
-                            LinearGradient(
-                                colors: [.white.opacity(0.3), .white.opacity(0.1)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            ),
-                            lineWidth: 1
-                        )
-                )
-                .shadow(color: .black.opacity(0.4), radius: 30, x: 0, y: 15)
-                .padding(.horizontal, 16)
-
-                Spacer().frame(height: 40)
+            if isLandscape {
+                landscapeTrimmerLayout
+            } else {
+                portraitTrimmerLayout
             }
         }
-        .ignoresSafeArea()
         .onAppear {
             setupPlayer()
             withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
@@ -1622,6 +1369,302 @@ struct PreUploadTrimmerView: View {
         .onDisappear {
             cleanup()
         }
+    }
+
+    // MARK: - Back button
+
+    private var backButtonView: some View {
+        Button {
+            Haptics.warning()
+            onCancel()
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "chevron.left")
+                    .font(.body.weight(.semibold))
+                Text("Back")
+                    .font(.body)
+            }
+            .foregroundColor(.white)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(Capsule().fill(.ultraThinMaterial))
+        }
+    }
+
+    // MARK: - Play/Pause button
+
+    private var playPauseButtonView: some View {
+        Button {
+            if let player = player {
+                if isPlaying {
+                    player.pause()
+                } else {
+                    player.play()
+                }
+                isPlaying.toggle()
+                Haptics.light()
+            }
+        } label: {
+            Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                .font(.system(size: 16, weight: .bold))
+                .foregroundColor(.white)
+                .padding(10)
+                .background(.ultraThinMaterial)
+                .clipShape(Circle())
+                .shadow(radius: 4)
+        }
+    }
+
+    // MARK: - Portrait layout
+
+    private var portraitTrimmerLayout: some View {
+        ZStack {
+            // Play/Pause — bottom leading, above safe area
+            VStack {
+                Spacer()
+                HStack {
+                    playPauseButtonView
+                    Spacer()
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 16)
+            }
+
+            // Controls overlay
+            VStack {
+                HStack {
+                    backButtonView
+                    Spacer()
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 16)
+
+                Spacer()
+
+                trimGlassPanel
+                    .padding(.horizontal, 16)
+
+                // Space below panel clears the play/pause button
+                Spacer().frame(height: 60)
+            }
+        }
+    }
+
+    // MARK: - Landscape layout
+
+    private var landscapeTrimmerLayout: some View {
+        HStack(spacing: 0) {
+            // Left column: back button (top) + play/pause (bottom)
+            VStack {
+                HStack {
+                    backButtonView
+                    Spacer()
+                }
+                .padding(.top, 8)
+
+                Spacer()
+
+                HStack {
+                    playPauseButtonView
+                    Spacer()
+                }
+                .padding(.bottom, 8)
+            }
+            .padding(.leading, 16)
+            .frame(maxWidth: 120)
+
+            Spacer()
+
+            // Right: scrollable trim controls
+            ScrollView(showsIndicators: false) {
+                trimGlassPanel
+            }
+            .scrollBounceBehavior(.basedOnSize)
+            .frame(maxWidth: 380)
+            .padding(.trailing, 16)
+            .padding(.vertical, 8)
+        }
+    }
+
+    // MARK: - Trim glass panel
+
+    private var trimGlassPanel: some View {
+        VStack(spacing: 16) {
+            // Header
+            VStack(spacing: 6) {
+                Text("Trim Video")
+                    .font(.title3)
+                    .fontWeight(.bold)
+                    .foregroundColor(.white)
+
+                Text("Drag to set start and end points")
+                    .font(.caption)
+                    .foregroundColor(.white.opacity(0.7))
+            }
+            .opacity(showContent ? 1 : 0)
+            .offset(y: showContent ? 0 : 20)
+
+            // Time indicators
+            HStack {
+                TrimTimeBadge(label: "START", time: formatTime(startTime), color: .green)
+                Spacer()
+                TrimTimeBadge(label: "DURATION", time: formatTime(endTime - startTime), color: .blue)
+                Spacer()
+                TrimTimeBadge(label: "END", time: formatTime(endTime), color: .red)
+            }
+            .padding(.horizontal, 4)
+            .opacity(showContent ? 1 : 0)
+            .offset(y: showContent ? 0 : 20)
+
+            // Trim sliders — only show when duration is long enough to trim
+            if duration >= 0.6 {
+                // Safe bounds: ensure upper > lower by at least one step (0.1)
+                let startSliderMax = max(0.1, endTime - 0.5)
+                let endSliderMin = min(duration - 0.1, startTime + 0.5)
+                VStack(spacing: 14) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "arrow.right.to.line")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundColor(.green)
+                            .frame(width: 20)
+                        Slider(value: $startTime, in: 0...startSliderMax, step: 0.1)
+                            .tint(.green)
+                            .onChange(of: startTime) { _, newValue in
+                                seekTo(time: newValue)
+                            }
+                    }
+
+                    HStack(spacing: 12) {
+                        Image(systemName: "arrow.left.to.line")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundColor(.red)
+                            .frame(width: 20)
+                        Slider(value: $endTime, in: endSliderMin...duration, step: 0.1)
+                            .tint(.red)
+                            .onChange(of: endTime) { _, newValue in
+                                seekTo(time: newValue)
+                            }
+                    }
+                }
+                .padding(.horizontal, 4)
+                .opacity(showContent ? 1 : 0)
+                .offset(y: showContent ? 0 : 30)
+            }
+
+            if let error = exportError {
+                Text(error)
+                    .foregroundColor(.red)
+                    .font(.caption)
+                    .multilineTextAlignment(.center)
+            }
+
+            // Action buttons
+            VStack(spacing: 10) {
+                Button {
+                    Haptics.success()
+                    Task { await exportTrimmedVideo() }
+                } label: {
+                    HStack(spacing: 8) {
+                        if isExporting {
+                            ProgressView()
+                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                            Text("Trimming...")
+                                .font(.body.weight(.semibold))
+                        } else {
+                            Image(systemName: "scissors")
+                                .font(.body.weight(.semibold))
+                            Text("Save Trimmed")
+                                .font(.body.weight(.semibold))
+                        }
+                    }
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 16)
+                    .background(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .fill(LinearGradient(
+                                colors: [.blue, .blue.opacity(0.8)],
+                                startPoint: .topLeading, endPoint: .bottomTrailing
+                            ))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .strokeBorder(
+                                LinearGradient(
+                                    colors: [.white.opacity(0.3), .white.opacity(0.1)],
+                                    startPoint: .top, endPoint: .bottom
+                                ), lineWidth: 1
+                            )
+                    )
+                    .shadow(color: .blue.opacity(0.4), radius: 8, x: 0, y: 4)
+                }
+                .disabled(isExporting || endTime - startTime < 0.5)
+                .opacity(isExporting || endTime - startTime < 0.5 ? 0.6 : 1)
+
+                Button {
+                    Haptics.light()
+                    onSkip()
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "film")
+                            .font(.body.weight(.semibold))
+                        Text("Use Full Video")
+                            .font(.body.weight(.semibold))
+                    }
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 16)
+                    .background(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .fill(Color.white.opacity(0.15))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .strokeBorder(
+                                LinearGradient(
+                                    colors: [.white.opacity(0.3), .white.opacity(0.1)],
+                                    startPoint: .top, endPoint: .bottom
+                                ), lineWidth: 1
+                            )
+                    )
+                }
+                .disabled(isExporting)
+            }
+            .opacity(showContent ? 1 : 0)
+            .offset(y: showContent ? 0 : 20)
+        }
+        .padding(20)
+        .background(
+            ZStack {
+                RoundedRectangle(cornerRadius: 28, style: .continuous)
+                    .fill(.ultraThinMaterial)
+                RoundedRectangle(cornerRadius: 28, style: .continuous)
+                    .fill(LinearGradient(
+                        colors: [Color.black.opacity(0.2), Color.black.opacity(0.4)],
+                        startPoint: .top, endPoint: .bottom
+                    ))
+                VStack {
+                    RoundedRectangle(cornerRadius: 28, style: .continuous)
+                        .fill(LinearGradient(
+                            colors: [.white.opacity(0.15), .clear],
+                            startPoint: .top, endPoint: .center
+                        ))
+                        .frame(height: 100)
+                    Spacer()
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+            }
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                .strokeBorder(
+                    LinearGradient(
+                        colors: [.white.opacity(0.3), .white.opacity(0.1)],
+                        startPoint: .topLeading, endPoint: .bottomTrailing
+                    ), lineWidth: 1
+                )
+        )
+        .shadow(color: .black.opacity(0.4), radius: 30, x: 0, y: 15)
     }
 
     private func setupPlayer() {

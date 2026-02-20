@@ -12,7 +12,7 @@ struct StatisticsChartsView: View {
     let athlete: Athlete
 
     @State private var selectedMetric: StatMetric = .battingAverage
-    @State private var selectedTimeframe: Timeframe = .season
+    @State private var selectedTimeframe: Timeframe = .game
     @State private var selectedSeason: Season?
 
     var body: some View {
@@ -233,6 +233,12 @@ struct StatisticsChartsView: View {
                     SummaryCard(title: "Low", value: formatValue(stats.min, for: selectedMetric), color: .orange)
                     SummaryCard(title: "Average", value: formatValue(stats.average, for: selectedMetric), color: .blue)
                     SummaryCard(title: "Games", value: "\(stats.gamesCount)", color: .purple)
+                } else if let careerStats = athlete.statistics {
+                    let careerValue = getValue(from: careerStats, for: selectedMetric)
+                    SummaryCard(title: "Career \(selectedMetric.shortName)", value: formatValue(careerValue, for: selectedMetric), color: selectedMetric.color)
+                    SummaryCard(title: "At-Bats", value: "\(careerStats.atBats)", color: .blue)
+                    SummaryCard(title: "Hits", value: "\(careerStats.hits)", color: .green)
+                    SummaryCard(title: "Games", value: "\(careerStats.totalGames)", color: .purple)
                 }
             }
         }
@@ -257,33 +263,49 @@ struct StatisticsChartsView: View {
         .shadow(color: Color.black.opacity(0.05), radius: 5, x: 0, y: 2)
     }
 
+    /// Hit counts filtered to match the currently selected timeframe/season.
+    private var filteredHits: (singles: Int, doubles: Int, triples: Int, homeRuns: Int) {
+        var games = athlete.games ?? []
+
+        // In game view, honour the season filter if one is selected
+        if selectedTimeframe == .game, let season = selectedSeason {
+            games = games.filter { $0.season?.id == season.id }
+        }
+
+        let completed = games.filter { $0.isComplete && $0.gameStats != nil }
+
+        guard !completed.isEmpty else {
+            // Fall back to career totals when no game data matches
+            return (
+                athlete.statistics?.singles ?? 0,
+                athlete.statistics?.doubles ?? 0,
+                athlete.statistics?.triples ?? 0,
+                athlete.statistics?.homeRuns ?? 0
+            )
+        }
+
+        return (
+            completed.compactMap { $0.gameStats?.singles }.reduce(0, +),
+            completed.compactMap { $0.gameStats?.doubles }.reduce(0, +),
+            completed.compactMap { $0.gameStats?.triples }.reduce(0, +),
+            completed.compactMap { $0.gameStats?.homeRuns }.reduce(0, +)
+        )
+    }
+
     private var hitDistributionChart: some View {
-        Group {
-            if let stats = athlete.statistics {
+        let hits = filteredHits
+        let hasData = hits.singles + hits.doubles + hits.triples + hits.homeRuns > 0
+        return Group {
+            if hasData {
                 Chart {
-                    BarMark(
-                        x: .value("Type", "1B"),
-                        y: .value("Count", stats.singles)
-                    )
-                    .foregroundStyle(Color.green)
-
-                    BarMark(
-                        x: .value("Type", "2B"),
-                        y: .value("Count", stats.doubles)
-                    )
-                    .foregroundStyle(Color.blue)
-
-                    BarMark(
-                        x: .value("Type", "3B"),
-                        y: .value("Count", stats.triples)
-                    )
-                    .foregroundStyle(Color.orange)
-
-                    BarMark(
-                        x: .value("Type", "HR"),
-                        y: .value("Count", stats.homeRuns)
-                    )
-                    .foregroundStyle(Color.red)
+                    BarMark(x: .value("Type", "1B"), y: .value("Count", hits.singles))
+                        .foregroundStyle(Color.green)
+                    BarMark(x: .value("Type", "2B"), y: .value("Count", hits.doubles))
+                        .foregroundStyle(Color.blue)
+                    BarMark(x: .value("Type", "3B"), y: .value("Count", hits.triples))
+                        .foregroundStyle(Color.orange)
+                    BarMark(x: .value("Type", "HR"), y: .value("Count", hits.homeRuns))
+                        .foregroundStyle(Color.red)
                 }
                 .frame(height: 200)
             } else {
@@ -306,27 +328,34 @@ struct StatisticsChartsView: View {
     }
 
     private var seasonChartData: [ChartDataPoint] {
-        let seasons = athlete.seasons ?? []
-        let sortedSeasons = seasons
+        let sortedSeasons = (athlete.seasons ?? [])
             .filter { $0.seasonStatistics != nil || $0.isActive }
             .sorted { ($0.startDate ?? Date.distantPast) < ($1.startDate ?? Date.distantPast) }
 
-        return sortedSeasons.compactMap { season in
+        let seasonPoints = sortedSeasons.compactMap { season -> ChartDataPoint? in
             let value: Double
             if let stats = season.seasonStatistics {
                 value = getValue(from: stats, for: selectedMetric)
             } else {
-                // Active season with no archived snapshot — compute live from completed games
                 guard let liveValue = liveSeasonValue(for: season, metric: selectedMetric) else { return nil }
                 value = liveValue
             }
             let label = season.isActive ? "\(season.displayName) ↑" : season.displayName
-            return ChartDataPoint(
-                date: season.startDate ?? Date(),
-                value: value,
-                label: label
-            )
+            return ChartDataPoint(date: season.startDate ?? Date(), value: value, label: label)
         }
+
+        // If season data exists use it; otherwise fall back to per-game points
+        // so the chart is never blank just because seasons haven't been set up yet.
+        if !seasonPoints.isEmpty { return seasonPoints }
+
+        return (athlete.games ?? [])
+            .filter { $0.isComplete && $0.gameStats != nil }
+            .sorted { ($0.date ?? Date.distantPast) < ($1.date ?? Date.distantPast) }
+            .compactMap { game -> ChartDataPoint? in
+                guard let stats = game.gameStats else { return nil }
+                let value = getValue(from: stats, for: selectedMetric)
+                return ChartDataPoint(date: game.date ?? Date(), value: value, label: game.opponent)
+            }
     }
 
     /// Computes a single metric value for an active season by aggregating its completed game stats.

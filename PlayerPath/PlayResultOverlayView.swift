@@ -19,7 +19,10 @@ struct PlayResultOverlayView: View {
     let onCancel: () -> Void
     
     @Environment(\.horizontalSizeClass) private var hSizeClass
-    
+    @Environment(\.verticalSizeClass) private var vSizeClass
+
+    private var isLandscape: Bool { vSizeClass == .compact }
+
     @State private var selectedResult: PlayResultType?
     @State private var showingConfirmation = false
     @State private var recordingMode: AthleteRole = .batter
@@ -32,198 +35,40 @@ struct PlayResultOverlayView: View {
     @State private var pitchSpeedText = ""
     
     var body: some View {
-        NavigationStack {
-            ZStack {
-                // Static Thumbnail Background
-                ZStack(alignment: .topTrailing) {
-                    Group {
-                        if let image = thumbnail {
-                            Image(uiImage: image)
-                                .resizable()
-                                .scaledToFill()
-                        } else {
-                            Color.black
-                        }
-                    }
-                    .ignoresSafeArea()
-                    .overlay(Color.black.opacity(0.25))
-                    .onAppear {
-                        loadThumbnail()
-                        loadVideoMetadata()
-                    }
-                    .onDisappear {
-                        metadataTask?.cancel()
-                        metadataTask = nil
-                    }
-
-                    // Video metadata badge
-                    if let metadata = videoMetadata {
-                        VideoMetadataView(metadata: metadata)
-                            .padding(16)
-                            .padding(.top, 60)
+        ZStack {
+            // Static Thumbnail Background
+            ZStack(alignment: .topTrailing) {
+                Group {
+                    if let image = thumbnail {
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFill()
+                    } else {
+                        Color.black
                     }
                 }
-                
-                // Play Result Selection Overlay
-                VStack {
-                    Spacer()
-
-                    VStack(spacing: 18) {
-                        // Header
-                        VStack(spacing: 8) {
-                            Text("Select Play Result")
-                                .font(.title3)
-                                .fontWeight(.bold)
-                                .foregroundColor(.white)
-                                .multilineTextAlignment(.center)
-                                .accessibilityAddTraits(.isHeader)
-
-                            Text(practice != nil ? "Add a result to track statistics" : "Choose what happened on this play")
-                                .font(.caption)
-                                .foregroundColor(.white.opacity(0.7))
-                                .multilineTextAlignment(.center)
-                        }
-                        .opacity(showContent ? 1 : 0)
-                        .offset(y: showContent ? 0 : 20)
-
-                        // Recording Mode Picker - Custom styled
-                        PlayResultModePicker(selection: $recordingMode)
-                            .opacity(showContent ? 1 : 0)
-                            .offset(y: showContent ? 0 : 20)
-
-                        // Pitch Speed Input (pitcher mode only)
-                        if recordingMode == .pitcher {
-                            HStack(spacing: 12) {
-                                Image(systemName: "speedometer")
-                                    .font(.system(size: 16, weight: .semibold))
-                                    .foregroundColor(.white.opacity(0.8))
-
-                                TextField("", text: $pitchSpeedText, prompt: Text("Pitch Speed").foregroundStyle(.white.opacity(0.4)))
-                                    .keyboardType(.decimalPad)
-                                    .foregroundColor(.white)
-                                    .font(.subheadline.weight(.semibold))
-                                    .frame(maxWidth: .infinity)
-
-                                Text("MPH")
-                                    .font(.caption)
-                                    .fontWeight(.bold)
-                                    .foregroundColor(.white.opacity(0.6))
-                            }
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 12)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .fill(Color.white.opacity(0.1))
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .strokeBorder(Color.white.opacity(0.2), lineWidth: 1)
-                            )
-                            .opacity(showContent ? 1 : 0)
-                            .offset(y: showContent ? 0 : 20)
-                        }
-
-                        // Play Result Grid - Conditional based on mode
-                        VStack(spacing: 12) {
-                            if recordingMode == .batter {
-                                battingResultsSection
-                            } else {
-                                pitchingResultsSection
-                            }
-                        }
-                        .opacity(showContent ? 1 : 0)
-                        .offset(y: showContent ? 0 : 30)
-
-                        // Action Buttons
-                        HStack(spacing: 12) {
-                            PlayResultActionButton(
-                                title: "Cancel",
-                                icon: "xmark",
-                                style: .secondary
-                            ) {
-                                Haptics.warning()
-                                onCancel()
-                            }
-                            .disabled(isSaving)
-                            .accessibilityLabel("Cancel")
-                            .accessibilityHint("Dismiss without saving a play result")
-
-                            PlayResultActionButton(
-                                title: practice != nil ? "Save Video" : "Skip & Save",
-                                icon: "checkmark",
-                                style: .primary
-                            ) {
-                                isSaving = true
-                                Haptics.success()
-                                onSave(nil, parsedPitchSpeed, recordingMode)
-                            }
-                            .disabled(isSaving)
-                            .accessibilityLabel(practice != nil ? "Save Video Only" : "Skip and Save")
-                            .accessibilityHint("Save without a play result")
-                        }
-                        .opacity(showContent ? 1 : 0)
-                        .offset(y: showContent ? 0 : 20)
-                    }
-                    .padding(20)
-                    .background(
-                        ZStack {
-                            // Glass background
-                            RoundedRectangle(cornerRadius: 28, style: .continuous)
-                                .fill(.ultraThinMaterial)
-
-                            // Dark gradient overlay
-                            RoundedRectangle(cornerRadius: 28, style: .continuous)
-                                .fill(
-                                    LinearGradient(
-                                        colors: [
-                                            Color.black.opacity(0.2),
-                                            Color.black.opacity(0.4)
-                                        ],
-                                        startPoint: .top,
-                                        endPoint: .bottom
-                                    )
-                                )
-
-                            // Top shine
-                            VStack {
-                                RoundedRectangle(cornerRadius: 28, style: .continuous)
-                                    .fill(
-                                        LinearGradient(
-                                            colors: [.white.opacity(0.15), .clear],
-                                            startPoint: .top,
-                                            endPoint: .center
-                                        )
-                                    )
-                                    .frame(height: 100)
-                                Spacer()
-                            }
-                            .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
-                        }
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 28, style: .continuous)
-                            .strokeBorder(
-                                LinearGradient(
-                                    colors: [.white.opacity(0.3), .white.opacity(0.1)],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                ),
-                                lineWidth: 1
-                            )
-                    )
-                    .shadow(color: .black.opacity(0.4), radius: 30, x: 0, y: 15)
-                    .padding(.horizontal, 16)
-                    .accessibilitySortPriority(1)
-                    .onAppear {
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                            showContent = true
-                        }
-                    }
-
-                    Spacer().frame(height: 50)
+                .ignoresSafeArea()
+                .overlay(Color.black.opacity(0.25))
+                .onAppear {
+                    loadThumbnail()
+                    loadVideoMetadata()
                 }
-                
-                // Info Header - Improved Design
+                .onDisappear {
+                    metadataTask?.cancel()
+                    metadataTask = nil
+                }
+
+                // Video metadata badge — safe area aware
+                if let metadata = videoMetadata {
+                    VideoMetadataView(metadata: metadata)
+                        .padding(16)
+                        .padding(.top, isLandscape ? 8 : 16)
+                        .padding(.trailing, isLandscape ? 8 : 0)
+                }
+            }
+
+            // Info Header — safe area inset so it clears Dynamic Island / status bar
+            if !isLandscape {
                 VStack {
                     HStack {
                         VStack(alignment: .leading, spacing: 6) {
@@ -232,13 +77,11 @@ struct PlayResultOverlayView: View {
                                     Image(systemName: "sportscourt.fill")
                                         .font(.caption)
                                         .foregroundColor(.white.opacity(0.8))
-                                    
                                     Text("vs \(game.opponent)")
                                         .font(.headline)
                                         .fontWeight(.bold)
                                         .foregroundColor(.white)
                                 }
-                                
                                 if let date = game.date {
                                     HStack(spacing: 6) {
                                         Image(systemName: "calendar")
@@ -258,13 +101,11 @@ struct PlayResultOverlayView: View {
                                     Image(systemName: "figure.baseball")
                                         .font(.caption)
                                         .foregroundColor(.white.opacity(0.8))
-                                    
                                     Text("Practice Session")
                                         .font(.headline)
                                         .fontWeight(.bold)
                                         .foregroundColor(.white)
                                 }
-                                
                                 if let date = practice.date {
                                     HStack(spacing: 6) {
                                         Image(systemName: "calendar")
@@ -280,7 +121,6 @@ struct PlayResultOverlayView: View {
                                         .foregroundColor(.white.opacity(0.6))
                                 }
                             }
-                            
                             if let athlete = athlete {
                                 HStack(spacing: 6) {
                                     Image(systemName: "person.fill")
@@ -292,50 +132,34 @@ struct PlayResultOverlayView: View {
                                 }
                             }
                         }
-                        
                         Spacer()
                     }
                     .padding(.horizontal, 20)
                     .padding(.top, 16)
                     .padding(.bottom, 20)
                     .accessibilitySortPriority(2)
-                    .background(
+                    .background(alignment: .top) {
                         LinearGradient(
-                            colors: [
-                                Color.black.opacity(0.7),
-                                Color.black.opacity(0.5),
-                                Color.clear
-                            ],
+                            colors: [Color.black.opacity(0.7), Color.black.opacity(0.5), Color.clear],
                             startPoint: .top,
                             endPoint: .bottom
                         )
-                    )
-                    
+                        .ignoresSafeArea(edges: .top)
+                    }
                     Spacer()
                 }
-
-                // Saving overlay
-                if isSaving {
-                    Color.black.opacity(0.5)
-                        .ignoresSafeArea()
-                        .allowsHitTesting(true)
-
-                    VStack(spacing: 16) {
-                        ProgressView()
-                            .scaleEffect(1.5)
-                            .tint(.white)
-                        Text("Saving...")
-                            .font(.headline)
-                            .foregroundColor(.white)
-                    }
-                    .transition(.opacity)
-                }
             }
-            .ignoresSafeArea()
-            .animation(.easeInOut(duration: 0.2), value: isSaving)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
+
+            // Play Result Selection Overlay
+            if isLandscape {
+                landscapeOverlayPanel
+            } else {
+                portraitOverlayPanel
+            }
+
+            // Back button — top-leading, safe area aware
+            VStack {
+                HStack {
                     Button {
                         Haptics.warning()
                         onCancel()
@@ -349,33 +173,206 @@ struct PlayResultOverlayView: View {
                         .foregroundColor(.white)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 8)
-                        .background(
-                            Capsule()
-                                .fill(.ultraThinMaterial)
-                        )
+                        .background(Capsule().fill(.ultraThinMaterial))
                     }
                     .accessibilityLabel("Go back")
+                    .disabled(isSaving)
+                    Spacer()
                 }
+                .padding(.horizontal, 16)
+                Spacer()
             }
-            .toolbarBackground(.hidden, for: .navigationBar)
-            .confirmationDialog(
-                "Confirm Play Result",
-                isPresented: $showingConfirmation,
-                titleVisibility: .visible
-            ) {
-                Button("Save", role: .none) {
-                    guard let result = selectedResult else { return }
-                    isSaving = true
-                    onSave(result, parsedPitchSpeed, recordingMode)
-                    selectedResult = nil
+            .padding(.top, isLandscape ? 8 : 16)
+
+            // Saving overlay
+            if isSaving {
+                Color.black.opacity(0.5)
+                    .ignoresSafeArea()
+                    .allowsHitTesting(true)
+                VStack(spacing: 16) {
+                    ProgressView()
+                        .scaleEffect(1.5)
+                        .tint(.white)
+                    Text("Saving...")
+                        .font(.headline)
+                        .foregroundColor(.white)
                 }
-                Button("Cancel", role: .cancel) {
-                    selectedResult = nil
-                }
-            } message: {
-                Text("Save this play as a \(selectedResult?.displayName ?? "play")?")
+                .transition(.opacity)
             }
         }
+        .animation(.easeInOut(duration: 0.2), value: isSaving)
+        .confirmationDialog(
+            "Confirm Play Result",
+            isPresented: $showingConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Save", role: .none) {
+                guard let result = selectedResult else { return }
+                isSaving = true
+                onSave(result, parsedPitchSpeed, recordingMode)
+                selectedResult = nil
+            }
+            Button("Cancel", role: .cancel) {
+                selectedResult = nil
+            }
+        } message: {
+            Text("Save this play as a \(selectedResult?.displayName ?? "play")?")
+        }
+    }
+
+    // MARK: - Portrait panel
+
+    private var portraitOverlayPanel: some View {
+        VStack {
+            Spacer()
+            glassPanel
+                .padding(.horizontal, 16)
+                .padding(.bottom, 16)
+                .accessibilitySortPriority(1)
+                .onAppear {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                        showContent = true
+                    }
+                }
+        }
+    }
+
+    // MARK: - Landscape panel (scrollable side column)
+
+    private var landscapeOverlayPanel: some View {
+        HStack {
+            Spacer()
+            ScrollView(showsIndicators: false) {
+                glassPanel
+                    .accessibilitySortPriority(1)
+                    .onAppear {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                            showContent = true
+                        }
+                    }
+            }
+            .scrollBounceBehavior(.basedOnSize)
+            .frame(maxWidth: 380)
+            .padding(.trailing, 16)
+            .padding(.vertical, 8)
+        }
+    }
+
+    // MARK: - Shared glass panel content
+
+    private var glassPanel: some View {
+        VStack(spacing: isLandscape ? 12 : 18) {
+            // Header
+            VStack(spacing: 6) {
+                Text("Select Play Result")
+                    .font(isLandscape ? .subheadline : .title3)
+                    .fontWeight(.bold)
+                    .foregroundColor(.white)
+                    .multilineTextAlignment(.center)
+                    .accessibilityAddTraits(.isHeader)
+                Text(practice != nil ? "Add a result to track statistics" : "Choose what happened on this play")
+                    .font(.caption)
+                    .foregroundColor(.white.opacity(0.7))
+                    .multilineTextAlignment(.center)
+            }
+            .opacity(showContent ? 1 : 0)
+            .offset(y: showContent ? 0 : 20)
+
+            // Recording Mode Picker
+            PlayResultModePicker(selection: $recordingMode)
+                .opacity(showContent ? 1 : 0)
+                .offset(y: showContent ? 0 : 20)
+
+            // Pitch Speed Input (pitcher mode only)
+            if recordingMode == .pitcher {
+                HStack(spacing: 12) {
+                    Image(systemName: "speedometer")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.white.opacity(0.8))
+                    TextField("", text: $pitchSpeedText, prompt: Text("Pitch Speed").foregroundStyle(.white.opacity(0.4)))
+                        .keyboardType(.decimalPad)
+                        .foregroundColor(.white)
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                    Text("MPH")
+                        .font(.caption)
+                        .fontWeight(.bold)
+                        .foregroundColor(.white.opacity(0.6))
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.white.opacity(0.1)))
+                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Color.white.opacity(0.2), lineWidth: 1))
+                .opacity(showContent ? 1 : 0)
+                .offset(y: showContent ? 0 : 20)
+            }
+
+            // Play Result Grid
+            VStack(spacing: isLandscape ? 8 : 12) {
+                if recordingMode == .batter {
+                    battingResultsSection
+                } else {
+                    pitchingResultsSection
+                }
+            }
+            .opacity(showContent ? 1 : 0)
+            .offset(y: showContent ? 0 : 30)
+
+            // Action Buttons
+            HStack(spacing: 12) {
+                PlayResultActionButton(title: "Cancel", icon: "xmark", style: .secondary) {
+                    Haptics.warning()
+                    onCancel()
+                }
+                .disabled(isSaving)
+                .accessibilityLabel("Cancel")
+                .accessibilityHint("Dismiss without saving a play result")
+
+                PlayResultActionButton(
+                    title: practice != nil ? "Save Video" : "Skip & Save",
+                    icon: "checkmark",
+                    style: .primary
+                ) {
+                    isSaving = true
+                    Haptics.success()
+                    onSave(nil, parsedPitchSpeed, recordingMode)
+                }
+                .disabled(isSaving)
+                .accessibilityLabel(practice != nil ? "Save Video Only" : "Skip and Save")
+                .accessibilityHint("Save without a play result")
+            }
+            .opacity(showContent ? 1 : 0)
+            .offset(y: showContent ? 0 : 20)
+        }
+        .padding(isLandscape ? 16 : 20)
+        .background(
+            ZStack {
+                RoundedRectangle(cornerRadius: 28, style: .continuous).fill(.ultraThinMaterial)
+                RoundedRectangle(cornerRadius: 28, style: .continuous)
+                    .fill(LinearGradient(
+                        colors: [Color.black.opacity(0.2), Color.black.opacity(0.4)],
+                        startPoint: .top, endPoint: .bottom
+                    ))
+                VStack {
+                    RoundedRectangle(cornerRadius: 28, style: .continuous)
+                        .fill(LinearGradient(colors: [.white.opacity(0.15), .clear], startPoint: .top, endPoint: .center))
+                        .frame(height: 100)
+                    Spacer()
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+            }
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                .strokeBorder(
+                    LinearGradient(
+                        colors: [.white.opacity(0.3), .white.opacity(0.1)],
+                        startPoint: .topLeading, endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 1
+                )
+        )
+        .shadow(color: .black.opacity(0.4), radius: 30, x: 0, y: 15)
     }
 
     // MARK: - Batting Results Section

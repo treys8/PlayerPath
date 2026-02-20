@@ -207,7 +207,7 @@ struct VideoThumbnailView: View {
                             .progressViewStyle(CircularProgressViewStyle(tint: .white))
                             .scaleEffect(scaledValue(1.0))
                     } else if loadError != nil {
-                        Image(systemName: "exclamationmark.triangle")
+                        Image(systemName: "exclamationmark.triangle.fill")
                             .foregroundColor(.yellow)
                             .font(.system(size: scaledValue(24)))
                             .accessibilityHidden(true)

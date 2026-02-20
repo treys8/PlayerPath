@@ -85,7 +85,7 @@ struct VideoPlayerView: View {
         Color.black
             .overlay(
                 VStack(spacing: 8) {
-                    Image(systemName: "exclamationmark.triangle")
+                    Image(systemName: "exclamationmark.triangle.fill")
                         .font(.largeTitle)
                         .foregroundColor(.yellow)
                     Text("Video Unavailable")

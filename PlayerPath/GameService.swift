@@ -261,40 +261,10 @@ class GameService {
         game.needsSync = true
 
         if let athlete = game.athlete {
-            // Create athlete statistics if they don't exist
-            if athlete.statistics == nil {
-                let newStats = AthleteStatistics()
-                newStats.athlete = athlete
-                athlete.statistics = newStats
-                modelContext.insert(newStats)
-                print("Created new AthleteStatistics for athlete.")
-            }
-            
-            // Aggregate game statistics into athlete's overall statistics
-            if let athleteStats = athlete.statistics, let gameStats = game.gameStats {
-                athleteStats.atBats += gameStats.atBats
-                athleteStats.hits += gameStats.hits
-                athleteStats.singles += gameStats.singles
-                athleteStats.doubles += gameStats.doubles
-                athleteStats.triples += gameStats.triples
-                athleteStats.homeRuns += gameStats.homeRuns
-                athleteStats.runs += gameStats.runs
-                athleteStats.rbis += gameStats.rbis
-                athleteStats.strikeouts += gameStats.strikeouts
-                athleteStats.walks += gameStats.walks
-                athleteStats.updatedAt = Date()
-                
-                print("Aggregated game stats into athlete stats:")
-                print("  - Added \(gameStats.hits) hits, \(gameStats.atBats) at-bats")
-                print("  - New totals: \(athleteStats.hits) hits, \(athleteStats.atBats) at-bats")
-                print("  - Batting Average: \(athleteStats.battingAverage)")
-            }
-            
-            // Increment total games
-            if let athleteStats = athlete.statistics {
-                athleteStats.addCompletedGame()
-                print("Added completed game to athlete's statistics.")
-            }
+            // Recalculate all athlete statistics from source of truth.
+            // Resetting and recomputing (rather than adding incrementally) prevents
+            // double-counting if end() is ever called more than once on the same game.
+            try? StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: modelContext)
         }
         
         do {
