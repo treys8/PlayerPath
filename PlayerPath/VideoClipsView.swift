@@ -99,7 +99,8 @@ struct VideoClipsView: View {
         if !query.isEmpty {
             videos = videos.filter { video in
                 video.fileName.lowercased().contains(query) ||
-                (video.playResult?.type.displayName.lowercased().contains(query) ?? false)
+                (video.playResult?.type.displayName.lowercased().contains(query) ?? false) ||
+                (video.game?.opponent.lowercased().contains(query) ?? false)
             }
         }
 

@@ -230,7 +230,7 @@ struct ProfileView: View {
             keywords: ["notifications", "alerts", "push"],
             link: AnyView(
                 NavigationLink {
-                    NotificationSettingsView()
+                    NotificationSettingsView(athleteId: selectedAthlete?.id.uuidString)
                 } label: {
                     Label("Notifications", systemImage: "bell")
                 }
@@ -476,7 +476,7 @@ struct ProfileView: View {
             }
 
             NavigationLink {
-                NotificationSettingsView()
+                NotificationSettingsView(athleteId: selectedAthlete?.id.uuidString)
             } label: {
                 Label("Notifications", systemImage: "bell")
             }
@@ -719,16 +719,41 @@ struct SettingsView: View {
                 }
             }
 
-            Section {
-                HStack(spacing: 8) {
-                    Image(systemName: "info.circle.fill")
-                        .foregroundColor(.blue)
-                        .font(.caption)
-                    Text("Additional preferences and settings options will be available in a future update.")
+            Section("Preferences") {
+                NavigationLink {
+                    UserPreferencesView()
+                } label: {
+                    Label("App Preferences", systemImage: "slider.horizontal.3")
+                }
+
+                NavigationLink {
+                    BiometricSettingsView()
+                } label: {
+                    Label("Face ID / Touch ID", systemImage: "faceid")
+                }
+            }
+
+            let provider = Auth.auth().currentUser?.providerData.first?.providerID ?? "email"
+            Section("Sign-In Method") {
+                HStack {
+                    Label(
+                        provider == "apple.com" ? "Sign in with Apple" : "Email & Password",
+                        systemImage: provider == "apple.com" ? "apple.logo" : "envelope.fill"
+                    )
+                    Spacer()
+                    Text(user.email)
                         .font(.caption)
                         .foregroundColor(.secondary)
+                        .lineLimit(1)
                 }
-                .padding(.vertical, 4)
+
+                if provider != "apple.com" {
+                    NavigationLink {
+                        ChangePasswordView(email: user.email)
+                    } label: {
+                        Label("Change Password", systemImage: "lock.rotation")
+                    }
+                }
             }
         }
         .navigationTitle("Settings")
@@ -1132,25 +1157,64 @@ struct EditAccountView: View {
 }
 
 struct NotificationSettingsView: View {
+    let athleteId: String?
+
     @AppStorage("notif_gameReminders") private var gameReminders = true
     @AppStorage("notif_liveGame") private var liveGameUpdates = true
-
     @AppStorage("notif_weeklyStats") private var weeklyStats = true
     @AppStorage("notif_monthlyReports") private var monthlyReports = true
-
     @AppStorage("notif_achievements") private var achievements = true
     @AppStorage("notif_milestones") private var milestoneAlerts = true
+    @AppStorage("notif_uploads") private var uploadNotifications = true
+
+    @State private var authorizationStatus: UNAuthorizationStatus = .notDetermined
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         Form {
+            // Permission status
+            permissionStatusSection
+
             Section("Game Notifications") {
                 Toggle("Game Reminders", isOn: $gameReminders)
+                    .onChange(of: gameReminders) { _, enabled in
+                        if !enabled {
+                            // Cancel any pending game reminder notifications
+                            UNUserNotificationCenter.current().getPendingNotificationRequests { requests in
+                                let gameReminderIds = requests
+                                    .filter { $0.identifier.hasPrefix("game_reminder_") }
+                                    .map { $0.identifier }
+                                PushNotificationService.shared.cancelNotifications(withIdentifiers: gameReminderIds)
+                            }
+                        }
+                    }
                 Toggle("Live Game Updates", isOn: $liveGameUpdates)
             }
 
-            Section("Statistics") {
+            Section {
+                Toggle("Upload Notifications", isOn: $uploadNotifications)
+            } header: {
+                Text("Videos")
+            } footer: {
+                Text("Get notified when a video finishes uploading to the cloud.")
+            }
+
+            Section {
                 Toggle("Weekly Statistics", isOn: $weeklyStats)
+                    .onChange(of: weeklyStats) { _, enabled in
+                        if enabled, let athleteId {
+                            Task { await PushNotificationService.shared.scheduleWeeklySummary(athleteId: athleteId) }
+                        } else if !enabled, let athleteId {
+                            PushNotificationService.shared.cancelNotifications(
+                                withIdentifiers: ["weekly_summary_\(athleteId)"]
+                            )
+                        }
+                    }
                 Toggle("Monthly Reports", isOn: $monthlyReports)
+            } header: {
+                Text("Statistics")
+            } footer: {
+                Text("Weekly summary delivers every Sunday at 6 PM.")
             }
 
             Section("Achievements") {
@@ -1160,6 +1224,74 @@ struct NotificationSettingsView: View {
         }
         .navigationTitle("Notifications")
         .navigationBarTitleDisplayMode(.inline)
+        .task {
+            await refreshAuthorizationStatus()
+            // Ensure weekly summary is scheduled if enabled
+            if weeklyStats, let athleteId {
+                await PushNotificationService.shared.scheduleWeeklySummary(athleteId: athleteId)
+            }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active {
+                Task { await refreshAuthorizationStatus() }
+            }
+        }
+    }
+
+    private func refreshAuthorizationStatus() async {
+        let settings = await UNUserNotificationCenter.current().notificationSettings()
+        authorizationStatus = settings.authorizationStatus
+    }
+
+    @ViewBuilder
+    private var permissionStatusSection: some View {
+        switch authorizationStatus {
+        case .authorized, .provisional, .ephemeral:
+            EmptyView()
+
+        case .denied:
+            Section {
+                VStack(alignment: .leading, spacing: 10) {
+                    Label("Notifications are turned off", systemImage: "bell.slash.fill")
+                        .foregroundColor(.red)
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                    Text("Your preferences are saved, but you won't receive any alerts until notifications are enabled in iOS Settings.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Button("Open iOS Settings") {
+                        PushNotificationService.shared.openSettingsIfDenied()
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(.blue)
+                }
+                .padding(.vertical, 4)
+            }
+
+        case .notDetermined:
+            Section {
+                VStack(alignment: .leading, spacing: 10) {
+                    Label("Notifications not yet enabled", systemImage: "bell.badge.fill")
+                        .foregroundColor(.orange)
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                    Text("Enable notifications to receive game reminders, upload alerts, and weekly performance summaries.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Button("Enable Notifications") {
+                        Task {
+                            _ = await PushNotificationService.shared.requestAuthorization()
+                            await refreshAuthorizationStatus()
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+                .padding(.vertical, 4)
+            }
+
+        @unknown default:
+            EmptyView()
+        }
     }
 }
 
@@ -1182,7 +1314,7 @@ struct AboutView: View {
                     .font(.title)
                     .fontWeight(.bold)
 
-                Text("Version 1.0.0")
+                Text("Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—")")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
             }
@@ -1202,6 +1334,98 @@ struct AboutView: View {
         .padding()
         .navigationTitle("About")
         .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+// MARK: - Change Password View
+
+struct ChangePasswordView: View {
+    let email: String
+    @Environment(\.dismiss) private var dismiss
+    @State private var isSending = false
+    @State private var emailSent = false
+    @State private var errorMessage = ""
+    @State private var showError = false
+
+    var body: some View {
+        Form {
+            Section {
+                VStack(alignment: .leading, spacing: 12) {
+                    Image(systemName: "lock.rotation")
+                        .font(.largeTitle)
+                        .foregroundColor(.blue)
+
+                    Text("Change Password")
+                        .font(.title2)
+                        .fontWeight(.bold)
+
+                    Text("We'll send a password reset link to \(email). Follow the link to choose a new password.")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+                .padding(.vertical, 8)
+            }
+
+            if emailSent {
+                Section {
+                    HStack(spacing: 12) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                            .font(.title3)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Email Sent")
+                                .font(.headline)
+                            Text("Check your inbox at \(email) and follow the link to reset your password.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+            } else {
+                Section {
+                    Button {
+                        Task { await sendReset() }
+                    } label: {
+                        HStack {
+                            Spacer()
+                            if isSending {
+                                ProgressView()
+                                    .padding(.trailing, 8)
+                            }
+                            Text(isSending ? "Sending…" : "Send Reset Email")
+                                .fontWeight(.semibold)
+                            Spacer()
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(isSending)
+                } footer: {
+                    Text("The link expires after 1 hour. Check your spam folder if you don't see it.")
+                }
+            }
+        }
+        .navigationTitle("Change Password")
+        .navigationBarTitleDisplayMode(.inline)
+        .alert("Unable to Send", isPresented: $showError) {
+            Button("OK") { }
+        } message: {
+            Text(errorMessage)
+        }
+    }
+
+    private func sendReset() async {
+        isSending = true
+        defer { isSending = false }
+        do {
+            try await Auth.auth().sendPasswordReset(withEmail: email)
+            withAnimation { emailSent = true }
+            Haptics.success()
+        } catch {
+            errorMessage = error.localizedDescription
+            showError = true
+            Haptics.error()
+        }
     }
 }
 

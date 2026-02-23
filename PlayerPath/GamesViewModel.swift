@@ -98,7 +98,7 @@ final class GamesViewModel: ObservableObject {
         }
     }
     
-    func create(opponent: String, date: Date, isLive: Bool, onError: @escaping (String) -> Void) {
+    func create(opponent: String, date: Date, isLive: Bool, onError: @escaping (String) -> Void, onSuccess: ((Game) -> Void)? = nil) {
         guard let athlete = self.athlete else { return }
 
         // Check for duplicate
@@ -145,6 +145,7 @@ final class GamesViewModel: ObservableObject {
             #if DEBUG
             print("✅ Game created on main context | Opponent: '\(opponent)' | isLive after save: \(game.isLive)")
             #endif
+            onSuccess?(game)
         } catch {
             print("❌ Error: \(error)")
             onError("Failed to save game. Please try again.")

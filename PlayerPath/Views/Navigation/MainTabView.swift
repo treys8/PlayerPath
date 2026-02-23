@@ -25,6 +25,9 @@ struct MainTabView: View {
     // NotificationCenter observer management using StateObject for lifecycle safety
     @StateObject private var notificationManager = NotificationObserverManager()
 
+    // Activity notification service for unread badge count
+    @ObservedObject private var activityNotifService = ActivityNotificationService.shared
+
     private func applyRecordedHitResult(_ info: [String: Any]) {
         guard let hitType = info["hitType"] as? String else { 
             print("⚠️ Invalid hit result format")
@@ -87,9 +90,15 @@ struct MainTabView: View {
             }
             .onChange(of: selectedTab) { _, newValue in
                 saveSelectedTab(newValue)
+                // Mark activity notifications read when entering Videos tab
+                if newValue == MainTab.videos.rawValue, let firebaseUID = authManager.userID {
+                    Task {
+                        await ActivityNotificationService.shared.markAllRead(forUserID: firebaseUID)
+                    }
+                }
                 // Reset when leaving Videos tab
-                if newValue != MainTab.videos.rawValue { 
-                    hideFloatingRecordButton = false 
+                if newValue != MainTab.videos.rawValue {
+                    hideFloatingRecordButton = false
                 }
             }
             .sheet(isPresented: $showingSeasons) {
@@ -258,6 +267,7 @@ struct MainTabView: View {
             VideoClipsView(athlete: selectedAthlete)
                 .id(selectedAthlete.id) // Force view to recreate when athlete changes
         }
+        .badge(activityNotifService.unreadCount > 0 ? activityNotifService.unreadCount : 0)
         .tabItem {
             Label("Videos", systemImage: "video")
         }

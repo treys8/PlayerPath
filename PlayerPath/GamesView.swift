@@ -470,6 +470,18 @@ struct GamesView: View {
             isLive: isLive,
             onError: { errorMessage in
                 showError(errorMessage)
+            },
+            onSuccess: { createdGame in
+                guard UserDefaults.standard.bool(forKey: "notif_gameReminders"),
+                      let gameDate = createdGame.date,
+                      gameDate > Date().addingTimeInterval(60 * 60) else { return }
+                Task {
+                    await PushNotificationService.shared.scheduleGameReminder(
+                        gameId: createdGame.id.uuidString,
+                        opponent: opponent,
+                        scheduledTime: gameDate
+                    )
+                }
             }
         )
         refreshGames()
@@ -1189,13 +1201,32 @@ struct EditGameSheet: View {
     }
 
     private func saveChanges() {
-        game.opponent = opponent.trimmingCharacters(in: .whitespacesAndNewlines)
+        let dateChanged = date != (game.date ?? Date())
+        let gameId = game.id.uuidString
+        let newOpponent = opponent.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        game.opponent = newOpponent
         game.date = date
         game.location = location.isEmpty ? nil : location.trimmingCharacters(in: .whitespacesAndNewlines)
         game.notes = notes.isEmpty ? nil : notes.trimmingCharacters(in: .whitespacesAndNewlines)
 
         do {
             try modelContext.save()
+
+            // Reschedule game reminder if date changed
+            if dateChanged && UserDefaults.standard.bool(forKey: "notif_gameReminders") {
+                PushNotificationService.shared.cancelNotifications(withIdentifiers: ["game_reminder_\(gameId)"])
+                if date > Date().addingTimeInterval(60 * 60) {
+                    Task {
+                        await PushNotificationService.shared.scheduleGameReminder(
+                            gameId: gameId,
+                            opponent: newOpponent,
+                            scheduledTime: date
+                        )
+                    }
+                }
+            }
+
             Haptics.success()
             dismiss()
         } catch {
@@ -1336,11 +1367,22 @@ struct AddGameView: View {
 
             await MainActor.run {
                 switch result {
-                case .success:
+                case .success(let createdGame):
                     #if DEBUG
                     print("   ✅ Game created successfully")
                     #endif
-                    // Dismiss on successful creation
+                    // Schedule a reminder if the game is in the future and reminders are enabled
+                    if UserDefaults.standard.bool(forKey: "notif_gameReminders"),
+                       let gameDate = createdGame.date,
+                       gameDate > Date().addingTimeInterval(60 * 60) {
+                        Task {
+                            await PushNotificationService.shared.scheduleGameReminder(
+                                gameId: createdGame.id.uuidString,
+                                opponent: trimmedOpponent,
+                                scheduledTime: gameDate
+                            )
+                        }
+                    }
                     dismiss()
                 case .failure(let error):
                     #if DEBUG
@@ -1385,11 +1427,23 @@ struct AddGameView: View {
 
             await MainActor.run {
                 switch result {
-                case .success:
+                case .success(let createdGame):
                     // Success - dismiss
                     let calendar = Calendar.current
                     let year = calendar.component(.year, from: date)
                     print("✅ Game added to year \(year): \(trimmedOpponent)")
+                    // Schedule a reminder if the game is in the future and reminders are enabled
+                    if UserDefaults.standard.bool(forKey: "notif_gameReminders"),
+                       let gameDate = createdGame.date,
+                       gameDate > Date().addingTimeInterval(60 * 60) {
+                        Task {
+                            await PushNotificationService.shared.scheduleGameReminder(
+                                gameId: createdGame.id.uuidString,
+                                opponent: trimmedOpponent,
+                                scheduledTime: gameDate
+                            )
+                        }
+                    }
                     dismiss()
                 case .failure(let error):
                     // Show error alert

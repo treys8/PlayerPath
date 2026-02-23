@@ -86,6 +86,26 @@ struct HelpView: View {
                         subtitle: "Track live games"
                     )
                 }
+
+                NavigationLink {
+                    HelpArticleDetailView(article: .managingPhotos)
+                } label: {
+                    HelpRowLabel(
+                        icon: "photo.fill",
+                        title: "Managing Photos",
+                        subtitle: "Capture and organize photos"
+                    )
+                }
+
+                NavigationLink {
+                    HelpArticleDetailView(article: .coachSharing)
+                } label: {
+                    HelpRowLabel(
+                        icon: "person.2.fill",
+                        title: "Sharing with Coaches",
+                        subtitle: "Share clips via shared folders"
+                    )
+                }
             }
 
             Section("Sync & Storage") {
@@ -178,7 +198,7 @@ struct HelpView: View {
                 VStack(alignment: .center, spacing: 8) {
                     Text("PlayerPath")
                         .font(.headline)
-                    Text("Version 1.0.0")
+                    Text("Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—")")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }

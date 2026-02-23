@@ -106,13 +106,15 @@ struct ContactSupportView: View {
         AnalyticsService.shared.trackSupportContactSubmitted(category: selectedCategory.displayName)
 
         // Construct email URL
+        let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—"
+        let buildNumber = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "—"
         let emailBody = """
         Category: \(selectedCategory.displayName)
 
         \(message)
 
         ---
-        App Version: 1.0.0
+        App Version: \(appVersion) (\(buildNumber))
         Device: \(UIDevice.current.model)
         iOS Version: \(UIDevice.current.systemVersion)
         """

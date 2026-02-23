@@ -2,7 +2,8 @@
 //  CoachOnboardingFlow.swift
 //  PlayerPath
 //
-//  Extracted from MainAppView.swift
+//  Coach-specific onboarding — three-page paged flow explaining the
+//  invitation-based workflow that is unique to coaches.
 //
 
 import SwiftUI
@@ -13,220 +14,521 @@ struct CoachOnboardingFlow: View {
     @ObservedObject var authManager: ComprehensiveAuthManager
     let user: User
 
+    @State private var currentPage = 0
+    private let totalPages = 3
+
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 40) {
-                Spacer()
-
-                // COACH BADGE - Makes it obvious this is the coach flow
-                HStack {
-                    Spacer()
-                    HStack(spacing: 8) {
-                        Image(systemName: "person.fill.checkmark")
-                            .font(.caption)
-                        Text("COACH ACCOUNT")
-                            .font(.caption)
-                            .fontWeight(.bold)
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(
-                        Capsule()
-                            .fill(Color.green.opacity(0.2))
-                    )
-                    .foregroundColor(.green)
-                    Spacer()
-                }
-
-                VStack(spacing: 24) {
-                    ZStack {
-                        // Glow effect
-                        Circle()
-                            .fill(
-                                RadialGradient(
-                                    colors: [.blue.opacity(0.3), .purple.opacity(0.2), .clear],
-                                    center: .center,
-                                    startRadius: 20,
-                                    endRadius: 80
-                                )
-                            )
-                            .frame(width: 160, height: 160)
-                            .blur(radius: 20)
-
-                        Image(systemName: "person.2.wave.2.fill")
-                            .font(.system(size: 100, weight: .medium))
-                            .foregroundStyle(
-                                LinearGradient(
-                                    colors: [.blue, .purple],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                )
-                            )
-                            .symbolRenderingMode(.hierarchical)
-                            .shadow(color: .blue.opacity(0.4), radius: 15, x: 0, y: 8)
-                    }
-
-                    VStack(spacing: 16) {
-                        Text("Welcome, Coach!")
-                            .font(.largeTitle)
-                            .fontWeight(.bold)
-                            .multilineTextAlignment(.center)
-                            .accessibilityAddTraits(.isHeader)
-
-                        Text("Your coaching dashboard is ready")
-                            .font(.title3)
-                            .foregroundColor(.secondary)
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal)
-                    }
-                }
-
-                // Coach-specific onboarding benefits
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("As a Coach, You Can:")
-                        .font(.headline)
-                        .fontWeight(.bold)
-                        .padding(.bottom, 4)
-                        .accessibilityAddTraits(.isHeader)
-
-                    FeatureHighlight(
-                        icon: "folder.badge.person.crop",
-                        title: "Access Shared Folders",
-                        description: "View folders shared with you by your athletes",
-                        color: .blue
-                    )
-
-                    FeatureHighlight(
-                        icon: "video.badge.plus",
-                        title: "Upload & Review Videos",
-                        description: "Add videos and provide feedback",
-                        color: .red
-                    )
-
-                    FeatureHighlight(
-                        icon: "bubble.left.and.bubble.right.fill",
-                        title: "Annotate & Comment",
-                        description: "Add coaching insights and notes",
-                        color: .purple
-                    )
-
-                    FeatureHighlight(
-                        icon: "person.3.fill",
-                        title: "Manage Multiple Athletes",
-                        description: "Support all your athletes in one place",
-                        color: .green
-                    )
-                }
-                .padding(.horizontal)
-
-                // Info message
-                HStack(alignment: .center, spacing: 14) {
-                    ZStack {
-                        Circle()
-                            .fill(
-                                LinearGradient(
-                                    colors: [.blue.opacity(0.15), .blue.opacity(0.08)],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                )
-                            )
-                            .frame(width: 44, height: 44)
-
-                        Image(systemName: "info.circle.fill")
-                            .font(.system(size: 20, weight: .medium))
-                            .foregroundColor(.blue)
-                    }
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("How It Works")
-                            .font(.subheadline)
-                            .fontWeight(.semibold)
-                        Text("Athletes share folders via email. They'll appear in your dashboard.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-
-                    Spacer()
-                }
-                .padding()
-                .background(
-                    RoundedRectangle(cornerRadius: 14)
-                        .fill(Color(.systemBackground))
-                        .shadow(color: .black.opacity(0.06), radius: 4, x: 0, y: 2)
+        ZStack(alignment: .bottom) {
+            // Page content
+            TabView(selection: $currentPage) {
+                CoachWelcomePage(
+                    coachEmail: authManager.userEmail ?? user.email,
+                    onNext: { withAnimation { currentPage = 1 } }
                 )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14)
-                        .stroke(Color(.systemGray5), lineWidth: 1)
+                .tag(0)
+
+                CoachHowItWorksPage(
+                    onNext: { withAnimation { currentPage = 2 } }
                 )
-                .padding(.horizontal)
+                .tag(1)
 
-                Spacer()
-
-                Button(action: { Haptics.medium(); completeCoachOnboarding() }) {
-                    HStack(spacing: 12) {
-                        Image(systemName: "arrow.right.circle.fill")
-                            .font(.title3)
-                            .fontWeight(.semibold)
-                        Text("Go to Dashboard")
-                            .font(.title3)
-                            .fontWeight(.bold)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 58)
-                    .background(
-                        LinearGradient(
-                            colors: [.blue, .purple.opacity(0.85)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .foregroundColor(.white)
-                    .cornerRadius(16)
-                    .shadow(
-                        color: Color.blue.opacity(0.4),
-                        radius: 12,
-                        x: 0,
-                        y: 6
-                    )
-                }
-                .buttonStyle(.plain)
-                .padding(.horizontal)
-                .accessibilityLabel("Complete coach onboarding")
-                .accessibilityHint("Takes you to your coaching dashboard")
-                .accessibilitySortPriority(1)
-
-                Spacer()
+                CoachReadyPage(
+                    onComplete: completeCoachOnboarding
+                )
+                .tag(2)
             }
-            .padding()
-            .toolbar(.hidden, for: .navigationBar)
+            .tabViewStyle(.page(indexDisplayMode: .never))
+            .ignoresSafeArea()
+
+            // Custom page indicator
+            HStack(spacing: 8) {
+                ForEach(0..<totalPages, id: \.self) { index in
+                    Capsule()
+                        .fill(index == currentPage ? Color.green : Color.green.opacity(0.3))
+                        .frame(width: index == currentPage ? 24 : 8, height: 8)
+                        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: currentPage)
+                }
+            }
+            .padding(.bottom, 36)
         }
+        .toolbar(.hidden, for: .navigationBar)
     }
 
     private func completeCoachOnboarding() {
-        print("🟡 Completing coach onboarding for new user...")
-
         Task {
             do {
-                // Create onboarding progress record
                 let progress = OnboardingProgress()
                 progress.markCompleted()
                 modelContext.insert(progress)
-
                 try modelContext.save()
-                print("🟢 Successfully saved coach onboarding progress")
 
-                // Reset the new user flag after successful onboarding
                 await MainActor.run {
                     authManager.resetNewUserFlag()
                     authManager.markOnboardingComplete()
-                    print("🟢 Reset new user flag, coach onboarding completed")
-
-                    // Provide haptic feedback
                     Haptics.medium()
                 }
             } catch {
                 print("🔴 Failed to save coach onboarding progress: \(error)")
             }
         }
+    }
+}
+
+// MARK: - Page 1: Welcome
+
+private struct CoachWelcomePage: View {
+    let coachEmail: String
+    let onNext: () -> Void
+
+    @State private var appeared = false
+
+    var body: some View {
+        ZStack {
+            // Background gradient
+            LinearGradient(
+                colors: [
+                    Color(red: 0.04, green: 0.18, blue: 0.12),
+                    Color(red: 0.06, green: 0.08, blue: 0.12)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            .ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                Spacer()
+
+                // Icon
+                ZStack {
+                    Circle()
+                        .fill(Color.green.opacity(0.15))
+                        .frame(width: 180, height: 180)
+                        .blur(radius: 30)
+
+                    ZStack {
+                        Circle()
+                            .fill(
+                                LinearGradient(
+                                    colors: [Color.green.opacity(0.25), Color.teal.opacity(0.15)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                            .frame(width: 130, height: 130)
+                            .overlay(
+                                Circle()
+                                    .stroke(Color.green.opacity(0.4), lineWidth: 1)
+                            )
+
+                        Image(systemName: "megaphone.fill")
+                            .font(.system(size: 58))
+                            .foregroundStyle(
+                                LinearGradient(
+                                    colors: [.green, .teal],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                            .symbolRenderingMode(.hierarchical)
+                    }
+                }
+                .scaleEffect(appeared ? 1 : 0.6)
+                .opacity(appeared ? 1 : 0)
+                .animation(.spring(response: 0.6, dampingFraction: 0.7).delay(0.1), value: appeared)
+
+                Spacer().frame(height: 36)
+
+                // Title group
+                VStack(spacing: 10) {
+                    Text("Welcome, Coach")
+                        .font(.system(size: 36, weight: .bold))
+                        .foregroundColor(.white)
+                        .multilineTextAlignment(.center)
+
+                    Text("PlayerPath gives you everything you need\nto guide your athletes forward.")
+                        .font(.body)
+                        .foregroundColor(.white.opacity(0.65))
+                        .multilineTextAlignment(.center)
+                        .lineSpacing(4)
+                }
+                .offset(y: appeared ? 0 : 20)
+                .opacity(appeared ? 1 : 0)
+                .animation(.spring(response: 0.5, dampingFraction: 0.8).delay(0.2), value: appeared)
+                .padding(.horizontal, 32)
+
+                Spacer().frame(height: 48)
+
+                // Role card
+                HStack(spacing: 14) {
+                    Image(systemName: "person.fill.checkmark")
+                        .font(.title3)
+                        .foregroundColor(.green)
+                        .frame(width: 40, height: 40)
+                        .background(Color.green.opacity(0.15))
+                        .clipShape(Circle())
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Signed in as Coach")
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                            .foregroundColor(.white)
+                        Text(coachEmail)
+                            .font(.caption)
+                            .foregroundColor(.white.opacity(0.55))
+                            .lineLimit(1)
+                    }
+                    Spacer()
+                }
+                .padding(16)
+                .background(Color.white.opacity(0.08))
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14)
+                        .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                )
+                .padding(.horizontal, 24)
+                .offset(y: appeared ? 0 : 20)
+                .opacity(appeared ? 1 : 0)
+                .animation(.spring(response: 0.5, dampingFraction: 0.8).delay(0.3), value: appeared)
+
+                Spacer()
+
+                // CTA
+                Button(action: onNext) {
+                    HStack(spacing: 10) {
+                        Text("Get Started")
+                            .font(.headline)
+                            .fontWeight(.bold)
+                        Image(systemName: "arrow.right")
+                            .font(.headline)
+                            .fontWeight(.bold)
+                    }
+                    .foregroundColor(.black)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 56)
+                    .background(
+                        LinearGradient(
+                            colors: [.green, Color(red: 0.2, green: 0.85, blue: 0.55)],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                    .shadow(color: .green.opacity(0.5), radius: 16, x: 0, y: 8)
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 24)
+                .padding(.bottom, 80)
+                .offset(y: appeared ? 0 : 20)
+                .opacity(appeared ? 1 : 0)
+                .animation(.spring(response: 0.5, dampingFraction: 0.8).delay(0.4), value: appeared)
+            }
+        }
+        .onAppear { appeared = true }
+    }
+}
+
+// MARK: - Page 2: How It Works
+
+private struct CoachHowItWorksPage: View {
+    let onNext: () -> Void
+
+    @State private var appeared = false
+
+    private let steps: [(icon: String, color: Color, title: String, detail: String)] = [
+        ("envelope.fill",         .blue,   "Athlete Sends an Invite",   "An athlete adds your email address to share their folder with you."),
+        ("checkmark.seal.fill",   .green,  "You Accept the Invitation", "Open your Dashboard and tap the invitation to accept. You're in."),
+        ("video.fill",            .purple, "Review Their Videos",        "Browse game and practice clips organized by the athlete."),
+        ("bubble.left.fill",      .orange, "Leave Coaching Feedback",    "Annotate videos with timestamps and written notes athletes can act on."),
+    ]
+
+    var body: some View {
+        ZStack {
+            LinearGradient(
+                colors: [
+                    Color(red: 0.04, green: 0.06, blue: 0.18),
+                    Color(red: 0.06, green: 0.08, blue: 0.12)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            .ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                Spacer().frame(height: 60)
+
+                // Header
+                VStack(spacing: 8) {
+                    Text("How It Works")
+                        .font(.system(size: 30, weight: .bold))
+                        .foregroundColor(.white)
+
+                    Text("Athletes invite you — you coach.")
+                        .font(.subheadline)
+                        .foregroundColor(.white.opacity(0.55))
+                }
+                .offset(y: appeared ? 0 : 16)
+                .opacity(appeared ? 1 : 0)
+                .animation(.spring(response: 0.5, dampingFraction: 0.8).delay(0.05), value: appeared)
+
+                Spacer().frame(height: 36)
+
+                // Steps
+                VStack(spacing: 0) {
+                    ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
+                        HStack(alignment: .top, spacing: 16) {
+                            // Icon + connector line
+                            VStack(spacing: 0) {
+                                ZStack {
+                                    Circle()
+                                        .fill(step.color.opacity(0.18))
+                                        .frame(width: 44, height: 44)
+                                    Image(systemName: step.icon)
+                                        .font(.system(size: 18, weight: .semibold))
+                                        .foregroundColor(step.color)
+                                }
+                                if index < steps.count - 1 {
+                                    Rectangle()
+                                        .fill(Color.white.opacity(0.12))
+                                        .frame(width: 1.5, height: 28)
+                                }
+                            }
+
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(step.title)
+                                    .font(.subheadline)
+                                    .fontWeight(.semibold)
+                                    .foregroundColor(.white)
+                                Text(step.detail)
+                                    .font(.caption)
+                                    .foregroundColor(.white.opacity(0.55))
+                                    .lineSpacing(2)
+                                if index < steps.count - 1 {
+                                    Spacer().frame(height: 20)
+                                }
+                            }
+
+                            Spacer()
+                        }
+                        .padding(.horizontal, 28)
+                        .offset(y: appeared ? 0 : 20)
+                        .opacity(appeared ? 1 : 0)
+                        .animation(
+                            .spring(response: 0.5, dampingFraction: 0.8)
+                            .delay(0.15 + Double(index) * 0.08),
+                            value: appeared
+                        )
+                    }
+                }
+
+                Spacer()
+
+                // Info callout
+                HStack(spacing: 12) {
+                    Image(systemName: "lightbulb.fill")
+                        .foregroundColor(.yellow)
+                        .font(.subheadline)
+                    Text("You don't add athletes — they add you. Check your Dashboard after they invite you.")
+                        .font(.caption)
+                        .foregroundColor(.white.opacity(0.65))
+                        .lineSpacing(2)
+                }
+                .padding(14)
+                .background(Color.yellow.opacity(0.08))
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(Color.yellow.opacity(0.2), lineWidth: 1)
+                )
+                .padding(.horizontal, 24)
+                .offset(y: appeared ? 0 : 16)
+                .opacity(appeared ? 1 : 0)
+                .animation(.spring(response: 0.5, dampingFraction: 0.8).delay(0.5), value: appeared)
+
+                Spacer().frame(height: 20)
+
+                // CTA
+                Button(action: onNext) {
+                    HStack(spacing: 10) {
+                        Text("Continue")
+                            .font(.headline)
+                            .fontWeight(.bold)
+                        Image(systemName: "arrow.right")
+                            .font(.headline)
+                            .fontWeight(.bold)
+                    }
+                    .foregroundColor(.black)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 56)
+                    .background(
+                        LinearGradient(
+                            colors: [.green, Color(red: 0.2, green: 0.85, blue: 0.55)],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                    .shadow(color: .green.opacity(0.5), radius: 16, x: 0, y: 8)
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 24)
+                .padding(.bottom, 80)
+                .offset(y: appeared ? 0 : 16)
+                .opacity(appeared ? 1 : 0)
+                .animation(.spring(response: 0.5, dampingFraction: 0.8).delay(0.55), value: appeared)
+            }
+        }
+        .onAppear { appeared = true }
+    }
+}
+
+// MARK: - Page 3: Ready
+
+private struct CoachReadyPage: View {
+    let onComplete: () -> Void
+
+    @State private var appeared = false
+
+    private let checklist: [(icon: String, text: String)] = [
+        ("tray.and.arrow.down.fill", "Check your Dashboard for athlete invitations"),
+        ("video.badge.checkmark",    "Watch and annotate shared video clips"),
+        ("bubble.left.and.text.bubble.right.fill", "Leave timestamped notes athletes can act on"),
+        ("bell.badge.fill",          "Get notified when athletes upload new footage"),
+    ]
+
+    var body: some View {
+        ZStack {
+            LinearGradient(
+                colors: [
+                    Color(red: 0.05, green: 0.15, blue: 0.08),
+                    Color(red: 0.04, green: 0.07, blue: 0.12)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            .ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                Spacer()
+
+                // Badge + Title
+                VStack(spacing: 20) {
+                    ZStack {
+                        Circle()
+                            .fill(Color.green.opacity(0.15))
+                            .frame(width: 120, height: 120)
+                            .blur(radius: 20)
+
+                        ZStack {
+                            Circle()
+                                .fill(Color.green.opacity(0.2))
+                                .frame(width: 90, height: 90)
+                                .overlay(
+                                    Circle()
+                                        .stroke(Color.green.opacity(0.4), lineWidth: 1)
+                                )
+
+                            Image(systemName: "checkmark.seal.fill")
+                                .font(.system(size: 44))
+                                .foregroundStyle(
+                                    LinearGradient(
+                                        colors: [.green, .teal],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    )
+                                )
+                                .symbolRenderingMode(.hierarchical)
+                        }
+                    }
+                    .scaleEffect(appeared ? 1 : 0.5)
+                    .opacity(appeared ? 1 : 0)
+                    .animation(.spring(response: 0.6, dampingFraction: 0.65).delay(0.05), value: appeared)
+
+                    VStack(spacing: 8) {
+                        Text("You're All Set")
+                            .font(.system(size: 32, weight: .bold))
+                            .foregroundColor(.white)
+
+                        Text("Here's what to do when you\nopen your Dashboard:")
+                            .font(.subheadline)
+                            .foregroundColor(.white.opacity(0.55))
+                            .multilineTextAlignment(.center)
+                            .lineSpacing(3)
+                    }
+                    .offset(y: appeared ? 0 : 16)
+                    .opacity(appeared ? 1 : 0)
+                    .animation(.spring(response: 0.5, dampingFraction: 0.8).delay(0.15), value: appeared)
+                }
+
+                Spacer().frame(height: 36)
+
+                // Checklist
+                VStack(spacing: 12) {
+                    ForEach(Array(checklist.enumerated()), id: \.offset) { index, item in
+                        HStack(spacing: 14) {
+                            Image(systemName: item.icon)
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundColor(.green)
+                                .frame(width: 32, height: 32)
+                                .background(Color.green.opacity(0.12))
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
+
+                            Text(item.text)
+                                .font(.subheadline)
+                                .foregroundColor(.white.opacity(0.85))
+
+                            Spacer()
+                        }
+                        .padding(14)
+                        .background(Color.white.opacity(0.06))
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(Color.white.opacity(0.1), lineWidth: 1)
+                        )
+                        .offset(y: appeared ? 0 : 20)
+                        .opacity(appeared ? 1 : 0)
+                        .animation(
+                            .spring(response: 0.5, dampingFraction: 0.8)
+                            .delay(0.25 + Double(index) * 0.07),
+                            value: appeared
+                        )
+                    }
+                }
+                .padding(.horizontal, 24)
+
+                Spacer()
+
+                // CTA
+                Button(action: onComplete) {
+                    HStack(spacing: 10) {
+                        Image(systemName: "sportscourt.fill")
+                            .font(.headline)
+                        Text("Go to Dashboard")
+                            .font(.headline)
+                            .fontWeight(.bold)
+                    }
+                    .foregroundColor(.black)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 56)
+                    .background(
+                        LinearGradient(
+                            colors: [.green, Color(red: 0.2, green: 0.85, blue: 0.55)],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                    .shadow(color: .green.opacity(0.5), radius: 16, x: 0, y: 8)
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 24)
+                .padding(.bottom, 80)
+                .offset(y: appeared ? 0 : 16)
+                .opacity(appeared ? 1 : 0)
+                .animation(.spring(response: 0.5, dampingFraction: 0.8).delay(0.55), value: appeared)
+            }
+        }
+        .onAppear { appeared = true }
     }
 }

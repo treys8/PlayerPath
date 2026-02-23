@@ -55,6 +55,7 @@ struct SeasonManagementView: View {
                             showingCreateSeason = true
                         } label: {
                             Label("Start New Season", systemImage: "play.fill")
+                                .foregroundColor(.white)
                         }
                         .buttonStyle(.borderedProminent)
                     }

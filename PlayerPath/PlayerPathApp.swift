@@ -37,6 +37,27 @@ struct PlayerPathApp: App {
     // State for handling notification-based navigation
     @State private var navigationCoordinator = NavigationCoordinator()
 
+    /// Shared model container using the versioned schema + migration plan so that
+    /// model changes between builds trigger proper migrations instead of silently
+    /// destroying the store and wiping tester/user data.
+    static let sharedModelContainer: ModelContainer = {
+        do {
+            let schema = Schema(versionedSchema: SchemaV1.self)
+            return try ModelContainer(
+                for: schema,
+                migrationPlan: PlayerPathMigrationPlan.self
+            )
+        } catch {
+            // Fallback: attempt unversioned container (auto-migrates simple changes)
+            print("⚠️ Versioned ModelContainer failed (\(error.localizedDescription)), falling back to unversioned")
+            do {
+                return try ModelContainer(for: Schema(SchemaV1.models))
+            } catch {
+                fatalError("Could not create ModelContainer: \(error)")
+            }
+        }
+    }()
+
     // Initialize Firebase before anything else
     init() {
         // Configure Firebase as early as possible
@@ -113,21 +134,9 @@ struct PlayerPathApp: App {
                         // Views should call navigationCoordinator.resetNavigation() after handling.
                     }
                 }
-                .task {
-                    // Request notification permission early (non-blocking)
-                    do {
-                        let granted = try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound])
-                        #if DEBUG
-                        print("🔔 Notifications authorization granted: \(granted)")
-                        #endif
-                    } catch {
-                        #if DEBUG
-                        print("🔴 Notification authorization error: \(error)")
-                        #endif
-                    }
-                }
+                // Note: Notification permission is requested by AppDelegate on launch.
         }
-        .modelContainer(for: SchemaV1.models)
+        .modelContainer(PlayerPathApp.sharedModelContainer)
     }
 }
 

@@ -10,6 +10,8 @@ import UserNotifications
 import SwiftUI
 import Combine
 import os.log
+import FirebaseAuth
+import FirebaseFirestore
 
 @MainActor
 final class PushNotificationService: NSObject, ObservableObject {
@@ -429,6 +431,19 @@ final class PushNotificationService: NSObject, ObservableObject {
         }
     }
     
+    /// Send immediate upload-complete notification (called after each successful upload)
+    func notifyUploadComplete() async {
+        guard authorizationStatus == .authorized else { return }
+        _ = await scheduleLocalNotification(
+            identifier: "upload_complete_\(UUID().uuidString)",
+            title: "Upload Complete ☁️",
+            body: "Your video has been successfully backed up to the cloud.",
+            categoryIdentifier: "CLOUD_BACKUP",
+            userInfo: ["type": "cloud_backup"],
+            trigger: UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
+        )
+    }
+
     /// Send immediate cloud backup completion notification
     func notifyCloudBackupComplete(videoCount: Int, totalSize: String) async {
         guard authorizationStatus == .authorized else { return }
@@ -467,56 +482,26 @@ final class PushNotificationService: NSObject, ObservableObject {
     
     /// Returns (success, shouldRetry)
     private func sendTokenToServer(_ token: String) async -> (Bool, Bool) {
-        // In a real app, you would send this token to your server
-        // for push notification targeting
-        #if DEBUG
-        logger.info("Preparing to send device token to server")
-        #endif
-
-        
-        // Example of what this might look like:
-        /*
-        let url = URL(string: "https://your-api.com/register-device")!
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        
-        let body = [
-            "deviceToken": token,
-            "platform": "ios",
-            "appVersion": Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
-        ]
-        
-        do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: body)
-            let (_, response) = try await URLSession.shared.data(for: request)
-            
-            if let httpResponse = response as? HTTPURLResponse {
-                switch httpResponse.statusCode {
-                case 200...299:
-                    logger.info("Successfully registered device token with server")
-                    return (true, false)
-                case 400...499:
-                    // Client error - don't retry
-                    logger.error("Client error registering token (status \(httpResponse.statusCode)) - will not retry")
-                    return (false, false)
-                case 500...599:
-                    // Server error - retry
-                    logger.error("Server error registering token (status \(httpResponse.statusCode)) - will retry")
-                    return (false, true)
-                default:
-                    return (false, true)
-                }
-            }
-            return (false, true)
-        } catch {
-            logger.error("Error sending device token to server: \(error.localizedDescription)")
-            return (false, true) // Network errors are retryable
+        // Store the APNs device token in the user's Firestore document so
+        // future server-side push infrastructure can target this device.
+        guard let userID = Auth.auth().currentUser?.uid else {
+            logger.warning("Cannot store device token — no authenticated user")
+            return (false, false)
         }
-        */
-        
-        // For now, return success as placeholder
-        return (true, false)
+
+        do {
+            let db = Firestore.firestore()
+            try await db.collection("users").document(userID).setData([
+                "deviceToken": token,
+                "deviceTokenUpdatedAt": FieldValue.serverTimestamp(),
+                "platform": "ios"
+            ], merge: true)
+            logger.info("Stored device token in Firestore for user \(userID)")
+            return (true, false)
+        } catch {
+            logger.error("Failed to store device token: \(error.localizedDescription)")
+            return (false, true)
+        }
     }
     
     // MARK: - Notification Settings

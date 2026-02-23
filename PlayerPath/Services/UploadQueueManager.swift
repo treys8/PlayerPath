@@ -493,6 +493,11 @@ final class UploadQueueManager {
             clip.lastSyncDate = Date()
             try context.save()
 
+            // Notify user of successful upload if enabled
+            if UserDefaults.standard.bool(forKey: "notif_uploads") {
+                await PushNotificationService.shared.notifyUploadComplete()
+            }
+
             // Stop progress monitoring
             progressTask.cancel()
             activeUploads.removeValue(forKey: upload.clipId)

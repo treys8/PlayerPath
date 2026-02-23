@@ -107,9 +107,17 @@ class SharedFolderManager: ObservableObject {
         )
         
         print("✅ Created invitation \(invitationID) for \(cleanEmail)")
-        
-        // TODO: Send email notification via Cloud Function or external service
-        // For now, coach will see pending invitations when they sign up
+
+        // Notify the coach in-app if they already have an account
+        if let coachUserID = await ActivityNotificationService.shared.lookupUserID(byEmail: cleanEmail) {
+            await ActivityNotificationService.shared.postInvitationReceivedNotification(
+                invitationID: invitationID,
+                athleteID: athleteID,
+                athleteName: athleteName,
+                folderName: folderName,
+                coachUserID: coachUserID
+            )
+        }
     }
     
     /// Removes a coach from a shared folder WITH NOTIFICATION
@@ -165,13 +173,20 @@ class SharedFolderManager: ObservableObject {
         folderName: String,
         athleteID: String
     ) async {
-        // TODO: Implement Firebase Cloud Messaging or email notification
-        print("📧 Notification queued for \(coachEmail): Access removed from '\(folderName)'")
+        // Notify coach in-app if they have an account
+        let athleteName: String
+        if let profile = try? await firestore.fetchUserProfile(userID: athleteID) {
+            athleteName = profile.email
+        } else {
+            athleteName = "An athlete"
+        }
 
-        // In production, you would:
-        // 1. Send FCM push notification if coach is logged in
-        // 2. Send email notification
-        // 3. Create in-app notification record
+        await ActivityNotificationService.shared.postAccessRevokedNotification(
+            folderName: folderName,
+            athleteID: athleteID,
+            athleteName: athleteName,
+            coachUserID: coachID
+        )
     }
     
     /// Deletes a shared folder and all its contents WITH CASCADE
@@ -285,17 +300,29 @@ class SharedFolderManager: ObservableObject {
               let coachID = Auth.auth().currentUser?.uid else {
             throw SharedFolderError.folderNotFound
         }
-        
+
         let permissions = FolderPermissions.default
-        
+
         try await firestore.acceptInvitation(
             invitationID: invitationID,
             coachID: coachID,
             permissions: permissions
         )
-        
+
         // Refresh coach's folder list
         try await loadCoachFolders(coachID: coachID)
+
+        // Notify the athlete that their coach accepted
+        let coachName = Auth.auth().currentUser?.displayName
+            ?? Auth.auth().currentUser?.email
+            ?? "Your coach"
+        await ActivityNotificationService.shared.postInvitationAcceptedNotification(
+            folderName: invitation.folderName,
+            coachID: coachID,
+            coachName: coachName,
+            athleteID: invitation.athleteID,
+            folderID: invitation.folderID
+        )
     }
     
     /// Declines an invitation
@@ -360,7 +387,20 @@ class SharedFolderManager: ObservableObject {
             fileSize: fileSize,
             duration: nil
         )
-        
+
+        // Notify all coaches with access to this folder
+        if let folder = try? await firestore.fetchSharedFolder(folderID: folderID),
+           !folder.sharedWithCoachIDs.isEmpty {
+            await ActivityNotificationService.shared.postNewVideoNotification(
+                folderID: folderID,
+                folderName: folder.name,
+                uploaderID: uploadedBy,
+                uploaderName: uploadedByName,
+                coachIDs: folder.sharedWithCoachIDs,
+                videoFileName: fileName
+            )
+        }
+
         return videoID
     }
     

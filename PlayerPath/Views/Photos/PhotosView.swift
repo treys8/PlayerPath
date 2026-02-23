@@ -19,25 +19,65 @@ struct PhotosView: View {
 
     private var photos: [Photo] {
         let athleteID = athlete.id
-        let filtered = allPhotos.filter { $0.athlete?.id == athleteID }
+        var filtered = allPhotos.filter { $0.athlete?.id == athleteID }
 
+        // Content type filter
         switch activeFilter {
         case .all:
-            return filtered
+            break
         case .games:
-            return filtered.filter { $0.game != nil }
+            filtered = filtered.filter { $0.game != nil }
         case .practice:
-            return filtered.filter { $0.practice != nil }
+            filtered = filtered.filter { $0.practice != nil }
         }
+
+        // Season filter
+        if let seasonFilter = selectedSeasonFilter {
+            filtered = filtered.filter { photo in
+                if seasonFilter == "no_season" {
+                    return photo.season == nil
+                } else {
+                    return photo.season?.id.uuidString == seasonFilter
+                }
+            }
+        }
+
+        // Date range filter
+        if selectedDateRange != .allTime {
+            let range = selectedDateRange.dateRange
+            filtered = filtered.filter { photo in
+                guard let date = photo.createdAt else { return false }
+                return date >= range.start && date <= range.end
+            }
+        }
+
+        // Text search
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if !query.isEmpty {
+            filtered = filtered.filter { photo in
+                (photo.game?.opponent.lowercased().contains(query) ?? false) ||
+                (photo.caption?.lowercased().contains(query) ?? false)
+            }
+        }
+
+        return filtered
     }
 
     // State
     @State private var activeFilter: PhotoFilter = .all
+    @State private var searchText = ""
+    @State private var selectedDateRange: DateRange = .allTime
+    @State private var selectedSeasonFilter: String? = nil
+    @State private var showingFilterSheet = false
     @State private var showingSourcePicker = false
     @State private var showingCamera = false
     @State private var showingLibraryPicker = false
     @State private var selectedPhotoItems: [PhotosPickerItem] = []
     @State private var isImporting = false
+
+    private var hasActiveFilters: Bool {
+        selectedDateRange != .allTime || selectedSeasonFilter != nil
+    }
 
     private let columns = [
         GridItem(.flexible(), spacing: 2),
@@ -62,6 +102,7 @@ struct PhotosView: View {
                 photosGrid
             }
         }
+        .searchable(text: $searchText, prompt: "Search photos")
         .navigationTitle("Photos")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -70,11 +111,21 @@ struct PhotosView: View {
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
+                    showingFilterSheet = true
+                } label: {
+                    Image(systemName: hasActiveFilters ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                }
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
                     showingSourcePicker = true
                 } label: {
                     Image(systemName: "plus")
                 }
             }
+        }
+        .sheet(isPresented: $showingFilterSheet) {
+            filterSheet
         }
         .confirmationDialog("Add Photo", isPresented: $showingSourcePicker) {
             Button("Take Photo") {
@@ -186,6 +237,48 @@ struct PhotosView: View {
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
             Spacer()
+        }
+    }
+
+    // MARK: - Filter Sheet
+
+    private var filterSheet: some View {
+        NavigationStack {
+            Form {
+                Section("Date Range") {
+                    Picker("Range", selection: $selectedDateRange) {
+                        ForEach(DateRange.allCases) { range in
+                            Text(range.displayName).tag(range)
+                        }
+                    }
+                    .pickerStyle(.inline)
+                }
+
+                let seasons = athlete.seasons ?? []
+                if !seasons.isEmpty {
+                    Section("Season") {
+                        Picker("Season", selection: $selectedSeasonFilter) {
+                            Text("All Seasons").tag(nil as String?)
+                            ForEach(seasons.sorted(by: { ($0.startDate ?? Date.distantPast) > ($1.startDate ?? Date.distantPast) })) { season in
+                                Text(season.displayName).tag(season.id.uuidString as String?)
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Filter Photos")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Reset") {
+                        selectedDateRange = .allTime
+                        selectedSeasonFilter = nil
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { showingFilterSheet = false }
+                }
+            }
         }
     }
 

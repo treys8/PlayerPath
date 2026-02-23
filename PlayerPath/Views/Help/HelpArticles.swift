@@ -18,6 +18,8 @@ enum HelpArticle {
     case videoStorage
     case exportingData
     case deletingAccount
+    case managingPhotos
+    case coachSharing
 
     var title: String {
         switch self {
@@ -31,6 +33,8 @@ enum HelpArticle {
         case .videoStorage: return "Video Storage"
         case .exportingData: return "Exporting Your Data"
         case .deletingAccount: return "Deleting Your Account"
+        case .managingPhotos: return "Managing Photos"
+        case .coachSharing: return "Sharing with Coaches"
         }
     }
 
@@ -46,6 +50,8 @@ enum HelpArticle {
         case .videoStorage: return "externaldrive.fill"
         case .exportingData: return "arrow.down.doc"
         case .deletingAccount: return "trash"
+        case .managingPhotos: return "photo.fill"
+        case .coachSharing: return "person.2.fill"
         }
     }
 
@@ -426,6 +432,83 @@ enum HelpArticle {
 
             **Support:**
             If you're having issues and considering deletion, please contact support first—we may be able to help!
+            """
+
+        case .managingPhotos:
+            return """
+            PlayerPath lets you capture and organize photos alongside your videos:
+
+            **Adding Photos**
+            You can add photos two ways:
+            1. Go to your profile and tap "Photos"
+            2. Tap "+" in the top-right corner
+            3. Choose "Take Photo" to use your camera, or "Choose from Library" to import from your photo library
+            4. You can import up to 20 photos at once from your library
+
+            **Tagging Photos to Games or Practices**
+            After adding a photo, tap it to open the detail view. From there you can:
+            • Link it to a game (e.g., action shots from a specific game)
+            • Link it to a practice session
+            • Add a caption
+
+            **Filtering Photos**
+            In the Photos screen, use the filter bar to view:
+            • All photos
+            • Game photos only
+            • Practice photos only
+
+            **Searching Photos**
+            Use the search bar to find photos by:
+            • Opponent name (for game-linked photos)
+            • Caption text
+
+            You can also tap the filter icon to filter by date range or season.
+
+            **Deleting Photos**
+            • Swipe left on a photo thumbnail to delete it
+            • Or open the photo detail and tap the trash icon
+
+            **Storage:**
+            Photos are stored locally on your device. They are not included in cloud sync.
+            """
+
+        case .coachSharing:
+            return """
+            PlayerPath lets you share your videos and stats with coaches:
+
+            **Shared Folders (Premium)**
+            Shared Folders allow you to share clips directly with a coach:
+            1. Go to More tab → "Shared Folders"
+            2. Tap "+" to create a new folder
+            3. Name the folder (e.g., "Spring 2026 Highlights")
+            4. Add videos from your library
+            5. Share the folder link with your coach
+
+            Coaches who receive the link can view the folder using the PlayerPath Coach app without needing a player account.
+
+            **Inviting a Coach**
+            1. Go to More tab → Settings
+            2. Tap "Shared Folders"
+            3. Open a folder and tap "Invite Coach"
+            4. Enter your coach's email address
+            5. They'll receive an invitation to view your folder
+
+            **What Coaches Can See**
+            • Videos you've added to the shared folder
+            • Play result tags (hit, out, walk, etc.)
+            • Game and date information
+            • Your statistics for shared clips
+
+            **What Coaches Cannot See**
+            • Videos not added to shared folders
+            • Your account information
+            • Other athletes' data
+
+            **Coach Account**
+            Coaches use a separate Coach account. If your coach doesn't have one, they can sign up for free at playerpath.app.
+
+            **Removing Access**
+            To revoke a coach's access, open the shared folder, tap the coach's name, and tap "Remove Access."
             """
         }
     }

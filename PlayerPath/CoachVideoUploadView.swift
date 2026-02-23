@@ -279,7 +279,17 @@ class CoachVideoUploadViewModel: ObservableObject {
                 folderID: folderID,
                 metadata: metadata
             )
-            
+
+            // Notify the athlete (folder owner) that the coach added a video
+            await ActivityNotificationService.shared.postNewVideoNotification(
+                folderID: folderID,
+                folderName: folder.name,
+                uploaderID: uploaderID,
+                uploaderName: uploaderName,
+                coachIDs: [folder.ownerAthleteID],
+                videoFileName: fileName
+            )
+
             uploadComplete = true
             HapticManager.shared.success()
             

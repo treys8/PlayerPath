@@ -541,7 +541,7 @@ class CoachVideoPlayerViewModel: ObservableObject {
     ) async {
         do {
             guard let videoID = video.id as String? else { return }
-            
+
             let annotation = try await FirestoreManager.shared.createAnnotation(
                 videoID: videoID,
                 text: text,
@@ -550,12 +550,26 @@ class CoachVideoPlayerViewModel: ObservableObject {
                 userName: userName,
                 isCoachComment: isCoachComment
             )
-            
+
             annotations.append(annotation)
             annotations.sort { $0.timestamp < $1.timestamp }
-            
+
             HapticManager.shared.success()
-            
+
+            // Notify the folder owner that a coach left feedback
+            if isCoachComment {
+                let athleteID = folder.ownerAthleteID
+                await ActivityNotificationService.shared.postCoachCommentNotification(
+                    videoFileName: video.fileName,
+                    folderID: folder.id ?? "",
+                    videoID: videoID,
+                    coachID: userID,
+                    coachName: userName,
+                    athleteID: athleteID,
+                    notePreview: text
+                )
+            }
+
         } catch {
             errorMessage = "Failed to add note: \(error.localizedDescription)"
             print("❌ Failed to add annotation: \(error)")

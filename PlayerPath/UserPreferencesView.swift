@@ -7,6 +7,7 @@
 
 import SwiftUI
 import SwiftData
+import UIKit
 
 struct UserPreferencesView: View {
     @Environment(\.modelContext) private var modelContext
@@ -22,7 +23,6 @@ struct UserPreferencesView: View {
                         uiPreferencesSection(preferences: prefs)
                         cloudSyncSection(preferences: prefs)
                         privacyAnalyticsSection(preferences: prefs)
-                        notificationsSection(preferences: prefs)
                     }
                 } else {
                     ProgressView("Loading preferences...")
@@ -132,7 +132,17 @@ struct UserPreferencesView: View {
         Section {
             Picker("Video Quality", selection: Binding<VideoQuality>(
                 get: { viewModel.preferences?.defaultVideoQuality ?? VideoQuality.medium },
-                set: { viewModel.update(\.defaultVideoQuality, to: $0) }
+                set: { newQuality in
+                    viewModel.update(\.defaultVideoQuality, to: newQuality)
+                    // Sync to UserDefaults so VideoRecorderView picks up the change
+                    let qualityType: UIImagePickerController.QualityType
+                    switch newQuality {
+                    case .low:    qualityType = .typeLow
+                    case .medium: qualityType = .typeMedium
+                    case .high:   qualityType = .typeHigh
+                    }
+                    UserDefaults.standard.set(qualityType.rawValue, forKey: "selectedVideoQuality")
+                }
             )) {
                 ForEach(VideoQuality.allCases, id: \.self) { quality in
                     Text(quality.displayName).tag(quality)
@@ -241,19 +251,4 @@ struct UserPreferencesView: View {
         }
     }
     
-    private func notificationsSection(preferences: UserPreferences) -> some View {
-        Section {
-            Toggle("Upload Notifications", isOn: Binding(
-                get: { viewModel.preferences?.enableUploadNotifications ?? false },
-                set: { viewModel.update(\.enableUploadNotifications, to: $0) }
-            ))
-            
-            Toggle("Game Reminders", isOn: Binding(
-                get: { viewModel.preferences?.enableGameReminders ?? false },
-                set: { viewModel.update(\.enableGameReminders, to: $0) }
-            ))
-        } header: {
-            Text("Notifications")
-        }
-    }
 }

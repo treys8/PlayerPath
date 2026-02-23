@@ -8,8 +8,8 @@
 import SwiftUI
 import LocalAuthentication
 
-/// A view for managing biometric authentication settings
-/// Can be integrated into a settings/profile screen
+/// Full-page view for managing biometric authentication settings.
+/// Used as a NavigationLink destination from the profile/settings screen.
 struct BiometricSettingsView: View {
     @StateObject private var biometricManager = BiometricAuthenticationManager()
     @State private var showingEnableSheet = false
@@ -18,65 +18,80 @@ struct BiometricSettingsView: View {
     @State private var tempPassword = ""
     @State private var showPassword = false
     @State private var errorMessage: String?
-    
+
     var body: some View {
-        Section {
-            if biometricManager.isBiometricAvailable {
-                Toggle(isOn: $biometricManager.isBiometricEnabled) {
-                    HStack {
-                        Image(systemName: biometricManager.biometricType == .faceID ? "faceid" : "touchid")
-                            .font(.title2)
-                            .foregroundColor(.blue)
-                            .frame(width: 40)
-                        
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("\(biometricManager.biometricTypeName) Sign In")
+        Form {
+            Section {
+                if biometricManager.isBiometricAvailable {
+                    Toggle(isOn: $biometricManager.isBiometricEnabled) {
+                        Label {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("\(biometricManager.biometricTypeName) Sign In")
+                                    .font(.body)
+                                Text("Sign in quickly using \(biometricManager.biometricTypeName)")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        } icon: {
+                            Image(systemName: biometricManager.biometricType == .faceID ? "faceid" : "touchid")
+                                .foregroundColor(.blue)
+                        }
+                    }
+                    .onChange(of: biometricManager.isBiometricEnabled) { oldValue, newValue in
+                        if newValue && !oldValue {
+                            showingEnableSheet = true
+                        } else if !newValue && oldValue {
+                            showingDisableConfirmation = true
+                        }
+                    }
+                } else {
+                    Label {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Biometric Authentication")
                                 .font(.body)
-                            Text("Sign in quickly using \(biometricManager.biometricTypeName)")
+                            Text("Not available on this device")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                         }
+                    } icon: {
+                        Image(systemName: "faceid")
+                            .foregroundColor(.gray)
                     }
                 }
-                .onChange(of: biometricManager.isBiometricEnabled) { oldValue, newValue in
-                    if newValue && !oldValue {
-                        // Enabling biometric
-                        showingEnableSheet = true
-                    } else if !newValue && oldValue {
-                        // Disabling biometric
-                        showingDisableConfirmation = true
-                    }
+            } header: {
+                Text("Security")
+            } footer: {
+                if biometricManager.isBiometricEnabled {
+                    Text("Your credentials are securely stored in the Keychain and can only be accessed with \(biometricManager.biometricTypeName).")
                 }
-                
-            } else {
-                HStack {
-                    Image(systemName: "faceid")
-                        .font(.title2)
-                        .foregroundColor(.gray)
-                        .frame(width: 40)
-                    
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Biometric Authentication")
-                            .font(.body)
-                        Text("Not available on this device")
-                            .font(.caption)
+            }
+
+            if biometricManager.isBiometricAvailable {
+                Section {
+                    HStack(spacing: 12) {
+                        Image(systemName: "lock.shield.fill")
+                            .foregroundColor(.green)
+                            .frame(width: 28)
+                        Text("Credentials are encrypted and stored in the system Keychain")
+                            .font(.subheadline)
                             .foregroundColor(.secondary)
                     }
-                    
-                    Spacer()
+                    HStack(spacing: 12) {
+                        Image(systemName: "key.fill")
+                            .foregroundColor(.blue)
+                            .frame(width: 28)
+                        Text("Only accessible with \(biometricManager.biometricTypeName) or your device passcode")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    }
+                } header: {
+                    Text("How It Works")
                 }
-                .padding(.vertical, 8)
-            }
-        } header: {
-            Text("Security")
-        } footer: {
-            if biometricManager.isBiometricEnabled {
-                Text("Your credentials are securely stored in the Keychain and can only be accessed with \(biometricManager.biometricTypeName).")
-                    .font(.caption)
             }
         }
+        .navigationTitle("Face ID / Touch ID")
+        .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showingEnableSheet, onDismiss: {
-            // If sheet dismissed without enabling, toggle back
             if !biometricManager.isBiometricEnabled {
                 biometricManager.isBiometricEnabled = false
             }
@@ -309,9 +324,6 @@ private struct EnableBiometricSheet: View {
 
 #Preview {
     NavigationStack {
-        Form {
-            BiometricSettingsView()
-        }
-        .navigationTitle("Settings")
+        BiometricSettingsView()
     }
 }

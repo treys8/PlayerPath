@@ -67,6 +67,15 @@ struct AuthenticatedFlow: View {
                     // Don't block app launch on migration failure
                 }
 
+                // Recover any video files orphaned by a SwiftData store reset
+                // (happens between TestFlight builds when model schema changes).
+                // Run after loadUser() so athletes are in the context.
+                let athletes = (currentUser?.athletes ?? [])
+                await OrphanedClipRecoveryService.shared.recoverIfNeeded(
+                    context: modelContext,
+                    athletes: athletes
+                )
+
                 // Trigger initial sync after user loads
                 if let user = currentUser {
                     do {

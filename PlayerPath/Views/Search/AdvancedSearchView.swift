@@ -113,9 +113,7 @@ struct AdvancedSearchView: View {
     private var hasActiveFilters: Bool {
         selectedDateRange != .allTime ||
         selectedSeason != nil ||
-        selectedGame != nil ||
-        !selectedPlayResults.isEmpty ||
-        highlightsOnly
+        (selectedContentType == .videos && (selectedGame != nil || !selectedPlayResults.isEmpty || highlightsOnly))
     }
 
     private var activeFiltersSummaryView: some View {
@@ -133,21 +131,23 @@ struct AdvancedSearchView: View {
                     }
                 }
 
-                if let game = selectedGame {
-                    FilterChip(text: "vs \(game.opponent)") {
-                        selectedGame = nil
+                if selectedContentType == .videos {
+                    if let game = selectedGame {
+                        FilterChip(text: "vs \(game.opponent)") {
+                            selectedGame = nil
+                        }
                     }
-                }
 
-                if highlightsOnly {
-                    FilterChip(text: "Highlights only") {
-                        highlightsOnly = false
+                    if highlightsOnly {
+                        FilterChip(text: "Highlights only") {
+                            highlightsOnly = false
+                        }
                     }
-                }
 
-                if !selectedPlayResults.isEmpty {
-                    FilterChip(text: "\(selectedPlayResults.count) play types") {
-                        selectedPlayResults.removeAll()
+                    if !selectedPlayResults.isEmpty {
+                        FilterChip(text: "\(selectedPlayResults.count) play types") {
+                            selectedPlayResults.removeAll()
+                        }
                     }
                 }
 
@@ -181,6 +181,8 @@ struct AdvancedSearchView: View {
                 gamesResultsView
             case .practices:
                 practicesResultsView
+            case .photos:
+                photosResultsView
             }
         }
     }
@@ -249,6 +251,27 @@ struct AdvancedSearchView: View {
                     }
                 }
                 .listStyle(.plain)
+            }
+        }
+    }
+
+    private var photosResultsView: some View {
+        let results = filteredPhotos
+
+        return Group {
+            if results.isEmpty {
+                emptyResultsView
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 12) {
+                        resultsHeaderView(count: results.count)
+
+                        ForEach(results) { photo in
+                            PhotoSearchResultCard(photo: photo)
+                        }
+                    }
+                    .padding()
+                }
             }
         }
     }
@@ -521,6 +544,34 @@ struct AdvancedSearchView: View {
         return practices.sorted { ($0.date ?? Date.distantPast) > ($1.date ?? Date.distantPast) }
     }
 
+    private var filteredPhotos: [Photo] {
+        var photos = athlete.photos ?? []
+
+        // Text search
+        if !searchText.isEmpty {
+            photos = photos.filter { photo in
+                (photo.game?.opponent.localizedCaseInsensitiveContains(searchText) ?? false) ||
+                (photo.caption?.localizedCaseInsensitiveContains(searchText) ?? false)
+            }
+        }
+
+        // Date range filter
+        if selectedDateRange != .allTime {
+            let dateRange = selectedDateRange.dateRange
+            photos = photos.filter { photo in
+                guard let createdAt = photo.createdAt else { return false }
+                return createdAt >= dateRange.start && createdAt <= dateRange.end
+            }
+        }
+
+        // Season filter
+        if let season = selectedSeason {
+            photos = photos.filter { $0.season?.id == season.id }
+        }
+
+        return photos.sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
+    }
+
     // MARK: - Actions
 
     private func clearAllFilters() {
@@ -554,6 +605,7 @@ enum ContentType: String, CaseIterable, Identifiable {
     case videos = "videos"
     case games = "games"
     case practices = "practices"
+    case photos = "photos"
 
     var id: String { rawValue }
 
@@ -562,6 +614,7 @@ enum ContentType: String, CaseIterable, Identifiable {
         case .videos: return "Videos"
         case .games: return "Games"
         case .practices: return "Practices"
+        case .photos: return "Photos"
         }
     }
 
@@ -570,6 +623,7 @@ enum ContentType: String, CaseIterable, Identifiable {
         case .videos: return "video"
         case .games: return "baseball.fill"
         case .practices: return "figure.run"
+        case .photos: return "photo.fill"
         }
     }
 }
@@ -785,6 +839,60 @@ struct PracticeSearchResultRow: View {
             }
         }
         .padding(.vertical, 4)
+    }
+}
+
+struct PhotoSearchResultCard: View {
+    let photo: Photo
+
+    var body: some View {
+        HStack(spacing: 12) {
+            if let thumbnailPath = photo.thumbnailPath {
+                AsyncThumbnailView(path: thumbnailPath, size: CGSize(width: 80, height: 60))
+                    .frame(width: 80, height: 60)
+                    .cornerRadius(8)
+            } else {
+                Rectangle()
+                    .fill(Color.gray.opacity(0.3))
+                    .frame(width: 80, height: 60)
+                    .cornerRadius(8)
+                    .overlay(
+                        Image(systemName: "photo")
+                            .foregroundColor(.white)
+                    )
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                if let caption = photo.caption, !caption.isEmpty {
+                    Text(caption)
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                        .lineLimit(1)
+                }
+
+                if let game = photo.game {
+                    Text("vs \(game.opponent)")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                } else if photo.practice != nil {
+                    Text("Practice")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+
+                if let createdAt = photo.createdAt {
+                    Text(createdAt.formatted(date: .abbreviated, time: .shortened))
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+            }
+
+            Spacer()
+        }
+        .padding()
+        .background(Color(.systemBackground))
+        .cornerRadius(12)
+        .shadow(color: Color.black.opacity(0.05), radius: 3, x: 0, y: 1)
     }
 }
 

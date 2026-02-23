@@ -9,23 +9,38 @@ import SwiftUI
 
 struct FAQView: View {
     @State private var expandedQuestions: Set<Int> = []
+    @State private var searchText = ""
+
+    private var filteredFaqs: [(question: String, answer: String)] {
+        guard !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return faqs }
+        let q = searchText.lowercased()
+        return faqs.filter {
+            $0.question.lowercased().contains(q) || $0.answer.lowercased().contains(q)
+        }
+    }
 
     var body: some View {
         List {
-            ForEach(Array(faqs.enumerated()), id: \.offset) { index, faq in
-                FAQItem(
-                    question: faq.question,
-                    answer: faq.answer,
-                    isExpanded: expandedQuestions.contains(index)
-                ) {
-                    if expandedQuestions.contains(index) {
-                        expandedQuestions.remove(index)
-                    } else {
-                        expandedQuestions.insert(index)
+            if filteredFaqs.isEmpty {
+                ContentUnavailableView.search(text: searchText)
+            } else {
+                ForEach(Array(filteredFaqs.enumerated()), id: \.offset) { index, faq in
+                    FAQItem(
+                        question: faq.question,
+                        answer: faq.answer,
+                        isExpanded: expandedQuestions.contains(index)
+                    ) {
+                        if expandedQuestions.contains(index) {
+                            expandedQuestions.remove(index)
+                        } else {
+                            expandedQuestions.insert(index)
+                        }
                     }
                 }
             }
         }
+        .searchable(text: $searchText, prompt: "Search FAQ")
+        .onChange(of: searchText) { expandedQuestions.removeAll() }
         .navigationTitle("FAQ")
     }
 

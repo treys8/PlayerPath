@@ -23,6 +23,9 @@ struct UserMainFlow: View {
     // NotificationCenter observer management using StateObject
     @StateObject private var notificationManager = NotificationObserverManager()
 
+    // Activity notification service (Firestore-backed in-app notifications)
+    @ObservedObject private var activityNotifService = ActivityNotificationService.shared
+
     // Quick Actions manager
     @StateObject private var quickActionsManager = QuickActionsManager.shared
 
@@ -141,15 +144,25 @@ struct UserMainFlow: View {
             }
         }
         .overlay(alignment: .top) {
-            if showCreationToast {
-                Text("Athlete created")
-                    .font(.subheadline).bold()
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(.ultraThinMaterial, in: Capsule())
-                    .padding(.top, 12)
+            VStack(spacing: 8) {
+                if showCreationToast {
+                    Text("Athlete created")
+                        .font(.subheadline).bold()
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(.ultraThinMaterial, in: Capsule())
+                        .padding(.top, 12)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                        .animation(.spring(response: 0.4, dampingFraction: 0.8), value: showCreationToast)
+                }
+                if let banner = activityNotifService.incomingBanner {
+                    ActivityNotificationBanner(notification: banner) {
+                        activityNotifService.dismissBanner()
+                    }
+                    .padding(.top, showCreationToast ? 0 : 12)
                     .transition(.move(edge: .top).combined(with: .opacity))
-                    .animation(.spring(response: 0.4, dampingFraction: 0.8), value: showCreationToast)
+                    .animation(.spring(response: 0.4, dampingFraction: 0.8), value: activityNotifService.incomingBanner?.id)
+                }
             }
         }
         .onChange(of: athletesForUser) { _, newValue in
@@ -182,6 +195,11 @@ struct UserMainFlow: View {
             print("🎯 UserMainFlow - User role: \(authManager.userRole.rawValue)")
             print("🎯 UserMainFlow - User email: \(user.email)")
             print("🎯 UserMainFlow - Athletes count: \(athletesForUser.count)")
+
+            // Start Firestore-backed activity notification listener
+            if let firebaseUID = authManager.userID {
+                ActivityNotificationService.shared.startListening(forUserID: firebaseUID)
+            }
 
             setupNotificationObservers()
 

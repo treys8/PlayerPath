@@ -17,6 +17,7 @@ struct CoachDashboardView: View {
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @EnvironmentObject private var sharedFolderManager: SharedFolderManager
     @ObservedObject private var invitationManager = CoachInvitationManager.shared
+    @ObservedObject private var activityNotifService = ActivityNotificationService.shared
     @State private var selectedTab: CoachTab = .myAthletes
     @State private var loadTask: Task<Void, Never>?
     @State private var notificationCancellable: AnyCancellable?
@@ -34,31 +35,35 @@ struct CoachDashboardView: View {
     }
 
     var body: some View {
-        TabView(selection: $selectedTab) {
-            CoachAthletesListView()
-                .tag(CoachTab.myAthletes)
-                .tabItem {
-                    Label(CoachTab.myAthletes.rawValue, systemImage: CoachTab.myAthletes.icon)
-                }
+        ZStack(alignment: .top) {
+            TabView(selection: $selectedTab) {
+                CoachAthletesListView()
+                    .badge(activityNotifService.unreadCount > 0 ? activityNotifService.unreadCount : 0)
+                    .tag(CoachTab.myAthletes)
+                    .tabItem {
+                        Label(CoachTab.myAthletes.rawValue, systemImage: CoachTab.myAthletes.icon)
+                    }
 
-            Group {
-                if invitationManager.pendingInvitationsCount > 0 {
-                    CoachProfileView()
-                        .badge(invitationManager.pendingInvitationsCount)
-                        .tag(CoachTab.profile)
-                        .tabItem {
-                            Label(CoachTab.profile.rawValue, systemImage: CoachTab.profile.icon)
-                        }
-                } else {
-                    CoachProfileView()
-                        .tag(CoachTab.profile)
-                        .tabItem {
-                            Label(CoachTab.profile.rawValue, systemImage: CoachTab.profile.icon)
-                        }
+                CoachProfileView()
+                    .badge(invitationManager.pendingInvitationsCount > 0 ? invitationManager.pendingInvitationsCount : 0)
+                    .tag(CoachTab.profile)
+                    .tabItem {
+                        Label(CoachTab.profile.rawValue, systemImage: CoachTab.profile.icon)
+                    }
+            }
+            .tint(.green)
+
+            // In-app notification banner
+            if let banner = activityNotifService.incomingBanner {
+                ActivityNotificationBanner(notification: banner) {
+                    activityNotifService.dismissBanner()
                 }
+                .padding(.top, 12)
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .animation(.spring(response: 0.4, dampingFraction: 0.8), value: banner.id)
+                .zIndex(100)
             }
         }
-        .tint(.green) // Coach theme color
         .task {
             loadTask = Task {
                 await loadCoachData()
@@ -66,6 +71,19 @@ struct CoachDashboardView: View {
 
                 if let coachEmail = authManager.userEmail {
                     await invitationManager.checkPendingInvitations(forCoachEmail: coachEmail)
+                }
+
+                // Start activity notification listener for this coach
+                if let coachID = authManager.userID {
+                    ActivityNotificationService.shared.startListening(forUserID: coachID)
+                }
+            }
+        }
+        .onChange(of: selectedTab) { _, newTab in
+            // Mark all notifications read when coach views their athletes list
+            if newTab == .myAthletes, let coachID = authManager.userID {
+                Task {
+                    await ActivityNotificationService.shared.markAllRead(forUserID: coachID)
                 }
             }
         }
@@ -87,6 +105,7 @@ struct CoachDashboardView: View {
             loadTask?.cancel()
             notificationCancellable?.cancel()
             notificationCancellable = nil
+            ActivityNotificationService.shared.stopListening()
         }
     }
 

@@ -461,21 +461,39 @@ struct AllVideosTabView: View {
 
 struct CoachVideoRow: View {
     let video: CoachVideoItem
+
+    private var thumbnailPlaceholder: some View {
+        ZStack {
+            Rectangle().fill(Color.gray.opacity(0.3))
+            Image(systemName: "play.circle.fill")
+                .font(.title)
+                .foregroundColor(.white)
+        }
+    }
     
     var body: some View {
         HStack(spacing: 12) {
-            // Thumbnail placeholder
+            // Thumbnail
             ZStack {
-                Rectangle()
-                    .fill(Color.gray.opacity(0.3))
-                    .aspectRatio(16/9, contentMode: .fit)
-                    .frame(width: 120)
-                    .cornerRadius(8)
-                
-                Image(systemName: "play.circle.fill")
-                    .font(.title)
-                    .foregroundColor(.white)
+                if let urlString = video.thumbnailURL, let url = URL(string: urlString) {
+                    AsyncImage(url: url) { phase in
+                        switch phase {
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .aspectRatio(16/9, contentMode: .fill)
+                        case .failure, .empty:
+                            thumbnailPlaceholder
+                        @unknown default:
+                            thumbnailPlaceholder
+                        }
+                    }
+                } else {
+                    thumbnailPlaceholder
+                }
             }
+            .frame(width: 120, height: 68)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
             
             VStack(alignment: .leading, spacing: 6) {
                 Text(video.fileName)
