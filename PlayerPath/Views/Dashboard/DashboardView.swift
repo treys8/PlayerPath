@@ -360,7 +360,7 @@ struct DashboardView: View {
                     LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 16) {
                         // 1. Games
                         DashboardFeatureCard(
-                            icon: "sportscourt.fill",
+                            icon: "baseball.diamond.bases",
                             title: "Games",
                             subtitle: "\(viewModel.totalGames) Total",
                             color: .blue
@@ -388,14 +388,14 @@ struct DashboardView: View {
                             postSwitchTab(.stats)
                         }
 
-                        // 4. Highlights
+                        // 4. Seasons
                         DashboardFeatureCard(
-                            icon: "star.fill",
-                            title: "Highlights",
-                            subtitle: "\(viewModel.totalHighlights) Highlights",
-                            color: .yellow
+                            icon: "calendar",
+                            title: "Seasons",
+                            subtitle: "\((athlete.seasons ?? []).count) Total",
+                            color: .teal
                         ) {
-                            postSwitchTab(.highlights)
+                            showingSeasons = true
                         }
 
                         // 5. Practice
@@ -408,17 +408,7 @@ struct DashboardView: View {
                             postSwitchTab(.practice)
                         }
 
-                        // 6. Seasons
-                        DashboardFeatureCard(
-                            icon: "calendar",
-                            title: "Seasons",
-                            subtitle: "\((athlete.seasons ?? []).count) Total",
-                            color: .teal
-                        ) {
-                            showingSeasons = true
-                        }
-
-                        // 7. Photos
+                        // 6. Photos
                         DashboardFeatureCard(
                             icon: "photo.on.rectangle.angled",
                             title: "Photos",
@@ -428,15 +418,31 @@ struct DashboardView: View {
                             showingPhotos = true
                         }
 
+                        // 7. Highlights (Plus+)
+                        DashboardPremiumFeatureCard(
+                            icon: "star.fill",
+                            title: "Highlights",
+                            subtitle: "\(viewModel.totalHighlights) Highlights",
+                            color: .yellow,
+                            isPremium: authManager.currentTier >= .plus
+                        ) {
+                            if authManager.currentTier >= .plus {
+                                postSwitchTab(.highlights)
+                            } else {
+                                Haptics.warning()
+                                showingPaywall = true
+                            }
+                        }
+
                         // 8. Coaches (Premium Only)
                         DashboardPremiumFeatureCard(
                             icon: "person.3.fill",
                             title: "Coaches",
                             subtitle: "0 Coaches",
                             color: .indigo,
-                            isPremium: authManager.isPremiumUser
+                            isPremium: authManager.hasCoachingAccess
                         ) {
-                            if authManager.isPremiumUser {
+                            if authManager.hasCoachingAccess {
                                 postSwitchTab(.home)
                                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                                     NotificationCenter.default.post(name: Notification.Name.presentCoaches, object: athlete)

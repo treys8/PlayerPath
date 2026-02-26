@@ -44,7 +44,7 @@ struct AccountDeletionView: View {
                 DeletionItem(icon: "person.fill.xmark", title: "Your Account", description: "Login credentials and profile")
                 DeletionItem(icon: "figure.baseball", title: "All Athletes", description: "All athlete profiles you created")
                 DeletionItem(icon: "calendar.badge.minus", title: "All Seasons", description: "Season data and settings")
-                DeletionItem(icon: "sportscourt", title: "All Games", description: "Game records and live game data")
+                DeletionItem(icon: "baseball.diamond.bases", title: "All Games", description: "Game records and live game data")
                 DeletionItem(icon: "chart.bar.xaxis", title: "All Statistics", description: "Batting averages and performance data")
                 DeletionItem(icon: "video.slash", title: "Video Metadata", description: "Tags, timestamps, and video references")
                 DeletionItem(icon: "cloud.slash", title: "Cloud Sync Data", description: "All data synced to Firestore")

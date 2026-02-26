@@ -81,7 +81,7 @@ struct HelpView: View {
                     HelpArticleDetailView(article: .gameManagement)
                 } label: {
                     HelpRowLabel(
-                        icon: "sportscourt.fill",
+                        icon: "baseball.diamond.bases",
                         title: "Game Management",
                         subtitle: "Track live games"
                     )

@@ -11,6 +11,7 @@ import Charts
 
 struct StatisticsView: View {
     let athlete: Athlete?
+    @EnvironmentObject private var authManager: ComprehensiveAuthManager
 
     enum ActiveSheet: Identifiable {
         case quickEntry(Game)
@@ -81,14 +82,16 @@ struct StatisticsView: View {
                         .accessibilityLabel("View performance charts")
                     }
 
-                    // Compare seasons button
-                    ToolbarItem(placement: .topBarLeading) {
-                        Button {
-                            showingSeasonComparison = true
-                        } label: {
-                            Label("Compare Seasons", systemImage: "chart.line.uptrend.xyaxis")
+                    // Compare seasons button (Plus+)
+                    if authManager.currentTier >= .plus {
+                        ToolbarItem(placement: .topBarLeading) {
+                            Button {
+                                showingSeasonComparison = true
+                            } label: {
+                                Label("Compare Seasons", systemImage: "chart.line.uptrend.xyaxis")
+                            }
+                            .accessibilityLabel("Compare seasons")
                         }
-                        .accessibilityLabel("Compare seasons")
                     }
 
                     // Season filter
@@ -102,24 +105,26 @@ struct StatisticsView: View {
                         }
                     }
 
-                    // Export menu
-                    ToolbarItem(placement: .primaryAction) {
-                        Menu {
-                            Button {
-                                exportCSV(athlete: ath)
-                            } label: {
-                                Label("Export as CSV", systemImage: "doc.text")
-                            }
+                    // Export menu (Plus+)
+                    if authManager.currentTier >= .plus {
+                        ToolbarItem(placement: .primaryAction) {
+                            Menu {
+                                Button {
+                                    exportCSV(athlete: ath)
+                                } label: {
+                                    Label("Export as CSV", systemImage: "doc.text")
+                                }
 
-                            Button {
-                                exportPDF(athlete: ath)
+                                Button {
+                                    exportPDF(athlete: ath)
+                                } label: {
+                                    Label("Export as PDF", systemImage: "doc.richtext")
+                                }
                             } label: {
-                                Label("Export as PDF", systemImage: "doc.richtext")
+                                Image(systemName: "square.and.arrow.up")
                             }
-                        } label: {
-                            Image(systemName: "square.and.arrow.up")
+                            .accessibilityLabel("Export statistics")
                         }
-                        .accessibilityLabel("Export statistics")
                     }
                 }
             }
@@ -1240,6 +1245,7 @@ struct PitchingStatsSection: View {
         return athlete
     }()
     return NavigationStack { StatisticsView(athlete: mockAthlete) }
+        .environmentObject(ComprehensiveAuthManager())
 }
 
 // MARK: - Quick Statistics Entry View

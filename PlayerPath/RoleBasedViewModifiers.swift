@@ -29,6 +29,21 @@ extension View {
     func premiumRequired() -> some View {
         modifier(PremiumGateModifier())
     }
+
+    /// Requires Plus tier or above
+    func plusRequired() -> some View {
+        modifier(TierGateModifier(requiredTier: .plus))
+    }
+
+    /// Requires Pro tier
+    func proRequired() -> some View {
+        modifier(TierGateModifier(requiredTier: .pro))
+    }
+
+    /// Requires the Coaching Add-On (and at least Plus tier)
+    func coachingRequired() -> some View {
+        modifier(CoachingGateModifier())
+    }
 }
 
 // MARK: - Role Gate Modifier
@@ -69,6 +84,87 @@ struct PremiumGateModifier: ViewModifier {
                         Text("Premium Feature")
                             .font(.headline)
                         Text("Upgrade to unlock")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Image(systemName: "lock.fill")
+                        .foregroundStyle(.secondary)
+                }
+                .padding()
+                .background(Color(.secondarySystemBackground))
+                .cornerRadius(12)
+            }
+            .sheet(isPresented: $showingPaywall) {
+                if let user = authManager.localUser {
+                    ImprovedPaywallView(user: user)
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Tier Gate Modifier
+
+struct TierGateModifier: ViewModifier {
+    @EnvironmentObject var authManager: ComprehensiveAuthManager
+    let requiredTier: SubscriptionTier
+    @State private var showingPaywall = false
+
+    func body(content: Content) -> some View {
+        if authManager.currentTier >= requiredTier {
+            content
+        } else {
+            Button {
+                showingPaywall = true
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "crown.fill")
+                        .foregroundStyle(.yellow)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("\(requiredTier.displayName) Feature")
+                            .font(.headline)
+                        Text("Upgrade to \(requiredTier.displayName) to unlock")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Image(systemName: "lock.fill")
+                        .foregroundStyle(.secondary)
+                }
+                .padding()
+                .background(Color(.secondarySystemBackground))
+                .cornerRadius(12)
+            }
+            .sheet(isPresented: $showingPaywall) {
+                if let user = authManager.localUser {
+                    ImprovedPaywallView(user: user)
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Coaching Gate Modifier
+
+struct CoachingGateModifier: ViewModifier {
+    @EnvironmentObject var authManager: ComprehensiveAuthManager
+    @State private var showingPaywall = false
+
+    func body(content: Content) -> some View {
+        if authManager.hasCoachingAccess {
+            content
+        } else {
+            Button {
+                showingPaywall = true
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "person.badge.shield.checkmark.fill")
+                        .foregroundStyle(.indigo)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Coaching Feature")
+                            .font(.headline)
+                        Text("Add the Coaching Add-On to unlock")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }

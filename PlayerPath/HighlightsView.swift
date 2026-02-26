@@ -12,11 +12,14 @@ import Foundation
 struct HighlightsView: View {
     let athlete: Athlete?
     @Environment(\.modelContext) private var modelContext
+    @EnvironmentObject private var authManager: ComprehensiveAuthManager
+    @ObservedObject private var autoHighlightSettings = AutoHighlightSettings.shared
     @State private var selectedClip: VideoClip?
     @State private var showingVideoPlayer = false
     @State private var showingDeleteAlert = false
     @State private var clipToDelete: VideoClip?
     @State private var editMode: EditMode = .inactive
+    @State private var showingAutoHighlightSettings = false
 
     @State private var searchText: String = ""
     enum Filter: String, CaseIterable, Identifiable { case all, game, practice; var id: String { rawValue } }
@@ -169,6 +172,11 @@ struct HighlightsView: View {
             }
         } message: {
             Text("Are you sure you want to delete this highlight?")
+        }
+        .sheet(isPresented: $showingAutoHighlightSettings) {
+            if let athlete = athlete {
+                AutoHighlightSettingsView(athlete: athlete)
+            }
         }
         .onAppear {
             migrateHitVideosToHighlights()
@@ -334,7 +342,7 @@ struct HighlightsView: View {
                     Section("Filter") {
                         Picker("Type", selection: $filter) {
                             Label("All", systemImage: "square.grid.2x2").tag(Filter.all)
-                            Label("Games", systemImage: "sportscourt").tag(Filter.game)
+                            Label("Games", systemImage: "baseball.diamond.bases").tag(Filter.game)
                             Label("Practice", systemImage: "figure.baseball").tag(Filter.practice)
                         }
                     }
@@ -348,6 +356,19 @@ struct HighlightsView: View {
                     Image(systemName: (filter != .all || sortOrder != .newest) ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
                 }
                 .accessibilityLabel("Filter and sort highlights")
+            }
+        }
+
+        // Auto-highlight settings (Plus+ only)
+        if authManager.currentTier >= .plus {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    Haptics.light()
+                    showingAutoHighlightSettings = true
+                } label: {
+                    Image(systemName: "wand.and.stars")
+                }
+                .accessibilityLabel("Auto-Highlight Settings")
             }
         }
 
@@ -1625,6 +1646,93 @@ struct GameHighlightSection: View {
     }
 }
 
+// MARK: - Auto-Highlight Settings View
+
+struct AutoHighlightSettingsView: View {
+    let athlete: Athlete
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
+    @ObservedObject private var settings = AutoHighlightSettings.shared
+
+    @State private var isScanningLibrary = false
+    @State private var scanResult: String?
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    Toggle("Auto-Highlight Enabled", isOn: $settings.enabled)
+                        .tint(.yellow)
+                } footer: {
+                    Text("When enabled, clips are automatically marked as highlights based on their play result when saved.")
+                }
+
+                if settings.enabled {
+                    Section("Batting") {
+                        Toggle("Home Run", isOn: $settings.includeHomeRuns)
+                        Toggle("Triple",   isOn: $settings.includeTriples)
+                        Toggle("Double",   isOn: $settings.includeDoubles)
+                        Toggle("Single",   isOn: $settings.includeSingles)
+                    }
+
+                    Section("Pitching") {
+                        Toggle("Strikeout",  isOn: $settings.includePitcherStrikeouts)
+                        Toggle("Ground Out", isOn: $settings.includePitcherGroundOuts)
+                        Toggle("Fly Out",    isOn: $settings.includePitcherFlyOuts)
+                    }
+                }
+
+                Section {
+                    Button {
+                        Task { await scanLibrary() }
+                    } label: {
+                        HStack {
+                            Label("Scan Library", systemImage: "wand.and.stars")
+                            Spacer()
+                            if isScanningLibrary {
+                                ProgressView()
+                            }
+                        }
+                    }
+                    .disabled(isScanningLibrary)
+
+                    if let result = scanResult {
+                        Text(result)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } footer: {
+                    Text("Re-applies your current rules to all existing clips. Previously tagged highlights will be updated to match.")
+                }
+            }
+            .navigationTitle("Auto-Highlight Rules")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+    }
+
+    private func scanLibrary() async {
+        isScanningLibrary = true
+        scanResult = nil
+        do {
+            let changed = try await MainActor.run {
+                try AutoHighlightSettings.shared.scanLibrary(for: athlete, context: modelContext)
+            }
+            scanResult = changed == 0
+                ? "All clips are already up to date."
+                : "\(changed) clip\(changed == 1 ? "" : "s") updated."
+        } catch {
+            scanResult = "Scan failed: \(error.localizedDescription)"
+        }
+        isScanningLibrary = false
+    }
+}
+
 #Preview {
     HighlightsView(athlete: nil)
+        .environmentObject(ComprehensiveAuthManager())
 }

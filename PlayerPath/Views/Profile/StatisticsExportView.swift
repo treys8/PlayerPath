@@ -326,7 +326,7 @@ enum ReportType: String, CaseIterable, Identifiable {
     var icon: String {
         switch self {
         case .athleteStatistics: return "chart.bar.fill"
-        case .gameLog: return "sportscourt.fill"
+        case .gameLog: return "baseball.diamond.bases"
         case .seasonSummary: return "calendar.badge.checkmark"
         case .playByPlay: return "list.bullet.clipboard"
         }

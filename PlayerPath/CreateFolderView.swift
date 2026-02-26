@@ -172,7 +172,7 @@ struct CreateFolderView: View {
             let folderID = try await folderManager.createFolder(
                 name: folderName.trimmingCharacters(in: .whitespacesAndNewlines),
                 forAthlete: athleteID,
-                isPremium: true // TODO: Get from user model
+                hasCoachingAccess: authManager.hasCoachingAccess
             )
             
             // Invite coach

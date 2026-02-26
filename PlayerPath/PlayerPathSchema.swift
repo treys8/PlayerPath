@@ -94,21 +94,33 @@ enum SchemaV1: VersionedSchema {
     }
 }
 
+// MARK: - Schema V2 (2/24/26 — Subscription Tier System)
+//
+//  Changes from V1:
+//    • User.isPremium (Bool) removed
+//    • User.subscriptionTier (String = "free") added
+//    • User.hasCoachingAddOn (Bool = false) added
+//
+//  Both additions have default values → lightweight migration is sufficient.
+//  Removal of isPremium is also handled by lightweight migration.
+
+enum SchemaV2: VersionedSchema {
+    static var versionIdentifier = Schema.Version(2, 0, 0)
+
+    // The model list is identical to V1; the version bump is what triggers migration.
+    static var models: [any PersistentModel.Type] { SchemaV1.models }
+}
+
 // MARK: - Migration Plan
 
 enum PlayerPathMigrationPlan: SchemaMigrationPlan {
     /// All schema versions in chronological order (oldest first).
-    /// Add new versions here when you create SchemaV2, SchemaV3, etc.
     static var schemas: [any VersionedSchema.Type] {
-        [SchemaV1.self]
+        [SchemaV1.self, SchemaV2.self]
     }
 
     /// Migration stages between consecutive versions.
-    /// Add a new stage each time you add a SchemaV#.
     static var stages: [MigrationStage] {
-        // V1 is the baseline — no migration needed to reach it.
-        // Example for when SchemaV2 is added:
-        //   .lightweight(fromVersion: SchemaV1.self, toVersion: SchemaV2.self)
-        []
+        [.lightweight(fromVersion: SchemaV1.self, toVersion: SchemaV2.self)]
     }
 }

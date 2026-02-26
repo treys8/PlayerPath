@@ -1716,7 +1716,8 @@ struct UserProfile: Codable, Identifiable {
     var id: String?
     let email: String
     let role: String
-    let isPremium: Bool?
+    let subscriptionTier: String?
+    let hasCoachingAddOn: Bool?
     let createdAt: Date?
     let updatedAt: Date?
 
@@ -1724,6 +1725,10 @@ struct UserProfile: Codable, Identifiable {
 
     var userRole: UserRole {
         UserRole(rawValue: role) ?? .athlete
+    }
+
+    var tier: SubscriptionTier {
+        SubscriptionTier(rawValue: subscriptionTier ?? "free") ?? .free
     }
 }
 

@@ -229,8 +229,8 @@ struct CoachPaywallView: View {
                                 .font(.headline)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                             
-                            ForEach(storeManager.products, id: \.id) { product in
-                                SubscriptionOptionCard(
+                            ForEach(storeManager.coachingProducts, id: \.id) { product in
+                                CoachPaywallProductCard(
                                     product: product,
                                     isSelected: selectedProduct?.id == product.id,
                                     onSelect: { selectedProduct = product }
@@ -325,13 +325,13 @@ struct CoachPaywallView: View {
                     await storeManager.loadProducts()
                 }
 
-                // Select monthly by default
+                // Select coaching monthly by default
                 if selectedProduct == nil {
-                    selectedProduct = storeManager.monthlyProduct
+                    selectedProduct = storeManager.coachingMonthlyProduct ?? storeManager.products.first
                 }
             }
-            .onChange(of: storeManager.isPremium) { _, isPremium in
-                if isPremium {
+            .onChange(of: storeManager.hasCoachingAddOn) { _, hasCoaching in
+                if hasCoaching {
                     Haptics.success()
 
                     // Dismiss after short delay with proper cancellation
@@ -388,7 +388,7 @@ struct CoachPaywallView: View {
         isPurchasing = false
 
         await MainActor.run {
-            if storeManager.isPremium {
+            if storeManager.hasCoachingAddOn {
                 Haptics.success()
             } else {
                 Haptics.light()
@@ -458,6 +458,58 @@ struct CoachFeatureRow: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel(title)
         .accessibilityHint(description)
+    }
+}
+
+// MARK: - Coaching Paywall Product Card
+
+struct CoachPaywallProductCard: View {
+    let product: Product
+    let isSelected: Bool
+    let onSelect: () -> Void
+
+    private var isAnnual: Bool {
+        product.subscription?.subscriptionPeriod.unit == .year
+    }
+
+    var body: some View {
+        Button(action: onSelect) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text(product.displayName)
+                            .font(.headline)
+                        if isAnnual {
+                            Text("Best Value")
+                                .font(.caption)
+                                .fontWeight(.bold)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 2)
+                                .background(Color.green)
+                                .foregroundColor(.white)
+                                .cornerRadius(4)
+                        }
+                    }
+                    Text(product.description)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                Spacer()
+                Text(product.displayPrice)
+                    .font(.title3)
+                    .fontWeight(.bold)
+            }
+            .padding()
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(isSelected ? Color.green.opacity(0.1) : Color(.systemGray6))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .strokeBorder(isSelected ? Color.green : Color.clear, lineWidth: 2)
+            )
+        }
+        .buttonStyle(.plain)
     }
 }
 

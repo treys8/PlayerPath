@@ -217,7 +217,7 @@ struct InviteCoachSheet: View {
                 let folderID = try await SharedFolderManager.shared.createFolder(
                     name: folderName,
                     forAthlete: athlete.id.uuidString,
-                    isPremium: authManager.isPremiumUser
+                    hasCoachingAccess: authManager.hasCoachingAccess
                 )
 
                 // Create invitation for the coach

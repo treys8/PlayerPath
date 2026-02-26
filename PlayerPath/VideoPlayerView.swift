@@ -138,7 +138,7 @@ struct VideoPlayerView: View {
                         Button {
                             showingGameLinker = true
                         } label: {
-                            Label(clip.game == nil ? "Link to Game" : "Change Game", systemImage: "sportscourt")
+                            Label(clip.game == nil ? "Link to Game" : "Change Game", systemImage: "baseball.diamond.bases")
                         }
                         .accessibilityLabel(clip.game == nil ? "Link this video to a game" : "Change which game this video is linked to")
 

@@ -60,7 +60,7 @@ struct AthleteCard: View {
                     )
 
                     AthleteStatBadge(
-                        icon: "sportscourt.fill",
+                        icon: "baseball.diamond.bases",
                         count: (athlete.games ?? []).count,
                         label: "Games"
                     )

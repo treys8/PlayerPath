@@ -80,7 +80,7 @@ struct GettingStartedView: View {
                 GettingStartedStep(
                     number: 4,
                     title: "Track a Live Game",
-                    icon: "sportscourt.fill",
+                    icon: "baseball.diamond.bases",
                     iconColor: .orange,
                     description: "Create a game and mark it as Live to automatically link all videos",
                     steps: [

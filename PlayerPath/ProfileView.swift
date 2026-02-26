@@ -140,7 +140,7 @@ struct ProfileView: View {
     }
 
     private var canAddMoreAthletes: Bool {
-        user.isPremium || (user.athletes ?? []).count < Config.freeAthleteLimit
+        (user.athletes ?? []).count < user.tier.athleteLimit
     }
     
     // MARK: - View Components
@@ -263,7 +263,7 @@ struct ProfileView: View {
             )
         ))
 
-        if user.isPremium {
+        if user.hasCoachingAddOn && user.tier >= .plus {
             items.append(SearchResult(
                 title: "Shared Folders",
                 icon: "folder.badge.person.crop",
@@ -286,7 +286,7 @@ struct ProfileView: View {
                 NavigationLink {
                     SubscriptionView(user: user)
                 } label: {
-                    Label(user.isPremium ? "Subscription" : "Upgrade to Premium", systemImage: user.isPremium ? "crown.fill" : "crown")
+                    Label(user.tier == .free ? "Upgrade Plan" : "\(user.tier.displayName) Plan", systemImage: user.tier == .free ? "crown" : "crown.fill")
                 }
             )
         ))
@@ -415,18 +415,18 @@ struct ProfileView: View {
             }
             .tint(.blue)
             
-            if !user.isPremium && (user.athletes ?? []).count >= Config.freeAthleteLimit {
+            if (user.athletes ?? []).count >= user.tier.athleteLimit {
                 HStack {
                     Image(systemName: "crown.fill")
                         .foregroundColor(.yellow)
                         .font(.caption)
-                    Text("Upgrade to Premium for unlimited athletes")
+                    Text("Upgrade to Pro for up to 5 athletes")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
                 .padding(.vertical, 4)
-            } else if !user.isPremium {
-                Text("\((user.athletes ?? []).count) of \(Config.freeAthleteLimit) free athletes used")
+            } else {
+                Text("\((user.athletes ?? []).count) of \(user.tier.athleteLimit) athlete\(user.tier.athleteLimit == 1 ? "" : "s") used")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
@@ -436,8 +436,8 @@ struct ProfileView: View {
 
     private var settingsSection: some View {
         Section("Settings") {
-            // Coach Sharing Feature
-            if user.isPremium {
+            // Coach Sharing Feature (requires Coaching Add-On + Plus/Pro)
+            if user.hasCoachingAddOn && user.tier >= .plus {
                 NavigationLink {
                     AthleteFoldersListView()
                 } label: {
@@ -452,12 +452,12 @@ struct ProfileView: View {
                         Label("Shared Folders", systemImage: "folder.badge.person.crop")
                         Spacer()
                         HStack(spacing: 4) {
-                            Image(systemName: "crown.fill")
+                            Image(systemName: "person.badge.shield.checkmark.fill")
                                 .font(.caption)
-                            Text("Premium")
+                            Text("Coaching Add-On")
                                 .font(.caption)
                         }
-                        .foregroundColor(.yellow)
+                        .foregroundColor(.indigo)
                     }
                 }
                 .foregroundColor(.primary)
@@ -511,11 +511,11 @@ struct ProfileView: View {
             NavigationLink {
                 SubscriptionView(user: user)
             } label: {
-                if user.isPremium {
-                    Label("Subscription", systemImage: "crown.fill")
-                        .badge(Text("Premium").foregroundColor(.yellow))
+                if user.tier == .free {
+                    Label("Upgrade Plan", systemImage: "crown")
                 } else {
-                    Label("Upgrade to Premium", systemImage: "crown")
+                    Label("\(user.tier.displayName) Plan", systemImage: "crown.fill")
+                        .badge(Text(user.tier.displayName).foregroundColor(.yellow))
                 }
             }
 
@@ -1566,9 +1566,9 @@ struct SubscriptionView: View {
 
     var body: some View {
         List {
-            if user.isPremium {
-                premiumActiveSection
-                premiumFeaturesSection
+            if user.tier >= .plus {
+                tierActiveSection
+                tierFeaturesSection
                 managementSection
             } else {
                 upgradeBenefitsSection
@@ -1580,7 +1580,7 @@ struct SubscriptionView: View {
         }
     }
 
-    private var premiumActiveSection: some View {
+    private var tierActiveSection: some View {
         Section {
             HStack {
                 Image(systemName: "crown.fill")
@@ -1588,7 +1588,7 @@ struct SubscriptionView: View {
                     .font(.title2)
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Premium Member")
+                    Text("\(user.tier.displayName) Plan")
                         .font(.headline)
                         .fontWeight(.bold)
                     Text("Thank you for your support!")
@@ -1612,13 +1612,16 @@ struct SubscriptionView: View {
         }
     }
 
-    private var premiumFeaturesSection: some View {
-        Section("Your Premium Features") {
-            SubscriptionFeatureRow(icon: "person.2.fill", title: "Unlimited Athletes", description: "Add as many athletes as you need")
+    private var tierFeaturesSection: some View {
+        Section("Your \(user.tier.displayName) Features") {
+            SubscriptionFeatureRow(icon: "person.2.fill", title: "\(user.tier.athleteLimit) Athlete\(user.tier.athleteLimit == 1 ? "" : "s")", description: "Track up to \(user.tier.athleteLimit) athlete\(user.tier.athleteLimit == 1 ? "" : "s")")
+            SubscriptionFeatureRow(icon: "internaldrive.fill", title: "\(user.tier.storageLimitGB) GB Storage", description: "Cloud backup and sync")
             SubscriptionFeatureRow(icon: "chart.bar.fill", title: "Advanced Statistics", description: "Detailed performance analytics")
-            SubscriptionFeatureRow(icon: "icloud.fill", title: "Cloud Storage", description: "Automatic backup and sync")
-            SubscriptionFeatureRow(icon: "video", title: "Unlimited Videos", description: "Record and store unlimited video clips")
-            SubscriptionFeatureRow(icon: "star.fill", title: "Highlight Reels", description: "Automatically generated highlights")
+            SubscriptionFeatureRow(icon: "square.and.arrow.up", title: "Export Reports", description: "CSV and PDF statistics export")
+            SubscriptionFeatureRow(icon: "star.fill", title: "Auto Highlights", description: "Automatically generated highlight reels")
+            if user.hasCoachingAddOn {
+                SubscriptionFeatureRow(icon: "person.badge.shield.checkmark.fill", title: "Coaching Add-On", description: "Share videos and get coach feedback")
+            }
         }
     }
 

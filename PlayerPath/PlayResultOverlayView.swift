@@ -74,7 +74,7 @@ struct PlayResultOverlayView: View {
                         VStack(alignment: .leading, spacing: 6) {
                             if let game = game {
                                 HStack(spacing: 8) {
-                                    Image(systemName: "sportscourt.fill")
+                                    Image(systemName: "baseball.diamond.bases")
                                         .font(.caption)
                                         .foregroundColor(.white.opacity(0.8))
                                     Text("vs \(game.opponent)")

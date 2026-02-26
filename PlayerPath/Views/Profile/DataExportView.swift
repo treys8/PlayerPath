@@ -41,7 +41,7 @@ struct DataExportView: View {
             Section("What's Included") {
                 ExportDataRow(icon: "person.fill", title: "Athlete Profiles", description: "Names and profile information")
                 ExportDataRow(icon: "calendar", title: "Seasons", description: "All season data and settings")
-                ExportDataRow(icon: "sportscourt.fill", title: "Games", description: "Game details and results")
+                ExportDataRow(icon: "baseball.diamond.bases", title: "Games", description: "Game details and results")
                 ExportDataRow(icon: "chart.bar.fill", title: "Statistics", description: "All calculated statistics")
                 ExportDataRow(icon: "video", title: "Video Metadata", description: "Video tags and timestamps (files not included)")
                 ExportDataRow(icon: "figure.run", title: "Practice Sessions", description: "Practice logs and notes")

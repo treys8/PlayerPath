@@ -50,9 +50,15 @@ final class User {
     var role: String = "athlete" // "athlete" or "coach"
     var profileImagePath: String?
     var createdAt: Date?
-    var isPremium: Bool = false
+    var subscriptionTier: String = "free"
+    var hasCoachingAddOn: Bool = false
     /// Firebase Auth UID — used as the Firestore document key for all user data
     var firebaseAuthUid: String?
+
+    /// Computed tier from stored string — not persisted by SwiftData
+    var tier: SubscriptionTier {
+        SubscriptionTier(rawValue: subscriptionTier) ?? .free
+    }
     @Relationship(inverse: \Athlete.user) var athletes: [Athlete]?
 
     init(username: String, email: String, role: String = "athlete") {

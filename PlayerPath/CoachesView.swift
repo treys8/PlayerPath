@@ -43,7 +43,7 @@ struct CoachesView: View {
                         showingAddCoach = true
                     },
                     onInviteCoach: {
-                        if authManager.isPremiumUser {
+                        if authManager.hasCoachingAccess {
                             Haptics.medium()
                             showingInviteCoach = true
                         } else {
@@ -51,12 +51,12 @@ struct CoachesView: View {
                             showingPremiumAlert = true
                         }
                     },
-                    isPremium: authManager.isPremiumUser
+                    hasCoachingAccess: authManager.hasCoachingAccess
                 )
             } else {
                 List {
                     // Invite Coach Banner (Premium)
-                    if authManager.isPremiumUser {
+                    if authManager.hasCoachingAccess {
                         Section {
                             Button {
                                 Haptics.medium()
@@ -117,7 +117,7 @@ struct CoachesView: View {
                     }
 
                     Button {
-                        if authManager.isPremiumUser {
+                        if authManager.hasCoachingAccess {
                             Haptics.medium()
                             showingInviteCoach = true
                         } else {
@@ -145,7 +145,7 @@ struct CoachesView: View {
                 NotificationCenter.default.post(name: .showPaywall, object: nil)
             }
         } message: {
-            Text("Inviting coaches to share videos is a Premium feature. Upgrade to share your game videos and receive feedback from your coaches.")
+            Text("Inviting coaches to share videos requires the Coaching Add-On (available with Plus or Pro). Upgrade to share your game videos and receive feedback from your coaches.")
         }
         .alert("Delete Coach", isPresented: $showingDeleteConfirmation, presenting: coachToDelete) { coach in
             Button("Cancel", role: .cancel) {
@@ -179,7 +179,7 @@ struct CoachesView: View {
 struct EmptyCoachesView: View {
     let onAddCoach: () -> Void
     let onInviteCoach: () -> Void
-    let isPremium: Bool
+    let hasCoachingAccess: Bool
 
     var body: some View {
         VStack(spacing: 24) {
@@ -223,7 +223,7 @@ struct EmptyCoachesView: View {
                             .font(.title3)
                         Text("Invite Coach to Share")
                             .fontWeight(.semibold)
-                        if !isPremium {
+                        if !hasCoachingAccess {
                             Image(systemName: "crown.fill")
                                 .font(.caption)
                                 .foregroundColor(.yellow)

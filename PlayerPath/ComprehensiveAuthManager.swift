@@ -45,12 +45,19 @@ final class ComprehensiveAuthManager: ObservableObject {
         currentFirebaseUser?.uid
     }
     
-    // Premium features
-    @Published var isPremiumUser: Bool = false
-    @Published var trialDaysRemaining: Int = 30
-    
+    // Subscription tier — kept in sync with StoreKitManager via Combine
+    @Published var currentTier: SubscriptionTier = .free
+    @Published var hasCoachingAddOn: Bool = false
+
+    /// Bridge for legacy call sites — true when user has Plus or Pro
+    var isPremiumUser: Bool { currentTier >= .plus }
+
+    /// True when coaching add-on is active AND user has at least Plus tier
+    var hasCoachingAccess: Bool { hasCoachingAddOn && currentTier >= .plus }
+
     private var authStateDidChangeListenerHandle: AuthStateDidChangeListenerHandle?
     private var modelContext: ModelContext?
+    private var storeKitCancellables = Set<AnyCancellable>()
     
     init() {
         currentFirebaseUser = Auth.auth().currentUser
@@ -69,6 +76,17 @@ final class ComprehensiveAuthManager: ObservableObject {
             print("💾 Restored hasCompletedOnboarding from UserDefaults: true")
         }
 
+        // Keep tier/coaching in sync with StoreKitManager
+        StoreKitManager.shared.$currentTier
+            .receive(on: RunLoop.main)
+            .sink { [weak self] tier in self?.currentTier = tier }
+            .store(in: &storeKitCancellables)
+
+        StoreKitManager.shared.$hasCoachingAddOn
+            .receive(on: RunLoop.main)
+            .sink { [weak self] coaching in self?.hasCoachingAddOn = coaching }
+            .store(in: &storeKitCancellables)
+
         authStateDidChangeListenerHandle = Auth.auth().addStateDidChangeListener { [weak self] _, user in
             // ✅ Consolidated into a single MainActor Task to prevent race conditions
             Task { @MainActor in
@@ -83,8 +101,8 @@ final class ComprehensiveAuthManager: ObservableObject {
                     self?.userProfile = nil
                     self?.localUser = nil
                     self?.hasCompletedOnboarding = false
-                    self?.isPremiumUser = false
-                    self?.trialDaysRemaining = 30
+                    self?.currentTier = .free
+                    self?.hasCoachingAddOn = false
                     UserDefaults.standard.removeObject(forKey: AuthConstants.UserDefaultsKeys.userRole)
                     UserDefaults.standard.removeObject(forKey: AuthConstants.UserDefaultsKeys.hasCompletedOnboarding)
                     print("🔄 Cleared all user data on sign out")
@@ -266,7 +284,8 @@ final class ComprehensiveAuthManager: ObservableObject {
         let profileData: [String: Any] = [
             "email": email.lowercased(),
             "role": role.rawValue,
-            "isPremium": false,
+            "subscriptionTier": "free",
+            "hasCoachingAddOn": false,
             "createdAt": Date(),
             "displayName": displayName
         ]

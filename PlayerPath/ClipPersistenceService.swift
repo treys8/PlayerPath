@@ -330,9 +330,11 @@ final class ClipPersistenceService {
             let result = PlayResult(type: playResultType)
             videoClip.playResult = result
             context.insert(result)
-            // Mark as highlight for hit outcomes + pitcher outs
-            let isPitcherOut = role == .pitcher && [.strikeout, .groundOut, .flyOut].contains(playResultType)
-            videoClip.isHighlight = playResultType.isHighlight || isPitcherOut
+            // Auto-tag as highlight based on user-configured rules (Plus feature)
+            videoClip.isHighlight = AutoHighlightSettings.shared.shouldAutoHighlight(
+                playType: playResultType,
+                role: role
+            )
 
             if let game = game {
                 // For game videos: Only update game statistics

@@ -502,7 +502,7 @@ private struct CoachReadyPage: View {
                 // CTA
                 Button(action: onComplete) {
                     HStack(spacing: 10) {
-                        Image(systemName: "sportscourt.fill")
+                        Image(systemName: "baseball.diamond.bases")
                             .font(.headline)
                         Text("Go to Dashboard")
                             .font(.headline)

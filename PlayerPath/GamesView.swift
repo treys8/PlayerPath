@@ -706,12 +706,12 @@ struct EmptyGamesView: View {
                 // Floating icon with glow
                 ZStack {
                     // Glow effect
-                    Image(systemName: "sportscourt")
+                    Image(systemName: "baseball.diamond.bases")
                         .font(.system(size: 72, weight: .light))
                         .foregroundStyle(.green.opacity(0.3))
                         .blur(radius: 20)
 
-                    Image(systemName: "sportscourt")
+                    Image(systemName: "baseball.diamond.bases")
                         .font(.system(size: 72, weight: .light))
                         .foregroundStyle(
                             LinearGradient(

@@ -280,6 +280,7 @@ struct MainTabView: View {
         NavigationStack {
             HighlightsView(athlete: selectedAthlete)
                 .id(selectedAthlete.id) // Force view to recreate when athlete changes
+                .plusRequired()
         }
         .tabItem {
             Label("Highlights", systemImage: "star.fill")

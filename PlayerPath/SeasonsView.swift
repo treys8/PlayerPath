@@ -83,7 +83,7 @@ struct SeasonsView: View {
                             
                             HStack(spacing: 20) {
                                 SeasonStatBadge(
-                                    icon: "sportscourt.fill",
+                                    icon: "baseball.diamond.bases",
                                     value: activeSeason.totalGames,
                                     label: "Games"
                                 )
@@ -230,7 +230,7 @@ struct SeasonRow: View {
                 }
                 
                 HStack(spacing: 12) {
-                    Label("\(season.totalGames)", systemImage: "sportscourt")
+                    Label("\(season.totalGames)", systemImage: "baseball.diamond.bases")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     
@@ -345,7 +345,7 @@ struct SeasonGameRow: View {
     
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: "sportscourt.fill")
+            Image(systemName: "baseball.diamond.bases")
                 .foregroundStyle(.blue)
                 .frame(width: 24)
             

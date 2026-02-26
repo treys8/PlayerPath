@@ -2,62 +2,48 @@
 //  ImprovedPaywallView.swift
 //  PlayerPath
 //
-//  Created by Assistant on 11/22/25.
-//  StoreKit 2 powered paywall for premium subscriptions
+//  3-tier paywall (Free / Plus $3.99 / Pro $7.99) + Coaching Add-On ($7/mo)
 //
 
 import SwiftUI
 import StoreKit
 import SwiftData
 
-/// Modern paywall view with real StoreKit integration
 struct ImprovedPaywallView: View {
     let user: User
-    
+
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @StateObject private var storeManager = StoreKitManager.shared
-    
-    @State private var selectedProduct: Product?
-    @State private var showingError = false
+
+    // Selection state
+    @State private var selectedTier: SubscriptionTier = .plus
+    @State private var isAnnual: Bool = false
+    @State private var coachingEnabled: Bool = false
+
     @State private var isPurchasing = false
-    
+    @State private var showingError = false
+
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 32) {
-                    // Header
+                VStack(spacing: 28) {
                     headerSection
-                    
-                    // Features
-                    featuresSection
-                    
-                    // Subscription Options
-                    if storeManager.products.isEmpty {
-                        ProgressView("Loading subscription options...")
-                            .padding()
-                    } else {
-                        subscriptionOptionsSection
-                    }
-                    
-                    // Purchase Button
+                    billingToggle
+                    tierComparisonTable
+                    coachingAddOnCard
                     purchaseButton
-                    
-                    // Restore Button
                     restoreButton
-                    
-                    // Terms
                     termsSection
                 }
-                .padding()
+                .padding(.horizontal, 20)
+                .padding(.bottom, 32)
             }
-            .navigationTitle("Upgrade to Premium")
+            .navigationTitle("Choose Your Plan")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Close") {
-                        dismiss()
-                    }
+                    Button("Close") { dismiss() }
                 }
             }
             .alert("Error", isPresented: $showingError, presenting: storeManager.error) { _ in
@@ -66,370 +52,441 @@ struct ImprovedPaywallView: View {
                 Text(error.localizedDescription)
             }
             .overlay {
-                if isPurchasing {
-                    LoadingOverlay(message: "Processing purchase...")
-                }
+                if isPurchasing { LoadingOverlay(message: "Processing purchase...") }
             }
             .task {
-                // Track paywall shown analytics
                 AnalyticsService.shared.trackPaywallShown(source: "main_app")
-
-                // Load products if needed
                 if storeManager.products.isEmpty {
                     await storeManager.loadProducts()
                 }
-
-                // Select monthly by default
-                if selectedProduct == nil {
-                    selectedProduct = storeManager.monthlyProduct ?? storeManager.products.first
+            }
+            .onChange(of: storeManager.currentTier) { _, newTier in
+                if newTier >= .plus {
+                    onPurchaseSucceeded()
                 }
             }
-            .onChange(of: storeManager.products) { _, products in
-                // Auto-select first product when products load
-                if selectedProduct == nil, !products.isEmpty {
-                    selectedProduct = storeManager.monthlyProduct ?? products.first
-                }
-            }
-            .onChange(of: storeManager.isPremium) { _, isPremium in
-                if isPremium {
-                    // Track subscription started analytics
-                    if let product = selectedProduct {
-                        AnalyticsService.shared.trackSubscriptionStarted(
-                            planType: product.id,
-                            price: product.displayPrice
-                        )
-                    }
-
-                    // Update user model
-                    user.isPremium = true
-                    try? modelContext.save()
-
-                    // Dismiss immediately - no delay needed
-                    dismiss()
-                }
+            .onChange(of: storeManager.hasCoachingAddOn) { _, hasCoaching in
+                if hasCoaching { onPurchaseSucceeded() }
             }
         }
     }
-    
+
     // MARK: - Header
-    
+
     private var headerSection: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 12) {
             Image(systemName: "crown.fill")
-                .font(.system(size: 60))
-                .foregroundColor(.yellow)
-                .shadow(color: .yellow.opacity(0.3), radius: 10)
-            
-            Text("Unlock Premium")
-                .font(.largeTitle)
-                .fontWeight(.bold)
-            
-            Text("Take your baseball journey to the next level")
+                .font(.system(size: 52))
+                .foregroundStyle(
+                    LinearGradient(colors: [.yellow, .orange],
+                                   startPoint: .topLeading, endPoint: .bottomTrailing)
+                )
+                .padding(.top, 8)
+
+            Text("Unlock PlayerPath")
+                .font(.title2).fontWeight(.bold)
+
+            Text("Advanced stats, more athletes, and coach sharing")
                 .font(.subheadline)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
         }
-        .padding(.top)
     }
-    
-    // MARK: - Features
-    
-    private var featuresSection: some View {
-        VStack(spacing: 16) {
-            PremiumFeatureRow(
-                icon: "person.3.fill",
-                iconColor: .blue,
-                title: "Unlimited Athletes",
-                description: "Track as many players as you need"
-            )
-            
-            PremiumFeatureRow(
-                icon: "chart.line.uptrend.xyaxis",
-                iconColor: .green,
-                title: "Advanced Statistics",
-                description: "Detailed analytics and performance trends"
-            )
-            
-            PremiumFeatureRow(
-                icon: "folder.badge.person.crop",
-                iconColor: .purple,
-                title: "Coach Sharing",
-                description: "Share videos with your coaches securely"
-            )
-            
-            PremiumFeatureRow(
-                icon: "icloud.and.arrow.up",
-                iconColor: .cyan,
-                title: "Cloud Backup",
-                description: "Never lose your data with automatic sync"
-            )
-            
-            PremiumFeatureRow(
-                icon: "video",
-                iconColor: .red,
-                title: "Unlimited Videos",
-                description: "Record and store unlimited video clips"
-            )
+
+    // MARK: - Billing Toggle
+
+    private var billingToggle: some View {
+        HStack(spacing: 0) {
+            billingPill(title: "Monthly", selected: !isAnnual) { isAnnual = false }
+            billingPill(title: "Annual (Save ~30%)", selected: isAnnual) { isAnnual = true }
         }
+        .background(Color(.systemGray5))
+        .cornerRadius(10)
     }
-    
-    // MARK: - Subscription Options
-    
-    private var subscriptionOptionsSection: some View {
-        VStack(spacing: 12) {
-            Text("Choose Your Plan")
-                .font(.headline)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            
-            ForEach(storeManager.products, id: \.id) { product in
-                SubscriptionOptionCard(
-                    product: product,
-                    isSelected: selectedProduct?.id == product.id,
-                    onSelect: { selectedProduct = product }
-                )
+
+    private func billingPill(title: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.subheadline).fontWeight(selected ? .semibold : .regular)
+                .foregroundStyle(selected ? .white : .secondary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+                .background(selected ? Color.blue : Color.clear)
+                .cornerRadius(9)
+        }
+        .buttonStyle(.plain)
+        .animation(.easeInOut(duration: 0.2), value: selected)
+    }
+
+    // MARK: - Tier Comparison Table
+
+    private var tierComparisonTable: some View {
+        VStack(spacing: 0) {
+            // Column headers
+            HStack(spacing: 0) {
+                featureHeaderCell("")
+                tierHeaderCell("Free", tier: .free)
+                tierHeaderCell("Plus", tier: .plus)
+                tierHeaderCell("Pro", tier: .pro)
+            }
+
+            Divider()
+
+            // Price row
+            tableRow(feature: "Price / mo") {
+                Text("Free")
+                    .font(.caption).foregroundStyle(.secondary)
+            } plus: {
+                priceLabel(monthly: "$3.99", annual: "$2.92", forAnnual: isAnnual)
+            } pro: {
+                priceLabel(monthly: "$7.99", annual: "$5.83", forAnnual: isAnnual)
+            }
+
+            tableRow(feature: "Athletes") {
+                Text("1").font(.caption)
+            } plus: {
+                Text("1").font(.caption)
+            } pro: {
+                Text("5").font(.caption).foregroundStyle(.blue)
+            }
+
+            tableRow(feature: "Storage") {
+                Text("1 GB").font(.caption).foregroundStyle(.secondary)
+            } plus: {
+                Text("5 GB").font(.caption)
+            } pro: {
+                Text("15 GB").font(.caption).foregroundStyle(.blue)
+            }
+
+            tableRow(feature: "Advanced Stats") {
+                Image(systemName: "xmark").font(.caption).foregroundStyle(.secondary)
+            } plus: {
+                Image(systemName: "checkmark").font(.caption).foregroundStyle(.green)
+            } pro: {
+                Image(systemName: "checkmark").font(.caption).foregroundStyle(.green)
+            }
+
+            tableRow(feature: "Export Reports") {
+                Image(systemName: "xmark").font(.caption).foregroundStyle(.secondary)
+            } plus: {
+                Image(systemName: "checkmark").font(.caption).foregroundStyle(.green)
+            } pro: {
+                Image(systemName: "checkmark").font(.caption).foregroundStyle(.green)
+            }
+
+            tableRow(feature: "Auto Highlights") {
+                Image(systemName: "xmark").font(.caption).foregroundStyle(.secondary)
+            } plus: {
+                Image(systemName: "checkmark").font(.caption).foregroundStyle(.green)
+            } pro: {
+                Image(systemName: "checkmark").font(.caption).foregroundStyle(.green)
+            }
+
+            tableRow(feature: "Season Compare") {
+                Image(systemName: "xmark").font(.caption).foregroundStyle(.secondary)
+            } plus: {
+                Image(systemName: "checkmark").font(.caption).foregroundStyle(.green)
+            } pro: {
+                Image(systemName: "checkmark").font(.caption).foregroundStyle(.green)
+            }
+        }
+        .background(Color(.secondarySystemBackground))
+        .cornerRadius(14)
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color(.separator), lineWidth: 0.5))
+    }
+
+    private func tierHeaderCell(_ title: String, tier: SubscriptionTier) -> some View {
+        let isSelected = selectedTier == tier
+        return Button {
+            if tier != .free { withAnimation(.spring(response: 0.25)) { selectedTier = tier } }
+        } label: {
+            Text(title)
+                .font(.subheadline).fontWeight(.semibold)
+                .foregroundStyle(isSelected ? .white : .primary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .background(isSelected ? Color.blue : Color.clear)
+                .cornerRadius(tier == .plus ? 0 : (tier == .pro ? 9 : 0), corners: tier == .pro ? [.topRight] : [])
+        }
+        .buttonStyle(.plain)
+        .animation(.easeInOut(duration: 0.2), value: isSelected)
+    }
+
+    private func featureHeaderCell(_ title: String) -> some View {
+        Text(title)
+            .frame(width: 110)
+            .padding(.vertical, 12)
+    }
+
+    private func tableRow<Free: View, Plus: View, Pro: View>(
+        feature: String,
+        @ViewBuilder free: () -> Free,
+        @ViewBuilder plus: () -> Plus,
+        @ViewBuilder pro: () -> Pro
+    ) -> some View {
+        VStack(spacing: 0) {
+            Divider()
+            HStack(spacing: 0) {
+                Text(feature)
+                    .font(.caption)
+                    .foregroundStyle(.primary)
+                    .frame(width: 110, alignment: .leading)
+                    .padding(.leading, 12)
+                    .padding(.vertical, 11)
+
+                Spacer(minLength: 0)
+
+                cellFrame { free() }
+                    .background(selectedTier == .free ? Color.blue.opacity(0.06) : Color.clear)
+                cellFrame { plus() }
+                    .background(selectedTier == .plus ? Color.blue.opacity(0.06) : Color.clear)
+                cellFrame { pro() }
+                    .background(selectedTier == .pro ? Color.blue.opacity(0.06) : Color.clear)
             }
         }
     }
-    
-    // MARK: - Purchase Button
-    
-    private var purchaseButton: some View {
-        Button(action: {
-            Task {
-                await purchaseSelected()
+
+    private func cellFrame<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        content()
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 11)
+    }
+
+    private func priceLabel(monthly: String, annual: String, forAnnual: Bool) -> some View {
+        VStack(spacing: 1) {
+            Text(forAnnual ? annual : monthly)
+                .font(.caption).fontWeight(.semibold)
+            if forAnnual {
+                Text("billed yearly")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.secondary)
             }
-        }) {
+        }
+    }
+
+    // MARK: - Coaching Add-On Card
+
+    private var coachingAddOnCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("Start 7-Day Free Trial")
-                    .font(.headline)
-                    .fontWeight(.semibold)
-                
-                if isPurchasing {
-                    ProgressView()
-                        .tint(.white)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "person.badge.shield.checkmark.fill")
+                            .foregroundStyle(.indigo)
+                        Text("Coaching Add-On")
+                            .font(.headline)
+                    }
+                    Text(isAnnual ? "$59.99/yr · ~$5.00/mo" : "$7.00/mo")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
                 }
+
+                Spacer()
+
+                Toggle("", isOn: $coachingEnabled)
+                    .tint(.indigo)
+                    .labelsHidden()
+                    .disabled(selectedTier == .free)
+            }
+
+            if selectedTier == .free {
+                Text("Requires Plus or Pro")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 6) {
+                coachFeatureRow("Invite coaches to shared folders")
+                coachFeatureRow("Coaches can annotate and comment on videos")
+                coachFeatureRow("Receive direct feedback from your coaching staff")
+            }
+        }
+        .padding(16)
+        .background(Color(.secondarySystemBackground))
+        .cornerRadius(14)
+        .overlay(
+            RoundedRectangle(cornerRadius: 14)
+                .stroke(coachingEnabled ? Color.indigo : Color(.separator), lineWidth: coachingEnabled ? 1.5 : 0.5)
+        )
+        .onChange(of: selectedTier) { _, tier in
+            if tier == .free { coachingEnabled = false }
+        }
+    }
+
+    private func coachFeatureRow(_ text: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(.indigo)
+                .font(.caption)
+            Text(text)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    // MARK: - CTA Button
+
+    private var purchaseButton: some View {
+        Button {
+            Task { await purchaseSelected() }
+        } label: {
+            HStack(spacing: 8) {
+                Text(ctaButtonTitle)
+                    .font(.headline).fontWeight(.semibold)
+                if isPurchasing { ProgressView().tint(.white) }
             }
             .frame(maxWidth: .infinity)
-            .padding()
-            .background(
-                LinearGradient(
-                    colors: [.blue, .blue.opacity(0.8)],
-                    startPoint: .leading,
-                    endPoint: .trailing
-                )
-            )
-            .foregroundColor(.white)
-            .cornerRadius(12)
-            .shadow(color: .blue.opacity(0.3), radius: 8, x: 0, y: 4)
+            .padding(.vertical, 16)
+            .background(ctaGradient)
+            .foregroundStyle(.white)
+            .cornerRadius(14)
+            .shadow(color: ctaShadowColor.opacity(0.3), radius: 8, x: 0, y: 4)
         }
-        .disabled(selectedProduct == nil || isPurchasing || storeManager.products.isEmpty)
+        .disabled(selectedTier == .free || isPurchasing)
+        .opacity(selectedTier == .free ? 0.6 : 1.0)
     }
-    
-    // MARK: - Restore Button
-    
+
+    private var ctaButtonTitle: String {
+        switch (selectedTier, coachingEnabled) {
+        case (.free, _):     return "Keep Free"
+        case (.plus, false): return "Get Plus"
+        case (.plus, true):  return "Get Plus + Coaching"
+        case (.pro, false):  return "Get Pro"
+        case (.pro, true):   return "Get Pro + Coaching"
+        }
+    }
+
+    private var ctaGradient: LinearGradient {
+        coachingEnabled
+            ? LinearGradient(colors: [.indigo, .purple], startPoint: .leading, endPoint: .trailing)
+            : LinearGradient(colors: [.blue, .blue.opacity(0.8)], startPoint: .leading, endPoint: .trailing)
+    }
+
+    private var ctaShadowColor: Color { coachingEnabled ? .indigo : .blue }
+
+    // MARK: - Restore / Terms
+
     private var restoreButton: some View {
-        Button(action: {
+        Button {
             Task {
-                await restorePurchases()
+                isPurchasing = true
+                await storeManager.restorePurchases()
+                isPurchasing = false
             }
-        }) {
+        } label: {
             Text("Restore Purchase")
                 .font(.subheadline)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
         }
         .disabled(isPurchasing)
     }
-    
-    // MARK: - Terms
-    
+
     private var termsSection: some View {
-        VStack(spacing: 8) {
-            if let product = selectedProduct {
-                Text("Then \(product.displayPrice) per \(product.subscription?.subscriptionPeriod.unit == .month ? "month" : "year")")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-            
+        VStack(spacing: 6) {
             Text("Cancel anytime. Auto-renews until cancelled.")
                 .font(.caption)
-                .foregroundColor(.secondary)
-            
+                .foregroundStyle(.secondary)
             HStack(spacing: 16) {
-                Button("Terms of Service") {
-                    // TODO: Open terms URL
-                }
-                .font(.caption)
-                .foregroundColor(.blue)
-                
-                Button("Privacy Policy") {
-                    // TODO: Open privacy URL
-                }
-                .font(.caption)
-                .foregroundColor(.blue)
+                Button("Terms of Service") {}
+                    .font(.caption).foregroundStyle(.blue)
+                Button("Privacy Policy") {}
+                    .font(.caption).foregroundStyle(.blue)
             }
         }
         .multilineTextAlignment(.center)
     }
-    
-    // MARK: - Actions
-    
+
+    // MARK: - Purchase Logic
+
     private func purchaseSelected() async {
-        guard let product = selectedProduct else { return }
+        guard selectedTier != .free else { return }
 
         isPurchasing = true
 
-        let result = await storeManager.purchase(product)
+        // Determine which tier product to purchase
+        if storeManager.currentTier < selectedTier {
+            let tierProduct: Product? = {
+                if selectedTier == .plus {
+                    return isAnnual
+                        ? storeManager.product(for: .plusAnnual)
+                        : storeManager.product(for: .plusMonthly)
+                } else {
+                    return isAnnual
+                        ? storeManager.product(for: .proAnnual)
+                        : storeManager.product(for: .proMonthly)
+                }
+            }()
 
-        switch result {
-        case .success:
-            // Success is handled in onChange
-            isPurchasing = false
-        case .cancelled:
-            // User cancelled, do nothing
-            isPurchasing = false
-        case .pending:
-            // Show pending message
-            isPurchasing = false
-            showingError = true
-        case .failed:
-            isPurchasing = false
-            showingError = true
-        case .unknown:
-            isPurchasing = false
-            showingError = true
+            if let product = tierProduct {
+                let result = await storeManager.purchase(product)
+                if case .failed = result { isPurchasing = false; showingError = true; return }
+                if case .cancelled = result { isPurchasing = false; return }
+            }
         }
-    }
-    
-    private func restorePurchases() async {
-        isPurchasing = true
-        await storeManager.restorePurchases()
+
+        // Purchase coaching add-on if requested and not already owned
+        if coachingEnabled && !storeManager.hasCoachingAddOn {
+            let coachingProduct = isAnnual
+                ? storeManager.product(for: .coachingAnnual)
+                : storeManager.product(for: .coachingMonthly)
+
+            if let product = coachingProduct {
+                let result = await storeManager.purchase(product)
+                if case .failed = result { isPurchasing = false; showingError = true; return }
+                if case .cancelled = result { isPurchasing = false; return }
+            }
+        }
+
         isPurchasing = false
     }
-}
 
-// MARK: - Subscription Option Card
-
-struct SubscriptionOptionCard: View {
-    let product: Product
-    let isSelected: Bool
-    let onSelect: () -> Void
-    
-    private var isAnnual: Bool {
-        product.subscription?.subscriptionPeriod.unit == .year
-    }
-    
-    private var savingsText: String? {
-        guard isAnnual else { return nil }
-        return "Save 50%"
-    }
-    
-    var body: some View {
-        Button(action: onSelect) {
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text(product.displayName)
-                            .font(.headline)
-                        
-                        if let savings = savingsText {
-                            Text(savings)
-                                .font(.caption)
-                                .fontWeight(.bold)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 2)
-                                .background(Color.green)
-                                .foregroundColor(.white)
-                                .cornerRadius(4)
-                        }
-                    }
-                    
-                    Text(product.description)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-                
-                Spacer()
-                
-                VStack(alignment: .trailing, spacing: 2) {
-                    Text(product.displayPrice)
-                        .font(.title3)
-                        .fontWeight(.bold)
-                    
-                    if isAnnual, let monthlyEquivalent = calculateMonthlyEquivalent() {
-                        Text(monthlyEquivalent)
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                    }
-                }
-            }
-            .padding()
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(isSelected ? Color.blue.opacity(0.1) : Color(.systemGray6))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .strokeBorder(isSelected ? Color.blue : Color.clear, lineWidth: 2)
+    private func onPurchaseSucceeded() {
+        if let product = storeManager.products.first {
+            AnalyticsService.shared.trackSubscriptionStarted(
+                planType: product.id,
+                price: product.displayPrice
             )
         }
-        .buttonStyle(.plain)
-    }
-    
-    private func calculateMonthlyEquivalent() -> String? {
-        let yearlyPrice = product.price
-        let monthlyPrice = yearlyPrice / 12
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .currency
-        formatter.locale = product.priceFormatStyle.locale
-        return formatter.string(from: NSDecimalNumber(decimal: monthlyPrice)).map { "\($0)/mo" }
+        user.subscriptionTier = storeManager.currentTier.rawValue
+        user.hasCoachingAddOn = storeManager.hasCoachingAddOn
+        try? modelContext.save()
+        dismiss()
     }
 }
 
-// MARK: - Premium Feature Row
+// MARK: - RoundedCorner helper
 
-struct PremiumFeatureRow: View {
-    let icon: String
-    let iconColor: Color
-    let title: String
-    let description: String
-    
-    var body: some View {
-        HStack(spacing: 16) {
-            Image(systemName: icon)
-                .font(.system(size: 24))
-                .foregroundColor(.white)
-                .frame(width: 44, height: 44)
-                .background(
-                    LinearGradient(
-                        colors: [iconColor, iconColor.opacity(0.7)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-                .cornerRadius(10)
-            
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(.subheadline)
-                    .fontWeight(.semibold)
-                
-                Text(description)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-            
-            Spacer()
-            
-            Image(systemName: "checkmark.circle.fill")
-                .foregroundColor(.green)
-                .font(.title3)
-        }
+private extension View {
+    func cornerRadius(_ radius: CGFloat, corners: UIRectCorner) -> some View {
+        clipShape(RoundedCorner(radius: radius, corners: corners))
+    }
+}
+
+private struct RoundedCorner: Shape {
+    var radius: CGFloat = .infinity
+    var corners: UIRectCorner = .allCorners
+
+    func path(in rect: CGRect) -> Path {
+        let path = UIBezierPath(
+            roundedRect: rect,
+            byRoundingCorners: corners,
+            cornerRadii: CGSize(width: radius, height: radius)
+        )
+        return Path(path.cgPath)
     }
 }
 
 // MARK: - Preview
 
-#Preview {
+#Preview("Free User") {
     ImprovedPaywallView(user: User(username: "test", email: "test@example.com"))
+        .environmentObject(ComprehensiveAuthManager())
+}
+
+#Preview("Plus User") {
+    let _ = StoreKitManager.previewMock(tier: .plus)
+    return ImprovedPaywallView(user: User(username: "test", email: "test@example.com"))
         .environmentObject(ComprehensiveAuthManager())
 }

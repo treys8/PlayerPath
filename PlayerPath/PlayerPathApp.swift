@@ -37,24 +37,22 @@ struct PlayerPathApp: App {
     // State for handling notification-based navigation
     @State private var navigationCoordinator = NavigationCoordinator()
 
-    /// Shared model container using the versioned schema + migration plan so that
-    /// model changes between builds trigger proper migrations instead of silently
-    /// destroying the store and wiping tester/user data.
+    /// Shared model container.
+    ///
+    /// NOTE on versioned migration: SwiftData's VersionedSchema checksum system requires each schema
+    /// version to embed its own frozen model-type definitions (e.g. SchemaV1.User vs SchemaV2.User
+    /// as separate nested classes). Because all schemas here reference the same live model classes,
+    /// their checksums are identical and using a MigrationPlan causes "Duplicate version checksums
+    /// detected" at launch. Since no production users exist on V1, we use the simple unversioned
+    /// container which handles lightweight property additions/removals automatically.
+    ///
+    /// When real users exist and a true schema change is needed, revisit with nested model types
+    /// inside each VersionedSchema enum per Apple's WWDC pattern.
     static let sharedModelContainer: ModelContainer = {
         do {
-            let schema = Schema(versionedSchema: SchemaV1.self)
-            return try ModelContainer(
-                for: schema,
-                migrationPlan: PlayerPathMigrationPlan.self
-            )
+            return try ModelContainer(for: Schema(SchemaV2.models))
         } catch {
-            // Fallback: attempt unversioned container (auto-migrates simple changes)
-            print("⚠️ Versioned ModelContainer failed (\(error.localizedDescription)), falling back to unversioned")
-            do {
-                return try ModelContainer(for: Schema(SchemaV1.models))
-            } catch {
-                fatalError("Could not create ModelContainer: \(error)")
-            }
+            fatalError("Could not create ModelContainer: \(error)")
         }
     }()
 

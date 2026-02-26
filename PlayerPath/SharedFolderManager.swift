@@ -38,19 +38,19 @@ class SharedFolderManager: ObservableObject {
     
     // MARK: - Athlete Functions
     
-    /// Creates a new shared folder for an athlete (Premium feature)
+    /// Creates a new shared folder for an athlete (Coaching Add-On feature)
     /// - Parameters:
     ///   - name: Display name for the folder
     ///   - athleteID: Current user's athlete ID
-    ///   - isPremium: Whether user has premium subscription
+    ///   - hasCoachingAccess: Whether user has coaching add-on + at least Plus tier
     /// - Returns: Created folder ID
     func createFolder(
         name: String,
         forAthlete athleteID: String,
-        isPremium: Bool
+        hasCoachingAccess: Bool
     ) async throws -> String {
-        guard isPremium else {
-            throw SharedFolderError.premiumRequired
+        guard hasCoachingAccess else {
+            throw SharedFolderError.coachingRequired
         }
         
         guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -510,7 +510,8 @@ enum FolderAction {
 }
 
 enum SharedFolderError: LocalizedError {
-    case premiumRequired
+    case premiumRequired      // legacy, keep for any existing references
+    case coachingRequired
     case invalidName
     case invalidEmail
     case emptyComment
@@ -521,7 +522,9 @@ enum SharedFolderError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .premiumRequired:
-            return "Premium subscription required to create shared folders"
+            return "Plus or Pro subscription required to use coaching features"
+        case .coachingRequired:
+            return "Coaching Add-On required to create shared folders. Add it to your Plus or Pro plan."
         case .invalidName:
             return "Please enter a valid folder name"
         case .invalidEmail:

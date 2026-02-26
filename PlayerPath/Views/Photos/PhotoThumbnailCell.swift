@@ -32,7 +32,7 @@ struct PhotoThumbnailCell: View {
             // Badge if tagged to game or practice
             if photo.game != nil || photo.practice != nil {
                 HStack(spacing: 3) {
-                    Image(systemName: photo.game != nil ? "sportscourt.fill" : "figure.run")
+                    Image(systemName: photo.game != nil ? "baseball.diamond.bases" : "figure.run")
                         .font(.system(size: 8))
                     if let game = photo.game {
                         Text(game.opponent)

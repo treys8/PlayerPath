@@ -45,7 +45,7 @@ enum HelpArticle {
         case .understandingStats: return "chart.bar.fill"
         case .managingAthletes: return "person.fill"
         case .seasonTracking: return "calendar"
-        case .gameManagement: return "sportscourt.fill"
+        case .gameManagement: return "baseball.diamond.bases"
         case .crossDeviceSync: return "arrow.triangle.2.circlepath"
         case .videoStorage: return "externaldrive.fill"
         case .exportingData: return "arrow.down.doc"

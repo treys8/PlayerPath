@@ -12,10 +12,10 @@ struct TrialStatusView: View {
     @State private var showingUpgrade = false
 
     var body: some View {
-        if !authManager.isPremiumUser {
+        if authManager.currentTier == .free {
             HStack(spacing: 14) {
-                statusIcon
-                statusText
+                freeStatusIcon
+                freeStatusText
                 Spacer()
                 upgradeButton
             }
@@ -23,53 +23,40 @@ struct TrialStatusView: View {
             .padding(.vertical, 14)
             .background(
                 RoundedRectangle(cornerRadius: 16)
-                    .fill(statusBackgroundGradient)
+                    .fill(LinearGradient(
+                        colors: [Color.blue.opacity(0.10), Color.blue.opacity(0.06)],
+                        startPoint: .topLeading, endPoint: .bottomTrailing))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 16)
-                    .stroke(statusBorderColor, lineWidth: 1.5)
+                    .stroke(Color.blue.opacity(0.25), lineWidth: 1.5)
             )
-            .shadow(color: statusShadowColor.opacity(0.2), radius: 8, x: 0, y: 4)
-            .animation(.easeInOut(duration: 0.3), value: authManager.trialDaysRemaining)
+            .shadow(color: Color.blue.opacity(0.15), radius: 8, x: 0, y: 4)
         }
     }
 
-    private var statusIcon: some View {
+    private var freeStatusIcon: some View {
         ZStack {
             Circle()
-                .fill(statusIconBackground)
+                .fill(Color.blue.opacity(0.12))
                 .frame(width: 40, height: 40)
 
-            Image(systemName: authManager.trialDaysRemaining > 0 ? "clock.fill" : "exclamationmark.triangle.fill")
-                .foregroundColor(statusIconColor)
+            Image(systemName: "crown")
+                .foregroundColor(.blue)
                 .font(.system(size: 18, weight: .semibold))
-                .symbolRenderingMode(.hierarchical)
         }
     }
 
-    private var statusText: some View {
+    private var freeStatusText: some View {
         VStack(alignment: .leading, spacing: 3) {
-            if authManager.trialDaysRemaining > 0 {
-                Text("Free Trial")
-                    .font(.subheadline)
-                    .fontWeight(.semibold)
-                    .foregroundColor(.primary)
+            Text("Free Plan")
+                .font(.subheadline)
+                .fontWeight(.semibold)
+                .foregroundColor(.primary)
 
-                Text("\(authManager.trialDaysRemaining) days remaining")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .monospacedDigit()
-                    .contentTransition(.numericText())
-            } else {
-                Text("Trial Expired")
-                    .font(.subheadline)
-                    .fontWeight(.semibold)
-                    .foregroundColor(.red)
-
-                Text("Upgrade to continue")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
+            Text("1 athlete · 1 GB storage")
+                .font(.caption)
+                .foregroundColor(.secondary)
         }
     }
 
@@ -92,69 +79,10 @@ struct TrialStatusView: View {
                 .shadow(color: .blue.opacity(0.3), radius: 4, x: 0, y: 2)
         }
         .sheet(isPresented: $showingUpgrade) {
-            NavigationStack {
-                VStack(spacing: 24) {
-                    Image(systemName: "crown.fill")
-                        .font(.system(size: 60))
-                        .foregroundStyle(
-                            LinearGradient(
-                                colors: [.yellow, .orange],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                        .symbolRenderingMode(.hierarchical)
-
-                    Text("Premium Features")
-                        .font(.title)
-                        .fontWeight(.bold)
-
-                    Text("Coming Soon...")
-                        .foregroundColor(.secondary)
-                }
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("Cancel") {
-                            showingUpgrade = false
-                        }
-                    }
-                }
+            if let user = authManager.localUser {
+                ImprovedPaywallView(user: user)
             }
         }
     }
 
-    // MARK: - Style Helpers
-
-    private var statusBackgroundGradient: LinearGradient {
-        if authManager.trialDaysRemaining > 0 {
-            return LinearGradient(
-                colors: [Color.orange.opacity(0.12), Color.orange.opacity(0.08)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        } else {
-            return LinearGradient(
-                colors: [Color.red.opacity(0.12), Color.red.opacity(0.08)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        }
-    }
-
-    private var statusBorderColor: Color {
-        authManager.trialDaysRemaining > 0 ? .orange.opacity(0.3) : .red.opacity(0.3)
-    }
-
-    private var statusShadowColor: Color {
-        authManager.trialDaysRemaining > 0 ? .orange : .red
-    }
-
-    private var statusIconBackground: Color {
-        authManager.trialDaysRemaining > 0 ? .orange.opacity(0.15) : .red.opacity(0.15)
-    }
-
-    private var statusIconColor: Color {
-        authManager.trialDaysRemaining > 0 ? .orange : .red
-    }
 }
