@@ -67,7 +67,7 @@ struct FAQView: View {
         ),
         (
             question: "What do the statistics mean?",
-            answer: "AVG (Batting Average) = Hits ÷ At-Bats. SLG (Slugging) = Total Bases ÷ At-Bats. OBP (On-Base %) = (Hits + Walks) ÷ (At-Bats + Walks). OPS = OBP + SLG. Higher is better for all stats! See 'Understanding Statistics' in Help for detailed explanations."
+            answer: "AVG (Batting Average) = Hits ÷ At-Bats. SLG (Slugging) = Total Bases ÷ At-Bats. OBP (On-Base %) = (Hits + Walks + Hit-by-Pitch) ÷ (At-Bats + Walks + Hit-by-Pitch). OPS = OBP + SLG. Higher is better for all stats! See 'Understanding Statistics' in Help for detailed explanations."
         ),
         (
             question: "Can I track multiple athletes (my kids)?",

@@ -55,6 +55,22 @@ final class ComprehensiveAuthManager: ObservableObject {
     /// True when coaching add-on is active AND user has at least Plus tier
     var hasCoachingAccess: Bool { hasCoachingAddOn && currentTier >= .plus }
 
+    // Grace period tracking
+    @Published var coachingLapseDate: Date?
+    static let gracePeriodDays = 7
+
+    var isInCoachingGracePeriod: Bool {
+        guard !hasCoachingAddOn, let lapseDate = coachingLapseDate else { return false }
+        let end = lapseDate.addingTimeInterval(Double(Self.gracePeriodDays) * 86400)
+        return Date() < end
+    }
+
+    var coachingGraceDaysRemaining: Int {
+        guard let lapseDate = coachingLapseDate else { return 0 }
+        let end = lapseDate.addingTimeInterval(Double(Self.gracePeriodDays) * 86400)
+        return max(0, Calendar.current.dateComponents([.day], from: Date(), to: end).day ?? 0)
+    }
+
     private var authStateDidChangeListenerHandle: AuthStateDidChangeListenerHandle?
     private var modelContext: ModelContext?
     private var storeKitCancellables = Set<AnyCancellable>()
@@ -63,11 +79,17 @@ final class ComprehensiveAuthManager: ObservableObject {
         currentFirebaseUser = Auth.auth().currentUser
         isSignedIn = currentFirebaseUser != nil
 
-        // Restore persisted role from UserDefaults to survive app restarts/state changes
+        // Restore persisted role from UserDefaults for initial UI routing only.
+        // This is a display hint to prevent flicker on launch — it is NOT authoritative.
+        // The real role is always loaded from Firestore in loadUserProfile() and
+        // overwrites this value. Never use userRole for security decisions client-side;
+        // security enforcement is handled by Firebase Security Rules server-side.
         if let persistedRoleString = UserDefaults.standard.string(forKey: AuthConstants.UserDefaultsKeys.userRole),
            let persistedRole = UserRole(rawValue: persistedRoleString) {
             userRole = persistedRole
+            #if DEBUG
             print("💾 Restored userRole from UserDefaults: \(persistedRole.rawValue)")
+            #endif
         }
 
         // Restore persisted onboarding completion from UserDefaults
@@ -84,7 +106,18 @@ final class ComprehensiveAuthManager: ObservableObject {
 
         StoreKitManager.shared.$hasCoachingAddOn
             .receive(on: RunLoop.main)
-            .sink { [weak self] coaching in self?.hasCoachingAddOn = coaching }
+            .sink { [weak self] newValue in
+                guard let self else { return }
+                let wasActive = self.hasCoachingAddOn
+                self.hasCoachingAddOn = newValue
+                if wasActive && !newValue {
+                    // Add-on just lapsed — start grace period if not already tracking
+                    Task { await self.handleCoachingAddOnLapse() }
+                } else if !wasActive && newValue {
+                    // Add-on restored — clear any pending grace period
+                    Task { await self.clearCoachingLapse() }
+                }
+            }
             .store(in: &storeKitCancellables)
 
         authStateDidChangeListenerHandle = Auth.auth().addStateDidChangeListener { [weak self] _, user in
@@ -103,6 +136,7 @@ final class ComprehensiveAuthManager: ObservableObject {
                     self?.hasCompletedOnboarding = false
                     self?.currentTier = .free
                     self?.hasCoachingAddOn = false
+                    self?.coachingLapseDate = nil
                     UserDefaults.standard.removeObject(forKey: AuthConstants.UserDefaultsKeys.userRole)
                     UserDefaults.standard.removeObject(forKey: AuthConstants.UserDefaultsKeys.hasCompletedOnboarding)
                     print("🔄 Cleared all user data on sign out")
@@ -163,7 +197,9 @@ final class ComprehensiveAuthManager: ObservableObject {
                 if existingUser.firebaseAuthUid != firebaseUser.uid {
                     existingUser.firebaseAuthUid = firebaseUser.uid
                     needsSave = true
+                    #if DEBUG
                     print("🔄 Stored Firebase Auth UID: \(firebaseUser.uid)")
+                    #endif
                 }
                 if needsSave { try context.save() }
                 await MainActor.run {
@@ -175,7 +211,9 @@ final class ComprehensiveAuthManager: ObservableObject {
                 newUser.firebaseAuthUid = firebaseUser.uid
                 context.insert(newUser)
                 try context.save()
+                #if DEBUG
                 print("✅ Created new SwiftData user with role: \(self.userRole.rawValue), Firebase UID: \(firebaseUser.uid)")
+                #endif
                 await MainActor.run {
                     self.localUser = newUser
                 }
@@ -212,11 +250,15 @@ final class ComprehensiveAuthManager: ObservableObject {
             AnalyticsService.shared.trackSignIn(method: "email")
 
             isLoading = false
+            #if DEBUG
             print("🟢 Sign in successful for: \(result.user.email ?? "unknown") as \(userRole.rawValue)")
+            #endif
         } catch {
             errorMessage = friendlyErrorMessage(from: error)
             isLoading = false
+            #if DEBUG
             print("🔴 Sign in error: \(error.localizedDescription)")
+            #endif
         }
     }
     
@@ -243,7 +285,9 @@ final class ComprehensiveAuthManager: ObservableObject {
             currentFirebaseUser = result.user
             isSignedIn = true
             
+            #if DEBUG
             print("🔵 Creating athlete profile for: \(email)")
+            #endif
             
             // Create user profile in Firestore with default athlete role
             // Note: createUserProfile will also set userRole = .athlete internally
@@ -265,12 +309,16 @@ final class ComprehensiveAuthManager: ObservableObject {
             AnalyticsService.shared.trackSignUp(method: "email")
 
             isLoading = false
+            #if DEBUG
             print("🟢 Sign up successful for athlete: \(result.user.email ?? "unknown") with role: \(userRole.rawValue)")
+            #endif
         } catch {
             errorMessage = friendlyErrorMessage(from: error)
             isLoading = false
             isNewUser = false
+            #if DEBUG
             print("🔴 Sign up error: \(error.localizedDescription)")
+            #endif
         }
     }
     
@@ -290,7 +338,9 @@ final class ComprehensiveAuthManager: ObservableObject {
             "displayName": displayName
         ]
         
+        #if DEBUG
         print("🔵 Creating user profile in Firestore - Role: \(role.rawValue), Email: \(email)")
+        #endif
         
         try await FirestoreManager.shared.updateUserProfile(
             userID: userID,
@@ -322,7 +372,9 @@ final class ComprehensiveAuthManager: ObservableObject {
             return
         }
         
+        #if DEBUG
         print("🔍 loadUserProfile: Fetching profile for user \(email)")
+        #endif
         
         do {
             if let profile = try await FirestoreManager.shared.fetchUserProfile(userID: userID) {
@@ -331,7 +383,10 @@ final class ComprehensiveAuthManager: ObservableObject {
                 
                 // Update profile and role from Firestore
                 userProfile = profile
-                
+
+                // Sync coaching lapse date from Firestore (source of truth)
+                coachingLapseDate = profile.coachingLapseDate
+
                 // Only update userRole if it's different AND this is not a new user
                 // For new users, we want to keep the role we set synchronously at signup
                 if isNewUser {
@@ -349,12 +404,16 @@ final class ComprehensiveAuthManager: ObservableObject {
                     print("✅ Updated role from Firestore for existing user: \(profile.userRole.rawValue)")
                 }
                 
+                #if DEBUG
                 print("✅ Loaded user profile: \(profile.role) for \(email)")
+                #endif
             } else {
                 // Profile doesn't exist - only create if this is NOT a new user
                 // (new users should have had their profile created in signUp/signUpAsCoach)
                 if !isNewUser {
+                    #if DEBUG
                     print("⚠️ Profile doesn't exist for existing user \(email), creating default athlete profile")
+                    #endif
                     try await createUserProfile(
                         userID: userID,
                         email: email,
@@ -362,11 +421,15 @@ final class ComprehensiveAuthManager: ObservableObject {
                         role: .athlete
                     )
                 } else {
+                    #if DEBUG
                     print("⚠️ Profile not found for new user \(email), but keeping existing role: \(userRole.rawValue)")
+                    #endif
                 }
             }
         } catch {
+            #if DEBUG
             print("❌ Failed to load user profile for \(email): \(error)")
+            #endif
         }
     }
 
@@ -408,12 +471,16 @@ final class ComprehensiveAuthManager: ObservableObject {
                 } else if attempt < maxAttempts {
                     // Profile not found yet, retry with exponential backoff
                     let delay = pow(2.0, Double(attempt - 1)) * 0.1 // 0.1s, 0.2s, 0.4s, 0.8s, 1.6s
+                    #if DEBUG
                     print("⏳ Profile not found for \(email) on attempt \(attempt)/\(maxAttempts), retrying in \(delay)s...")
+                    #endif
                     try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                 } else {
                     // Last attempt and still not found - create profile as fallback
+                    #if DEBUG
                     print("⚠️ Profile not found for \(email) after \(maxAttempts) attempts")
                     print("🔧 Creating fallback Firestore profile with current role: \(self.userRole.rawValue)")
+                    #endif
 
                     // Create profile with current role (from UserDefaults/SwiftData)
                     do {
@@ -478,7 +545,9 @@ final class ComprehensiveAuthManager: ObservableObject {
             currentFirebaseUser = result.user
             isSignedIn = true
             
+            #if DEBUG
             print("🔵 Creating coach profile for: \(email)")
+            #endif
             
             // Create coach profile in Firestore
             // Note: createUserProfile will also set userRole = .coach internally
@@ -506,14 +575,18 @@ final class ComprehensiveAuthManager: ObservableObject {
             // We want coaches to see their coach-specific onboarding flow
             
             isLoading = false
+            #if DEBUG
             print("🟢 Coach sign up successful for: \(email) with role: \(userRole.rawValue)")
+            #endif
         } catch {
             errorMessage = friendlyErrorMessage(from: error)
             isLoading = false
             isNewUser = false
             // Reset role on error
             userRole = .athlete
+            #if DEBUG
             print("🔴 Coach sign up error: \(error.localizedDescription)")
+            #endif
         }
     }
     
@@ -541,6 +614,9 @@ final class ComprehensiveAuthManager: ObservableObject {
             // Clear biometric credentials on logout for security
             BiometricAuthenticationManager.shared.disableBiometric()
 
+            // Clear signed URL cache so another user can't access previous user's URLs
+            SecureURLManager.shared.clearCache()
+
             // Clear upload queues to prevent cross-account data leakage
             UploadQueueManager.shared.clearAllQueues()
 
@@ -552,6 +628,50 @@ final class ComprehensiveAuthManager: ObservableObject {
         }
     }
     
+    // MARK: - Coaching Add-On Grace Period
+
+    /// Called when coaching add-on transitions from active → inactive.
+    /// Records the lapse date in Firestore (once) to start the 7-day grace period.
+    func handleCoachingAddOnLapse() async {
+        guard coachingLapseDate == nil, let userID else { return }
+        let lapseDate = Date()
+        coachingLapseDate = lapseDate
+        try? await FirestoreManager.shared.setCoachingLapseDate(lapseDate, forUserID: userID)
+        print("⏰ Coaching add-on lapsed — grace period started: \(lapseDate)")
+    }
+
+    /// Called when coaching add-on is restored. Clears the grace period.
+    func clearCoachingLapse() async {
+        coachingLapseDate = nil
+        guard let userID else { return }
+        try? await FirestoreManager.shared.setCoachingLapseDate(nil, forUserID: userID)
+        print("✅ Coaching add-on restored — grace period cleared")
+    }
+
+    /// Checks if the 7-day grace period has expired and revokes all coach access if so.
+    /// Called on each app foreground.
+    func checkAndEnforceGracePeriod(for athlete: Athlete?) async {
+        guard !hasCoachingAddOn,
+              let lapseDate = coachingLapseDate,
+              let athlete else { return }
+
+        let gracePeriodEnd = lapseDate.addingTimeInterval(Double(Self.gracePeriodDays) * 86400)
+        guard Date() >= gracePeriodEnd else {
+            print("⏰ Grace period active — \(coachingGraceDaysRemaining) day(s) remaining")
+            return
+        }
+
+        print("⏰ Grace period expired — revoking all coach access")
+        do {
+            try await SharedFolderManager.shared.revokeAllCoachAccess(
+                forAthleteID: athlete.id.uuidString
+            )
+            await clearCoachingLapse()
+        } catch {
+            print("❌ Failed to revoke coach access after grace period: \(error)")
+        }
+    }
+
     func resetPassword(email: String) async {
         isLoading = true
         errorMessage = nil
@@ -559,7 +679,9 @@ final class ComprehensiveAuthManager: ObservableObject {
         do {
             try await Auth.auth().sendPasswordReset(withEmail: email)
             isLoading = false
+            #if DEBUG
             print("🟢 Password reset sent to: \(email)")
+            #endif
         } catch {
             errorMessage = friendlyErrorMessage(from: error)
             isLoading = false
@@ -584,7 +706,9 @@ final class ComprehensiveAuthManager: ObservableObject {
         do {
             let userID = user.uid
 
+            #if DEBUG
             print("🗑️ Starting account deletion for user: \(user.email ?? "unknown")")
+            #endif
 
             // Track account deletion request
             AnalyticsService.shared.trackAccountDeletionRequested(userID: userID)
@@ -738,7 +862,9 @@ final class ComprehensiveAuthManager: ObservableObject {
         do {
             try await user.sendEmailVerification()
             isLoading = false
+            #if DEBUG
             print("✅ Verification email sent to: \(user.email ?? "unknown")")
+            #endif
         } catch {
             isLoading = false
             errorMessage = "Failed to send verification email: \(error.localizedDescription)"
@@ -790,7 +916,11 @@ final class ComprehensiveAuthManager: ObservableObject {
         case AuthErrorCode.userDisabled.rawValue:
             return AuthConstants.ErrorMessages.userDisabled
         default:
+            #if DEBUG
             return error.localizedDescription
+            #else
+            return "Something went wrong. Please try again."
+            #endif
         }
     }
 }

@@ -102,7 +102,35 @@ struct PlayerPathApp: App {
                             Haptics.light()
                             navigationCoordinator.selectedPracticeId = practiceId
                             navigationCoordinator.showVideoRecorder = true
-                            // Handlers in views should call navigationCoordinator.resetNavigation() after navigating.
+                        }
+                    }
+                    // Fix AF: Add observers for the three notification names that
+                    // PushNotificationService posts but were previously unobserved.
+                    .onReceive(NotificationCenter.default.publisher(for: .navigateToWeeklySummary)) { _ in
+                        Haptics.light()
+                        navigationCoordinator.showWeeklySummary = true
+                    }
+                    .onReceive(NotificationCenter.default.publisher(for: .navigateToPremiumFeatures)) { _ in
+                        // Navigate to Profile tab where subscription management lives
+                        Haptics.light()
+                        NotificationCenter.default.post(name: .switchTab, object: MainTab.more.rawValue)
+                    }
+                    .onReceive(NotificationCenter.default.publisher(for: .navigateToCloudStorage)) { _ in
+                        // Navigate to Profile tab where cloud storage settings live
+                        Haptics.light()
+                        NotificationCenter.default.post(name: .switchTab, object: MainTab.more.rawValue)
+                    }
+                    // Fix AH: Present InvitationDetailView when an invitation deep link is received.
+                    // Previously navigationCoordinator.showInvitation was set but never observed.
+                    .sheet(isPresented: Binding(
+                        get: { navigationCoordinator.showInvitation },
+                        set: { if !$0 { navigationCoordinator.showInvitation = false } }
+                    )) {
+                        if let invitationId = navigationCoordinator.selectedInvitationId {
+                            InvitationDetailView(invitationId: invitationId)
+                                .onDisappear {
+                                    navigationCoordinator.resetNavigation()
+                                }
                         }
                     }
             }
@@ -125,14 +153,10 @@ struct PlayerPathApp: App {
                         case .invitation(let invitationId):
                             navigationCoordinator.selectedInvitationId = invitationId
                             navigationCoordinator.showInvitation = true
-                        case .folder(let folderId):
-                            navigationCoordinator.selectedFolderId = folderId
-                            navigationCoordinator.showFolder = true
                         }
-                        // Views should call navigationCoordinator.resetNavigation() after handling.
                     }
                 }
-                // Note: Notification permission is requested by AppDelegate on launch.
+                // Note: Notification permission is requested in MainTabView.task, post-onboarding.
         }
         .modelContainer(PlayerPathApp.sharedModelContainer)
     }
@@ -147,25 +171,21 @@ final class NavigationCoordinator {
     var showVideoRecorder = false
     var showWeeklySummary = false
     var showInvitation = false
-    var showFolder = false
 
     var selectedAthleteId: String?
     var selectedGameId: String?
     var selectedPracticeId: String?
     var selectedInvitationId: String?
-    var selectedFolderId: String?
 
     func resetNavigation() {
         showStatistics = false
         showVideoRecorder = false
         showWeeklySummary = false
         showInvitation = false
-        showFolder = false
         selectedAthleteId = nil
         selectedGameId = nil
         selectedPracticeId = nil
         selectedInvitationId = nil
-        selectedFolderId = nil
     }
 }
 
@@ -177,16 +197,16 @@ enum DeepLinkIntent {
     case recordGame(gameId: String)
     case recordPractice(practiceId: String)
     case invitation(invitationId: String)
-    case folder(folderId: String)
+    // folder(folderId:) removed — folder navigation UI is not yet implemented.
+    // Folder URLs will fall through to the default nil return and be silently ignored.
 }
 
 extension DeepLinkIntent {
     /// Initialize from a URL of the form:
-    /// playerpath://statistics?athleteId=... ,
-    /// playerpath://record/game?gameId=... ,
-    /// playerpath://record/practice?practiceId=... ,
-    /// playerpath://invitation/{invitationId} ,
-    /// playerpath://folder/{folderId}
+    /// playerpath://statistics?athleteId=...
+    /// playerpath://record/game?gameId=...
+    /// playerpath://record/practice?practiceId=...
+    /// playerpath://invitation/{invitationId}
     init?(url: URL) {
         guard let host = url.host?.lowercased() else { return nil }
         let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
@@ -207,12 +227,6 @@ extension DeepLinkIntent {
             // Format: playerpath://invitation/{invitationId}
             if pathComponents.count >= 1, !pathComponents[0].isEmpty {
                 self = .invitation(invitationId: pathComponents[0])
-                return
-            }
-        case ("folder", _):
-            // Format: playerpath://folder/{folderId}
-            if pathComponents.count >= 1, !pathComponents[0].isEmpty {
-                self = .folder(folderId: pathComponents[0])
                 return
             }
         default:
@@ -249,6 +263,11 @@ struct ScenePhaseSaveHandler<Content: View>: View {
             #if DEBUG
             print("📱 App became active")
             #endif
+            // Refresh entitlements each time the app returns to foreground to catch
+            // renewals, expirations, or revocations that occurred in the background.
+            Task { await StoreKitManager.shared.updateEntitlements() }
+            // Check if coaching add-on grace period has expired
+            NotificationCenter.default.post(name: .checkCoachingGracePeriod, object: nil)
             lastSavedPhase = .active
 
         case .inactive:

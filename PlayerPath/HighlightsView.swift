@@ -720,7 +720,7 @@ struct EmptyHighlightsView: View {
                     dismiss()
                 } label: {
                     HStack(spacing: 8) {
-                        Image(systemName: "video")
+                        Image(systemName: "video.fill")
                             .font(.body)
                         Text("Go to Videos")
                             .font(.subheadline)
@@ -765,9 +765,11 @@ struct HighlightCard: View {
     let editMode: EditMode
     let onTap: () -> Void
     @Environment(\.modelContext) private var modelContext
+    @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @State private var thumbnailImage: UIImage?
     @State private var isLoadingThumbnail = false
     @State private var shimmerPhase: CGFloat = 0
+    @State private var showingShareToFolder = false
 
     var body: some View {
         Button(action: {
@@ -948,6 +950,15 @@ struct HighlightCard: View {
         .shadow(color: .black.opacity(0.04), radius: 2, x: 0, y: 1)
         .scaleEffect(editMode == .active ? 0.96 : 1.0)
         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: editMode)
+        .contextMenu {
+            if authManager.hasCoachingAccess && editMode == .inactive {
+                Button {
+                    showingShareToFolder = true
+                } label: {
+                    Label("Share to Coach Folder", systemImage: "folder.badge.person.fill")
+                }
+            }
+        }
         .task {
             await loadThumbnail()
         }
@@ -956,6 +967,9 @@ struct HighlightCard: View {
             withAnimation(.linear(duration: 1.5).repeatForever(autoreverses: false)) {
                 shimmerPhase = 1
             }
+        }
+        .sheet(isPresented: $showingShareToFolder) {
+            ShareToCoachFolderView(clip: clip)
         }
     }
 
@@ -1325,7 +1339,7 @@ struct SimpleCloudStorageView: View {
                                     .fill(Color.gray.opacity(0.3))
                                     .frame(width: 50, height: 38)
                                     .overlay(
-                                        Image(systemName: "video")
+                                        Image(systemName: "video.fill")
                                             .foregroundColor(.gray)
                                     )
                                 
@@ -1548,7 +1562,7 @@ struct GameHighlightSection: View {
                                     .foregroundColor(.secondary)
 
                                 HStack(spacing: 4) {
-                                    Image(systemName: "video")
+                                    Image(systemName: "video.fill")
                                         .font(.caption2)
                                     Text("\(group.hitCount) clip\(group.hitCount == 1 ? "" : "s")")
                                         .font(.caption)

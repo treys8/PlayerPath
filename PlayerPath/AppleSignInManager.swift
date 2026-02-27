@@ -255,9 +255,8 @@ extension AppleSignInManager: ASAuthorizationControllerPresentationContextProvid
             return UIWindow(windowScene: windowScene)
         }
 
-        // Should never happen in normal app operation — return a detached window
-        // so the ASAuthorizationController delegate receives a failure instead of crashing.
-        return UIWindow(frame: UIScreen.main.bounds)
+        // Unreachable on any real device — every iOS 15+ app has at least one UIWindowScene.
+        fatalError("No UIWindowScene available for Apple Sign In presentation")
     }
 }
 

@@ -31,6 +31,8 @@ final class SyncCoordinator {
     private var syncQueue: [SyncOperation] = []
     private var timer: Timer?
     private var cancellables = Set<AnyCancellable>()
+    /// Active background video-download tasks; cancelled when periodic sync stops.
+    private var pendingDownloadTasks: [Task<Void, Never>] = []
 
     private init() {
         print("🔄 SyncCoordinator initialized")
@@ -56,15 +58,6 @@ final class SyncCoordinator {
             return
         }
 
-        // Prevent concurrent syncs
-        guard !isSyncing else {
-            print("⚠️ Sync already in progress, skipping")
-            return
-        }
-
-        isSyncing = true
-        defer { isSyncing = false }
-
         print("🔄 Starting athlete sync for user: \(user.email)")
 
         do {
@@ -77,7 +70,6 @@ final class SyncCoordinator {
             // Step 3: Resolve conflicts (if any)
             try await resolveConflicts(user: user, context: context)
 
-            lastSyncDate = Date()
             print("✅ Athlete sync completed successfully")
 
         } catch {
@@ -862,10 +854,11 @@ final class SyncCoordinator {
                 context.insert(newClip)
                 print("✅ Created local VideoClip from remote: \(remoteVideo.fileName)")
 
-                // Queue video for download (in background)
-                Task {
-                    await downloadVideoFile(clip: newClip, context: context)
+                // Queue video for background download; store task so it can be cancelled.
+                let downloadTask = Task {
+                    await self.downloadVideoFile(clip: newClip, context: context)
                 }
+                pendingDownloadTasks.append(downloadTask)
             }
         }
 
@@ -922,6 +915,15 @@ final class SyncCoordinator {
     /// Order: Athletes → Seasons → Games → Practices → Videos
     /// - Parameter user: The SwiftData User to sync all entities for
     func syncAll(for user: User) async throws {
+        // Single entry point for the isSyncing lock — prevents concurrent syncAll calls
+        // from the 60-second timer, scene-active refresh, or manual triggers.
+        guard !isSyncing else {
+            print("⚠️ Sync already in progress, skipping")
+            return
+        }
+        isSyncing = true
+        defer { isSyncing = false }
+
         print("🔄 Starting comprehensive sync (Athletes → Seasons → Games → Practices → Videos)")
 
         // Sync in dependency order
@@ -932,7 +934,7 @@ final class SyncCoordinator {
         try await syncVideos(for: user)
 
         lastSyncDate = Date()
-        print("✅ Comprehensive sync completed successfully")
+        print("✅ Comprehensive sync completed")
     }
 
     // MARK: - Background Sync
@@ -967,18 +969,20 @@ final class SyncCoordinator {
     // MARK: - Helper Methods
 
     private func getCurrentUser(context: ModelContext) -> User? {
-        // Get Firebase user email
         guard let firebaseEmail = Auth.auth().currentUser?.email else {
             return nil
         }
 
-        // Fetch all users and filter by email
-        let descriptor = FetchDescriptor<User>()
+        // Predicate fetch — avoids loading all User rows into memory.
+        var descriptor = FetchDescriptor<User>(
+            predicate: #Predicate<User> { user in
+                user.email == firebaseEmail
+            }
+        )
+        descriptor.fetchLimit = 1
 
         do {
-            let allUsers = try context.fetch(descriptor)
-            let matchedUsers = allUsers.filter { $0.email.lowercased() == firebaseEmail.lowercased() }
-            return matchedUsers.first
+            return try context.fetch(descriptor).first
         } catch {
             print("❌ Failed to fetch current user: \(error)")
             return nil
@@ -990,10 +994,12 @@ final class SyncCoordinator {
         syncErrors.removeAll()
     }
 
-    /// Stops the periodic sync timer
+    /// Stops the periodic sync timer and cancels any in-flight background downloads
     func stopPeriodicSync() {
         timer?.invalidate()
         timer = nil
+        pendingDownloadTasks.forEach { $0.cancel() }
+        pendingDownloadTasks.removeAll()
         print("⏸️ Periodic sync stopped")
     }
 }

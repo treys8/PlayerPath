@@ -70,6 +70,9 @@ import UIKit
             return try await existingTask.value
         }
 
+        // Capture scale on MainActor before dispatching to the background thread.
+        let screenScale = UITraitCollection.current.displayScale
+
         // Create new loading task
         let task = Task<UIImage, Error> {
             // Perform disk IO off the main actor
@@ -82,7 +85,7 @@ import UIKit
 
                     // Use downsampling if target size is provided
                     if let targetSize = targetSize {
-                        if let downsampledImage = self.downsampleImage(at: URL(fileURLWithPath: path), to: targetSize) {
+                        if let downsampledImage = self.downsampleImage(at: URL(fileURLWithPath: path), to: targetSize, scale: screenScale) {
                             continuation.resume(returning: downsampledImage)
                             return
                         }
@@ -166,9 +169,7 @@ import UIKit
 
     /// Downsample an image to reduce memory usage
     /// This is much more memory-efficient than loading full resolution and then scaling
-    private nonisolated func downsampleImage(at imageURL: URL, to pointSize: CGSize) -> UIImage? {
-        // Use a reasonable default scale (3.0 covers most modern devices)
-        let scale: CGFloat = 3.0
+    private nonisolated func downsampleImage(at imageURL: URL, to pointSize: CGSize, scale: CGFloat) -> UIImage? {
         let pixelSize = CGSize(width: pointSize.width * scale, height: pointSize.height * scale)
 
         // Create image source

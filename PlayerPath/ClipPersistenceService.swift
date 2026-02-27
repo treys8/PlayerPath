@@ -266,8 +266,12 @@ final class ClipPersistenceService {
         // Build destination URL and avoid copying onto itself
         let proposedDestination = clipsDirectoryURL.appendingPathComponent(url.lastPathComponent)
         let destinationURL: URL
+        // Track whether we made a copy so we can delete the source after a successful save.
+        // This prevents orphaned imported_*.mov files from accumulating in Documents.
+        let sourceNeedsDeletion: Bool
         if url.standardizedFileURL.deletingLastPathComponent() == clipsDirectoryURL.standardizedFileURL {
             destinationURL = url // already in place
+            sourceNeedsDeletion = false
         } else {
             destinationURL = uniqueDestinationURL(basedOn: proposedDestination)
             do {
@@ -275,6 +279,7 @@ final class ClipPersistenceService {
             } catch {
                 throw ClipPersistenceError.failedToCopy(from: url, to: destinationURL, underlying: error)
             }
+            sourceNeedsDeletion = true
         }
 
         let asset: AVAsset = AVURLAsset(url: destinationURL)
@@ -379,6 +384,12 @@ final class ClipPersistenceService {
         // Insert and save
         context.insert(videoClip)
         try context.save()
+
+        // Delete the source file now that the clip is safely persisted in Documents/Clips/.
+        // This cleans up the temporary copy created by VideoTransferable.importing (imported_*.mov).
+        if sourceNeedsDeletion {
+            try? fileManager.removeItem(at: url)
+        }
 
         // Track video recorded analytics
         AnalyticsService.shared.trackVideoRecorded(

@@ -441,7 +441,7 @@ struct SignInView: View {
 
     private func enableBiometric() {
         Task {
-            let success = await biometricManager.enableBiometric(email: email, password: password)
+            let success = await biometricManager.enableSessionBasedBiometric(email: email)
             if success {
                 Haptics.success()
             }

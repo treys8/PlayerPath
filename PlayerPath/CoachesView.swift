@@ -18,6 +18,7 @@ struct CoachesView: View {
     @State private var showingAddCoach = false
     @State private var showingInviteCoach = false
     @State private var showingPremiumAlert = false
+    @State private var showingPaywall = false
     @State private var coachToDelete: Coach?
     @State private var showingDeleteConfirmation = false
 
@@ -55,6 +56,32 @@ struct CoachesView: View {
                 )
             } else {
                 List {
+                    // Grace period warning banner
+                    if authManager.isInCoachingGracePeriod {
+                        Section {
+                            HStack(spacing: 10) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundColor(.orange)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Coaching Add-On Expired")
+                                        .font(.subheadline)
+                                        .fontWeight(.semibold)
+                                        .foregroundColor(.primary)
+                                    Text("Coach access ends in \(authManager.coachingGraceDaysRemaining) day\(authManager.coachingGraceDaysRemaining == 1 ? "" : "s"). Renew to keep access.")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                                Spacer()
+                                Button("Renew") {
+                                    showingPaywall = true
+                                }
+                                .font(.caption.bold())
+                                .tint(.orange)
+                            }
+                            .padding(.vertical, 4)
+                        }
+                    }
+
                     // Invite Coach Banner (Premium)
                     if authManager.hasCoachingAccess {
                         Section {
@@ -137,6 +164,11 @@ struct CoachesView: View {
         }
         .sheet(isPresented: $showingInviteCoach) {
             InviteCoachSheet(athlete: athlete)
+        }
+        .sheet(isPresented: $showingPaywall) {
+            if let user = authManager.localUser {
+                ImprovedPaywallView(user: user)
+            }
         }
         .alert("Premium Feature", isPresented: $showingPremiumAlert) {
             Button("Maybe Later", role: .cancel) { }

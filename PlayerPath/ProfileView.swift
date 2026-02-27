@@ -15,7 +15,6 @@ import FirebaseAuth
 struct ProfileView: View {
     // MARK: - Configuration Constants
     private enum Config {
-        static let freeAthleteLimit = 3
         static let signOutDelay: UInt64 = 500_000_000 // 0.5 seconds
     }
 
@@ -23,6 +22,7 @@ struct ProfileView: View {
     @Binding var selectedAthlete: Athlete?
     @Environment(\.modelContext) private var modelContext
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
+    @ObservedObject private var storeManager = StoreKitManager.shared
     @State private var showingAddAthlete = false
     @State private var showingSignOutAlert = false
     @State private var athletePendingDelete: Athlete?
@@ -40,6 +40,7 @@ struct ProfileView: View {
 
     var body: some View {
         List {
+            billingRetrySection
             quickSearchSection
             userProfileSection
             athletesSection
@@ -323,7 +324,7 @@ struct ProfileView: View {
             keywords: ["export", "statistics", "csv", "pdf", "report", "stats", "share", "coach"],
             link: AnyView(
                 NavigationLink {
-                    StatisticsExportView()
+                    StatisticsExportView(athletes: sortedAthletes)
                 } label: {
                     Label("Export Statistics", systemImage: "chart.bar.doc.horizontal")
                 }
@@ -481,16 +482,6 @@ struct ProfileView: View {
                 Label("Notifications", systemImage: "bell")
             }
 
-            #if DEBUG
-            // CloudKit sync testing - monitors iCloud availability and sync status
-            NavigationLink {
-                CloudKitTestView()
-            } label: {
-                Label("CloudKit Test", systemImage: "icloud")
-                    .foregroundColor(.blue)
-            }
-            #endif
-
             NavigationLink {
                 HelpSupportView()
             } label: {
@@ -501,6 +492,34 @@ struct ProfileView: View {
                 AboutView()
             } label: {
                 Label("About PlayerPath", systemImage: "info.circle")
+            }
+        }
+    }
+
+    @ViewBuilder private var billingRetrySection: some View {
+        if storeManager.isInBillingRetryPeriod {
+            Section {
+                HStack(spacing: 12) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Payment Failed")
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                        Text("Update your payment method to keep your subscription active.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button("Fix") {
+                        if let url = URL(string: "https://apps.apple.com/account/subscriptions") {
+                            UIApplication.shared.open(url)
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.orange)
+                    .controlSize(.small)
+                }
             }
         }
     }
@@ -528,7 +547,7 @@ struct ProfileView: View {
 
             // Statistics Export (CSV/PDF Reports)
             NavigationLink {
-                StatisticsExportView()
+                StatisticsExportView(athletes: sortedAthletes)
             } label: {
                 Label("Export Statistics", systemImage: "chart.bar.doc.horizontal")
             }
@@ -1184,7 +1203,9 @@ struct NotificationSettingsView: View {
                                 let gameReminderIds = requests
                                     .filter { $0.identifier.hasPrefix("game_reminder_") }
                                     .map { $0.identifier }
-                                PushNotificationService.shared.cancelNotifications(withIdentifiers: gameReminderIds)
+                                Task { @MainActor in
+                                    PushNotificationService.shared.cancelNotifications(withIdentifiers: gameReminderIds)
+                                }
                             }
                         }
                     }
@@ -1205,9 +1226,11 @@ struct NotificationSettingsView: View {
                         if enabled, let athleteId {
                             Task { await PushNotificationService.shared.scheduleWeeklySummary(athleteId: athleteId) }
                         } else if !enabled, let athleteId {
-                            PushNotificationService.shared.cancelNotifications(
-                                withIdentifiers: ["weekly_summary_\(athleteId)"]
-                            )
+                            Task { @MainActor in
+                                PushNotificationService.shared.cancelNotifications(
+                                    withIdentifiers: ["weekly_summary_\(athleteId)"]
+                                )
+                            }
                         }
                     }
                 Toggle("Monthly Reports", isOn: $monthlyReports)
@@ -1575,6 +1598,8 @@ struct SubscriptionView: View {
                 pricingSection
             }
         }
+        .navigationTitle("Subscription")
+        .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showingPaywall) {
             ImprovedPaywallView(user: user)
         }
@@ -1638,12 +1663,23 @@ struct SubscriptionView: View {
     }
 
     private var upgradeBenefitsSection: some View {
-        Section("Upgrade to Premium") {
-            SubscriptionFeatureRow(icon: "person.2.fill", title: "Unlimited Athletes", description: "Currently limited to 3 athletes")
-            SubscriptionFeatureRow(icon: "chart.bar.fill", title: "Advanced Statistics", description: "Detailed performance analytics and trends")
-            SubscriptionFeatureRow(icon: "icloud.fill", title: "Cloud Storage", description: "Never lose your data with automatic backup")
-            SubscriptionFeatureRow(icon: "video", title: "Unlimited Videos", description: "Record and store unlimited video clips")
-            SubscriptionFeatureRow(icon: "star.fill", title: "Highlight Reels", description: "Automatically generated highlight videos")
+        Section {
+            VStack(spacing: 16) {
+                Image(systemName: "crown.fill")
+                    .font(.system(size: 44))
+                    .foregroundColor(.yellow)
+
+                Text("Unlock Plus & Pro")
+                    .font(.title2)
+                    .fontWeight(.bold)
+
+                Text("More athletes, cloud storage, highlights, and coach sharing. See full plan details and current pricing below.")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 24)
         }
     }
 
@@ -1651,32 +1687,20 @@ struct SubscriptionView: View {
         Section {
             Button(action: { showingPaywall = true }) {
                 HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Upgrade to Premium")
-                            .font(.headline)
-                            .fontWeight(.bold)
-                            .foregroundColor(.primary)
-
-                        Text("Unlock all features and unlimited athletes")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                    }
-
+                    Text("View Plans & Pricing")
+                        .font(.headline)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.white)
                     Spacer()
-
-                    VStack(alignment: .trailing, spacing: 2) {
-                        Text("$9.99")
-                            .font(.headline)
-                            .fontWeight(.bold)
-                            .foregroundColor(.blue)
-
-                        Text("per month")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
+                    Image(systemName: "arrow.right")
+                        .foregroundColor(.white)
                 }
-                .padding(.vertical, 8)
+                .padding()
+                .background(Color.blue)
+                .cornerRadius(12)
             }
+            .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+            .listRowBackground(Color.clear)
         }
     }
 }

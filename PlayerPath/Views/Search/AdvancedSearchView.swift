@@ -733,7 +733,7 @@ struct VideoSearchResultCard: View {
                     .frame(width: 80, height: 60)
                     .cornerRadius(8)
                     .overlay(
-                        Image(systemName: "video")
+                        Image(systemName: "video.fill")
                             .foregroundColor(.white)
                     )
             }

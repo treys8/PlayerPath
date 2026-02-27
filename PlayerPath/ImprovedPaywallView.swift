@@ -23,6 +23,8 @@ struct ImprovedPaywallView: View {
 
     @State private var isPurchasing = false
     @State private var showingError = false
+    @State private var showingTerms = false
+    @State private var showingPrivacyPolicy = false
 
     var body: some View {
         NavigationStack {
@@ -46,6 +48,8 @@ struct ImprovedPaywallView: View {
                     Button("Close") { dismiss() }
                 }
             }
+            .sheet(isPresented: $showingTerms) { TermsOfServiceView() }
+            .sheet(isPresented: $showingPrivacyPolicy) { PrivacyPolicyView() }
             .alert("Error", isPresented: $showingError, presenting: storeManager.error) { _ in
                 Button("OK", role: .cancel) {}
             } message: { error in
@@ -389,9 +393,9 @@ struct ImprovedPaywallView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             HStack(spacing: 16) {
-                Button("Terms of Service") {}
+                Button("Terms of Service") { showingTerms = true }
                     .font(.caption).foregroundStyle(.blue)
-                Button("Privacy Policy") {}
+                Button("Privacy Policy") { showingPrivacyPolicy = true }
                     .font(.caption).foregroundStyle(.blue)
             }
         }

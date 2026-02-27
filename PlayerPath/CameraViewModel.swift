@@ -208,15 +208,15 @@ class CameraViewModel: NSObject, ObservableObject {
         removeInterruptionObservers()
 
         interruptionObserver = NotificationCenter.default.addObserver(
-            forName: .AVCaptureSessionWasInterrupted,
+            forName: AVCaptureSession.wasInterruptedNotification,
             object: captureSession,
             queue: .main
         ) { [weak self] notification in
+            // Extract value from notification before crossing concurrency boundary
+            let reason = (notification.userInfo?[AVCaptureSessionInterruptionReasonKey] as? Int)
+                .flatMap { AVCaptureSession.InterruptionReason(rawValue: $0) }
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                let reason = (notification.userInfo?[AVCaptureSessionInterruptionReasonKey] as? Int)
-                    .flatMap { AVCaptureSession.InterruptionReason(rawValue: $0) }
-
                 print("⚠️ Camera session interrupted: \(String(describing: reason))")
 
                 // If recording, stop gracefully — the delegate will receive the file
@@ -228,7 +228,7 @@ class CameraViewModel: NSObject, ObservableObject {
         }
 
         interruptionEndObserver = NotificationCenter.default.addObserver(
-            forName: .AVCaptureSessionInterruptionEnded,
+            forName: AVCaptureSession.interruptionEndedNotification,
             object: captureSession,
             queue: .main
         ) { _ in
@@ -564,7 +564,8 @@ class CameraViewModel: NSObject, ObservableObject {
         guard let device = videoDevice else { return }
 
         // Convert tap point to device coordinates (0-1 range), accounting for orientation
-        let screenBounds = UIScreen.main.bounds
+        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene else { return }
+        let screenBounds = windowScene.screen.bounds
         let devicePoint: CGPoint
         switch currentOrientation {
         case .landscapeRight:

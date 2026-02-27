@@ -33,6 +33,9 @@ extension Notification.Name {
     static let presentCoaches = Notification.Name("presentCoaches")
     static let presentProfileEditor = Notification.Name("presentProfileEditor")
     static let showPaywall = Notification.Name("showPaywall")
+    static let navigateToMorePractice = Notification.Name("navigateToMorePractice")
+    static let navigateToMoreHighlights = Notification.Name("navigateToMoreHighlights")
+    static let checkCoachingGracePeriod = Notification.Name("checkCoachingGracePeriod")
 }
 
 @inline(__always)

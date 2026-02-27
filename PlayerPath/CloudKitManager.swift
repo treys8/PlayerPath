@@ -604,7 +604,6 @@ extension CloudKitManager {
             preferences.saveToPhotosLibrary = record["saveToPhotosLibrary"] as? Bool ?? preferences.saveToPhotosLibrary
             preferences.enableHapticFeedback = record["enableHapticFeedback"] as? Bool ?? preferences.enableHapticFeedback
             preferences.showOnboardingTips = record["showOnboardingTips"] as? Bool ?? preferences.showOnboardingTips
-            preferences.enableDebugMode = record["enableDebugMode"] as? Bool ?? preferences.enableDebugMode
             preferences.syncHighlightsOnly = record["syncHighlightsOnly"] as? Bool ?? preferences.syncHighlightsOnly
             preferences.maxVideoFileSize = record["maxVideoFileSize"] as? Int ?? preferences.maxVideoFileSize
             preferences.autoDeleteAfterUpload = record["autoDeleteAfterUpload"] as? Bool ?? preferences.autoDeleteAfterUpload
@@ -684,7 +683,6 @@ extension CloudKitManager {
             record["enableHapticFeedback"] = preferences.enableHapticFeedback
             record["preferredTheme"] = preferences.preferredTheme?.rawValue ?? AppTheme.system.rawValue
             record["showOnboardingTips"] = preferences.showOnboardingTips
-            record["enableDebugMode"] = preferences.enableDebugMode
             record["syncHighlightsOnly"] = preferences.syncHighlightsOnly
             record["maxVideoFileSize"] = preferences.maxVideoFileSize
             record["autoDeleteAfterUpload"] = preferences.autoDeleteAfterUpload

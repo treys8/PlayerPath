@@ -405,7 +405,7 @@ struct DashboardView: View {
                             subtitle: "0 Sessions",
                             color: .green
                         ) {
-                            postSwitchTab(.practice)
+                            NotificationCenter.default.post(name: .navigateToMorePractice, object: nil)
                         }
 
                         // 6. Photos
@@ -427,7 +427,7 @@ struct DashboardView: View {
                             isPremium: authManager.currentTier >= .plus
                         ) {
                             if authManager.currentTier >= .plus {
-                                postSwitchTab(.highlights)
+                                NotificationCenter.default.post(name: .navigateToMoreHighlights, object: nil)
                             } else {
                                 Haptics.warning()
                                 showingPaywall = true

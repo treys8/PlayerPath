@@ -18,12 +18,13 @@ struct VideoPlayerView: View {
     @State private var isPlayerReady = false
     @State private var isLoading = true
     @State private var hasAppeared = false
-    @State private var showingVideoEditor = false
     @State private var shouldResumeOnActive = false
     @State private var videoAspect: CGFloat? // width / height
     @State private var showingTrimmer = false
     @State private var showingPlayResultEditor = false
     @State private var showingGameLinker = false
+    @State private var showingShareToFolder = false
+    @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @State private var setupTask: Task<Void, Never>?
     @State private var isDownloadingFromCloud = false
     @State private var downloadProgress: Double = 0.0
@@ -145,12 +146,6 @@ struct VideoPlayerView: View {
                         Divider()
 
                         Button {
-                            showingVideoEditor = true
-                        } label: {
-                            Text("Edit Video")
-                        }
-                        .accessibilityLabel("Edit this video")
-                        Button {
                             showingTrimmer = true
                         } label: {
                             Text("Trim Clip")
@@ -165,6 +160,14 @@ struct VideoPlayerView: View {
                         .accessibilityLabel("Save video to Photos library")
                         ShareLink(item: URL(fileURLWithPath: clip.filePath)) {
                             Label("Share Video", systemImage: "square.and.arrow.up")
+                        }
+                        if authManager.hasCoachingAccess {
+                            Divider()
+                            Button {
+                                showingShareToFolder = true
+                            } label: {
+                                Label("Share to Coach Folder", systemImage: "folder.badge.person.fill")
+                            }
                         }
                     } label: {
                         Image(systemName: "ellipsis.circle")
@@ -203,9 +206,6 @@ struct VideoPlayerView: View {
             isLoading = true
             hasAppeared = false
         }
-        .sheet(isPresented: $showingVideoEditor) {
-            VideoEditorStub(clip: clip)
-        }
         .sheet(isPresented: $showingTrimmer) {
             if let player = player {
                 VideoTrimmerSheet(player: player, sourceURL: URL(fileURLWithPath: clip.filePath)) { outputURL in
@@ -223,10 +223,13 @@ struct VideoPlayerView: View {
         .sheet(isPresented: $showingGameLinker) {
             GameLinkerView(clip: clip)
         }
+        .sheet(isPresented: $showingShareToFolder) {
+            ShareToCoachFolderView(clip: clip)
+        }
         .onChange(of: scenePhase) { _, phase in
             switch phase {
             case .active:
-                if shouldResumeOnActive, isPlayerReady, !showingVideoEditor {
+                if shouldResumeOnActive, isPlayerReady {
                     player?.play()
                 }
                 shouldResumeOnActive = false
@@ -347,22 +350,23 @@ struct VideoPlayerView: View {
         if let cloudURL = clip.cloudURL, clip.isUploaded {
             print("VideoPlayerView: File not found locally, attempting cloud download from: \(cloudURL)")
 
+            await MainActor.run {
+                isDownloadingFromCloud = true
+                downloadProgress = 0.0
+            }
+
+            // Create destination path in Documents/Clips directory
+            let clipsDirectory = documentsPath.appendingPathComponent("Clips", isDirectory: true)
+            try? FileManager.default.createDirectory(at: clipsDirectory, withIntermediateDirectories: true)
+            let destinationPath = clipsDirectory.appendingPathComponent(clip.fileName).path
+
+            let cloudManager = VideoCloudManager.shared
+
+            // Fix X: Declare progressTask before do/catch so it's accessible in both branches.
+            var progressTask: Task<Void, Never>? = nil
+
             do {
-                await MainActor.run {
-                    isDownloadingFromCloud = true
-                    downloadProgress = 0.0
-                }
-
-                // Create destination path in Documents/Clips directory
-                let clipsDirectory = documentsPath.appendingPathComponent("Clips", isDirectory: true)
-                try? FileManager.default.createDirectory(at: clipsDirectory, withIntermediateDirectories: true)
-                let destinationPath = clipsDirectory.appendingPathComponent(clip.fileName).path
-
-                // Download from cloud with progress updates
-                let cloudManager = VideoCloudManager.shared
-
-                // Start monitoring download progress
-                let progressTask = Task { @MainActor in
+                progressTask = Task { @MainActor in
                     while isDownloadingFromCloud {
                         if let progress = cloudManager.downloadProgress[clip.id] {
                             downloadProgress = progress
@@ -373,8 +377,7 @@ struct VideoPlayerView: View {
 
                 try await cloudManager.downloadVideo(from: cloudURL, to: destinationPath, clipId: clip.id)
 
-                // Stop progress monitoring
-                progressTask.cancel()
+                progressTask?.cancel()
 
                 // Update clip's filePath in database
                 await MainActor.run {
@@ -387,6 +390,7 @@ struct VideoPlayerView: View {
                 return URL(fileURLWithPath: destinationPath)
 
             } catch {
+                progressTask?.cancel()
                 print("VideoPlayerView: Failed to download from cloud: \(error.localizedDescription)")
                 await MainActor.run {
                     isDownloadingFromCloud = false

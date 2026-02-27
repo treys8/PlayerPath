@@ -801,10 +801,12 @@ final class AthleteStatistics {
     }
     
     var onBasePercentage: Double {
-        let totalPlateAppearances = atBats + walks
-        return totalPlateAppearances > 0 ? Double(hits + walks) / Double(totalPlateAppearances) : 0.0
+        // Fix Q: Include HBP in both numerator and denominator per official OBP formula:
+        // OBP = (H + BB + HBP) / (AB + BB + HBP)
+        let totalPlateAppearances = atBats + walks + hitByPitches
+        return totalPlateAppearances > 0 ? Double(hits + walks + hitByPitches) / Double(totalPlateAppearances) : 0.0
     }
-    
+
     var sluggingPercentage: Double {
         guard atBats > 0 else { return 0.0 }
         let totalBases = singles + (doubles * 2) + (triples * 3) + (homeRuns * 4)

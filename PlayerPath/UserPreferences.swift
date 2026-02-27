@@ -36,7 +36,6 @@ final class UserPreferences {
     // MARK: - UI Preferences
     var preferredTheme: AppTheme? { didSet { markAsModified() } }
     var showOnboardingTips: Bool = true { didSet { markAsModified() } }
-    var enableDebugMode: Bool = false { didSet { markAsModified() } }
 
     // MARK: - Cloud Sync Preferences
     var syncHighlightsOnly: Bool = false { didSet { markAsModified() } }
@@ -69,7 +68,6 @@ final class UserPreferences {
 
         self.preferredTheme = .system
         self.showOnboardingTips = true
-        self.enableDebugMode = false
 
         self.syncHighlightsOnly = false
         self.maxVideoFileSize = 500 // MB

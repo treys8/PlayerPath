@@ -74,26 +74,14 @@ struct PremiumGateModifier: ViewModifier {
         if authManager.isPremiumUser {
             content
         } else {
-            Button {
+            LockedFeatureView(
+                icon: "crown.fill",
+                iconColor: .yellow,
+                title: "Premium Feature",
+                subtitle: "Upgrade to unlock this feature",
+                buttonLabel: "View Plans"
+            ) {
                 showingPaywall = true
-            } label: {
-                HStack(spacing: 12) {
-                    Image(systemName: "crown.fill")
-                        .foregroundStyle(.yellow)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Premium Feature")
-                            .font(.headline)
-                        Text("Upgrade to unlock")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Image(systemName: "lock.fill")
-                        .foregroundStyle(.secondary)
-                }
-                .padding()
-                .background(Color(.secondarySystemBackground))
-                .cornerRadius(12)
             }
             .sheet(isPresented: $showingPaywall) {
                 if let user = authManager.localUser {
@@ -115,26 +103,14 @@ struct TierGateModifier: ViewModifier {
         if authManager.currentTier >= requiredTier {
             content
         } else {
-            Button {
+            LockedFeatureView(
+                icon: "crown.fill",
+                iconColor: .yellow,
+                title: "\(requiredTier.displayName) Feature",
+                subtitle: "Upgrade to \(requiredTier.displayName) to unlock this feature",
+                buttonLabel: "View Plans"
+            ) {
                 showingPaywall = true
-            } label: {
-                HStack(spacing: 12) {
-                    Image(systemName: "crown.fill")
-                        .foregroundStyle(.yellow)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("\(requiredTier.displayName) Feature")
-                            .font(.headline)
-                        Text("Upgrade to \(requiredTier.displayName) to unlock")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Image(systemName: "lock.fill")
-                        .foregroundStyle(.secondary)
-                }
-                .padding()
-                .background(Color(.secondarySystemBackground))
-                .cornerRadius(12)
             }
             .sheet(isPresented: $showingPaywall) {
                 if let user = authManager.localUser {
@@ -155,26 +131,14 @@ struct CoachingGateModifier: ViewModifier {
         if authManager.hasCoachingAccess {
             content
         } else {
-            Button {
+            LockedFeatureView(
+                icon: "person.badge.shield.checkmark.fill",
+                iconColor: .indigo,
+                title: "Coaching Feature",
+                subtitle: "Add the Coaching Add-On to unlock this feature",
+                buttonLabel: "View Plans"
+            ) {
                 showingPaywall = true
-            } label: {
-                HStack(spacing: 12) {
-                    Image(systemName: "person.badge.shield.checkmark.fill")
-                        .foregroundStyle(.indigo)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Coaching Feature")
-                            .font(.headline)
-                        Text("Add the Coaching Add-On to unlock")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Image(systemName: "lock.fill")
-                        .foregroundStyle(.secondary)
-                }
-                .padding()
-                .background(Color(.secondarySystemBackground))
-                .cornerRadius(12)
             }
             .sheet(isPresented: $showingPaywall) {
                 if let user = authManager.localUser {
@@ -182,6 +146,40 @@ struct CoachingGateModifier: ViewModifier {
                 }
             }
         }
+    }
+}
+
+// MARK: - Locked Feature View
+
+private struct LockedFeatureView: View {
+    let icon: String
+    let iconColor: Color
+    let title: String
+    let subtitle: String
+    let buttonLabel: String
+    let action: () -> Void
+
+    var body: some View {
+        VStack(spacing: 20) {
+            Spacer()
+            Image(systemName: icon)
+                .font(.system(size: 56))
+                .foregroundStyle(iconColor)
+            Text(title)
+                .font(.title2)
+                .fontWeight(.semibold)
+            Text(subtitle)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 32)
+            Button(buttonLabel, action: action)
+                .buttonStyle(.borderedProminent)
+                .padding(.top, 4)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(.systemGroupedBackground))
     }
 }
 
@@ -250,20 +248,13 @@ struct RoleRestrictionView: View {
     }
 
     /// Starts listening for permission changes
+    /// TODO: Replace with a Firestore snapshot listener on sharedFolders/{folderID}
+    /// so that permission revocations are reflected in real time without re-entering the view.
     func startListening(coachID: String) {
-        listener = Task {
-            // TODO: Implement Firebase realtime listener
-            // For now, this is a placeholder
-            print("👂 Started listening for permission changes on folder: \(folderID)")
-
-            // Simulate permission check every 30 seconds
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(30))
-
-                // In production, this would be a Firebase snapshot listener
-                // firestore.observeFolder(folderID)
-            }
-        }
+        // Fix V: The previous implementation ran an empty 30-second sleep loop that
+        // consumed a Task indefinitely without performing any actual permission checks.
+        // Removed until the Firestore snapshot listener is implemented.
+        print("👂 Permission change listener registered for folder: \(folderID) (snapshot listener not yet implemented)")
     }
 
     /// Stops listening

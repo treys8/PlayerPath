@@ -55,15 +55,15 @@ final class StatisticsExportService {
 
         // Athlete Info
         csv += "Athlete Information\n"
-        csv += "Name,\(athlete.name)\n"
+        csv += "Name,\(escapeCSV(athlete.name))\n"
         csv += "Created,\(athlete.createdAt?.formatted(date: .long, time: .omitted) ?? "N/A")\n"
         csv += "\n"
 
         // Season Info (if active season)
         if let season = athlete.activeSeason {
             csv += "Active Season\n"
-            csv += "Season Name,\(season.displayName)\n"
-            csv += "Sport,\(season.sport.displayName)\n"
+            csv += "Season Name,\(escapeCSV(season.displayName))\n"
+            csv += "Sport,\(escapeCSV(season.sport.displayName))\n"
             csv += "Start Date,\(season.startDate?.formatted(date: .long, time: .omitted) ?? "N/A")\n"
             csv += "\n"
         }
@@ -107,7 +107,7 @@ final class StatisticsExportService {
 
             for game in games.prefix(10).sorted(by: { ($0.date ?? Date.distantPast) > ($1.date ?? Date.distantPast) }) {
                 let dateStr = game.date?.formatted(date: .abbreviated, time: .omitted) ?? "N/A"
-                let opponent = game.opponent.isEmpty ? "Unknown" : game.opponent
+                let opponent = escapeCSV(game.opponent.isEmpty ? "Unknown" : game.opponent)
                 csv += "\(dateStr),\(opponent),Completed\n"
             }
         }
@@ -284,6 +284,15 @@ final class StatisticsExportService {
     }
 
     // MARK: - Helper Methods
+
+    /// Wraps a CSV field in quotes if it contains commas, quotes, or newlines,
+    /// and escapes internal double-quotes per RFC 4180.
+    private static func escapeCSV(_ value: String) -> String {
+        if value.contains(",") || value.contains("\"") || value.contains("\n") {
+            return "\"\(value.replacingOccurrences(of: "\"", with: "\"\""))\""
+        }
+        return value
+    }
 
     private static func saveToTemporaryFile(content: String, fileName: String) throws -> URL {
         let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)

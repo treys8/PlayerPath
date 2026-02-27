@@ -10,6 +10,7 @@ import Combine
 @preconcurrency import SwiftData
 import FirebaseStorage
 import FirebaseFirestore
+import FirebaseAuth
 
 @MainActor
 class VideoCloudManager: ObservableObject {
@@ -90,6 +91,10 @@ class VideoCloudManager: ObservableObject {
     ///   - athlete: The athlete who owns the video
     /// - Returns: The download URL for the uploaded video
     func uploadVideo(_ videoClip: VideoClip, athlete: Athlete) async throws -> String {
+        guard Auth.auth().currentUser != nil else {
+            throw VideoCloudError.uploadFailed("User not authenticated")
+        }
+
         // Capture values from SwiftData model before async boundary (Sendable compliance)
         let clipId = videoClip.id
         let clipFilePath = videoClip.filePath
@@ -105,6 +110,7 @@ class VideoCloudManager: ObservableObject {
         defer {
             isUploading[clipId] = false
             uploadProgress[clipId] = nil
+            lastProgressUpdate.removeValue(forKey: "upload_\(clipId.uuidString)")
         }
 
         // Verify local file exists
@@ -114,9 +120,11 @@ class VideoCloudManager: ObservableObject {
         }
 
         // Create storage reference for athlete videos
+        // Use Firebase Auth UID as the path segment so storage rules can enforce ownership
+        let ownerUID = Auth.auth().currentUser?.uid ?? athleteStableId
         let storage = Storage.storage()
         let storageRef = storage.reference()
-        let videoRef = storageRef.child("athlete_videos/\(athleteStableId)/\(clipFileName)")
+        let videoRef = storageRef.child("athlete_videos/\(ownerUID)/\(clipFileName)")
 
         // Create upload task with metadata
         let metadata = StorageMetadata()
@@ -127,49 +135,56 @@ class VideoCloudManager: ObservableObject {
             "videoClipId": clipId.uuidString
         ]
 
-        // Use file-based upload for streaming (prevents OOM on large files)
-        return try await withCheckedThrowingContinuation { continuation in
-            let uploadTask = videoRef.putFile(from: localURL, metadata: metadata) { metadata, error in
-                if let error = error {
-                    print("VideoCloudManager: Upload failed for \(clipFileName): \(error)")
-                    continuation.resume(throwing: error)
-                    return
-                }
-
-                // Get download URL
-                videoRef.downloadURL { url, error in
+        // Use file-based upload for streaming (prevents OOM on large files).
+        // withTaskCancellationHandler cancels the Firebase task if the Swift Task is cancelled,
+        // preventing uploads from running in the background after the user navigates away.
+        let uploadBox = UploadTaskBox()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                let uploadTask = videoRef.putFile(from: localURL, metadata: metadata) { metadata, error in
                     if let error = error {
+                        print("VideoCloudManager: Upload failed for \(clipFileName): \(error)")
                         continuation.resume(throwing: error)
-                    } else if let url = url {
-                        print("VideoCloudManager: Upload completed successfully for \(clipFileName)")
-                        continuation.resume(returning: url.absoluteString)
-                    } else {
-                        continuation.resume(throwing: VideoCloudError.invalidURL)
+                        return
+                    }
+
+                    // Get download URL
+                    videoRef.downloadURL { url, error in
+                        if let error = error {
+                            continuation.resume(throwing: error)
+                        } else if let url = url {
+                            print("VideoCloudManager: Upload completed successfully for \(clipFileName)")
+                            continuation.resume(returning: url.absoluteString)
+                        } else {
+                            continuation.resume(throwing: VideoCloudError.invalidURL)
+                        }
+                    }
+                }
+                uploadBox.task = uploadTask
+
+                // Monitor upload progress with throttling
+                uploadTask.observe(.progress) { [weak self] snapshot in
+                    guard let progress = snapshot.progress else { return }
+                    let percentComplete = Double(progress.completedUnitCount) / Double(progress.totalUnitCount)
+
+                    Task { @MainActor in
+                        guard let self = self else { return }
+
+                        _ = self.throttledProgressUpdate(
+                            key: "upload_\(clipId.uuidString)",
+                            progress: percentComplete
+                        ) { progress in
+                            self.uploadProgress[clipId] = progress
+                            print("VideoCloudManager: Upload progress for \(clipFileName): \(Int(progress * 100))%")
+                        }
                     }
                 }
             }
-
-            // Monitor upload progress with throttling
-            uploadTask.observe(.progress) { [weak self] snapshot in
-                guard let progress = snapshot.progress else { return }
-                let percentComplete = Double(progress.completedUnitCount) / Double(progress.totalUnitCount)
-
-                Task { @MainActor in
-                    guard let self = self else { return }
-
-                    // Update progress with throttling
-                    _ = self.throttledProgressUpdate(
-                        key: "upload_\(clipId.uuidString)",
-                        progress: percentComplete
-                    ) { progress in
-                        self.uploadProgress[clipId] = progress
-                        print("VideoCloudManager: Upload progress for \(clipFileName): \(Int(progress * 100))%")
-                    }
-                }
-            }
+        } onCancel: {
+            uploadBox.task?.cancel()
         }
     }
-    
+
     /// Downloads a video file from Firebase Storage to local storage
     /// - Parameters:
     ///   - url: The cloud storage URL (from videoClip.cloudURL)
@@ -182,6 +197,7 @@ class VideoCloudManager: ObservableObject {
         defer {
             isDownloading[clipId] = false
             downloadProgress[clipId] = nil
+            lastProgressUpdate.removeValue(forKey: "download_\(clipId.uuidString)")
         }
 
         // Parse the Firebase Storage URL to get the storage path
@@ -200,36 +216,44 @@ class VideoCloudManager: ObservableObject {
         let storage = Storage.storage()
         let storageRef = try storage.reference(for: storageURL)
 
-        // Download file with progress monitoring
-        return try await withCheckedThrowingContinuation { continuation in
-            let downloadTask = storageRef.write(toFile: localURL) { url, error in
-                if let error = error {
-                    print("VideoCloudManager: Download failed: \(error)")
-                    continuation.resume(throwing: error)
-                } else {
-                    print("VideoCloudManager: Download completed successfully to \(localPath)")
-                    continuation.resume()
+        // Download file with progress monitoring.
+        // withTaskCancellationHandler cancels the Firebase task if the Swift Task is cancelled.
+        let downloadBox = DownloadTaskBox()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                let downloadTask = storageRef.write(toFile: localURL) { url, error in
+                    if let error = error {
+                        print("VideoCloudManager: Download failed: \(error)")
+                        continuation.resume(throwing: error)
+                    } else {
+                        #if DEBUG
+                        print("VideoCloudManager: Download completed successfully to \(localPath)")
+                        #endif
+                        continuation.resume()
+                    }
                 }
-            }
+                downloadBox.task = downloadTask
 
-            // Monitor download progress with throttling
-            downloadTask.observe(.progress) { [weak self] snapshot in
-                guard let progress = snapshot.progress else { return }
-                let percentComplete = Double(progress.completedUnitCount) / Double(progress.totalUnitCount)
+                // Monitor download progress with throttling
+                downloadTask.observe(.progress) { [weak self] snapshot in
+                    guard let progress = snapshot.progress else { return }
+                    let percentComplete = Double(progress.completedUnitCount) / Double(progress.totalUnitCount)
 
-                Task { @MainActor in
-                    guard let self = self else { return }
+                    Task { @MainActor in
+                        guard let self = self else { return }
 
-                    // Update progress with throttling
-                    _ = self.throttledProgressUpdate(
-                        key: "download_\(clipId.uuidString)",
-                        progress: percentComplete
-                    ) { progress in
-                        self.downloadProgress[clipId] = progress
-                        print("VideoCloudManager: Download progress: \(Int(progress * 100))%")
+                        _ = self.throttledProgressUpdate(
+                            key: "download_\(clipId.uuidString)",
+                            progress: percentComplete
+                        ) { progress in
+                            self.downloadProgress[clipId] = progress
+                            print("VideoCloudManager: Download progress: \(Int(progress * 100))%")
+                        }
                     }
                 }
             }
+        } onCancel: {
+            downloadBox.task?.cancel()
         }
     }
     
@@ -262,6 +286,9 @@ class VideoCloudManager: ObservableObject {
 
         let db = Firestore.firestore()
 
+        // Owner UID used for Firestore security rules and Storage path
+        let ownerUID = Auth.auth().currentUser?.uid ?? athleteStableId
+
         // Build document data
         var data: [String: Any] = [
             "id": clipId.uuidString,
@@ -273,7 +300,8 @@ class VideoCloudManager: ObservableObject {
             "createdAt": Timestamp(date: clipCreatedAt),
             "updatedAt": Timestamp(date: Date()),
             "fileSize": fileSize,
-            "isDeleted": false
+            "isDeleted": false,
+            "uploadedBy": ownerUID
         ]
 
         // Optional fields
@@ -329,7 +357,8 @@ class VideoCloudManager: ObservableObject {
         let storageRef = storage.reference()
 
         let thumbnailFileName = (videoFileName as NSString).deletingPathExtension + "_thumbnail.jpg"
-        let thumbnailRef = storageRef.child("athlete_videos/\(athleteStableId)/thumbnails/\(thumbnailFileName)")
+        let ownerUID = Auth.auth().currentUser?.uid ?? athleteStableId
+        let thumbnailRef = storageRef.child("athlete_videos/\(ownerUID)/thumbnails/\(thumbnailFileName)")
 
         let metadata = StorageMetadata()
         metadata.contentType = "image/jpeg"
@@ -361,11 +390,13 @@ class VideoCloudManager: ObservableObject {
     func syncVideos(for athlete: Athlete) async throws -> [VideoClipMetadata] {
         // Use firestoreId as stable cross-device key; fall back to SwiftData UUID if not yet synced
         let athleteStableId = athlete.firestoreId ?? athlete.id.uuidString
+        let ownerUID = Auth.auth().currentUser?.uid ?? athleteStableId
         let db = Firestore.firestore()
 
-        // Query videos for this athlete that aren't deleted
+        // Query videos for this athlete that aren't deleted.
+        // uploadedBy filter is required for Firestore security rule evaluation.
         let snapshot = try await db.collection("videos")
-            .whereField("athleteId", isEqualTo: athleteStableId)
+            .whereField("uploadedBy", isEqualTo: ownerUID)
             .whereField("isDeleted", isEqualTo: false)
             .order(by: "createdAt", descending: true)
             .getDocuments()
@@ -441,9 +472,11 @@ class VideoCloudManager: ObservableObject {
     ) -> ListenerRegistration {
         // Use firestoreId as stable cross-device key; fall back to SwiftData UUID if not yet synced
         let athleteStableId = athlete.firestoreId ?? athlete.id.uuidString
+        let ownerUID = Auth.auth().currentUser?.uid ?? athleteStableId
         let db = Firestore.firestore()
 
         let listener = db.collection("videos")
+            .whereField("uploadedBy", isEqualTo: ownerUID)
             .whereField("athleteId", isEqualTo: athleteStableId)
             .whereField("isDeleted", isEqualTo: false)
             .addSnapshotListener { snapshot, error in
@@ -497,13 +530,18 @@ class VideoCloudManager: ObservableObject {
     ///   - videoClip: The video clip to delete
     ///   - athlete: The athlete who owns the video
     func deleteVideo(_ videoClip: VideoClip, athlete: Athlete) async throws {
+        guard Auth.auth().currentUser != nil else {
+            throw VideoCloudError.uploadFailed("User not authenticated")
+        }
+
         // Capture values from SwiftData model before async boundary (Sendable compliance)
         let clipFileName = videoClip.fileName
         let athleteStableId = athlete.firestoreId ?? athlete.id.uuidString
 
+        let ownerUID = Auth.auth().currentUser?.uid ?? athleteStableId
         let storage = Storage.storage()
         let storageRef = storage.reference()
-        let videoRef = storageRef.child("athlete_videos/\(athleteStableId)/\(clipFileName)")
+        let videoRef = storageRef.child("athlete_videos/\(ownerUID)/\(clipFileName)")
 
         return try await withCheckedThrowingContinuation { continuation in
             videoRef.delete { error in
@@ -633,6 +671,7 @@ class VideoCloudManager: ObservableObject {
         defer {
             isUploading[clipId] = false
             uploadProgress[clipId] = nil
+            lastProgressUpdate.removeValue(forKey: "upload_\(clipId.uuidString)")
         }
 
         // Verify local file exists
@@ -642,9 +681,11 @@ class VideoCloudManager: ObservableObject {
         }
 
         // Create storage reference for athlete videos
+        // Use Firebase Auth UID as the path segment so storage rules can enforce ownership
+        let ownerUID = Auth.auth().currentUser?.uid ?? athleteStableId
         let storage = Storage.storage()
         let storageRef = storage.reference()
-        let videoRef = storageRef.child("athlete_videos/\(athleteStableId)/\(fileName)")
+        let videoRef = storageRef.child("athlete_videos/\(ownerUID)/\(fileName)")
 
         // Create upload task with metadata
         let metadata = StorageMetadata()
@@ -655,49 +696,55 @@ class VideoCloudManager: ObservableObject {
             "videoClipId": clipId.uuidString
         ]
 
-        // Use file-based upload for streaming (prevents OOM on large files)
-        return try await withCheckedThrowingContinuation { continuation in
-            let uploadTask = videoRef.putFile(from: localURL, metadata: metadata) { metadata, error in
-                if let error = error {
-                    print("VideoCloudManager: Upload failed for \(fileName): \(error)")
-                    continuation.resume(throwing: error)
-                    return
-                }
-
-                // Get download URL
-                videoRef.downloadURL { url, error in
+        // Use file-based upload for streaming (prevents OOM on large files).
+        // withTaskCancellationHandler cancels the Firebase task if the Swift Task is cancelled.
+        let uploadBox = UploadTaskBox()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                let uploadTask = videoRef.putFile(from: localURL, metadata: metadata) { metadata, error in
                     if let error = error {
+                        print("VideoCloudManager: Upload failed for \(fileName): \(error)")
                         continuation.resume(throwing: error)
-                    } else if let url = url {
-                        print("VideoCloudManager: Upload completed successfully for \(fileName)")
-                        continuation.resume(returning: url.absoluteString)
-                    } else {
-                        continuation.resume(throwing: VideoCloudError.invalidURL)
+                        return
+                    }
+
+                    // Get download URL
+                    videoRef.downloadURL { url, error in
+                        if let error = error {
+                            continuation.resume(throwing: error)
+                        } else if let url = url {
+                            print("VideoCloudManager: Upload completed successfully for \(fileName)")
+                            continuation.resume(returning: url.absoluteString)
+                        } else {
+                            continuation.resume(throwing: VideoCloudError.invalidURL)
+                        }
+                    }
+                }
+                uploadBox.task = uploadTask
+
+                // Monitor upload progress with throttling
+                uploadTask.observe(.progress) { [weak self] snapshot in
+                    guard let progress = snapshot.progress else { return }
+                    let percentComplete = Double(progress.completedUnitCount) / Double(progress.totalUnitCount)
+
+                    Task { @MainActor in
+                        guard let self = self else { return }
+
+                        _ = self.throttledProgressUpdate(
+                            key: "upload_\(clipId.uuidString)",
+                            progress: percentComplete
+                        ) { progress in
+                            self.uploadProgress[clipId] = progress
+                            print("VideoCloudManager: Upload progress for \(fileName): \(Int(progress * 100))%")
+                        }
                     }
                 }
             }
-
-            // Monitor upload progress with throttling
-            uploadTask.observe(.progress) { [weak self] snapshot in
-                guard let progress = snapshot.progress else { return }
-                let percentComplete = Double(progress.completedUnitCount) / Double(progress.totalUnitCount)
-
-                Task { @MainActor in
-                    guard let self = self else { return }
-
-                    // Update progress with throttling
-                    _ = self.throttledProgressUpdate(
-                        key: "upload_\(clipId.uuidString)",
-                        progress: percentComplete
-                    ) { progress in
-                        self.uploadProgress[clipId] = progress
-                        print("VideoCloudManager: Upload progress for \(fileName): \(Int(progress * 100))%")
-                    }
-                }
-            }
+        } onCancel: {
+            uploadBox.task?.cancel()
         }
     }
-    
+
     // MARK: - Shared Folder Upload (for Coach-to-Athlete sharing)
     
     /// Uploads a video file to Firebase Storage for a shared folder
@@ -1061,6 +1108,18 @@ class VideoCloudManager: ObservableObject {
 }
 
 // MARK: - Supporting Types
+
+/// Bridges a Firebase StorageUploadTask across Swift concurrency for cooperative cancellation.
+/// @unchecked Sendable is safe here because the task reference is written once before the
+/// onCancel handler can fire, and StorageUploadTask.cancel() is thread-safe.
+private final class UploadTaskBox: @unchecked Sendable {
+    nonisolated(unsafe) var task: StorageUploadTask?
+}
+
+/// Bridges a Firebase StorageDownloadTask across Swift concurrency for cooperative cancellation.
+private final class DownloadTaskBox: @unchecked Sendable {
+    nonisolated(unsafe) var task: StorageDownloadTask?
+}
 
 enum UploadStatus {
     case idle

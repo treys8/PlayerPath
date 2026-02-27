@@ -22,13 +22,22 @@ final class AnalyticsService {
     // MARK: - Configuration
 
     private func configureAnalytics() {
-        // Enable analytics collection
+        // Analytics starts enabled (matches UserPreferences.enableAnalytics default of true).
+        // Call setCollection(enabled:) after user preferences load to honour the stored setting.
         Analytics.setAnalyticsCollectionEnabled(true)
 
         // Set user properties for segmentation
         setDefaultUserProperties()
 
         print("📊 Analytics configured and enabled")
+    }
+
+    /// Updates analytics and crash-reporting collection to match the user's preference.
+    /// Call this once after loading UserPreferences, and again whenever the toggle changes.
+    func setCollection(enabled: Bool) {
+        Analytics.setAnalyticsCollectionEnabled(enabled)
+        Crashlytics.crashlytics().setCrashlyticsCollectionEnabled(enabled)
+        print("📊 Analytics collection \(enabled ? "enabled" : "disabled")")
     }
 
     private func setDefaultUserProperties() {

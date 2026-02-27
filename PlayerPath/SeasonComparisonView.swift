@@ -385,16 +385,18 @@ struct ComparisonRow<Value>: View {
 }
 
 // Helper formatters
+
+/// Formats a rate stat in baseball style: ".325" for values < 1.0, "1.400" for SLG/OPS >= 1.0
 private func formatBattingAverage(_ value: Double) -> String {
-    if value.isNaN || value.isInfinite || value == 0.0 {
-        return ".000"
-    }
-    return String(format: ".%.3d", Int((value * 1000).rounded()))
+    guard !value.isNaN, !value.isInfinite else { return ".000" }
+    // SLG can exceed 1.0; show full decimal in that case
+    if value >= 1.0 { return String(format: "%.3f", value) }
+    let thousandths = Int((value * 1000).rounded())
+    guard thousandths > 0 else { return ".000" }
+    return String(format: ".%03d", thousandths)
 }
 
+/// Alias kept for call sites that use OBP/SLG — delegates to formatBattingAverage
 private func formatThreeDecimal(_ value: Double) -> String {
-    if value.isNaN || value.isInfinite || value == 0.0 {
-        return ".000"
-    }
-    return String(format: ".%.3d", Int((value * 1000).rounded()))
+    formatBattingAverage(value)
 }

@@ -1,0 +1,113 @@
+rules_version = '2';
+
+// Firebase Storage Security Rules for PlayerPath
+// Deploy: firebase deploy --only storage
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // ========================================================================
+    // HELPER FUNCTIONS
+    // ========================================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function getFolderData(folderID) {
+      return firestore.get(/databases/(default)/documents/sharedFolders/$(folderID)).data;
+    }
+
+    function isFolderOwner(folderID) {
+      return isAuthenticated() &&
+             getFolderData(folderID).ownerAthleteID == request.auth.uid;
+    }
+
+    function isSharedCoach(folderID) {
+      return isAuthenticated() &&
+             request.auth.uid in getFolderData(folderID).sharedWithCoachIDs;
+    }
+
+    function hasUploadPermission(folderID) {
+      let folder = getFolderData(folderID);
+      return request.auth.uid in folder.sharedWithCoachIDs &&
+             folder.permissions[request.auth.uid].canUpload == true;
+    }
+
+    // ========================================================================
+    // SHARED FOLDER VIDEOS
+    // ========================================================================
+
+    match /shared_folders/{folderID}/{fileName} {
+      // Read: folder owner or any shared coach
+      allow read: if isAuthenticated() &&
+                     (isFolderOwner(folderID) || isSharedCoach(folderID));
+
+      // Write: owner or coach with upload permission; max 500MB; must be video
+      allow write: if isAuthenticated() &&
+                      (isFolderOwner(folderID) || hasUploadPermission(folderID)) &&
+                      request.resource.size < 500 * 1024 * 1024 &&
+                      request.resource.contentType.matches('video/.*');
+
+      // Delete: folder owner only
+      allow delete: if isAuthenticated() && isFolderOwner(folderID);
+    }
+
+    // ========================================================================
+    // SHARED FOLDER THUMBNAILS
+    // ========================================================================
+
+    match /shared_folders/{folderID}/thumbnails/{thumbnailName} {
+      // Read: folder owner or any shared coach
+      allow read: if isAuthenticated() &&
+                     (isFolderOwner(folderID) || isSharedCoach(folderID));
+
+      // Write: owner or coach with upload permission; max 5MB; must be image
+      allow write: if isAuthenticated() &&
+                      (isFolderOwner(folderID) || hasUploadPermission(folderID)) &&
+                      request.resource.size < 5 * 1024 * 1024 &&
+                      request.resource.contentType.matches('image/.*');
+
+      // Delete: folder owner only
+      allow delete: if isAuthenticated() && isFolderOwner(folderID);
+    }
+
+    // ========================================================================
+    // PERSONAL ATHLETE VIDEOS
+    // ========================================================================
+    // Path uses Firebase Auth UID as the first segment for ownership enforcement
+
+    // Thumbnails (image/jpeg) — must match before the video wildcard below
+    match /athlete_videos/{userID}/thumbnails/{thumbnailName} {
+      allow read:   if isAuthenticated() && request.auth.uid == userID;
+      allow write:  if isAuthenticated() &&
+                       request.auth.uid == userID &&
+                       request.resource.size < 5 * 1024 * 1024 &&
+                       request.resource.contentType.matches('image/.*');
+      allow delete: if isAuthenticated() && request.auth.uid == userID;
+    }
+
+    // Video files
+    match /athlete_videos/{userID}/{allPaths=**} {
+      // Read: owner only
+      allow read: if isAuthenticated() && request.auth.uid == userID;
+
+      // Write: owner only; max 500MB; must be video
+      allow write: if isAuthenticated() &&
+                      request.auth.uid == userID &&
+                      request.resource.size < 500 * 1024 * 1024 &&
+                      request.resource.contentType.matches('video/.*');
+
+      // Delete: owner only
+      allow delete: if isAuthenticated() && request.auth.uid == userID;
+    }
+
+    // ========================================================================
+    // DENY ALL OTHER PATHS
+    // ========================================================================
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

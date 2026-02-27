@@ -109,7 +109,7 @@ final class QuickActionsManager: ObservableObject {
 
         case .addPractice:
             NotificationCenter.default.post(name: Notification.Name("presentAddPractice"), object: nil)
-            postSwitchTab(.practice)
+            postSwitchTab(.more)
 
         case .viewStats:
             postSwitchTab(.stats)

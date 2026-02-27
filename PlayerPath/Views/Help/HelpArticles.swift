@@ -127,7 +127,7 @@ enum HelpArticle {
             • Higher is better (elite is .300+)
 
             **On-Base Percentage (OBP)**
-            • Formula: (Hits + Walks) ÷ (At-Bats + Walks)
+            • Formula: (Hits + Walks + Hit-by-Pitch) ÷ (At-Bats + Walks + Hit-by-Pitch)
             • Measures how often you reach base
             • Higher is better (elite is .400+)
 

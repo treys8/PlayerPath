@@ -257,13 +257,21 @@ enum SecureURLError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .invalidResponse:
-            return "Invalid response from Cloud Function"
+            return "Unable to load video. Please try again."
         case .invalidExpirationDate:
-            return "Invalid expiration date format"
+            return "Unable to load video. Please try again."
         case .functionCallFailed(let error):
+            #if DEBUG
             return "Cloud Function call failed: \(error.localizedDescription)"
+            #else
+            return "Unable to load video. Please try again."
+            #endif
         case .functionNotDeployed:
+            #if DEBUG
             return "Cloud Functions not deployed. Please deploy functions_index.ts"
+            #else
+            return "This feature is currently unavailable. Please try again later."
+            #endif
         }
     }
 }

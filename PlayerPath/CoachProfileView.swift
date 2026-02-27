@@ -12,6 +12,7 @@ import StoreKit
 struct CoachProfileView: View {
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @ObservedObject private var sharedFolderManager = SharedFolderManager.shared
+    @ObservedObject private var storeManager = StoreKitManager.shared
     @State private var showingSignOutAlert = false
     @State private var showingPaywall = false
     @State private var isSigningOut = false
@@ -71,6 +72,33 @@ struct CoachProfileView: View {
                     }
                 }
                 
+                // Billing Retry Warning
+                if storeManager.isInBillingRetryPeriod {
+                    Section {
+                        HStack(spacing: 12) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.orange)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Payment Failed")
+                                    .font(.subheadline)
+                                    .fontWeight(.semibold)
+                                Text("Update your payment method to keep your subscription active.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Button("Fix") {
+                                if let url = URL(string: "https://apps.apple.com/account/subscriptions") {
+                                    UIApplication.shared.open(url)
+                                }
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(.orange)
+                            .controlSize(.small)
+                        }
+                    }
+                }
+
                 // Account Section
                 Section("Account") {
                     // Subscription Management
@@ -162,6 +190,8 @@ struct CoachPaywallView: View {
     @State private var showingError = false
     @State private var isPurchasing = false
     @State private var dismissTask: Task<Void, Never>?
+    @State private var showingTerms = false
+    @State private var showingPrivacyPolicy = false
     
     var body: some View {
         NavigationStack {
@@ -292,6 +322,12 @@ struct CoachPaywallView: View {
                         Text("Cancel anytime • Auto-renews until cancelled")
                             .font(.caption)
                             .foregroundColor(.secondary)
+                        HStack(spacing: 16) {
+                            Button("Terms of Service") { showingTerms = true }
+                                .font(.caption).foregroundColor(.blue)
+                            Button("Privacy Policy") { showingPrivacyPolicy = true }
+                                .font(.caption).foregroundColor(.blue)
+                        }
                     }
                     .multilineTextAlignment(.center)
                     .padding(.bottom, 32)
@@ -307,6 +343,8 @@ struct CoachPaywallView: View {
                     }
                 }
             }
+            .sheet(isPresented: $showingTerms) { TermsOfServiceView() }
+            .sheet(isPresented: $showingPrivacyPolicy) { PrivacyPolicyView() }
             .alert("Error", isPresented: $showingError, presenting: storeManager.error) { _ in
                 Button("OK", role: .cancel) {
                     Haptics.light()

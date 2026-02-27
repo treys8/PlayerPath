@@ -1459,9 +1459,11 @@ struct AddGameView: View {
 struct VideoClipRow: View {
     let clip: VideoClip
     @State private var showingVideoPlayer = false
+    @State private var showingShareToFolder = false
     @State private var thumbnailImage: UIImage?
     @State private var isLoadingThumbnail = false
     @Environment(\.modelContext) private var modelContext
+    @EnvironmentObject private var authManager: ComprehensiveAuthManager
     
     var body: some View {
         Button(action: { showingVideoPlayer = true }) {
@@ -1487,7 +1489,7 @@ struct VideoClipRow: View {
                                                 .progressViewStyle(CircularProgressViewStyle(tint: .white))
                                                 .scaleEffect(0.5)
                                         } else {
-                                            Image(systemName: "video")
+                                            Image(systemName: "video.fill")
                                                 .foregroundColor(.white)
                                                 .font(.caption)
                                         }
@@ -1583,11 +1585,23 @@ struct VideoClipRow: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel(clip.playResult?.type.displayName ?? "Unrecorded Play")
         .accessibilityHint("Opens the video")
+        .contextMenu {
+            if authManager.hasCoachingAccess {
+                Button {
+                    showingShareToFolder = true
+                } label: {
+                    Label("Share to Coach Folder", systemImage: "folder.badge.person.fill")
+                }
+            }
+        }
         .task {
             await loadThumbnail()
         }
         .sheet(isPresented: $showingVideoPlayer) {
             VideoPlayerView(clip: clip)
+        }
+        .sheet(isPresented: $showingShareToFolder) {
+            ShareToCoachFolderView(clip: clip)
         }
     }
     

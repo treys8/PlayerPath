@@ -191,11 +191,6 @@ struct UserPreferencesView: View {
                 get: { viewModel.preferences?.showOnboardingTips ?? false },
                 set: { viewModel.update(\.showOnboardingTips, to: $0) }
             ))
-            
-            Toggle("Debug Mode", isOn: Binding(
-                get: { viewModel.preferences?.enableDebugMode ?? false },
-                set: { viewModel.update(\.enableDebugMode, to: $0) }
-            ))
         } header: {
             Text("Interface")
         }
@@ -237,7 +232,10 @@ struct UserPreferencesView: View {
         Section {
             Toggle("Enable Analytics", isOn: Binding(
                 get: { viewModel.preferences?.enableAnalytics ?? false },
-                set: { viewModel.update(\.enableAnalytics, to: $0) }
+                set: {
+                    viewModel.update(\.enableAnalytics, to: $0)
+                    AnalyticsService.shared.setCollection(enabled: $0)
+                }
             ))
             
             Toggle("Share Usage Data", isOn: Binding(

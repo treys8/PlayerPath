@@ -10,8 +10,9 @@ import SwiftData
 import PDFKit
 
 struct StatisticsExportView: View {
+    let athletes: [Athlete]
+
     @Environment(\.modelContext) private var modelContext
-    @Query(sort: \Athlete.name) private var athletes: [Athlete]
 
     @State private var selectedAthlete: Athlete?
     @State private var selectedReportType: ReportType = .athleteStatistics
@@ -389,7 +390,7 @@ enum ExportFormat: String, CaseIterable, Identifiable {
 
 #Preview {
     NavigationStack {
-        StatisticsExportView()
+        StatisticsExportView(athletes: [])
     }
     .modelContainer(for: [User.self, Athlete.self, Season.self, Game.self], inMemory: true)
 }

@@ -296,9 +296,8 @@ private struct EnableBiometricSheet: View {
         isLoading = true
         
         Task {
-            let success = await biometricManager.enableBiometric(
-                email: email.lowercased().trimmingCharacters(in: .whitespacesAndNewlines),
-                password: password
+            let success = await biometricManager.enableSessionBasedBiometric(
+                email: email.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
             )
             
             await MainActor.run {

@@ -62,9 +62,9 @@ struct AuthenticationErrorHandler {
         case .weakPassword:
             return "Your password must be at least 6 characters long."
         case .wrongPassword:
-            return "The password you entered is incorrect."
+            return "Invalid email or password."
         case .userNotFound:
-            return "No account found with this email address."
+            return "Invalid email or password."
         case .userDisabled:
             return "This account has been disabled. Please contact support."
         case .tooManyRequests:

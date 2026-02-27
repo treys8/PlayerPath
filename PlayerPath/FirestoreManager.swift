@@ -63,7 +63,7 @@ class FirestoreManager: ObservableObject {
             return docRef.documentID
         } catch {
             print("❌ Failed to create shared folder: \(error)")
-            errorMessage = "Failed to create folder: \(error.localizedDescription)"
+            errorMessage = "Failed to create folder."
             throw error
         }
     }
@@ -85,11 +85,11 @@ class FirestoreManager: ObservableObject {
                 return folder
             }
             
-            print("✅ Fetched \(folders.count) folders for athlete \(athleteID)")
+            print("✅ Fetched \(folders.count) athlete folders")
             return folders
         } catch {
             print("❌ Failed to fetch athlete folders: \(error)")
-            errorMessage = "Failed to load folders: \(error.localizedDescription)"
+            errorMessage = "Failed to load folders."
             throw error
         }
     }
@@ -111,11 +111,11 @@ class FirestoreManager: ObservableObject {
                 return folder
             }
 
-            print("✅ Fetched \(folders.count) folders for coach \(coachID)")
+            print("✅ Fetched \(folders.count) coach folders")
             return folders
         } catch {
             print("❌ Failed to fetch coach folders: \(error)")
-            errorMessage = "Failed to load folders: \(error.localizedDescription)"
+            errorMessage = "Failed to load folders."
             throw error
         }
     }
@@ -159,36 +159,61 @@ class FirestoreManager: ObservableObject {
             print("✅ Added coach \(coachID) to folder \(folderID)")
         } catch {
             print("❌ Failed to add coach to folder: \(error)")
-            errorMessage = "Failed to share folder: \(error.localizedDescription)"
+            errorMessage = "Failed to share folder."
             throw error
         }
     }
     
-    /// Removes a coach from a shared folder
-    func removeCoachFromFolder(folderID: String, coachID: String) async throws {
+    /// Removes a coach from a shared folder.
+    /// Pass `folderName`, `coachEmail`, and `athleteID` when already available at the call
+    /// site to skip 2 redundant Firestore reads (folder doc + coach user doc).
+    func removeCoachFromFolder(
+        folderID: String,
+        coachID: String,
+        folderName: String? = nil,
+        coachEmail: String? = nil,
+        athleteID: String? = nil
+    ) async throws {
         isLoading = true
         defer { isLoading = false }
 
         let folderRef = db.collection("sharedFolders").document(folderID)
 
         do {
-            // First, get folder and coach details for the email notification
-            let folderSnapshot = try await folderRef.getDocument()
-            guard let folderData = folderSnapshot.data(),
-                  let folderName = folderData["name"] as? String,
-                  let athleteID = folderData["ownerAthleteID"] as? String else {
-                throw NSError(domain: "FirestoreManager", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to fetch folder details"])
+            // Resolve folderName + athleteID — skip fetch if caller supplied them
+            let resolvedFolderName: String
+            let resolvedAthleteID: String
+            if let fn = folderName, let aid = athleteID {
+                resolvedFolderName = fn
+                resolvedAthleteID = aid
+            } else {
+                let folderSnapshot = try await folderRef.getDocument()
+                guard let folderData = folderSnapshot.data(),
+                      let fn = folderData["name"] as? String,
+                      let aid = folderData["ownerAthleteID"] as? String else {
+                    throw NSError(domain: "FirestoreManager", code: -1,
+                                  userInfo: [NSLocalizedDescriptionKey: "Failed to fetch folder details"])
+                }
+                resolvedFolderName = fn
+                resolvedAthleteID = aid
             }
 
-            // Get coach email
-            let coachSnapshot = try await db.collection("users").document(coachID).getDocument()
-            guard let coachData = coachSnapshot.data(),
-                  let coachEmail = coachData["email"] as? String else {
-                throw NSError(domain: "FirestoreManager", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to fetch coach email"])
+            // Resolve coachEmail — skip fetch if caller supplied it
+            let resolvedCoachEmail: String
+            if let ce = coachEmail {
+                resolvedCoachEmail = ce
+            } else {
+                let coachSnapshot = try await db.collection("users").document(coachID).getDocument()
+                guard let coachData = coachSnapshot.data(),
+                      let ce = coachData["email"] as? String else {
+                    throw NSError(domain: "FirestoreManager", code: -1,
+                                  userInfo: [NSLocalizedDescriptionKey: "Failed to fetch coach email"])
+                }
+                resolvedCoachEmail = ce
             }
 
-            // Get athlete name
-            let athleteSnapshot = try await db.collection("users").document(athleteID).getDocument()
+            // Athlete display name still requires a fetch — not available from any call site
+            let athleteSnapshot = try await db.collection("users").document(resolvedAthleteID).getDocument()
             let athleteName = athleteSnapshot.data()?["fullName"] as? String ?? "An athlete"
 
             // Remove coach from folder
@@ -201,10 +226,10 @@ class FirestoreManager: ObservableObject {
             // Create revocation document to trigger email notification
             try await db.collection("coach_access_revocations").addDocument(data: [
                 "folderID": folderID,
-                "folderName": folderName,
+                "folderName": resolvedFolderName,
                 "coachID": coachID,
-                "coachEmail": coachEmail,
-                "athleteID": athleteID,
+                "coachEmail": resolvedCoachEmail,
+                "athleteID": resolvedAthleteID,
                 "athleteName": athleteName,
                 "revokedAt": FieldValue.serverTimestamp(),
                 "emailSent": false
@@ -213,7 +238,7 @@ class FirestoreManager: ObservableObject {
             print("✅ Removed coach \(coachID) from folder \(folderID) and queued revocation email")
         } catch {
             print("❌ Failed to remove coach from folder: \(error)")
-            errorMessage = "Failed to remove coach: \(error.localizedDescription)"
+            errorMessage = "Failed to remove coach."
             throw error
         }
     }
@@ -242,7 +267,7 @@ class FirestoreManager: ObservableObject {
             print("✅ Deleted folder \(folderID) and \(videosSnapshot.documents.count) videos")
         } catch {
             print("❌ Failed to delete folder: \(error)")
-            errorMessage = "Failed to delete folder: \(error.localizedDescription)"
+            errorMessage = "Failed to delete folder."
             throw error
         }
     }
@@ -345,7 +370,7 @@ class FirestoreManager: ObservableObject {
             return docRef.documentID
         } catch {
             print("❌ Failed to upload video metadata: \(error)")
-            errorMessage = "Failed to save video: \(error.localizedDescription)"
+            errorMessage = "Failed to save video."
             throw error
         }
     }
@@ -396,11 +421,25 @@ class FirestoreManager: ObservableObject {
             return videos
         } catch {
             print("❌ Failed to fetch videos: \(error)")
-            errorMessage = "Failed to load videos: \(error.localizedDescription)"
+            errorMessage = "Failed to load videos."
             throw error
         }
     }
     
+    /// Fetches a single video's metadata by document ID (point-read — 1 read regardless of folder size)
+    func fetchVideo(videoID: String) async throws -> FirestoreVideoMetadata? {
+        do {
+            let doc = try await db.collection("videos").document(videoID).getDocument()
+            guard doc.exists else { return nil }
+            var video = try? doc.data(as: FirestoreVideoMetadata.self)
+            video?.id = doc.documentID
+            return video
+        } catch {
+            print("❌ Failed to fetch video \(videoID): \(error)")
+            throw error
+        }
+    }
+
     /// Deletes a video and its metadata
     func deleteVideo(videoID: String, folderID: String) async throws {
         isLoading = true
@@ -431,7 +470,7 @@ class FirestoreManager: ObservableObject {
             print("✅ Deleted video \(videoID)")
         } catch {
             print("❌ Failed to delete video: \(error)")
-            errorMessage = "Failed to delete video: \(error.localizedDescription)"
+            errorMessage = "Failed to delete video."
             throw error
         }
     }
@@ -469,7 +508,7 @@ class FirestoreManager: ObservableObject {
             return docRef.documentID
         } catch {
             print("❌ Failed to add annotation: \(error)")
-            errorMessage = "Failed to add comment: \(error.localizedDescription)"
+            errorMessage = "Failed to add comment."
             throw error
         }
     }
@@ -537,7 +576,7 @@ class FirestoreManager: ObservableObject {
             print("✅ Deleted annotation \(annotationID)")
         } catch {
             print("❌ Failed to delete annotation: \(error)")
-            errorMessage = "Failed to delete comment: \(error.localizedDescription)"
+            errorMessage = "Failed to delete comment."
             throw error
         }
     }
@@ -568,11 +607,11 @@ class FirestoreManager: ObservableObject {
         
         do {
             let docRef = try await db.collection("invitations").addDocument(data: invitationData)
-            print("✅ Created invitation for \(coachEmail)")
+            print("✅ Created invitation")
             return docRef.documentID
         } catch {
             print("❌ Failed to create invitation: \(error)")
-            errorMessage = "Failed to send invitation: \(error.localizedDescription)"
+            errorMessage = "Failed to send invitation."
             throw error
         }
     }
@@ -591,7 +630,7 @@ class FirestoreManager: ObservableObject {
                 return invitation
             }
             
-            print("✅ Found \(invitations.count) pending invitations for \(email)")
+            print("✅ Found \(invitations.count) pending invitations")
             return invitations
         } catch {
             print("❌ Failed to fetch invitations: \(error)")
@@ -629,7 +668,7 @@ class FirestoreManager: ObservableObject {
             print("✅ Accepted invitation \(invitationID)")
         } catch {
             print("❌ Failed to accept invitation: \(error)")
-            errorMessage = "Failed to accept invitation: \(error.localizedDescription)"
+            errorMessage = "Failed to accept invitation."
             throw error
         }
     }
@@ -648,13 +687,14 @@ class FirestoreManager: ObservableObject {
             print("✅ Declined invitation \(invitationID)")
         } catch {
             print("❌ Failed to decline invitation: \(error)")
-            errorMessage = "Failed to decline invitation: \(error.localizedDescription)"
+            errorMessage = "Failed to decline invitation."
             throw error
         }
     }
 
     /// Creates an invitation from a coach to an athlete (coach-initiated)
     /// This is for when coaches want to proactively invite athletes to connect
+    @discardableResult
     func createCoachToAthleteInvitation(
         coachID: String,
         coachEmail: String,
@@ -684,7 +724,7 @@ class FirestoreManager: ObservableObject {
 
         do {
             let docRef = try await db.collection("invitations").addDocument(data: invitationData)
-            print("✅ Created coach-to-athlete invitation for \(athleteEmail)")
+            print("✅ Created coach-to-athlete invitation")
 
             // TODO: Trigger Cloud Function to send email notification
             // For now, the invitation will be visible when the athlete logs in
@@ -692,7 +732,7 @@ class FirestoreManager: ObservableObject {
             return docRef.documentID
         } catch {
             print("❌ Failed to create coach-to-athlete invitation: \(error)")
-            errorMessage = "Failed to send invitation: \(error.localizedDescription)"
+            errorMessage = "Failed to send invitation."
             throw error
         }
     }
@@ -721,7 +761,7 @@ class FirestoreManager: ObservableObject {
                 )
             }
 
-            print("✅ Found \(invitations.count) pending coach invitations for \(email)")
+            print("✅ Found \(invitations.count) pending coach invitations")
             return invitations
         } catch {
             print("❌ Failed to fetch coach invitations: \(error)")
@@ -781,6 +821,22 @@ class FirestoreManager: ObservableObject {
         }
     }
     
+    /// Writes or clears the coachingLapseDate field on a user document.
+    /// Pass nil to clear (subscription restored).
+    func setCoachingLapseDate(_ date: Date?, forUserID userID: String) async throws {
+        let value: Any = date.map { Timestamp(date: $0) } ?? FieldValue.delete()
+        do {
+            try await db.collection("users").document(userID).setData(
+                ["coachingLapseDate": value],
+                merge: true
+            )
+            print("✅ setCoachingLapseDate: \(date?.description ?? "cleared") for \(userID)")
+        } catch {
+            print("❌ Failed to set coachingLapseDate: \(error)")
+            throw error
+        }
+    }
+
     /// Updates or creates a user profile
     func updateUserProfile(
         userID: String,
@@ -797,15 +853,19 @@ class FirestoreManager: ObservableObject {
             "updatedAt": FieldValue.serverTimestamp()
         ]
         
-        // Merge additional profile data
-        userData.merge(profileData) { _, new in new }
+        // Strip subscription/billing fields — these must only be set server-side (StoreKit webhooks)
+        let serverOnlyFields: Set<String> = ["subscriptionTier", "hasCoachingAddOn"]
+        let safeProfileData = profileData.filter { !serverOnlyFields.contains($0.key) }
+
+        // Merge additional profile data; keep explicitly set fields (email, role) on conflict
+        userData.merge(safeProfileData) { current, _ in current }
         
         do {
             try await db.collection("users").document(userID).setData(userData, merge: true)
-            print("✅ Updated user profile for \(userID)")
+            print("✅ Updated user profile")
         } catch {
             print("❌ Failed to update user profile: \(error)")
-            errorMessage = "Failed to update profile: \(error.localizedDescription)"
+            errorMessage = "Failed to update profile."
             throw error
         }
     }
@@ -885,13 +945,27 @@ class FirestoreManager: ObservableObject {
             try await invitationsBatch.commit()
             print("✅ Deleted \(invitationsSnapshot.documents.count) invitations")
 
-            // Step 4: Delete user profile document
+            // Step 4: Delete all in-app notifications for this user (GDPR)
+            let notificationsSnapshot = try await db.collection("notifications")
+                .document(userID)
+                .collection("items")
+                .getDocuments()
+
+            let notificationsBatch = db.batch()
+            for notifDoc in notificationsSnapshot.documents {
+                notificationsBatch.deleteDocument(notifDoc.reference)
+            }
+            try await notificationsBatch.commit()
+            try? await db.collection("notifications").document(userID).delete()
+            print("✅ Deleted \(notificationsSnapshot.documents.count) notifications")
+
+            // Step 5: Delete user profile document
             try await db.collection("users").document(userID).delete()
             print("✅ Deleted user profile document")
 
         } catch {
             print("❌ Failed to delete user profile: \(error)")
-            errorMessage = "Failed to delete user data: \(error.localizedDescription)"
+            errorMessage = "Failed to delete user data."
             throw error
         }
     }
@@ -920,7 +994,11 @@ class FirestoreManager: ObservableObject {
 
             return (name: name, email: email)
         } catch {
+            #if DEBUG
             print("❌ Failed to fetch coach info for \(coachID): \(error)")
+            #else
+            print("❌ Failed to fetch coach info")
+            #endif
             throw error
         }
     }
@@ -951,7 +1029,7 @@ class FirestoreManager: ObservableObject {
             return docRef.documentID
         } catch {
             print("❌ Failed to create athlete: \(error)")
-            errorMessage = "Failed to create athlete: \(error.localizedDescription)"
+            errorMessage = "Failed to create athlete."
             throw error
         }
     }
@@ -979,7 +1057,7 @@ class FirestoreManager: ObservableObject {
             print("✅ Updated athlete in Firestore: \(athleteId)")
         } catch {
             print("❌ Failed to update athlete: \(error)")
-            errorMessage = "Failed to update athlete: \(error.localizedDescription)"
+            errorMessage = "Failed to update athlete."
             throw error
         }
     }
@@ -1010,7 +1088,7 @@ class FirestoreManager: ObservableObject {
             return athletes
         } catch {
             print("❌ Failed to fetch athletes: \(error)")
-            errorMessage = "Failed to load athletes: \(error.localizedDescription)"
+            errorMessage = "Failed to load athletes."
             throw error
         }
     }
@@ -1038,7 +1116,7 @@ class FirestoreManager: ObservableObject {
             print("✅ Soft deleted athlete in Firestore: \(athleteId)")
         } catch {
             print("❌ Failed to delete athlete: \(error)")
-            errorMessage = "Failed to delete athlete: \(error.localizedDescription)"
+            errorMessage = "Failed to delete athlete."
             throw error
         }
     }
@@ -1054,18 +1132,22 @@ class FirestoreManager: ObservableObject {
         isLoading = true
         defer { isLoading = false }
 
+        var seasonData = data
+        seasonData["createdAt"] = FieldValue.serverTimestamp()
+        seasonData["updatedAt"] = FieldValue.serverTimestamp()
+
         do {
             let docRef = try await db
                 .collection("users")
                 .document(userId)
                 .collection("seasons")
-                .addDocument(data: data)
+                .addDocument(data: seasonData)
 
             print("✅ Created season in Firestore: \(docRef.documentID)")
             return docRef.documentID
         } catch {
             print("❌ Failed to create season: \(error)")
-            errorMessage = "Failed to create season: \(error.localizedDescription)"
+            errorMessage = "Failed to create season."
             throw error
         }
     }
@@ -1093,7 +1175,7 @@ class FirestoreManager: ObservableObject {
             print("✅ Updated season in Firestore: \(seasonId)")
         } catch {
             print("❌ Failed to update season: \(error)")
-            errorMessage = "Failed to update season: \(error.localizedDescription)"
+            errorMessage = "Failed to update season."
             throw error
         }
     }
@@ -1111,6 +1193,7 @@ class FirestoreManager: ObservableObject {
                 .document(userId)
                 .collection("seasons")
                 .whereField("isDeleted", isEqualTo: false)
+                .order(by: "createdAt", descending: true)
                 .getDocuments()
 
             let seasons = snapshot.documents.compactMap { doc -> FirestoreSeason? in
@@ -1121,7 +1204,7 @@ class FirestoreManager: ObservableObject {
             return seasons
         } catch {
             print("❌ Failed to fetch seasons: \(error)")
-            errorMessage = "Failed to fetch seasons: \(error.localizedDescription)"
+            errorMessage = "Failed to fetch seasons."
             throw error
         }
     }
@@ -1149,7 +1232,7 @@ class FirestoreManager: ObservableObject {
             print("✅ Soft deleted season in Firestore: \(seasonId)")
         } catch {
             print("❌ Failed to delete season: \(error)")
-            errorMessage = "Failed to delete season: \(error.localizedDescription)"
+            errorMessage = "Failed to delete season."
             throw error
         }
     }
@@ -1165,18 +1248,22 @@ class FirestoreManager: ObservableObject {
         isLoading = true
         defer { isLoading = false }
 
+        var gameData = data
+        gameData["createdAt"] = FieldValue.serverTimestamp()
+        gameData["updatedAt"] = FieldValue.serverTimestamp()
+
         do {
             let docRef = try await db
                 .collection("users")
                 .document(userId)
                 .collection("games")
-                .addDocument(data: data)
+                .addDocument(data: gameData)
 
             print("✅ Created game in Firestore: \(docRef.documentID)")
             return docRef.documentID
         } catch {
             print("❌ Failed to create game: \(error)")
-            errorMessage = "Failed to create game: \(error.localizedDescription)"
+            errorMessage = "Failed to create game."
             throw error
         }
     }
@@ -1204,7 +1291,7 @@ class FirestoreManager: ObservableObject {
             print("✅ Updated game in Firestore: \(gameId)")
         } catch {
             print("❌ Failed to update game: \(error)")
-            errorMessage = "Failed to update game: \(error.localizedDescription)"
+            errorMessage = "Failed to update game."
             throw error
         }
     }
@@ -1222,6 +1309,7 @@ class FirestoreManager: ObservableObject {
                 .document(userId)
                 .collection("games")
                 .whereField("isDeleted", isEqualTo: false)
+                .order(by: "date", descending: true)
                 .getDocuments()
 
             let games = snapshot.documents.compactMap { doc -> FirestoreGame? in
@@ -1232,7 +1320,7 @@ class FirestoreManager: ObservableObject {
             return games
         } catch {
             print("❌ Failed to fetch games: \(error)")
-            errorMessage = "Failed to fetch games: \(error.localizedDescription)"
+            errorMessage = "Failed to fetch games."
             throw error
         }
     }
@@ -1260,7 +1348,7 @@ class FirestoreManager: ObservableObject {
             print("✅ Soft deleted game in Firestore: \(gameId)")
         } catch {
             print("❌ Failed to delete game: \(error)")
-            errorMessage = "Failed to delete game: \(error.localizedDescription)"
+            errorMessage = "Failed to delete game."
             throw error
         }
     }
@@ -1291,7 +1379,7 @@ class FirestoreManager: ObservableObject {
             return docRef.documentID
         } catch {
             print("❌ Failed to create practice: \(error)")
-            errorMessage = "Failed to create practice: \(error.localizedDescription)"
+            errorMessage = "Failed to create practice."
             throw error
         }
     }
@@ -1319,7 +1407,7 @@ class FirestoreManager: ObservableObject {
             print("✅ Updated practice in Firestore: \(practiceId)")
         } catch {
             print("❌ Failed to update practice: \(error)")
-            errorMessage = "Failed to update practice: \(error.localizedDescription)"
+            errorMessage = "Failed to update practice."
             throw error
         }
     }
@@ -1350,7 +1438,7 @@ class FirestoreManager: ObservableObject {
             return practices
         } catch {
             print("❌ Failed to fetch practices: \(error)")
-            errorMessage = "Failed to load practices: \(error.localizedDescription)"
+            errorMessage = "Failed to load practices."
             throw error
         }
     }
@@ -1378,7 +1466,7 @@ class FirestoreManager: ObservableObject {
             print("✅ Soft deleted practice in Firestore: \(practiceId)")
         } catch {
             print("❌ Failed to delete practice: \(error)")
-            errorMessage = "Failed to delete practice: \(error.localizedDescription)"
+            errorMessage = "Failed to delete practice."
             throw error
         }
     }
@@ -1428,7 +1516,7 @@ class FirestoreManager: ObservableObject {
             return thumbnailURL
         } catch {
             print("❌ Failed to upload thumbnail: \(error)")
-            errorMessage = "Failed to upload thumbnail: \(error.localizedDescription)"
+            errorMessage = "Failed to upload thumbnail."
             throw error
         }
     }
@@ -1489,9 +1577,20 @@ class FirestoreManager: ObservableObject {
     ) async throws -> String {
         isLoading = true
         defer { isLoading = false }
-        
+
+        // Allowlist prevents arbitrary fields from being written to Firestore
+        let allowedFields: Set<String> = [
+            "fileName", "firebaseStorageURL", "uploadedBy", "uploadedByName",
+            "sharedFolderID", "fileSize", "duration", "videoType", "isHighlight",
+            "thumbnail", "thumbnailURL", "gameOpponent", "gameDate", "practiceDate",
+            "notes", "playResult", "athleteName", "seasonID"
+        ]
+        var safeMetadata = metadata.filter { allowedFields.contains($0.key) }
+        safeMetadata["sharedFolderID"] = folderID
+        safeMetadata["createdAt"] = FieldValue.serverTimestamp()
+
         do {
-            let docRef = try await db.collection("videos").addDocument(data: metadata)
+            let docRef = try await db.collection("videos").addDocument(data: safeMetadata)
             
             // Increment video count in folder
             try await db.collection("sharedFolders").document(folderID).updateData([
@@ -1503,7 +1602,7 @@ class FirestoreManager: ObservableObject {
             return docRef.documentID
         } catch {
             print("❌ Failed to create video metadata: \(error)")
-            errorMessage = "Failed to save video: \(error.localizedDescription)"
+            errorMessage = "Failed to save video."
             throw error
         }
     }
@@ -1718,6 +1817,7 @@ struct UserProfile: Codable, Identifiable {
     let role: String
     let subscriptionTier: String?
     let hasCoachingAddOn: Bool?
+    let coachingLapseDate: Date?
     let createdAt: Date?
     let updatedAt: Date?
 

@@ -29,12 +29,12 @@ enum MainTab: Int {
     case games = 1
     case videos = 2
     case stats = 3
-    case practice = 4
-    case highlights = 5
-    case more = 6
+    case more = 4
 
-    // Legacy compatibility alias
+    // Legacy compatibility aliases
     static var profile: MainTab { .more }
+    static var practice: MainTab { .more }
+    static var highlights: MainTab { .more }
 }
 
 // Convenience helper to switch tabs via NotificationCenter

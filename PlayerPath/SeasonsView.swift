@@ -307,7 +307,7 @@ struct SeasonVideoRow: View {
     
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: "video")
+            Image(systemName: "video.fill")
                 .foregroundStyle(.purple)
                 .frame(width: 24)
             

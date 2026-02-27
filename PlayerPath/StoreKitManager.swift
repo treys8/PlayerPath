@@ -28,6 +28,7 @@ class StoreKitManager: ObservableObject {
     @Published private(set) var hasCoachingAddOn: Bool = false
     @Published private(set) var tierExpirationDate: Date?
     @Published private(set) var coachingExpirationDate: Date?
+    @Published private(set) var isInBillingRetryPeriod: Bool = false
 
     // MARK: - Private Properties
 
@@ -180,13 +181,28 @@ class StoreKitManager: ObservableObject {
             resolvedCoachingExpiration = nil
         }
 
+        // Check if any subscription is in billing retry (payment failed, Apple retrying).
+        // Uses status.state == .inBillingRetryPeriod — the correct StoreKit 2 API.
+        // Runs only after products are loaded; returns false on first call from init().
+        var resolvedBillingRetry = false
+        for product in products {
+            guard let subscription = product.subscription else { continue }
+            guard let statuses = try? await subscription.status else { continue }
+            for status in statuses {
+                if status.state == .inBillingRetryPeriod {
+                    resolvedBillingRetry = true
+                }
+            }
+        }
+
         purchasedProductIDs = newPurchasedIDs
         currentTier = resolvedTier
         hasCoachingAddOn = resolvedCoaching
         tierExpirationDate = resolvedTierExpiration
         coachingExpirationDate = resolvedCoachingExpiration
+        isInBillingRetryPeriod = resolvedBillingRetry
 
-        print("✅ Entitlements: tier=\(resolvedTier.displayName), coaching=\(resolvedCoaching)")
+        print("✅ Entitlements: tier=\(resolvedTier.displayName), coaching=\(resolvedCoaching), billingRetry=\(resolvedBillingRetry)")
     }
 
     // MARK: - Transaction Listening

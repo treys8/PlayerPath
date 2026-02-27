@@ -239,6 +239,15 @@ struct AddAthleteView: View {
             showingValidationError = true
             return
         }
+
+        // Fix T: Enforce tier limit at the data layer, not just in the calling UI
+        let currentCount = (user.athletes ?? []).count
+        guard currentCount < user.tier.athleteLimit else {
+            validationErrorMessage = "You've reached the \(user.tier.athleteLimit)-athlete limit for your \(user.tier.displayName) plan. Upgrade to Pro to track up to 5 athletes."
+            showingValidationError = true
+            return
+        }
+
         isCreatingAthlete = true
 
         Task {

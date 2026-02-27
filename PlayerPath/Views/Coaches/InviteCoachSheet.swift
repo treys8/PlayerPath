@@ -208,7 +208,7 @@ struct InviteCoachSheet: View {
 
         Task {
             do {
-                guard let userID = authManager.userID else {
+                guard authManager.userID != nil else {
                     throw NSError(domain: "InviteCoach", code: -1, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
                 }
 

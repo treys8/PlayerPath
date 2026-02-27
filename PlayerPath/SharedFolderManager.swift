@@ -96,7 +96,19 @@ class SharedFolderManager: ObservableObject {
         }
         
         let cleanEmail = coachEmail.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        
+
+        // Fix P: Validate email format
+        let emailRegex = "[A-Za-z0-9._%+\\-]+@[A-Za-z0-9.\\-]+\\.[A-Za-z]{2,}"
+        guard NSPredicate(format: "SELF MATCHES %@", emailRegex).evaluate(with: cleanEmail) else {
+            throw SharedFolderError.invalidEmail
+        }
+
+        // Fix N: Guard against duplicate invitations for the same (folder, coach) pair
+        let existingInvitations = (try? await firestore.fetchPendingInvitations(forEmail: cleanEmail)) ?? []
+        if existingInvitations.contains(where: { $0.folderID == folderID }) {
+            throw SharedFolderError.duplicateInvitation
+        }
+
         // Create invitation
         let invitationID = try await firestore.createInvitation(
             athleteID: athleteID,
@@ -136,8 +148,14 @@ class SharedFolderManager: ObservableObject {
     ) async throws {
         print("🚫 Removing coach \(coachID) from folder \(folderID)")
 
-        // 1. Revoke permissions in Firestore
-        try await firestore.removeCoachFromFolder(folderID: folderID, coachID: coachID)
+        // 1. Revoke permissions in Firestore — pass known values to skip 2 redundant reads
+        try await firestore.removeCoachFromFolder(
+            folderID: folderID,
+            coachID: coachID,
+            folderName: folderName,
+            coachEmail: coachEmail,
+            athleteID: athleteID
+        )
         print("✅ Permissions revoked in Firestore")
 
         // 2. Send notification to coach (TODO: Implement push notification)
@@ -174,9 +192,10 @@ class SharedFolderManager: ObservableObject {
         athleteID: String
     ) async {
         // Notify coach in-app if they have an account
+        // Fix O: Derive a readable name from email (UserProfile has no separate displayName field)
         let athleteName: String
         if let profile = try? await firestore.fetchUserProfile(userID: athleteID) {
-            athleteName = profile.email
+            athleteName = profile.email.components(separatedBy: "@").first ?? profile.email
         } else {
             athleteName = "An athlete"
         }
@@ -259,6 +278,37 @@ class SharedFolderManager: ObservableObject {
         print("💡 Reminder: Update local Coach models to remove folder \(folderID)")
     }
     
+    /// Revokes all coach access from every folder owned by an athlete.
+    /// Called when the 7-day coaching add-on grace period expires.
+    func revokeAllCoachAccess(forAthleteID athleteID: String) async throws {
+        print("⏰ Grace period expired — revoking all coach access for athlete: \(athleteID)")
+
+        let folders = try await firestore.fetchSharedFolders(forAthlete: athleteID)
+
+        for folder in folders {
+            guard let folderID = folder.id, !folder.sharedWithCoachIDs.isEmpty else { continue }
+
+            for coachID in folder.sharedWithCoachIDs {
+                do {
+                    try await firestore.removeCoachFromFolder(folderID: folderID, coachID: coachID)
+                    await notifyCoachAccessRevoked(
+                        coachID: coachID,
+                        coachEmail: "",
+                        folderName: folder.name,
+                        athleteID: athleteID
+                    )
+                    print("✅ Revoked access for coach \(coachID) from folder \(folder.name)")
+                } catch {
+                    print("⚠️ Failed to revoke coach \(coachID) from folder \(folderID): \(error)")
+                }
+            }
+        }
+
+        // Refresh local folders list
+        try await loadAthleteFolders(athleteID: athleteID)
+        print("✅ All coach access revoked — grace period enforcement complete")
+    }
+
     // MARK: - Coach Functions
     
     /// Loads all folders shared with a coach
@@ -301,7 +351,8 @@ class SharedFolderManager: ObservableObject {
             throw SharedFolderError.folderNotFound
         }
 
-        let permissions = FolderPermissions.default
+        // Fix M: Use the permissions the athlete specified in the invitation
+        let permissions = invitation.permissions
 
         try await firestore.acceptInvitation(
             invitationID: invitationID,
@@ -348,7 +399,10 @@ class SharedFolderManager: ObservableObject {
         fileName: String,
         toFolder folderID: String,
         uploadedBy: String,
-        uploadedByName: String
+        uploadedByName: String,
+        videoType: String = "game",
+        gameContext: GameContext? = nil,
+        practiceContext: PracticeContext? = nil
     ) async throws -> String {
         // First, upload to Firebase Storage using the REAL implementation
         let storageURL = try await VideoCloudManager.shared.uploadVideo(
@@ -360,7 +414,7 @@ class SharedFolderManager: ObservableObject {
                 print("Upload progress: \(Int(progress * 100))%")
             }
         )
-        
+
         // Get file size
         let fileSize: Int64
         do {
@@ -370,12 +424,12 @@ class SharedFolderManager: ObservableObject {
             print("⚠️ Failed to get file size: \(error)")
             fileSize = 0
         }
-        
+
         // TODO: Get video duration from AVAsset
-        
+
         // Generate thumbnail (TODO: Implement thumbnail generation)
         let thumbnail: ThumbnailMetadata? = nil
-        
+
         // Upload metadata to Firestore
         let videoID = try await firestore.uploadVideoMetadata(
             fileName: fileName,
@@ -385,7 +439,10 @@ class SharedFolderManager: ObservableObject {
             uploadedBy: uploadedBy,
             uploadedByName: uploadedByName,
             fileSize: fileSize,
-            duration: nil
+            duration: nil,
+            videoType: videoType,
+            gameContext: gameContext,
+            practiceContext: practiceContext
         )
 
         // Notify all coaches with access to this folder
@@ -411,13 +468,10 @@ class SharedFolderManager: ObservableObject {
     
     /// Deletes a video from a shared folder
     func deleteVideo(videoID: String, fromFolder folderID: String) async throws {
-        // Delete from Firebase Storage first if possible
+        // Point-read for single video metadata (1 read) instead of fetching the whole folder
         do {
-            // Attempt to fetch the video's metadata to get the storage URL
-            let videos = try await firestore.fetchVideos(forFolder: folderID)
-            if let meta = videos.first(where: { $0.id == videoID }) {
+            if let meta = try await firestore.fetchVideo(videoID: videoID) {
                 if let _ = Auth.auth().currentUser?.uid {
-                    // Delete from Firebase Storage
                     try await VideoCloudManager.shared.deleteVideo(fileName: meta.fileName, folderID: folderID)
                 } else {
                     print("⚠️ No authenticated user found; skipping storage deletion for video \(videoID)")
@@ -428,7 +482,7 @@ class SharedFolderManager: ObservableObject {
         } catch {
             print("⚠️ Error while attempting storage deletion for video \(videoID): \(error)")
         }
-        
+
         // Then delete metadata from Firestore
         try await firestore.deleteVideo(videoID: videoID, folderID: folderID)
     }
@@ -514,6 +568,7 @@ enum SharedFolderError: LocalizedError {
     case coachingRequired
     case invalidName
     case invalidEmail
+    case duplicateInvitation
     case emptyComment
     case insufficientPermissions
     case folderNotFound
@@ -529,6 +584,8 @@ enum SharedFolderError: LocalizedError {
             return "Please enter a valid folder name"
         case .invalidEmail:
             return "Please enter a valid email address"
+        case .duplicateInvitation:
+            return "This coach already has a pending invitation for this folder"
         case .emptyComment:
             return "Comment cannot be empty"
         case .insufficientPermissions:

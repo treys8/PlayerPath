@@ -18,9 +18,16 @@ struct MainTabView: View {
     @State private var showingCoaches = false
     @Environment(\.modelContext) private var modelContext
     
+    // More tab programmatic navigation
+    @State private var morePath = NavigationPath()
+
     // Swipe gesture tracking
     @GestureState private var dragOffset: CGFloat = 0
     @State private var tabTransition: AnyTransition = .identity
+
+    enum MoreDestination: Hashable {
+        case practice, highlights
+    }
     
     // NotificationCenter observer management using StateObject for lifecycle safety
     @StateObject private var notificationManager = NotificationObserverManager()
@@ -87,6 +94,12 @@ struct MainTabView: View {
                 // Use task modifier which automatically handles cancellation
                 restoreSelectedTab()
                 setupNotificationObservers()
+                // Fix AE: Request notification permission here, after the user has completed
+                // onboarding and can see the app's value. The system dialog is only shown
+                // once (.notDetermined). Subsequent launches are a no-op.
+                if PushNotificationService.shared.authorizationStatus == .notDetermined {
+                    _ = await PushNotificationService.shared.requestAuthorization()
+                }
             }
             .onChange(of: selectedTab) { _, newValue in
                 saveSelectedTab(newValue)
@@ -191,6 +204,28 @@ struct MainTabView: View {
                 Haptics.light()
             }
         }
+
+        notificationManager.observe(name: Notification.Name.navigateToMorePractice) { _ in
+            MainActor.assumeIsolated {
+                morePath = NavigationPath()
+                selectedTab = MainTab.more.rawValue
+                Haptics.light()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                    morePath.append(MoreDestination.practice)
+                }
+            }
+        }
+
+        notificationManager.observe(name: Notification.Name.navigateToMoreHighlights) { _ in
+            MainActor.assumeIsolated {
+                morePath = NavigationPath()
+                selectedTab = MainTab.more.rawValue
+                Haptics.light()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                    morePath.append(MoreDestination.highlights)
+                }
+            }
+        }
     }
     
     @ViewBuilder
@@ -200,8 +235,6 @@ struct MainTabView: View {
             gamesTab
             videosTab
             statsTab
-            practiceTab
-            highlightsTab
             moreTab
         }
     }
@@ -249,19 +282,6 @@ struct MainTabView: View {
         .accessibilityHint("View batting statistics and performance metrics")
     }
 
-    private var practiceTab: some View {
-        NavigationStack {
-            PracticesView(athlete: selectedAthlete)
-                .id(selectedAthlete.id) // Force view to recreate when athlete changes
-        }
-        .tabItem {
-            Label("Practice", systemImage: "figure.run")
-        }
-        .tag(MainTab.practice.rawValue)
-        .accessibilityLabel("Practice tab")
-        .accessibilityHint("View and manage practice sessions")
-    }
-
     private var videosTab: some View {
         NavigationStack {
             VideoClipsView(athlete: selectedAthlete)
@@ -269,40 +289,51 @@ struct MainTabView: View {
         }
         .badge(activityNotifService.unreadCount > 0 ? activityNotifService.unreadCount : 0)
         .tabItem {
-            Label("Videos", systemImage: "video")
+            Label("Videos", systemImage: "video.fill")
         }
         .tag(MainTab.videos.rawValue)
         .accessibilityLabel("Videos tab")
         .accessibilityHint("View and record video clips")
     }
 
-    private var highlightsTab: some View {
-        NavigationStack {
-            HighlightsView(athlete: selectedAthlete)
-                .id(selectedAthlete.id) // Force view to recreate when athlete changes
-                .plusRequired()
-        }
-        .tabItem {
-            Label("Highlights", systemImage: "star.fill")
-        }
-        .tag(MainTab.highlights.rawValue)
-        .accessibilityLabel("Highlights tab")
-        .accessibilityHint("View your best plays and highlight reels")
-    }
-    
     private var moreTab: some View {
-        NavigationStack {
-            ProfileView(user: user, selectedAthlete: Binding(
-                get: { selectedAthlete },
-                set: { selectedAthlete = $0 ?? selectedAthlete }
-            ))
+        NavigationStack(path: $morePath) {
+            List {
+                Section {
+                    NavigationLink(value: MoreDestination.practice) {
+                        Label("Practice", systemImage: "figure.run")
+                    }
+                    NavigationLink(value: MoreDestination.highlights) {
+                        Label("Highlights", systemImage: "star.fill")
+                    }
+                }
+                Section {
+                    NavigationLink {
+                        ProfileView(user: user, selectedAthlete: Binding(
+                            get: { selectedAthlete },
+                            set: { selectedAthlete = $0 ?? selectedAthlete }
+                        ))
+                    } label: {
+                        Label("Profile & Settings", systemImage: "person.circle.fill")
+                    }
+                }
+            }
+            .navigationTitle("More")
+            .navigationDestination(for: MoreDestination.self) { destination in
+                switch destination {
+                case .practice:
+                    PracticesView(athlete: selectedAthlete).id(selectedAthlete.id)
+                case .highlights:
+                    HighlightsView(athlete: selectedAthlete).id(selectedAthlete.id).plusRequired()
+                }
+            }
         }
         .tabItem {
-            Label("Profile & Settings", systemImage: "person.circle.fill")
+            Label("More", systemImage: "ellipsis.circle.fill")
         }
         .tag(MainTab.more.rawValue)
-        .accessibilityLabel("Profile and Settings tab")
-        .accessibilityHint("Access your profile, settings, and additional features")
+        .accessibilityLabel("More tab")
+        .accessibilityHint("Access Practice, Highlights, and Profile & Settings")
     }
     
     // MARK: - State Restoration

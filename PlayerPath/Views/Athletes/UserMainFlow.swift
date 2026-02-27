@@ -275,5 +275,11 @@ struct UserMainFlow: View {
                 showingAthleteSelection = true
             }
         }
+
+        notificationManager.observe(name: Notification.Name.checkCoachingGracePeriod) { _ in
+            Task { @MainActor in
+                await authManager.checkAndEnforceGracePeriod(for: selectedAthlete ?? athletesForUser.first)
+            }
+        }
     }
 }

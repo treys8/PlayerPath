@@ -696,7 +696,7 @@ struct VideoRecorderView_Refactored: View {
                         // Clips counter
                         if recordedClipsCount > 0 {
                             HStack(spacing: 4) {
-                                Image(systemName: "video")
+                                Image(systemName: "video.fill")
                                     .font(.caption2)
                                 Text("\(recordedClipsCount)")
                                     .font(.caption)
@@ -1338,6 +1338,7 @@ struct PreUploadTrimmerView: View {
     @State private var timeObserver: Any?
     @State private var showContent = false
     @State private var videoEndObserver: NSObjectProtocol?
+    @State private var durationTask: Task<Void, Never>?
 
     @Environment(\.verticalSizeClass) private var vSizeClass
     private var isLandscape: Bool { vSizeClass == .compact }
@@ -1690,7 +1691,9 @@ struct PreUploadTrimmerView: View {
             isPlaying = true
         }
 
-        Task {
+        // Fix W: Store the task so cleanup() can cancel it if the view is dismissed
+        // before the asset load completes.
+        durationTask = Task {
             let asset = AVURLAsset(url: videoURL)
             do {
                 let loadedDuration = try await asset.load(.duration)
@@ -1701,6 +1704,7 @@ struct PreUploadTrimmerView: View {
                     self.endTime = seconds
                 }
             } catch {
+                guard !Task.isCancelled else { return }
                 await MainActor.run {
                     self.exportError = "Unable to load video: \(error.localizedDescription)"
                 }
@@ -1715,6 +1719,9 @@ struct PreUploadTrimmerView: View {
     }
 
     private func cleanup() {
+        // Fix W: Cancel the duration-loading task before tearing down the player.
+        durationTask?.cancel()
+        durationTask = nil
         if let observer = timeObserver {
             player?.removeTimeObserver(observer)
             timeObserver = nil

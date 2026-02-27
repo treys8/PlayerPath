@@ -76,8 +76,14 @@ struct AuthenticatedFlow: View {
                     athletes: athletes
                 )
 
+                // Ensure firebaseAuthUid is written before sync builds Firestore paths.
+                // ensureLocalUser() is called from the auth state listener but modelContext
+                // is nil at that point, so it returns early. Now that loadUser() has attached
+                // the context, call it again so user.firebaseAuthUid is populated.
+                await authManager.ensureLocalUser()
+
                 // Trigger initial sync after user loads
-                if let user = currentUser {
+                if let user = currentUser, user.firebaseAuthUid != nil {
                     do {
                         try await SyncCoordinator.shared.syncAthletes(for: user)
                         print("✅ Initial athlete sync completed on app launch")
@@ -85,6 +91,8 @@ struct AuthenticatedFlow: View {
                         print("⚠️ Initial sync failed (will retry in background): \(error)")
                         // Don't block app launch on sync failure
                     }
+                } else if currentUser?.firebaseAuthUid == nil {
+                    print("⚠️ Skipping sync — firebaseAuthUid not yet available (will sync on next foreground)")
                 }
             }
         }
@@ -124,17 +132,30 @@ struct AuthenticatedFlow: View {
         
         // Find or create user
         if let existingUser = users.first(where: { $0.email == email }) {
+            // If the SwiftData record has a Firebase UID that differs from the current
+            // auth session (e.g. account was deleted and re-created with the same email),
+            // treat this as a new account to prevent data from leaking across sessions.
+            if let storedUID = existingUser.firebaseAuthUid,
+               !storedUID.isEmpty,
+               storedUID != authUser.uid {
+                #if DEBUG
+                print("🟡 Email match but Firebase UID mismatch — treating as new account")
+                print("  stored: \(storedUID), current: \(authUser.uid)")
+                #endif
+                guard !Task.isCancelled else { return }
+                await createNewUser(authUser: authUser, email: email)
+            } else {
             #if DEBUG
             print("🟢 Found existing user: \(existingUser.username) (ID: \(existingUser.id))")
             print("🟢 User has \((existingUser.athletes ?? []).count) athletes")
             #endif
-            
+
             // Check cancellation before updating state
             guard !Task.isCancelled else {
                 print("🟡 loadUser cancelled before setting currentUser")
                 return
             }
-            
+
             currentUser = existingUser
             
             await MainActor.run {
@@ -154,6 +175,7 @@ struct AuthenticatedFlow: View {
                     #endif
                 }
             }
+            } // end UID-match else
         } else {
             #if DEBUG
             print("🟡 Creating new user")

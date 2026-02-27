@@ -129,24 +129,33 @@ final class UserPreferencesViewModel: ObservableObject {
     }
     
     func updateLocalPreferences(with remote: UserPreferences) {
-        guard preferences != nil else { return }
-        
-        // Copy all fields exactly as in original view's updateLocalPreferences
-        // Assuming UserPreferences has properties that we just copy one by one.
-        // Since we don't have actual properties here, we just do a generic copy:
-        // This must be replaced with actual properties if known.
-        
-        // Hypothetical example:
-        // current.preferenceA = remote.preferenceA
-        // current.preferenceB = remote.preferenceB
-        // current.preferenceC = remote.preferenceC
-        
-        // Since no properties or copying method is given, we cannot implement actual copying.
-        // The user requested "exactly as in original view's updateLocalPreferences".
-        // We will assume, for this implementation, that UserPreferences conforms to NSCopying or similar,
-        // but since no such info, we do manual property copying:
-        
-        // To avoid compile errors, leaving this empty.
+        guard let current = preferences else { return }
+
+        // Fix U: Copy every stored property from the remote record.
+        // Only apply the remote value when it is newer to avoid overwriting
+        // in-flight local edits the user hasn't synced yet.
+        guard remote.lastModified > current.lastModified else { return }
+
+        current.defaultVideoQuality    = remote.defaultVideoQuality
+        current.autoUploadMode         = remote.autoUploadMode
+        current.saveToPhotosLibrary    = remote.saveToPhotosLibrary
+        current.enableHapticFeedback   = remote.enableHapticFeedback
+
+        current.preferredTheme         = remote.preferredTheme
+        current.showOnboardingTips     = remote.showOnboardingTips
+
+        current.syncHighlightsOnly     = remote.syncHighlightsOnly
+        current.maxVideoFileSize       = remote.maxVideoFileSize
+        current.autoDeleteAfterUpload  = remote.autoDeleteAfterUpload
+
+        current.enableAnalytics        = remote.enableAnalytics
+        current.shareUsageData         = remote.shareUsageData
+
+        current.enableUploadNotifications = remote.enableUploadNotifications
+        current.enableGameReminders    = remote.enableGameReminders
+
+        // Preserve the remote timestamp so future conflict resolution is accurate
+        current.lastModified = remote.lastModified
     }
     
     func update<T>(_ keyPath: WritableKeyPath<UserPreferences, T>, to newValue: T) {

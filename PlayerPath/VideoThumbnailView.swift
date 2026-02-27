@@ -212,7 +212,7 @@ struct VideoThumbnailView: View {
                             .font(.system(size: scaledValue(24)))
                             .accessibilityHidden(true)
                     } else {
-                        Image(systemName: "video")
+                        Image(systemName: "video.fill")
                             .foregroundColor(.white)
                             .font(.system(size: scaledValue(24)))
                             .accessibilityHidden(true)

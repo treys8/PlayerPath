@@ -815,20 +815,22 @@ struct PracticeNoteRow: View {
 
 struct PracticeVideoClipRow: View {
     let clip: VideoClip
-    
+    @EnvironmentObject private var authManager: ComprehensiveAuthManager
+    @State private var showingShareToFolder = false
+
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Image(systemName: "video")
+                Image(systemName: "video.fill")
                     .foregroundColor(.blue)
                     .font(.title3)
-                
+
                 VStack(alignment: .leading, spacing: 2) {
                     Text(clip.fileName)
                         .font(.subheadline)
                         .fontWeight(.medium)
                         .lineLimit(1)
-                    
+
                     if let playResult = clip.playResult {
                         Text(playResult.type.displayName)
                             .font(.caption)
@@ -839,9 +841,9 @@ struct PracticeVideoClipRow: View {
                             .cornerRadius(4)
                     }
                 }
-                
+
                 Spacer()
-                
+
                 if let createdAt = clip.createdAt {
                     Text(createdAt, style: .relative)
                         .font(.caption2)
@@ -850,6 +852,18 @@ struct PracticeVideoClipRow: View {
             }
         }
         .padding(.vertical, 4)
+        .contextMenu {
+            if authManager.hasCoachingAccess {
+                Button {
+                    showingShareToFolder = true
+                } label: {
+                    Label("Share to Coach Folder", systemImage: "folder.badge.person.fill")
+                }
+            }
+        }
+        .sheet(isPresented: $showingShareToFolder) {
+            ShareToCoachFolderView(clip: clip)
+        }
     }
 }
 

@@ -45,14 +45,11 @@ class PlayerPathAppDelegate: NSObject, UIApplicationDelegate {
     // MARK: - Push Notifications Setup
     
     private func setupPushNotifications(_ application: UIApplication) {
-        // Request notification permissions on app launch and register for remote notifications on grant
-        Task { @MainActor in
-            let granted = await PushNotificationService.shared.requestAuthorization()
-            appLog.info("Push authorization granted: \(granted, privacy: .public)")
-            if granted {
-                application.registerForRemoteNotifications()
-            }
-        }
+        // Fix AE: Permission is no longer requested on cold launch — that produces a system
+        // dialog before the user understands the app's value, leading to low opt-in rates.
+        // PushNotificationService.init() already configures categories and the delegate.
+        // The permission request is deferred to MainTabView.task, after onboarding completes.
+        appLog.info("Push notification categories and delegate configured via PushNotificationService.init()")
     }
     
     // MARK: - Remote Notification Keys & Types
@@ -204,21 +201,12 @@ extension PlayerPathAppDelegate {
     }
     
     private func handleNotificationLaunch(_ response: UNNotificationResponse) {
-        let userInfo = response.notification.request.content.userInfo
-        let actionIdentifier = response.actionIdentifier
-        
-        // Process notification launch
-        appLog.info("App launched from notification: \(actionIdentifier, privacy: .public)")
-        
-        // Post notification for SwiftUI views to handle
-        // Note: Use proper coordinator or deep link handler in production
-        switch actionIdentifier {
-        case "VIEW_STATS":
-            if let athleteId = userInfo["athleteId"] as? String {
-                NotificationCenter.default.post(name: .navigateToStatistics, object: athleteId)
-            }
-        default:
-            break
+        // Fix AG: Delegate all routing to PushNotificationService which has the full switch
+        // covering every action identifier and notification type. Previously only VIEW_STATS
+        // was handled here; all other cold-launch taps were silently dropped.
+        appLog.info("App launched from notification: \(response.actionIdentifier, privacy: .public)")
+        Task { @MainActor in
+            PushNotificationService.shared.handleLaunchNotificationResponse(response)
         }
     }
     

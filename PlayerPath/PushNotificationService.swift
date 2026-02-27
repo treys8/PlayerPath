@@ -25,14 +25,14 @@ final class PushNotificationService: NSObject, ObservableObject {
     @Published private(set) var deviceToken: String?
     @Published private(set) var isRegisteredForRemoteNotifications = false
     
-    // Whether we should prompt the user to enable notifications (used by UI)
+    // Fix AI: Only .notDetermined warrants an in-app prompt.
+    // .denied cannot be re-prompted — direct the user to Settings instead.
     var shouldPromptForNotifications: Bool {
-        switch authorizationStatus {
-        case .notDetermined, .denied:
-            return true
-        default:
-            return false
-        }
+        authorizationStatus == .notDetermined
+    }
+
+    var isPermissionDenied: Bool {
+        authorizationStatus == .denied
     }
     
     // MARK: - Notification Categories
@@ -52,18 +52,14 @@ final class PushNotificationService: NSObject, ObservableObject {
         
         // Performance insights category
         UNNotificationCategory(
-            identifier: "PERFORMANCE_INSIGHTS", 
+            identifier: "PERFORMANCE_INSIGHTS",
             actions: [
                 UNNotificationAction(
                     identifier: "VIEW_STATS",
                     title: "View Stats",
                     options: [.foreground]
-                ),
-                UNNotificationAction(
-                    identifier: "SHARE_STATS",
-                    title: "Share",
-                    options: []
                 )
+                // Fix AK: SHARE_STATS removed — action was unhandled and presented dead UI
             ],
             intentIdentifiers: []
         ),
@@ -76,12 +72,8 @@ final class PushNotificationService: NSObject, ObservableObject {
                     identifier: "VIEW_BACKUP",
                     title: "View Backup",
                     options: [.foreground]
-                ),
-                UNNotificationAction(
-                    identifier: "MANAGE_STORAGE",
-                    title: "Manage Storage",
-                    options: [.foreground]
                 )
+                // Fix AK: MANAGE_STORAGE removed — action was unhandled and presented dead UI
             ],
             intentIdentifiers: []
         ),
@@ -94,12 +86,8 @@ final class PushNotificationService: NSObject, ObservableObject {
                     identifier: "START_RECORDING",
                     title: "Start Recording",
                     options: [.foreground]
-                ),
-                UNNotificationAction(
-                    identifier: "SNOOZE_REMINDER",
-                    title: "Remind Later",
-                    options: []
                 )
+                // Fix AK: SNOOZE_REMINDER removed — action was unhandled and presented dead UI
             ],
             intentIdentifiers: []
         ),
@@ -112,12 +100,8 @@ final class PushNotificationService: NSObject, ObservableObject {
                     identifier: "START_PRACTICE",
                     title: "Start Practice",
                     options: [.foreground]
-                ),
-                UNNotificationAction(
-                    identifier: "RESCHEDULE_PRACTICE",
-                    title: "Reschedule",
-                    options: []
                 )
+                // Fix AK: RESCHEDULE_PRACTICE removed — action was unhandled and presented dead UI
             ],
             intentIdentifiers: []
         ),
@@ -130,12 +114,8 @@ final class PushNotificationService: NSObject, ObservableObject {
                     identifier: "VIEW_SUMMARY",
                     title: "View Summary",
                     options: [.foreground]
-                ),
-                UNNotificationAction(
-                    identifier: "SET_GOALS",
-                    title: "Set Goals",
-                    options: [.foreground]
                 )
+                // Fix AK: SET_GOALS removed — action was unhandled and presented dead UI
             ],
             intentIdentifiers: []
         )
@@ -563,6 +543,15 @@ extension PushNotificationService: UNUserNotificationCenterDelegate {
         completionHandler()
     }
     
+    /// Fix AG: Called by SceneDelegate when the app is cold-launched from a notification tap.
+    /// Forwards to the same routing logic used for foreground notification taps.
+    func handleLaunchNotificationResponse(_ response: UNNotificationResponse) {
+        handleNotificationResponse(
+            actionIdentifier: response.actionIdentifier,
+            userInfo: response.notification.request.content.userInfo
+        )
+    }
+
     /// Handle notification response actions
     private func handleNotificationResponse(actionIdentifier: String, userInfo: [AnyHashable: Any]) {
         // TODO: Replace NotificationCenter navigation with deep linking/coordinator pattern
@@ -617,6 +606,9 @@ extension PushNotificationService: UNUserNotificationCenterDelegate {
                 }
             case "cloud_backup":
                 NotificationCenter.default.post(name: .navigateToCloudStorage, object: nil)
+            case "weekly_summary":
+                // Fix AJ: route default tap to the same destination as the VIEW_SUMMARY action
+                NotificationCenter.default.post(name: .navigateToWeeklySummary, object: nil)
             default:
                 logger.info("Unhandled notification type: \(notificationType)")
             }
