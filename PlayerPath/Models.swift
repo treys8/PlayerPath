@@ -639,7 +639,7 @@ final class VideoClip {
 
         // Delete from cloud storage if uploaded
         if isUploaded, let athlete = athlete {
-            Task {
+            Task { @MainActor in
                 do {
                     try await VideoCloudManager.shared.deleteVideo(self, athlete: athlete)
                     print("VideoClip: Deleted video from cloud: \(fileName)")

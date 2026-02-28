@@ -491,6 +491,6 @@ private struct RoundedCorner: Shape {
 
 #Preview("Plus User") {
     let _ = StoreKitManager.previewMock(tier: .plus)
-    return ImprovedPaywallView(user: User(username: "test", email: "test@example.com"))
+    ImprovedPaywallView(user: User(username: "test", email: "test@example.com"))
         .environmentObject(ComprehensiveAuthManager())
 }
