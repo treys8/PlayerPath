@@ -21,6 +21,8 @@ struct CoachesView: View {
     @State private var showingPaywall = false
     @State private var coachToDelete: Coach?
     @State private var showingDeleteConfirmation = false
+    @State private var coachToReport: Coach?
+    @State private var showingReportConfirmation = false
 
     // Use @Query to automatically fetch coaches for this athlete
     private var athleteID: UUID
@@ -123,8 +125,15 @@ struct CoachesView: View {
                                     coachToDelete = coach
                                     showingDeleteConfirmation = true
                                 } label: {
-                                    Label("Delete", systemImage: "trash")
+                                    Label("Remove", systemImage: "trash")
                                 }
+                                Button {
+                                    coachToReport = coach
+                                    showingReportConfirmation = true
+                                } label: {
+                                    Label("Report", systemImage: "flag")
+                                }
+                                .tint(.orange)
                             }
                         }
                     }
@@ -190,6 +199,28 @@ struct CoachesView: View {
         } message: { coach in
             Text("Are you sure you want to remove \(coach.name) from your coaches?")
         }
+        .alert("Report Coach", isPresented: $showingReportConfirmation, presenting: coachToReport) { coach in
+            Button("Cancel", role: .cancel) {
+                coachToReport = nil
+            }
+            Button("Report", role: .destructive) {
+                reportCoach(coach)
+                coachToReport = nil
+            }
+        } message: { coach in
+            Text("Report \(coach.name) for inappropriate behavior? Our team will review this report.")
+        }
+    }
+
+    private func reportCoach(_ coach: Coach) {
+        let subject = "Coach Report: \(coach.name)"
+        let body = "I would like to report the following coach for inappropriate behavior:\n\nCoach Name: \(coach.name)\nCoach Email: \(coach.email ?? "N/A")\n\nDetails:\n[Please describe the issue here]"
+        let mailto = "mailto:support@playerpath.app?subject=\(subject)&body=\(body)"
+            .addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        if let url = URL(string: mailto) {
+            UIApplication.shared.open(url)
+        }
+        Haptics.medium()
     }
 
     private func deleteCoach(_ coach: Coach) {

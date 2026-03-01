@@ -253,6 +253,7 @@ struct NoteCardView: View {
     let onSeek: () -> Void
 
     @State private var showingDeleteAlert = false
+    @State private var showingReportAlert = false
 
     var body: some View {
         Button(action: onSeek) {
@@ -318,6 +319,21 @@ struct NoteCardView: View {
             .cornerRadius(10)
         }
         .buttonStyle(.plain)
+        .contextMenu {
+            if canDelete {
+                Button(role: .destructive) {
+                    showingDeleteAlert = true
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                }
+            } else {
+                Button(role: .destructive) {
+                    showingReportAlert = true
+                } label: {
+                    Label("Report Comment", systemImage: "flag")
+                }
+            }
+        }
         .alert("Delete Note", isPresented: $showingDeleteAlert) {
             Button("Delete", role: .destructive) {
                 onDelete()
@@ -325,6 +341,20 @@ struct NoteCardView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Are you sure you want to delete this note?")
+        }
+        .alert("Report Comment", isPresented: $showingReportAlert) {
+            Button("Cancel", role: .cancel) {}
+            Button("Report", role: .destructive) {
+                let subject = "Inappropriate Comment Report"
+                let body = "I would like to report the following comment as inappropriate:\n\nComment by: \(note.userName)\nComment: \(note.text)\n\nDetails:\n[Please describe the issue here]"
+                let mailto = "mailto:support@playerpath.app?subject=\(subject)&body=\(body)"
+                    .addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+                if let url = URL(string: mailto) {
+                    UIApplication.shared.open(url)
+                }
+            }
+        } message: {
+            Text("Report this comment to PlayerPath support for review?")
         }
     }
     

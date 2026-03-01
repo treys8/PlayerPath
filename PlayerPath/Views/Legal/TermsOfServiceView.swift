@@ -167,7 +167,7 @@ struct TermsOfServiceView: View {
                 TermsSection(
                     title: "Dispute Resolution",
                     content: """
-                    • These Terms are governed by the laws of [Your State/Country]
+                    • These Terms are governed by the laws of the State of Mississippi, USA
                     • Any disputes shall be resolved through binding arbitration
                     • You waive the right to participate in class action lawsuits
                     • Small claims court remains available for qualifying disputes

@@ -137,13 +137,21 @@ struct ImprovedPaywallView: View {
             Divider()
 
             // Price row
-            tableRow(feature: "Price / mo") {
+            tableRow(feature: "Price") {
                 Text("Free")
                     .font(.caption).foregroundStyle(.secondary)
             } plus: {
-                priceLabel(monthly: "$3.99", annual: "$2.92", forAnnual: isAnnual)
+                priceLabel(
+                    monthly: storeManager.product(for: .plusMonthly)?.displayPrice ?? "—",
+                    annual: storeManager.product(for: .plusAnnual)?.displayPrice ?? "—",
+                    forAnnual: isAnnual
+                )
             } pro: {
-                priceLabel(monthly: "$7.99", annual: "$5.83", forAnnual: isAnnual)
+                priceLabel(
+                    monthly: storeManager.product(for: .proMonthly)?.displayPrice ?? "—",
+                    annual: storeManager.product(for: .proAnnual)?.displayPrice ?? "—",
+                    forAnnual: isAnnual
+                )
             }
 
             tableRow(feature: "Athletes") {
@@ -280,7 +288,9 @@ struct ImprovedPaywallView: View {
                         Text("Coaching Add-On")
                             .font(.headline)
                     }
-                    Text(isAnnual ? "$59.99/yr · ~$5.00/mo" : "$7.00/mo")
+                    Text(isAnnual
+                         ? "\(storeManager.product(for: .coachingAnnual)?.displayPrice ?? "—")/yr"
+                         : "\(storeManager.product(for: .coachingMonthly)?.displayPrice ?? "—")/mo")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
@@ -489,8 +499,10 @@ private struct RoundedCorner: Shape {
         .environmentObject(ComprehensiveAuthManager())
 }
 
+#if DEBUG
 #Preview("Plus User") {
     let _ = StoreKitManager.previewMock(tier: .plus)
     ImprovedPaywallView(user: User(username: "test", email: "test@example.com"))
         .environmentObject(ComprehensiveAuthManager())
 }
+#endif
