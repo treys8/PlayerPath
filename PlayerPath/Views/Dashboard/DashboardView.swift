@@ -17,7 +17,6 @@ struct DashboardView: View {
 
     @State private var viewModel: GamesDashboardViewModel?
     @State private var pulseAnimation = false
-    @State private var showCoachesPremiumAlert = false
     @State private var showingPaywall = false
     @State private var showingDirectCamera = false
     @State private var selectedVideoForPlayback: VideoClip?
@@ -125,15 +124,6 @@ struct DashboardView: View {
                 }
             }
             #endif
-        }
-        .alert("Premium Feature", isPresented: $showCoachesPremiumAlert) {
-            Button("Upgrade to Premium") {
-                Haptics.success()
-                showingPaywall = true
-            }
-            Button("Not Now", role: .cancel) { }
-        } message: {
-            Text("The Coaches feature is available exclusively to Premium members. Upgrade now to share videos and collaborate with your coaching team!")
         }
         .sheet(isPresented: $showingPaywall) {
             ImprovedPaywallView(user: user)
@@ -434,22 +424,22 @@ struct DashboardView: View {
                             }
                         }
 
-                        // 8. Coaches (Premium Only)
+                        // 8. Coaches (Pro Only)
                         DashboardPremiumFeatureCard(
                             icon: "person.3.fill",
                             title: "Coaches",
                             subtitle: "0 Coaches",
                             color: .indigo,
-                            isPremium: authManager.hasCoachingAccess
+                            isPremium: authManager.currentTier == .pro
                         ) {
-                            if authManager.hasCoachingAccess {
+                            if authManager.currentTier == .pro {
                                 postSwitchTab(.home)
                                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                                     NotificationCenter.default.post(name: Notification.Name.presentCoaches, object: athlete)
                                 }
                             } else {
                                 Haptics.warning()
-                                showCoachesPremiumAlert = true
+                                showingPaywall = true
                             }
                         }
                     }

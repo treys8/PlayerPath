@@ -15,7 +15,7 @@ struct PrivacyPolicyView: View {
                     .font(.largeTitle)
                     .fontWeight(.bold)
 
-                Text("Last updated: January 25, 2026")
+                Text("Last updated: March 1, 2026")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
 
@@ -36,10 +36,12 @@ struct PrivacyPolicyView: View {
 
                     • Account Information: Email address, name, and password (encrypted)
                     • Profile Data: Athlete names, seasons, games, and practice information
-                    • Video Content: Videos you record within the app are stored locally on your device
+                    • Video Content: Videos you record are stored locally on your device and uploaded to Firebase Storage for cloud backup and cross-device access.
                     • Usage Statistics: Play results, batting statistics, game scores
                     • Device Information: Device type, operating system version for app optimization
                     • Sync Data: When you use our cross-device sync feature, data is stored in Firebase Firestore
+                    • Push Notification Token: Your device token is stored in Firestore to deliver in-app and push notifications
+                    • Biometric Data: If you enable Face ID, your biometric credentials are managed by iOS and never accessed or stored by us
                     """
                 )
 
@@ -61,10 +63,11 @@ struct PrivacyPolicyView: View {
                     title: "Data Storage and Security",
                     content: """
                     • Video files are stored locally on your device in the app's secure container
+                    • Video files are uploaded to Firebase Storage (Google Cloud) for cloud backup and cross-device access
                     • Account data and metadata are stored using Firebase Authentication and Firestore
+                    • iCloud sync may be used for local data backup via CloudKit
                     • All data transmission uses industry-standard encryption (HTTPS/TLS)
                     • We implement appropriate security measures to protect against unauthorized access
-                    • Video files are not uploaded to cloud storage unless you explicitly use sharing features
                     """
                 )
 
@@ -73,8 +76,13 @@ struct PrivacyPolicyView: View {
                     content: """
                     We use the following third-party services:
 
-                    • Firebase (Google): Authentication, cloud database, and analytics
+                    • Firebase Authentication (Google): Account sign-in and identity management
+                    • Firebase Firestore (Google): Cloud database for syncing app data
+                    • Firebase Storage (Google): Cloud storage for videos shared with coaches
+                    • Firebase Analytics (Google): Anonymous usage analytics to improve the app
+                    • Apple CloudKit: iCloud-based local data backup
                     • Apple Sign In: Optional authentication method
+                    • Apple StoreKit: Subscription and in-app purchase processing
 
                     These services have their own privacy policies governing their use of your information.
                     """
@@ -137,7 +145,7 @@ struct PrivacyPolicyView: View {
                     content: """
                     If you have questions about this privacy policy or your data, please contact us at:
 
-                    Email: privacy@playerpath.app
+                    Email: playerpath@proton.me
 
                     For data deletion requests, use the "Delete Account" option in the app or email us at the address above.
                     """

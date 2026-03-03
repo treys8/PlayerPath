@@ -199,7 +199,7 @@ struct TermsOfServiceView: View {
                     content: """
                     For questions about these Terms of Service, please contact us at:
 
-                    Email: legal@playerpath.app
+                    Email: playerpath@proton.me
 
                     For technical support, use the Help & Support section in the App.
                     """

@@ -8,6 +8,7 @@
 
 import SwiftUI
 import FirebaseAuth
+import AuthenticationServices
 
 struct AccountDeletionView: View {
     @EnvironmentObject var authManager: ComprehensiveAuthManager
@@ -20,6 +21,8 @@ struct AccountDeletionView: View {
     @State private var showError = false
     @State private var errorMessage = ""
     @State private var userUnderstands = false
+    @State private var signInProvider: String = "password"
+    @StateObject private var appleReAuthManager = AppleSignInManager()
 
     var body: some View {
         List {
@@ -46,7 +49,7 @@ struct AccountDeletionView: View {
                 DeletionItem(icon: "calendar.badge.minus", title: "All Seasons", description: "Season data and settings")
                 DeletionItem(icon: "baseball.diamond.bases", title: "All Games", description: "Game records and live game data")
                 DeletionItem(icon: "chart.bar.xaxis", title: "All Statistics", description: "Batting averages and performance data")
-                DeletionItem(icon: "video.slash", title: "Video Metadata", description: "Tags, timestamps, and video references")
+                DeletionItem(icon: "video.slash", title: "All Videos", description: "Cloud video files, tags, timestamps, and references")
                 DeletionItem(icon: "cloud.slash", title: "Cloud Sync Data", description: "All data synced to Firestore")
             }
 
@@ -56,11 +59,15 @@ struct AccountDeletionView: View {
                         .foregroundColor(.blue)
 
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Video files on your device will remain until you uninstall the app, but will no longer be accessible in PlayerPath.")
+                        Text("All videos stored in PlayerPath's cloud will be permanently deleted.")
                             .font(.caption)
                             .foregroundColor(.secondary)
 
-                        Text("To keep videos, save them to your Photos app before deleting your account.")
+                        Text("Videos saved directly to your Photos app will not be affected.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+
+                        Text("To keep your videos, export them to Photos before deleting your account.")
                             .font(.caption)
                             .foregroundColor(.secondary)
                             .fontWeight(.medium)
@@ -74,7 +81,15 @@ struct AccountDeletionView: View {
                         .font(.headline)
 
                     VStack(alignment: .leading, spacing: 8) {
-                        RecommendationRow(number: 1, text: "Export your data (Settings → Export Data)")
+                        NavigationLink(destination: DataExportView().environmentObject(authManager)) {
+                            HStack {
+                                Text("1.")
+                                    .foregroundColor(.secondary)
+                                    .frame(width: 20, alignment: .leading)
+                                Text("Export your data")
+                                Spacer()
+                            }
+                        }
                         RecommendationRow(number: 2, text: "Save important videos to Photos")
                         RecommendationRow(number: 3, text: "Screenshot key statistics if needed")
                     }
@@ -97,6 +112,7 @@ struct AccountDeletionView: View {
 
             Section {
                 Button(role: .destructive) {
+                    guard userUnderstands else { return }
                     showConfirmation = true
                 } label: {
                     HStack {
@@ -118,10 +134,17 @@ struct AccountDeletionView: View {
             }
         }
         .navigationTitle("Delete Account")
+        .task {
+            signInProvider = Auth.auth().currentUser?.providerData.first?.providerID ?? "password"
+        }
         .confirmationDialog("Are You Absolutely Sure?", isPresented: $showConfirmation) {
             Button("Cancel", role: .cancel) {}
             Button("Yes, Delete My Account", role: .destructive) {
-                showPasswordPrompt = true
+                if signInProvider == "apple.com" {
+                    Task { await deleteAccountWithAppleReAuth() }
+                } else {
+                    showPasswordPrompt = true
+                }
             }
         } message: {
             Text("This will permanently delete your account and all associated data. This action cannot be undone.")
@@ -190,6 +213,20 @@ struct AccountDeletionView: View {
             }
             showError = true
             print("❌ Account deletion failed: \(error)")
+        }
+    }
+
+    private func deleteAccountWithAppleReAuth() async {
+        isDeleting = true
+        defer { isDeleting = false }
+        do {
+            let credential = try await appleReAuthManager.reauthenticate()
+            try await Auth.auth().currentUser?.reauthenticate(with: credential)
+            try await authManager.deleteAccount()
+        } catch let error as NSError {
+            if error.code == ASAuthorizationError.canceled.rawValue { return }
+            errorMessage = "Failed to delete account: \(error.localizedDescription)"
+            showError = true
         }
     }
 }

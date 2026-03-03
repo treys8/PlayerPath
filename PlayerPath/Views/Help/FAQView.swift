@@ -51,7 +51,7 @@ struct FAQView: View {
         ),
         (
             question: "Why aren't my videos syncing to my other devices?",
-            answer: "Video FILES don't sync across devices due to their large size (50-100MB each). However, all the METADATA syncs—you can see what videos exist, their tags, statistics, and which games they're from. The actual video stays on the device that recorded it. To access videos on multiple devices, save them to your Photos app or iCloud."
+            answer: "Videos are uploaded to the cloud automatically when you have an internet connection. If a video isn't showing on another device, make sure both devices are signed into the same account and connected to the internet. Try pulling to refresh to trigger a manual sync."
         ),
         (
             question: "What's the difference between Quick Record and the Videos tab?",
@@ -91,7 +91,7 @@ struct FAQView: View {
         ),
         (
             question: "Can I share videos with my coach?",
-            answer: "Currently, you can save videos to your Photos app and share them manually. Coach sharing features are coming in a future update!"
+            answer: "Yes! With the Coaching Add-On, you can create Shared Folders and invite coaches by email. Coaches can view your videos and leave timestamped feedback directly on them. Go to More → Shared Folders to get started."
         ),
         (
             question: "How much storage do videos use?",
@@ -123,7 +123,7 @@ struct FAQView: View {
         ),
         (
             question: "Is my data private?",
-            answer: "Yes! Your videos are stored locally on your device. Only metadata (tags, dates, statistics) syncs to our servers. See our Privacy Policy for full details."
+            answer: "Yes! Your data is protected with industry-standard encryption. Videos are uploaded to Firebase Storage (Google Cloud) for backup and cross-device access. Only you and coaches you explicitly invite can see your content. See our Privacy Policy for full details."
         )
     ]
 }

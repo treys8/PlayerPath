@@ -4,72 +4,12 @@
 
   ],
   "products" : [
-    {
-      "displayPrice" : "4.99",
-      "familyShareable" : false,
-      "internalID" : "6736328347",
-      "localizations" : [
-        {
-          "description" : "Get unlimited video recording without restrictions",
-          "displayName" : "Unlimited Video Recording",
-          "locale" : "en_US"
-        }
-      ],
-      "productID" : "playerpath.unlimited.videos",
-      "referenceName" : "Unlimited Videos",
-      "type" : "NonConsumable"
-    },
-    {
-      "displayPrice" : "9.99",
-      "familyShareable" : false,
-      "internalID" : "6736328348",
-      "localizations" : [
-        {
-          "description" : "100GB of secure cloud storage for your videos",
-          "displayName" : "Cloud Storage (100GB)",
-          "locale" : "en_US"
-        }
-      ],
-      "productID" : "playerpath.cloud.storage.100gb",
-      "referenceName" : "Cloud Storage",
-      "type" : "NonConsumable"
-    },
-    {
-      "displayPrice" : "7.99",
-      "familyShareable" : false,
-      "internalID" : "6736328349",
-      "localizations" : [
-        {
-          "description" : "Advanced analytics and performance insights",
-          "displayName" : "Advanced Analytics",
-          "locale" : "en_US"
-        }
-      ],
-      "productID" : "playerpath.advanced.analytics",
-      "referenceName" : "Advanced Analytics",
-      "type" : "NonConsumable"
-    },
-    {
-      "displayPrice" : "12.99",
-      "familyShareable" : false,
-      "internalID" : "6736328350",
-      "localizations" : [
-        {
-          "description" : "Professional coaching tools and analysis features",
-          "displayName" : "Pro Coaching Tools",
-          "locale" : "en_US"
-        }
-      ],
-      "productID" : "playerpath.pro.coaching.tools",
-      "referenceName" : "Pro Coaching Tools",
-      "type" : "NonConsumable"
-    }
+
   ],
   "settings" : {
     "_applicationInternalID" : "6736328345",
     "_developerTeamID" : "YOUR_TEAM_ID",
     "_failTransactionsEnabled" : false,
-    "_lastSynchronizedDate" : 751680306.98765004,
     "_locale" : "en_US",
     "_storefront" : "USA",
     "_storeKitErrors" : [
@@ -125,69 +65,192 @@
       "id" : "21546145",
       "localizations" : [
         {
-          "description" : "PlayerPath Pro subscription with all premium features",
-          "displayName" : "PlayerPath Pro",
+          "description" : "Unlock advanced stats, more athletes, and premium features.",
+          "displayName" : "PlayerPath Plans",
           "locale" : "en_US"
         }
       ],
-      "name" : "PlayerPathPro",
+      "name" : "PlayerPathPlans",
       "subscriptions" : [
         {
-          "adHocOffers" : [
-
-          ],
-          "codeOffers" : [
-
-          ],
-          "displayPrice" : "2.99",
-          "familyShareable" : true,
+          "adHocOffers" : [],
+          "codeOffers" : [],
+          "displayPrice" : "4.99",
+          "familyShareable" : false,
           "groupNumber" : 1,
-          "internalID" : "6736328346",
-          "introductoryOffer" : {
-            "internalID" : "20781924",
-            "paymentMode" : "free",
-            "subscriptionPeriod" : "P1W"
-          },
+          "internalID" : "6800000001",
+          "introductoryOffer" : null,
           "localizations" : [
             {
-              "description" : "Monthly subscription to PlayerPath Pro with all premium features",
-              "displayName" : "PlayerPath Pro Monthly",
+              "description" : "Advanced stats, export reports, and auto highlights.",
+              "displayName" : "PlayerPath Plus (Monthly)",
               "locale" : "en_US"
             }
           ],
-          "productID" : "playerpath.pro.monthly",
+          "productID" : "com.playerpath.plus.monthly",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "Plus Monthly",
+          "subscriptionGroupID" : "21546145",
+          "type" : "RecurringSubscription"
+        },
+        {
+          "adHocOffers" : [],
+          "codeOffers" : [],
+          "displayPrice" : "34.99",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "6800000002",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Advanced stats, export reports, and auto highlights. Save ~42%.",
+              "displayName" : "PlayerPath Plus (Annual)",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.playerpath.plus.annual",
+          "recurringSubscriptionPeriod" : "P1Y",
+          "referenceName" : "Plus Annual",
+          "subscriptionGroupID" : "21546145",
+          "type" : "RecurringSubscription"
+        },
+        {
+          "adHocOffers" : [],
+          "codeOffers" : [],
+          "displayPrice" : "9.99",
+          "familyShareable" : false,
+          "groupNumber" : 2,
+          "internalID" : "6800000003",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Everything in Plus: up to 5 athletes, 15 GB storage, season comparison, and coach sharing.",
+              "displayName" : "PlayerPath Pro (Monthly)",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.playerpath.pro.monthly",
           "recurringSubscriptionPeriod" : "P1M",
           "referenceName" : "Pro Monthly",
           "subscriptionGroupID" : "21546145",
           "type" : "RecurringSubscription"
         },
         {
-          "adHocOffers" : [
-
-          ],
-          "codeOffers" : [
-
-          ],
-          "displayPrice" : "29.99",
-          "familyShareable" : true,
-          "groupNumber" : 1,
-          "internalID" : "6736328347",
-          "introductoryOffer" : {
-            "internalID" : "20781925",
-            "paymentMode" : "free",
-            "subscriptionPeriod" : "P2W"
-          },
+          "adHocOffers" : [],
+          "codeOffers" : [],
+          "displayPrice" : "69.99",
+          "familyShareable" : false,
+          "groupNumber" : 2,
+          "internalID" : "6800000004",
+          "introductoryOffer" : null,
           "localizations" : [
             {
-              "description" : "Yearly subscription to PlayerPath Pro with all premium features - Save 20%!",
-              "displayName" : "PlayerPath Pro Yearly",
+              "description" : "Everything in Plus: up to 5 athletes, 15 GB storage, season comparison, and coach sharing. Save ~42%.",
+              "displayName" : "PlayerPath Pro (Annual)",
               "locale" : "en_US"
             }
           ],
-          "productID" : "playerpath.pro.yearly",
+          "productID" : "com.playerpath.pro.annual",
           "recurringSubscriptionPeriod" : "P1Y",
-          "referenceName" : "Pro Yearly",
+          "referenceName" : "Pro Annual",
           "subscriptionGroupID" : "21546145",
+          "type" : "RecurringSubscription"
+        }
+      ]
+    },
+    {
+      "id" : "21546146",
+      "localizations" : [
+        {
+          "description" : "Unlock more athletes and advanced coaching tools.",
+          "displayName" : "Coach Plans",
+          "locale" : "en_US"
+        }
+      ],
+      "name" : "CoachPlans",
+      "subscriptions" : [
+        {
+          "adHocOffers" : [],
+          "codeOffers" : [],
+          "displayPrice" : "9.99",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "6800000005",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Coach up to 10 athletes with full video review tools.",
+              "displayName" : "Instructor (Monthly)",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.playerpath.coach.instructor.monthly",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "Instructor Monthly",
+          "subscriptionGroupID" : "21546146",
+          "type" : "RecurringSubscription"
+        },
+        {
+          "adHocOffers" : [],
+          "codeOffers" : [],
+          "displayPrice" : "89.99",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "6800000006",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Coach up to 10 athletes. Save 25% vs monthly.",
+              "displayName" : "Instructor (Annual)",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.playerpath.coach.instructor.annual",
+          "recurringSubscriptionPeriod" : "P1Y",
+          "referenceName" : "Instructor Annual",
+          "subscriptionGroupID" : "21546146",
+          "type" : "RecurringSubscription"
+        },
+        {
+          "adHocOffers" : [],
+          "codeOffers" : [],
+          "displayPrice" : "19.99",
+          "familyShareable" : false,
+          "groupNumber" : 2,
+          "internalID" : "6800000007",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Coach up to 30 athletes with full video review tools.",
+              "displayName" : "Pro Instructor (Monthly)",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.playerpath.coach.proinstructor.monthly",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "Pro Instructor Monthly",
+          "subscriptionGroupID" : "21546146",
+          "type" : "RecurringSubscription"
+        },
+        {
+          "adHocOffers" : [],
+          "codeOffers" : [],
+          "displayPrice" : "179.99",
+          "familyShareable" : false,
+          "groupNumber" : 2,
+          "internalID" : "6800000008",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Coach up to 30 athletes. Save 25% vs monthly.",
+              "displayName" : "Pro Instructor (Annual)",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.playerpath.coach.proinstructor.annual",
+          "recurringSubscriptionPeriod" : "P1Y",
+          "referenceName" : "Pro Instructor Annual",
+          "subscriptionGroupID" : "21546146",
           "type" : "RecurringSubscription"
         }
       ]
@@ -198,3 +261,4 @@
     "minor" : 0
   }
 }
+

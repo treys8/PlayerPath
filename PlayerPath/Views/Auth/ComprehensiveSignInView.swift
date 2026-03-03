@@ -16,7 +16,6 @@ struct ComprehensiveSignInView: View {
     @State private var email = ""
     @State private var password = ""
     @State private var displayName = ""
-    @State private var showingForgotPassword = false
     @State private var showingResetPasswordSheet = false
     @State private var selectedRole: UserRole = .athlete
 
@@ -28,7 +27,10 @@ struct ComprehensiveSignInView: View {
 
     private var passwordValidationState: FieldValidationState {
         guard !password.isEmpty else { return .idle }
-        return isValidPassword(password) ? .valid : .warning
+        if isValidPassword(password) { return .valid }
+        // Don't show the warning icon while the user is still building up to the minimum
+        // length — only flag it once they've typed enough to have a "complete" attempt.
+        return password.count >= 8 ? .warning : .idle
     }
 
     private var displayNameValidationState: FieldValidationState {
@@ -115,7 +117,7 @@ struct ComprehensiveSignInView: View {
                     VStack(spacing: 16) {
                         if isSignUpMode {
                             ModernTextField(
-                                placeholder: "Your name",
+                                placeholder: "Your name (optional)",
                                 text: $displayName,
                                 icon: "person.fill",
                                 textContentType: .name,
@@ -223,6 +225,23 @@ struct ComprehensiveSignInView: View {
                                     .font(.subheadline)
                                     .fontWeight(.medium)
                                     .foregroundColor(.blue)
+                            }
+                        }
+
+                        if isSignUpMode {
+                            HStack(spacing: 4) {
+                                Text("Already have an account?")
+                                    .font(.subheadline)
+                                    .foregroundColor(.secondary)
+                                Button {
+                                    Haptics.light()
+                                    dismiss()
+                                } label: {
+                                    Text("Sign in")
+                                        .font(.subheadline)
+                                        .fontWeight(.medium)
+                                        .foregroundColor(.blue)
+                                }
                             }
                         }
                     }
@@ -369,22 +388,6 @@ struct ComprehensiveSignInView: View {
         Validation.isValidPersonName(name, min: 2, max: 30)
     }
 
-    private func getDisplayNameValidationMessage(_ name: String) -> String {
-        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        if trimmedName.isEmpty {
-            return "Name cannot be empty"
-        } else if trimmedName.count < 2 {
-            return "Name must be at least 2 characters"
-        } else if trimmedName.count > 30 {
-            return "Name must be 30 characters or less"
-        } else if Validation.isValidPersonName(trimmedName, min: 2, max: 30) {
-            return "Valid display name"
-        } else {
-            return "Name can only contain letters, spaces, periods, hyphens, and apostrophes"
-        }
-    }
-
     private func canSubmitForm() -> Bool {
         let emailValid = isValidEmail(email)
         let passwordValid = isValidPassword(password)
@@ -393,23 +396,4 @@ struct ComprehensiveSignInView: View {
         return emailValid && passwordValid && displayNameValid
     }
 
-    private func getFormValidationSummary() -> String {
-        var requirements: [(String, Bool)] = [
-            ("Valid email", isValidEmail(email)),
-            ("Valid password", isValidPassword(password))
-        ]
-
-        if isSignUpMode {
-            requirements.append(("Valid display name", displayName.isEmpty || isValidDisplayName(displayName)))
-        }
-
-        let metCount = requirements.filter { $0.1 }.count
-        let totalCount = requirements.count
-
-        if metCount == totalCount {
-            return "Ready to \(isSignUpMode ? "create account" : "sign in")!"
-        } else {
-            return "\(metCount) of \(totalCount) requirements met"
-        }
-    }
 }

@@ -503,7 +503,11 @@ class FirestoreManager: ObservableObject {
                 .document(videoID)
                 .collection("annotations")
                 .addDocument(data: annotationData)
-            
+
+            // Increment annotationCount on the video document
+            try? await db.collection("videos").document(videoID)
+                .updateData(["annotationCount": FieldValue.increment(Int64(1))])
+
             print("✅ Added annotation to video \(videoID)")
             return docRef.documentID
         } catch {
@@ -572,7 +576,11 @@ class FirestoreManager: ObservableObject {
                 .collection("annotations")
                 .document(annotationID)
                 .delete()
-            
+
+            // Decrement annotationCount on the video document (floor at 0)
+            try? await db.collection("videos").document(videoID)
+                .updateData(["annotationCount": FieldValue.increment(Int64(-1))])
+
             print("✅ Deleted annotation \(annotationID)")
         } catch {
             print("❌ Failed to delete annotation: \(error)")
@@ -821,22 +829,6 @@ class FirestoreManager: ObservableObject {
         }
     }
     
-    /// Writes or clears the coachingLapseDate field on a user document.
-    /// Pass nil to clear (subscription restored).
-    func setCoachingLapseDate(_ date: Date?, forUserID userID: String) async throws {
-        let value: Any = date.map { Timestamp(date: $0) } ?? FieldValue.delete()
-        do {
-            try await db.collection("users").document(userID).setData(
-                ["coachingLapseDate": value],
-                merge: true
-            )
-            print("✅ setCoachingLapseDate: \(date?.description ?? "cleared") for \(userID)")
-        } catch {
-            print("❌ Failed to set coachingLapseDate: \(error)")
-            throw error
-        }
-    }
-
     /// Updates or creates a user profile
     func updateUserProfile(
         userID: String,
@@ -853,8 +845,8 @@ class FirestoreManager: ObservableObject {
             "updatedAt": FieldValue.serverTimestamp()
         ]
         
-        // Strip subscription/billing fields — these must only be set server-side (StoreKit webhooks)
-        let serverOnlyFields: Set<String> = ["subscriptionTier", "hasCoachingAddOn"]
+        // Strip subscription/billing fields from general profile updates — use syncSubscriptionTiers() for tier writes
+        let serverOnlyFields: Set<String> = ["subscriptionTier"]
         let safeProfileData = profileData.filter { !serverOnlyFields.contains($0.key) }
 
         // Merge additional profile data; keep explicitly set fields (email, role) on conflict
@@ -867,6 +859,31 @@ class FirestoreManager: ObservableObject {
             print("❌ Failed to update user profile: \(error)")
             errorMessage = "Failed to update profile."
             throw error
+        }
+    }
+
+    /// Syncs StoreKit-resolved subscription tiers to the user's Firestore doc.
+    /// Separate from updateUserProfile so it bypasses the serverOnlyFields strip.
+    func syncSubscriptionTiers(
+        userID: String,
+        tier: SubscriptionTier,
+        coachTier: CoachSubscriptionTier
+    ) async {
+        var data: [String: Any] = [
+            "subscriptionTier": tier.rawValue,
+            "updatedAt": FieldValue.serverTimestamp()
+        ]
+        // Only write coachSubscriptionTier when StoreKit resolves a paid coach tier.
+        // If StoreKit resolves .free, leave Firestore alone — it may hold "coach_academy"
+        // which must not be overwritten.
+        if coachTier != .free {
+            data["coachSubscriptionTier"] = coachTier.rawValue
+        }
+        do {
+            try await db.collection("users").document(userID).setData(data, merge: true)
+            print("✅ Synced tiers to Firestore: \(tier.rawValue) / \(coachTier.rawValue)")
+        } catch {
+            print("⚠️ Failed to sync subscription tiers to Firestore: \(error)")
         }
     }
 
@@ -1197,7 +1214,9 @@ class FirestoreManager: ObservableObject {
                 .getDocuments()
 
             let seasons = snapshot.documents.compactMap { doc -> FirestoreSeason? in
-                try? doc.data(as: FirestoreSeason.self)
+                guard var season = try? doc.data(as: FirestoreSeason.self) else { return nil }
+                season.id = doc.documentID
+                return season
             }
 
             print("✅ Fetched \(seasons.count) seasons from Firestore")
@@ -1313,7 +1332,9 @@ class FirestoreManager: ObservableObject {
                 .getDocuments()
 
             let games = snapshot.documents.compactMap { doc -> FirestoreGame? in
-                try? doc.data(as: FirestoreGame.self)
+                guard var game = try? doc.data(as: FirestoreGame.self) else { return nil }
+                game.id = doc.documentID
+                return game
             }
 
             print("✅ Fetched \(games.count) games from Firestore")
@@ -1666,7 +1687,9 @@ struct FolderPermissions: Codable, Equatable {
 // MARK: - Firestore Models
 
 /// Shared folder model
-struct SharedFolder: Codable, Identifiable {
+struct SharedFolder: Codable, Identifiable, Hashable {
+    func hash(into hasher: inout Hasher) { hasher.combine(id) }
+    static func == (lhs: SharedFolder, rhs: SharedFolder) -> Bool { lhs.id == rhs.id }
     var id: String?
     let name: String
     let ownerAthleteID: String
@@ -1732,6 +1755,9 @@ struct FirestoreVideoMetadata: Codable, Identifiable {
     let uploadedByType: UploadedByType? // "athlete" or "coach"
     let isOrphaned: Bool? // True if uploader deleted their account
     let orphanedAt: Date? // When uploader account was deleted
+
+    // Annotation count (incremented/decremented atomically via FieldValue.increment)
+    let annotationCount: Int?
 
     // Game/Practice context
     let videoType: String? // "game", "practice", or "highlight"
@@ -1816,8 +1842,7 @@ struct UserProfile: Codable, Identifiable {
     let email: String
     let role: String
     let subscriptionTier: String?
-    let hasCoachingAddOn: Bool?
-    let coachingLapseDate: Date?
+    let coachSubscriptionTier: String?
     let createdAt: Date?
     let updatedAt: Date?
 

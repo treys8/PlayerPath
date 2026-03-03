@@ -19,7 +19,6 @@ struct ImprovedPaywallView: View {
     // Selection state
     @State private var selectedTier: SubscriptionTier = .plus
     @State private var isAnnual: Bool = false
-    @State private var coachingEnabled: Bool = false
 
     @State private var isPurchasing = false
     @State private var showingError = false
@@ -33,7 +32,6 @@ struct ImprovedPaywallView: View {
                     headerSection
                     billingToggle
                     tierComparisonTable
-                    coachingAddOnCard
                     purchaseButton
                     restoreButton
                     termsSection
@@ -60,17 +58,12 @@ struct ImprovedPaywallView: View {
             }
             .task {
                 AnalyticsService.shared.trackPaywallShown(source: "main_app")
-                if storeManager.products.isEmpty {
-                    await storeManager.loadProducts()
-                }
+                await storeManager.loadProducts()
             }
             .onChange(of: storeManager.currentTier) { _, newTier in
                 if newTier >= .plus {
                     onPurchaseSucceeded()
                 }
-            }
-            .onChange(of: storeManager.hasCoachingAddOn) { _, hasCoaching in
-                if hasCoaching { onPurchaseSucceeded() }
             }
         }
     }
@@ -90,7 +83,7 @@ struct ImprovedPaywallView: View {
             Text("Unlock PlayerPath")
                 .font(.title2).fontWeight(.bold)
 
-            Text("Advanced stats, more athletes, and coach sharing")
+            Text("Advanced stats, more athletes, and Pro coach sharing")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -157,7 +150,7 @@ struct ImprovedPaywallView: View {
             tableRow(feature: "Athletes") {
                 Text("1").font(.caption)
             } plus: {
-                Text("1").font(.caption)
+                Text("3").font(.caption)
             } pro: {
                 Text("5").font(.caption).foregroundStyle(.blue)
             }
@@ -198,6 +191,14 @@ struct ImprovedPaywallView: View {
                 Image(systemName: "xmark").font(.caption).foregroundStyle(.secondary)
             } plus: {
                 Image(systemName: "checkmark").font(.caption).foregroundStyle(.green)
+            } pro: {
+                Image(systemName: "checkmark").font(.caption).foregroundStyle(.green)
+            }
+
+            tableRow(feature: "Coach Sharing") {
+                Image(systemName: "xmark").font(.caption).foregroundStyle(.secondary)
+            } plus: {
+                Image(systemName: "xmark").font(.caption).foregroundStyle(.secondary)
             } pro: {
                 Image(systemName: "checkmark").font(.caption).foregroundStyle(.green)
             }
@@ -276,70 +277,6 @@ struct ImprovedPaywallView: View {
         }
     }
 
-    // MARK: - Coaching Add-On Card
-
-    private var coachingAddOnCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "person.badge.shield.checkmark.fill")
-                            .foregroundStyle(.indigo)
-                        Text("Coaching Add-On")
-                            .font(.headline)
-                    }
-                    Text(isAnnual
-                         ? "\(storeManager.product(for: .coachingAnnual)?.displayPrice ?? "—")/yr"
-                         : "\(storeManager.product(for: .coachingMonthly)?.displayPrice ?? "—")/mo")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-
-                Spacer()
-
-                Toggle("", isOn: $coachingEnabled)
-                    .tint(.indigo)
-                    .labelsHidden()
-                    .disabled(selectedTier == .free)
-            }
-
-            if selectedTier == .free {
-                Text("Requires Plus or Pro")
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-            }
-
-            Divider()
-
-            VStack(alignment: .leading, spacing: 6) {
-                coachFeatureRow("Invite coaches to shared folders")
-                coachFeatureRow("Coaches can annotate and comment on videos")
-                coachFeatureRow("Receive direct feedback from your coaching staff")
-            }
-        }
-        .padding(16)
-        .background(Color(.secondarySystemBackground))
-        .cornerRadius(14)
-        .overlay(
-            RoundedRectangle(cornerRadius: 14)
-                .stroke(coachingEnabled ? Color.indigo : Color(.separator), lineWidth: coachingEnabled ? 1.5 : 0.5)
-        )
-        .onChange(of: selectedTier) { _, tier in
-            if tier == .free { coachingEnabled = false }
-        }
-    }
-
-    private func coachFeatureRow(_ text: String) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            Image(systemName: "checkmark.circle.fill")
-                .foregroundStyle(.indigo)
-                .font(.caption)
-            Text(text)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-    }
-
     // MARK: - CTA Button
 
     private var purchaseButton: some View {
@@ -353,32 +290,22 @@ struct ImprovedPaywallView: View {
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 16)
-            .background(ctaGradient)
+            .background(LinearGradient(colors: [.blue, .blue.opacity(0.8)], startPoint: .leading, endPoint: .trailing))
             .foregroundStyle(.white)
             .cornerRadius(14)
-            .shadow(color: ctaShadowColor.opacity(0.3), radius: 8, x: 0, y: 4)
+            .shadow(color: Color.blue.opacity(0.3), radius: 8, x: 0, y: 4)
         }
         .disabled(selectedTier == .free || isPurchasing)
         .opacity(selectedTier == .free ? 0.6 : 1.0)
     }
 
     private var ctaButtonTitle: String {
-        switch (selectedTier, coachingEnabled) {
-        case (.free, _):     return "Keep Free"
-        case (.plus, false): return "Get Plus"
-        case (.plus, true):  return "Get Plus + Coaching"
-        case (.pro, false):  return "Get Pro"
-        case (.pro, true):   return "Get Pro + Coaching"
+        switch selectedTier {
+        case .free: return "Keep Free"
+        case .plus: return "Get Plus"
+        case .pro:  return "Get Pro"
         }
     }
-
-    private var ctaGradient: LinearGradient {
-        coachingEnabled
-            ? LinearGradient(colors: [.indigo, .purple], startPoint: .leading, endPoint: .trailing)
-            : LinearGradient(colors: [.blue, .blue.opacity(0.8)], startPoint: .leading, endPoint: .trailing)
-    }
-
-    private var ctaShadowColor: Color { coachingEnabled ? .indigo : .blue }
 
     // MARK: - Restore / Terms
 
@@ -440,19 +367,6 @@ struct ImprovedPaywallView: View {
             }
         }
 
-        // Purchase coaching add-on if requested and not already owned
-        if coachingEnabled && !storeManager.hasCoachingAddOn {
-            let coachingProduct = isAnnual
-                ? storeManager.product(for: .coachingAnnual)
-                : storeManager.product(for: .coachingMonthly)
-
-            if let product = coachingProduct {
-                let result = await storeManager.purchase(product)
-                if case .failed = result { isPurchasing = false; showingError = true; return }
-                if case .cancelled = result { isPurchasing = false; return }
-            }
-        }
-
         isPurchasing = false
     }
 
@@ -464,7 +378,6 @@ struct ImprovedPaywallView: View {
             )
         }
         user.subscriptionTier = storeManager.currentTier.rawValue
-        user.hasCoachingAddOn = storeManager.hasCoachingAddOn
         try? modelContext.save()
         dismiss()
     }

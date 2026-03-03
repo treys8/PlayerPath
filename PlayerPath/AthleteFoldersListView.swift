@@ -315,11 +315,17 @@ private struct AthleteFolderDetailContent: View {
             Group {
                 switch selectedTab {
                 case .games:
-                    GamesTabView(folder: folder, videos: viewModel.gameVideos)
+                    GamesTabView(folder: folder, videos: viewModel.gameVideos) {
+                        await viewModel.loadVideos()
+                    }
                 case .practices:
-                    PracticesTabView(folder: folder, videos: viewModel.practiceVideos)
+                    PracticesTabView(folder: folder, videos: viewModel.practiceVideos) {
+                        await viewModel.loadVideos()
+                    }
                 case .all:
-                    AllVideosTabView(folder: folder, videos: viewModel.videos)
+                    AllVideosTabView(folder: folder, videos: viewModel.videos) {
+                        await viewModel.loadVideos()
+                    }
                 }
             }
         }

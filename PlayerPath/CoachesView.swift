@@ -58,33 +58,7 @@ struct CoachesView: View {
                 )
             } else {
                 List {
-                    // Grace period warning banner
-                    if authManager.isInCoachingGracePeriod {
-                        Section {
-                            HStack(spacing: 10) {
-                                Image(systemName: "exclamationmark.triangle.fill")
-                                    .foregroundColor(.orange)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text("Coaching Add-On Expired")
-                                        .font(.subheadline)
-                                        .fontWeight(.semibold)
-                                        .foregroundColor(.primary)
-                                    Text("Coach access ends in \(authManager.coachingGraceDaysRemaining) day\(authManager.coachingGraceDaysRemaining == 1 ? "" : "s"). Renew to keep access.")
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                }
-                                Spacer()
-                                Button("Renew") {
-                                    showingPaywall = true
-                                }
-                                .font(.caption.bold())
-                                .tint(.orange)
-                            }
-                            .padding(.vertical, 4)
-                        }
-                    }
-
-                    // Invite Coach Banner (Premium)
+                    // Invite Coach Banner (Pro)
                     if authManager.hasCoachingAccess {
                         Section {
                             Button {
@@ -179,14 +153,13 @@ struct CoachesView: View {
                 ImprovedPaywallView(user: user)
             }
         }
-        .alert("Premium Feature", isPresented: $showingPremiumAlert) {
+        .alert("Pro Feature", isPresented: $showingPremiumAlert) {
             Button("Maybe Later", role: .cancel) { }
             Button("Upgrade") {
-                // Post notification to show paywall
-                NotificationCenter.default.post(name: .showPaywall, object: nil)
+                showingPaywall = true
             }
         } message: {
-            Text("Inviting coaches to share videos requires the Coaching Add-On (available with Plus or Pro). Upgrade to share your game videos and receive feedback from your coaches.")
+            Text("Inviting coaches to share videos requires a Pro subscription. Upgrade to Pro to share your game videos and receive feedback from your coaches.")
         }
         .alert("Delete Coach", isPresented: $showingDeleteConfirmation, presenting: coachToDelete) { coach in
             Button("Cancel", role: .cancel) {
@@ -214,7 +187,7 @@ struct CoachesView: View {
 
     private func reportCoach(_ coach: Coach) {
         let subject = "Coach Report: \(coach.name)"
-        let body = "I would like to report the following coach for inappropriate behavior:\n\nCoach Name: \(coach.name)\nCoach Email: \(coach.email ?? "N/A")\n\nDetails:\n[Please describe the issue here]"
+        let body = "I would like to report the following coach for inappropriate behavior:\n\nCoach Name: \(coach.name)\nCoach Email: \(coach.email)\n\nDetails:\n[Please describe the issue here]"
         let mailto = "mailto:support@playerpath.app?subject=\(subject)&body=\(body)"
             .addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
         if let url = URL(string: mailto) {

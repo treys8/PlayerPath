@@ -47,29 +47,18 @@ final class ComprehensiveAuthManager: ObservableObject {
     
     // Subscription tier — kept in sync with StoreKitManager via Combine
     @Published var currentTier: SubscriptionTier = .free
-    @Published var hasCoachingAddOn: Bool = false
 
     /// Bridge for legacy call sites — true when user has Plus or Pro
     var isPremiumUser: Bool { currentTier >= .plus }
 
-    /// True when coaching add-on is active AND user has at least Plus tier
-    var hasCoachingAccess: Bool { hasCoachingAddOn && currentTier >= .plus }
+    /// True when user has Pro tier (coach sharing is a Pro feature)
+    var hasCoachingAccess: Bool { currentTier == .pro }
 
-    // Grace period tracking
-    @Published var coachingLapseDate: Date?
-    static let gracePeriodDays = 7
+    // Coach subscription tier — synced from StoreKit, overridable by Firestore (Academy)
+    @Published var currentCoachTier: CoachSubscriptionTier = .free
 
-    var isInCoachingGracePeriod: Bool {
-        guard !hasCoachingAddOn, let lapseDate = coachingLapseDate else { return false }
-        let end = lapseDate.addingTimeInterval(Double(Self.gracePeriodDays) * 86400)
-        return Date() < end
-    }
-
-    var coachingGraceDaysRemaining: Int {
-        guard let lapseDate = coachingLapseDate else { return 0 }
-        let end = lapseDate.addingTimeInterval(Double(Self.gracePeriodDays) * 86400)
-        return max(0, Calendar.current.dateComponents([.day], from: Date(), to: end).day ?? 0)
-    }
+    /// Maximum athletes the coach can have based on their tier
+    var coachAthleteLimit: Int { currentCoachTier.athleteLimit }
 
     private var authStateDidChangeListenerHandle: AuthStateDidChangeListenerHandle?
     private var modelContext: ModelContext?
@@ -98,25 +87,21 @@ final class ComprehensiveAuthManager: ObservableObject {
             print("💾 Restored hasCompletedOnboarding from UserDefaults: true")
         }
 
-        // Keep tier/coaching in sync with StoreKitManager
+        // Keep athlete tier in sync with StoreKitManager
         StoreKitManager.shared.$currentTier
             .receive(on: RunLoop.main)
-            .sink { [weak self] tier in self?.currentTier = tier }
+            .sink { [weak self] tier in
+                self?.currentTier = tier
+                self?.syncSubscriptionTierToFirestore()
+            }
             .store(in: &storeKitCancellables)
 
-        StoreKitManager.shared.$hasCoachingAddOn
+        // Keep coach tier in sync with StoreKitManager (Academy override happens in loadUserProfile)
+        StoreKitManager.shared.$currentCoachTier
             .receive(on: RunLoop.main)
-            .sink { [weak self] newValue in
-                guard let self else { return }
-                let wasActive = self.hasCoachingAddOn
-                self.hasCoachingAddOn = newValue
-                if wasActive && !newValue {
-                    // Add-on just lapsed — start grace period if not already tracking
-                    Task { await self.handleCoachingAddOnLapse() }
-                } else if !wasActive && newValue {
-                    // Add-on restored — clear any pending grace period
-                    Task { await self.clearCoachingLapse() }
-                }
+            .sink { [weak self] tier in
+                self?.currentCoachTier = tier
+                self?.syncSubscriptionTierToFirestore()
             }
             .store(in: &storeKitCancellables)
 
@@ -135,8 +120,7 @@ final class ComprehensiveAuthManager: ObservableObject {
                     self?.localUser = nil
                     self?.hasCompletedOnboarding = false
                     self?.currentTier = .free
-                    self?.hasCoachingAddOn = false
-                    self?.coachingLapseDate = nil
+                    self?.currentCoachTier = .free
                     UserDefaults.standard.removeObject(forKey: AuthConstants.UserDefaultsKeys.userRole)
                     UserDefaults.standard.removeObject(forKey: AuthConstants.UserDefaultsKeys.hasCompletedOnboarding)
                     print("🔄 Cleared all user data on sign out")
@@ -229,6 +213,17 @@ final class ComprehensiveAuthManager: ObservableObject {
         hasCompletedOnboarding = true
     }
     
+    private func syncSubscriptionTierToFirestore() {
+        guard let userID = currentFirebaseUser?.uid else { return }
+        let tier = currentTier
+        let coachTier = currentCoachTier
+        Task {
+            await FirestoreManager.shared.syncSubscriptionTiers(
+                userID: userID, tier: tier, coachTier: coachTier
+            )
+        }
+    }
+
     func signIn(email: String, password: String) async {
         isLoading = true
         errorMessage = nil
@@ -333,7 +328,6 @@ final class ComprehensiveAuthManager: ObservableObject {
             "email": email.lowercased(),
             "role": role.rawValue,
             "subscriptionTier": "free",
-            "hasCoachingAddOn": false,
             "createdAt": Date(),
             "displayName": displayName
         ]
@@ -383,9 +377,13 @@ final class ComprehensiveAuthManager: ObservableObject {
                 
                 // Update profile and role from Firestore
                 userProfile = profile
+                syncSubscriptionTierToFirestore()
 
-                // Sync coaching lapse date from Firestore (source of truth)
-                coachingLapseDate = profile.coachingLapseDate
+                // Academy coach tier is manually granted via Firestore — override StoreKit resolution
+                if profile.coachSubscriptionTier == CoachSubscriptionTier.academy.rawValue {
+                    currentCoachTier = .academy
+                    print("✅ Academy coach tier applied from Firestore override")
+                }
 
                 // Only update userRole if it's different AND this is not a new user
                 // For new users, we want to keep the role we set synchronously at signup
@@ -420,6 +418,7 @@ final class ComprehensiveAuthManager: ObservableObject {
                         displayName: currentFirebaseUser?.displayName ?? email,
                         role: .athlete
                     )
+                    syncSubscriptionTierToFirestore()
                 } else {
                     #if DEBUG
                     print("⚠️ Profile not found for new user \(email), but keeping existing role: \(userRole.rawValue)")
@@ -469,12 +468,15 @@ final class ComprehensiveAuthManager: ObservableObject {
                     print("✅ Loaded user profile on attempt \(attempt): \(profile.role) for \(email)")
                     return
                 } else if attempt < maxAttempts {
-                    // Profile not found yet, retry with exponential backoff
+                    // Profile not found yet, retry with exponential backoff.
+                    // Use try? so task cancellation (e.g. from SignInView.onDisappear) does NOT
+                    // propagate a CancellationError up through signUpAsCoach's catch block,
+                    // which would incorrectly reset isNewUser/userRole for a successfully-created account.
                     let delay = pow(2.0, Double(attempt - 1)) * 0.1 // 0.1s, 0.2s, 0.4s, 0.8s, 1.6s
                     #if DEBUG
                     print("⏳ Profile not found for \(email) on attempt \(attempt)/\(maxAttempts), retrying in \(delay)s...")
                     #endif
-                    try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                    try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                 } else {
                     // Last attempt and still not found - create profile as fallback
                     #if DEBUG
@@ -579,17 +581,48 @@ final class ComprehensiveAuthManager: ObservableObject {
             print("🟢 Coach sign up successful for: \(email) with role: \(userRole.rawValue)")
             #endif
         } catch {
-            errorMessage = friendlyErrorMessage(from: error)
             isLoading = false
-            isNewUser = false
-            // Reset role on error
-            userRole = .athlete
-            #if DEBUG
-            print("🔴 Coach sign up error: \(error.localizedDescription)")
-            #endif
+            // Only reset isNewUser/userRole if the Firebase account was never created.
+            // If the account was created (isSignedIn = true) but a later step failed
+            // (e.g. Firestore profile write, task cancellation from SignInView.onDisappear),
+            // keep isNewUser = true so the coach still sees the onboarding flow.
+            // Any missing Firestore profile will be re-created on the next loadUserProfile() call.
+            if isSignedIn {
+                #if DEBUG
+                print("🟡 Coach sign up: post-auth step failed but account exists — preserving onboarding state")
+                print("🟡 Error: \(error.localizedDescription)")
+                #endif
+            } else {
+                isNewUser = false
+                userRole = .athlete
+                errorMessage = friendlyErrorMessage(from: error)
+                #if DEBUG
+                print("🔴 Coach sign up error: \(error.localizedDescription)")
+                #endif
+            }
         }
     }
     
+    func updateDisplayName(_ name: String) async throws {
+        guard let user = currentFirebaseUser else {
+            throw NSError(domain: "ComprehensiveAuthManager", code: -1, userInfo: [NSLocalizedDescriptionKey: "No user signed in"])
+        }
+        // Update Firebase Auth profile
+        let changeRequest = user.createProfileChangeRequest()
+        changeRequest.displayName = name
+        try await changeRequest.commitChanges()
+        // Reload so currentFirebaseUser reflects the new displayName immediately
+        try await user.reload()
+        currentFirebaseUser = Auth.auth().currentUser
+        // Persist display name to Firestore
+        try await FirestoreManager.shared.updateUserProfile(
+            userID: user.uid,
+            email: user.email ?? userEmail ?? "",
+            role: userRole,
+            profileData: ["displayName": name]
+        )
+    }
+
     func signOut() async {
         isLoading = true
         errorMessage = nil
@@ -628,50 +661,6 @@ final class ComprehensiveAuthManager: ObservableObject {
         }
     }
     
-    // MARK: - Coaching Add-On Grace Period
-
-    /// Called when coaching add-on transitions from active → inactive.
-    /// Records the lapse date in Firestore (once) to start the 7-day grace period.
-    func handleCoachingAddOnLapse() async {
-        guard coachingLapseDate == nil, let userID else { return }
-        let lapseDate = Date()
-        coachingLapseDate = lapseDate
-        try? await FirestoreManager.shared.setCoachingLapseDate(lapseDate, forUserID: userID)
-        print("⏰ Coaching add-on lapsed — grace period started: \(lapseDate)")
-    }
-
-    /// Called when coaching add-on is restored. Clears the grace period.
-    func clearCoachingLapse() async {
-        coachingLapseDate = nil
-        guard let userID else { return }
-        try? await FirestoreManager.shared.setCoachingLapseDate(nil, forUserID: userID)
-        print("✅ Coaching add-on restored — grace period cleared")
-    }
-
-    /// Checks if the 7-day grace period has expired and revokes all coach access if so.
-    /// Called on each app foreground.
-    func checkAndEnforceGracePeriod(for athlete: Athlete?) async {
-        guard !hasCoachingAddOn,
-              let lapseDate = coachingLapseDate,
-              let athlete else { return }
-
-        let gracePeriodEnd = lapseDate.addingTimeInterval(Double(Self.gracePeriodDays) * 86400)
-        guard Date() >= gracePeriodEnd else {
-            print("⏰ Grace period active — \(coachingGraceDaysRemaining) day(s) remaining")
-            return
-        }
-
-        print("⏰ Grace period expired — revoking all coach access")
-        do {
-            try await SharedFolderManager.shared.revokeAllCoachAccess(
-                forAthleteID: athlete.id.uuidString
-            )
-            await clearCoachingLapse()
-        } catch {
-            print("❌ Failed to revoke coach access after grace period: \(error)")
-        }
-    }
-
     func resetPassword(email: String) async {
         isLoading = true
         errorMessage = nil
@@ -785,113 +774,13 @@ final class ComprehensiveAuthManager: ObservableObject {
         print("✅ Onboarding marked as completed")
     }
 
-    /// Allows user to skip onboarding process
-    /// This is useful for returning users or users who want to explore first
-    func skipOnboarding() {
-        completeOnboarding()
-        print("⏭️ User skipped onboarding")
-    }
-
     // Method to allow external sign-in managers (like Apple Sign In) to update the user
-    func updateCurrentUser(_ user: FirebaseAuth.User, isNewUser: Bool = false) {
+    func updateCurrentUser(_ user: FirebaseAuth.User, isNewUser: Bool = false, role: UserRole? = nil) {
         currentFirebaseUser = user
         isSignedIn = true
         self.isNewUser = isNewUser
-    }
-
-    /// Refreshes the current user's Firebase Auth token
-    /// Firebase tokens expire after 1 hour. This method explicitly refreshes the token.
-    /// The SDK usually handles this automatically, but this provides explicit control.
-    func refreshAuthToken() async throws {
-        guard let user = currentFirebaseUser else {
-            throw NSError(domain: "ComprehensiveAuthManager", code: -1, userInfo: [NSLocalizedDescriptionKey: "No user signed in"])
-        }
-
-        do {
-            // Force refresh the ID token
-            let _ = try await user.getIDTokenResult(forcingRefresh: true)
-            print("✅ Auth token refreshed successfully")
-        } catch {
-            print("🔴 Failed to refresh auth token: \(error.localizedDescription)")
-            throw error
-        }
-    }
-
-    /// Checks if the current auth token is valid and refreshes if needed
-    /// Returns true if token is valid or successfully refreshed, false otherwise
-    func ensureValidToken() async -> Bool {
-        guard let user = currentFirebaseUser else {
-            print("⚠️ No user signed in for token validation")
-            return false
-        }
-
-        do {
-            let tokenResult = try await user.getIDTokenResult(forcingRefresh: false)
-
-            // Check if token is about to expire (within 5 minutes)
-            let expirationDate = tokenResult.expirationDate
-            let timeUntilExpiration = expirationDate.timeIntervalSinceNow
-            if timeUntilExpiration < 300 { // Less than 5 minutes
-                print("⚠️ Token expiring soon, refreshing...")
-                try await refreshAuthToken()
-            }
-
-            return true
-        } catch {
-            print("🔴 Token validation failed: \(error.localizedDescription)")
-            return false
-        }
-    }
-
-    // MARK: - Email Verification
-
-    /// Sends email verification to the current user
-    func sendEmailVerification() async throws {
-        guard let user = currentFirebaseUser else {
-            throw NSError(domain: "ComprehensiveAuthManager", code: -1, userInfo: [NSLocalizedDescriptionKey: "No user signed in"])
-        }
-
-        guard !user.isEmailVerified else {
-            print("✅ Email already verified")
-            return
-        }
-
-        isLoading = true
-        errorMessage = nil
-
-        do {
-            try await user.sendEmailVerification()
-            isLoading = false
-            #if DEBUG
-            print("✅ Verification email sent to: \(user.email ?? "unknown")")
-            #endif
-        } catch {
-            isLoading = false
-            errorMessage = "Failed to send verification email: \(error.localizedDescription)"
-            print("🔴 Email verification send error: \(error.localizedDescription)")
-            throw error
-        }
-    }
-
-    /// Checks if current user's email is verified
-    var isEmailVerified: Bool {
-        currentFirebaseUser?.isEmailVerified ?? false
-    }
-
-    /// Reloads user data to check for updated email verification status
-    func reloadUser() async throws {
-        guard let user = currentFirebaseUser else {
-            throw NSError(domain: "ComprehensiveAuthManager", code: -1, userInfo: [NSLocalizedDescriptionKey: "No user signed in"])
-        }
-
-        do {
-            try await user.reload()
-            // Update our reference to get the latest data
-            currentFirebaseUser = Auth.auth().currentUser
-            print("✅ User data reloaded - Email verified: \(user.isEmailVerified)")
-        } catch {
-            print("🔴 Failed to reload user: \(error.localizedDescription)")
-            throw error
+        if let role = role {
+            userRole = role
         }
     }
 

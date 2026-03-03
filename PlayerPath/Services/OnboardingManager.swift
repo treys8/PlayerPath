@@ -146,6 +146,11 @@ final class OnboardingManager: ObservableObject {
         UserDefaults.standard.set(Array(dismissedTips), forKey: Keys.dismissedTips)
     }
 
+    func resetWelcomeTutorial() {
+        hasSeenWelcomeTutorial = false
+        UserDefaults.standard.removeObject(forKey: Keys.hasSeenWelcomeTutorial)
+    }
+
     func resetTips() {
         dismissedTips.removeAll()
         UserDefaults.standard.removeObject(forKey: Keys.dismissedTips)

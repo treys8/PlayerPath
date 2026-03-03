@@ -9,6 +9,7 @@
 
 import SwiftUI
 import FirebaseAuth
+import FirebaseFirestore
 import Combine
 import UIKit
 
@@ -19,7 +20,6 @@ struct CoachDashboardView: View {
     @ObservedObject private var invitationManager = CoachInvitationManager.shared
     @ObservedObject private var activityNotifService = ActivityNotificationService.shared
     @State private var selectedTab: CoachTab = .myAthletes
-    @State private var loadTask: Task<Void, Never>?
     @State private var notificationCancellable: AnyCancellable?
 
     enum CoachTab: String, CaseIterable {
@@ -55,9 +55,11 @@ struct CoachDashboardView: View {
 
             // In-app notification banner
             if let banner = activityNotifService.incomingBanner {
-                ActivityNotificationBanner(notification: banner) {
+                ActivityNotificationBanner(notification: banner, onDismiss: {
                     activityNotifService.dismissBanner()
-                }
+                }, onTap: {
+                    handleNotificationTap(banner)
+                })
                 .padding(.top, 12)
                 .transition(.move(edge: .top).combined(with: .opacity))
                 .animation(.spring(response: 0.4, dampingFraction: 0.8), value: banner.id)
@@ -65,18 +67,14 @@ struct CoachDashboardView: View {
             }
         }
         .task {
-            loadTask = Task {
-                await loadCoachData()
-                guard !Task.isCancelled else { return }
-
-                if let coachEmail = authManager.userEmail {
-                    await invitationManager.checkPendingInvitations(forCoachEmail: coachEmail)
-                }
-
-                // Start activity notification listener for this coach
-                if let coachID = authManager.userID {
-                    ActivityNotificationService.shared.startListening(forUserID: coachID)
-                }
+            // Start real-time listeners (replace one-shot fetches)
+            if let coachID = authManager.userID {
+                CoachFolderArchiveManager.shared.configure(coachUID: coachID)
+                sharedFolderManager.startCoachFoldersListener(coachID: coachID)
+                ActivityNotificationService.shared.startListening(forUserID: coachID)
+            }
+            if let coachEmail = authManager.userEmail {
+                invitationManager.startInvitationsListener(forCoachEmail: coachEmail)
             }
         }
         .onChange(of: selectedTab) { _, newTab in
@@ -88,34 +86,46 @@ struct CoachDashboardView: View {
             }
         }
         .onAppear {
-            // Set up notification observer for app becoming active
+            // Restart listeners when app becomes active in case they dropped
             notificationCancellable = NotificationCenter.default
                 .publisher(for: UIApplication.didBecomeActiveNotification)
                 .sink { _ in
-                    Task {
-                        guard !Task.isCancelled else { return }
-                        if let coachEmail = authManager.userEmail {
-                            await invitationManager.checkPendingInvitations(forCoachEmail: coachEmail)
-                        }
+                    if let coachID = authManager.userID {
+                        sharedFolderManager.startCoachFoldersListener(coachID: coachID)
+                    }
+                    if let coachEmail = authManager.userEmail {
+                        invitationManager.startInvitationsListener(forCoachEmail: coachEmail)
                     }
                 }
         }
         .onDisappear {
-            // Cancel all subscriptions and tasks
-            loadTask?.cancel()
             notificationCancellable?.cancel()
             notificationCancellable = nil
+            sharedFolderManager.stopCoachFoldersListener()
+            invitationManager.stopInvitationsListener()
             ActivityNotificationService.shared.stopListening()
         }
     }
 
-    private func loadCoachData() async {
-        guard let coachID = authManager.userID else { return }
-
-        do {
-            try await sharedFolderManager.loadCoachFolders(coachID: coachID)
-        } catch {
-            print("❌ Failed to load coach folders: \(error)")
+    private func handleNotificationTap(_ notification: ActivityNotification) {
+        switch notification.type {
+        case .newVideo:
+            // targetID is a folderID — switch to athletes tab and navigate to that folder
+            if let folderID = notification.targetID {
+                selectedTab = .myAthletes
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                    NotificationCenter.default.post(
+                        name: .navigateToCoachFolder,
+                        object: folderID
+                    )
+                }
+            }
+        case .invitationReceived, .invitationAccepted:
+            // Open invitations sheet
+            NotificationCenter.default.post(name: .openCoachInvitations, object: nil)
+        case .coachComment, .accessRevoked:
+            // Switch to athletes list — no specific deep link available without videoID+folderID pair
+            selectedTab = .myAthletes
         }
     }
 }
@@ -126,13 +136,16 @@ struct CoachAthletesListView: View {
     @EnvironmentObject private var sharedFolderManager: SharedFolderManager
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @ObservedObject private var invitationManager = CoachInvitationManager.shared
+    @ObservedObject private var archiveManager = CoachFolderArchiveManager.shared
     @State private var searchText = ""
     @State private var showingInvitations = false
     @State private var showingError = false
     @State private var errorMessage: String?
+    @State private var navigationPath = NavigationPath()
+    @State private var showingArchived = false
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $navigationPath) {
             ZStack {
                 if sharedFolderManager.isLoading {
                     ProgressView("Loading athletes...")
@@ -150,6 +163,42 @@ struct CoachAthletesListView: View {
                                         athleteName: group.athleteName,
                                         folders: group.folders
                                     )
+                                }
+
+                                // Archived folders toggle
+                                if !archivedGroups.isEmpty {
+                                    Button {
+                                        withAnimation { showingArchived.toggle() }
+                                        Haptics.light()
+                                    } label: {
+                                        HStack {
+                                            Image(systemName: showingArchived ? "archivebox.fill" : "archivebox")
+                                                .foregroundColor(.secondary)
+                                            Text(showingArchived ? "Hide Archived" : "Show Archived (\(archivedGroups.flatMap(\.folders).count))")
+                                                .font(.subheadline)
+                                                .foregroundColor(.secondary)
+                                            Spacer()
+                                            Image(systemName: showingArchived ? "chevron.up" : "chevron.down")
+                                                .font(.caption)
+                                                .foregroundColor(.secondary)
+                                        }
+                                        .padding()
+                                        .background(Color(.secondarySystemBackground))
+                                        .cornerRadius(12)
+                                    }
+                                    .buttonStyle(.plain)
+
+                                    if showingArchived {
+                                        ForEach(archivedGroups, id: \CoachAthleteGroup.athleteID) { group in
+                                            AthleteSection(
+                                                athleteID: group.athleteID,
+                                                athleteName: group.athleteName,
+                                                folders: group.folders,
+                                                isArchived: true
+                                            )
+                                        }
+                                        .transition(.opacity.combined(with: .move(edge: .top)))
+                                    }
                                 }
                             } header: {
                                 PendingInvitationsStickyHeader(showingInvitations: $showingInvitations)
@@ -180,6 +229,17 @@ struct CoachAthletesListView: View {
             .sheet(isPresented: $showingInvitations) {
                 CoachInvitationsView()
             }
+            .navigationDestination(for: SharedFolder.self) { folder in
+                CoachFolderDetailView(folder: folder)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .navigateToCoachFolder)) { note in
+                guard let folderID = note.object as? String,
+                      let folder = sharedFolderManager.coachFolders.first(where: { $0.id == folderID }) else { return }
+                navigationPath.append(folder)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .openCoachInvitations)) { _ in
+                showingInvitations = true
+            }
             .alert("Error", isPresented: $showingError) {
                 Button("OK", role: .cancel) {
                     Haptics.light()
@@ -205,10 +265,27 @@ struct CoachAthletesListView: View {
         }
     }
 
-    // Group folders by athlete
+    // Active (non-archived) folders grouped by athlete
     private var groupedFolders: [CoachAthleteGroup] {
-        let grouped = Dictionary(grouping: sharedFolderManager.coachFolders) { $0.ownerAthleteID }
+        let active = sharedFolderManager.coachFolders.filter {
+            !archiveManager.isArchived($0.id ?? "")
+        }
+        let grouped = Dictionary(grouping: active) { $0.ownerAthleteID }
+        return grouped.map { athleteID, folders in
+            CoachAthleteGroup(
+                athleteID: athleteID,
+                athleteName: folders.first?.ownerAthleteName ?? "Unknown Athlete",
+                folders: folders
+            )
+        }.sorted { $0.athleteName < $1.athleteName }
+    }
 
+    // Archived folders grouped by athlete
+    private var archivedGroups: [CoachAthleteGroup] {
+        let archived = sharedFolderManager.coachFolders.filter {
+            archiveManager.isArchived($0.id ?? "")
+        }
+        let grouped = Dictionary(grouping: archived) { $0.ownerAthleteID }
         return grouped.map { athleteID, folders in
             CoachAthleteGroup(
                 athleteID: athleteID,
@@ -220,20 +297,11 @@ struct CoachAthletesListView: View {
 
     // Filter groups by athlete name or folder name matching searchText
     private var filteredGroups: [CoachAthleteGroup] {
-        guard !searchText.isEmpty else {
-            return groupedFolders
-        }
-        let lowercasedSearch = searchText.lowercased()
-
-        return groupedFolders.filter { group in
-            if group.athleteName.lowercased().contains(lowercasedSearch) {
-                return true
-            }
-            // Check if any folder name matches search text
-            if group.folders.contains(where: { $0.name.lowercased().contains(lowercasedSearch) }) {
-                return true
-            }
-            return false
+        guard !searchText.isEmpty else { return groupedFolders }
+        let q = searchText.lowercased()
+        return groupedFolders.filter {
+            $0.athleteName.lowercased().contains(q) ||
+            $0.folders.contains(where: { $0.name.lowercased().contains(q) })
         }
     }
 }
@@ -252,6 +320,7 @@ struct AthleteSection: View {
     let athleteID: String
     let athleteName: String
     let folders: [SharedFolder]
+    var isArchived: Bool = false
 
     @State private var isExpanded = true
 
@@ -273,9 +342,16 @@ struct AthleteSection: View {
                         .clipShape(Circle())
 
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(athleteName)
-                            .font(.headline)
-                            .foregroundColor(.primary)
+                        HStack(spacing: 6) {
+                            Text(athleteName)
+                                .font(.headline)
+                                .foregroundColor(isArchived ? .secondary : .primary)
+                            if isArchived {
+                                Image(systemName: "archivebox.fill")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
 
                         Text("\(folders.count) shared folder\(folders.count == 1 ? "" : "s")")
                             .font(.caption)
@@ -510,6 +586,47 @@ struct PendingInvitationsStickyHeader: View {
     }
 }
 
+// MARK: - Coach Folder Archive Manager
+
+/// Tracks which folders a coach has locally archived, stored in UserDefaults.
+/// Archiving is per-coach (keyed by coach UID) and per-device — it only hides the folder
+/// from the list without revoking Firestore access.
+class CoachFolderArchiveManager: ObservableObject {
+    static let shared = CoachFolderArchiveManager()
+
+    @Published private(set) var archivedFolderIDs: Set<String> = []
+
+    private var coachUID: String = ""
+    private var defaultsKey: String { "archivedCoachFolders_\(coachUID)" }
+
+    private init() {}
+
+    func configure(coachUID: String) {
+        guard coachUID != self.coachUID else { return }
+        self.coachUID = coachUID
+        let stored = UserDefaults.standard.stringArray(forKey: defaultsKey) ?? []
+        archivedFolderIDs = Set(stored)
+    }
+
+    func archive(folderID: String) {
+        archivedFolderIDs.insert(folderID)
+        persist()
+    }
+
+    func unarchive(folderID: String) {
+        archivedFolderIDs.remove(folderID)
+        persist()
+    }
+
+    func isArchived(_ folderID: String) -> Bool {
+        archivedFolderIDs.contains(folderID)
+    }
+
+    private func persist() {
+        UserDefaults.standard.set(Array(archivedFolderIDs), forKey: defaultsKey)
+    }
+}
+
 // MARK: - Coach Invitations Manager
 
 class CoachInvitationManager: ObservableObject {
@@ -518,13 +635,45 @@ class CoachInvitationManager: ObservableObject {
     @Published var pendingInvitationsCount: Int = 0
     @Published var pendingInvitations: [CoachInvitation] = []
 
+    private var invitationsListener: ListenerRegistration?
+
     private init() {}
+
+    /// Starts a real-time listener for pending invitations. Replaces one-shot checkPendingInvitations.
+    @MainActor
+    func startInvitationsListener(forCoachEmail email: String) {
+        stopInvitationsListener()
+        let db = Firestore.firestore()
+        invitationsListener = db.collection("invitations")
+            .whereField("coachEmail", isEqualTo: email.lowercased())
+            .whereField("status", isEqualTo: "pending")
+            .addSnapshotListener { [weak self] snapshot, error in
+                guard let self else { return }
+                if let error {
+                    print("❌ Invitations listener error: \(error)")
+                    return
+                }
+                let invitations = snapshot?.documents.compactMap { doc -> CoachInvitation? in
+                    var inv = try? doc.data(as: CoachInvitation.self)
+                    inv?.id = doc.documentID
+                    return inv
+                } ?? []
+                Task { @MainActor in
+                    self.pendingInvitations = invitations
+                    self.pendingInvitationsCount = invitations.count
+                }
+            }
+    }
+
+    func stopInvitationsListener() {
+        invitationsListener?.remove()
+        invitationsListener = nil
+    }
 
     @MainActor
     func checkPendingInvitations(forCoachEmail email: String) async {
         do {
-            // Query Firestore for pending invitations
-            let invitations = try await fetchPendingInvitations(for: email)
+            let invitations = try await FirestoreManager.shared.fetchPendingInvitations(forEmail: email)
             pendingInvitations = invitations
             pendingInvitationsCount = invitations.count
         } catch {
@@ -534,15 +683,10 @@ class CoachInvitationManager: ObservableObject {
         }
     }
 
-    private func fetchPendingInvitations(for email: String) async throws -> [CoachInvitation] {
-        // Query Firestore for pending invitations
-        return try await FirestoreManager.shared.fetchPendingInvitations(forEmail: email)
-    }
-
     @MainActor
-    func acceptInvitation(_ invitation: CoachInvitation) async throws {
-        // Accept the invitation via SharedFolderManager
-        try await SharedFolderManager.shared.acceptInvitation(invitation)
+    func acceptInvitation(_ invitation: CoachInvitation, authManager: ComprehensiveAuthManager? = nil) async throws {
+        // Accept the invitation via SharedFolderManager (passes authManager for athlete limit enforcement)
+        try await SharedFolderManager.shared.acceptInvitation(invitation, authManager: authManager)
 
         // Refresh pending invitations
         await checkPendingInvitations(forCoachEmail: invitation.coachEmail)

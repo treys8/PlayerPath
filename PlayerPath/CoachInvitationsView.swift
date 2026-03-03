@@ -13,7 +13,8 @@ struct CoachInvitationsView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @StateObject private var viewModel = CoachInvitationsViewModel()
-    
+    @State private var showingPaywall = false
+
     var body: some View {
         NavigationStack {
             Group {
@@ -27,8 +28,13 @@ struct CoachInvitationsView: View {
                             ForEach(viewModel.pendingInvitations) { invitation in
                                 InvitationRow(
                                     invitation: invitation,
+                                    isAtLimit: viewModel.isAtAthleteLimit,
                                     onAccept: {
-                                        await viewModel.acceptInvitation(invitation)
+                                        await viewModel.acceptInvitation(invitation, authManager: authManager)
+                                        if viewModel.limitReached {
+                                            showingPaywall = true
+                                            viewModel.limitReached = false
+                                        }
                                     },
                                     onDecline: {
                                         await viewModel.declineInvitation(invitation)
@@ -82,12 +88,17 @@ struct CoachInvitationsView: View {
                     Text(error)
                 }
             }
+            .sheet(isPresented: $showingPaywall) {
+                CoachPaywallView()
+                    .environmentObject(authManager)
+            }
         }
     }
     
     private func loadInvitations() async {
         guard let email = authManager.userEmail else { return }
         await viewModel.loadInvitations(forCoachEmail: email)
+        viewModel.updateAthleteLimit(authManager: authManager)
     }
 }
 
@@ -95,6 +106,7 @@ struct CoachInvitationsView: View {
 
 struct InvitationRow: View {
     let invitation: CoachInvitation
+    var isAtLimit: Bool = false
     let onAccept: () async -> Void
     let onDecline: () async -> Void
 
@@ -156,20 +168,28 @@ struct InvitationRow: View {
                     }
                     .disabled(isProcessing)
 
-                    Button {
-                        Haptics.light()
-                        showingAcceptConfirmation = true
-                    } label: {
-                        Text("Accept")
-                            .font(.subheadline)
-                            .fontWeight(.medium)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 8)
-                            .background(Color.green)
-                            .foregroundColor(.white)
-                            .cornerRadius(8)
+                    VStack(spacing: 4) {
+                        Button {
+                            Haptics.light()
+                            showingAcceptConfirmation = true
+                        } label: {
+                            Text("Accept")
+                                .font(.subheadline)
+                                .fontWeight(.medium)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 8)
+                                .background(isAtLimit ? Color.gray : Color.green)
+                                .foregroundColor(.white)
+                                .cornerRadius(8)
+                        }
+                        .disabled(isProcessing || isAtLimit)
+
+                        if isAtLimit {
+                            Text("Upgrade to add more athletes")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
                     }
-                    .disabled(isProcessing)
                 }
             }
         }
@@ -276,7 +296,8 @@ class CoachInvitationsViewModel: ObservableObject {
     @Published var invitations: [CoachInvitation] = []
     @Published var isLoading = false
     @Published var errorMessage: String?
-    
+    @Published var limitReached = false
+
     var pendingInvitations: [CoachInvitation] {
         invitations.filter { $0.status == .pending }
     }
@@ -288,25 +309,32 @@ class CoachInvitationsViewModel: ObservableObject {
     var declinedInvitations: [CoachInvitation] {
         invitations.filter { $0.status == .declined }
     }
-    
+
+    @Published var isAtAthleteLimit: Bool = false
+
+    func updateAthleteLimit(authManager: ComprehensiveAuthManager) {
+        let currentCount = Set(SharedFolderManager.shared.coachFolders.map { $0.ownerAthleteID }).count
+        isAtAthleteLimit = currentCount >= authManager.coachAthleteLimit
+    }
+
     func loadInvitations(forCoachEmail email: String) async {
         isLoading = true
         errorMessage = nil
-        
+
         do {
             invitations = try await SharedFolderManager.shared.checkPendingInvitations(forEmail: email)
         } catch {
             errorMessage = "Failed to load invitations: \(error.localizedDescription)"
             print("❌ Failed to load invitations: \(error)")
         }
-        
+
         isLoading = false
     }
-    
-    func acceptInvitation(_ invitation: CoachInvitation) async {
+
+    func acceptInvitation(_ invitation: CoachInvitation, authManager: ComprehensiveAuthManager? = nil) async {
         do {
-            // Step 1: Accept invitation in Firestore
-            try await SharedFolderManager.shared.acceptInvitation(invitation)
+            // Step 1: Accept invitation in Firestore (limit check happens inside)
+            try await SharedFolderManager.shared.acceptInvitation(invitation, authManager: authManager)
 
             // Step 2: Verify the operation completed by checking invitations list exists
             guard let index = invitations.firstIndex(where: { $0.id == invitation.id }) else {
@@ -334,6 +362,10 @@ class CoachInvitationsViewModel: ObservableObject {
             Haptics.success()
             print("✅ Successfully accepted invitation for folder: \(invitation.folderName)")
 
+        } catch SharedFolderError.coachAthleteLimitReached {
+            limitReached = true
+            Haptics.error()
+            print("⚠️ Coach athlete limit reached — presenting paywall")
         } catch {
             // Show user-friendly error message
             if error.localizedDescription.contains("Network") {

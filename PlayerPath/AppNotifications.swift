@@ -16,7 +16,6 @@ enum AppEvent {
     case reactivateGame(Any?)
     case presentSeasons(Athlete)
     case presentCoaches(Athlete)
-    case presentProfileEditor(User)
 }
 
 extension Notification.Name {
@@ -31,11 +30,12 @@ extension Notification.Name {
     static let reactivateGame = Notification.Name("reactivateGame")
     static let presentSeasons = Notification.Name("presentSeasons")
     static let presentCoaches = Notification.Name("presentCoaches")
-    static let presentProfileEditor = Notification.Name("presentProfileEditor")
-    static let showPaywall = Notification.Name("showPaywall")
     static let navigateToMorePractice = Notification.Name("navigateToMorePractice")
     static let navigateToMoreHighlights = Notification.Name("navigateToMoreHighlights")
-    static let checkCoachingGracePeriod = Notification.Name("checkCoachingGracePeriod")
+    /// Coach: navigate to a specific shared folder. Post with `object: folderID` (String).
+    static let navigateToCoachFolder = Notification.Name("navigateToCoachFolder")
+    /// Coach: open the invitations sheet.
+    static let openCoachInvitations = Notification.Name("openCoachInvitations")
 }
 
 @inline(__always)
@@ -63,8 +63,6 @@ func post(_ event: AppEvent) {
         NotificationCenter.default.post(name: .presentSeasons, object: athlete)
     case .presentCoaches(let athlete):
         NotificationCenter.default.post(name: .presentCoaches, object: athlete)
-    case .presentProfileEditor(let user):
-        NotificationCenter.default.post(name: .presentProfileEditor, object: user)
     }
 }
 

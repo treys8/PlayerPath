@@ -29,9 +29,6 @@ struct SignInView: View {
     @State private var selectedRole: UserRole = .athlete
     @State private var showSuccessAnimation = false
     @State private var shakeOffset: CGFloat = 0
-    @State private var showCoachOnboarding = false
-    @State private var showAthleteOnboarding = false
-    
     @FocusState private var focusedField: AuthField?
     
     // Task management for proper cancellation
@@ -57,7 +54,8 @@ struct SignInView: View {
                         SocialSignInSection(
                             appleSignInManager: appleSignInManager,
                             isLoading: authManager.isLoading || appleSignInManager.isLoading,
-                            isSignUp: isSignUp
+                            isSignUp: isSignUp,
+                            selectedRole: selectedRole
                         )
                         
                         DividerWithText(text: "or")
@@ -188,22 +186,6 @@ struct SignInView: View {
         }
         .sheet(isPresented: $showingTermsOfService) {
             TermsOfServiceView()
-        }
-        .fullScreenCover(isPresented: $showCoachOnboarding) {
-            CoachOnboardingView(onFinish: {
-                showCoachOnboarding = false
-                // Navigation to coach dashboard handled automatically by MainAppView
-                // based on authManager.userRole == .coach
-            })
-            .environmentObject(authManager)
-        }
-        .fullScreenCover(isPresented: $showAthleteOnboarding) {
-            AthleteOnboardingView(onFinish: {
-                showAthleteOnboarding = false
-                // Navigation to athlete tabs handled automatically by MainAppView
-                // based on authManager.userRole == .athlete
-            })
-            .environmentObject(authManager)
         }
         .alert("Enable \(biometricManager.biometricTypeName)?", isPresented: $showBiometricPrompt) {
             Button("Enable") {
@@ -369,28 +351,8 @@ struct SignInView: View {
 
                 Haptics.success()
 
-                // Decide which onboarding to show based on the loaded profile role when available
-                if isSignUp {
-                    // Prefer the role from the authenticated profile if present; fallback to the selected role
-                    let effectiveRole: UserRole = authManager.userProfile?.userRole ?? authManager.userRole
-                    // Small delay so the success animation is perceived
-                    try? await Task.sleep(nanoseconds: AnimationTiming.successDelayNanoseconds)
-
-                    // Check cancellation after sleep
-                    guard !Task.isCancelled else { return }
-
-                    await MainActor.run {
-                        guard authManager.isSignedIn else { return }
-                        switch effectiveRole {
-                        case .coach:
-                            showCoachOnboarding = true
-                        case .athlete:
-                            showAthleteOnboarding = true
-                        }
-                    }
-                }
-                
                 // Offer biometric enrollment for new sign-ins (not sign-ups)
+                // New sign-ups are routed to OnboardingFlow via AuthenticatedFlow
                 if !isSignUp && biometricManager.isBiometricAvailable && !biometricManager.isBiometricEnabled {
                     // Small delay so user sees success first
                     try? await Task.sleep(nanoseconds: AnimationTiming.biometricPromptDelayNanoseconds)
@@ -492,7 +454,7 @@ private struct AppLogoSection: View {
                 .fontWeight(.bold)
                 .foregroundColor(.primary)
             
-            Text("Your Baseball Journey Starts Here")
+            Text("Baseball Performance, Simplified")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
         }
@@ -792,10 +754,12 @@ private struct SocialSignInSection: View {
     @ObservedObject var appleSignInManager: AppleSignInManager
     let isLoading: Bool
     let isSignUp: Bool
-    
+    var selectedRole: UserRole = .athlete
+
     var body: some View {
         VStack(spacing: 12) {
             SignInWithAppleButton(isSignUp: isSignUp) {
+                if isSignUp { appleSignInManager.pendingRole = selectedRole }
                 appleSignInManager.signInWithApple()
             }
             .disabled(isLoading)
@@ -1002,210 +966,6 @@ private struct RoleOptionButton: View {
     private var borderStyle: some View {
         RoundedRectangle(cornerRadius: 12)
             .stroke(isSelected ? accentColor : Color.clear, lineWidth: 2)
-    }
-}
-
-// MARK: - Coach Onboarding View
-
-private struct CoachOnboardingView: View {
-    @Environment(\.dismiss) private var dismiss
-    @EnvironmentObject private var authManager: ComprehensiveAuthManager
-    let onFinish: () -> Void
-
-    var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-                    HStack(spacing: 12) {
-                        Image(systemName: "person.fill.checkmark")
-                            .font(.largeTitle)
-                            .foregroundStyle(.green)
-                            .accessibilityHidden(true)
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Welcome, Coach")
-                                .font(.title)
-                                .fontWeight(.bold)
-                                .accessibilityAddTraits(.isHeader)
-                            Text("Here's how PlayerPath works for coaches")
-                                .font(.subheadline)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-
-                    Group {
-                        onboardingCard(
-                            title: "Review shared folders",
-                            message: "You’ll see only folders that athletes share with you. Open a folder to watch videos and view notes.",
-                            icon: "folder.shared")
-
-                        onboardingCard(
-                            title: "Provide feedback",
-                            message: "Leave time-stamped comments and notes on athlete videos to help them improve.",
-                            icon: "text.bubble.fill")
-
-                        onboardingCard(
-                            title: "No athlete creation",
-                            message: "Coaches don’t create athletes or manage their profiles. Athletes control what they share with you.",
-                            icon: "person.crop.circle.badge.xmark")
-                    }
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Next: Shared Folders")
-                            .font(.headline)
-                        Text("Continue to see folders that have been shared with you. If you don’t see any yet, ask your athletes to share.")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                    }
-
-                    Button(action: finish) {
-                        Text("Continue to Shared Folders")
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 50)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .padding(.top, 8)
-                    .accessibilityLabel("Continue to Shared Folders")
-                    .accessibilityHint("Complete onboarding and view shared folders from athletes")
-                }
-                .padding()
-            }
-            .navigationTitle("Coach Onboarding")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Close") { finish() }
-                }
-            }
-        }
-    }
-
-    private func finish() {
-        Haptics.success()
-        onFinish()
-        // Don't call dismiss() - the binding change in onFinish() automatically dismisses the cover
-    }
-
-    private func onboardingCard(title: String, message: String, icon: String) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 12) {
-                Image(systemName: icon)
-                    .font(.title2)
-                    .foregroundStyle(.blue)
-                    .accessibilityHidden(true)
-                Text(title)
-                    .font(.headline)
-            }
-            Text(message)
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-        }
-        .padding()
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color(.secondarySystemBackground)))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(.separator), lineWidth: 0.5))
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(title)
-        .accessibilityHint(message)
-    }
-}
-
-private struct AthleteOnboardingView: View {
-    @Environment(\.dismiss) private var dismiss
-    @EnvironmentObject private var authManager: ComprehensiveAuthManager
-    let onFinish: () -> Void
-
-    var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-                    HStack(spacing: 12) {
-                        Image(systemName: "figure.baseball")
-                            .font(.largeTitle)
-                            .foregroundStyle(.blue)
-                            .accessibilityHidden(true)
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Welcome, Athlete")
-                                .font(.title)
-                                .fontWeight(.bold)
-                                .accessibilityAddTraits(.isHeader)
-                            Text("Let's get you set up to track your journey")
-                                .font(.subheadline)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-
-                    Group {
-                        onboardingCard(
-                            title: "Record and upload",
-                            message: "Capture your swings and drills. Upload videos to your library for analysis.",
-                            icon: "video")
-
-                        onboardingCard(
-                            title: "Organize into folders",
-                            message: "Create folders for sessions, drills, or goals so everything stays organized.",
-                            icon: "folder.fill")
-
-                        onboardingCard(
-                            title: "Share with your coach",
-                            message: "Share specific folders with your coach to get targeted feedback when you’re ready.",
-                            icon: "person.crop.circle.badge.checkmark")
-                    }
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Next: Your Library")
-                            .font(.headline)
-                        Text("Continue to start recording or upload your first videos.")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                    }
-
-                    Button(action: finish) {
-                        Text("Continue to My Library")
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 50)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .padding(.top, 8)
-                    .accessibilityLabel("Continue to My Library")
-                    .accessibilityHint("Complete onboarding and start recording videos")
-                }
-                .padding()
-            }
-            .navigationTitle("Athlete Onboarding")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Close") { finish() }
-                }
-            }
-        }
-    }
-
-    private func finish() {
-        Haptics.success()
-        onFinish()
-        // Don't call dismiss() - the binding change in onFinish() automatically dismisses the cover
-    }
-
-    private func onboardingCard(title: String, message: String, icon: String) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 12) {
-                Image(systemName: icon)
-                    .font(.title2)
-                    .foregroundStyle(.blue)
-                    .accessibilityHidden(true)
-                Text(title)
-                    .font(.headline)
-            }
-            Text(message)
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-        }
-        .padding()
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color(.secondarySystemBackground)))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(.separator), lineWidth: 0.5))
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(title)
-        .accessibilityHint(message)
     }
 }
 

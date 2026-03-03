@@ -266,8 +266,6 @@ struct ScenePhaseSaveHandler<Content: View>: View {
             // Refresh entitlements each time the app returns to foreground to catch
             // renewals, expirations, or revocations that occurred in the background.
             Task { await StoreKitManager.shared.updateEntitlements() }
-            // Check if coaching add-on grace period has expired
-            NotificationCenter.default.post(name: .checkCoachingGracePeriod, object: nil)
             lastSavedPhase = .active
 
         case .inactive:

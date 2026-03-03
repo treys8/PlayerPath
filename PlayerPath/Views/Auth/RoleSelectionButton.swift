@@ -30,10 +30,10 @@ struct RoleSelectionButton: View {
                                 endPoint: .bottomTrailing
                             )
                         )
-                        .frame(width: 56, height: 56)
+                        .frame(width: 44, height: 44)
 
                     Image(systemName: icon)
-                        .font(.system(size: 26, weight: .medium))
+                        .font(.system(size: 22, weight: .medium))
                         .foregroundStyle(
                             isSelected
                                 ? AnyShapeStyle(Color.white)
@@ -59,7 +59,7 @@ struct RoleSelectionButton: View {
                 }
             }
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 18)
+            .padding(.vertical, 12)
             .padding(.horizontal, 8)
             .background(
                 RoundedRectangle(cornerRadius: 16)

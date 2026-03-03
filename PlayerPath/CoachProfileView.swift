@@ -13,9 +13,12 @@ struct CoachProfileView: View {
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @ObservedObject private var sharedFolderManager = SharedFolderManager.shared
     @ObservedObject private var storeManager = StoreKitManager.shared
+    @ObservedObject private var invitationManager = CoachInvitationManager.shared
     @State private var showingSignOutAlert = false
-    @State private var showingPaywall = false
     @State private var isSigningOut = false
+    @State private var showingPaywall = false
+    @State private var showingInvitations = false
+    @State private var showingEditProfile = false
     
     var body: some View {
         NavigationStack {
@@ -26,16 +29,16 @@ struct CoachProfileView: View {
                         Image(systemName: "person.circle.fill")
                             .font(.system(size: 60))
                             .foregroundColor(.green)
-                        
+
                         VStack(alignment: .leading, spacing: 4) {
                             Text(authManager.userDisplayName ?? "Coach")
                                 .font(.title3)
                                 .fontWeight(.semibold)
-                            
+
                             Text(authManager.userEmail ?? "")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
-                            
+
                             HStack(spacing: 4) {
                                 Image(systemName: "checkmark.seal.fill")
                                     .font(.caption)
@@ -46,17 +49,45 @@ struct CoachProfileView: View {
                         }
                     }
                     .padding(.vertical, 8)
+
+                    Button(action: { showingEditProfile = true }) {
+                        Label("Edit Profile", systemImage: "pencil")
+                    }
                 }
                 
-                // Stats Section
-                Section("Activity") {
+                // Subscription Section
+                Section("Subscription") {
                     HStack {
-                        Label("Athletes", systemImage: "person.3.fill")
+                        Label("Plan", systemImage: "star.fill")
                         Spacer()
-                        Text("\(uniqueAthleteCount)")
+                        Text(authManager.currentCoachTier.displayName)
                             .foregroundColor(.secondary)
                     }
 
+                    HStack {
+                        Label("Athletes", systemImage: "person.3.fill")
+                        Spacer()
+                        let limit = authManager.coachAthleteLimit
+                        if limit == Int.max {
+                            Text("\(uniqueAthleteCount) / ∞")
+                                .foregroundColor(.secondary)
+                        } else {
+                            Text("\(uniqueAthleteCount) / \(limit)")
+                                .foregroundColor(uniqueAthleteCount >= limit ? .orange : .secondary)
+                        }
+                    }
+
+                    Button {
+                        showingPaywall = true
+                    } label: {
+                        Label(authManager.currentCoachTier == .free ? "Upgrade Plan" : "Manage Plan",
+                              systemImage: "arrow.up.circle")
+                            .foregroundColor(.green)
+                    }
+                }
+
+                // Stats Section
+                Section("Activity") {
                     HStack {
                         Label("Shared Folders", systemImage: "folder.fill")
                         Spacer()
@@ -99,22 +130,55 @@ struct CoachProfileView: View {
                     }
                 }
 
-                // Account Section
-                Section("Account") {
-                    // Subscription Management
+                // Invitations Section
+                Section("Invitations") {
                     Button(action: {
                         Haptics.light()
-                        showingPaywall = true
+                        showingInvitations = true
                     }) {
                         HStack {
-                            Label("Subscription", systemImage: "crown")
+                            Label("Pending Invitations", systemImage: "envelope.badge.fill")
                             Spacer()
-                            Text("Manage")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
+                            if invitationManager.pendingInvitationsCount > 0 {
+                                Text("\(invitationManager.pendingInvitationsCount)")
+                                    .font(.caption)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 3)
+                                    .background(Color.green)
+                                    .foregroundStyle(.white)
+                                    .clipShape(Capsule())
+                            }
                         }
                     }
-                    .foregroundColor(.primary)
+                    .foregroundStyle(.primary)
+                }
+
+                // Help & Support Section
+                Section("Help & Support") {
+                    NavigationLink(destination: FAQView()) {
+                        Label("FAQ", systemImage: "questionmark.circle")
+                    }
+                    NavigationLink(destination: ContactSupportView()) {
+                        Label("Contact Support", systemImage: "envelope")
+                    }
+                }
+
+                // Legal Section
+                Section("Legal") {
+                    NavigationLink(destination: PrivacyPolicyView()) {
+                        Label("Privacy Policy", systemImage: "hand.raised")
+                    }
+                    NavigationLink(destination: TermsOfServiceView()) {
+                        Label("Terms of Service", systemImage: "doc.text")
+                    }
+                }
+
+                // Account Section
+                Section("Account") {
+                    NavigationLink(destination: AccountDeletionView().environmentObject(authManager)) {
+                        Label("Delete Account", systemImage: "trash")
+                            .foregroundColor(.red)
+                    }
 
                     Button(action: {
                         Haptics.warning()
@@ -142,9 +206,6 @@ struct CoachProfileView: View {
                     LoadingOverlay(message: "Signing out...")
                 }
             }
-            .sheet(isPresented: $showingPaywall) {
-                CoachPaywallView()
-            }
             .alert("Sign Out", isPresented: $showingSignOutAlert) {
                 Button("Sign Out", role: .destructive) {
                     Task {
@@ -159,6 +220,18 @@ struct CoachProfileView: View {
                 }
             } message: {
                 Text("Are you sure you want to sign out?")
+            }
+            .sheet(isPresented: $showingPaywall) {
+                CoachPaywallView()
+                    .environmentObject(authManager)
+            }
+            .sheet(isPresented: $showingInvitations) {
+                CoachInvitationsView()
+                    .environmentObject(authManager)
+            }
+            .sheet(isPresented: $showingEditProfile) {
+                EditCoachProfileView()
+                    .environmentObject(authManager)
             }
         }
     }
@@ -175,295 +248,6 @@ struct CoachProfileView: View {
 
     private var appVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "2.20.26"
-    }
-}
-
-// MARK: - Coach Paywall View
-
-struct CoachPaywallView: View {
-    @Environment(\.dismiss) private var dismiss
-    @EnvironmentObject private var authManager: ComprehensiveAuthManager
-    @Environment(\.openURL) private var openURL
-    @ObservedObject private var storeManager = StoreKitManager.shared
-
-    @State private var selectedProduct: Product?
-    @State private var showingError = false
-    @State private var isPurchasing = false
-    @State private var dismissTask: Task<Void, Never>?
-    @State private var showingTerms = false
-    @State private var showingPrivacyPolicy = false
-    
-    var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(spacing: 32) {
-                    // Header
-                    VStack(spacing: 16) {
-                        Image(systemName: "crown.fill")
-                            .font(.system(size: 60))
-                            .foregroundColor(.yellow)
-                        
-                        Text("Coach Premium")
-                            .font(.largeTitle)
-                            .fontWeight(.bold)
-                        
-                        Text("Access premium features to better support your athletes")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal)
-                    }
-                    .padding(.top, 32)
-                    
-                    // Features
-                    VStack(spacing: 20) {
-                        CoachFeatureRow(
-                            icon: "folder.badge.person.crop",
-                            title: "Shared Video Folders",
-                            description: "View and comment on athlete video folders"
-                        )
-                        
-                        CoachFeatureRow(
-                            icon: "chart.bar.fill",
-                            title: "Athlete Analytics",
-                            description: "Track performance across all your athletes"
-                        )
-                        
-                        CoachFeatureRow(
-                            icon: "person.3.fill",
-                            title: "Unlimited Athletes",
-                            description: "Work with as many athletes as you need"
-                        )
-                        
-                        CoachFeatureRow(
-                            icon: "bubble.left.fill",
-                            title: "Video Comments",
-                            description: "Provide feedback directly on videos"
-                        )
-                        
-                        CoachFeatureRow(
-                            icon: "icloud.fill",
-                            title: "Cloud Sync",
-                            description: "Access your data across all devices"
-                        )
-                    }
-                    .padding(.horizontal)
-                    
-                    // Subscription Options
-                    if storeManager.products.isEmpty {
-                        ProgressView("Loading subscription options...")
-                            .padding()
-                    } else {
-                        VStack(spacing: 12) {
-                            Text("Choose Your Plan")
-                                .font(.headline)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            
-                            ForEach(storeManager.coachingProducts, id: \.id) { product in
-                                CoachPaywallProductCard(
-                                    product: product,
-                                    isSelected: selectedProduct?.id == product.id,
-                                    onSelect: { selectedProduct = product }
-                                )
-                            }
-                        }
-                        .padding(.horizontal)
-                    }
-                    
-                    // Purchase Button
-                    Button(action: {
-                        Haptics.light()
-                        Task {
-                            await purchaseSelected()
-                        }
-                    }) {
-                        HStack {
-                            Text(purchaseButtonText)
-                                .font(.headline)
-                                .fontWeight(.semibold)
-
-                            if isPurchasing {
-                                ProgressView()
-                                    .tint(.white)
-                            }
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(Color.green)
-                        .foregroundColor(.white)
-                        .cornerRadius(12)
-                    }
-                    .disabled(selectedProduct == nil || isPurchasing)
-                    .padding(.horizontal)
-                    .accessibilityLabel(purchaseButtonText)
-                    .accessibilityHint("Purchase the selected subscription plan")
-                    
-                    Button(action: {
-                        Haptics.light()
-                        Task {
-                            await restorePurchases()
-                        }
-                    }) {
-                        Text("Restore Purchase")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                    }
-                    .disabled(isPurchasing)
-                    .accessibilityLabel("Restore Purchase")
-                    .accessibilityHint("Restore previously purchased subscriptions")
-
-                    VStack(spacing: 8) {
-                        if let product = selectedProduct, let subscription = product.subscription {
-                            Text("Then \(product.displayPrice) per \(subscriptionPeriodText(subscription.subscriptionPeriod.unit))")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-
-                        Text("Cancel anytime • Auto-renews until cancelled")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        HStack(spacing: 16) {
-                            Button("Terms of Service") { showingTerms = true }
-                                .font(.caption).foregroundColor(.blue)
-                            Button("Privacy Policy") { showingPrivacyPolicy = true }
-                                .font(.caption).foregroundColor(.blue)
-                        }
-                    }
-                    .multilineTextAlignment(.center)
-                    .padding(.bottom, 32)
-                }
-            }
-            .navigationTitle("Upgrade")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Close") {
-                        Haptics.light()
-                        dismiss()
-                    }
-                }
-            }
-            .sheet(isPresented: $showingTerms) { TermsOfServiceView() }
-            .sheet(isPresented: $showingPrivacyPolicy) { PrivacyPolicyView() }
-            .alert("Error", isPresented: $showingError, presenting: storeManager.error) { _ in
-                Button("OK", role: .cancel) {
-                    Haptics.light()
-                }
-            } message: { error in
-                Text(error.localizedDescription)
-            }
-            .overlay {
-                if isPurchasing {
-                    LoadingOverlay(message: "Processing purchase...")
-                }
-            }
-            .task {
-                // Load products if needed
-                if storeManager.products.isEmpty {
-                    await storeManager.loadProducts()
-                }
-
-                // Select coaching monthly by default
-                if selectedProduct == nil {
-                    selectedProduct = storeManager.coachingMonthlyProduct ?? storeManager.products.first
-                }
-            }
-            .onChange(of: storeManager.hasCoachingAddOn) { _, hasCoaching in
-                if hasCoaching {
-                    Haptics.success()
-
-                    // Dismiss after short delay with proper cancellation
-                    dismissTask?.cancel()
-                    dismissTask = Task {
-                        try? await Task.sleep(nanoseconds: 1_000_000_000)
-                        guard !Task.isCancelled else { return }
-
-                        await MainActor.run {
-                            dismiss()
-                        }
-                    }
-                }
-            }
-            .onDisappear {
-                // Cancel dismiss task on view disappear
-                dismissTask?.cancel()
-            }
-        }
-    }
-    
-    private func purchaseSelected() async {
-        guard let product = selectedProduct else { return }
-
-        isPurchasing = true
-
-        let result = await storeManager.purchase(product)
-
-        isPurchasing = false
-
-        switch result {
-        case .success:
-            // Success is handled in onChange with haptic feedback
-            break
-        case .cancelled:
-            // User cancelled, do nothing (no haptic)
-            break
-        case .pending:
-            await MainActor.run {
-                Haptics.light()
-            }
-            showingError = true
-        case .failed, .unknown:
-            await MainActor.run {
-                Haptics.error()
-            }
-            showingError = true
-        }
-    }
-
-    private func restorePurchases() async {
-        isPurchasing = true
-        await storeManager.restorePurchases()
-        isPurchasing = false
-
-        await MainActor.run {
-            if storeManager.hasCoachingAddOn {
-                Haptics.success()
-            } else {
-                Haptics.light()
-            }
-        }
-    }
-
-    // MARK: - Helper Methods
-
-    private var purchaseButtonText: String {
-        guard let product = selectedProduct,
-              let subscription = product.subscription,
-              let introOffer = subscription.introductoryOffer else {
-            return "Subscribe Now"
-        }
-
-        // Check if it's a free trial
-        if introOffer.price == 0 {
-            let period = introOffer.period
-            if period.unit == .day {
-                return "Start \(period.value)-Day Free Trial"
-            } else if period.unit == .week {
-                return "Start \(period.value)-Week Free Trial"
-            }
-        }
-
-        return "Subscribe Now"
-    }
-
-    private func subscriptionPeriodText(_ unit: Product.SubscriptionPeriod.Unit) -> String {
-        switch unit {
-        case .day: return "day"
-        case .week: return "week"
-        case .month: return "month"
-        case .year: return "year"
-        @unknown default: return "period"
-        }
     }
 }
 
@@ -499,55 +283,68 @@ struct CoachFeatureRow: View {
     }
 }
 
-// MARK: - Coaching Paywall Product Card
+// MARK: - Edit Coach Profile
 
-struct CoachPaywallProductCard: View {
-    let product: Product
-    let isSelected: Bool
-    let onSelect: () -> Void
+struct EditCoachProfileView: View {
+    @EnvironmentObject private var authManager: ComprehensiveAuthManager
+    @Environment(\.dismiss) private var dismiss
 
-    private var isAnnual: Bool {
-        product.subscription?.subscriptionPeriod.unit == .year
-    }
+    @State private var displayName = ""
+    @State private var isSaving = false
+    @State private var showError = false
+    @State private var errorMessage = ""
 
     var body: some View {
-        Button(action: onSelect) {
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text(product.displayName)
-                            .font(.headline)
-                        if isAnnual {
-                            Text("Best Value")
-                                .font(.caption)
-                                .fontWeight(.bold)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 2)
-                                .background(Color.green)
-                                .foregroundColor(.white)
-                                .cornerRadius(4)
-                        }
-                    }
-                    Text(product.description)
+        NavigationStack {
+            Form {
+                Section("Display Name") {
+                    TextField("Your name", text: $displayName)
+                        .textContentType(.name)
+                        .autocorrectionDisabled()
+                }
+
+                Section {
+                    Text("Your display name is visible to athletes you coach.")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
-                Spacer()
-                Text(product.displayPrice)
-                    .font(.title3)
-                    .fontWeight(.bold)
             }
-            .padding()
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(isSelected ? Color.green.opacity(0.1) : Color(.systemGray6))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .strokeBorder(isSelected ? Color.green : Color.clear, lineWidth: 2)
-            )
+            .navigationTitle("Edit Profile")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        Task { await saveProfile() }
+                    }
+                    .disabled(displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSaving)
+                }
+            }
+            .alert("Save Failed", isPresented: $showError) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(errorMessage)
+            }
+            .onAppear {
+                displayName = authManager.userDisplayName ?? ""
+            }
         }
-        .buttonStyle(.plain)
+    }
+
+    private func saveProfile() async {
+        let trimmed = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        isSaving = true
+        do {
+            try await authManager.updateDisplayName(trimmed)
+            await MainActor.run { dismiss() }
+        } catch {
+            errorMessage = error.localizedDescription
+            showError = true
+        }
+        isSaving = false
     }
 }
 

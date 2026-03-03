@@ -200,7 +200,7 @@ struct InvitationDetailView: View {
         isAccepting = true
 
         do {
-            try await folderManager.acceptInvitation(invitation)
+            try await folderManager.acceptInvitation(invitation, authManager: authManager)
 
             Haptics.success()
 
@@ -208,6 +208,9 @@ struct InvitationDetailView: View {
             try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
             dismiss()
 
+        } catch SharedFolderError.coachAthleteLimitReached {
+            errorMessage = "You've reached your athlete limit. Upgrade your plan in your Profile to add more athletes."
+            Haptics.error()
         } catch {
             errorMessage = "Failed to accept invitation: \(error.localizedDescription)"
             Haptics.error()

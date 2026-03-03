@@ -271,14 +271,11 @@ enum HelpArticle {
             ✅ Athletes, Seasons, Games
             ✅ Play results and statistics
             ✅ Video metadata (file info, tags, dates)
-
-            **What Doesn't Sync:**
-            ❌ Actual video files (they stay on the device that recorded them)
-            ❌ Video thumbnails
+            ✅ Video files (uploaded to cloud for backup and access)
 
             **How It Works:**
             1. Sign in with the same account on multiple devices
-            2. Data automatically syncs in the background every 60 seconds
+            2. Data automatically syncs in the background
             3. Changes appear on other devices within seconds
             4. Works offline—syncs when internet is available
 
@@ -286,14 +283,6 @@ enum HelpArticle {
             • Green checkmark = Synced
             • Spinning indicator = Syncing now
             • Warning icon = Sync failed (will retry)
-
-            **Why Don't Videos Sync?**
-            Video files are large (50-100MB each). Syncing them would:
-            • Use significant mobile data
-            • Consume cloud storage quota
-            • Slow down sync
-
-            Instead, only the metadata syncs (game info, tags, statistics). You can see what videos exist on other devices, but the actual video stays local.
 
             **Troubleshooting:**
             • Ensure you're signed in on all devices
@@ -328,10 +317,10 @@ enum HelpArticle {
             • Used in video library grid view
 
             **Cloud Storage:**
-            Video files are NOT uploaded to cloud storage by default. Only metadata (tags, dates, game info) syncs to the cloud.
+            Video files are uploaded to Firebase Storage for cloud backup and cross-device access. This uses your plan's storage quota.
 
             **Backing Up Videos:**
-            To backup videos:
+            To keep a local backup:
             1. Save to Photos app (use share button)
             2. Export to computer via Files app
             3. Use iCloud Photo Library backup
@@ -476,22 +465,19 @@ enum HelpArticle {
             return """
             PlayerPath lets you share your videos and stats with coaches:
 
-            **Shared Folders (Premium)**
+            **Shared Folders (Coaching Add-On)**
             Shared Folders allow you to share clips directly with a coach:
             1. Go to More tab → "Shared Folders"
             2. Tap "+" to create a new folder
             3. Name the folder (e.g., "Spring 2026 Highlights")
             4. Add videos from your library
-            5. Share the folder link with your coach
-
-            Coaches who receive the link can view the folder using the PlayerPath Coach app without needing a player account.
+            5. Invite your coach by email
 
             **Inviting a Coach**
-            1. Go to More tab → Settings
-            2. Tap "Shared Folders"
-            3. Open a folder and tap "Invite Coach"
-            4. Enter your coach's email address
-            5. They'll receive an invitation to view your folder
+            1. Go to More tab → "Shared Folders"
+            2. Open a folder and tap "Invite Coach"
+            3. Enter your coach's email address
+            4. They'll receive an invitation and can sign up for a free Coach account in PlayerPath
 
             **What Coaches Can See**
             • Videos you've added to the shared folder
@@ -504,8 +490,8 @@ enum HelpArticle {
             • Your account information
             • Other athletes' data
 
-            **Coach Account**
-            Coaches use a separate Coach account. If your coach doesn't have one, they can sign up for free at playerpath.app.
+            **Coach Annotations**
+            Coaches can leave timestamped notes directly on your videos. You'll receive a notification when feedback is added.
 
             **Removing Access**
             To revoke a coach's access, open the shared folder, tap the coach's name, and tap "Remove Access."

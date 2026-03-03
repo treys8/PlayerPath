@@ -13,25 +13,27 @@ struct CreateFolderView: View {
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @StateObject private var folderManager = SharedFolderManager.shared
     
-    @State private var folderName = ""
     @State private var coachEmail = ""
     @State private var permissions = FolderPermissions.default
-    
+
     @State private var isCreating = false
     @State private var showingError = false
     @State private var errorMessage = ""
     @State private var showingSuccess = false
-    
+
     private var isValid: Bool {
-        !folderName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
         !coachEmail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
         isValidEmail(coachEmail)
+    }
+
+    private var autoFolderName: String {
+        let name = authManager.userDisplayName ?? authManager.userEmail ?? "Athlete"
+        return "\(name)'s Videos"
     }
     
     var body: some View {
         NavigationStack {
             Form {
-                folderInfoSection
                 coachInviteSection
                 permissionsSection
                 
@@ -81,21 +83,7 @@ struct CreateFolderView: View {
     }
     
     // MARK: - Form Sections
-    
-    private var folderInfoSection: some View {
-        Section {
-            TextField("Folder Name", text: $folderName)
-                .textInputAutocapitalization(.words)
-                .autocorrectionDisabled()
-            
-        } header: {
-            Text("Folder Information")
-        } footer: {
-            Text("Give your folder a descriptive name, like your coach's name.")
-                .font(.caption)
-        }
-    }
-    
+
     private var coachInviteSection: some View {
         Section {
             TextField("Coach's Email", text: $coachEmail)
@@ -168,30 +156,28 @@ struct CreateFolderView: View {
         isCreating = true
         
         do {
+            let name = autoFolderName
+
             // Create folder
             let folderID = try await folderManager.createFolder(
-                name: folderName.trimmingCharacters(in: .whitespacesAndNewlines),
+                name: name,
                 forAthlete: athleteID,
                 hasCoachingAccess: authManager.hasCoachingAccess
             )
-            
+
             // Invite coach
             try await folderManager.inviteCoachToFolder(
                 coachEmail: coachEmail.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
                 folderID: folderID,
                 athleteID: athleteID,
                 athleteName: athleteName,
-                folderName: folderName.trimmingCharacters(in: .whitespacesAndNewlines),
+                folderName: name,
                 permissions: permissions
             )
             
             Haptics.success()
             showingSuccess = true
             
-        } catch SharedFolderError.premiumRequired {
-            errorMessage = "Premium subscription required to create shared folders"
-            showingError = true
-            Haptics.error()
         } catch {
             errorMessage = error.localizedDescription
             showingError = true

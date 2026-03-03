@@ -26,10 +26,13 @@ struct AuthenticatedFlow: View {
             } else if let user = currentUser {
                 let _ = print("🎯 AuthenticatedFlow - isNewUser: \(authManager.isNewUser), hasCompletedOnboarding: \(hasCompletedOnboarding), userRole: \(authManager.userRole.rawValue)")
                 
-                // Show onboarding for new coaches who haven't completed it yet
-                // Athletes skip straight to UserMainFlow which handles first-athlete creation
-                if authManager.isNewUser && !hasCompletedOnboarding && authManager.userRole == .coach {
-                    OnboardingFlow(user: user)
+                // Show onboarding for all new users who haven't completed it yet
+                if authManager.isNewUser && !hasCompletedOnboarding {
+                    if authManager.userRole == .coach {
+                        CoachOnboardingFlow(modelContext: modelContext, authManager: authManager, user: user)
+                    } else {
+                        OnboardingFlow(user: user)
+                    }
                 } else {
                     UserMainFlow(
                         user: user,
@@ -195,7 +198,27 @@ struct AuthenticatedFlow: View {
             print("🟡 loadUser cancelled before setting isLoading false")
             return
         }
-        
+
+        // For existing users (sign-in or app re-launch), mark the welcome tutorial as seen
+        // so they never unexpectedly receive the new-user tutorial after an app update.
+        // New users (isNewUser = true from signUp()) need a clean slate — clear any stale
+        // UserDefaults that may have been left by a previous account on this device.
+        if !authManager.isNewUser {
+            OnboardingManager.shared.markMilestoneComplete(.welcomeTutorial)
+        } else {
+            // Ensure welcome tutorial fires when the new user first reaches MainTabView,
+            // even if a previous account on this device had already seen it.
+            OnboardingManager.shared.resetWelcomeTutorial()
+            // Always start new users on the Home tab, not whatever tab a previous
+            // account had selected last.
+            UserDefaults.standard.removeObject(forKey: "LastSelectedTab")
+            // Athletes skip AthleteOnboardingFlow — WelcomeTutorialView in MainTabView
+            // is the welcome. Coaches keep their multi-page onboarding flow.
+            if authManager.userRole != .coach {
+                authManager.markOnboardingComplete()
+            }
+        }
+
         isLoading = false
     }
     

@@ -25,10 +25,11 @@ class StoreKitManager: ObservableObject {
 
     // Tier entitlements
     @Published private(set) var currentTier: SubscriptionTier = .free
-    @Published private(set) var hasCoachingAddOn: Bool = false
     @Published private(set) var tierExpirationDate: Date?
-    @Published private(set) var coachingExpirationDate: Date?
     @Published private(set) var isInBillingRetryPeriod: Bool = false
+
+    // Coach tier entitlements
+    @Published private(set) var currentCoachTier: CoachSubscriptionTier = .free
 
     // MARK: - Private Properties
 
@@ -54,16 +55,19 @@ class StoreKitManager: ObservableObject {
 
     /// Load products from App Store
     func loadProducts() async {
-        guard !productsLoaded else { return }
+        // Allow retry if a previous load succeeded but returned no products
+        guard !productsLoaded || products.isEmpty else { return }
 
         isLoading = true
         error = nil
 
         do {
             let productIDs = TierSubscriptionProduct.allCases.map { $0.rawValue }
+            + CoachSubscriptionProduct.allCases.map { $0.rawValue }
             let storeProducts = try await Product.products(for: productIDs)
             products = storeProducts.sorted { $0.price < $1.price }
-            productsLoaded = true
+            // Only mark as loaded once we have actual products
+            if !products.isEmpty { productsLoaded = true }
             print("✅ Loaded \(products.count) products from App Store")
             for product in products {
                 print("  - \(product.displayName): \(product.displayPrice)")
@@ -139,12 +143,11 @@ class StoreKitManager: ObservableObject {
 
     // MARK: - Entitlement Resolution
 
-    /// Re-evaluate all current entitlements and update tier + coaching add-on status.
+    /// Re-evaluate all current entitlements and update tier.
     func updateEntitlements() async {
         var resolvedTier: SubscriptionTier = .free
-        var resolvedCoaching = false
         var resolvedTierExpiration: Date?
-        var resolvedCoachingExpiration: Date?
+        var resolvedCoachTier: CoachSubscriptionTier = .free
         var newPurchasedIDs = Set<String>()
 
         for await result in Transaction.currentEntitlements {
@@ -165,20 +168,21 @@ class StoreKitManager: ObservableObject {
                     resolvedTier = .pro
                     resolvedTierExpiration = transaction.expirationDate
                 }
-            } else if SubscriptionTier.coachingProductIDs.contains(id) {
-                resolvedCoaching = true
-                resolvedCoachingExpiration = transaction.expirationDate
+            } else if CoachSubscriptionTier.instructorProductIDs.contains(id) {
+                if resolvedCoachTier < .instructor {
+                    resolvedCoachTier = .instructor
+                }
+            } else if CoachSubscriptionTier.proInstructorProductIDs.contains(id) {
+                if resolvedCoachTier < .proInstructor {
+                    resolvedCoachTier = .proInstructor
+                }
             }
         }
 
-        // Validate expiration dates
+        // Validate expiration date
         if let exp = resolvedTierExpiration, exp <= Date() {
             resolvedTier = .free
             resolvedTierExpiration = nil
-        }
-        if let exp = resolvedCoachingExpiration, exp <= Date() {
-            resolvedCoaching = false
-            resolvedCoachingExpiration = nil
         }
 
         // Check if any subscription is in billing retry (payment failed, Apple retrying).
@@ -197,12 +201,11 @@ class StoreKitManager: ObservableObject {
 
         purchasedProductIDs = newPurchasedIDs
         currentTier = resolvedTier
-        hasCoachingAddOn = resolvedCoaching
         tierExpirationDate = resolvedTierExpiration
-        coachingExpirationDate = resolvedCoachingExpiration
         isInBillingRetryPeriod = resolvedBillingRetry
+        currentCoachTier = resolvedCoachTier
 
-        print("✅ Entitlements: tier=\(resolvedTier.displayName), coaching=\(resolvedCoaching), billingRetry=\(resolvedBillingRetry)")
+        print("✅ Entitlements: tier=\(resolvedTier.displayName), coachTier=\(resolvedCoachTier.displayName), billingRetry=\(resolvedBillingRetry)")
     }
 
     // MARK: - Transaction Listening
@@ -238,12 +241,6 @@ class StoreKitManager: ObservableObject {
     /// True if user has Plus or Pro tier
     var isPlusOrAbove: Bool { currentTier >= .plus }
 
-    /// True if user is on the Pro tier
-    var isProTier: Bool { currentTier == .pro }
-
-    /// True if coaching add-on is active AND user has at least Plus
-    var hasFullCoachingAccess: Bool { hasCoachingAddOn && currentTier >= .plus }
-
     /// Bridge for call sites still checking `.isPremium`
     var isPremium: Bool { currentTier >= .plus }
 
@@ -257,28 +254,21 @@ class StoreKitManager: ObservableObject {
         products.filter { SubscriptionTier.proProductIDs.contains($0.id) }
     }
 
-    /// Coaching add-on products (monthly + annual)
-    var coachingProducts: [Product] {
-        products.filter { SubscriptionTier.coachingProductIDs.contains($0.id) }
-    }
-
-    /// Monthly Plus product
-    var plusMonthlyProduct: Product? {
-        products.first { $0.id == TierSubscriptionProduct.plusMonthly.rawValue }
-    }
-
-    /// Monthly Pro product
-    var proMonthlyProduct: Product? {
-        products.first { $0.id == TierSubscriptionProduct.proMonthly.rawValue }
-    }
-
-    /// Monthly coaching add-on product
-    var coachingMonthlyProduct: Product? {
-        products.first { $0.id == TierSubscriptionProduct.coachingMonthly.rawValue }
-    }
-
     /// Get product by TierSubscriptionProduct case
     func product(for item: TierSubscriptionProduct) -> Product? {
+        products.first { $0.id == item.rawValue }
+    }
+
+    // MARK: - Coach Product Helpers
+
+    /// All coach subscription products (Instructor + Pro Instructor, monthly + annual)
+    var coachProducts: [Product] {
+        let allCoachIDs = CoachSubscriptionProduct.allCases.map { $0.rawValue }
+        return products.filter { allCoachIDs.contains($0.id) }
+    }
+
+    /// Get product by CoachSubscriptionProduct case
+    func coachProduct(for item: CoachSubscriptionProduct) -> Product? {
         products.first { $0.id == item.rawValue }
     }
 }
@@ -318,10 +308,9 @@ enum StoreError: LocalizedError {
 #if DEBUG
 extension StoreKitManager {
     /// Mutates shared instance for SwiftUI previews — do not use in tests.
-    static func previewMock(tier: SubscriptionTier = .free, coaching: Bool = false) -> StoreKitManager {
+    static func previewMock(tier: SubscriptionTier = .free) -> StoreKitManager {
         let manager = StoreKitManager.shared
         manager.currentTier = tier
-        manager.hasCoachingAddOn = coaching
         return manager
     }
 }

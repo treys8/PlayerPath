@@ -19,6 +19,7 @@ struct CoachVideoPlayerView: View {
     @StateObject private var viewModel: CoachVideoPlayerViewModel
     @State private var showingAddNote = false
     @State private var selectedTab: VideoTab = .notes
+    @State private var showingSpeedPicker = false
     
     init(folder: SharedFolder, video: CoachVideoItem) {
         self.folder = folder
@@ -133,6 +134,36 @@ struct CoachVideoPlayerView: View {
         }
         .navigationTitle(video.fileName)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button {
+                    showingSpeedPicker = true
+                } label: {
+                    Text(viewModel.playbackRate == 1.0
+                         ? "1x"
+                         : viewModel.playbackRate < 1.0
+                             ? String(format: "%.2gx", viewModel.playbackRate)
+                             : String(format: "%.4gx", viewModel.playbackRate))
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                        .monospacedDigit()
+                        .foregroundColor(.green)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color.green.opacity(0.12))
+                        .clipShape(Capsule())
+                }
+                .accessibilityLabel("Playback speed: \(viewModel.playbackRate)x")
+            }
+        }
+        .confirmationDialog("Playback Speed", isPresented: $showingSpeedPicker) {
+            ForEach([0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0], id: \.self) { rate in
+                Button(rate == 1.0 ? "1x (Normal)" : "\(String(format: "%gx", rate))") {
+                    viewModel.setPlaybackRate(rate)
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        }
         .sheet(isPresented: $showingAddNote) {
             AddNoteView(
                 currentTime: viewModel.currentPlaybackTime,
@@ -280,16 +311,6 @@ struct NoteCardView: View {
                 }
                 
                 Spacer()
-                
-                if canDelete {
-                    Button(action: {
-                        showingDeleteAlert = true
-                    }) {
-                        Image(systemName: "trash")
-                            .font(.caption)
-                            .foregroundColor(.red)
-                    }
-                }
             }
             
             // Timestamp marker
@@ -521,6 +542,7 @@ class CoachVideoPlayerViewModel: ObservableObject {
     @Published var annotations: [VideoAnnotation] = []
     @Published var isLoadingAnnotations = false
     @Published var errorMessage: String?
+    @Published var playbackRate: Double = 1.0
     
     var currentPlaybackTime: Double {
         player?.currentTime().seconds ?? 0.0
@@ -584,7 +606,7 @@ class CoachVideoPlayerViewModel: ObservableObject {
             annotations.append(annotation)
             annotations.sort { $0.timestamp < $1.timestamp }
 
-            HapticManager.shared.success()
+            Haptics.success()
 
             // Notify the folder owner that a coach left feedback
             if isCoachComment {
@@ -603,7 +625,7 @@ class CoachVideoPlayerViewModel: ObservableObject {
         } catch {
             errorMessage = "Failed to add note: \(error.localizedDescription)"
             print("❌ Failed to add annotation: \(error)")
-            HapticManager.shared.error()
+            Haptics.error()
         }
     }
     
@@ -616,12 +638,12 @@ class CoachVideoPlayerViewModel: ObservableObject {
 
             annotations.removeAll { $0.id == annotationID }
 
-            HapticManager.shared.success()
+            Haptics.success()
 
         } catch {
             errorMessage = "Failed to delete note: \(error.localizedDescription)"
             print("❌ Failed to delete annotation: \(error)")
-            HapticManager.shared.error()
+            Haptics.error()
         }
     }
 
@@ -647,10 +669,14 @@ class CoachVideoPlayerViewModel: ObservableObject {
             }
         }
 
-        // Observe current time (for seeking functionality)
-        let interval = CMTime(seconds: 0.5, preferredTimescale: 600)
+        // Observe current time — reapply playback rate whenever the player starts playing,
+        // since VideoPlayer's native controls reset rate to 1.0 on play.
+        let interval = CMTime(seconds: 0.25, preferredTimescale: 600)
+        let rate = Float(self.playbackRate)
         timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { _ in
-            // Observer registered for potential future UI updates
+            if player.timeControlStatus == .playing, player.rate != rate {
+                player.rate = rate
+            }
         }
     }
 
@@ -663,8 +689,17 @@ class CoachVideoPlayerViewModel: ObservableObject {
 
     func seekToTimestamp(_ timestamp: Double) {
         let time = CMTime(seconds: timestamp, preferredTimescale: 600)
-        player?.seek(to: time, toleranceBefore: .zero, toleranceAfter: .zero)
+        // Use default tolerance — frame-accurate seeking (.zero) is unnecessarily expensive
+        player?.seek(to: time)
         player?.play()
+    }
+
+    func setPlaybackRate(_ rate: Double) {
+        playbackRate = rate
+        // Only apply if player is active; re-applied automatically on next play
+        if player?.timeControlStatus == .playing {
+            player?.rate = Float(rate)
+        }
     }
 }
 
@@ -700,6 +735,7 @@ class CoachVideoPlayerViewModel: ObservableObject {
                     uploadedByType: .coach,
                     isOrphaned: false,
                     orphanedAt: nil,
+                    annotationCount: nil,
                     videoType: "practice",
                     gameOpponent: nil,
                     gameDate: nil,

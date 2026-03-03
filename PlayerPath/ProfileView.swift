@@ -264,7 +264,7 @@ struct ProfileView: View {
             )
         ))
 
-        if user.hasCoachingAddOn && user.tier >= .plus {
+        if user.tier == .pro {
             items.append(SearchResult(
                 title: "Shared Folders",
                 icon: "folder.badge.person.crop",
@@ -331,18 +331,6 @@ struct ProfileView: View {
             )
         ))
 
-        items.append(SearchResult(
-            title: "Getting Started",
-            icon: "graduationcap.fill",
-            keywords: ["onboarding", "tutorial", "getting started", "help", "learn", "guide", "intro", "progress"],
-            link: AnyView(
-                NavigationLink {
-                    OnboardingProgressView()
-                } label: {
-                    Label("Getting Started", systemImage: "graduationcap.fill")
-                }
-            )
-        ))
 
         items.append(SearchResult(
             title: "Delete Account",
@@ -437,8 +425,8 @@ struct ProfileView: View {
 
     private var settingsSection: some View {
         Section("Settings") {
-            // Coach Sharing Feature (requires Coaching Add-On + Plus/Pro)
-            if user.hasCoachingAddOn && user.tier >= .plus {
+            // Coach Sharing Feature (requires Pro tier)
+            if user.tier == .pro {
                 NavigationLink {
                     AthleteFoldersListView()
                 } label: {
@@ -447,18 +435,18 @@ struct ProfileView: View {
             } else {
                 Button {
                     Haptics.warning()
-                    showCoachesPremiumAlert = true
+                    showingPaywall = true
                 } label: {
                     HStack {
                         Label("Shared Folders", systemImage: "folder.badge.person.crop")
                         Spacer()
                         HStack(spacing: 4) {
-                            Image(systemName: "person.badge.shield.checkmark.fill")
+                            Image(systemName: "crown.fill")
                                 .font(.caption)
-                            Text("Coaching Add-On")
+                            Text("Pro")
                                 .font(.caption)
                         }
-                        .foregroundColor(.indigo)
+                        .foregroundColor(.blue)
                     }
                 }
                 .foregroundColor(.primary)
@@ -552,14 +540,6 @@ struct ProfileView: View {
                 Label("Export Statistics", systemImage: "chart.bar.doc.horizontal")
             }
 
-            // Onboarding Progress
-            NavigationLink {
-                OnboardingProgressView()
-            } label: {
-                let progress = OnboardingManager.shared.onboardingProgress
-                Label("Getting Started", systemImage: "graduationcap.fill")
-                    .badge(Text("\(Int(progress * 100))%"))
-            }
 
             // Account Deletion (GDPR Compliance)
             NavigationLink {
@@ -1644,8 +1624,8 @@ struct SubscriptionView: View {
             SubscriptionFeatureRow(icon: "chart.bar.fill", title: "Advanced Statistics", description: "Detailed performance analytics")
             SubscriptionFeatureRow(icon: "square.and.arrow.up", title: "Export Reports", description: "CSV and PDF statistics export")
             SubscriptionFeatureRow(icon: "star.fill", title: "Auto Highlights", description: "Automatically generated highlight reels")
-            if user.hasCoachingAddOn {
-                SubscriptionFeatureRow(icon: "person.badge.shield.checkmark.fill", title: "Coaching Add-On", description: "Share videos and get coach feedback")
+            if user.tier == .pro {
+                SubscriptionFeatureRow(icon: "person.badge.shield.checkmark.fill", title: "Coach Sharing", description: "Share videos and get coach feedback")
             }
         }
     }

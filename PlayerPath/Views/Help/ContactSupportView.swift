@@ -71,21 +71,14 @@ struct ContactSupportView: View {
             }
 
             Section("Other Ways to Reach Us") {
-                Link(destination: URL(string: "mailto:support@playerpath.app")!) {
+                Link(destination: URL(string: "mailto:playerpath@proton.me")!) {
                     HelpRowLabel(
                         icon: "envelope",
                         title: "Email Support",
-                        subtitle: "support@playerpath.app"
+                        subtitle: "playerpath@proton.me"
                     )
                 }
 
-                Link(destination: URL(string: "https://playerpath.app/help")!) {
-                    HelpRowLabel(
-                        icon: "safari",
-                        title: "Help Center",
-                        subtitle: "playerpath.app/help"
-                    )
-                }
             }
         }
         .navigationTitle("Contact Support")
@@ -120,7 +113,7 @@ struct ContactSupportView: View {
         """
 
         let emailSubject = subject
-        let emailTo = "support@playerpath.app"
+        let emailTo = "playerpath@proton.me"
 
         let coded = "mailto:\(emailTo)?subject=\(emailSubject)&body=\(emailBody)"
             .addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)
@@ -131,7 +124,7 @@ struct ContactSupportView: View {
                 alertMessage = "Your email app will open with a pre-filled message."
                 showingAlert = true
             } else {
-                alertMessage = "Please send an email to support@playerpath.app with your question."
+                alertMessage = "Please send an email to playerpath@proton.me with your question."
                 showingAlert = true
             }
         }

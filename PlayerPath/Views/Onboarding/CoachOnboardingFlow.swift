@@ -328,7 +328,7 @@ private struct CoachHowItWorksPage: View {
                     Image(systemName: "lightbulb.fill")
                         .foregroundColor(.yellow)
                         .font(.subheadline)
-                    Text("You don't add athletes — they add you. Check your Dashboard after they invite you.")
+                    Text("Athletes can invite you, or you can invite athletes directly from your Dashboard. All invitations appear under My Athletes.")
                         .font(.caption)
                         .foregroundColor(.white.opacity(0.65))
                         .lineSpacing(2)

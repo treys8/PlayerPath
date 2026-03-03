@@ -14,6 +14,7 @@ struct CoachFolderDetailView: View {
     let folder: SharedFolder
 
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
+    @Environment(\.dismiss) private var dismiss
     @StateObject private var viewModel: CoachFolderViewModel
     @State private var selectedTab: FolderTab = .games
     @State private var showingUploadSheet = false
@@ -22,6 +23,9 @@ struct CoachFolderDetailView: View {
     @State private var showingPermissionError = false
     @State private var isRefreshingPermissions = false
     @State private var lastRefreshed: Date?
+    @State private var showingLeaveConfirmation = false
+    @State private var isLeaving = false
+    @ObservedObject private var archiveManager = CoachFolderArchiveManager.shared
 
     init(folder: SharedFolder) {
         self.folder = folder
@@ -62,11 +66,17 @@ struct CoachFolderDetailView: View {
             Group {
                 switch selectedTab {
                 case .games:
-                    GamesTabView(folder: folder, videos: viewModel.gameVideos)
+                    GamesTabView(folder: folder, videos: viewModel.gameVideos) {
+                        await viewModel.loadVideos()
+                    }
                 case .practices:
-                    PracticesTabView(folder: folder, videos: viewModel.practiceVideos)
+                    PracticesTabView(folder: folder, videos: viewModel.practiceVideos) {
+                        await viewModel.loadVideos()
+                    }
                 case .all:
-                    AllVideosTabView(folder: folder, videos: viewModel.videos)
+                    AllVideosTabView(folder: folder, videos: viewModel.videos) {
+                        await viewModel.loadVideos()
+                    }
                 }
             }
         }
@@ -91,13 +101,40 @@ struct CoachFolderDetailView: View {
             }
 
             ToolbarItem(placement: .navigationBarTrailing) {
-                if canUpload {
-                    Button {
-                        showingUploadSheet = true
-                    } label: {
-                        Image(systemName: "plus.circle.fill")
-                            .foregroundColor(.green)
+                Menu {
+                    if canUpload {
+                        Button {
+                            showingUploadSheet = true
+                        } label: {
+                            Label("Upload Video", systemImage: "plus.circle")
+                        }
                     }
+
+                    let folderID = folder.id ?? ""
+                    let archived = archiveManager.isArchived(folderID)
+                    Button {
+                        if archived {
+                            archiveManager.unarchive(folderID: folderID)
+                        } else {
+                            archiveManager.archive(folderID: folderID)
+                            dismiss()
+                        }
+                        Haptics.light()
+                    } label: {
+                        Label(
+                            archived ? "Unarchive Folder" : "Archive Folder",
+                            systemImage: archived ? "archivebox" : "archivebox.fill"
+                        )
+                    }
+
+                    Button(role: .destructive) {
+                        showingLeaveConfirmation = true
+                    } label: {
+                        Label("Leave Folder", systemImage: "rectangle.portrait.and.arrow.right")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .foregroundColor(.primary)
                 }
             }
         }
@@ -115,6 +152,45 @@ struct CoachFolderDetailView: View {
             if let error = permissionError {
                 Text(error)
             }
+        }
+        .confirmationDialog("Leave \"\(folder.name)\"?", isPresented: $showingLeaveConfirmation, titleVisibility: .visible) {
+            Button("Leave Folder", role: .destructive) {
+                Task { await leaveFolder() }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("You'll lose access to all videos in this folder. The athlete can re-invite you later.")
+        }
+        .disabled(isLeaving)
+        .overlay {
+            if isLeaving {
+                ZStack {
+                    Color(.systemBackground).opacity(0.8).ignoresSafeArea()
+                    VStack(spacing: 12) {
+                        ProgressView()
+                        Text("Leaving folder...")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+        }
+    }
+
+    @MainActor
+    private func leaveFolder() async {
+        guard let coachID = authManager.userID,
+              let folderID = folder.id else { return }
+        isLeaving = true
+        do {
+            try await SharedFolderManager.shared.leaveFolder(folderID: folderID, coachID: coachID)
+            Haptics.success()
+            dismiss()
+        } catch {
+            permissionError = "Failed to leave folder: \(error.localizedDescription)"
+            showingPermissionError = true
+            Haptics.error()
+            isLeaving = false
         }
     }
 
@@ -231,7 +307,8 @@ struct FolderInfoHeader: View {
 struct GamesTabView: View {
     let folder: SharedFolder
     let videos: [CoachVideoItem]
-    
+    let onRefresh: () async -> Void
+
     var body: some View {
         Group {
             if videos.isEmpty {
@@ -249,6 +326,7 @@ struct GamesTabView: View {
                     }
                     .padding()
                 }
+                .refreshable { await onRefresh() }
             }
         }
     }
@@ -331,7 +409,8 @@ struct GameGroupView: View {
 struct PracticesTabView: View {
     let folder: SharedFolder
     let videos: [CoachVideoItem]
-    
+    let onRefresh: () async -> Void
+
     var body: some View {
         Group {
             if videos.isEmpty {
@@ -349,6 +428,7 @@ struct PracticesTabView: View {
                     }
                     .padding()
                 }
+                .refreshable { await onRefresh() }
             }
         }
     }
@@ -431,7 +511,8 @@ struct PracticeGroupView: View {
 struct AllVideosTabView: View {
     let folder: SharedFolder
     let videos: [CoachVideoItem]
-    
+    let onRefresh: () async -> Void
+
     var body: some View {
         Group {
             if videos.isEmpty {
@@ -452,6 +533,7 @@ struct AllVideosTabView: View {
                     }
                     .padding()
                 }
+                .refreshable { await onRefresh() }
             }
         }
     }
@@ -515,14 +597,26 @@ struct CoachVideoRow: View {
                     }
                 }
                 
-                if let context = video.contextLabel {
-                    Text(context)
-                        .font(.caption2)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 2)
-                        .background(Color.blue.opacity(0.1))
-                        .foregroundColor(.blue)
-                        .cornerRadius(4)
+                HStack(spacing: 8) {
+                    if let context = video.contextLabel {
+                        Text(context)
+                            .font(.caption2)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 2)
+                            .background(Color.blue.opacity(0.1))
+                            .foregroundColor(.blue)
+                            .cornerRadius(4)
+                    }
+
+                    if let count = video.annotationCount, count > 0 {
+                        Label("\(count)", systemImage: "bubble.left.fill")
+                            .font(.caption2)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 2)
+                            .background(Color.green.opacity(0.12))
+                            .foregroundColor(.green)
+                            .cornerRadius(4)
+                    }
                 }
             }
             
@@ -628,6 +722,7 @@ struct CoachVideoItem: Identifiable {
     let gameDate: Date?
     let practiceDate: Date?
     let notes: String?
+    let annotationCount: Int?
     
     var contextLabel: String? {
         if let opponent = gameOpponent {
@@ -657,6 +752,7 @@ struct CoachVideoItem: Identifiable {
         self.gameDate = metadata.gameDate
         self.practiceDate = metadata.practiceDate
         self.notes = metadata.notes
+        self.annotationCount = metadata.annotationCount
     }
 }
 

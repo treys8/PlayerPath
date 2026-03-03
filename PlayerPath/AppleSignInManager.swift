@@ -20,7 +20,13 @@ final class AppleSignInManager: NSObject, ObservableObject {
     private var nonceTimestamp: Date?
     private let nonceExpirationSeconds: TimeInterval = 300 // 5 minutes
     private var authManager: ComprehensiveAuthManager?
-    
+    private var reAuthNonce: String?
+    private var reAuthContinuation: CheckedContinuation<ASAuthorizationAppleIDCredential, Error>?
+
+    /// Role to apply when a new user signs up via Apple ID.
+    /// Set this before calling signInWithApple() based on the user's role selection.
+    var pendingRole: UserRole = .athlete
+
     func configure(with authManager: ComprehensiveAuthManager) {
         self.authManager = authManager
     }
@@ -51,6 +57,31 @@ final class AppleSignInManager: NSObject, ObservableObject {
         authorizationController.performRequests()
     }
     
+    // MARK: - Re-authentication
+
+    func reauthenticate() async throws -> OAuthCredential {
+        let nonce = randomNonceString()
+        reAuthNonce = nonce
+        let appleCredential: ASAuthorizationAppleIDCredential = try await withCheckedThrowingContinuation { continuation in
+            reAuthContinuation = continuation
+            let request = ASAuthorizationAppleIDProvider().createRequest()
+            request.requestedScopes = []
+            request.nonce = sha256(nonce)
+            let controller = ASAuthorizationController(authorizationRequests: [request])
+            controller.delegate = self
+            controller.presentationContextProvider = self
+            controller.performRequests()
+        }
+        guard let idToken = appleCredential.identityToken,
+              let idTokenString = String(data: idToken, encoding: .utf8),
+              let rawNonce = reAuthNonce else {
+            throw NSError(domain: "AppleSignInManager", code: -1,
+                          userInfo: [NSLocalizedDescriptionKey: "Apple re-auth credential invalid"])
+        }
+        reAuthNonce = nil
+        return OAuthProvider.appleCredential(withIDToken: idTokenString, rawNonce: rawNonce, fullName: nil)
+    }
+
     // MARK: - Helper Methods
     
     private func randomNonceString(length: Int = 32) -> String {
@@ -115,6 +146,20 @@ final class AppleSignInManager: NSObject, ObservableObject {
 extension AppleSignInManager: ASAuthorizationControllerDelegate {
     func authorizationController(controller: ASAuthorizationController, didCompleteWithAuthorization authorization: ASAuthorization) {
         Task {
+            // Handle re-auth continuation before normal sign-in flow
+            if let continuation = reAuthContinuation {
+                reAuthContinuation = nil
+                guard let appleIDCredential = authorization.credential as? ASAuthorizationAppleIDCredential else {
+                    continuation.resume(throwing: NSError(domain: "AppleSignInManager", code: -2,
+                        userInfo: [NSLocalizedDescriptionKey: "Invalid Apple credential"]))
+                    isLoading = false
+                    return
+                }
+                continuation.resume(returning: appleIDCredential)
+                isLoading = false
+                return
+            }
+
             do {
                 guard let appleIDCredential = authorization.credential as? ASAuthorizationAppleIDCredential else {
                     await MainActor.run {
@@ -172,26 +217,33 @@ extension AppleSignInManager: ASAuthorizationControllerDelegate {
                 
                 // Sign in with Firebase (with automatic retry for transient errors)
                 let result = try await signInWithRetry(credential: credential)
-                
+
                 // Check if this is a new user
                 let isNewUser = result.additionalUserInfo?.isNewUser ?? false
-                
+
+                // IMPORTANT: Update auth state BEFORE commitChanges() to prevent a race
+                // condition where the Firebase auth state listener fires during the
+                // commitChanges() await and sees isNewUser = false, incorrectly calling
+                // loadUserProfile() and overwriting the coach role with .athlete.
+                await MainActor.run {
+                    authManager?.updateCurrentUser(result.user, isNewUser: isNewUser, role: isNewUser ? pendingRole : nil)
+                }
+
                 // Update display name if available and not already set
                 if let fullName = appleIDCredential.fullName,
                    result.user.displayName == nil || result.user.displayName?.isEmpty == true {
                     let displayName = [fullName.givenName, fullName.familyName]
                         .compactMap { $0 }
                         .joined(separator: " ")
-                    
+
                     if !displayName.isEmpty {
                         let changeRequest = result.user.createProfileChangeRequest()
                         changeRequest.displayName = displayName
                         try await changeRequest.commitChanges()
                     }
                 }
-                
+
                 await MainActor.run {
-                    authManager?.updateCurrentUser(result.user, isNewUser: isNewUser)
                     isLoading = false
                     currentNonce = nil // Clear nonce after successful use
                     nonceTimestamp = nil
@@ -213,6 +265,14 @@ extension AppleSignInManager: ASAuthorizationControllerDelegate {
     
     func authorizationController(controller: ASAuthorizationController, didCompleteWithError error: Error) {
         Task { @MainActor in
+            if let continuation = reAuthContinuation {
+                reAuthContinuation = nil
+                reAuthNonce = nil
+                continuation.resume(throwing: error)
+                isLoading = false
+                return
+            }
+
             currentNonce = nil // Clear nonce on cancellation/error
             nonceTimestamp = nil
             let authError = error as NSError

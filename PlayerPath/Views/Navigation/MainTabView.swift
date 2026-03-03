@@ -21,6 +21,10 @@ struct MainTabView: View {
     // More tab programmatic navigation
     @State private var morePath = NavigationPath()
 
+    // Welcome tutorial — shown once after first-time setup is complete
+    @StateObject private var onboardingManager = OnboardingManager.shared
+    @State private var showingWelcomeTutorial = false
+
     // Swipe gesture tracking
     @GestureState private var dragOffset: CGFloat = 0
     @State private var tabTransition: AnyTransition = .identity
@@ -100,6 +104,15 @@ struct MainTabView: View {
                 if PushNotificationService.shared.authorizationStatus == .notDetermined {
                     _ = await PushNotificationService.shared.requestAuthorization()
                 }
+                // Show welcome tutorial once for new users after onboarding is complete.
+                // Existing users have hasSeenWelcomeTutorial pre-marked in AuthenticatedFlow.loadUser().
+                if !onboardingManager.hasSeenWelcomeTutorial {
+                    try? await Task.sleep(for: .milliseconds(600))
+                    showingWelcomeTutorial = true
+                }
+            }
+            .sheet(isPresented: $showingWelcomeTutorial) {
+                WelcomeTutorialView()
             }
             .onChange(of: selectedTab) { _, newValue in
                 saveSelectedTab(newValue)

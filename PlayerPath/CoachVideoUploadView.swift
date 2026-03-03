@@ -95,9 +95,22 @@ struct CoachVideoUploadView: View {
                     
                     if let errorMessage = viewModel.errorMessage {
                         Section {
-                            Text(errorMessage)
-                                .foregroundColor(.red)
-                                .font(.caption)
+                            VStack(alignment: .leading, spacing: 10) {
+                                Text(errorMessage)
+                                    .foregroundColor(.red)
+                                    .font(.caption)
+
+                                Button {
+                                    Task { await uploadVideo() }
+                                } label: {
+                                    Label("Try Again", systemImage: "arrow.clockwise")
+                                        .font(.subheadline)
+                                        .fontWeight(.medium)
+                                        .frame(maxWidth: .infinity)
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .tint(.blue)
+                            }
                         }
                     }
                 }
@@ -127,10 +140,37 @@ struct CoachVideoUploadView: View {
                 matching: .videos
             )
             .fullScreenCover(isPresented: $viewModel.showingCamera) {
-                VideoRecordingView(onVideoRecorded: { url in
-                    viewModel.selectedVideoURL = url
-                })
+                ModernCameraView(
+                    onVideoRecorded: { url in
+                        viewModel.selectedVideoURL = url
+                        viewModel.showingCamera = false
+                    },
+                    onCancel: {
+                        viewModel.showingCamera = false
+                    }
+                )
+                .ignoresSafeArea()
             }
+            .overlay {
+                if viewModel.uploadComplete {
+                    ZStack {
+                        Color(.systemBackground).ignoresSafeArea()
+                        VStack(spacing: 20) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: 72))
+                                .foregroundColor(.green)
+                            Text("Upload Complete!")
+                                .font(.title2)
+                                .fontWeight(.bold)
+                            Text("Video added to \(folder.name).")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    .transition(.opacity)
+                }
+            }
+            .animation(.easeIn(duration: 0.2), value: viewModel.uploadComplete)
             .onChange(of: viewModel.selectedPhotoItem) { _, newItem in
                 Task {
                     await viewModel.loadVideo(from: newItem)
@@ -138,7 +178,10 @@ struct CoachVideoUploadView: View {
             }
             .onChange(of: viewModel.uploadComplete) { _, complete in
                 if complete {
-                    dismiss()
+                    Task {
+                        try? await Task.sleep(for: .milliseconds(800))
+                        dismiss()
+                    }
                 }
             }
         }
@@ -217,6 +260,7 @@ class CoachVideoUploadViewModel: ObservableObject {
         }
         
         isUploading = true
+        uploadComplete = false
         errorMessage = nil
         uploadProgress = 0.0
         
@@ -291,12 +335,12 @@ class CoachVideoUploadViewModel: ObservableObject {
             )
 
             uploadComplete = true
-            HapticManager.shared.success()
-            
+            Haptics.success()
+
         } catch {
             errorMessage = "Upload failed: \(error.localizedDescription)"
             print("❌ Video upload error: \(error)")
-            HapticManager.shared.error()
+            Haptics.error()
         }
         
         isUploading = false
@@ -367,33 +411,6 @@ struct VideoPickerTransferable: Transferable {
             let copy = URL.documentsDirectory.appending(path: "imported_\(UUID().uuidString).mov")
             try FileManager.default.copyItem(at: received.file, to: copy)
             return Self(url: copy)
-        }
-    }
-}
-
-// MARK: - Simple Video Recording View
-
-struct VideoRecordingView: View {
-    let onVideoRecorded: (URL) -> Void
-    @Environment(\.dismiss) private var dismiss
-    
-    var body: some View {
-        VStack {
-            Text("Camera Recording")
-                .font(.headline)
-                .padding()
-            
-            Spacer()
-            
-            Text("Camera interface would go here")
-                .foregroundColor(.secondary)
-            
-            Spacer()
-            
-            Button("Close") {
-                dismiss()
-            }
-            .padding()
         }
     }
 }

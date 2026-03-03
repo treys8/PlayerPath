@@ -11,6 +11,7 @@ import SwiftUI
 struct ActivityNotificationBanner: View {
     let notification: ActivityNotification
     let onDismiss: () -> Void
+    var onTap: (() -> Void)? = nil
 
     @State private var isVisible = false
 
@@ -58,6 +59,7 @@ struct ActivityNotificationBanner: View {
         }
         .onTapGesture {
             Haptics.light()
+            onTap?()
             onDismiss()
         }
     }

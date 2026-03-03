@@ -101,29 +101,32 @@ struct AddAthleteView: View {
                                 .accessibilityHint("Enter the athlete's name")
 
                             Button(action: { Haptics.light(); saveAthlete() }) {
-                                HStack {
+                                HStack(spacing: 10) {
                                     if isCreatingAthlete {
                                         ProgressView()
                                             .progressViewStyle(CircularProgressViewStyle(tint: .white))
                                     }
                                     Image(systemName: "plus.circle.fill")
-                                        .font(.title2)
-                                    Text(isFirstAthlete ? "Create First Athlete" : "Create Athlete")
-                                        .font(.headline)
+                                        .font(.title3)
                                         .fontWeight(.semibold)
+                                    Text(isFirstAthlete ? "Create First Athlete" : "Create Athlete")
+                                        .font(.title3)
+                                        .fontWeight(.bold)
                                 }
                                 .frame(maxWidth: .infinity)
-                                .frame(height: 54)
+                                .frame(height: 58)
                                 .background(
                                     LinearGradient(
-                                        colors: [.blue, .blue.opacity(0.8)],
-                                        startPoint: .leading,
-                                        endPoint: .trailing
+                                        colors: [.blue, .blue.opacity(0.85)],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
                                     )
                                 )
                                 .foregroundColor(.white)
-                                .cornerRadius(12)
+                                .cornerRadius(16)
+                                .shadow(color: .blue.opacity(0.4), radius: 12, x: 0, y: 6)
                             }
+                            .buttonStyle(.plain)
                             .disabled(!isValidAthleteName(athleteName) || isCreatingAthlete)
                             .accessibilityLabel(isFirstAthlete ? "Create first athlete profile" : "Create athlete profile")
                             .accessibilityHint("Creates a new athlete profile to start tracking performance")
@@ -153,13 +156,13 @@ struct AddAthleteView: View {
             .navigationTitle(isFirstAthlete ? "Get Started" : "New Athlete")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        dismiss()
-                    }
-                }
-
                 if !isFirstAthlete {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") {
+                            dismiss()
+                        }
+                    }
+
                     ToolbarItem(placement: .confirmationAction) {
                         Button(action: saveAthlete) {
                             HStack {
@@ -243,7 +246,13 @@ struct AddAthleteView: View {
         // Fix T: Enforce tier limit at the data layer, not just in the calling UI
         let currentCount = (user.athletes ?? []).count
         guard currentCount < user.tier.athleteLimit else {
-            validationErrorMessage = "You've reached the \(user.tier.athleteLimit)-athlete limit for your \(user.tier.displayName) plan. Upgrade to Pro to track up to 5 athletes."
+            let upgradeMessage: String
+            switch user.tier {
+            case .free: upgradeMessage = "Upgrade to Plus to track up to 3 athletes, or Pro to track up to 5."
+            case .plus: upgradeMessage = "Upgrade to Pro to track up to 5 athletes."
+            case .pro:  upgradeMessage = "You've reached the maximum of 5 athletes."
+            }
+            validationErrorMessage = "You've reached the \(user.tier.athleteLimit)-athlete limit for your \(user.tier.displayName) plan. \(upgradeMessage)"
             showingValidationError = true
             return
         }

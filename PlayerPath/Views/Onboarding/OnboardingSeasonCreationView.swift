@@ -19,7 +19,6 @@ struct OnboardingSeasonCreationView: View {
     @State private var isCreating = false
     @State private var showingError = false
     @State private var errorMessage = ""
-    @FocusState private var isNameFieldFocused: Bool
 
     // Season name suggestions based on current date
     private var suggestedSeasons: [String] {
@@ -38,12 +37,9 @@ struct OnboardingSeasonCreationView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 40) {
-                    Spacer()
-                        .frame(height: 20)
-
+                VStack(spacing: 24) {
                     // Header with icon
-                    VStack(spacing: 24) {
+                    VStack(spacing: 16) {
                         ZStack {
                             Circle()
                                 .fill(
@@ -58,7 +54,7 @@ struct OnboardingSeasonCreationView: View {
                                 .blur(radius: 20)
 
                             Image(systemName: "calendar.badge.plus")
-                                .font(.system(size: 80, weight: .medium))
+                                .font(.system(size: 60, weight: .medium))
                                 .foregroundStyle(
                                     LinearGradient(
                                         colors: [.green, .blue],
@@ -85,11 +81,11 @@ struct OnboardingSeasonCreationView: View {
                     }
 
                     // Feature highlights
-                    VStack(alignment: .leading, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 8) {
                         Text("Why Seasons Matter:")
                             .font(.headline)
                             .fontWeight(.semibold)
-                            .padding(.bottom, 8)
+                            .padding(.bottom, 2)
 
                         FeatureHighlight(
                             icon: "chart.bar.fill",
@@ -120,16 +116,20 @@ struct OnboardingSeasonCreationView: View {
                                 .fontWeight(.medium)
                                 .foregroundColor(.secondary)
 
-                            TextField("e.g. Spring 2025", text: $seasonName)
-                                .textFieldStyle(RoundedBorderTextFieldStyle())
-                                .focused($isNameFieldFocused)
-                                .autocorrectionDisabled()
-                                .submitLabel(.done)
-                                .onSubmit {
+                            ModernTextField(
+                                placeholder: "e.g. Spring 2026",
+                                text: $seasonName,
+                                icon: "calendar",
+                                autocapitalization: .words,
+                                validationState: seasonName.trimmingCharacters(in: .whitespaces).isEmpty ? .idle : .valid,
+                                onSubmit: {
                                     if !seasonName.trimmingCharacters(in: .whitespaces).isEmpty && !isCreating {
                                         createSeason()
                                     }
                                 }
+                            )
+                            .autocorrectionDisabled()
+                            .submitLabel(.done)
 
                             // Quick suggestions
                             if seasonName.isEmpty {
@@ -190,11 +190,12 @@ struct OnboardingSeasonCreationView: View {
                             if isCreating {
                                 ProgressView()
                                     .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                            } else {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .font(.title3)
+                                    .fontWeight(.semibold)
                             }
-                            Image(systemName: "checkmark.circle.fill")
-                                .font(.title3)
-                                .fontWeight(.semibold)
-                            Text("Create Season")
+                            Text(isCreating ? "Creating..." : "Create Season")
                                 .font(.title3)
                                 .fontWeight(.bold)
                         }
@@ -231,14 +232,6 @@ struct OnboardingSeasonCreationView: View {
         } message: {
             Text(errorMessage)
         }
-        .onAppear {
-            // Auto-select first suggestion after a brief delay
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                if seasonName.isEmpty, let firstSuggestion = suggestedSeasons.first {
-                    seasonName = firstSuggestion
-                }
-            }
-        }
     }
 
     private func createSeason() {
@@ -258,13 +251,7 @@ struct OnboardingSeasonCreationView: View {
             sport: selectedSport
         )
         season.activate()
-        season.athlete = athlete
-
-        // Initialize the seasons array if needed and add the season
-        if athlete.seasons == nil {
-            athlete.seasons = []
-        }
-        athlete.seasons?.append(season)
+        season.athlete = athlete // SwiftData auto-updates athlete.seasons via inverse relationship
 
         // Mark for Firestore sync
         season.needsSync = true

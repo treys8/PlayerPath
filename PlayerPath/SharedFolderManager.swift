@@ -8,6 +8,7 @@
 
 import Foundation
 import FirebaseAuth
+import FirebaseFirestore
 import Combine
 
 /// High-level business logic for managing shared folders
@@ -26,6 +27,7 @@ class SharedFolderManager: ObservableObject {
     @Published var errorMessage: String?
     
     private var cancellables = Set<AnyCancellable>()
+    private var coachFoldersListener: ListenerRegistration?
     
     private init() {
         // Observe Firestore loading state
@@ -310,8 +312,40 @@ class SharedFolderManager: ObservableObject {
     }
 
     // MARK: - Coach Functions
-    
-    /// Loads all folders shared with a coach
+
+    /// Starts a real-time Firestore listener for all folders shared with this coach.
+    /// Replaces the one-shot loadCoachFolders fetch — UI auto-updates when folders change.
+    func startCoachFoldersListener(coachID: String) {
+        stopCoachFoldersListener()
+        isLoading = true
+
+        let db = Firestore.firestore()
+        coachFoldersListener = db.collection("sharedFolders")
+            .whereField("sharedWithCoachIDs", arrayContains: coachID)
+            .order(by: "updatedAt", descending: true)
+            .addSnapshotListener { [weak self] snapshot, error in
+                guard let self else { return }
+                self.isLoading = false
+                if let error {
+                    print("❌ Coach folders listener error: \(error)")
+                    return
+                }
+                guard let docs = snapshot?.documents else { return }
+                let folders = docs.compactMap { doc -> SharedFolder? in
+                    var folder = try? doc.data(as: SharedFolder.self)
+                    folder?.id = doc.documentID
+                    return folder
+                }
+                self.coachFolders = folders
+            }
+    }
+
+    func stopCoachFoldersListener() {
+        coachFoldersListener?.remove()
+        coachFoldersListener = nil
+    }
+
+    /// Loads all folders shared with a coach (one-shot fetch, kept for backward compatibility)
     func loadCoachFolders(coachID: String) async throws {
         let folders = try await firestore.fetchSharedFolders(forCoach: coachID)
         coachFolders = folders
@@ -345,10 +379,17 @@ class SharedFolderManager: ObservableObject {
     }
     
     /// Accepts an invitation to join a shared folder
-    func acceptInvitation(_ invitation: CoachInvitation) async throws {
+    func acceptInvitation(_ invitation: CoachInvitation, authManager: ComprehensiveAuthManager? = nil) async throws {
         guard let invitationID = invitation.id,
               let coachID = Auth.auth().currentUser?.uid else {
             throw SharedFolderError.folderNotFound
+        }
+
+        // Enforce coach athlete limit before accepting
+        let currentAthleteCount = Set(coachFolders.map { $0.ownerAthleteID }).count
+        let limit = authManager?.coachAthleteLimit ?? Int.max
+        if currentAthleteCount >= limit {
+            throw SharedFolderError.coachAthleteLimitReached
         }
 
         // Fix M: Use the permissions the athlete specified in the invitation
@@ -384,8 +425,19 @@ class SharedFolderManager: ObservableObject {
         try await firestore.declineInvitation(invitationID: invitationID)
     }
     
+    /// Allows a coach to voluntarily leave a shared folder they have access to.
+    /// Removes the coach from the folder's sharedWithCoachIDs and permissions,
+    /// then removes the folder from the local coachFolders cache.
+    func leaveFolder(folderID: String, coachID: String) async throws {
+        try await firestore.removeCoachFromFolder(folderID: folderID, coachID: coachID)
+        await MainActor.run {
+            coachFolders.removeAll { $0.id == folderID }
+        }
+        print("✅ Coach \(coachID) left folder \(folderID)")
+    }
+
     // MARK: - Video Management
-    
+
     /// Uploads a video to a shared folder
     /// - Parameters:
     ///   - videoURL: Local file URL of the video
@@ -573,13 +625,14 @@ enum SharedFolderError: LocalizedError {
     case insufficientPermissions
     case folderNotFound
     case accessRevoked
+    case coachAthleteLimitReached
 
     var errorDescription: String? {
         switch self {
         case .premiumRequired:
             return "Plus or Pro subscription required to use coaching features"
         case .coachingRequired:
-            return "Coaching Add-On required to create shared folders. Add it to your Plus or Pro plan."
+            return "Pro subscription required to create shared folders and invite coaches."
         case .invalidName:
             return "Please enter a valid folder name"
         case .invalidEmail:
@@ -594,6 +647,8 @@ enum SharedFolderError: LocalizedError {
             return "Shared folder not found"
         case .accessRevoked:
             return "Your access to this folder has been revoked"
+        case .coachAthleteLimitReached:
+            return "You've reached your athlete limit. Upgrade your plan to add more athletes."
         }
     }
 }

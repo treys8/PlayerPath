@@ -222,11 +222,6 @@ final class Season {
         return !isActive && endDate != nil
     }
 
-    /// Is this season ended?
-    var isEnded: Bool {
-        return isArchived
-    }
-
     /// Current status of the season
     var status: SeasonStatus {
         if isActive {

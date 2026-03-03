@@ -40,10 +40,6 @@ extension View {
         modifier(TierGateModifier(requiredTier: .pro))
     }
 
-    /// Requires the Coaching Add-On (and at least Plus tier)
-    func coachingRequired() -> some View {
-        modifier(CoachingGateModifier())
-    }
 }
 
 // MARK: - Role Gate Modifier
@@ -108,34 +104,6 @@ struct TierGateModifier: ViewModifier {
                 iconColor: .yellow,
                 title: "\(requiredTier.displayName) Feature",
                 subtitle: "Upgrade to \(requiredTier.displayName) to unlock this feature",
-                buttonLabel: "View Plans"
-            ) {
-                showingPaywall = true
-            }
-            .sheet(isPresented: $showingPaywall) {
-                if let user = authManager.localUser {
-                    ImprovedPaywallView(user: user)
-                }
-            }
-        }
-    }
-}
-
-// MARK: - Coaching Gate Modifier
-
-struct CoachingGateModifier: ViewModifier {
-    @EnvironmentObject var authManager: ComprehensiveAuthManager
-    @State private var showingPaywall = false
-
-    func body(content: Content) -> some View {
-        if authManager.hasCoachingAccess {
-            content
-        } else {
-            LockedFeatureView(
-                icon: "person.badge.shield.checkmark.fill",
-                iconColor: .indigo,
-                title: "Coaching Feature",
-                subtitle: "Add the Coaching Add-On to unlock this feature",
                 buttonLabel: "View Plans"
             ) {
                 showingPaywall = true

@@ -29,9 +29,7 @@ struct UserMainFlow: View {
     // Quick Actions manager
     @StateObject private var quickActionsManager = QuickActionsManager.shared
 
-    // Onboarding
-    @StateObject private var onboardingManager = OnboardingManager.shared
-    @State private var showingWelcomeTutorial = false
+    // Onboarding (tutorial shown from MainTabView after setup is complete)
 
     init(user: User, isNewUserFlag: Bool, hasCompletedOnboarding: Bool) {
         self.user = user
@@ -244,23 +242,6 @@ struct UserMainFlow: View {
                 quickActionsManager.executeAction(action)
             }
         }
-        .sheet(isPresented: $showingWelcomeTutorial) {
-            WelcomeTutorialView()
-        }
-        .onAppear {
-            checkOnboardingStatus()
-        }
-    }
-
-    // MARK: - Onboarding Logic
-
-    private func checkOnboardingStatus() {
-        // Show welcome tutorial for new users who haven't seen it
-        if isNewUserFlag && !onboardingManager.hasSeenWelcomeTutorial {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                showingWelcomeTutorial = true
-            }
-        }
     }
 
     // MARK: - NotificationCenter Management
@@ -273,12 +254,6 @@ struct UserMainFlow: View {
             MainActor.assumeIsolated {
                 selectedAthlete = nil
                 showingAthleteSelection = true
-            }
-        }
-
-        notificationManager.observe(name: Notification.Name.checkCoachingGracePeriod) { _ in
-            Task { @MainActor in
-                await authManager.checkAndEnforceGracePeriod(for: selectedAthlete ?? athletesForUser.first)
             }
         }
     }
