@@ -640,9 +640,19 @@ final class ComprehensiveAuthManager: ObservableObject {
             errorMessage = nil
             userRole = .athlete // Reset to default
 
+            // Clear user-specific published state immediately (auth listener also does this
+            // async, but clearing here eliminates any race window between accounts)
+            userProfile = nil
+            localUser = nil
+            currentTier = .free
+            currentCoachTier = .free
+
             // Clear persisted role and onboarding completion from UserDefaults
             UserDefaults.standard.removeObject(forKey: AuthConstants.UserDefaultsKeys.userRole)
             UserDefaults.standard.removeObject(forKey: AuthConstants.UserDefaultsKeys.hasCompletedOnboarding)
+
+            // Stop active Firestore listeners for this user
+            ActivityNotificationService.shared.stopListening()
 
             // Clear biometric credentials on logout for security
             BiometricAuthenticationManager.shared.disableBiometric()

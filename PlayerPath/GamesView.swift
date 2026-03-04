@@ -974,6 +974,21 @@ struct GameDetailView: View {
                         Spacer()
                         Text("\(stats.strikeouts)")
                             .fontWeight(.semibold)
+                            .foregroundColor(.red)
+                    }
+                    HStack {
+                        Text("Ground Outs")
+                        Spacer()
+                        Text("\(stats.groundOuts)")
+                            .fontWeight(.semibold)
+                            .foregroundColor(.red)
+                    }
+                    HStack {
+                        Text("Fly Outs")
+                        Spacer()
+                        Text("\(stats.flyOuts)")
+                            .fontWeight(.semibold)
+                            .foregroundColor(.red)
                     }
                     HStack {
                         Text("Walks")
@@ -1681,10 +1696,10 @@ struct VideoClipRow: View {
         case .single: return .green
         case .double: return .blue
         case .triple: return .orange
-        case .homeRun: return .red
+        case .homeRun: return .gold
         case .walk: return .cyan
-        case .strikeout: return .red.opacity(0.8)
-        case .groundOut, .flyOut: return .gray
+        case .strikeout: return .red
+        case .groundOut, .flyOut: return .red
         case .ball: return .orange
         case .strike: return .green
         case .hitByPitch: return .purple
@@ -1951,7 +1966,7 @@ struct ManualStatisticsEntryView: View {
                     StatEntryRow(title: "Singles", value: $singles, icon: "1.circle.fill", color: .green)
                     StatEntryRow(title: "Doubles", value: $doubles, icon: "2.circle.fill", color: .blue)
                     StatEntryRow(title: "Triples", value: $triples, icon: "3.circle.fill", color: .orange)
-                    StatEntryRow(title: "Home Runs", value: $homeRuns, icon: "4.circle.fill", color: .red)
+                    StatEntryRow(title: "Home Runs", value: $homeRuns, icon: "4.circle.fill", color: .gold)
                 }
                 
                 Section("Offensive Statistics") {
@@ -1961,8 +1976,8 @@ struct ManualStatisticsEntryView: View {
                 
                 Section("Plate Appearance Outcomes") {
                     StatEntryRow(title: "Strikeouts (K's)", value: $strikeouts, icon: "k.circle.fill", color: .red)
-                    StatEntryRow(title: "Ground Outs", value: $groundOuts, icon: "arrow.down.circle.fill", color: .brown)
-                    StatEntryRow(title: "Fly Outs", value: $flyOuts, icon: "arrow.up.circle.fill", color: .indigo)
+                    StatEntryRow(title: "Ground Outs", value: $groundOuts, icon: "arrow.down.circle.fill", color: .red)
+                    StatEntryRow(title: "Fly Outs", value: $flyOuts, icon: "arrow.up.circle.fill", color: .red)
                     StatEntryRow(title: "Walks (BB's)", value: $walks, icon: "figure.walk", color: .cyan)
                 }
                 

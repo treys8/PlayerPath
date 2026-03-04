@@ -581,3 +581,175 @@ export const resendInvitationEmail = functions.https.onCall(async (data, context
     throw new functions.https.HttpsError('internal', 'Failed to resend email');
   }
 });
+
+// =============================================================================
+// SIGNED URL GENERATION
+// Requires the Cloud Functions service account to have the Storage Object Admin
+// IAM role granted in the Firebase console (IAM & Admin → IAM).
+// =============================================================================
+
+/**
+ * Returns a time-limited signed URL for a shared folder video.
+ * Verifies the caller is the folder owner or a shared coach before signing.
+ */
+export const getSignedVideoURL = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Authentication required');
+  }
+
+  const { folderID, fileName, expirationHours = 24 } = data;
+  if (!folderID || !fileName) {
+    throw new functions.https.HttpsError('invalid-argument', 'folderID and fileName are required');
+  }
+
+  const db = admin.firestore();
+  const folderDoc = await db.collection('sharedFolders').doc(folderID).get();
+  if (!folderDoc.exists) {
+    throw new functions.https.HttpsError('not-found', 'Folder not found');
+  }
+
+  const folder = folderDoc.data()!;
+  const sharedCoachIDs: string[] = folder.sharedWithCoachIDs || [];
+  const hasAccess = context.auth.uid === folder.ownerAthleteID || sharedCoachIDs.includes(context.auth.uid);
+  if (!hasAccess) {
+    throw new functions.https.HttpsError('permission-denied', 'Access denied to this folder');
+  }
+
+  const expiresAt = new Date();
+  expiresAt.setHours(expiresAt.getHours() + expirationHours);
+
+  try {
+    const bucket = admin.storage().bucket();
+    const [signedUrl] = await bucket.file(`shared_folders/${folderID}/${fileName}`).getSignedUrl({
+      action: 'read',
+      expires: expiresAt,
+    });
+    return { signedURL: signedUrl, expiresAt: expiresAt.toISOString() };
+  } catch (error) {
+    console.error('getSignedVideoURL error:', error);
+    throw new functions.https.HttpsError('internal', 'Failed to generate signed URL');
+  }
+});
+
+/**
+ * Returns a time-limited signed URL for a shared folder video thumbnail.
+ */
+export const getSignedThumbnailURL = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Authentication required');
+  }
+
+  const { folderID, videoFileName, expirationHours = 168 } = data;
+  if (!folderID || !videoFileName) {
+    throw new functions.https.HttpsError('invalid-argument', 'folderID and videoFileName are required');
+  }
+
+  const db = admin.firestore();
+  const folderDoc = await db.collection('sharedFolders').doc(folderID).get();
+  if (!folderDoc.exists) {
+    throw new functions.https.HttpsError('not-found', 'Folder not found');
+  }
+
+  const folder = folderDoc.data()!;
+  const sharedCoachIDs: string[] = folder.sharedWithCoachIDs || [];
+  const hasAccess = context.auth.uid === folder.ownerAthleteID || sharedCoachIDs.includes(context.auth.uid);
+  if (!hasAccess) {
+    throw new functions.https.HttpsError('permission-denied', 'Access denied to this folder');
+  }
+
+  const baseName = videoFileName.replace(/\.[^/.]+$/, '');
+  const thumbnailFileName = `${baseName}_thumbnail.jpg`;
+  const expiresAt = new Date();
+  expiresAt.setHours(expiresAt.getHours() + expirationHours);
+
+  try {
+    const bucket = admin.storage().bucket();
+    const [signedUrl] = await bucket
+      .file(`shared_folders/${folderID}/thumbnails/${thumbnailFileName}`)
+      .getSignedUrl({ action: 'read', expires: expiresAt });
+    return { signedURL: signedUrl, expiresAt: expiresAt.toISOString() };
+  } catch (error) {
+    console.error('getSignedThumbnailURL error:', error);
+    throw new functions.https.HttpsError('internal', 'Failed to generate thumbnail signed URL');
+  }
+});
+
+/**
+ * Returns signed URLs for multiple videos in a shared folder (batch).
+ */
+export const getBatchSignedVideoURLs = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Authentication required');
+  }
+
+  const { folderID, fileNames, expirationHours = 24 } = data;
+  if (!folderID || !Array.isArray(fileNames)) {
+    throw new functions.https.HttpsError('invalid-argument', 'folderID and fileNames array are required');
+  }
+
+  const db = admin.firestore();
+  const folderDoc = await db.collection('sharedFolders').doc(folderID).get();
+  if (!folderDoc.exists) {
+    throw new functions.https.HttpsError('not-found', 'Folder not found');
+  }
+
+  const folder = folderDoc.data()!;
+  const sharedCoachIDs: string[] = folder.sharedWithCoachIDs || [];
+  const hasAccess = context.auth.uid === folder.ownerAthleteID || sharedCoachIDs.includes(context.auth.uid);
+  if (!hasAccess) {
+    throw new functions.https.HttpsError('permission-denied', 'Access denied to this folder');
+  }
+
+  const expiresAt = new Date();
+  expiresAt.setHours(expiresAt.getHours() + expirationHours);
+  const bucket = admin.storage().bucket();
+
+  const urls = await Promise.all(
+    (fileNames as string[]).map(async (fileName: string) => {
+      try {
+        const [signedUrl] = await bucket
+          .file(`shared_folders/${folderID}/${fileName}`)
+          .getSignedUrl({ action: 'read', expires: expiresAt });
+        return { fileName, signedURL: signedUrl, expiresAt: expiresAt.toISOString() };
+      } catch (error) {
+        console.error(`Error signing ${fileName}:`, error);
+        return { fileName, error: 'Failed to generate URL' };
+      }
+    })
+  );
+
+  return { urls };
+});
+
+/**
+ * Returns a time-limited signed URL for a personal athlete video.
+ * Only the owning user may request their own video URLs.
+ */
+export const getPersonalVideoSignedURL = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Authentication required');
+  }
+
+  const { ownerUID, fileName, expirationHours = 24 } = data;
+  if (!ownerUID || !fileName) {
+    throw new functions.https.HttpsError('invalid-argument', 'ownerUID and fileName are required');
+  }
+
+  if (context.auth.uid !== ownerUID) {
+    throw new functions.https.HttpsError('permission-denied', 'Cannot access another user\'s videos');
+  }
+
+  const expiresAt = new Date();
+  expiresAt.setHours(expiresAt.getHours() + expirationHours);
+
+  try {
+    const bucket = admin.storage().bucket();
+    const [signedUrl] = await bucket
+      .file(`athlete_videos/${ownerUID}/${fileName}`)
+      .getSignedUrl({ action: 'read', expires: expiresAt });
+    return { signedURL: signedUrl, expiresAt: expiresAt.toISOString() };
+  } catch (error) {
+    console.error('getPersonalVideoSignedURL error:', error);
+    throw new functions.https.HttpsError('internal', 'Failed to generate signed URL');
+  }
+});

@@ -26,8 +26,12 @@ struct AuthenticatedFlow: View {
             } else if let user = currentUser {
                 let _ = print("🎯 AuthenticatedFlow - isNewUser: \(authManager.isNewUser), hasCompletedOnboarding: \(hasCompletedOnboarding), userRole: \(authManager.userRole.rawValue)")
                 
-                // Show onboarding for all new users who haven't completed it yet
-                if authManager.isNewUser && !hasCompletedOnboarding {
+                // Show onboarding whenever it hasn't been completed. isNewUser alone is not
+                // sufficient — a user who signs out mid-onboarding has isNewUser reset to false
+                // but still needs to finish onboarding. hasCompletedOnboarding is backed by
+                // both UserDefaults and SwiftData OnboardingProgress, so fully-onboarded
+                // returning users always evaluate it as true and skip correctly.
+                if !hasCompletedOnboarding {
                     if authManager.userRole == .coach {
                         CoachOnboardingFlow(modelContext: modelContext, authManager: authManager, user: user)
                     } else {

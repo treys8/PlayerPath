@@ -28,7 +28,7 @@ class SharedFolderManager: ObservableObject {
     
     private var cancellables = Set<AnyCancellable>()
     private var coachFoldersListener: ListenerRegistration?
-    
+
     private init() {
         // Observe Firestore loading state
         firestore.$isLoading
@@ -106,7 +106,7 @@ class SharedFolderManager: ObservableObject {
         }
 
         // Fix N: Guard against duplicate invitations for the same (folder, coach) pair
-        let existingInvitations = (try? await firestore.fetchPendingInvitations(forEmail: cleanEmail)) ?? []
+        let existingInvitations = try await firestore.fetchPendingInvitations(forEmail: cleanEmail)
         if existingInvitations.contains(where: { $0.folderID == folderID }) {
             throw SharedFolderError.duplicateInvitation
         }

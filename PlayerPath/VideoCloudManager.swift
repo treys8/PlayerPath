@@ -399,6 +399,7 @@ class VideoCloudManager: ObservableObject {
             .whereField("uploadedBy", isEqualTo: ownerUID)
             .whereField("isDeleted", isEqualTo: false)
             .order(by: "createdAt", descending: true)
+            .limit(to: 200)
             .getDocuments()
 
         var videos: [VideoClipMetadata] = []
@@ -479,6 +480,7 @@ class VideoCloudManager: ObservableObject {
             .whereField("uploadedBy", isEqualTo: ownerUID)
             .whereField("athleteId", isEqualTo: athleteStableId)
             .whereField("isDeleted", isEqualTo: false)
+            .limit(to: 200)
             .addSnapshotListener { snapshot, error in
                 guard let snapshot = snapshot else {
                     print("VideoCloudManager: Listener error: \(error?.localizedDescription ?? "Unknown")")

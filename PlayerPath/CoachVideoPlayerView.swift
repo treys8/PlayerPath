@@ -555,12 +555,22 @@ class CoachVideoPlayerViewModel: ObservableObject {
     
     func loadVideo() async {
         isLoading = true
-        
-        // Load video from Firebase Storage URL
-        if let url = URL(string: video.firebaseStorageURL) {
+
+        // Prefer a short-lived signed URL; fall back to the stored permanent URL
+        let playbackURLString: String
+        do {
+            playbackURLString = try await SecureURLManager.shared.getSecureVideoURL(
+                fileName: video.fileName,
+                folderID: folder.id ?? ""
+            )
+        } catch {
+            playbackURLString = video.firebaseStorageURL
+        }
+
+        if let url = URL(string: playbackURLString) {
             player = AVPlayer(url: url)
         }
-        
+
         isLoading = false
     }
     

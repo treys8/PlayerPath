@@ -229,6 +229,48 @@ class SecureURLManager {
         }
     }
     
+    /// Gets a secure, time-limited URL for a personal athlete video.
+    /// Only the owning user may request their own video URLs.
+    func getPersonalVideoURL(
+        ownerUID: String,
+        fileName: String,
+        expirationHours: Int = 24,
+        forceRefresh: Bool = false
+    ) async throws -> String {
+
+        let cacheKey = "personal_\(ownerUID)_\(fileName)"
+
+        if !forceRefresh,
+           let cached = urlCache[cacheKey],
+           !cached.isExpiringSoon {
+            return cached.url
+        }
+
+        let callable = functions.httpsCallable("getPersonalVideoSignedURL")
+        let data: [String: Any] = [
+            "ownerUID": ownerUID,
+            "fileName": fileName,
+            "expirationHours": expirationHours
+        ]
+
+        do {
+            let result = try await callable.call(data)
+            guard let response = result.data as? [String: Any],
+                  let signedURL = response["signedURL"] as? String,
+                  let expiresAtString = response["expiresAt"] as? String else {
+                throw SecureURLError.invalidResponse
+            }
+            let formatter = ISO8601DateFormatter()
+            guard let expiresAt = formatter.date(from: expiresAtString) else {
+                throw SecureURLError.invalidExpirationDate
+            }
+            urlCache[cacheKey] = CachedURL(url: signedURL, expiresAt: expiresAt)
+            return signedURL
+        } catch {
+            throw SecureURLError.functionCallFailed(error)
+        }
+    }
+
     /// Clears the URL cache
     func clearCache() {
         urlCache.removeAll()

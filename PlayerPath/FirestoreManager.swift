@@ -77,6 +77,7 @@ class FirestoreManager: ObservableObject {
             let snapshot = try await db.collection("sharedFolders")
                 .whereField("ownerAthleteID", isEqualTo: athleteID)
                 .order(by: "createdAt", descending: true)
+                .limit(to: 50)
                 .getDocuments()
             
             let folders = snapshot.documents.compactMap { doc -> SharedFolder? in
@@ -103,6 +104,7 @@ class FirestoreManager: ObservableObject {
             let snapshot = try await db.collection("sharedFolders")
                 .whereField("sharedWithCoachIDs", arrayContains: coachID)
                 .order(by: "updatedAt", descending: true)
+                .limit(to: 50)
                 .getDocuments()
 
             let folders = snapshot.documents.compactMap { doc -> SharedFolder? in
@@ -249,22 +251,21 @@ class FirestoreManager: ObservableObject {
         defer { isLoading = false }
         
         do {
-            // First, delete all videos in the folder
-            let videosSnapshot = try await db.collection("videos")
+            // Delete all videos in the folder (paginated — delete until none remain)
+            let videosQuery = db.collection("videos")
                 .whereField("sharedFolderID", isEqualTo: folderID)
-                .getDocuments()
-            
-            // Batch delete videos
-            let batch = db.batch()
-            for doc in videosSnapshot.documents {
-                batch.deleteDocument(doc.reference)
+            while true {
+                let videosSnapshot = try await videosQuery.limit(to: 400).getDocuments()
+                guard !videosSnapshot.documents.isEmpty else { break }
+                let batch = db.batch()
+                videosSnapshot.documents.forEach { batch.deleteDocument($0.reference) }
+                try await batch.commit()
             }
-            try await batch.commit()
             
             // Then delete the folder
             try await db.collection("sharedFolders").document(folderID).delete()
             
-            print("✅ Deleted folder \(folderID) and \(videosSnapshot.documents.count) videos")
+            print("✅ Deleted folder \(folderID) and its videos")
         } catch {
             print("❌ Failed to delete folder: \(error)")
             errorMessage = "Failed to delete folder."
@@ -409,6 +410,7 @@ class FirestoreManager: ObservableObject {
             let snapshot = try await db.collection("videos")
                 .whereField("sharedFolderID", isEqualTo: folderID)
                 .order(by: "createdAt", descending: true)
+                .limit(to: 100)
                 .getDocuments()
             
             let videos = snapshot.documents.compactMap { doc -> FirestoreVideoMetadata? in
@@ -524,6 +526,7 @@ class FirestoreManager: ObservableObject {
                 .document(videoID)
                 .collection("annotations")
                 .order(by: "timestamp")
+                .limit(to: 200)
                 .getDocuments()
             
             let annotations = snapshot.documents.compactMap { doc -> VideoAnnotation? in
@@ -630,6 +633,7 @@ class FirestoreManager: ObservableObject {
             let snapshot = try await db.collection("invitations")
                 .whereField("coachEmail", isEqualTo: email.lowercased())
                 .whereField("status", isEqualTo: "pending")
+                .limit(to: 100)
                 .getDocuments()
             
             let invitations = snapshot.documents.compactMap { doc -> CoachInvitation? in
@@ -752,6 +756,7 @@ class FirestoreManager: ObservableObject {
                 .whereField("type", isEqualTo: "coach_to_athlete")
                 .whereField("athleteEmail", isEqualTo: email.lowercased())
                 .whereField("status", isEqualTo: "pending")
+                .limit(to: 100)
                 .getDocuments()
 
             let invitations = snapshot.documents.compactMap { doc -> CoachToAthleteInvitation? in
@@ -900,81 +905,85 @@ class FirestoreManager: ObservableObject {
         do {
             print("🗑️ Deleting Firestore data for user: \(userID)")
 
-            // Step 1: Delete all shared folders owned by this user
-            let foldersSnapshot = try await db.collection("sharedFolders")
+            // Step 1: Delete all shared folders owned by this user (paginated)
+            let foldersQuery = db.collection("sharedFolders")
                 .whereField("ownerAthleteID", isEqualTo: userID)
-                .getDocuments()
-
-            for folderDoc in foldersSnapshot.documents {
-                let folderID = folderDoc.documentID
-
-                // Delete all videos in this folder
-                let videosSnapshot = try await db.collection("videos")
-                    .whereField("sharedFolderID", isEqualTo: folderID)
-                    .getDocuments()
-
-                // Batch delete videos and their annotations
-                for videoDoc in videosSnapshot.documents {
-                    let videoID = videoDoc.documentID
-
-                    // Delete all annotations for this video
-                    let annotationsSnapshot = try await db.collection("videos")
-                        .document(videoID)
-                        .collection("annotations")
-                        .getDocuments()
-
-                    let annotationBatch = db.batch()
-                    for annotationDoc in annotationsSnapshot.documents {
-                        annotationBatch.deleteDocument(annotationDoc.reference)
+            var folderCount = 0
+            while true {
+                let foldersSnapshot = try await foldersQuery.limit(to: 50).getDocuments()
+                guard !foldersSnapshot.documents.isEmpty else { break }
+                for folderDoc in foldersSnapshot.documents {
+                    let folderID = folderDoc.documentID
+                    // Delete all videos in this folder (paginated)
+                    let videosQuery = db.collection("videos")
+                        .whereField("sharedFolderID", isEqualTo: folderID)
+                    while true {
+                        let videosSnapshot = try await videosQuery.limit(to: 100).getDocuments()
+                        guard !videosSnapshot.documents.isEmpty else { break }
+                        for videoDoc in videosSnapshot.documents {
+                            // Delete annotations for this video (paginated)
+                            let annotationsQuery = db.collection("videos")
+                                .document(videoDoc.documentID)
+                                .collection("annotations")
+                            while true {
+                                let annSnap = try await annotationsQuery.limit(to: 400).getDocuments()
+                                guard !annSnap.documents.isEmpty else { break }
+                                let batch = db.batch()
+                                annSnap.documents.forEach { batch.deleteDocument($0.reference) }
+                                try await batch.commit()
+                            }
+                            try await videoDoc.reference.delete()
+                        }
                     }
-                    try await annotationBatch.commit()
-
-                    // Delete video document
-                    try await db.collection("videos").document(videoID).delete()
+                    try await db.collection("sharedFolders").document(folderID).delete()
+                    folderCount += 1
                 }
-
-                // Delete folder
-                try await db.collection("sharedFolders").document(folderID).delete()
-                print("✅ Deleted folder \(folderID) with \(videosSnapshot.documents.count) videos")
             }
+            print("✅ Deleted \(folderCount) folders with all videos")
 
-            // Step 2: Delete all annotations created by this user across all videos
-            let userAnnotationsSnapshot = try await db.collectionGroup("annotations")
+            // Step 2: Delete all annotations created by this user across all videos (paginated)
+            let userAnnotationsQuery = db.collectionGroup("annotations")
                 .whereField("userID", isEqualTo: userID)
-                .getDocuments()
-
-            let userAnnotationsBatch = db.batch()
-            for annotationDoc in userAnnotationsSnapshot.documents {
-                userAnnotationsBatch.deleteDocument(annotationDoc.reference)
+            var annotationCount = 0
+            while true {
+                let snap = try await userAnnotationsQuery.limit(to: 400).getDocuments()
+                guard !snap.documents.isEmpty else { break }
+                let batch = db.batch()
+                snap.documents.forEach { batch.deleteDocument($0.reference) }
+                try await batch.commit()
+                annotationCount += snap.documents.count
             }
-            try await userAnnotationsBatch.commit()
-            print("✅ Deleted \(userAnnotationsSnapshot.documents.count) annotations by user")
+            print("✅ Deleted \(annotationCount) annotations by user")
 
-            // Step 3: Delete all invitations sent by this user
-            let invitationsSnapshot = try await db.collection("invitations")
+            // Step 3: Delete all invitations sent by this user (paginated)
+            let invitationsQuery = db.collection("invitations")
                 .whereField("athleteID", isEqualTo: userID)
-                .getDocuments()
-
-            let invitationsBatch = db.batch()
-            for invitationDoc in invitationsSnapshot.documents {
-                invitationsBatch.deleteDocument(invitationDoc.reference)
+            var invitationCount = 0
+            while true {
+                let snap = try await invitationsQuery.limit(to: 400).getDocuments()
+                guard !snap.documents.isEmpty else { break }
+                let batch = db.batch()
+                snap.documents.forEach { batch.deleteDocument($0.reference) }
+                try await batch.commit()
+                invitationCount += snap.documents.count
             }
-            try await invitationsBatch.commit()
-            print("✅ Deleted \(invitationsSnapshot.documents.count) invitations")
+            print("✅ Deleted \(invitationCount) invitations")
 
-            // Step 4: Delete all in-app notifications for this user (GDPR)
-            let notificationsSnapshot = try await db.collection("notifications")
+            // Step 4: Delete all in-app notifications for this user (GDPR, paginated)
+            let notificationsQuery = db.collection("notifications")
                 .document(userID)
                 .collection("items")
-                .getDocuments()
-
-            let notificationsBatch = db.batch()
-            for notifDoc in notificationsSnapshot.documents {
-                notificationsBatch.deleteDocument(notifDoc.reference)
+            var notificationCount = 0
+            while true {
+                let snap = try await notificationsQuery.limit(to: 400).getDocuments()
+                guard !snap.documents.isEmpty else { break }
+                let batch = db.batch()
+                snap.documents.forEach { batch.deleteDocument($0.reference) }
+                try await batch.commit()
+                notificationCount += snap.documents.count
             }
-            try await notificationsBatch.commit()
             try? await db.collection("notifications").document(userID).delete()
-            print("✅ Deleted \(notificationsSnapshot.documents.count) notifications")
+            print("✅ Deleted \(notificationCount) notifications")
 
             // Step 5: Delete user profile document
             try await db.collection("users").document(userID).delete()
@@ -1211,6 +1220,7 @@ class FirestoreManager: ObservableObject {
                 .collection("seasons")
                 .whereField("isDeleted", isEqualTo: false)
                 .order(by: "createdAt", descending: true)
+                .limit(to: 100)
                 .getDocuments()
 
             let seasons = snapshot.documents.compactMap { doc -> FirestoreSeason? in
@@ -1329,6 +1339,7 @@ class FirestoreManager: ObservableObject {
                 .collection("games")
                 .whereField("isDeleted", isEqualTo: false)
                 .order(by: "date", descending: true)
+                .limit(to: 200)
                 .getDocuments()
 
             let games = snapshot.documents.compactMap { doc -> FirestoreGame? in
@@ -1447,6 +1458,7 @@ class FirestoreManager: ObservableObject {
                 .collection("practices")
                 .whereField("isDeleted", isEqualTo: false)
                 .order(by: "date", descending: true)
+                .limit(to: 200)
                 .getDocuments()
 
             let practices = snapshot.documents.compactMap { doc -> FirestorePractice? in

@@ -348,7 +348,15 @@ struct VideoPlayerView: View {
 
         // Try downloading from cloud if cloudURL exists and file is uploaded
         if let cloudURL = clip.cloudURL, clip.isUploaded {
-            print("VideoPlayerView: File not found locally, attempting cloud download from: \(cloudURL)")
+            // Prefer a short-lived signed URL; fall back to the stored permanent URL
+            var downloadURL = cloudURL
+            if let ownerUID = authManager.userID, !clip.fileName.isEmpty {
+                downloadURL = (try? await SecureURLManager.shared.getPersonalVideoURL(
+                    ownerUID: ownerUID,
+                    fileName: clip.fileName
+                )) ?? cloudURL
+            }
+            print("VideoPlayerView: File not found locally, attempting cloud download")
 
             await MainActor.run {
                 isDownloadingFromCloud = true
@@ -375,7 +383,7 @@ struct VideoPlayerView: View {
                     }
                 }
 
-                try await cloudManager.downloadVideo(from: cloudURL, to: destinationPath, clipId: clip.id)
+                try await cloudManager.downloadVideo(from: downloadURL, to: destinationPath, clipId: clip.id)
 
                 progressTask?.cancel()
 

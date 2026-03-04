@@ -992,10 +992,10 @@ struct VideoClipCard: View {
         case .single: return .green
         case .double: return .blue
         case .triple: return .orange
-        case .homeRun: return .red
+        case .homeRun: return .gold
         case .walk: return .cyan
-        case .strikeout: return .red.opacity(0.8)
-        case .groundOut, .flyOut: return .gray
+        case .strikeout: return .red
+        case .groundOut, .flyOut: return .red
         case .ball: return .orange
         case .strike: return .green
         case .hitByPitch: return .purple

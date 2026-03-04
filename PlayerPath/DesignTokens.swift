@@ -70,6 +70,9 @@ extension Color {
     static let premium = Color.yellow
     static let premiumBackground = Color.yellow.opacity(0.1)
     
+    /// Play result colors
+    static let gold = Color(red: 1.0, green: 0.75, blue: 0.0)
+
     /// Status colors
     static let success = Color.green
     static let warning = Color.orange

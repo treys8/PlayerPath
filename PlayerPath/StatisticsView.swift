@@ -919,7 +919,7 @@ struct BattingChartSection: View {
             PlayTypeData(type: "Singles", count: statistics.singles, color: .green),
             PlayTypeData(type: "Doubles", count: statistics.doubles, color: .blue),
             PlayTypeData(type: "Triples", count: statistics.triples, color: .orange),
-            PlayTypeData(type: "Home Runs", count: statistics.homeRuns, color: .red)
+            PlayTypeData(type: "Home Runs", count: statistics.homeRuns, color: .gold)
         ].filter { $0.count > 0 }
     }
 
@@ -1079,7 +1079,7 @@ struct PlayResultsSection: View {
             PlayResultData(type: "Singles", count: statistics.singles, color: .green),
             PlayResultData(type: "Doubles", count: statistics.doubles, color: .blue),
             PlayResultData(type: "Triples", count: statistics.triples, color: .orange),
-            PlayResultData(type: "Home Runs", count: statistics.homeRuns, color: .red),
+            PlayResultData(type: "Home Runs", count: statistics.homeRuns, color: .gold),
             PlayResultData(type: "Runs", count: statistics.runs, color: .purple),
             PlayResultData(type: "RBIs", count: statistics.rbis, color: .pink),
             PlayResultData(type: "Walks", count: statistics.walks, color: .cyan),

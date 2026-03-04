@@ -540,7 +540,8 @@ extension PlayResultType {
 
     var uiColor: Color {
         switch self {
-        case .single, .double, .triple, .homeRun: return .green
+        case .single, .double, .triple: return .green
+        case .homeRun: return .gold
         case .walk: return .blue
         case .strikeout, .groundOut, .flyOut: return .red
         case .ball: return .orange

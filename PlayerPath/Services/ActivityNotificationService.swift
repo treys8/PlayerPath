@@ -74,6 +74,10 @@ final class ActivityNotificationService: ObservableObject {
             .limit(to: 50)
             .addSnapshotListener { [weak self] snapshot, error in
                 guard let self else { return }
+                if let error {
+                    print("❌ Notification listener error: \(error)")
+                    return
+                }
                 guard let docs = snapshot?.documents else { return }
 
                 let notifications = docs.compactMap { doc -> ActivityNotification? in

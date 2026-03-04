@@ -23,7 +23,9 @@ struct ShareToCoachFolderView: View {
     var body: some View {
         NavigationStack {
             Group {
-                if folderManager.isLoading && folderManager.athleteFolders.isEmpty {
+                if !authManager.hasCoachingAccess {
+                    unauthorizedState
+                } else if folderManager.isLoading && folderManager.athleteFolders.isEmpty {
                     ProgressView("Loading folders…")
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if folderManager.athleteFolders.isEmpty {
@@ -64,6 +66,26 @@ struct ShareToCoachFolderView: View {
     }
 
     // MARK: - Sub-views
+
+    private var unauthorizedState: some View {
+        VStack(spacing: 20) {
+            Spacer()
+            Image(systemName: "lock.shield")
+                .font(.system(size: 56))
+                .foregroundColor(.secondary)
+            Text("Pro Required")
+                .font(.title2)
+                .fontWeight(.semibold)
+            Text("Coach sharing is a Pro feature. Upgrade to Pro to share videos with your coaches.")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 32)
+            Button("Dismiss") { dismiss() }
+                .padding(.top, 8)
+            Spacer()
+        }
+    }
 
     private var emptyState: some View {
         VStack(spacing: 20) {

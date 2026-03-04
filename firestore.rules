@@ -18,11 +18,10 @@ service cloud.firestore {
       return request.auth.uid == userID;
     }
 
-    // Coaching access requires Plus/Pro tier AND the coaching add-on purchased
+    // Coaching access requires Pro tier (add-on model removed 3/1/26)
     function hasCoachingAccess() {
       let user = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
-      return user.hasCoachingAddOn == true &&
-             (user.subscriptionTier == "plus" || user.subscriptionTier == "pro");
+      return user.subscriptionTier == "pro";
     }
 
     function canAccessFolder(folderID) {

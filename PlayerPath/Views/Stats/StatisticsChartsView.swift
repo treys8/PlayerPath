@@ -576,7 +576,7 @@ enum StatMetric: String, CaseIterable, Identifiable {
         case .sluggingPercentage: return .orange
         case .ops: return .purple
         case .hits: return .cyan
-        case .homeRuns: return .red
+        case .homeRuns: return .gold
         case .rbis: return .indigo
         case .runs: return .mint
         }

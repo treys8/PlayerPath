@@ -639,6 +639,10 @@ class CoachInvitationManager: ObservableObject {
 
     private init() {}
 
+    deinit {
+        stopInvitationsListener()
+    }
+
     /// Starts a real-time listener for pending invitations. Replaces one-shot checkPendingInvitations.
     @MainActor
     func startInvitationsListener(forCoachEmail email: String) {
