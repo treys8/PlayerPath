@@ -616,6 +616,18 @@ class CoachVideoPlayerViewModel: ObservableObject {
             annotations.append(annotation)
             annotations.sort { $0.timestamp < $1.timestamp }
 
+            // Mirror coach feedback to the unified comment thread so the athlete sees it
+            // in their practice/clip view. videoID == VideoClip.id.uuidString (same Firestore doc).
+            if isCoachComment {
+                try? await ClipCommentService.shared.postComment(
+                    clipId: videoID,
+                    text: text,
+                    authorId: userID,
+                    authorName: userName,
+                    authorRole: "coach"
+                )
+            }
+
             Haptics.success()
 
             // Notify the folder owner that a coach left feedback

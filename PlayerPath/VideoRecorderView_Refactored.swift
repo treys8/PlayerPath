@@ -60,6 +60,7 @@ struct VideoRecorderView_Refactored: View {
     @State private var smartSuggestion: String?
     @State private var recordedClipsCount: Int = 0
     @State private var autoOpeningCamera = false
+    @State private var autoOpenDidFire = false  // prevents re-fire when fullScreenCover dismisses
 
     // Video recording constraints
     private let maxRecordingDuration: TimeInterval = 600 // 10 minutes - matches validation
@@ -74,10 +75,13 @@ struct VideoRecorderView_Refactored: View {
         .type640x480: ("SD (480p)", 8.0)
     ]
     
-    init(athlete: Athlete?, game: Game? = nil, practice: Practice? = nil) {
+    let uploadOnly: Bool
+
+    init(athlete: Athlete?, game: Game? = nil, practice: Practice? = nil, uploadOnly: Bool = false) {
         self.athlete = athlete
         self.game = game
         self.practice = practice
+        self.uploadOnly = uploadOnly
     }
     
     var body: some View {
@@ -111,6 +115,7 @@ struct VideoRecorderView_Refactored: View {
                 Button("Discard Video", role: .destructive) {
                     pendingDismissAction?()
                     pendingDismissAction = nil
+                    cleanupAndDismiss()
                 }
                 Button("Keep Recording", role: .cancel) {
                     pendingDismissAction = nil
@@ -157,10 +162,14 @@ struct VideoRecorderView_Refactored: View {
                     showingBatteryWarning = true
                 }
 
-                // Quick record for live games - skip options and go straight to camera
-                if game?.isLive == true {
+                if uploadOnly && !autoOpenDidFire {
+                    autoOpenDidFire = true
+                    showingPhotoPicker = true
+                } else if game?.isLive == true && !autoOpenDidFire {
+                    // Quick record for live games - go straight to camera once per presentation
+                    autoOpenDidFire = true
                     autoOpeningCamera = true
-                    try? await Task.sleep(for: .milliseconds(100)) // Minimal delay for view to appear
+                    try? await Task.sleep(for: .milliseconds(100))
                     guard !Task.isCancelled, autoOpeningCamera else { return }
                     checkCameraPermission()
                     autoOpeningCamera = false
@@ -376,7 +385,13 @@ struct VideoRecorderView_Refactored: View {
                 showingTrimmerFromCamera = true
             },
             onCancel: {
-                showingNativeCamera = false
+                if game?.isLive == true && recordedVideoURL == nil {
+                    // Live game auto-routed here — user never should see the recorder main screen.
+                    // Exit the entire recorder cleanly rather than dropping them on a dead screen.
+                    cleanupAndDismiss()
+                } else {
+                    showingNativeCamera = false
+                }
             },
             onError: { error in
                 ErrorHandlerService.shared.handle(
@@ -386,52 +401,81 @@ struct VideoRecorderView_Refactored: View {
             }
         )
         .fullScreenCover(isPresented: $showingTrimmerFromCamera) {
-            // Swap content from trimmer → play result inside the same fullScreenCover
-            // to avoid dismiss→present animation gap
+            // Swap content from trimmer → save overlay inside the same fullScreenCover
+            // to avoid dismiss→present animation gap.
+            // Practice recordings show PracticeVideoSaveView; game/standalone show PlayResultOverlayView.
             if cameraFlowShowingPlayResult, let videoURL = recordedVideoURL {
                 let finalVideoURL = trimmedVideoURL ?? videoURL
-                PlayResultOverlayView(
-                    videoURL: finalVideoURL,
-                    athlete: athlete,
-                    game: game,
-                    practice: practice,
-                    onSave: { result, pitchSpeed, role in
-                        saveVideoWithResult(videoURL: finalVideoURL, playResult: result, pitchSpeed: pitchSpeed, role: role) {
-                            cameraFlowShowingPlayResult = false
-                            showingTrimmerFromCamera = false
-                            showingNativeCamera = false
-                            dismiss()
-                        }
-                    },
-                    onCancel: {
-                        pendingDismissAction = {
-                            VideoFileManager.cleanup(url: videoURL)
-                            if let trimmed = trimmedVideoURL {
-                                VideoFileManager.cleanup(url: trimmed)
+                if practice != nil {
+                    PracticeVideoSaveView(
+                        videoURL: finalVideoURL,
+                        athlete: athlete,
+                        practice: practice,
+                        onSave: { note in
+                            saveVideoWithResult(videoURL: finalVideoURL, playResult: nil, note: note) {
+                                cameraFlowShowingPlayResult = false
+                                showingTrimmerFromCamera = false
+                                showingNativeCamera = false
+                                dismiss()
                             }
-                            self.recordedVideoURL = nil
-                            self.trimmedVideoURL = nil
-                            self.cameraFlowShowingPlayResult = false
-                            self.showingTrimmerFromCamera = false
-                            self.showingNativeCamera = false
+                        },
+                        onDiscard: {
+                            pendingDismissAction = {
+                                VideoFileManager.cleanup(url: videoURL)
+                                if let trimmed = trimmedVideoURL {
+                                    VideoFileManager.cleanup(url: trimmed)
+                                }
+                                self.recordedVideoURL = nil
+                                self.trimmedVideoURL = nil
+                                self.cameraFlowShowingPlayResult = false
+                                self.showingTrimmerFromCamera = false
+                                self.showingNativeCamera = false
+                            }
+                            showingDiscardConfirmation = true
                         }
-                        showingDiscardConfirmation = true
-                    }
-                )
+                    )
+                } else {
+                    PlayResultOverlayView(
+                        videoURL: finalVideoURL,
+                        athlete: athlete,
+                        game: game,
+                        practice: practice,
+                        onSave: { result, pitchSpeed, role in
+                            saveVideoWithResult(videoURL: finalVideoURL, playResult: result, pitchSpeed: pitchSpeed, role: role) {
+                                cameraFlowShowingPlayResult = false
+                                showingTrimmerFromCamera = false
+                                showingNativeCamera = false
+                                dismiss()
+                            }
+                        },
+                        onCancel: {
+                            pendingDismissAction = {
+                                VideoFileManager.cleanup(url: videoURL)
+                                if let trimmed = trimmedVideoURL {
+                                    VideoFileManager.cleanup(url: trimmed)
+                                }
+                                self.recordedVideoURL = nil
+                                self.trimmedVideoURL = nil
+                                self.cameraFlowShowingPlayResult = false
+                                self.showingTrimmerFromCamera = false
+                                self.showingNativeCamera = false
+                            }
+                            showingDiscardConfirmation = true
+                        }
+                    )
+                }
             } else if let videoURL = recordedVideoURL {
                 PreUploadTrimmerView(
                     videoURL: videoURL,
                     onSave: { trimmedURL in
                         trimmedVideoURL = trimmedURL
-                        withAnimation(.easeInOut(duration: 0.25)) {
-                            cameraFlowShowingPlayResult = true
-                        }
+                        lockPortrait()
+                        cameraFlowShowingPlayResult = true
                     },
                     onSkip: {
                         trimmedVideoURL = nil
-                        withAnimation(.easeInOut(duration: 0.25)) {
-                            cameraFlowShowingPlayResult = true
-                        }
+                        lockPortrait()
+                        cameraFlowShowingPlayResult = true
                     },
                     onCancel: {
                         pendingDismissAction = {
@@ -453,49 +497,76 @@ struct VideoRecorderView_Refactored: View {
     
     @ViewBuilder
     private var videoTrimmerView: some View {
-        // Swap content from trimmer → play result inside the same fullScreenCover
+        // Swap content from trimmer → save overlay inside the same fullScreenCover.
+        // Practice recordings show PracticeVideoSaveView; game/standalone show PlayResultOverlayView.
         if uploadFlowShowingPlayResult, let videoURL = recordedVideoURL {
             let finalVideoURL = trimmedVideoURL ?? videoURL
-            PlayResultOverlayView(
-                videoURL: finalVideoURL,
-                athlete: athlete,
-                game: game,
-                practice: practice,
-                onSave: { result, pitchSpeed, role in
-                    saveVideoWithResult(videoURL: finalVideoURL, playResult: result, pitchSpeed: pitchSpeed, role: role) {
-                        uploadFlowShowingPlayResult = false
-                        showingTrimmer = false
-                        dismiss()
-                    }
-                },
-                onCancel: {
-                    pendingDismissAction = {
-                        VideoFileManager.cleanup(url: videoURL)
-                        if let trimmed = trimmedVideoURL {
-                            VideoFileManager.cleanup(url: trimmed)
+            if practice != nil {
+                PracticeVideoSaveView(
+                    videoURL: finalVideoURL,
+                    athlete: athlete,
+                    practice: practice,
+                    onSave: { note in
+                        saveVideoWithResult(videoURL: finalVideoURL, playResult: nil, note: note) {
+                            uploadFlowShowingPlayResult = false
+                            showingTrimmer = false
+                            dismiss()
                         }
-                        self.recordedVideoURL = nil
-                        self.trimmedVideoURL = nil
-                        self.uploadFlowShowingPlayResult = false
-                        self.showingTrimmer = false
+                    },
+                    onDiscard: {
+                        pendingDismissAction = {
+                            VideoFileManager.cleanup(url: videoURL)
+                            if let trimmed = trimmedVideoURL {
+                                VideoFileManager.cleanup(url: trimmed)
+                            }
+                            self.recordedVideoURL = nil
+                            self.trimmedVideoURL = nil
+                            self.uploadFlowShowingPlayResult = false
+                            self.showingTrimmer = false
+                        }
+                        showingDiscardConfirmation = true
                     }
-                    showingDiscardConfirmation = true
-                }
-            )
+                )
+            } else {
+                PlayResultOverlayView(
+                    videoURL: finalVideoURL,
+                    athlete: athlete,
+                    game: game,
+                    practice: practice,
+                    onSave: { result, pitchSpeed, role in
+                        saveVideoWithResult(videoURL: finalVideoURL, playResult: result, pitchSpeed: pitchSpeed, role: role) {
+                            uploadFlowShowingPlayResult = false
+                            showingTrimmer = false
+                            dismiss()
+                        }
+                    },
+                    onCancel: {
+                        pendingDismissAction = {
+                            VideoFileManager.cleanup(url: videoURL)
+                            if let trimmed = trimmedVideoURL {
+                                VideoFileManager.cleanup(url: trimmed)
+                            }
+                            self.recordedVideoURL = nil
+                            self.trimmedVideoURL = nil
+                            self.uploadFlowShowingPlayResult = false
+                            self.showingTrimmer = false
+                        }
+                        showingDiscardConfirmation = true
+                    }
+                )
+            }
         } else if let videoURL = recordedVideoURL {
             PreUploadTrimmerView(
                 videoURL: videoURL,
                 onSave: { trimmedURL in
                     trimmedVideoURL = trimmedURL
-                    withAnimation(.easeInOut(duration: 0.25)) {
-                        uploadFlowShowingPlayResult = true
-                    }
+                    lockPortrait()
+                    uploadFlowShowingPlayResult = true
                 },
                 onSkip: {
                     trimmedVideoURL = nil
-                    withAnimation(.easeInOut(duration: 0.25)) {
-                        uploadFlowShowingPlayResult = true
-                    }
+                    lockPortrait()
+                    uploadFlowShowingPlayResult = true
                 },
                 onCancel: {
                     pendingDismissAction = {
@@ -955,6 +1026,9 @@ struct VideoRecorderView_Refactored: View {
     }
     
     private func handleSelectedVideo(_ item: PhotosPickerItem?) {
+        // Lock to portrait immediately — before async processing — so the system has
+        // time to rotate before showingTrimmer fires and the cover is measured.
+        lockPortrait()
         Task {
             let result = await uploadService.processSelectedVideo(item)
             switch result {
@@ -1135,7 +1209,7 @@ struct VideoRecorderView_Refactored: View {
         smartSuggestion = nil
     }
     
-    private func saveVideoWithResult(videoURL: URL, playResult: PlayResultType?, pitchSpeed: Double? = nil, role: AthleteRole = .batter, onComplete: @escaping () -> Void) {
+    private func saveVideoWithResult(videoURL: URL, playResult: PlayResultType?, pitchSpeed: Double? = nil, role: AthleteRole = .batter, note: String? = nil, onComplete: @escaping () -> Void) {
         guard let athlete = athlete else {
             print("ERROR: No athlete selected for video save")
             UINotificationFeedbackGenerator().notificationOccurred(.error)
@@ -1165,6 +1239,7 @@ struct VideoRecorderView_Refactored: View {
                     playResult: playResult,
                     pitchSpeed: pitchSpeed,
                     role: role,
+                    note: note,
                     context: modelContext,
                     athlete: athlete,
                     game: game,
@@ -1190,12 +1265,26 @@ struct VideoRecorderView_Refactored: View {
         }
     }
     
+    /// Locks the UI to portrait immediately before presenting an overlay view.
+    /// Called synchronously so the orientation is already set when SwiftUI renders the overlay.
+    private func lockPortrait() {
+        PlayerPathAppDelegate.orientationLock = .portrait
+        if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
+            scene.requestGeometryUpdate(.iOS(interfaceOrientations: .portrait))
+        }
+    }
+
     private func cleanupAndDismiss() {
         print("VideoRecorder: cleanupAndDismiss called")
 
         // Cancel any pending save task
         saveTask?.cancel()
         saveTask = nil
+
+        // Kill auto-open synchronously so the .task guard sees it
+        // before checkCameraPermission() can fire after the 100ms sleep.
+        autoOpeningCamera = false
+        autoOpenDidFire = true
 
         Task { @MainActor in
             if let videoURL = recordedVideoURL {
@@ -1204,6 +1293,7 @@ struct VideoRecorderView_Refactored: View {
             if let trimmedURL = trimmedVideoURL {
                 VideoFileManager.cleanup(url: trimmedURL)
             }
+            autoOpeningCamera = false
             cameraFlowShowingPlayResult = false
             uploadFlowShowingPlayResult = false
             recordedVideoURL = nil
@@ -1213,6 +1303,8 @@ struct VideoRecorderView_Refactored: View {
             showingTrimmer = false
             showingPhotoPicker = false
             selectedVideoItem = nil
+            // Restore orientation when leaving recorder
+            PlayerPathAppDelegate.orientationLock = .allButUpsideDown
             print("VideoRecorder: State reset, attempting dismiss")
             dismiss()
         }
@@ -1753,6 +1845,29 @@ struct PreUploadTrimmerView: View {
         session.timeRange = CMTimeRangeFromTimeToTime(start: start, end: end)
         session.outputURL = outputURL
         session.outputFileType = .mp4
+
+        // Bake the preferredTransform into the export so portrait/landscape
+        // orientation is preserved correctly in the output file.
+        if let videoTrack = try? await asset.loadTracks(withMediaType: .video).first {
+            let transform = try? await videoTrack.load(.preferredTransform)
+            let naturalSize = try? await videoTrack.load(.naturalSize)
+            if let transform, let naturalSize {
+                let composition = AVMutableVideoComposition()
+                let size = naturalSize.applying(transform)
+                composition.renderSize = CGSize(
+                    width: abs(size.width),
+                    height: abs(size.height)
+                )
+                composition.frameDuration = CMTime(value: 1, timescale: 30)
+                let instruction = AVMutableVideoCompositionInstruction()
+                instruction.timeRange = CMTimeRangeMake(start: .zero, duration: asset.duration)
+                let layerInstruction = AVMutableVideoCompositionLayerInstruction(assetTrack: videoTrack)
+                layerInstruction.setTransform(transform, at: .zero)
+                instruction.layerInstructions = [layerInstruction]
+                composition.instructions = [instruction]
+                session.videoComposition = composition
+            }
+        }
 
         if #available(iOS 18.0, *) {
             do {

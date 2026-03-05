@@ -534,6 +534,7 @@ final class VideoClip {
     var pitchSpeed: Double?        // Pitch speed in MPH (optional, radar gun input)
     @Relationship(inverse: \PlayResult.videoClip) var playResult: PlayResult?
     var isHighlight: Bool = false
+    var note: String? = nil
     var game: Game?
     var practice: Practice?
     var athlete: Athlete?

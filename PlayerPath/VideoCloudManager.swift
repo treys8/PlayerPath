@@ -121,7 +121,9 @@ class VideoCloudManager: ObservableObject {
 
         // Create storage reference for athlete videos
         // Use Firebase Auth UID as the path segment so storage rules can enforce ownership
-        let ownerUID = Auth.auth().currentUser?.uid ?? athleteStableId
+        guard let ownerUID = Auth.auth().currentUser?.uid else {
+            throw VideoCloudError.uploadFailed("User session expired — please sign in again to upload")
+        }
         let storage = Storage.storage()
         let storageRef = storage.reference()
         let videoRef = storageRef.child("athlete_videos/\(ownerUID)/\(clipFileName)")
@@ -272,6 +274,7 @@ class VideoCloudManager: ObservableObject {
         let clipCreatedAt = videoClip.createdAt ?? Date()
         let clipDuration = videoClip.duration
         let clipThumbnailPath = videoClip.thumbnailPath
+        let clipNote = videoClip.note
         let playResultType = videoClip.playResult?.type
         let gameOpponent = videoClip.game?.opponent
         let gameId = videoClip.game?.id
@@ -287,7 +290,9 @@ class VideoCloudManager: ObservableObject {
         let db = Firestore.firestore()
 
         // Owner UID used for Firestore security rules and Storage path
-        let ownerUID = Auth.auth().currentUser?.uid ?? athleteStableId
+        guard let ownerUID = Auth.auth().currentUser?.uid else {
+            throw VideoCloudError.uploadFailed("User session expired — please sign in again to upload")
+        }
 
         // Build document data
         var data: [String: Any] = [
@@ -324,6 +329,9 @@ class VideoCloudManager: ObservableObject {
         if let seasonId = seasonId {
             data["seasonId"] = seasonId.uuidString
         }
+        if let note = clipNote {
+            data["note"] = note
+        }
 
         // Upload thumbnail to Storage if exists, then add URL to metadata
         if let thumbnailPath = clipThumbnailPath,
@@ -347,6 +355,13 @@ class VideoCloudManager: ObservableObject {
         print("VideoCloudManager: ✅ Saved video metadata to Firestore: \(clipFileName)")
     }
 
+    /// Updates only the note field on an existing video document in Firestore.
+    func updateVideoNote(clipId: String, note: String?) async throws {
+        let db = Firestore.firestore()
+        let value: Any = note ?? NSNull()
+        try await db.collection("videos").document(clipId).updateData(["note": value])
+    }
+
     /// Uploads a thumbnail image for an athlete's video
     private func uploadAthleteVideoThumbnail(
         thumbnailURL: URL,
@@ -357,7 +372,9 @@ class VideoCloudManager: ObservableObject {
         let storageRef = storage.reference()
 
         let thumbnailFileName = (videoFileName as NSString).deletingPathExtension + "_thumbnail.jpg"
-        let ownerUID = Auth.auth().currentUser?.uid ?? athleteStableId
+        guard let ownerUID = Auth.auth().currentUser?.uid else {
+            throw VideoCloudError.uploadFailed("User session expired — please sign in again to upload")
+        }
         let thumbnailRef = storageRef.child("athlete_videos/\(ownerUID)/thumbnails/\(thumbnailFileName)")
 
         let metadata = StorageMetadata()
@@ -388,9 +405,9 @@ class VideoCloudManager: ObservableObject {
     /// - Parameter athlete: The athlete whose videos to fetch
     /// - Returns: Array of video metadata from Firestore
     func syncVideos(for athlete: Athlete) async throws -> [VideoClipMetadata] {
-        // Use firestoreId as stable cross-device key; fall back to SwiftData UUID if not yet synced
-        let athleteStableId = athlete.firestoreId ?? athlete.id.uuidString
-        let ownerUID = Auth.auth().currentUser?.uid ?? athleteStableId
+        guard let ownerUID = Auth.auth().currentUser?.uid else {
+            throw VideoCloudError.uploadFailed("User session expired — please sign in again to upload")
+        }
         let db = Firestore.firestore()
 
         // Query videos for this athlete that aren't deleted.
@@ -473,8 +490,11 @@ class VideoCloudManager: ObservableObject {
     ) -> ListenerRegistration {
         // Use firestoreId as stable cross-device key; fall back to SwiftData UUID if not yet synced
         let athleteStableId = athlete.firestoreId ?? athlete.id.uuidString
-        let ownerUID = Auth.auth().currentUser?.uid ?? athleteStableId
         let db = Firestore.firestore()
+        guard let ownerUID = Auth.auth().currentUser?.uid else {
+            print("VideoCloudManager: ⚠️ listenForNewVideos called without authenticated user — returning no-op listener")
+            return db.collection("videos").limit(to: 0).addSnapshotListener { _, _ in }
+        }
 
         let listener = db.collection("videos")
             .whereField("uploadedBy", isEqualTo: ownerUID)
@@ -538,9 +558,10 @@ class VideoCloudManager: ObservableObject {
 
         // Capture values from SwiftData model before async boundary (Sendable compliance)
         let clipFileName = videoClip.fileName
-        let athleteStableId = athlete.firestoreId ?? athlete.id.uuidString
 
-        let ownerUID = Auth.auth().currentUser?.uid ?? athleteStableId
+        guard let ownerUID = Auth.auth().currentUser?.uid else {
+            throw VideoCloudError.uploadFailed("User session expired — please sign in again to upload")
+        }
         let storage = Storage.storage()
         let storageRef = storage.reference()
         let videoRef = storageRef.child("athlete_videos/\(ownerUID)/\(clipFileName)")
@@ -684,7 +705,9 @@ class VideoCloudManager: ObservableObject {
 
         // Create storage reference for athlete videos
         // Use Firebase Auth UID as the path segment so storage rules can enforce ownership
-        let ownerUID = Auth.auth().currentUser?.uid ?? athleteStableId
+        guard let ownerUID = Auth.auth().currentUser?.uid else {
+            throw VideoCloudError.uploadFailed("User session expired — please sign in again to upload")
+        }
         let storage = Storage.storage()
         let storageRef = storage.reference()
         let videoRef = storageRef.child("athlete_videos/\(ownerUID)/\(fileName)")

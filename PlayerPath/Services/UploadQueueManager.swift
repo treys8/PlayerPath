@@ -30,8 +30,8 @@ final class UploadQueueManager {
 
     private var processingTask: Task<Void, Never>?
     private let maxConcurrentUploads = 2
-    private let maxRetries = 3
-    private let retryDelays: [TimeInterval] = [5, 15, 60] // 5s, 15s, 1min
+    private let maxRetries = 10
+    private let retryDelays: [TimeInterval] = [5, 15, 60, 120, 300, 600, 900, 1800, 3600] // 5s→15s→1m→2m→5m→10m→15m→30m→1hr
 
     private var modelContext: ModelContext?
     private var isConfigured = false
@@ -507,8 +507,17 @@ final class UploadQueueManager {
                 try await cloudManager.saveVideoMetadataToFirestore(clip, athlete: athlete, downloadURL: cloudURL)
                 print("UploadQueueManager: ✅ Successfully uploaded and synced \(upload.fileName)")
             } catch {
-                // Log but don't fail - local upload succeeded
+                // Storage upload succeeded but Firestore metadata write failed.
+                // Mark needsSync=true so SyncCoordinator's predicate (isUploaded && firestoreId==nil)
+                // picks it up, then trigger an immediate sync rather than waiting for the 60s tick.
                 print("UploadQueueManager: ⚠️ Upload succeeded but Firestore sync failed: \(error.localizedDescription)")
+                clip.needsSync = true
+                try? context.save()
+                if let user = athlete.user {
+                    Task {
+                        try? await SyncCoordinator.shared.syncAll(for: user)
+                    }
+                }
             }
 
             // Track analytics (estimate upload duration from last attempt)

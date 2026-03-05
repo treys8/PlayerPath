@@ -35,11 +35,13 @@ class PlayerPathAppDelegate: NSObject, UIApplicationDelegate {
     }
     
     // MARK: - Orientation Support
-    
+
+    /// Set this to temporarily lock orientation (e.g. portrait for review screens).
+    /// Always restore to `.allButUpsideDown` on dismiss.
+    static var orientationLock: UIInterfaceOrientationMask = .allButUpsideDown
+
     func application(_ application: UIApplication, supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
-        // Allow all orientations for camera/video recording
-        // SwiftUI views will override this to lock to portrait if needed
-        return .allButUpsideDown
+        return PlayerPathAppDelegate.orientationLock
     }
     
     // MARK: - Push Notifications Setup

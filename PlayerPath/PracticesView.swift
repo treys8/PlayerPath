@@ -169,27 +169,26 @@ struct PracticesView: View {
                             }
                         }
 
-                        // Statistics summary
-                        if !practices.isEmpty && editMode == .inactive {
-                            HStack {
-                                Image(systemName: "chart.bar.fill")
-                                    .foregroundColor(.green)
-                                    .font(.caption)
-
-                                Text(practicesSummary)
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                                    .lineLimit(1)
-                                    .minimumScaleFactor(0.8)
-
-                                Spacer()
-                            }
-                            .padding(.horizontal)
-                            .padding(.vertical, 8)
-                            .background(Color(.secondarySystemBackground))
-                        }
-
                         List(selection: $selection) {
+                            // Statistics summary — inside the list so it scrolls away
+                            if !practices.isEmpty && editMode == .inactive {
+                                HStack {
+                                    Image(systemName: "chart.bar.fill")
+                                        .foregroundColor(.green)
+                                        .font(.caption)
+
+                                    Text(practicesSummary)
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                        .lineLimit(1)
+                                        .minimumScaleFactor(0.8)
+
+                                    Spacer()
+                                }
+                                .listRowBackground(Color.clear)
+                                .listRowSeparator(.hidden)
+                            }
+
                             ForEach(filteredPractices, id: \.persistentModelID) { practice in
                                 if editMode == .active {
                                     PracticeRow(practice: practice)
@@ -817,16 +816,17 @@ struct PracticeVideoClipRow: View {
     let clip: VideoClip
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @State private var showingShareToFolder = false
+    @State private var showingNoteEditor = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Image(systemName: "video.fill")
                     .foregroundColor(.blue)
                     .font(.title3)
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(clip.fileName)
+                    Text(clip.createdAt.map { Self.timeFormatter.string(from: $0) } ?? "Practice Clip")
                         .font(.subheadline)
                         .fontWeight(.medium)
                         .lineLimit(1)
@@ -844,15 +844,46 @@ struct PracticeVideoClipRow: View {
 
                 Spacer()
 
-                if let createdAt = clip.createdAt {
-                    Text(createdAt, style: .relative)
+                if let duration = clip.duration {
+                    Text(Self.formatDuration(duration))
                         .font(.caption2)
                         .foregroundColor(.secondary)
+                        .monospacedDigit()
                 }
+            }
+
+            // Athlete note preview
+            if let note = clip.note, !note.isEmpty {
+                Button {
+                    showingNoteEditor = true
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "note.text")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Text(note)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
+                        Spacer()
+                    }
+                }
+                .buttonStyle(.plain)
+            }
+
+            // Coach comment thread (loads from Firestore; empty for non-Pro users)
+            if let clipId = clip.firestoreId {
+                ClipCommentSection(clipId: clipId)
             }
         }
         .padding(.vertical, 4)
         .contextMenu {
+            Button {
+                showingNoteEditor = true
+            } label: {
+                Label(clip.note?.isEmpty == false ? "Edit Note" : "Add Note", systemImage: "note.text")
+            }
             if authManager.hasCoachingAccess {
                 Button {
                     showingShareToFolder = true
@@ -864,6 +895,91 @@ struct PracticeVideoClipRow: View {
         .sheet(isPresented: $showingShareToFolder) {
             ShareToCoachFolderView(clip: clip)
         }
+        .sheet(isPresented: $showingNoteEditor) {
+            EditClipNoteSheet(clip: clip)
+        }
+    }
+
+    // "2:45 PM" — readable clip title derived from creation time
+    private static let timeFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.timeStyle = .short
+        f.dateStyle = .none
+        return f
+    }()
+
+    // Static duration string — "0:24", "1:03", etc.
+    private static func formatDuration(_ seconds: Double) -> String {
+        let total = Int(seconds)
+        return String(format: "%d:%02d", total / 60, total % 60)
+    }
+}
+
+// MARK: - Edit Clip Note Sheet
+
+struct EditClipNoteSheet: View {
+    let clip: VideoClip
+    @Environment(\.modelContext) private var modelContext
+    @Environment(\.dismiss) private var dismiss
+    @State private var noteText: String
+    @State private var isSaving = false
+
+    init(clip: VideoClip) {
+        self.clip = clip
+        _noteText = State(initialValue: clip.note ?? "")
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Your note is visible to your coach if you share this video.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal)
+                    .padding(.top, 4)
+
+                TextEditor(text: $noteText)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .frame(minHeight: 140)
+                    .background(Color(.secondarySystemBackground))
+                    .cornerRadius(10)
+                    .padding(.horizontal)
+
+                Spacer()
+            }
+            .navigationTitle(clip.note?.isEmpty == false ? "Edit Note" : "Add Note")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") { saveNote() }
+                        .disabled(isSaving)
+                }
+            }
+            .overlay {
+                if isSaving {
+                    ProgressView()
+                }
+            }
+        }
+    }
+
+    private func saveNote() {
+        isSaving = true
+        let trimmed = noteText.trimmingCharacters(in: .whitespacesAndNewlines)
+        clip.note = trimmed.isEmpty ? nil : trimmed
+        try? modelContext.save()
+
+        // Sync to Firestore if the clip has been uploaded
+        if let firestoreId = clip.firestoreId {
+            Task {
+                try? await VideoCloudManager.shared.updateVideoNote(clipId: firestoreId, note: clip.note)
+            }
+        }
+        dismiss()
     }
 }
 

@@ -151,8 +151,11 @@ service cloud.firestore {
          request.resource.data.uploadedBy == request.auth.uid)
       );
 
-      // Videos are immutable after upload
-      allow update: if false;
+      // Only the uploader can update their own video.
+      // uploadedBy is immutable; all other fields are user-controlled.
+      allow update: if isAuthenticated()
+                    && resource.data.uploadedBy == request.auth.uid
+                    && request.resource.data.uploadedBy == resource.data.uploadedBy;
 
       // Delete: uploader can delete their own videos; folder members with delete permission
       allow delete: if isAuthenticated() && (
@@ -161,6 +164,29 @@ service cloud.firestore {
          canAccessFolder(resource.data.sharedFolderID) &&
          hasPermission(resource.data.sharedFolderID, "delete"))
       );
+
+      // ======================================================================
+      // VIDEO COMMENTS SUBCOLLECTION (unified athlete + coach thread)
+      // ======================================================================
+
+      match /comments/{commentID} {
+        // Read: the video owner OR any coach sharing the folder
+        allow read: if isAuthenticated() && (
+          get(/databases/$(database)/documents/videos/$(videoID)).data.uploadedBy == request.auth.uid
+          || ('sharedFolderID' in get(/databases/$(database)/documents/videos/$(videoID)).data
+              && canAccessFolder(
+                   get(/databases/$(database)/documents/videos/$(videoID)).data.sharedFolderID
+                 ))
+        );
+
+        // Create: authenticated user posting as themselves
+        allow create: if isAuthenticated()
+                      && request.resource.data.authorId == request.auth.uid;
+
+        // Update/delete: only the comment author
+        allow update, delete: if isAuthenticated()
+                               && resource.data.authorId == request.auth.uid;
+      }
 
       // ======================================================================
       // VIDEO ANNOTATIONS SUBCOLLECTION

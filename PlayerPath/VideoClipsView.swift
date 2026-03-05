@@ -897,8 +897,8 @@ struct VideoClipCard: View {
 
     @ViewBuilder
     private var backupStatusBadge: some View {
-        if video.isUploaded {
-            // Uploaded to cloud - green checkmark
+        if video.isUploaded && video.firestoreId != nil {
+            // Fully synced — Storage uploaded + Firestore metadata written (cross-device ready)
             HStack(spacing: 3) {
                 Image(systemName: "checkmark.icloud.fill")
                     .font(.system(size: 12))
@@ -907,6 +907,18 @@ struct VideoClipCard: View {
             .padding(.horizontal, 6)
             .padding(.vertical, 4)
             .background(.green)
+            .cornerRadius(6)
+            .shadow(color: .black.opacity(0.3), radius: 2, x: 0, y: 1)
+        } else if video.isUploaded && video.firestoreId == nil {
+            // Storage upload done but Firestore metadata not yet written — not cross-device accessible yet
+            HStack(spacing: 3) {
+                Image(systemName: "exclamationmark.icloud.fill")
+                    .font(.system(size: 12))
+            }
+            .foregroundColor(.white)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 4)
+            .background(.yellow)
             .cornerRadius(6)
             .shadow(color: .black.opacity(0.3), radius: 2, x: 0, y: 1)
         } else if let progress = uploadManager.activeUploads[video.id] {

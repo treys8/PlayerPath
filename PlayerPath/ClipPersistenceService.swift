@@ -251,6 +251,7 @@ final class ClipPersistenceService {
         playResult: PlayResultType?,
         pitchSpeed: Double? = nil,
         role: AthleteRole = .batter,
+        note: String? = nil,
         context: ModelContext,
         athlete: Athlete,
         game: Game?,
@@ -329,6 +330,7 @@ final class ClipPersistenceService {
         videoClip.thumbnailPath = thumbnailPath
         videoClip.duration = durationSeconds
         videoClip.pitchSpeed = pitchSpeed
+        videoClip.note = note
 
         // Create and link PlayResult model if provided
         if let playResultType = playResult {

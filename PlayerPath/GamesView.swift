@@ -790,6 +790,7 @@ struct GameDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var showingEndGame = false
     @State private var showingVideoRecorder = false
+    @State private var showingUploadRecorder = false
     @State private var showingDeleteConfirmation = false
     @State private var showingManualStats = false
     @State private var showingEditGame = false
@@ -887,7 +888,7 @@ struct GameDetailView: View {
                     Button(action: { showingVideoRecorder = true }) {
                         Label("Record Video", systemImage: "video.badge.plus")
                     }
-                    
+
                     if game.isLive {
                         Button(role: .destructive) {
                             showingEndGame = true
@@ -904,12 +905,17 @@ struct GameDetailView: View {
                 } else {
                     Button {
                         game.isComplete = false
+                        game.isLive = true
                         try? modelContext.save()
                     } label: {
-                        Label("Mark as Incomplete", systemImage: "arrow.counterclockwise")
+                        Label("Restart Game", systemImage: "arrow.counterclockwise")
+                    }
+
+                    Button(action: { showingUploadRecorder = true }) {
+                        Label("Upload from Camera Roll", systemImage: "photo.badge.plus")
                     }
                 }
-                
+
                 // Edit Game Details - available for all games
                 Button(action: { showingEditGame = true }) {
                     Label("Edit Game", systemImage: "pencil")
@@ -1034,14 +1040,19 @@ struct GameDetailView: View {
                             }
                         }
                     } else {
-                        Button(action: { 
+                        Button(action: {
                             game.isComplete = false
+                            game.isLive = true
                             try? modelContext.save()
                         }) {
-                            Label("Mark as Incomplete", systemImage: "arrow.counterclockwise")
+                            Label("Restart Game", systemImage: "arrow.counterclockwise")
+                        }
+
+                        Button(action: { showingVideoRecorder = true }) {
+                            Label("Upload from Camera Roll", systemImage: "photo.badge.plus")
                         }
                     }
-                    
+
                     Divider()
                     
                     // Edit Game Details
@@ -1086,6 +1097,9 @@ struct GameDetailView: View {
         }
         .sheet(isPresented: $showingVideoRecorder) {
             VideoRecorderView_Refactored(athlete: game.athlete, game: game)
+        }
+        .sheet(isPresented: $showingUploadRecorder) {
+            VideoRecorderView_Refactored(athlete: game.athlete, game: game, uploadOnly: true)
         }
         .sheet(isPresented: $showingManualStats) {
             ManualStatisticsEntryView(game: game)

@@ -18,11 +18,6 @@ struct PlayResultOverlayView: View {
     let onSave: (PlayResultType?, Double?, AthleteRole) -> Void
     let onCancel: () -> Void
     
-    @Environment(\.horizontalSizeClass) private var hSizeClass
-    @Environment(\.verticalSizeClass) private var vSizeClass
-
-    private var isLandscape: Bool { vSizeClass == .compact }
-
     @State private var selectedResult: PlayResultType?
     @State private var showingConfirmation = false
     @State private var recordingMode: AthleteRole = .batter
@@ -62,14 +57,13 @@ struct PlayResultOverlayView: View {
                 if let metadata = videoMetadata {
                     VideoMetadataView(metadata: metadata)
                         .padding(16)
-                        .padding(.top, isLandscape ? 8 : 16)
-                        .padding(.trailing, isLandscape ? 8 : 0)
+                        .padding(.top, 16)
+                        .padding(.trailing, 0)
                 }
             }
 
             // Info Header — safe area inset so it clears Dynamic Island / status bar
-            if !isLandscape {
-                VStack {
+            VStack {
                     HStack {
                         VStack(alignment: .leading, spacing: 6) {
                             if let game = game {
@@ -147,15 +141,10 @@ struct PlayResultOverlayView: View {
                         .ignoresSafeArea(edges: .top)
                     }
                     Spacer()
-                }
             }
 
             // Play Result Selection Overlay
-            if isLandscape {
-                landscapeOverlayPanel
-            } else {
-                portraitOverlayPanel
-            }
+            portraitOverlayPanel
 
             // Back button — top-leading, safe area aware
             VStack {
@@ -182,7 +171,7 @@ struct PlayResultOverlayView: View {
                 .padding(.horizontal, 16)
                 Spacer()
             }
-            .padding(.top, isLandscape ? 8 : 16)
+            .padding(.top, 16)
 
             // Saving overlay
             if isSaving {
@@ -201,6 +190,15 @@ struct PlayResultOverlayView: View {
             }
         }
         .animation(.easeInOut(duration: 0.2), value: isSaving)
+        .onAppear {
+            PlayerPathAppDelegate.orientationLock = .portrait
+            if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
+                scene.requestGeometryUpdate(.iOS(interfaceOrientations: .portrait))
+            }
+        }
+        .onDisappear {
+            PlayerPathAppDelegate.orientationLock = .allButUpsideDown
+        }
         .confirmationDialog(
             "Confirm Play Result",
             isPresented: $showingConfirmation,
@@ -227,7 +225,6 @@ struct PlayResultOverlayView: View {
             Spacer()
             glassPanel
                 .padding(.horizontal, 16)
-                .padding(.bottom, 16)
                 .accessibilitySortPriority(1)
                 .onAppear {
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
@@ -235,37 +232,17 @@ struct PlayResultOverlayView: View {
                     }
                 }
         }
-    }
-
-    // MARK: - Landscape panel (scrollable side column)
-
-    private var landscapeOverlayPanel: some View {
-        HStack {
-            Spacer()
-            ScrollView(showsIndicators: false) {
-                glassPanel
-                    .accessibilitySortPriority(1)
-                    .onAppear {
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                            showContent = true
-                        }
-                    }
-            }
-            .scrollBounceBehavior(.basedOnSize)
-            .frame(maxWidth: 380)
-            .padding(.trailing, 16)
-            .padding(.vertical, 8)
-        }
+        .safeAreaInset(edge: .bottom) { Color.clear.frame(height: 16) }
     }
 
     // MARK: - Shared glass panel content
 
     private var glassPanel: some View {
-        VStack(spacing: isLandscape ? 12 : 18) {
+        VStack(spacing: 18) {
             // Header
             VStack(spacing: 6) {
                 Text("Select Play Result")
-                    .font(isLandscape ? .subheadline : .title3)
+                    .font(.title3)
                     .fontWeight(.bold)
                     .foregroundColor(.white)
                     .multilineTextAlignment(.center)
@@ -308,7 +285,7 @@ struct PlayResultOverlayView: View {
             }
 
             // Play Result Grid
-            VStack(spacing: isLandscape ? 8 : 12) {
+            VStack(spacing: 12) {
                 if recordingMode == .batter {
                     battingResultsSection
                 } else {
@@ -344,7 +321,7 @@ struct PlayResultOverlayView: View {
             .opacity(showContent ? 1 : 0)
             .offset(y: showContent ? 0 : 20)
         }
-        .padding(isLandscape ? 16 : 20)
+        .padding(20)
         .background(
             ZStack {
                 RoundedRectangle(cornerRadius: 28, style: .continuous).fill(.ultraThinMaterial)
