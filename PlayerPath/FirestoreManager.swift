@@ -1504,6 +1504,112 @@ class FirestoreManager: ObservableObject {
         }
     }
 
+    // MARK: - Practice Notes Sync
+
+    func createPracticeNote(userId: String, practiceFirestoreId: String, data: [String: Any]) async throws -> String {
+        var noteData = data
+        noteData["createdAt"] = FieldValue.serverTimestamp()
+        noteData["updatedAt"] = FieldValue.serverTimestamp()
+        let docRef = try await db
+            .collection("users").document(userId)
+            .collection("practices").document(practiceFirestoreId)
+            .collection("notes")
+            .addDocument(data: noteData)
+        print("✅ Created practice note in Firestore: \(docRef.documentID)")
+        return docRef.documentID
+    }
+
+    func updatePracticeNote(userId: String, practiceFirestoreId: String, noteId: String, data: [String: Any]) async throws {
+        var updateData = data
+        updateData["updatedAt"] = FieldValue.serverTimestamp()
+        try await db
+            .collection("users").document(userId)
+            .collection("practices").document(practiceFirestoreId)
+            .collection("notes").document(noteId)
+            .setData(updateData, merge: true)
+        print("✅ Updated practice note in Firestore: \(noteId)")
+    }
+
+    func fetchPracticeNotes(userId: String, practiceFirestoreId: String) async throws -> [FirestorePracticeNote] {
+        let snapshot = try await db
+            .collection("users").document(userId)
+            .collection("practices").document(practiceFirestoreId)
+            .collection("notes")
+            .whereField("isDeleted", isEqualTo: false)
+            .getDocuments()
+        return snapshot.documents.compactMap { doc -> FirestorePracticeNote? in
+            var note = try? doc.data(as: FirestorePracticeNote.self)
+            note?.id = doc.documentID
+            return note
+        }
+    }
+
+    // MARK: - Photos Sync
+
+    func createPhoto(data: [String: Any]) async throws -> String {
+        var photoData = data
+        photoData["createdAt"] = FieldValue.serverTimestamp()
+        photoData["updatedAt"] = FieldValue.serverTimestamp()
+        let docRef = try await db.collection("photos").addDocument(data: photoData)
+        print("✅ Created photo in Firestore: \(docRef.documentID)")
+        return docRef.documentID
+    }
+
+    func fetchPhotos(uploadedBy ownerUID: String, athleteId: String) async throws -> [FirestorePhoto] {
+        let snapshot = try await db
+            .collection("photos")
+            .whereField("uploadedBy", isEqualTo: ownerUID)
+            .whereField("athleteId", isEqualTo: athleteId)
+            .whereField("isDeleted", isEqualTo: false)
+            .limit(to: 500)
+            .getDocuments()
+        return snapshot.documents.compactMap { doc -> FirestorePhoto? in
+            var photo = try? doc.data(as: FirestorePhoto.self)
+            photo?.id = doc.documentID
+            return photo
+        }
+    }
+
+    // MARK: - Coaches Sync
+
+    func createCoach(userId: String, athleteFirestoreId: String, data: [String: Any]) async throws -> String {
+        var coachData = data
+        coachData["createdAt"] = FieldValue.serverTimestamp()
+        coachData["updatedAt"] = FieldValue.serverTimestamp()
+        let docRef = try await db
+            .collection("users").document(userId)
+            .collection("athletes").document(athleteFirestoreId)
+            .collection("coaches")
+            .addDocument(data: coachData)
+        print("✅ Created coach in Firestore: \(docRef.documentID)")
+        return docRef.documentID
+    }
+
+    func updateCoach(userId: String, athleteFirestoreId: String, coachId: String, data: [String: Any]) async throws {
+        var updateData = data
+        updateData["updatedAt"] = FieldValue.serverTimestamp()
+        try await db
+            .collection("users").document(userId)
+            .collection("athletes").document(athleteFirestoreId)
+            .collection("coaches").document(coachId)
+            .setData(updateData, merge: true)
+        print("✅ Updated coach in Firestore: \(coachId)")
+    }
+
+    func fetchCoaches(userId: String, athleteFirestoreId: String) async throws -> [FirestoreCoach] {
+        let snapshot = try await db
+            .collection("users").document(userId)
+            .collection("athletes").document(athleteFirestoreId)
+            .collection("coaches")
+            .whereField("isDeleted", isEqualTo: false)
+            .getDocuments()
+        return snapshot.documents.compactMap { doc -> FirestoreCoach? in
+            var coach = try? doc.data(as: FirestoreCoach.self)
+            coach?.id = doc.documentID
+            return coach
+        }
+    }
+
     // MARK: - Helper Methods for Coach Views
     
     /// Fetches videos for a shared folder (convenience method)
@@ -1969,13 +2075,94 @@ struct FirestorePractice: Codable, Identifiable {
     let isDeleted: Bool
 
     enum CodingKeys: String, CodingKey {
-        case swiftDataId = "id"  // Maps to "id" field in Firestore document
+        case swiftDataId = "id"
         case athleteId
         case seasonId
         case date
         case createdAt
         case updatedAt
         case version
+        case isDeleted
+    }
+}
+
+struct FirestorePracticeNote: Codable, Identifiable {
+    var id: String?
+    let swiftDataId: String
+    let practiceId: String
+    let content: String
+    let createdAt: Date?
+    let updatedAt: Date?
+    let isDeleted: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case swiftDataId = "id"
+        case practiceId
+        case content
+        case createdAt
+        case updatedAt
+        case isDeleted
+    }
+}
+
+struct FirestorePhoto: Codable, Identifiable {
+    var id: String?
+    let swiftDataId: String
+    let fileName: String
+    let athleteId: String
+    let uploadedBy: String
+    let downloadURL: String?
+    let caption: String?
+    let gameId: String?
+    let practiceId: String?
+    let seasonId: String?
+    let createdAt: Date?
+    let updatedAt: Date?
+    let isDeleted: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case swiftDataId = "id"
+        case fileName
+        case athleteId
+        case uploadedBy
+        case downloadURL
+        case caption
+        case gameId
+        case practiceId
+        case seasonId
+        case createdAt
+        case updatedAt
+        case isDeleted
+    }
+}
+
+struct FirestoreCoach: Codable, Identifiable {
+    var id: String?
+    let swiftDataId: String
+    let athleteId: String
+    let name: String
+    let role: String
+    let email: String
+    let phone: String?
+    let notes: String?
+    let firebaseCoachID: String?
+    let invitationStatus: String?
+    let createdAt: Date?
+    let updatedAt: Date?
+    let isDeleted: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case swiftDataId = "id"
+        case athleteId
+        case name
+        case role
+        case email
+        case phone
+        case notes
+        case firebaseCoachID
+        case invitationStatus
+        case createdAt
+        case updatedAt
         case isDeleted
     }
 }

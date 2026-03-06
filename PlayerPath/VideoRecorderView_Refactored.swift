@@ -47,7 +47,6 @@ struct VideoRecorderView_Refactored: View {
     @State private var showingTrimmerFromCamera = false
     @State private var trimmedVideoURL: URL?
     @State private var cameraFlowShowingPlayResult = false
-    @State private var uploadFlowShowingPlayResult = false
 
     // System monitoring
     @State private var availableStorageGB: Double = 0
@@ -92,10 +91,20 @@ struct VideoRecorderView_Refactored: View {
             .fullScreenCover(isPresented: $showingTrimmer) {
                 videoTrimmerView
             }
-            .photosPicker(isPresented: $showingPhotoPicker, selection: $selectedVideoItem, matching: .videos)
+            .photosPicker(isPresented: $showingPhotoPicker, selection: $selectedVideoItem, matching: .videos, preferredItemEncoding: .compatible)
             .sensoryFeedback(.start, trigger: showingNativeCamera)
             .onChange(of: selectedVideoItem) { _, newItem in
                 handleSelectedVideo(newItem)
+            }
+            .onChange(of: showingPhotoPicker) { _, isShowing in
+                // In upload-only mode, if the picker closes without a video being selected,
+                // dismiss the recorder so the user isn't left on the options screen.
+                // selectedVideoItem is safe to check here because onChange(of: selectedVideoItem)
+                // is declared earlier in the modifier chain and fires first in the same transaction,
+                // so it will already be non-nil by the time this fires when a video was picked.
+                if !isShowing && uploadOnly && selectedVideoItem == nil && recordedVideoURL == nil && !showingTrimmer {
+                    dismiss()
+                }
             }
             .alert("Permission Required", isPresented: $permissionManager.showingPermissionAlert) {
                 permissionAlert
@@ -165,8 +174,8 @@ struct VideoRecorderView_Refactored: View {
                 if uploadOnly && !autoOpenDidFire {
                     autoOpenDidFire = true
                     showingPhotoPicker = true
-                } else if game?.isLive == true && !autoOpenDidFire {
-                    // Quick record for live games - go straight to camera once per presentation
+                } else if (game?.isLive == true || practice != nil) && !autoOpenDidFire {
+                    // Quick record for live games and practice sessions - go straight to camera
                     autoOpenDidFire = true
                     autoOpeningCamera = true
                     try? await Task.sleep(for: .milliseconds(100))
@@ -497,76 +506,26 @@ struct VideoRecorderView_Refactored: View {
     
     @ViewBuilder
     private var videoTrimmerView: some View {
-        // Swap content from trimmer → save overlay inside the same fullScreenCover.
-        // Practice recordings show PracticeVideoSaveView; game/standalone show PlayResultOverlayView.
-        if uploadFlowShowingPlayResult, let videoURL = recordedVideoURL {
-            let finalVideoURL = trimmedVideoURL ?? videoURL
-            if practice != nil {
-                PracticeVideoSaveView(
-                    videoURL: finalVideoURL,
-                    athlete: athlete,
-                    practice: practice,
-                    onSave: { note in
-                        saveVideoWithResult(videoURL: finalVideoURL, playResult: nil, note: note) {
-                            uploadFlowShowingPlayResult = false
-                            showingTrimmer = false
-                            dismiss()
-                        }
-                    },
-                    onDiscard: {
-                        pendingDismissAction = {
-                            VideoFileManager.cleanup(url: videoURL)
-                            if let trimmed = trimmedVideoURL {
-                                VideoFileManager.cleanup(url: trimmed)
-                            }
-                            self.recordedVideoURL = nil
-                            self.trimmedVideoURL = nil
-                            self.uploadFlowShowingPlayResult = false
-                            self.showingTrimmer = false
-                        }
-                        showingDiscardConfirmation = true
-                    }
-                )
-            } else {
-                PlayResultOverlayView(
-                    videoURL: finalVideoURL,
-                    athlete: athlete,
-                    game: game,
-                    practice: practice,
-                    onSave: { result, pitchSpeed, role in
-                        saveVideoWithResult(videoURL: finalVideoURL, playResult: result, pitchSpeed: pitchSpeed, role: role) {
-                            uploadFlowShowingPlayResult = false
-                            showingTrimmer = false
-                            dismiss()
-                        }
-                    },
-                    onCancel: {
-                        pendingDismissAction = {
-                            VideoFileManager.cleanup(url: videoURL)
-                            if let trimmed = trimmedVideoURL {
-                                VideoFileManager.cleanup(url: trimmed)
-                            }
-                            self.recordedVideoURL = nil
-                            self.trimmedVideoURL = nil
-                            self.uploadFlowShowingPlayResult = false
-                            self.showingTrimmer = false
-                        }
-                        showingDiscardConfirmation = true
-                    }
-                )
-            }
-        } else if let videoURL = recordedVideoURL {
+        if let videoURL = recordedVideoURL {
             PreUploadTrimmerView(
                 videoURL: videoURL,
                 onSave: { trimmedURL in
-                    trimmedVideoURL = trimmedURL
                     lockPortrait()
-                    uploadFlowShowingPlayResult = true
+                    saveVideoWithResult(videoURL: trimmedURL, playResult: nil) {
+                        self.recordedVideoURL = nil
+                        self.trimmedVideoURL = nil
+                        self.showingTrimmer = false
+                        dismiss()
+                    }
                 },
                 onSkip: {
-                    trimmedVideoURL = nil
                     lockPortrait()
-                    uploadFlowShowingPlayResult = true
+                    saveVideoWithResult(videoURL: videoURL, playResult: nil) {
+                        self.recordedVideoURL = nil
+                        self.trimmedVideoURL = nil
+                        self.showingTrimmer = false
+                        dismiss()
+                    }
                 },
                 onCancel: {
                     pendingDismissAction = {
@@ -583,9 +542,6 @@ struct VideoRecorderView_Refactored: View {
             )
         }
     }
-
-    // playResultOverlay is now rendered inline within the trimmer fullScreenCovers
-    // (nativeCameraView and videoTrimmerView) to avoid dismiss→present animation gaps
     
     private var errorAlertBinding: Binding<Bool> {
         Binding(
@@ -986,7 +942,7 @@ struct VideoRecorderView_Refactored: View {
     // MARK: - Business Logic
     
     private func handleCancelTapped() {
-        let showingPlayResult = cameraFlowShowingPlayResult || uploadFlowShowingPlayResult
+        let showingPlayResult = cameraFlowShowingPlayResult
         if recordedVideoURL != nil && !showingPlayResult {
             // Video recorded but user is back at main screen - confirm discard
             UIAccessibility.post(notification: .announcement, argument: "Confirm discard recording")
@@ -1004,9 +960,9 @@ struct VideoRecorderView_Refactored: View {
             cleanupAndDismiss()
         }
     }
-    
+
     private func handleDoneTapped() {
-        let showingPlayResult = cameraFlowShowingPlayResult || uploadFlowShowingPlayResult
+        let showingPlayResult = cameraFlowShowingPlayResult
         if recordedVideoURL != nil && !showingPlayResult {
             // Video recorded but not saved - confirm discard
             UIAccessibility.post(notification: .announcement, argument: "Confirm discard recording")
@@ -1295,7 +1251,6 @@ struct VideoRecorderView_Refactored: View {
             }
             autoOpeningCamera = false
             cameraFlowShowingPlayResult = false
-            uploadFlowShowingPlayResult = false
             recordedVideoURL = nil
             trimmedVideoURL = nil
             showingTrimmerFromCamera = false
@@ -1411,6 +1366,33 @@ class NetworkMonitor: ObservableObject {
     VideoRecorderView_Refactored(athlete: nil, game: nil, practice: mockPractice)
 }
 
+// MARK: - AVPlayerLayer UIViewRepresentable
+// Uses AVPlayerLayer directly instead of AVKit's VideoPlayer (which wraps AVPlayerViewController).
+// AVPlayerViewController interferes with SwiftUI's fullScreenCover geometry when nested,
+// causing incorrect frame calculation in the presented view. AVPlayerLayer has no such issue.
+
+private struct AVPlayerLayerView: UIViewRepresentable {
+    let player: AVPlayer
+
+    func makeUIView(context: Context) -> UIView {
+        let view = PlayerUIView()
+        view.playerLayer.player = player
+        view.playerLayer.videoGravity = .resizeAspectFill
+        view.backgroundColor = .black
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        guard let view = uiView as? PlayerUIView else { return }
+        view.playerLayer.player = player
+    }
+
+    private class PlayerUIView: UIView {
+        override class var layerClass: AnyClass { AVPlayerLayer.self }
+        var playerLayer: AVPlayerLayer { layer as! AVPlayerLayer }
+    }
+}
+
 // MARK: - Pre-Upload Trimmer View
 
 struct PreUploadTrimmerView: View {
@@ -1439,7 +1421,7 @@ struct PreUploadTrimmerView: View {
         ZStack {
             // Full-screen video background — fills physical screen edges
             if let player = player {
-                VideoPlayer(player: player)
+                AVPlayerLayerView(player: player)
                     .allowsHitTesting(false)
                     .ignoresSafeArea()
                     .overlay(Color.black.opacity(0.15))
@@ -1846,26 +1828,58 @@ struct PreUploadTrimmerView: View {
         session.outputURL = outputURL
         session.outputFileType = .mp4
 
-        // Bake the preferredTransform into the export so portrait/landscape
-        // orientation is preserved correctly in the output file.
+        // Bake the preferredTransform into the export when the video needs rotation
+        // (e.g. iPhone portrait recordings stored with a 90° transform).
+        // For already-correct-orientation videos (identity transform) we skip the
+        // composition entirely so AVFoundation can preserve slow-motion time mappings
+        // and other track-level metadata automatically.
         if let videoTrack = try? await asset.loadTracks(withMediaType: .video).first {
             let transform = try? await videoTrack.load(.preferredTransform)
             let naturalSize = try? await videoTrack.load(.naturalSize)
-            if let transform, let naturalSize {
-                let composition = AVMutableVideoComposition()
-                let size = naturalSize.applying(transform)
-                composition.renderSize = CGSize(
-                    width: abs(size.width),
-                    height: abs(size.height)
-                )
-                composition.frameDuration = CMTime(value: 1, timescale: 30)
-                let instruction = AVMutableVideoCompositionInstruction()
-                instruction.timeRange = CMTimeRangeMake(start: .zero, duration: asset.duration)
-                let layerInstruction = AVMutableVideoCompositionLayerInstruction(assetTrack: videoTrack)
-                layerInstruction.setTransform(transform, at: .zero)
-                instruction.layerInstructions = [layerInstruction]
-                composition.instructions = [instruction]
-                session.videoComposition = composition
+            let nominalFrameRate = try? await videoTrack.load(.nominalFrameRate)
+            let assetDuration = try? await asset.load(.duration)
+
+            if let transform, let naturalSize, let assetDuration {
+                // Only apply a video composition when the track has a rotation transform.
+                // Identity-transform videos export correctly without one.
+                let needsRotation = transform.b != 0 || transform.c != 0
+                if needsRotation {
+                    let size = naturalSize.applying(transform)
+                    let renderSize = CGSize(width: abs(size.width), height: abs(size.height))
+                    // Use the source track's actual frame rate instead of hardcoding 30 fps,
+                    // so 60fps and slow-motion (120/240fps) videos export at their native rate.
+                    let fps = Int32((nominalFrameRate ?? 30).rounded())
+                    let frameDuration = CMTime(value: 1, timescale: CMTimeScale(max(fps, 1)))
+                    let timeRange = CMTimeRangeMake(start: .zero, duration: assetDuration)
+
+                    if #available(iOS 26.0, *) {
+                        var layerConfig = AVVideoCompositionLayerInstruction.Configuration(assetTrack: videoTrack)
+                        layerConfig.setTransform(transform, at: .zero)
+                        let layerInstruction = AVVideoCompositionLayerInstruction(configuration: layerConfig)
+                        let instructionConfig = AVVideoCompositionInstruction.Configuration(
+                            layerInstructions: [layerInstruction],
+                            timeRange: timeRange
+                        )
+                        let instruction = AVVideoCompositionInstruction(configuration: instructionConfig)
+                        let compConfig = AVVideoComposition.Configuration(
+                            frameDuration: frameDuration,
+                            instructions: [instruction],
+                            renderSize: renderSize
+                        )
+                        session.videoComposition = AVVideoComposition(configuration: compConfig)
+                    } else {
+                        let composition = AVMutableVideoComposition()
+                        composition.renderSize = renderSize
+                        composition.frameDuration = frameDuration
+                        let instruction = AVMutableVideoCompositionInstruction()
+                        instruction.timeRange = timeRange
+                        let layerInstruction = AVMutableVideoCompositionLayerInstruction(assetTrack: videoTrack)
+                        layerInstruction.setTransform(transform, at: .zero)
+                        instruction.layerInstructions = [layerInstruction]
+                        composition.instructions = [instruction]
+                        session.videoComposition = composition
+                    }
+                }
             }
         }
 

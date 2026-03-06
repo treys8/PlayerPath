@@ -1048,7 +1048,7 @@ struct GameDetailView: View {
                             Label("Restart Game", systemImage: "arrow.counterclockwise")
                         }
 
-                        Button(action: { showingVideoRecorder = true }) {
+                        Button(action: { showingUploadRecorder = true }) {
                             Label("Upload from Camera Roll", systemImage: "photo.badge.plus")
                         }
                     }

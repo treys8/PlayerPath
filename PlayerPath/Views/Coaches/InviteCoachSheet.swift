@@ -234,6 +234,7 @@ struct InviteCoachSheet: View {
                     name: coachName,
                     email: coachEmail.lowercased()
                 )
+                coach.needsSync = true
                 coach.athlete = athlete
                 coach.invitationSentAt = Date()
                 coach.lastInvitationStatus = "pending"

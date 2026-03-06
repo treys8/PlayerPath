@@ -151,7 +151,8 @@ struct VideoTransferable: Transferable {
             guard let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
                 throw AppError.videoUploadFailed("Could not access app documents directory")
             }
-            let copy = documentsPath.appendingPathComponent("imported_\(UUID().uuidString).mov")
+            let ext = received.file.pathExtension.isEmpty ? "mov" : received.file.pathExtension
+            let copy = documentsPath.appendingPathComponent("imported_\(UUID().uuidString).\(ext)")
             try FileManager.default.copyItem(at: received.file, to: copy)
             return Self.init(url: copy)
         }

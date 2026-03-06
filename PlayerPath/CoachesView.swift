@@ -555,6 +555,7 @@ struct AddCoachView: View {
             email: email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
             notes: notes.trimmingCharacters(in: .whitespacesAndNewlines)
         )
+        coach.needsSync = true
 
         // Set relationship
         coach.athlete = athlete

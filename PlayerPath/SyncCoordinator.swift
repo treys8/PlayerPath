@@ -811,6 +811,7 @@ final class SyncCoordinator {
 
     private func downloadRemoteVideos(_ user: User, context: ModelContext) async throws {
         let athletes = user.athletes ?? []
+        var athletesWithNewClips: [Athlete] = []
 
         for athlete in athletes {
             // Get video metadata from Firestore
@@ -839,9 +840,18 @@ final class SyncCoordinator {
                 newClip.isUploaded = true // It's already in the cloud
                 newClip.createdAt = remoteVideo.createdAt
                 newClip.isHighlight = remoteVideo.isHighlight
+                newClip.note = remoteVideo.note
                 newClip.firestoreId = remoteVideo.id.uuidString
                 newClip.needsSync = false
                 newClip.athlete = athlete
+
+                // Reconstruct PlayResult from the stored raw value
+                if let rawValue = remoteVideo.playResultRawValue,
+                   let playResultType = PlayResultType(rawValue: rawValue) {
+                    let playResult = PlayResult(type: playResultType)
+                    newClip.playResult = playResult
+                    context.insert(playResult)
+                }
 
                 // Link to game if gameOpponent exists
                 if let gameOpponent = remoteVideo.gameOpponent {
@@ -860,9 +870,22 @@ final class SyncCoordinator {
                 }
                 pendingDownloadTasks.append(downloadTask)
             }
+
+            athletesWithNewClips.append(athlete)
         }
 
         try context.save()
+
+        // Rebuild derived statistics for athletes that received new clips.
+        // GameStatistics and AthleteStatistics are not stored in Firestore — they are
+        // computed from VideoClip.playResult relationships. After downloading clips we
+        // must reconstruct them so stats are correct on a new device or after reinstall.
+        for athlete in athletesWithNewClips {
+            for game in athlete.games ?? [] {
+                try? StatisticsService.shared.recalculateGameStatistics(for: game, context: context)
+            }
+            try? StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: context)
+        }
     }
 
     /// Downloads the actual video file from Firebase Storage
@@ -909,10 +932,219 @@ final class SyncCoordinator {
         }
     }
 
+    // MARK: - Practice Notes Sync
+
+    func syncPracticeNotes(for user: User) async throws {
+        guard let context = modelContext else { return }
+        guard let userId = Auth.auth().currentUser?.uid else { return }
+
+        let athletes = user.athletes ?? []
+        let allPractices = athletes.flatMap { $0.practices ?? [] }
+
+        for practice in allPractices {
+            guard let practiceFirestoreId = practice.firestoreId else { continue }
+
+            // Upload dirty notes
+            let dirtyNotes = (practice.notes ?? []).filter { $0.needsSync }
+            for note in dirtyNotes {
+                do {
+                    if let noteFirestoreId = note.firestoreId {
+                        try await FirestoreManager.shared.updatePracticeNote(
+                            userId: userId,
+                            practiceFirestoreId: practiceFirestoreId,
+                            noteId: noteFirestoreId,
+                            data: note.toFirestoreData(practiceFirestoreId: practiceFirestoreId)
+                        )
+                    } else {
+                        let docId = try await FirestoreManager.shared.createPracticeNote(
+                            userId: userId,
+                            practiceFirestoreId: practiceFirestoreId,
+                            data: note.toFirestoreData(practiceFirestoreId: practiceFirestoreId)
+                        )
+                        note.firestoreId = docId
+                    }
+                    note.needsSync = false
+                } catch {
+                    print("❌ Failed to sync practice note: \(error)")
+                }
+            }
+
+            // Download notes that exist remotely but not locally
+            let remoteNotes = try await FirestoreManager.shared.fetchPracticeNotes(
+                userId: userId,
+                practiceFirestoreId: practiceFirestoreId
+            )
+            let localNoteIds = Set((practice.notes ?? []).compactMap { $0.firestoreId })
+            for remoteNote in remoteNotes where !localNoteIds.contains(remoteNote.id ?? "") {
+                let newNote = PracticeNote(content: remoteNote.content)
+                newNote.createdAt = remoteNote.createdAt
+                newNote.firestoreId = remoteNote.id
+                newNote.needsSync = false
+                newNote.practice = practice
+                context.insert(newNote)
+            }
+        }
+
+        try context.save()
+        print("✅ Practice notes sync completed")
+    }
+
+    // MARK: - Photos Sync
+
+    func syncPhotos(for user: User) async throws {
+        guard let context = modelContext else { return }
+        guard let ownerUID = Auth.auth().currentUser?.uid else { return }
+
+        let athletes = user.athletes ?? []
+
+        for athlete in athletes {
+            let photos = athlete.photos ?? []
+
+            // Upload new photos that haven't been synced
+            for photo in photos where photo.cloudURL == nil && photo.needsSync {
+                guard FileManager.default.fileExists(atPath: photo.filePath) else { continue }
+                do {
+                    let cloudURL = try await VideoCloudManager.shared.uploadPhoto(
+                        at: URL(fileURLWithPath: photo.filePath),
+                        ownerUID: ownerUID
+                    )
+                    photo.cloudURL = cloudURL
+                    let firestoreId = try await FirestoreManager.shared.createPhoto(
+                        data: photo.toFirestoreData(ownerUID: ownerUID)
+                    )
+                    photo.firestoreId = firestoreId
+                    photo.needsSync = false
+                    print("✅ Uploaded photo: \(photo.fileName)")
+                } catch {
+                    print("❌ Failed to upload photo \(photo.fileName): \(error)")
+                }
+            }
+
+            // Download photos that exist remotely but not locally
+            let athleteStableId = athlete.firestoreId ?? athlete.id.uuidString
+            let remotePhotos = try await FirestoreManager.shared.fetchPhotos(
+                uploadedBy: ownerUID,
+                athleteId: athleteStableId
+            )
+            let localPhotoIds = Set(photos.compactMap { $0.firestoreId })
+
+            for remotePhoto in remotePhotos where !localPhotoIds.contains(remotePhoto.id ?? "") {
+                guard let downloadURL = remotePhoto.downloadURL else { continue }
+
+                // Build local path
+                let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+                let photosDir = documentsURL.appendingPathComponent("Photos", isDirectory: true)
+                try? FileManager.default.createDirectory(at: photosDir, withIntermediateDirectories: true)
+                let localPath = photosDir.appendingPathComponent(remotePhoto.fileName).path
+
+                let newPhoto = Photo(fileName: remotePhoto.fileName, filePath: localPath)
+                newPhoto.id = UUID(uuidString: remotePhoto.swiftDataId) ?? UUID()
+                newPhoto.cloudURL = downloadURL
+                newPhoto.caption = remotePhoto.caption
+                newPhoto.createdAt = remotePhoto.createdAt
+                newPhoto.firestoreId = remotePhoto.id
+                newPhoto.needsSync = false
+                newPhoto.athlete = athlete
+
+                // Link to game/practice/season by ID if available
+                if let gameId = remotePhoto.gameId {
+                    newPhoto.game = (athlete.games ?? []).first { $0.id.uuidString == gameId }
+                }
+                if let practiceId = remotePhoto.practiceId {
+                    newPhoto.practice = (athlete.practices ?? []).first { $0.id.uuidString == practiceId }
+                }
+                if let seasonId = remotePhoto.seasonId {
+                    newPhoto.season = (athlete.seasons ?? []).first { $0.id.uuidString == seasonId }
+                }
+
+                context.insert(newPhoto)
+
+                // Download the image file in the background if not already present
+                let task = Task {
+                    do {
+                        try await VideoCloudManager.shared.downloadPhoto(from: downloadURL, to: localPath)
+                    } catch {
+                        print("❌ Failed to download photo \(remotePhoto.fileName): \(error)")
+                    }
+                }
+                pendingDownloadTasks.append(task)
+            }
+        }
+
+        try context.save()
+        print("✅ Photos sync completed")
+    }
+
+    // MARK: - Coaches Sync
+
+    func syncCoaches(for user: User) async throws {
+        guard let context = modelContext else { return }
+        guard let userId = Auth.auth().currentUser?.uid else { return }
+
+        let athletes = user.athletes ?? []
+
+        for athlete in athletes {
+            guard let athleteFirestoreId = athlete.firestoreId else { continue }
+
+            let coaches = athlete.coaches ?? []
+
+            // Upload dirty coaches
+            for coach in coaches where coach.needsSync {
+                do {
+                    if let coachFirestoreId = coach.firestoreId {
+                        try await FirestoreManager.shared.updateCoach(
+                            userId: userId,
+                            athleteFirestoreId: athleteFirestoreId,
+                            coachId: coachFirestoreId,
+                            data: coach.toFirestoreData(athleteFirestoreId: athleteFirestoreId)
+                        )
+                    } else {
+                        let docId = try await FirestoreManager.shared.createCoach(
+                            userId: userId,
+                            athleteFirestoreId: athleteFirestoreId,
+                            data: coach.toFirestoreData(athleteFirestoreId: athleteFirestoreId)
+                        )
+                        coach.firestoreId = docId
+                    }
+                    coach.needsSync = false
+                } catch {
+                    print("❌ Failed to sync coach \(coach.name): \(error)")
+                }
+            }
+
+            // Download coaches that exist remotely but not locally
+            let remoteCoaches = try await FirestoreManager.shared.fetchCoaches(
+                userId: userId,
+                athleteFirestoreId: athleteFirestoreId
+            )
+            let localCoachIds = Set(coaches.compactMap { $0.firestoreId })
+            for remoteCoach in remoteCoaches where !localCoachIds.contains(remoteCoach.id ?? "") {
+                let newCoach = Coach(
+                    name: remoteCoach.name,
+                    role: remoteCoach.role,
+                    phone: remoteCoach.phone ?? "",
+                    email: remoteCoach.email,
+                    notes: remoteCoach.notes ?? ""
+                )
+                newCoach.createdAt = remoteCoach.createdAt
+                newCoach.firestoreId = remoteCoach.id
+                newCoach.needsSync = false
+                newCoach.firebaseCoachID = remoteCoach.firebaseCoachID
+                newCoach.lastInvitationStatus = remoteCoach.invitationStatus
+                newCoach.athlete = athlete
+                context.insert(newCoach)
+                print("✅ Restored coach from Firestore: \(remoteCoach.name)")
+            }
+        }
+
+        try context.save()
+        print("✅ Coaches sync completed")
+    }
+
     // MARK: - Comprehensive Sync (All Entities)
 
     /// Syncs all entities for a user in dependency order
-    /// Order: Athletes → Seasons → Games → Practices → Videos
+    /// Order: Athletes → Seasons → Games → Practices → Videos → PracticeNotes → Photos → Coaches
     /// - Parameter user: The SwiftData User to sync all entities for
     func syncAll(for user: User) async throws {
         // Single entry point for the isSyncing lock — prevents concurrent syncAll calls
@@ -924,14 +1156,17 @@ final class SyncCoordinator {
         isSyncing = true
         defer { isSyncing = false }
 
-        print("🔄 Starting comprehensive sync (Athletes → Seasons → Games → Practices → Videos)")
+        print("🔄 Starting comprehensive sync (Athletes → Seasons → Games → Practices → Videos → Notes → Photos → Coaches)")
 
-        // Sync in dependency order
+        // Sync in dependency order (parents before children)
         try await syncAthletes(for: user)
         try await syncSeasons(for: user)
         try await syncGames(for: user)
         try await syncPractices(for: user)
         try await syncVideos(for: user)
+        try await syncPracticeNotes(for: user)
+        try await syncPhotos(for: user)
+        try await syncCoaches(for: user)
 
         lastSyncDate = Date()
         print("✅ Comprehensive sync completed")

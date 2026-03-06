@@ -22,11 +22,19 @@ struct PracticeVideoSaveView: View {
     @State private var showContent = false
     @State private var isSaving = false
     @State private var thumbnail: UIImage?
+    @State private var keyboardHeight: CGFloat = 0
+    @State private var bottomSafeArea: CGFloat = 0
     @FocusState private var noteIsFocused: Bool
 
     var body: some View {
         ZStack {
             // Thumbnail background
+            GeometryReader { geo in
+                Color.clear
+                    .onAppear { bottomSafeArea = geo.safeAreaInsets.bottom }
+            }
+            .ignoresSafeArea()
+
             Group {
                 if let image = thumbnail {
                     Image(uiImage: image)
@@ -95,13 +103,13 @@ struct PracticeVideoSaveView: View {
                 Spacer()
                 glassPanel
                     .padding(.horizontal, 16)
+                    .padding(.bottom, keyboardHeight > 0 ? keyboardHeight : bottomSafeArea + 16)
                     .onAppear {
                         withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                             showContent = true
                         }
                     }
             }
-            .safeAreaInset(edge: .bottom) { Color.clear.frame(height: 16) }
 
             // Back / Discard button — top-leading
             VStack {
@@ -146,6 +154,7 @@ struct PracticeVideoSaveView: View {
             }
         }
         .animation(.easeInOut(duration: 0.2), value: isSaving)
+        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: keyboardHeight)
         .onAppear {
             PlayerPathAppDelegate.orientationLock = .portrait
             if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
@@ -154,6 +163,14 @@ struct PracticeVideoSaveView: View {
         }
         .onDisappear {
             PlayerPathAppDelegate.orientationLock = .allButUpsideDown
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { notification in
+            if let frame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect {
+                keyboardHeight = frame.height
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+            keyboardHeight = 0
         }
         .onTapGesture {
             noteIsFocused = false

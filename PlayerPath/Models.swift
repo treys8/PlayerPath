@@ -512,10 +512,25 @@ final class PracticeNote {
     var createdAt: Date?
     var practice: Practice?
 
+    // MARK: - Firestore Sync Metadata
+    var firestoreId: String?
+    var needsSync: Bool = false
+
     init(content: String) {
         self.id = UUID()
         self.content = content
         self.createdAt = Date()
+    }
+
+    func toFirestoreData(practiceFirestoreId: String) -> [String: Any] {
+        return [
+            "id": id.uuidString,
+            "practiceId": practiceFirestoreId,
+            "content": content,
+            "createdAt": createdAt ?? Date(),
+            "updatedAt": Date(),
+            "isDeleted": false
+        ]
     }
 }
 
@@ -1084,6 +1099,10 @@ final class Coach {
         }
     }
 
+    // MARK: - Firestore Sync Metadata
+    var firestoreId: String?
+    var needsSync: Bool = false
+
     init(name: String, role: String = "", phone: String = "", email: String = "", notes: String = "") {
         self.id = UUID()
         self.name = name
@@ -1092,6 +1111,24 @@ final class Coach {
         self.email = email
         self.notes = notes
         self.createdAt = Date()
+    }
+
+    func toFirestoreData(athleteFirestoreId: String) -> [String: Any] {
+        var data: [String: Any] = [
+            "id": id.uuidString,
+            "athleteId": athleteFirestoreId,
+            "name": name,
+            "role": role,
+            "email": email,
+            "createdAt": createdAt ?? Date(),
+            "updatedAt": Date(),
+            "isDeleted": false
+        ]
+        if !phone.isEmpty { data["phone"] = phone }
+        if !notes.isEmpty { data["notes"] = notes }
+        if let firebaseCoachID = firebaseCoachID { data["firebaseCoachID"] = firebaseCoachID }
+        if let status = lastInvitationStatus { data["invitationStatus"] = status }
+        return data
     }
 
     // MARK: - Firebase Sync Methods
@@ -1129,11 +1166,34 @@ final class Photo {
     var practice: Practice?
     var season: Season?
 
+    // MARK: - Firestore / Storage Sync Metadata
+    var cloudURL: String?
+    var firestoreId: String?
+    var needsSync: Bool = false
+
     init(fileName: String, filePath: String) {
         self.id = UUID()
         self.fileName = fileName
         self.filePath = filePath
         self.createdAt = Date()
+    }
+
+    func toFirestoreData(ownerUID: String) -> [String: Any] {
+        var data: [String: Any] = [
+            "id": id.uuidString,
+            "fileName": fileName,
+            "athleteId": athlete?.id.uuidString ?? "",
+            "uploadedBy": ownerUID,
+            "createdAt": createdAt ?? Date(),
+            "updatedAt": Date(),
+            "isDeleted": false
+        ]
+        if let caption = caption { data["caption"] = caption }
+        if let gameId = game?.id.uuidString { data["gameId"] = gameId }
+        if let practiceId = practice?.id.uuidString { data["practiceId"] = practiceId }
+        if let seasonId = season?.id.uuidString { data["seasonId"] = seasonId }
+        if let cloudURL = cloudURL { data["downloadURL"] = cloudURL }
+        return data
     }
 
     /// Full-size image URL derived from filePath

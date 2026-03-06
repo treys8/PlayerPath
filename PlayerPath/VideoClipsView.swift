@@ -289,15 +289,7 @@ struct VideoClipsView: View {
             VideoRecorderView_Refactored(athlete: athlete, game: liveGameContext)
         }
         .sheet(isPresented: $showingUploadPicker) {
-            VideoPicker(athlete: athlete, onError: { error in
-                errorMessage = error
-                showingError = true
-            }, onImportStart: {
-                isImporting = true
-            }, onImportComplete: {
-                isImporting = false
-                refreshTrigger = UUID()
-            })
+            VideoRecorderView_Refactored(athlete: athlete, uploadOnly: true)
         }
         .sheet(item: $selectedVideo) { video in
             VideoDetailView(video: video)

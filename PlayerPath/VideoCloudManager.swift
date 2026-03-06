@@ -362,6 +362,59 @@ class VideoCloudManager: ObservableObject {
         try await db.collection("videos").document(clipId).updateData(["note": value])
     }
 
+    // MARK: - Photo Storage
+
+    /// Uploads a photo file to Firebase Storage and returns its download URL.
+    func uploadPhoto(at localURL: URL, ownerUID: String) async throws -> String {
+        let storage = Storage.storage()
+        let fileName = localURL.lastPathComponent
+        let photoRef = storage.reference().child("athlete_photos/\(ownerUID)/\(fileName)")
+        let metadata = StorageMetadata()
+        metadata.contentType = "image/jpeg"
+
+        return try await withCheckedThrowingContinuation { continuation in
+            photoRef.putFile(from: localURL, metadata: metadata) { _, error in
+                if let error = error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+                photoRef.downloadURL { url, error in
+                    if let error = error {
+                        continuation.resume(throwing: error)
+                    } else if let url = url {
+                        continuation.resume(returning: url.absoluteString)
+                    } else {
+                        continuation.resume(throwing: VideoCloudError.invalidURL)
+                    }
+                }
+            }
+        }
+    }
+
+    /// Downloads a photo file from Firebase Storage to a local path.
+    func downloadPhoto(from cloudURL: String, to localPath: String) async throws {
+        guard let storageURL = URL(string: cloudURL) else { throw VideoCloudError.invalidURL }
+        let localURL = URL(fileURLWithPath: localPath)
+        try? FileManager.default.createDirectory(
+            at: localURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        if FileManager.default.fileExists(atPath: localPath) { return }
+
+        let storage = Storage.storage()
+        let photoRef = storage.reference(forURL: storageURL.absoluteString)
+
+        return try await withCheckedThrowingContinuation { continuation in
+            photoRef.write(toFile: localURL) { _, error in
+                if let error = error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume()
+                }
+            }
+        }
+    }
+
     /// Uploads a thumbnail image for an athlete's video
     private func uploadAthleteVideoThumbnail(
         thumbnailURL: URL,
@@ -442,6 +495,8 @@ class VideoCloudManager: ObservableObject {
 
             let isHighlight = data["isHighlight"] as? Bool ?? false
             let playResultName = data["playResultName"] as? String
+            let playResultRawValue = data["playResult"] as? Int
+            let note = data["note"] as? String
             let gameOpponent = data["gameOpponent"] as? String
             let fileSize = data["fileSize"] as? Int64 ?? 0
             let thumbnailURL = data["thumbnailURL"] as? String
@@ -453,6 +508,8 @@ class VideoCloudManager: ObservableObject {
                 createdAt: createdAt,
                 isHighlight: isHighlight,
                 playResult: playResultName,
+                playResultRawValue: playResultRawValue,
+                note: note,
                 gameOpponent: gameOpponent,
                 athleteName: athleteName,
                 fileSize: fileSize,
@@ -533,6 +590,8 @@ class VideoCloudManager: ObservableObject {
                         createdAt: createdAt,
                         isHighlight: data["isHighlight"] as? Bool ?? false,
                         playResult: data["playResultName"] as? String,
+                        playResultRawValue: data["playResult"] as? Int,
+                        note: data["note"] as? String,
                         gameOpponent: data["gameOpponent"] as? String,
                         athleteName: athleteName,
                         fileSize: data["fileSize"] as? Int64 ?? 0,
@@ -1186,6 +1245,8 @@ struct VideoClipMetadata {
     let createdAt: Date
     let isHighlight: Bool
     let playResult: String?
+    let playResultRawValue: Int?
+    let note: String?
     let gameOpponent: String?
     let athleteName: String
     let fileSize: Int64

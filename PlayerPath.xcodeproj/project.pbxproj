@@ -241,7 +241,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 3.5.26;
+				MARKETING_VERSION = 3.6.26;
 				PRODUCT_BUNDLE_IDENTIFIER = RZR.DT3;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -282,7 +282,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 3.5.26;
+				MARKETING_VERSION = 3.6.26;
 				PRODUCT_BUNDLE_IDENTIFIER = RZR.DT3;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;

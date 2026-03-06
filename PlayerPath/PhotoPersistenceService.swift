@@ -98,6 +98,7 @@ final class PhotoPersistenceService {
         photo.game = game
         photo.practice = practice
         photo.season = athlete.activeSeason
+        photo.needsSync = true  // Mark for cloud upload on next sync
 
         context.insert(photo)
         try context.save()

@@ -638,6 +638,7 @@ struct PracticeDetailView: View {
     
     private enum PracticeSheet: Identifiable {
         case recordVideo
+        case uploadVideo
         case addNote
         var id: String { String(describing: self) }
     }
@@ -670,7 +671,11 @@ struct PracticeDetailView: View {
                 Button(action: { activeSheet = .recordVideo }) {
                     Label("Record Video", systemImage: "video.badge.plus")
                 }
-                
+
+                Button(action: { activeSheet = .uploadVideo }) {
+                    Label("Upload from Camera Roll", systemImage: "photo.on.rectangle")
+                }
+
                 Button(action: { activeSheet = .addNote }) {
                     Label("Add Note", systemImage: "note.text.badge.plus")
                 }
@@ -721,6 +726,8 @@ struct PracticeDetailView: View {
             switch sheet {
             case .recordVideo:
                 VideoRecorderView_Refactored(athlete: practice.athlete, practice: practice)
+            case .uploadVideo:
+                VideoRecorderView_Refactored(athlete: practice.athlete, practice: practice, uploadOnly: true)
             case .addNote:
                 AddPracticeNoteView(practice: practice)
             }
@@ -821,9 +828,23 @@ struct PracticeVideoClipRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Image(systemName: "video.fill")
-                    .foregroundColor(.blue)
-                    .font(.title3)
+                // Thumbnail
+                Group {
+                    if let thumbPath = clip.thumbnailPath,
+                       let uiImage = UIImage(contentsOfFile: thumbPath) {
+                        Image(uiImage: uiImage)
+                            .resizable()
+                            .scaledToFill()
+                    } else {
+                        Image(systemName: "video.fill")
+                            .foregroundColor(.blue)
+                            .font(.title3)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .background(Color.blue.opacity(0.1))
+                    }
+                }
+                .frame(width: 56, height: 40)
+                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(clip.createdAt.map { Self.timeFormatter.string(from: $0) } ?? "Practice Clip")
@@ -1019,6 +1040,7 @@ struct AddPracticeNoteView: View {
     
     private func saveNote() {
         let note = PracticeNote(content: noteContent.trimmingCharacters(in: .whitespacesAndNewlines))
+        note.needsSync = true
         note.practice = practice
         
         if practice.notes == nil {

@@ -360,17 +360,14 @@ struct PlayResultOverlayView: View {
             VStack(alignment: .leading, spacing: 10) {
                 PlayResultSectionHeader(icon: "baseball.fill", title: "HITS", color: .green)
 
-                LazyVGrid(columns: [
-                    GridItem(.flexible(), spacing: 10),
-                    GridItem(.flexible(), spacing: 10)
-                ], spacing: 10) {
-                    ForEach([PlayResultType.single, .double, .triple, .homeRun], id: \.self) { result in
-                        PlayResultButton(
-                            result: result,
-                            isSelected: selectedResult == result
-                        ) {
-                            selectResult(result)
-                        }
+                VStack(spacing: 10) {
+                    HStack(spacing: 10) {
+                        PlayResultButton(result: .single, isSelected: selectedResult == .single) { selectResult(.single) }
+                        PlayResultButton(result: .double, isSelected: selectedResult == .double) { selectResult(.double) }
+                    }
+                    HStack(spacing: 10) {
+                        PlayResultButton(result: .triple, isSelected: selectedResult == .triple) { selectResult(.triple) }
+                        PlayResultButton(result: .homeRun, isSelected: selectedResult == .homeRun) { selectResult(.homeRun) }
                     }
                 }
             }
@@ -381,11 +378,7 @@ struct PlayResultOverlayView: View {
             VStack(alignment: .leading, spacing: 10) {
                 PlayResultSectionHeader(icon: "figure.walk", title: "WALK", color: .blue)
 
-                PlayResultButton(
-                    result: .walk,
-                    isSelected: selectedResult == .walk,
-                    fullWidth: true
-                ) {
+                PlayResultButton(result: .walk, isSelected: selectedResult == .walk, fullWidth: true) {
                     selectResult(.walk)
                 }
             }
@@ -396,17 +389,14 @@ struct PlayResultOverlayView: View {
             VStack(alignment: .leading, spacing: 10) {
                 PlayResultSectionHeader(icon: "xmark.circle.fill", title: "OUTS", color: .red)
 
-                LazyVGrid(columns: [
-                    GridItem(.flexible(), spacing: 10),
-                    GridItem(.flexible(), spacing: 10)
-                ], spacing: 10) {
-                    ForEach([PlayResultType.strikeout, .groundOut, .flyOut], id: \.self) { result in
-                        PlayResultButton(
-                            result: result,
-                            isSelected: selectedResult == result
-                        ) {
-                            selectResult(result)
-                        }
+                VStack(spacing: 10) {
+                    HStack(spacing: 10) {
+                        PlayResultButton(result: .strikeout, isSelected: selectedResult == .strikeout) { selectResult(.strikeout) }
+                        PlayResultButton(result: .groundOut, isSelected: selectedResult == .groundOut) { selectResult(.groundOut) }
+                    }
+                    HStack(spacing: 10) {
+                        PlayResultButton(result: .flyOut, isSelected: selectedResult == .flyOut) { selectResult(.flyOut) }
+                        Color.clear.frame(maxWidth: .infinity)
                     }
                 }
             }
@@ -420,22 +410,9 @@ struct PlayResultOverlayView: View {
             VStack(alignment: .leading, spacing: 10) {
                 PlayResultSectionHeader(icon: "figure.baseball", title: "PITCH RESULT", color: .purple)
 
-                LazyVGrid(columns: [
-                    GridItem(.flexible(), spacing: 10),
-                    GridItem(.flexible(), spacing: 10)
-                ], spacing: 10) {
-                    PlayResultButton(
-                        result: .ball,
-                        isSelected: selectedResult == .ball
-                    ) {
-                        selectResult(.ball)
-                    }
-                    PlayResultButton(
-                        result: .strike,
-                        isSelected: selectedResult == .strike
-                    ) {
-                        selectResult(.strike)
-                    }
+                HStack(spacing: 10) {
+                    PlayResultButton(result: .ball, isSelected: selectedResult == .ball) { selectResult(.ball) }
+                    PlayResultButton(result: .strike, isSelected: selectedResult == .strike) { selectResult(.strike) }
                 }
             }
 
@@ -444,17 +421,14 @@ struct PlayResultOverlayView: View {
             VStack(alignment: .leading, spacing: 10) {
                 PlayResultSectionHeader(icon: "xmark.circle.fill", title: "OUTS", color: .red)
 
-                LazyVGrid(columns: [
-                    GridItem(.flexible(), spacing: 10),
-                    GridItem(.flexible(), spacing: 10)
-                ], spacing: 10) {
-                    ForEach([PlayResultType.strikeout, .groundOut, .flyOut], id: \.self) { result in
-                        PlayResultButton(
-                            result: result,
-                            isSelected: selectedResult == result
-                        ) {
-                            selectResult(result)
-                        }
+                VStack(spacing: 10) {
+                    HStack(spacing: 10) {
+                        PlayResultButton(result: .strikeout, isSelected: selectedResult == .strikeout) { selectResult(.strikeout) }
+                        PlayResultButton(result: .groundOut, isSelected: selectedResult == .groundOut) { selectResult(.groundOut) }
+                    }
+                    HStack(spacing: 10) {
+                        PlayResultButton(result: .flyOut, isSelected: selectedResult == .flyOut) { selectResult(.flyOut) }
+                        Color.clear.frame(maxWidth: .infinity)
                     }
                 }
             }
@@ -464,22 +438,9 @@ struct PlayResultOverlayView: View {
             VStack(alignment: .leading, spacing: 10) {
                 PlayResultSectionHeader(icon: "exclamationmark.triangle.fill", title: "SPECIAL", color: .orange)
 
-                LazyVGrid(columns: [
-                    GridItem(.flexible(), spacing: 10),
-                    GridItem(.flexible(), spacing: 10)
-                ], spacing: 10) {
-                    PlayResultButton(
-                        result: .hitByPitch,
-                        isSelected: selectedResult == .hitByPitch
-                    ) {
-                        selectResult(.hitByPitch)
-                    }
-                    PlayResultButton(
-                        result: .wildPitch,
-                        isSelected: selectedResult == .wildPitch
-                    ) {
-                        selectResult(.wildPitch)
-                    }
+                HStack(spacing: 10) {
+                    PlayResultButton(result: .hitByPitch, isSelected: selectedResult == .hitByPitch) { selectResult(.hitByPitch) }
+                    PlayResultButton(result: .wildPitch, isSelected: selectedResult == .wildPitch) { selectResult(.wildPitch) }
                 }
             }
         }
@@ -577,7 +538,7 @@ struct PlayResultButton: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
-            .frame(maxWidth: fullWidth ? .infinity : nil)
+            .frame(maxWidth: .infinity)
             .frame(height: 56)
             .background(
                 ZStack {

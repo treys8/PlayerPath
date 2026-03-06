@@ -21,7 +21,9 @@ struct VideoPicker: UIViewControllerRepresentable {
         var configuration = PHPickerConfiguration(photoLibrary: .shared())
         configuration.filter = .videos
         configuration.selectionLimit = 1
-        configuration.preferredAssetRepresentationMode = .current
+        // .compatible transcodes to a universally-readable H.264/QuickTime format,
+        // avoiding failures with HEVC, ProRes, Dolby Vision, and slow-motion formats.
+        configuration.preferredAssetRepresentationMode = .compatible
 
         let picker = PHPickerViewController(configuration: configuration)
         picker.delegate = context.coordinator
@@ -56,7 +58,9 @@ struct VideoPicker: UIViewControllerRepresentable {
 
             parent.onImportStart()
 
-            // Load the video file
+            // Load the video file. The URL provided in the callback is a temporary
+            // file that is deleted once the closure returns, so we copy it to a
+            // stable location synchronously before escaping into an async Task.
             result.itemProvider.loadFileRepresentation(forTypeIdentifier: UTType.movie.identifier) { url, error in
                 if let error = error {
                     DispatchQueue.main.async {
@@ -66,7 +70,7 @@ struct VideoPicker: UIViewControllerRepresentable {
                     return
                 }
 
-                guard let sourceURL = url else {
+                guard let tempURL = url else {
                     DispatchQueue.main.async {
                         self.parent.onImportComplete()
                         self.parent.onError("Failed to access video file")
@@ -74,18 +78,41 @@ struct VideoPicker: UIViewControllerRepresentable {
                     return
                 }
 
+                // Copy synchronously while the temp URL is still alive.
+                guard let documentsDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
+                    DispatchQueue.main.async {
+                        self.parent.onImportComplete()
+                        self.parent.onError("Could not access documents directory")
+                    }
+                    return
+                }
+                let ext = tempURL.pathExtension.isEmpty ? "mov" : tempURL.pathExtension
+                let stableURL = documentsDir.appendingPathComponent("imported_\(UUID().uuidString).\(ext)")
+                do {
+                    try FileManager.default.copyItem(at: tempURL, to: stableURL)
+                } catch {
+                    DispatchQueue.main.async {
+                        self.parent.onImportComplete()
+                        self.parent.onError("Failed to copy video: \(error.localizedDescription)")
+                    }
+                    return
+                }
+
                 Task {
-                    await self.importVideo(from: sourceURL)
+                    await self.importVideo(from: stableURL)
                 }
             }
         }
 
-        private func importVideo(from sourceURL: URL) async {
-            // Validate the video
-            let validationResult = await VideoFileManager.validateVideo(at: sourceURL)
+        // stableURL is already a copy in the documents directory made synchronously
+        // in the picker callback — no second copy needed here.
+        private func importVideo(from stableURL: URL) async {
+            // Validate the stable copy
+            let validationResult = await VideoFileManager.validateVideo(at: stableURL)
 
             switch validationResult {
             case .failure(let error):
+                try? FileManager.default.removeItem(at: stableURL)
                 await MainActor.run {
                     parent.onImportComplete()
                     parent.onError(error.localizedDescription)
@@ -95,17 +122,7 @@ struct VideoPicker: UIViewControllerRepresentable {
                 break
             }
 
-            // Copy to documents directory
-            let destinationURL: URL
-            do {
-                destinationURL = try VideoFileManager.copyToDocuments(from: sourceURL)
-            } catch {
-                await MainActor.run {
-                    parent.onImportComplete()
-                    parent.onError("Failed to import video: \(error.localizedDescription)")
-                }
-                return
-            }
+            let destinationURL = stableURL
 
             // Generate thumbnail
             let thumbnailResult = await VideoFileManager.generateThumbnail(from: destinationURL)

@@ -160,6 +160,7 @@ struct AthleteInvitationsSheet: View {
                 name: invitation.coachName,
                 email: invitation.coachEmail
             )
+            coach.needsSync = true
             coach.invitationAcceptedAt = Date()
             coach.firebaseCoachID = invitation.coachID
             coach.lastInvitationStatus = "accepted"

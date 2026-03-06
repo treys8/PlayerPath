@@ -140,35 +140,22 @@ class VideoFileManager {
     // MARK: - Validation
     
     static func validateVideo(at url: URL) async -> Result<Void, ValidationError> {
-        // Check for cancellation early
-        guard !Task.isCancelled else {
-            logger.info("Video validation cancelled")
-            return .failure(.corruptedFile)
-        }
-        
-        // Basic file existence and size via URL resource values
-        do {
-            let keys: Set<URLResourceKey> = [.isRegularFileKey, .fileSizeKey]
-            let values = try url.resourceValues(forKeys: keys)
-            guard values.isRegularFile == true else {
+        guard !Task.isCancelled else { return .failure(.invalidFormat) }
+
+        // File size check — treat read errors as non-fatal and skip size gate
+        if let fileSize = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize.map(Int64.init) {
+            if fileSize > Constants.maxFileSizeBytes {
+                return .failure(.fileTooLarge(fileSize))
+            }
+            // Very small files are invalid; skip if fileSize is unavailable
+            if fileSize < Constants.minFileSizeBytes {
+                return .failure(.fileTooSmall)
+            }
+        } else {
+            // Fallback: check existence via FileManager (handles iCloud symlinks, etc.)
+            guard FileManager.default.fileExists(atPath: url.path) else {
                 return .failure(.fileNotFound)
             }
-            if let fileSize = values.fileSize.map(Int64.init) {
-                if fileSize > Constants.maxFileSizeBytes {
-                    return .failure(.fileTooLarge(fileSize))
-                }
-                if fileSize < Constants.minFileSizeBytes {
-                    return .failure(.fileTooSmall)
-                }
-            }
-        } catch {
-            return .failure(.corruptedFile)
-        }
-
-        // Check for cancellation before expensive operation
-        guard !Task.isCancelled else {
-            logger.info("Video validation cancelled before playability check")
-            return .failure(.corruptedFile)
         }
 
         // Duration + playability

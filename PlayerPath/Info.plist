@@ -11,6 +11,8 @@
 	<array>
 		<string>com.playerpath.video-upload</string>
 	</array>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>

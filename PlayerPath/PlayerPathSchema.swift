@@ -123,19 +123,38 @@ enum SchemaV3: VersionedSchema {
     static var models: [any PersistentModel.Type] { SchemaV1.models }
 }
 
+// MARK: - Schema V4 (3/6/26 — Cross-device sync for PracticeNotes, Photos, Coaches)
+//
+//  Changes from V3:
+//    • PracticeNote.firestoreId (String? = nil) added
+//    • PracticeNote.needsSync (Bool = false) added
+//    • Photo.cloudURL (String? = nil) added
+//    • Photo.firestoreId (String? = nil) added
+//    • Photo.needsSync (Bool = false) added
+//    • Coach.firestoreId (String? = nil) added
+//    • Coach.needsSync (Bool = false) added
+//
+//  All additions are optional or have defaults → lightweight migration.
+
+enum SchemaV4: VersionedSchema {
+    static var versionIdentifier = Schema.Version(4, 0, 0)
+    static var models: [any PersistentModel.Type] { SchemaV1.models }
+}
+
 // MARK: - Migration Plan
 
 enum PlayerPathMigrationPlan: SchemaMigrationPlan {
     /// All schema versions in chronological order (oldest first).
     static var schemas: [any VersionedSchema.Type] {
-        [SchemaV1.self, SchemaV2.self, SchemaV3.self]
+        [SchemaV1.self, SchemaV2.self, SchemaV3.self, SchemaV4.self]
     }
 
     /// Migration stages between consecutive versions.
     static var stages: [MigrationStage] {
         [
             .lightweight(fromVersion: SchemaV1.self, toVersion: SchemaV2.self),
-            .lightweight(fromVersion: SchemaV2.self, toVersion: SchemaV3.self)
+            .lightweight(fromVersion: SchemaV2.self, toVersion: SchemaV3.self),
+            .lightweight(fromVersion: SchemaV3.self, toVersion: SchemaV4.self)
         ]
     }
 }
