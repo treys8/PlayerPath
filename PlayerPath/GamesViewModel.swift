@@ -169,7 +169,7 @@ final class GamesViewModel: ObservableObject {
         do {
             try modelContext.save()
             print("Started game for athlete \(athlete.name).")
-            NotificationCenter.default.post(name: Notification.Name("GameBecameLive"), object: game)
+            NotificationCenter.default.post(name: .gameBecameLive, object: game)
         } catch {
             print("Error saving context after starting game: \(error.localizedDescription)")
         }

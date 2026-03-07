@@ -52,17 +52,8 @@ struct VideoRecordingOptionsView: View {
         }
         .buttonStyle(.plain)
         .disabled(isRecordingDisabled || isLoading)
-        .simultaneousGesture(
-            LongPressGesture(minimumDuration: 0.6)
-                .onEnded { _ in
-                    if !isRecordingDisabled && !isLoading {
-                        Haptics.heavy()
-                        onRecordVideo()
-                    }
-                }
-        )
         .accessibilityLabel("Record new video using device camera")
-        .accessibilityHint(isRecordingDisabled ? "Camera is not available" : "Opens camera to record a new video. Long press for quick record.")
+        .accessibilityHint(isRecordingDisabled ? "Camera is not available" : "Opens camera to record a new video.")
         .contentShape(Rectangle())
     }
 

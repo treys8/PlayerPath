@@ -54,6 +54,10 @@ class GameService {
             print("Game has no athlete; cannot delete deeply.")
             return
         }
+
+        // Capture before SwiftData deletion removes access to these properties
+        let firestoreId = game.firestoreId
+        let userId = athlete.user?.firebaseAuthUid
         
         // Delete all video clips and their files
         for clip in game.videoClips ?? [] {
@@ -87,7 +91,22 @@ class GameService {
         
         do {
             try modelContext.save()
+            #if DEBUG
             print("Deleted game and related data successfully.")
+            #endif
+
+            // Soft-delete from Firestore if the game was previously synced
+            if let firestoreId, let userId {
+                Task {
+                    do {
+                        try await FirestoreManager.shared.deleteGame(userId: userId, gameId: firestoreId)
+                    } catch {
+                        #if DEBUG
+                        print("⚠️ Failed to delete game from Firestore: \(error)")
+                        #endif
+                    }
+                }
+            }
         } catch {
             print("Error saving context after deleting game deeply: \(error.localizedDescription)")
         }
@@ -95,12 +114,12 @@ class GameService {
     
     // MARK: - Game Creation
 
-    enum GameCreationError: Error {
+    enum GameCreationError: LocalizedError {
         case noActiveSeason
         case duplicateGame
         case saveFailed
 
-        var localizedDescription: String {
+        var errorDescription: String? {
             switch self {
             case .noActiveSeason:
                 return "No active season found. Please create a season before adding games."
@@ -195,10 +214,10 @@ class GameService {
             print("✅ Game created: \(opponent) (live: \(isLive), tracking: \(seasonInfo))")
             #endif
 
-            NotificationCenter.default.post(name: Notification.Name("GameCreated"), object: game)
+            NotificationCenter.default.post(name: .gameCreated, object: game)
 
             if game.isLive {
-                NotificationCenter.default.post(name: Notification.Name("GameBecameLive"), object: game)
+                NotificationCenter.default.post(name: .gameBecameLive, object: game)
             }
 
             return .success(game)
@@ -247,7 +266,7 @@ class GameService {
             }
 
             print("Started game for athlete \(athlete.name).")
-            NotificationCenter.default.post(name: Notification.Name("GameBecameLive"), object: game)
+            NotificationCenter.default.post(name: .gameBecameLive, object: game)
         } catch {
             print("Error saving context after starting game: \(error.localizedDescription)")
         }

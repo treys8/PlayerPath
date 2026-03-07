@@ -155,7 +155,7 @@ struct HighlightsView: View {
                 toolbarContent
             }
             .environment(\.editMode, $editMode)
-        .sheet(isPresented: $showingVideoPlayer) {
+        .fullScreenCover(isPresented: $showingVideoPlayer) {
             if let clip: VideoClip = selectedClip {
                 VideoPlayerView(clip: clip)
             }

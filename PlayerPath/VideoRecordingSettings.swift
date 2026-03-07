@@ -24,6 +24,7 @@ final class VideoRecordingSettings {
 
     private var saveTask: Task<Void, Never>?
     private let saveDebounceInterval: Duration = .milliseconds(500)
+    private var isInitializing = true
 
     // MARK: - Settings Properties
     
@@ -120,11 +121,15 @@ final class VideoRecordingSettings {
         } else {
             self.stabilizationMode = .auto
         }
+
+        isInitializing = false
     }
     
     // MARK: - Persistence
 
     private func saveSettings() {
+        guard !isInitializing else { return }
+
         // Cancel any pending save task
         saveTask?.cancel()
 
@@ -435,7 +440,7 @@ extension VideoRecordingSettings {
         }
         
         // 240fps typically only available at lower resolutions
-        if frameRate == .fps240 && quality.rawValue != "480p" {
+        if frameRate == .fps240 && quality != .low480p {
             return false
         }
         

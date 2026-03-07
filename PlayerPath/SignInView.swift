@@ -12,6 +12,8 @@ import LocalAuthentication
 
 fileprivate enum AuthField { case displayName, email, password }
 
+private struct AuthTimeoutError: Error {}
+
 struct SignInView: View {
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @StateObject private var appleSignInManager = AppleSignInManager()
@@ -243,7 +245,7 @@ struct SignInView: View {
 
             group.addTask {
                 try await Task.sleep(nanoseconds: nanoseconds)
-                throw CancellationError()
+                throw AuthTimeoutError()
             }
 
             let result = try await group.next()!
@@ -284,7 +286,9 @@ struct SignInView: View {
 
         Haptics.light()
 
+        #if DEBUG
         print("🔐 Starting authentication - isSignUp: \(isSignUp), role: \(selectedRole.rawValue)")
+        #endif
 
         authTask = Task {
             defer { authTask = nil }
@@ -299,7 +303,9 @@ struct SignInView: View {
                 try await withTimeout(nanoseconds: AnimationTiming.authTimeoutNanoseconds) {
                     if isSignUp {
                         // Route to appropriate sign-up method based on selected role
+                        #if DEBUG
                         print("🔵 Signing up as \(selectedRole.rawValue) with email: \(normalizedEmail)")
+                        #endif
 
                         if selectedRole == .coach {
                             await authManager.signUpAsCoach(
@@ -315,7 +321,9 @@ struct SignInView: View {
                             )
                         }
                     } else {
+                        #if DEBUG
                         print("🔵 Signing in with email: \(normalizedEmail)")
+                        #endif
                         await authManager.signIn(email: normalizedEmail, password: password)
                     }
                 }
@@ -386,14 +394,14 @@ struct SignInView: View {
         biometricTask = Task {
             defer { biometricTask = nil }
             guard !Task.isCancelled else { return }
-            
-            if let credentials = await biometricManager.getBiometricCredentials() {
+
+            if let _ = await biometricManager.authenticateWithSessionBiometric() {
                 guard !Task.isCancelled else { return }
-                
-                await authManager.signIn(email: credentials.email, password: credentials.password)
-                
+
+                await authManager.restoreFirebaseSession()
+
                 guard !Task.isCancelled else { return }
-                
+
                 if authManager.isSignedIn {
                     Haptics.success()
                 }
@@ -791,10 +799,14 @@ private struct TermsAgreementSection: View {
     @Binding var agreedToTerms: Bool
     @Binding var showingPrivacyPolicy: Bool
     @Binding var showingTermsOfService: Bool
-    
+    @State private var hasInteracted = false
+
     var body: some View {
         VStack(spacing: 12) {
-            Toggle(isOn: $agreedToTerms) {
+            Toggle(isOn: Binding(
+                get: { agreedToTerms },
+                set: { agreedToTerms = $0; hasInteracted = true }
+            )) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("I agree to the Terms and Privacy Policy")
                         .font(.subheadline)
@@ -819,7 +831,7 @@ private struct TermsAgreementSection: View {
             }
             .toggleStyle(SwitchToggleStyle(tint: .green))
             
-            if !agreedToTerms {
+            if hasInteracted && !agreedToTerms {
                 HStack {
                     Image(systemName: "info.circle.fill")
                         .foregroundColor(.red)

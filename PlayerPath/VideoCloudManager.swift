@@ -91,10 +91,6 @@ class VideoCloudManager: ObservableObject {
     ///   - athlete: The athlete who owns the video
     /// - Returns: The download URL for the uploaded video
     func uploadVideo(_ videoClip: VideoClip, athlete: Athlete) async throws -> String {
-        guard Auth.auth().currentUser != nil else {
-            throw VideoCloudError.uploadFailed("User not authenticated")
-        }
-
         // Capture values from SwiftData model before async boundary (Sendable compliance)
         let clipId = videoClip.id
         let clipFilePath = videoClip.filePath
@@ -461,12 +457,14 @@ class VideoCloudManager: ObservableObject {
         guard let ownerUID = Auth.auth().currentUser?.uid else {
             throw VideoCloudError.uploadFailed("User session expired — please sign in again to upload")
         }
+        let athleteStableId = athlete.firestoreId ?? athlete.id.uuidString
         let db = Firestore.firestore()
 
-        // Query videos for this athlete that aren't deleted.
+        // Query videos for this specific athlete that aren't deleted.
         // uploadedBy filter is required for Firestore security rule evaluation.
         let snapshot = try await db.collection("videos")
             .whereField("uploadedBy", isEqualTo: ownerUID)
+            .whereField("athleteId", isEqualTo: athleteStableId)
             .whereField("isDeleted", isEqualTo: false)
             .order(by: "createdAt", descending: true)
             .limit(to: 200)
@@ -611,10 +609,6 @@ class VideoCloudManager: ObservableObject {
     ///   - videoClip: The video clip to delete
     ///   - athlete: The athlete who owns the video
     func deleteVideo(_ videoClip: VideoClip, athlete: Athlete) async throws {
-        guard Auth.auth().currentUser != nil else {
-            throw VideoCloudError.uploadFailed("User not authenticated")
-        }
-
         // Capture values from SwiftData model before async boundary (Sendable compliance)
         let clipFileName = videoClip.fileName
 
@@ -914,10 +908,7 @@ class VideoCloudManager: ObservableObject {
         let storageRef = storage.reference()
         
         // Generate thumbnail filename from video filename
-        let thumbnailFileName = videoFileName.replacingOccurrences(of: ".mov", with: "_thumbnail.jpg")
-            .replacingOccurrences(of: ".mp4", with: "_thumbnail.jpg")
-            .replacingOccurrences(of: ".MOV", with: "_thumbnail.jpg")
-            .replacingOccurrences(of: ".MP4", with: "_thumbnail.jpg")
+        let thumbnailFileName = (videoFileName as NSString).deletingPathExtension + "_thumbnail.jpg"
         
         let thumbnailRef = storageRef.child("shared_folders/\(folderID)/thumbnails/\(thumbnailFileName)")
 
@@ -964,8 +955,7 @@ class VideoCloudManager: ObservableObject {
     func getSecureDownloadURL(
         fileName: String,
         folderID: String,
-        isThumbnail: Bool = false,
-        expirationHours: Int? = nil
+        isThumbnail: Bool = false
     ) async throws -> String {
 
         let storage = Storage.storage()
@@ -974,7 +964,6 @@ class VideoCloudManager: ObservableObject {
         // Build the correct storage path
         let filePath: String
         if isThumbnail {
-            // Convert video filename to thumbnail filename
             let thumbnailFileName = (fileName as NSString).deletingPathExtension + "_thumbnail.jpg"
             filePath = "shared_folders/\(folderID)/thumbnails/\(thumbnailFileName)"
         } else {
@@ -982,14 +971,6 @@ class VideoCloudManager: ObservableObject {
         }
 
         let fileRef = storageRef.child(filePath)
-
-        // Note expiration warning if requested
-        if let hours = expirationHours {
-            #if DEBUG
-            print("⚠️ Expiring URLs requested (\(hours)h) but not implemented. Using standard URL.")
-            print("   TODO: Implement signed URLs via Cloud Functions for true expiration.")
-            #endif
-        }
 
         return try await withCheckedThrowingContinuation { continuation in
             fileRef.downloadURL { url, error in
@@ -1047,10 +1028,13 @@ class VideoCloudManager: ObservableObject {
             )
 
             // Step 2: Write metadata to Firestore
-            try await metadataWriter(uploadedURL!)
+            guard let url = uploadedURL else {
+                throw VideoCloudError.uploadFailed("Upload completed but URL was not set")
+            }
+            try await metadataWriter(url)
 
             // Success - return URL
-            return uploadedURL!
+            return url
 
         } catch {
             // Metadata write failed - rollback the upload

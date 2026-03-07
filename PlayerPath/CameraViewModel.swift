@@ -51,6 +51,7 @@ class CameraViewModel: NSObject, ObservableObject {
     var minZoom: CGFloat = 1.0
     var maxZoom: CGFloat = 10.0
     private var zoomGestureBase: CGFloat = 1.0  // Zoom captured at gesture start
+    private var focusTask: Task<Void, Never>?
 
     // MARK: - Constants
 
@@ -156,8 +157,11 @@ class CameraViewModel: NSObject, ObservableObject {
         // Start monitoring orientation
         startOrientationMonitoring()
 
-        // Capture settings value before async boundary
+        // Capture all settings values before crossing the actor boundary
         let qualityPreset = settings.quality.avPreset
+        let targetFrameRate = settings.frameRate.fps
+        let audioEnabled = settings.audioEnabled
+        let stabilizationMode = settings.stabilizationMode.avMode
 
         // Observe session interruptions (phone calls, etc.)
         setupInterruptionObservers()
@@ -172,9 +176,9 @@ class CameraViewModel: NSObject, ObservableObject {
                 self.captureSession.sessionPreset = qualityPreset
             }
 
-            self.setupCamera()
-            self.setupAudio()
-            self.setupOutput()
+            self.setupCamera(targetFrameRate: targetFrameRate)
+            self.setupAudio(audioEnabled: audioEnabled)
+            self.setupOutput(stabilizationMode: stabilizationMode)
 
             self.captureSession.commitConfiguration()
             self.captureSession.startRunning()
@@ -270,7 +274,7 @@ class CameraViewModel: NSObject, ObservableObject {
 
     // MARK: - Camera Setup
 
-    private func setupCamera() {
+    private func setupCamera(targetFrameRate: Int) {
         // Remove existing video input
         if let existingInput = videoInput {
             captureSession.removeInput(existingInput)
@@ -294,15 +298,19 @@ class CameraViewModel: NSObject, ObservableObject {
         do {
             try camera.lockForConfiguration()
 
-            // Set frame rate if supported
-            let targetFrameRate = settings.frameRate.fps
-            if let formatSupported = camera.formats.first(where: { format in
+            // Pick highest-resolution format that supports the target frame rate
+            let matchingFormats = camera.formats.filter { format in
                 format.videoSupportedFrameRateRanges.contains(where: { range in
                     range.minFrameRate <= Double(targetFrameRate) &&
                     range.maxFrameRate >= Double(targetFrameRate)
                 })
+            }
+            if let bestFormat = matchingFormats.max(by: { a, b in
+                let aDims = CMVideoFormatDescriptionGetDimensions(a.formatDescription)
+                let bDims = CMVideoFormatDescriptionGetDimensions(b.formatDescription)
+                return Int(aDims.width) * Int(aDims.height) < Int(bDims.width) * Int(bDims.height)
             }) {
-                camera.activeFormat = formatSupported
+                camera.activeFormat = bestFormat
                 camera.activeVideoMinFrameDuration = CMTime(value: 1, timescale: CMTimeScale(targetFrameRate))
                 camera.activeVideoMaxFrameDuration = CMTime(value: 1, timescale: CMTimeScale(targetFrameRate))
             }
@@ -344,8 +352,8 @@ class CameraViewModel: NSObject, ObservableObject {
         }
     }
 
-    private func setupAudio() {
-        guard settings.audioEnabled else { return }
+    private func setupAudio(audioEnabled: Bool) {
+        guard audioEnabled else { return }
 
         // Remove existing audio input
         if let existingInput = audioInput {
@@ -371,7 +379,7 @@ class CameraViewModel: NSObject, ObservableObject {
         }
     }
 
-    private func setupOutput() {
+    private func setupOutput(stabilizationMode: AVCaptureVideoStabilizationMode) {
         // Remove existing output
         if let existingOutput = movieFileOutput {
             captureSession.removeOutput(existingOutput)
@@ -386,7 +394,7 @@ class CameraViewModel: NSObject, ObservableObject {
         if let connection = output.connection(with: .video) {
             // Set stabilization
             if connection.isVideoStabilizationSupported {
-                connection.preferredVideoStabilizationMode = settings.stabilizationMode.avMode
+                connection.preferredVideoStabilizationMode = stabilizationMode
             }
 
             // Set orientation based on current device orientation
@@ -428,18 +436,6 @@ class CameraViewModel: NSObject, ObservableObject {
             }
             output.startRecording(to: outputURL, recordingDelegate: self)
         }
-
-        // Update UI
-        isRecording = true
-        recordingStartTime = Date()
-        hasShownTimeWarning = false
-
-        // Start timers
-        startRecordingTimer()
-        startPulseTimer()
-
-        // Haptic feedback
-        Haptics.success()
     }
 
     @MainActor
@@ -461,7 +457,7 @@ class CameraViewModel: NSObject, ObservableObject {
 
     @MainActor
     private func startRecordingTimer() {
-        recordingTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+        recordingTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self = self, let startTime = self.recordingStartTime else { return }
 
@@ -503,13 +499,18 @@ class CameraViewModel: NSObject, ObservableObject {
 
     @MainActor
     func flipCamera() {
+        guard !isRecording else { return }
+
         currentCameraPosition = currentCameraPosition == .back ? .front : .back
+        zoomGestureBase = 1.0
+
+        let targetFrameRate = settings.frameRate.fps
 
         sessionQueue.async { [weak self] in
             guard let self = self else { return }
 
             self.captureSession.beginConfiguration()
-            self.setupCamera()
+            self.setupCamera(targetFrameRate: targetFrameRate)
             self.captureSession.commitConfiguration()
         }
 
@@ -527,6 +528,28 @@ class CameraViewModel: NSObject, ObservableObject {
             flashMode = .off
         @unknown default:
             flashMode = .off
+        }
+
+        // Apply as torch mode — flash mode is for photos; torch controls the LED during video
+        let torchMode: AVCaptureDevice.TorchMode = {
+            switch flashMode {
+            case .on: return .on
+            case .auto: return .auto
+            default: return .off
+            }
+        }()
+
+        guard let device = videoDevice else { return }
+        sessionQueue.async {
+            do {
+                try device.lockForConfiguration()
+                if device.hasTorch && device.isTorchAvailable {
+                    device.torchMode = torchMode
+                }
+                device.unlockForConfiguration()
+            } catch {
+                print("⚠️ Failed to set torch: \(error.localizedDescription)")
+            }
         }
 
         Haptics.light()
@@ -560,28 +583,26 @@ class CameraViewModel: NSObject, ObservableObject {
     }
 
     @MainActor
-    func handleTapToFocus(at point: CGPoint) {
+    func handleTapToFocus(at point: CGPoint, viewSize: CGSize) {
         guard let device = videoDevice else { return }
 
         // Convert tap point to device coordinates (0-1 range), accounting for orientation
-        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene else { return }
-        let screenBounds = windowScene.screen.bounds
         let devicePoint: CGPoint
         switch currentOrientation {
         case .landscapeRight:
             devicePoint = CGPoint(
-                x: point.x / screenBounds.width,
-                y: point.y / screenBounds.height
+                x: point.x / viewSize.width,
+                y: point.y / viewSize.height
             )
         case .landscapeLeft:
             devicePoint = CGPoint(
-                x: 1.0 - (point.x / screenBounds.width),
-                y: 1.0 - (point.y / screenBounds.height)
+                x: 1.0 - (point.x / viewSize.width),
+                y: 1.0 - (point.y / viewSize.height)
             )
         default: // Portrait
             devicePoint = CGPoint(
-                x: point.y / screenBounds.height,
-                y: 1.0 - (point.x / screenBounds.width)
+                x: point.y / viewSize.height,
+                y: 1.0 - (point.x / viewSize.width)
             )
         }
 
@@ -600,13 +621,14 @@ class CameraViewModel: NSObject, ObservableObject {
 
             device.unlockForConfiguration()
 
-            // Show focus reticle
+            // Show focus reticle — cancel previous dismiss task so it doesn't clear the new point
             lastFocusPoint = point
-
-            // Hide after animation
-            Task { @MainActor in
+            focusTask?.cancel()
+            focusTask = Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
-                self.lastFocusPoint = nil
+                if !Task.isCancelled {
+                    self.lastFocusPoint = nil
+                }
             }
 
             Haptics.light()
@@ -640,6 +662,14 @@ extension CameraViewModel: AVCaptureFileOutputRecordingDelegate {
         from connections: [AVCaptureConnection]
     ) {
         print("✅ Recording started: \(fileURL)")
+        Task { @MainActor in
+            self.isRecording = true
+            self.recordingStartTime = Date()
+            self.hasShownTimeWarning = false
+            self.startRecordingTimer()
+            self.startPulseTimer()
+            Haptics.success()
+        }
     }
 
     nonisolated func fileOutput(

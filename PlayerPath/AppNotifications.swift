@@ -19,6 +19,8 @@ enum AppEvent {
 }
 
 extension Notification.Name {
+    static let gameCreated = Notification.Name("GameCreated")
+    static let gameBecameLive = Notification.Name("GameBecameLive")
     static let switchTab = Notification.Name("switchTab")
     static let presentVideoRecorder = Notification.Name("presentVideoRecorder")
     static let showAthleteSelection = Notification.Name("showAthleteSelection")

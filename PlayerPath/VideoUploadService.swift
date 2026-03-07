@@ -120,6 +120,8 @@ class VideoUploadService: ObservableObject {
                 return .videoUploadFailed("Unsupported video format. Please use MP4 or MOV")
             case .corruptedFile:
                 return .videoUploadFailed("Video file appears to be corrupted")
+            case .cancelled:
+                return .videoUploadFailed("Video upload was cancelled")
             }
         }
 

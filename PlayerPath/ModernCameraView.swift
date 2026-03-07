@@ -46,6 +46,7 @@ struct ModernCameraView: View {
     }
 
     var body: some View {
+        GeometryReader { geometry in
         ZStack {
             // Camera Preview Layer
             CameraPreviewLayer(session: viewModel.captureSession, orientation: viewModel.currentOrientation)
@@ -97,7 +98,7 @@ struct ModernCameraView: View {
         .gesture(
             DragGesture(minimumDistance: 0)
                 .onEnded { gesture in
-                    viewModel.handleTapToFocus(at: gesture.location)
+                    viewModel.handleTapToFocus(at: gesture.location, viewSize: geometry.size)
                 }
         )
         .onAppear {
@@ -129,6 +130,7 @@ struct ModernCameraView: View {
                 onVideoRecorded(url)
             }
         }
+        } // GeometryReader
     }
 
     // MARK: - Atomic Controls

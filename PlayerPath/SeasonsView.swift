@@ -389,7 +389,7 @@ struct SeasonVideosListView: View {
             .buttonStyle(.plain)
         }
         .navigationTitle("\(season.displayName) Videos")
-        .sheet(item: $selectedVideo) { video in
+        .fullScreenCover(item: $selectedVideo) { video in
             VideoPlayerView(clip: video)
         }
     }

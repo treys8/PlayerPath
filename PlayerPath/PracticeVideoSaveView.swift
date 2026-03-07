@@ -237,11 +237,13 @@ struct PracticeVideoSaveView: View {
             // Action buttons
             HStack(spacing: 12) {
                 PlayResultActionButton(title: "Skip", icon: "forward", style: .secondary) {
+                    Haptics.medium()
                     save(note: nil)
                 }
                 .disabled(isSaving)
 
                 PlayResultActionButton(title: noteText.isEmpty ? "Save" : "Save with Note", icon: "checkmark.circle.fill", style: .primary) {
+                    Haptics.success()
                     save(note: noteText.isEmpty ? nil : noteText)
                 }
                 .disabled(isSaving)

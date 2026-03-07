@@ -158,7 +158,7 @@ struct DashboardView: View {
         game.isLive.toggle()
         do {
             try modelContext.save()
-            NotificationCenter.default.post(name: Notification.Name("GameBecameLive"), object: game)
+            NotificationCenter.default.post(name: .gameBecameLive, object: game)
         } catch {
             print("❌ Failed to toggle game live: \(error)")
         }

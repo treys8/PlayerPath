@@ -562,26 +562,9 @@ struct ProfileView: View {
     }
 
     private func delete(athlete: Athlete) {
-        // If deleting the selected athlete, select another or none
-        if athlete.id == selectedAthlete?.id {
-            let remainingAthletes = (user.athletes ?? []).filter { $0.id != athlete.id }
-            selectedAthlete = remainingAthletes.first
-        }
-
-        modelContext.delete(athlete)
-
         do {
-            try modelContext.save()
-
-            // Track athlete deletion analytics
-            AnalyticsService.shared.trackAthleteDeleted(athleteID: athlete.id.uuidString)
-
+            try performDeleteAthlete(athlete, selectedAthlete: $selectedAthlete, user: user, modelContext: modelContext)
             Haptics.success()
-
-            // Clear selection if no athletes remain
-            if (user.athletes ?? []).isEmpty {
-                selectedAthlete = nil
-            }
         } catch {
             print("Failed to delete athlete: \(error)")
             deleteErrorMessage = String(format: ProfileStrings.deleteFailed, error.localizedDescription)
@@ -1135,7 +1118,11 @@ struct EditAccountView: View {
         }
 
         user.username = trimmedUsername
-        user.email = trimmedEmail
+        // Don't update user.email locally until the verification link is clicked and
+        // Firebase Auth reflects the change. loadUserProfile() syncs email on next sign-in.
+        if !emailChanged {
+            user.email = trimmedEmail
+        }
 
         do {
             try await Task.sleep(nanoseconds: 300_000_000) // Brief delay for UX
@@ -1436,6 +1423,22 @@ struct ChangePasswordView: View {
 // These deprecated views have been removed in favor of ImprovedPaywallView
 // which is used throughout the app (see lines 47, 982)
 
+// MARK: - Shared Athlete Delete Helper
+
+/// Single source of truth for athlete deletion. Called from both ProfileView and AthleteManagementView.
+private func performDeleteAthlete(_ athlete: Athlete, selectedAthlete: Binding<Athlete?>, user: User, modelContext: ModelContext) throws {
+    if athlete.id == selectedAthlete.wrappedValue?.id {
+        let remaining = (user.athletes ?? []).filter { $0.id != athlete.id }
+        selectedAthlete.wrappedValue = remaining.first
+    }
+    modelContext.delete(athlete)
+    try modelContext.save()
+    AnalyticsService.shared.trackAthleteDeleted(athleteID: athlete.id.uuidString)
+    if (user.athletes ?? []).isEmpty {
+        selectedAthlete.wrappedValue = nil
+    }
+}
+
 // MARK: - Athlete Management View
 
 struct AthleteManagementView: View {
@@ -1514,29 +1517,12 @@ struct AthleteManagementView: View {
     }
 
     private func delete(athlete: Athlete) {
-        // If deleting the selected athlete, select another or none
-        if athlete.id == selectedAthlete?.id {
-            let remainingAthletes = (user.athletes ?? []).filter { $0.id != athlete.id }
-            selectedAthlete = remainingAthletes.first
-        }
-
-        modelContext.delete(athlete)
-
         do {
-            try modelContext.save()
-
-            // Track athlete deletion analytics
-            AnalyticsService.shared.trackAthleteDeleted(athleteID: athlete.id.uuidString)
-
+            try performDeleteAthlete(athlete, selectedAthlete: $selectedAthlete, user: user, modelContext: modelContext)
             Haptics.success()
-
-            // Clear selection if no athletes remain
-            if (user.athletes ?? []).isEmpty {
-                selectedAthlete = nil
-            }
         } catch {
             print("Failed to delete athlete: \(error)")
-            deleteErrorMessage = "Failed to delete athlete: \(error.localizedDescription)"
+            deleteErrorMessage = String(format: ProfileStrings.deleteFailed, error.localizedDescription)
             showDeleteError = true
             Haptics.error()
         }

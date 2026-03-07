@@ -1626,7 +1626,7 @@ struct VideoClipRow: View {
         .task {
             await loadThumbnail()
         }
-        .sheet(isPresented: $showingVideoPlayer) {
+        .fullScreenCover(isPresented: $showingVideoPlayer) {
             VideoPlayerView(clip: clip)
         }
         .sheet(isPresented: $showingShareToFolder) {

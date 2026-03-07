@@ -144,13 +144,6 @@ struct VideoThumbnailView: View {
         .task {
             await loadThumbnail()
         }
-        .onDisappear {
-            // Reset state when view disappears
-            thumbnailImage = nil
-            generationAttempts = 0
-            loadError = nil
-            isLoadingThumbnail = false
-        }
     }
 
     // MARK: - Accessibility

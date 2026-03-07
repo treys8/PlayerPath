@@ -187,10 +187,14 @@ struct StatisticsView: View {
     private func exportPDF(athlete: Athlete) {
         guard let stats = statistics else { return }
 
+        let selectedSeason = selectedSeasonFilter.flatMap { id in
+            availableSeasons.first { $0.id.uuidString == id }
+        } ?? athlete.activeSeason
+
         let result = StatisticsExportService.exportToPDF(
             athlete: athlete,
             stats: stats,
-            season: athlete.activeSeason
+            season: selectedSeason
         )
 
         switch result {

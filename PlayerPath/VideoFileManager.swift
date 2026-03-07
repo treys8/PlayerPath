@@ -23,7 +23,8 @@ class VideoFileManager {
         case durationTooShort(TimeInterval)
         case invalidFormat
         case corruptedFile
-        
+        case cancelled
+
         var errorDescription: String? {
             switch self {
             case .fileNotFound:
@@ -40,6 +41,8 @@ class VideoFileManager {
                 return "Video format is not supported."
             case .corruptedFile:
                 return "Video file appears to be corrupted."
+            case .cancelled:
+                return "Video validation was cancelled."
             }
         }
     }
@@ -140,7 +143,7 @@ class VideoFileManager {
     // MARK: - Validation
     
     static func validateVideo(at url: URL) async -> Result<Void, ValidationError> {
-        guard !Task.isCancelled else { return .failure(.invalidFormat) }
+        guard !Task.isCancelled else { return .failure(.cancelled) }
 
         // File size check — treat read errors as non-fatal and skip size gate
         if let fileSize = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize.map(Int64.init) {

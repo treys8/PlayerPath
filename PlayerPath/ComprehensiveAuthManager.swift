@@ -15,7 +15,9 @@ final class ComprehensiveAuthManager: ObservableObject {
         didSet {
             // Persist onboarding completion to UserDefaults to survive app restarts
             UserDefaults.standard.set(hasCompletedOnboarding, forKey: AuthConstants.UserDefaultsKeys.hasCompletedOnboarding)
+            #if DEBUG
             print("💾 Persisted hasCompletedOnboarding to UserDefaults: \(hasCompletedOnboarding)")
+            #endif
         }
     }
     
@@ -27,7 +29,9 @@ final class ComprehensiveAuthManager: ObservableObject {
         didSet {
             // Persist role to UserDefaults to survive app state changes
             UserDefaults.standard.set(userRole.rawValue, forKey: AuthConstants.UserDefaultsKeys.userRole)
+            #if DEBUG
             print("💾 Persisted userRole to UserDefaults: \(userRole.rawValue)")
+            #endif
         }
     }
     @Published var userProfile: UserProfile?
@@ -63,6 +67,9 @@ final class ComprehensiveAuthManager: ObservableObject {
     private var authStateDidChangeListenerHandle: AuthStateDidChangeListenerHandle?
     private var modelContext: ModelContext?
     private var storeKitCancellables = Set<AnyCancellable>()
+    /// True while `signIn()` is in flight. Prevents the auth state listener from
+    /// triggering a second `loadUserProfile()` concurrent with the one in `signIn()`.
+    private var isHandlingSignIn = false
     
     init() {
         currentFirebaseUser = Auth.auth().currentUser
@@ -83,9 +90,11 @@ final class ComprehensiveAuthManager: ObservableObject {
 
         // Restore persisted onboarding completion from UserDefaults
         hasCompletedOnboarding = UserDefaults.standard.bool(forKey: AuthConstants.UserDefaultsKeys.hasCompletedOnboarding)
+        #if DEBUG
         if hasCompletedOnboarding {
             print("💾 Restored hasCompletedOnboarding from UserDefaults: true")
         }
+        #endif
 
         // Keep athlete tier in sync with StoreKitManager
         StoreKitManager.shared.$currentTier
@@ -123,18 +132,26 @@ final class ComprehensiveAuthManager: ObservableObject {
                     self?.currentCoachTier = .free
                     UserDefaults.standard.removeObject(forKey: AuthConstants.UserDefaultsKeys.userRole)
                     UserDefaults.standard.removeObject(forKey: AuthConstants.UserDefaultsKeys.hasCompletedOnboarding)
+                    #if DEBUG
                     print("🔄 Cleared all user data on sign out")
+                    #endif
                 } else {
                     // User signed in - ensure local user exists
                     await self?.ensureLocalUser()
-                    
-                    // Only load profile if this isn't a brand new signup
-                    // (signUp/signUpAsCoach already handle profile creation and loading)
-                    if self?.isNewUser == false {
+
+                    // Only load profile if this isn't a brand new signup or an explicit
+                    // signIn() call. signUp/signUpAsCoach handle profile creation themselves,
+                    // and signIn() calls loadUserProfile() directly — loading here too would
+                    // cause a redundant double-fetch.
+                    if self?.isNewUser == false && self?.isHandlingSignIn == false {
+                        #if DEBUG
                         print("🔍 Auth state changed - Loading profile for existing user")
+                        #endif
                         await self?.loadUserProfile()
                     } else {
-                        print("⏭️ Auth state changed - Skipping profile load for new user (already handled in signup)")
+                        #if DEBUG
+                        print("⏭️ Auth state changed - Skipping profile load (handled by signIn/signUp)")
+                        #endif
                     }
                 }
             }
@@ -175,7 +192,9 @@ final class ComprehensiveAuthManager: ObservableObject {
                 if existingUser.role != self.userRole.rawValue {
                     existingUser.role = self.userRole.rawValue
                     needsSave = true
+                    #if DEBUG
                     print("🔄 Synced user role to SwiftData: \(self.userRole.rawValue)")
+                    #endif
                 }
                 // Store Firebase Auth UID so SyncCoordinator queries the correct Firestore path
                 if existingUser.firebaseAuthUid != firebaseUser.uid {
@@ -186,9 +205,7 @@ final class ComprehensiveAuthManager: ObservableObject {
                     #endif
                 }
                 if needsSave { try context.save() }
-                await MainActor.run {
-                    self.localUser = existingUser
-                }
+                self.localUser = existingUser
             } else {
                 // Create new user with current role from authManager
                 let newUser = User(username: firebaseUser.displayName ?? email, email: email, role: self.userRole.rawValue)
@@ -198,14 +215,10 @@ final class ComprehensiveAuthManager: ObservableObject {
                 #if DEBUG
                 print("✅ Created new SwiftData user with role: \(self.userRole.rawValue), Firebase UID: \(firebaseUser.uid)")
                 #endif
-                await MainActor.run {
-                    self.localUser = newUser
-                }
+                self.localUser = newUser
             }
         } catch {
-            await MainActor.run {
-                self.errorMessage = "Failed to load user profile"
-            }
+            self.errorMessage = "Failed to load user profile"
         }
     }
     
@@ -224,7 +237,24 @@ final class ComprehensiveAuthManager: ObservableObject {
         }
     }
 
+    /// Restores sign-in state from an existing Firebase session without requiring credentials.
+    /// Used by session-based biometric sign-in: biometric proves identity, Firebase token proves session.
+    func restoreFirebaseSession() async {
+        guard let user = Auth.auth().currentUser else {
+            errorMessage = "Your session has expired. Please sign in with your password."
+            return
+        }
+        isLoading = true
+        errorMessage = nil
+        currentFirebaseUser = user
+        isSignedIn = true
+        await loadUserProfile()
+        isLoading = false
+    }
+
     func signIn(email: String, password: String) async {
+        isHandlingSignIn = true
+        defer { isHandlingSignIn = false }
         isLoading = true
         errorMessage = nil
         isNewUser = false // This is a sign-in, not a new user
@@ -268,7 +298,9 @@ final class ComprehensiveAuthManager: ObservableObject {
         // Set the role IMMEDIATELY before any async operations
         // This ensures the UI sees the correct role right away
         userRole = .athlete
+        #if DEBUG
         print("✅ Pre-set userRole to athlete BEFORE Firebase operations")
+        #endif
         
         do {
             let result = try await Auth.auth().createUser(withEmail: email, password: password)
@@ -295,7 +327,9 @@ final class ComprehensiveAuthManager: ObservableObject {
             
             // Double-check the role is still set (defensive programming)
             if userRole != .athlete {
+                #if DEBUG
                 print("⚠️ WARNING: userRole was changed after createUserProfile, resetting to athlete")
+                #endif
                 userRole = .athlete
             }
 
@@ -318,11 +352,15 @@ final class ComprehensiveAuthManager: ObservableObject {
     }
     
     /// Creates a user profile in Firestore
+    /// - Parameter loadAfterCreate: When true (default), fetches the profile from Firestore
+    ///   after writing it. Pass false when called from within `loadUserProfileWithRetry` to
+    ///   prevent the recursive loop: retry → fallback create → retry → fallback create.
     func createUserProfile(
         userID: String,
         email: String,
         displayName: String,
-        role: UserRole
+        role: UserRole,
+        loadAfterCreate: Bool = true
     ) async throws {
         let profileData: [String: Any] = [
             "email": email.lowercased(),
@@ -346,23 +384,32 @@ final class ComprehensiveAuthManager: ObservableObject {
         // Note: userRole is already set synchronously before this function is called
         // We verify it matches what we're saving to Firestore
         if self.userRole != role {
+            #if DEBUG
             print("⚠️ WARNING: Local userRole (\(self.userRole.rawValue)) doesn't match Firestore role (\(role.rawValue))")
-            self.userRole = role
             print("✅ Corrected userRole in memory to: \(role.rawValue)")
+            #endif
+            self.userRole = role
         } else {
+            #if DEBUG
             print("✅ Verified userRole in memory matches Firestore: \(role.rawValue)")
+            #endif
         }
 
-        // Fetch and cache the profile with retry logic to handle Firestore propagation
-        // This replaces the hardcoded 0.5s sleep with proper retry mechanism
-        await loadUserProfileWithRetry(maxAttempts: 5)
+        // Fetch and cache the profile with retry logic to handle Firestore propagation.
+        // Skipped when called from the fallback path inside loadUserProfileWithRetry to
+        // prevent mutual recursion (retry → create → retry → create).
+        if loadAfterCreate {
+            await loadUserProfileWithRetry(maxAttempts: 5)
+        }
     }
     
     /// Loads user profile from Firestore
     func loadUserProfile() async {
         guard let userID = currentFirebaseUser?.uid,
               let email = currentFirebaseUser?.email else {
+            #if DEBUG
             print("⚠️ loadUserProfile: No user ID or email")
+            #endif
             return
         }
         
@@ -382,24 +429,30 @@ final class ComprehensiveAuthManager: ObservableObject {
                 // Academy coach tier is manually granted via Firestore — override StoreKit resolution
                 if profile.coachSubscriptionTier == CoachSubscriptionTier.academy.rawValue {
                     currentCoachTier = .academy
+                    #if DEBUG
                     print("✅ Academy coach tier applied from Firestore override")
+                    #endif
                 }
 
                 // Only update userRole if it's different AND this is not a new user
                 // For new users, we want to keep the role we set synchronously at signup
                 if isNewUser {
                     // New user: Keep the role we set at signup, but verify it matches Firestore
+                    #if DEBUG
                     if profile.userRole != currentRole {
                         print("⚠️ WARNING: Firestore role (\(profile.userRole.rawValue)) doesn't match pre-set role (\(currentRole.rawValue)) for new user")
                         print("⚠️ Keeping pre-set role: \(currentRole.rawValue)")
                     } else {
                         print("✅ Firestore role matches pre-set role: \(currentRole.rawValue)")
                     }
+                    #endif
                     // Keep the pre-set role, don't override
                 } else {
                     // Existing user: Update role from Firestore
                     userRole = profile.userRole
+                    #if DEBUG
                     print("✅ Updated role from Firestore for existing user: \(profile.userRole.rawValue)")
+                    #endif
                 }
                 
                 #if DEBUG
@@ -437,7 +490,9 @@ final class ComprehensiveAuthManager: ObservableObject {
     private func loadUserProfileWithRetry(maxAttempts: Int = 5) async {
         guard let userID = currentFirebaseUser?.uid,
               let email = currentFirebaseUser?.email else {
+            #if DEBUG
             print("⚠️ loadUserProfileWithRetry: No user ID or email")
+            #endif
             return
         }
 
@@ -454,18 +509,24 @@ final class ComprehensiveAuthManager: ObservableObject {
                     userProfile = profile
 
                     if isNewUser {
+                        #if DEBUG
                         if profile.userRole != currentRole {
                             print("⚠️ WARNING: Firestore role (\(profile.userRole.rawValue)) doesn't match pre-set role (\(currentRole.rawValue)) for new user")
                             print("⚠️ Keeping pre-set role: \(currentRole.rawValue)")
                         } else {
                             print("✅ Firestore role matches pre-set role: \(currentRole.rawValue)")
                         }
+                        #endif
                     } else {
                         userRole = profile.userRole
+                        #if DEBUG
                         print("✅ Updated role from Firestore for existing user: \(profile.userRole.rawValue)")
+                        #endif
                     }
 
+                    #if DEBUG
                     print("✅ Loaded user profile on attempt \(attempt): \(profile.role) for \(email)")
+                    #endif
                     return
                 } else if attempt < maxAttempts {
                     // Profile not found yet, retry with exponential backoff.
@@ -484,40 +545,56 @@ final class ComprehensiveAuthManager: ObservableObject {
                     print("🔧 Creating fallback Firestore profile with current role: \(self.userRole.rawValue)")
                     #endif
 
-                    // Create profile with current role (from UserDefaults/SwiftData)
+                    // Create profile with current role (from UserDefaults/SwiftData).
+                    // loadAfterCreate: false prevents re-entering this retry loop.
                     do {
                         try await createUserProfile(
                             userID: userID,
                             email: email,
                             displayName: self.currentFirebaseUser?.displayName ?? email,
-                            role: self.userRole
+                            role: self.userRole,
+                            loadAfterCreate: false
                         )
+                        #if DEBUG
                         print("✅ Successfully created fallback Firestore profile")
+                        #endif
                     } catch {
+                        #if DEBUG
                         print("❌ Failed to create fallback profile: \(error)")
+                        #endif
                     }
                     return
                 }
             } catch {
                 if attempt < maxAttempts {
                     let delay = pow(2.0, Double(attempt - 1)) * 0.1
+                    #if DEBUG
                     print("❌ Error loading profile on attempt \(attempt)/\(maxAttempts): \(error). Retrying in \(delay)s...")
+                    #endif
                     try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                 } else {
+                    #if DEBUG
                     print("❌ Failed to load user profile after \(maxAttempts) attempts: \(error)")
                     print("🔧 Creating fallback Firestore profile with current role: \(self.userRole.rawValue)")
+                    #endif
 
-                    // Create profile with current role as fallback
+                    // Create profile with current role as fallback.
+                    // loadAfterCreate: false prevents re-entering this retry loop.
                     do {
                         try await createUserProfile(
                             userID: userID,
                             email: email,
                             displayName: self.currentFirebaseUser?.displayName ?? email,
-                            role: self.userRole
+                            role: self.userRole,
+                            loadAfterCreate: false
                         )
+                        #if DEBUG
                         print("✅ Successfully created fallback Firestore profile after errors")
+                        #endif
                     } catch {
+                        #if DEBUG
                         print("❌ Failed to create fallback profile: \(error)")
+                        #endif
                     }
                 }
             }
@@ -536,7 +613,9 @@ final class ComprehensiveAuthManager: ObservableObject {
         // Set the role IMMEDIATELY before any async operations
         // This ensures the UI sees the correct role right away
         userRole = .coach
+        #if DEBUG
         print("✅ Pre-set userRole to coach BEFORE Firebase operations")
+        #endif
         
         do {
             let result = try await Auth.auth().createUser(withEmail: email, password: password)
@@ -562,16 +641,19 @@ final class ComprehensiveAuthManager: ObservableObject {
             
             // Double-check the role is still set (defensive programming)
             if userRole != .coach {
+                #if DEBUG
                 print("⚠️ WARNING: userRole was changed after createUserProfile, resetting to coach")
+                #endif
                 userRole = .coach
             }
             
             // Check for pending invitations
             let invitations = try await SharedFolderManager.shared.checkPendingInvitations(forEmail: email)
+            #if DEBUG
             if !invitations.isEmpty {
                 print("✅ Found \(invitations.count) pending invitations for new coach")
-                // UI will show these invitations after sign-up
             }
+            #endif
             
             // Note: We DON'T mark hasCompletedOnboarding = true here
             // We want coaches to see their coach-specific onboarding flow
@@ -647,7 +729,9 @@ final class ComprehensiveAuthManager: ObservableObject {
             currentTier = .free
             currentCoachTier = .free
 
-            // Clear persisted role and onboarding completion from UserDefaults
+            // Clear persisted role and onboarding completion (both in memory and UserDefaults).
+            // Don't wait for the auth listener — it fires asynchronously and leaves a race window.
+            hasCompletedOnboarding = false
             UserDefaults.standard.removeObject(forKey: AuthConstants.UserDefaultsKeys.userRole)
             UserDefaults.standard.removeObject(forKey: AuthConstants.UserDefaultsKeys.hasCompletedOnboarding)
 
@@ -663,11 +747,15 @@ final class ComprehensiveAuthManager: ObservableObject {
             // Clear upload queues to prevent cross-account data leakage
             UploadQueueManager.shared.clearAllQueues()
 
+            #if DEBUG
             print("🟢 Sign out successful")
+            #endif
         } catch {
             errorMessage = "Failed to sign out: \(error.localizedDescription)"
             isLoading = false
+            #if DEBUG
             print("🔴 Sign out error: \(error.localizedDescription)")
+            #endif
         }
     }
     
@@ -684,7 +772,9 @@ final class ComprehensiveAuthManager: ObservableObject {
         } catch {
             errorMessage = friendlyErrorMessage(from: error)
             isLoading = false
+            #if DEBUG
             print("🔴 Password reset error: \(error.localizedDescription)")
+            #endif
         }
     }
 
@@ -713,31 +803,41 @@ final class ComprehensiveAuthManager: ObservableObject {
             AnalyticsService.shared.trackAccountDeletionRequested(userID: userID)
 
             // Step 1: Delete all user videos from Firebase Storage
+            #if DEBUG
             print("🗑️ Deleting user videos from Storage...")
+            #endif
             do {
                 try await VideoCloudManager.shared.deleteAllUserVideos(userID: userID)
+                #if DEBUG
                 print("✅ Deleted all videos from Storage")
+                #endif
             } catch {
+                #if DEBUG
                 print("⚠️ Error deleting videos from Storage: \(error)")
+                #endif
                 // Continue with deletion even if video deletion fails
             }
 
             // Step 2: Delete Firestore user profile and related data
+            #if DEBUG
             print("🗑️ Deleting user profile from Firestore...")
+            #endif
             do {
                 try await FirestoreManager.shared.deleteUserProfile(userID: userID)
+                #if DEBUG
                 print("✅ Deleted user profile from Firestore")
+                #endif
             } catch {
+                #if DEBUG
                 print("⚠️ Error deleting Firestore profile: \(error)")
+                #endif
                 // Continue with deletion even if Firestore deletion fails
             }
 
             // Step 3: Clear biometric credentials
-            print("🗑️ Clearing biometric credentials...")
             BiometricAuthenticationManager.shared.disableBiometric()
 
             // Step 4: Delete Firebase Auth account
-            print("🗑️ Deleting Firebase Auth account...")
             try await user.delete()
 
             // Step 5: Clear local state
@@ -757,12 +857,16 @@ final class ComprehensiveAuthManager: ObservableObject {
             AnalyticsService.shared.trackAccountDeletionCompleted(userID: userID)
             AnalyticsService.shared.clearUserID()
 
+            #if DEBUG
             print("✅ Account deletion successful")
+            #endif
 
         } catch {
             errorMessage = "Failed to delete account: \(error.localizedDescription)"
             isLoading = false
+            #if DEBUG
             print("🔴 Account deletion error: \(error.localizedDescription)")
+            #endif
             throw error
         }
     }
@@ -781,7 +885,9 @@ final class ComprehensiveAuthManager: ObservableObject {
     func completeOnboarding() {
         hasCompletedOnboarding = true
         isNewUser = false
+        #if DEBUG
         print("✅ Onboarding marked as completed")
+        #endif
     }
 
     // Method to allow external sign-in managers (like Apple Sign In) to update the user

@@ -6,7 +6,6 @@
 //
 
 import SwiftUI
-import SwiftData
 import AVKit
 import UIKit
 
@@ -25,10 +24,14 @@ struct PlayResultOverlayView: View {
     @State private var thumbnail: UIImage?
     @State private var videoMetadata: VideoMetadata?
     @State private var metadataTask: Task<Void, Never>?
+    @State private var thumbnailTask: Task<Void, Never>?
     @State private var showContent = false
     @State private var isSaving = false
     @State private var pitchSpeedText = ""
-    
+
+    @Environment(\.verticalSizeClass) private var vSizeClass
+    private var isLandscape: Bool { vSizeClass == .compact }
+
     var body: some View {
         ZStack {
             // Static Thumbnail Background
@@ -51,6 +54,8 @@ struct PlayResultOverlayView: View {
                 .onDisappear {
                     metadataTask?.cancel()
                     metadataTask = nil
+                    thumbnailTask?.cancel()
+                    thumbnailTask = nil
                 }
 
                 // Video metadata badge — safe area aware
@@ -128,7 +133,8 @@ struct PlayResultOverlayView: View {
                         }
                         Spacer()
                     }
-                    .padding(.horizontal, 20)
+                    .padding(.leading, isLandscape ? 120 : 20)
+                    .padding(.trailing, 20)
                     .padding(.top, 16)
                     .padding(.bottom, 20)
                     .accessibilitySortPriority(2)
@@ -144,7 +150,11 @@ struct PlayResultOverlayView: View {
             }
 
             // Play Result Selection Overlay
-            portraitOverlayPanel
+            if isLandscape {
+                landscapeOverlayPanel
+            } else {
+                portraitOverlayPanel
+            }
 
             // Back button — top-leading, safe area aware
             VStack {
@@ -191,13 +201,9 @@ struct PlayResultOverlayView: View {
         }
         .animation(.easeInOut(duration: 0.2), value: isSaving)
         .onAppear {
-            PlayerPathAppDelegate.orientationLock = .portrait
-            if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
-                scene.requestGeometryUpdate(.iOS(interfaceOrientations: .portrait))
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                showContent = true
             }
-        }
-        .onDisappear {
-            PlayerPathAppDelegate.orientationLock = .allButUpsideDown
         }
         .confirmationDialog(
             "Confirm Play Result",
@@ -226,13 +232,24 @@ struct PlayResultOverlayView: View {
             glassPanel
                 .padding(.horizontal, 16)
                 .accessibilitySortPriority(1)
-                .onAppear {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                        showContent = true
-                    }
-                }
         }
         .safeAreaInset(edge: .bottom) { Color.clear.frame(height: 16) }
+    }
+
+    // MARK: - Landscape panel
+
+    private var landscapeOverlayPanel: some View {
+        HStack(spacing: 0) {
+            Spacer()
+            ScrollView(showsIndicators: false) {
+                glassPanel
+                    .padding(.vertical, 8)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+            .frame(maxWidth: 380)
+            .padding(.trailing, 16)
+            .padding(.vertical, 8)
+        }
     }
 
     // MARK: - Shared glass panel content
@@ -789,7 +806,6 @@ struct PlayResultActionButton: View {
 
     var body: some View {
         Button(action: {
-            Haptics.medium()
             action()
         }) {
             HStack(spacing: 8) {
@@ -831,19 +847,6 @@ struct PlayResultActionButton: View {
                     }
                 }
         }
-    }
-}
-
-struct OverlayButtonStyle: ButtonStyle {
-    let background: Color
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .padding()
-            .frame(maxWidth: .infinity)
-            .background(background.opacity(configuration.isPressed ? 0.7 : 0.8))
-            .foregroundColor(.white)
-            .cornerRadius(10)
-            .animation(.easeInOut(duration: 0.15), value: configuration.isPressed)
     }
 }
 
@@ -911,12 +914,13 @@ struct MetadataBadge: View {
 extension PlayResultOverlayView {
     private func loadThumbnail() {
         guard thumbnail == nil else { return }
-        Task {
+        thumbnailTask = Task {
             let asset = AVURLAsset(url: videoURL)
             let generator = AVAssetImageGenerator(asset: asset)
             generator.appliesPreferredTrackTransform = true
             generator.maximumSize = CGSize(width: 1080, height: 1920)
             if let cgImage = try? await generator.image(at: .zero).image {
+                guard !Task.isCancelled else { return }
                 await MainActor.run {
                     thumbnail = UIImage(cgImage: cgImage)
                 }

@@ -696,7 +696,7 @@ struct PracticeDetailView: View {
                     }
                 } else {
                     ForEach(videoClips) { clip in
-                        PracticeVideoClipRow(clip: clip)
+                        PracticeVideoClipRow(clip: clip, onPlay: { selectedVideo = clip })
                     }
                 }
             }
@@ -731,6 +731,9 @@ struct PracticeDetailView: View {
             case .addNote:
                 AddPracticeNoteView(practice: practice)
             }
+        }
+        .fullScreenCover(item: $selectedVideo) { video in
+            VideoPlayerView(clip: video)
         }
         .alert("Delete Practice", isPresented: $showingDeleteConfirmation) {
             Button("Cancel", role: .cancel) { }
@@ -821,6 +824,7 @@ struct PracticeNoteRow: View {
 
 struct PracticeVideoClipRow: View {
     let clip: VideoClip
+    var onPlay: (() -> Void)? = nil
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @State private var showingShareToFolder = false
     @State private var showingNoteEditor = false
@@ -828,23 +832,34 @@ struct PracticeVideoClipRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                // Thumbnail
-                Group {
-                    if let thumbPath = clip.thumbnailPath,
-                       let uiImage = UIImage(contentsOfFile: thumbPath) {
-                        Image(uiImage: uiImage)
-                            .resizable()
-                            .scaledToFill()
-                    } else {
-                        Image(systemName: "video.fill")
-                            .foregroundColor(.blue)
-                            .font(.title3)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .background(Color.blue.opacity(0.1))
+                // Thumbnail — tappable play button
+                Button(action: { onPlay?() }) {
+                    Group {
+                        if let thumbPath = clip.thumbnailPath,
+                           let uiImage = UIImage(contentsOfFile: thumbPath) {
+                            Image(uiImage: uiImage)
+                                .resizable()
+                                .scaledToFill()
+                        } else {
+                            Image(systemName: "video.fill")
+                                .foregroundColor(.blue)
+                                .font(.title3)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                .background(Color.blue.opacity(0.1))
+                        }
+                    }
+                    .frame(width: 56, height: 40)
+                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    .overlay(alignment: .center) {
+                        Image(systemName: "play.fill")
+                            .font(.caption)
+                            .foregroundColor(.white)
+                            .padding(4)
+                            .background(Circle().fill(.black.opacity(0.55)))
                     }
                 }
-                .frame(width: 56, height: 40)
-                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                .buttonStyle(.plain)
+                .disabled(onPlay == nil)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(clip.createdAt.map { Self.timeFormatter.string(from: $0) } ?? "Practice Clip")

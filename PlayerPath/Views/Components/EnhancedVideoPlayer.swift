@@ -18,14 +18,68 @@ struct EnhancedVideoPlayer: View {
     @State private var playbackSpeed: PlaybackSpeed = .normal
     @State private var showControls = true
     @State private var timeObserver: Any?
-    @State private var endObserver: (any NSObjectProtocol)?
     @State private var hideControlsTask: Task<Void, Never>?
+
+    // Zoom
+    @State private var zoomScale: CGFloat = 1.0
+    @State private var lastZoomScale: CGFloat = 1.0
+    @State private var panOffset: CGSize = .zero
+    @State private var lastPanOffset: CGSize = .zero
 
     var body: some View {
         GeometryReader { geometry in
             ZStack {
-                // Video layer
+                // Video layer — scale/offset applied to wrapper so UIKit VC transforms correctly
                 VideoPlayerRepresentable(player: player)
+                    .scaleEffect(zoomScale, anchor: .center)
+                    .offset(panOffset)
+
+                // Transparent gesture capture layer on top of the UIKit view
+                Color.clear
+                    .contentShape(Rectangle())
+                    .gesture(
+                        SimultaneousGesture(
+                            MagnificationGesture()
+                                .onChanged { value in
+                                    let delta = value / lastZoomScale
+                                    lastZoomScale = value
+                                    zoomScale = min(max(zoomScale * delta, 1.0), 4.0)
+                                }
+                                .onEnded { _ in
+                                    lastZoomScale = 1.0
+                                    if zoomScale <= 1.0 {
+                                        withAnimation(.spring()) {
+                                            zoomScale = 1.0
+                                            panOffset = .zero
+                                            lastPanOffset = .zero
+                                        }
+                                    }
+                                },
+                            DragGesture()
+                                .onChanged { value in
+                                    guard zoomScale > 1.0 else { return }
+                                    let maxX = (zoomScale - 1) * geometry.size.width / 2
+                                    let maxY = (zoomScale - 1) * geometry.size.height / 2
+                                    let newWidth = lastPanOffset.width + value.translation.width
+                                    let newHeight = lastPanOffset.height + value.translation.height
+                                    panOffset = CGSize(
+                                        width: min(max(newWidth, -maxX), maxX),
+                                        height: min(max(newHeight, -maxY), maxY)
+                                    )
+                                    showControlsTemporarily()
+                                }
+                                .onEnded { _ in
+                                    lastPanOffset = panOffset
+                                }
+                        )
+                    )
+                    .onTapGesture(count: 2) {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                            zoomScale = 1.0
+                            panOffset = .zero
+                            lastPanOffset = .zero
+                        }
+                    }
                     .onTapGesture {
                         togglePlayPause()
                         showControlsTemporarily()
@@ -66,6 +120,9 @@ struct EnhancedVideoPlayer: View {
         }
         .onDisappear {
             cleanup()
+        }
+        .onReceive(player.publisher(for: \.timeControlStatus)) { status in
+            isPlaying = status == .playing
         }
     }
 
@@ -203,26 +260,11 @@ struct EnhancedVideoPlayer: View {
                 currentTime = CMTimeGetSeconds(time)
             }
         }
-
-        // Observe playback state
-        endObserver = NotificationCenter.default.addObserver(
-            forName: .AVPlayerItemDidPlayToEndTime,
-            object: player.currentItem,
-            queue: .main
-        ) { _ in
-            isPlaying = false
-        }
-
-        // Set initial playing state
-        isPlaying = player.rate > 0
     }
 
     private func cleanup() {
         if let observer = timeObserver {
             player.removeTimeObserver(observer)
-        }
-        if let observer = endObserver {
-            NotificationCenter.default.removeObserver(observer)
         }
         hideControlsTask?.cancel()
     }
@@ -233,7 +275,6 @@ struct EnhancedVideoPlayer: View {
         } else {
             player.play()
         }
-        isPlaying.toggle()
         Haptics.light()
     }
 
@@ -249,30 +290,21 @@ struct EnhancedVideoPlayer: View {
     }
 
     private func stepForward() {
-        // Step forward by 1 frame (assuming 30 fps)
-        let frameTime = 1.0 / 30.0
-        let newTime = min(currentTime + frameTime, duration)
-        seek(to: newTime)
+        player.currentItem?.step(byCount: 1)
         player.pause()
-        isPlaying = false
         Haptics.light()
     }
 
     private func stepBackward() {
-        // Step backward by 1 frame (assuming 30 fps)
-        let frameTime = 1.0 / 30.0
-        let newTime = max(currentTime - frameTime, 0)
-        seek(to: newTime)
+        player.currentItem?.step(byCount: -1)
         player.pause()
-        isPlaying = false
         Haptics.light()
     }
 
     private func setPlaybackSpeed(_ speed: PlaybackSpeed) {
         playbackSpeed = speed
-        player.rate = Float(speed.value)
-        if speed.value > 0 {
-            isPlaying = true
+        if isPlaying {
+            player.rate = Float(speed.value)
         }
         Haptics.light()
     }
@@ -283,7 +315,7 @@ struct EnhancedVideoPlayer: View {
 
         hideControlsTask = Task {
             try? await Task.sleep(nanoseconds: 3_000_000_000) // 3 seconds
-            if !Task.isCancelled {
+            if !Task.isCancelled && !isDragging {
                 withAnimation {
                     showControls = false
                 }
@@ -335,7 +367,7 @@ struct VideoPlayerRepresentable: UIViewControllerRepresentable {
         let controller = AVPlayerViewController()
         controller.player = player
         controller.showsPlaybackControls = false // Use custom controls
-        controller.videoGravity = .resizeAspect
+        controller.videoGravity = .resizeAspectFill
         return controller
     }
 

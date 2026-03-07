@@ -66,14 +66,6 @@ struct VideoRecorderView_Refactored: View {
     private let maxFileSizeBytes: Int64 = 500 * 1024 * 1024 // 500MB - matches validation
     private let minRequiredStorageBytes: Int64 = 1024 * 1024 * 1024 // 1GB minimum
     
-    // Quality settings with estimated file sizes (per minute of video)
-    private let qualityEstimates: [UIImagePickerController.QualityType: (name: String, mbPerMinute: Double)] = [
-        .typeHigh: ("High (1080p)", 60.0),
-        .typeMedium: ("Medium (720p)", 25.0),
-        .typeLow: ("Low (480p)", 10.0),
-        .type640x480: ("SD (480p)", 8.0)
-    ]
-    
     let uploadOnly: Bool
 
     init(athlete: Athlete?, game: Game? = nil, practice: Practice? = nil, uploadOnly: Bool = false) {
@@ -257,7 +249,7 @@ struct VideoRecorderView_Refactored: View {
             // Context-aware button
             if recordedVideoURL != nil {
                 Button {
-                    handleDoneTapped()
+                    handleCancelTapped()
                 } label: {
                     Label("Done", systemImage: "checkmark")
                 }
@@ -282,46 +274,6 @@ struct VideoRecorderView_Refactored: View {
                 .accessibilityLabel("Settings and quality")
             }
         }
-    }
-
-    private var storageIndicator: some View {
-        HStack(spacing: 4) {
-            Image(systemName: storageIcon)
-                .font(.caption)
-            Text("\(Int(availableStorageGB)) GB")
-                .font(.caption2)
-                .fontWeight(.medium)
-            if estimatedRecordingMinutes > 0 {
-                Text("• \(estimatedRecordingMinutes)min")
-                    .font(.caption2)
-            }
-        }
-        .foregroundColor(storageColor)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 5)
-        .background(
-            Capsule()
-                .fill(storageColor.opacity(0.2))
-        )
-        .accessibilityLabel("Storage: \(Int(availableStorageGB)) gigabytes available, approximately \(estimatedRecordingMinutes) minutes of recording time")
-    }
-
-    private var batteryIndicator: some View {
-        HStack(spacing: 4) {
-            Image(systemName: batteryIcon)
-                .font(.caption)
-            Text("\(Int(batteryLevel * 100))%")
-                .font(.caption2)
-                .fontWeight(.medium)
-        }
-        .foregroundColor(batteryColor)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 5)
-        .background(
-            Capsule()
-                .fill(batteryColor.opacity(0.2))
-        )
-        .accessibilityLabel("Battery: \(Int(batteryLevel * 100)) percent")
     }
 
     private var storageColor: Color {
@@ -478,12 +430,12 @@ struct VideoRecorderView_Refactored: View {
                     videoURL: videoURL,
                     onSave: { trimmedURL in
                         trimmedVideoURL = trimmedURL
-                        lockPortrait()
+                        if practice != nil { lockPortrait() }
                         cameraFlowShowingPlayResult = true
                     },
                     onSkip: {
                         trimmedVideoURL = nil
-                        lockPortrait()
+                        if practice != nil { lockPortrait() }
                         cameraFlowShowingPlayResult = true
                     },
                     onCancel: {
@@ -510,7 +462,6 @@ struct VideoRecorderView_Refactored: View {
             PreUploadTrimmerView(
                 videoURL: videoURL,
                 onSave: { trimmedURL in
-                    lockPortrait()
                     saveVideoWithResult(videoURL: trimmedURL, playResult: nil) {
                         self.recordedVideoURL = nil
                         self.trimmedVideoURL = nil
@@ -519,7 +470,6 @@ struct VideoRecorderView_Refactored: View {
                     }
                 },
                 onSkip: {
-                    lockPortrait()
                     saveVideoWithResult(videoURL: videoURL, playResult: nil) {
                         self.recordedVideoURL = nil
                         self.trimmedVideoURL = nil
@@ -620,7 +570,7 @@ struct VideoRecorderView_Refactored: View {
     
     private func retryLastAction() {
         ErrorHandlerService.shared.dismissError()
-        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
 
         // Retry the last selected video if there was one
         if let lastItem = selectedVideoItem {
@@ -961,30 +911,7 @@ struct VideoRecorderView_Refactored: View {
         }
     }
 
-    private func handleDoneTapped() {
-        let showingPlayResult = cameraFlowShowingPlayResult
-        if recordedVideoURL != nil && !showingPlayResult {
-            // Video recorded but not saved - confirm discard
-            UIAccessibility.post(notification: .announcement, argument: "Confirm discard recording")
-            UINotificationFeedbackGenerator().notificationOccurred(.warning)
-            pendingDismissAction = {
-                UIAccessibility.post(notification: .announcement, argument: "Recording discarded")
-                UINotificationFeedbackGenerator().notificationOccurred(.error)
-                self.cleanupAndDismiss()
-            }
-            showingDiscardConfirmation = true
-        } else {
-            // No video recorded, safe to dismiss
-            UIAccessibility.post(notification: .announcement, argument: "Closing recorder")
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-            cleanupAndDismiss()
-        }
-    }
-    
     private func handleSelectedVideo(_ item: PhotosPickerItem?) {
-        // Lock to portrait immediately — before async processing — so the system has
-        // time to rotate before showingTrimmer fires and the cover is measured.
-        lockPortrait()
         Task {
             let result = await uploadService.processSelectedVideo(item)
             switch result {

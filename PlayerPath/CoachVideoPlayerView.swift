@@ -20,6 +20,8 @@ struct CoachVideoPlayerView: View {
     @State private var showingAddNote = false
     @State private var selectedTab: VideoTab = .notes
     @State private var showingSpeedPicker = false
+    @Environment(\.verticalSizeClass) private var vSizeClass
+    private var isLandscape: Bool { vSizeClass == .compact }
     
     init(folder: SharedFolder, video: CoachVideoItem) {
         self.folder = folder
@@ -40,96 +42,11 @@ struct CoachVideoPlayerView: View {
     }
     
     var body: some View {
-        VStack(spacing: 0) {
-            // Video Player with annotation markers
-            if let player = viewModel.player {
-                ZStack(alignment: .bottom) {
-                    VideoPlayer(player: player)
-                        .frame(height: 250)
-                        .onAppear {
-                            player.play()
-                            viewModel.startTimeObserver()
-                        }
-                        .onDisappear {
-                            player.pause()
-                            viewModel.stopTimeObserver()
-                        }
-
-                    // Annotation markers overlay
-                    if !viewModel.annotations.isEmpty, let duration = viewModel.videoDuration, duration > 0 {
-                        GeometryReader { geometry in
-                            HStack(spacing: 0) {
-                                ForEach(viewModel.annotations) { annotation in
-                                    Spacer()
-                                        .frame(width: (CGFloat(annotation.timestamp) / CGFloat(duration)) * geometry.size.width)
-                                    VStack {
-                                        Spacer()
-                                        Rectangle()
-                                            .fill(annotation.isCoachComment ? Color.green : Color.blue)
-                                            .frame(width: 3, height: 20)
-                                            .shadow(color: .black.opacity(0.5), radius: 2)
-                                    }
-                                    Spacer()
-                                }
-                            }
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
-                        .allowsHitTesting(false)
-                    }
-                }
-            } else if viewModel.isLoading {
-                ZStack {
-                    Rectangle()
-                        .fill(Color.black)
-                        .frame(height: 250)
-                    
-                    ProgressView("Loading video...")
-                        .tint(.white)
-                }
+        Group {
+            if isLandscape {
+                landscapeLayout
             } else {
-                ZStack {
-                    Rectangle()
-                        .fill(Color.gray.opacity(0.3))
-                        .frame(height: 250)
-                    
-                    Text("Failed to load video")
-                        .foregroundColor(.white)
-                }
-            }
-            
-            // Tab selector
-            Picker("View", selection: $selectedTab) {
-                ForEach(VideoTab.allCases, id: \.self) { tab in
-                    Label(tab.rawValue, systemImage: tab.icon)
-                        .tag(tab)
-                }
-            }
-            .pickerStyle(.segmented)
-            .padding()
-            
-            // Content based on selected tab
-            Group {
-                switch selectedTab {
-                case .notes:
-                    NotesTabView(
-                        notes: viewModel.annotations,
-                        isLoading: viewModel.isLoadingAnnotations,
-                        onAddNote: {
-                            showingAddNote = true
-                        },
-                        onDeleteNote: { note in
-                            Task {
-                                await viewModel.deleteAnnotation(note)
-                            }
-                        },
-                        onSeekToTimestamp: { timestamp in
-                            viewModel.seekToTimestamp(timestamp)
-                        },
-                        canComment: canComment
-                    )
-                case .info:
-                    VideoInfoTabView(video: video)
-                }
+                portraitLayout
             }
         }
         .navigationTitle(video.fileName)
@@ -180,6 +97,110 @@ struct CoachVideoPlayerView: View {
         }
     }
     
+    // MARK: - Layout Variants
+
+    private var portraitLayout: some View {
+        VStack(spacing: 0) {
+            playerContent
+                .frame(height: 250)
+            annotationPanel
+        }
+    }
+
+    private var landscapeLayout: some View {
+        HStack(spacing: 0) {
+            playerContent
+            Divider()
+            annotationPanel
+                .frame(width: 320)
+        }
+    }
+
+    @ViewBuilder
+    private var playerContent: some View {
+        if let player = viewModel.player {
+            ZStack(alignment: .bottom) {
+                VideoPlayer(player: player)
+                    .onAppear {
+                        player.play()
+                        viewModel.startTimeObserver()
+                    }
+                    .onDisappear {
+                        player.pause()
+                        viewModel.stopTimeObserver()
+                    }
+
+                // Annotation markers overlay
+                if !viewModel.annotations.isEmpty,
+                   let duration = viewModel.videoDuration, duration > 0 {
+                    GeometryReader { geometry in
+                        HStack(spacing: 0) {
+                            ForEach(viewModel.annotations) { annotation in
+                                Spacer()
+                                    .frame(width: (CGFloat(annotation.timestamp) / CGFloat(duration)) * geometry.size.width)
+                                VStack {
+                                    Spacer()
+                                    Rectangle()
+                                        .fill(annotation.isCoachComment ? Color.green : Color.blue)
+                                        .frame(width: 3, height: 20)
+                                        .shadow(color: .black.opacity(0.5), radius: 2)
+                                }
+                                Spacer()
+                            }
+                        }
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                    .allowsHitTesting(false)
+                }
+            }
+        } else if viewModel.isLoading {
+            ZStack {
+                Color.black
+                ProgressView("Loading video...")
+                    .tint(.white)
+            }
+        } else {
+            ZStack {
+                Color(white: 0.3)
+                Text("Failed to load video")
+                    .foregroundColor(.white)
+            }
+        }
+    }
+
+    private var annotationPanel: some View {
+        VStack(spacing: 0) {
+            Picker("View", selection: $selectedTab) {
+                ForEach(VideoTab.allCases, id: \.self) { tab in
+                    Label(tab.rawValue, systemImage: tab.icon)
+                        .tag(tab)
+                }
+            }
+            .pickerStyle(.segmented)
+            .padding()
+
+            Group {
+                switch selectedTab {
+                case .notes:
+                    NotesTabView(
+                        notes: viewModel.annotations,
+                        isLoading: viewModel.isLoadingAnnotations,
+                        onAddNote: { showingAddNote = true },
+                        onDeleteNote: { note in
+                            Task { await viewModel.deleteAnnotation(note) }
+                        },
+                        onSeekToTimestamp: { timestamp in
+                            viewModel.seekToTimestamp(timestamp)
+                        },
+                        canComment: canComment
+                    )
+                case .info:
+                    VideoInfoTabView(video: video)
+                }
+            }
+        }
+    }
+
     private var canComment: Bool {
         guard let coachID = authManager.userID else { return false }
         return folder.getPermissions(for: coachID)?.canComment ?? false

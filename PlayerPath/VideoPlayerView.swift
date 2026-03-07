@@ -19,7 +19,6 @@ struct VideoPlayerView: View {
     @State private var isLoading = true
     @State private var hasAppeared = false
     @State private var shouldResumeOnActive = false
-    @State private var videoAspect: CGFloat? // width / height
     @State private var showingTrimmer = false
     @State private var showingPlayResultEditor = false
     @State private var showingGameLinker = false
@@ -32,6 +31,7 @@ struct VideoPlayerView: View {
     @State private var saveErrorMessage: String?
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.verticalSizeClass) private var vSizeClass
     
     // MARK: - Computed Properties
     
@@ -121,11 +121,14 @@ struct VideoPlayerView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(Color.black)
 
-                // Video Info - compact at bottom with safe area padding
-                VideoClipInfoCard(clip: clip)
-                    .padding(.bottom, 8)
+                // Video Info - hidden in landscape so video fills the screen
+                if vSizeClass != .compact {
+                    VideoClipInfoCard(clip: clip)
+                        .padding(.bottom, 8)
+                }
             }
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar(vSizeClass == .compact ? .hidden : .visible, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Menu {
@@ -424,25 +427,14 @@ struct VideoPlayerView: View {
         let asset = AVURLAsset(url: url)
 
         do {
-            let (isPlayable, _, tracks) = try await asset.load(.isPlayable, .duration, .tracks)
+            let (isPlayable, _) = try await asset.load(.isPlayable, .duration)
 
             guard !Task.isCancelled else {
                 print("VideoPlayerView: Load cancelled after loading asset")
                 return
             }
 
-            let computedAspect = await calculateVideoAspect(from: tracks)
-
-            guard !Task.isCancelled else {
-                print("VideoPlayerView: Load cancelled after calculating aspect")
-                return
-            }
-
             await MainActor.run {
-                if let aspect = computedAspect {
-                    self.videoAspect = aspect
-                }
-
                 if isPlayable {
                     self.player = newPlayer
                     self.isPlayerReady = true
@@ -466,15 +458,6 @@ struct VideoPlayerView: View {
                 print("VideoPlayerView: Player setup failed: \(self.errorMessage)")
             }
         }
-    }
-    
-    private func calculateVideoAspect(from tracks: [AVAssetTrack]) async -> CGFloat? {
-        guard let videoTrack = tracks.first(where: { $0.mediaType == .video }),
-              let size = try? await videoTrack.load(.naturalSize),
-              size.height > 0 else {
-            return nil
-        }
-        return size.width / size.height
     }
     
     private func reloadPlayer(with url: URL) async {
@@ -551,6 +534,12 @@ struct PlayResultEditorView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var selectedResult: PlayResultType?
     @State private var showingConfirmation = false
+
+    init(clip: VideoClip, modelContext: ModelContext) {
+        self.clip = clip
+        self.modelContext = modelContext
+        _selectedResult = State(initialValue: clip.playResult?.type)
+    }
 
     var body: some View {
         NavigationStack {

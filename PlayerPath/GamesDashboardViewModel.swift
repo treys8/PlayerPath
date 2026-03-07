@@ -122,8 +122,8 @@ final class GamesDashboardViewModel: ObservableObject {
 
     private func setupNotificationObservers() {
         let notifications: [Notification.Name] = [
-            Notification.Name("GameCreated"),
-            Notification.Name("GameBecameLive"),
+            .gameCreated,
+            .gameBecameLive,
             Notification.Name("VideoRecorded")
         ]
 
