@@ -84,7 +84,8 @@ struct PracticeVideoSaveView: View {
                     }
                     Spacer()
                 }
-                .padding(.horizontal, 20)
+                .padding(.leading, 104)
+                .padding(.trailing, 20)
                 .padding(.top, 16)
                 .padding(.bottom, 20)
                 .background(alignment: .top) {
@@ -210,7 +211,7 @@ struct PracticeVideoSaveView: View {
                     .focused($noteIsFocused)
                     .font(.subheadline)
                     .foregroundColor(.white)
-                    .frame(minHeight: 60, maxHeight: 80)
+                    .frame(minHeight: 44, maxHeight: 60)
                     .scrollContentBackground(.hidden)
                     .padding(.top, 4)
                     .toolbar {

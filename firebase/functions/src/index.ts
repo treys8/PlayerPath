@@ -11,12 +11,15 @@ if (sendgridApiKey) {
   sgMail.setApiKey(sendgridApiKey);
 }
 
+// App Store download link — update with the actual App Store ID once published
+const APP_STORE_URL = 'https://apps.apple.com/us/app/playerpath/id6742426618';
+
 /**
  * Triggers when a new coach invitation is created in Firestore
  * Sends an email notification to the invited coach
  */
 export const sendCoachInvitationEmail = functions.firestore
-  .document('coach_invitations/{invitationId}')
+  .document('invitations/{invitationId}')
   .onCreate(async (snap, context) => {
     const invitation = snap.data();
     const invitationId = context.params.invitationId;
@@ -86,14 +89,12 @@ As a coach, you'll be able to:
 ${invitation.permissions?.canUpload ? '✓ Upload videos\n' : ''}${invitation.permissions?.canComment ? '✓ Add comments and feedback\n' : ''}${invitation.permissions?.canDelete ? '✓ Manage videos\n' : ''}
 To accept this invitation:
 
-1. Download the PlayerPath app from the App Store if you haven't already
-2. Sign up or sign in with this email: ${invitation.coachEmail}
-3. Your pending invitation will appear automatically
+1. Download PlayerPath from the App Store: ${APP_STORE_URL}
+2. Sign up or sign in with this email address: ${invitation.coachEmail}
+3. Your invitation will appear automatically — no further steps needed
 
-Or tap this link to open the invitation directly:
+Already have the app? Tap this link to open it directly:
 ${deepLink}
-
-Web link: ${webLink}
 
 This invitation was sent to ${invitation.coachEmail}. If you didn't expect this invitation, you can safely ignore this email.
 
@@ -272,22 +273,24 @@ function generateHtmlEmail(
       </div>
       ` : ''}
 
-      <div style="text-align: center; margin: 32px 0;">
-        <a href="${deepLink}" class="cta-button">Accept Invitation</a>
-      </div>
-
       <div class="instructions">
         <h3>How to get started:</h3>
         <ol>
-          <li>Download the PlayerPath app from the App Store (if you haven't already)</li>
+          <li>
+            <strong>Download PlayerPath</strong> from the App Store:<br>
+            <a href="${APP_STORE_URL}" style="color: #667eea;">${APP_STORE_URL}</a>
+          </li>
           <li>Sign up or sign in using: <strong>${invitation.coachEmail}</strong></li>
-          <li>Your invitation will appear automatically in the app</li>
+          <li>Your invitation will appear automatically — no further steps needed</li>
         </ol>
       </div>
 
-      <p style="font-size: 14px; color: #666; margin-top: 32px;">
-        If the button above doesn't work, copy and paste this link into your browser:<br>
-        <a href="${webLink}" style="color: #667eea; word-break: break-all;">${webLink}</a>
+      <div style="text-align: center; margin: 32px 0;">
+        <a href="${deepLink}" class="cta-button">Open in App (if already installed)</a>
+      </div>
+
+      <p style="font-size: 14px; color: #666; margin-top: 16px;">
+        The button above only works if PlayerPath is already installed on your device.
       </p>
 
       <p style="font-size: 13px; color: #999; margin-top: 24px; padding-top: 24px; border-top: 1px solid #eee;">
@@ -536,7 +539,7 @@ export const resendInvitationEmail = functions.https.onCall(async (data, context
   }
 
   try {
-    const invitationRef = admin.firestore().collection('coach_invitations').doc(invitationId);
+    const invitationRef = admin.firestore().collection('invitations').doc(invitationId);
     const invitationSnap = await invitationRef.get();
 
     if (!invitationSnap.exists) {

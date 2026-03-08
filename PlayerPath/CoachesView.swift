@@ -326,7 +326,7 @@ struct CoachRow: View {
                         .cornerRadius(4)
                     } else if coach.invitationSentAt != nil {
                         HStack(spacing: 4) {
-                            Image(systemName: "clock.fill")
+                            Image(systemName: coach.isInvitationExpired ? "exclamationmark.circle.fill" : "clock.fill")
                                 .font(.caption2)
                             Text(coach.connectionStatus)
                                 .font(.caption2)

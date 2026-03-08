@@ -141,12 +141,25 @@ enum SchemaV4: VersionedSchema {
     static var models: [any PersistentModel.Type] { SchemaV1.models }
 }
 
+// MARK: - Schema V5 (3/7/26 — GameStatistics HBP tracking)
+//
+//  Changes from V4:
+//    • GameStatistics.hitByPitches (Int = 0) added — tracks batter HBP per game
+//      so GameStatistics.onBasePercentage uses the correct OBP formula.
+//
+//  Default value of 0 → lightweight migration is sufficient.
+
+enum SchemaV5: VersionedSchema {
+    static var versionIdentifier = Schema.Version(5, 0, 0)
+    static var models: [any PersistentModel.Type] { SchemaV1.models }
+}
+
 // MARK: - Migration Plan
 
 enum PlayerPathMigrationPlan: SchemaMigrationPlan {
     /// All schema versions in chronological order (oldest first).
     static var schemas: [any VersionedSchema.Type] {
-        [SchemaV1.self, SchemaV2.self, SchemaV3.self, SchemaV4.self]
+        [SchemaV1.self, SchemaV2.self, SchemaV3.self, SchemaV4.self, SchemaV5.self]
     }
 
     /// Migration stages between consecutive versions.
@@ -154,7 +167,8 @@ enum PlayerPathMigrationPlan: SchemaMigrationPlan {
         [
             .lightweight(fromVersion: SchemaV1.self, toVersion: SchemaV2.self),
             .lightweight(fromVersion: SchemaV2.self, toVersion: SchemaV3.self),
-            .lightweight(fromVersion: SchemaV3.self, toVersion: SchemaV4.self)
+            .lightweight(fromVersion: SchemaV3.self, toVersion: SchemaV4.self),
+            .lightweight(fromVersion: SchemaV4.self, toVersion: SchemaV5.self)
         ]
     }
 }

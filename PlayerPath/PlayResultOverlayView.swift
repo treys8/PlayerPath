@@ -133,7 +133,7 @@ struct PlayResultOverlayView: View {
                         }
                         Spacer()
                     }
-                    .padding(.leading, isLandscape ? 120 : 20)
+                    .padding(.leading, isLandscape ? 120 : 104)
                     .padding(.trailing, 20)
                     .padding(.top, 16)
                     .padding(.bottom, 20)

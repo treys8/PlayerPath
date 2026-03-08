@@ -170,11 +170,8 @@ final class PushNotificationService: NSObject, ObservableObject {
     /// Request authorization (if needed) and register for remote notifications in one step.
     /// - Returns: true if authorization is granted and registration was attempted.
     func ensureAuthorizationAndRegister() async -> Bool {
-        let granted = await requestAuthorization()
-        if granted {
-            await registerForRemoteNotifications()
-        }
-        return granted
+        // requestAuthorization() already calls registerForRemoteNotifications() when granted
+        return await requestAuthorization()
     }
     
     /// Presents a pre-permission rationale via a provided closure, then requests authorization and registers.
@@ -230,9 +227,7 @@ final class PushNotificationService: NSObject, ObservableObject {
             return
         }
         
-        await MainActor.run {
-            UIApplication.shared.registerForRemoteNotifications()
-        }
+        UIApplication.shared.registerForRemoteNotifications()
     }
     
     /// Handle device token registration
@@ -414,6 +409,8 @@ final class PushNotificationService: NSObject, ObservableObject {
     /// Send immediate upload-complete notification (called after each successful upload)
     func notifyUploadComplete() async {
         guard authorizationStatus == .authorized else { return }
+        // Skip if app is in foreground — the upload UI already provides feedback
+        guard await UIApplication.shared.applicationState != .active else { return }
         _ = await scheduleLocalNotification(
             identifier: "upload_complete_\(UUID().uuidString)",
             title: "Upload Complete ☁️",
@@ -464,6 +461,8 @@ final class PushNotificationService: NSObject, ObservableObject {
     private func sendTokenToServer(_ token: String) async -> (Bool, Bool) {
         // Store the APNs device token in the user's Firestore document so
         // future server-side push infrastructure can target this device.
+        // Uses an array (deviceTokens) so multiple devices on the same account
+        // all receive push notifications — arrayUnion prevents duplicates.
         guard let userID = Auth.auth().currentUser?.uid else {
             logger.warning("Cannot store device token — no authenticated user")
             return (false, false)
@@ -471,8 +470,17 @@ final class PushNotificationService: NSObject, ObservableObject {
 
         do {
             let db = Firestore.firestore()
+
+            // If the token rotated, remove the old one first so stale tokens don't accumulate.
+            let previousToken = UserDefaults.standard.string(forKey: "deviceToken")
+            if let old = previousToken, old != token {
+                try? await db.collection("users").document(userID).updateData([
+                    "deviceTokens": FieldValue.arrayRemove([old])
+                ])
+            }
+
             try await db.collection("users").document(userID).setData([
-                "deviceToken": token,
+                "deviceTokens": FieldValue.arrayUnion([token]),
                 "deviceTokenUpdatedAt": FieldValue.serverTimestamp(),
                 "platform": "ios"
             ], merge: true)
@@ -482,6 +490,18 @@ final class PushNotificationService: NSObject, ObservableObject {
             logger.error("Failed to store device token: \(error.localizedDescription)")
             return (false, true)
         }
+    }
+
+    /// Removes this device's APNs token from Firestore. Call on sign-out so the
+    /// device stops receiving push notifications for this account.
+    func removeTokenFromServer() async {
+        guard let token = UserDefaults.standard.string(forKey: "deviceToken"),
+              let userID = Auth.auth().currentUser?.uid else { return }
+        let db = Firestore.firestore()
+        try? await db.collection("users").document(userID).updateData([
+            "deviceTokens": FieldValue.arrayRemove([token])
+        ])
+        logger.info("Removed device token from Firestore for user \(userID)")
     }
     
     // MARK: - Notification Settings

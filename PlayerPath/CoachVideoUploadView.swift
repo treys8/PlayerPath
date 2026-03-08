@@ -22,7 +22,7 @@ struct CoachVideoUploadView: View {
     init(folder: SharedFolder, selectedTab: CoachFolderDetailView.FolderTab) {
         self.folder = folder
         self.selectedTab = selectedTab
-        _viewModel = StateObject(wrappedValue: CoachVideoUploadViewModel(folder: folder))
+        _viewModel = StateObject(wrappedValue: CoachVideoUploadViewModel(folder: folder, selectedTab: selectedTab))
     }
     
     var body: some View {
@@ -50,7 +50,7 @@ struct CoachVideoUploadView: View {
                             Text("Video selected")
                             Spacer()
                             Button("Change") {
-                                viewModel.selectedVideoURL = nil
+                                viewModel.clearSelection()
                             }
                             .font(.caption)
                         }
@@ -230,22 +230,45 @@ class CoachVideoUploadViewModel: ObservableObject {
     @Published var uploadComplete = false
     @Published var errorMessage: String?
     
-    init(folder: SharedFolder) {
+    private var pickerTempURL: URL?
+
+    init(folder: SharedFolder, selectedTab: CoachFolderDetailView.FolderTab) {
         self.folder = folder
+        self.videoContext = selectedTab == .games ? .game : .practice
     }
-    
+
     var canUpload: Bool {
-        selectedVideoURL != nil && !isUploading
+        guard selectedVideoURL != nil, !isUploading else { return false }
+        if videoContext == .game {
+            return !gameOpponent.trimmingCharacters(in: .whitespaces).isEmpty
+        }
+        return true
+    }
+
+    func clearSelection() {
+        if let url = pickerTempURL {
+            try? FileManager.default.removeItem(at: url)
+            pickerTempURL = nil
+        }
+        selectedVideoURL = nil
+        selectedPhotoItem = nil
     }
     
     func loadVideo(from item: PhotosPickerItem?) async {
         guard let item = item else { return }
-        
+
+        // Clean up any previous picker temp file before loading a new one
+        if let existing = pickerTempURL {
+            try? FileManager.default.removeItem(at: existing)
+            pickerTempURL = nil
+        }
+
         do {
             guard let movie = try await item.loadTransferable(type: VideoPickerTransferable.self) else {
                 errorMessage = "Failed to load video"
                 return
             }
+            pickerTempURL = movie.url
             selectedVideoURL = movie.url
         } catch {
             errorMessage = "Failed to load video: \(error.localizedDescription)"
@@ -342,19 +365,29 @@ class CoachVideoUploadViewModel: ObservableObject {
             print("❌ Video upload error: \(error)")
             Haptics.error()
         }
-        
+
+        // Clean up picker temp file regardless of outcome
+        if let url = pickerTempURL {
+            try? FileManager.default.removeItem(at: url)
+            pickerTempURL = nil
+        }
+
         isUploading = false
     }
     
     private func generateFileName() -> String {
         let timestamp = Date().formatted(date: .numeric, time: .omitted).replacingOccurrences(of: "/", with: "-")
-        
+        let uid = UUID().uuidString.prefix(8)
+
         switch videoContext {
         case .game:
-            let opponent = gameOpponent.isEmpty ? "Unknown" : gameOpponent
-            return "game_\(opponent)_\(timestamp).mov"
+            let raw = gameOpponent.trimmingCharacters(in: .whitespaces).isEmpty ? "Unknown" : gameOpponent
+            let sanitized = raw
+                .components(separatedBy: CharacterSet(charactersIn: "/\\#?% "))
+                .joined(separator: "_")
+            return "game_\(sanitized)_\(timestamp)_\(uid).mov"
         case .practice:
-            return "practice_\(timestamp).mov"
+            return "practice_\(timestamp)_\(uid).mov"
         }
     }
     

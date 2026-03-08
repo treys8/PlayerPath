@@ -95,7 +95,7 @@ final class AutoHighlightSettings: ObservableObject {
         for clip in clips {
             guard let playResult = clip.playResult else {
                 // No play result — unmark any existing highlight flag
-                if clip.isHighlight { clip.isHighlight = false; changed += 1 }
+                if clip.isHighlight { clip.isHighlight = false; clip.needsSync = true; changed += 1 }
                 continue
             }
             // Infer role: clips with a recorded pitch speed were in pitcher mode
@@ -103,6 +103,7 @@ final class AutoHighlightSettings: ObservableObject {
             let shouldTag = shouldAutoHighlight(playType: playResult.type, role: inferredRole)
             if clip.isHighlight != shouldTag {
                 clip.isHighlight = shouldTag
+                clip.needsSync = true
                 changed += 1
             }
         }

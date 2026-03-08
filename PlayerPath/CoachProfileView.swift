@@ -200,6 +200,15 @@ struct CoachProfileView: View {
                 }
             }
             .navigationTitle("Profile")
+            .task {
+                // Ensure folder data is loaded so athlete/video counts are accurate.
+                // CoachDashboardView normally starts the listener, but if this view
+                // appears before the dashboard (e.g. deep link), counts would be 0.
+                if sharedFolderManager.coachFolders.isEmpty,
+                   let coachID = authManager.userID {
+                    sharedFolderManager.startCoachFoldersListener(coachID: coachID)
+                }
+            }
             .disabled(isSigningOut)
             .overlay {
                 if isSigningOut {
@@ -247,7 +256,7 @@ struct CoachProfileView: View {
     }
 
     private var appVersion: String {
-        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "2.20.26"
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "Unknown"
     }
 }
 

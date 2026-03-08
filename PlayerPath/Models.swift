@@ -135,6 +135,7 @@ final class Athlete {
             "id": id.uuidString,
             "name": name,
             "userId": user?.id.uuidString ?? "",
+            "primaryRole": primaryRole.rawValue,
             "createdAt": createdAt ?? Date(),
             "updatedAt": Date(),
             "version": version,
@@ -299,13 +300,26 @@ final class Season {
     func archive(endDate: Date? = nil) {
         self.endDate = endDate ?? Date()
         self.isActive = false
-        
+
         // Calculate and save season statistics
         let stats = seasonStatistics ?? AthleteStatistics()
         if seasonStatistics == nil {
             seasonStatistics = stats
         }
-        
+
+        // Reset before aggregating so re-archiving doesn't double-count
+        stats.singles = 0
+        stats.doubles = 0
+        stats.triples = 0
+        stats.homeRuns = 0
+        stats.runs = 0
+        stats.rbis = 0
+        stats.walks = 0
+        stats.strikeouts = 0
+        stats.atBats = 0
+        stats.hits = 0
+        stats.hitByPitches = 0
+
         // Aggregate all game stats into season stats
         for game in (games ?? []) where game.isComplete {
             if let gameStats = game.gameStats {
@@ -319,9 +333,10 @@ final class Season {
                 stats.strikeouts += gameStats.strikeouts
                 stats.atBats += gameStats.atBats
                 stats.hits += gameStats.hits
+                stats.hitByPitches += gameStats.hitByPitches
             }
         }
-        
+
         stats.totalGames = totalGames
         stats.updatedAt = Date()
     }
@@ -648,15 +663,16 @@ final class VideoClip {
             }
         }
 
-        // Delete from cloud storage if uploaded
-        if isUploaded, let athlete = athlete {
+        // Delete from cloud storage if uploaded.
+        // Capture fileName before context.delete(self) to avoid accessing a deleted SwiftData object.
+        if isUploaded {
+            let capturedFileName = self.fileName
             Task { @MainActor in
                 do {
-                    try await VideoCloudManager.shared.deleteVideo(self, athlete: athlete)
-                    print("VideoClip: Deleted video from cloud: \(fileName)")
+                    try await VideoCloudManager.shared.deleteAthleteVideo(fileName: capturedFileName)
+                    print("VideoClip: Deleted video from cloud: \(capturedFileName)")
                 } catch {
                     print("VideoClip: Failed to delete from cloud: \(error.localizedDescription)")
-                    // Don't block deletion if cloud delete fails
                 }
             }
         }
@@ -932,6 +948,7 @@ final class GameStatistics {
     var walks: Int = 0
     var groundOuts: Int = 0
     var flyOuts: Int = 0
+    var hitByPitches: Int = 0
     var createdAt: Date?
 
     // MARK: - Computed Statistics
@@ -941,8 +958,8 @@ final class GameStatistics {
     }
 
     var onBasePercentage: Double {
-        let totalPlateAppearances = atBats + walks
-        return totalPlateAppearances > 0 ? Double(hits + walks) / Double(totalPlateAppearances) : 0.0
+        let totalPlateAppearances = atBats + walks + hitByPitches
+        return totalPlateAppearances > 0 ? Double(hits + walks + hitByPitches) / Double(totalPlateAppearances) : 0.0
     }
 
     var sluggingPercentage: Double {
@@ -988,8 +1005,10 @@ final class GameStatistics {
             self.groundOuts += 1
         case .flyOut:
             self.flyOuts += 1
-        case .ball, .strike, .hitByPitch, .wildPitch:
-            // Note: Pitching stats are not tracked in GameStatistics - only in AthleteStatistics
+        case .hitByPitch:
+            self.hitByPitches += 1
+        case .ball, .strike, .wildPitch:
+            // Pitching stats are not tracked in GameStatistics - only in AthleteStatistics
             break
         }
         print("GameStatistics: Added play result \(playResult.rawValue). New totals - Hits: \(self.hits), At Bats: \(self.atBats)")
@@ -1073,10 +1092,19 @@ final class Coach {
         !sharedFolderIDs.isEmpty
     }
 
+    /// True when 30 days have passed since the invitation was sent and it hasn't been accepted
+    var isInvitationExpired: Bool {
+        guard lastInvitationStatus == "pending",
+              let sentAt = invitationSentAt else { return false }
+        return sentAt.addingTimeInterval(30 * 24 * 60 * 60) < Date()
+    }
+
     /// Status badge text for UI
     var connectionStatus: String {
         if hasFirebaseAccount && hasFolderAccess {
             return "Connected"
+        } else if isInvitationExpired {
+            return "Invitation Expired"
         } else if invitationSentAt != nil && lastInvitationStatus == "pending" {
             return "Invitation Pending"
         } else if lastInvitationStatus == "declined" {
@@ -1090,6 +1118,8 @@ final class Coach {
     var connectionStatusColor: String {
         if hasFirebaseAccount && hasFolderAccess {
             return "green"
+        } else if isInvitationExpired {
+            return "red"
         } else if invitationSentAt != nil && lastInvitationStatus == "pending" {
             return "orange"
         } else if lastInvitationStatus == "declined" {
@@ -1146,9 +1176,8 @@ final class Coach {
     /// Removes folder access when athlete revokes permissions
     func removeFolderAccess(folderID: String) {
         sharedFolderIDs.removeAll { $0 == folderID }
-        if sharedFolderIDs.isEmpty {
-            firebaseCoachID = nil
-        }
+        // Note: firebaseCoachID is intentionally preserved — it is a permanent identity
+        // link and must survive losing folder access so re-sharing works without a new invite.
     }
 }
 
@@ -1214,6 +1243,19 @@ final class Photo {
         }
         if let thumbPath = thumbnailPath, FileManager.default.fileExists(atPath: thumbPath) {
             try? FileManager.default.removeItem(atPath: thumbPath)
+        }
+        // Delete from cloud storage if uploaded.
+        // Capture fileName before context.delete(self) to avoid accessing a deleted SwiftData object.
+        if cloudURL != nil {
+            let capturedFileName = self.fileName
+            Task { @MainActor in
+                do {
+                    try await VideoCloudManager.shared.deleteAthletePhoto(fileName: capturedFileName)
+                    print("Photo: Deleted from cloud: \(capturedFileName)")
+                } catch {
+                    print("Photo: Failed to delete from cloud: \(error.localizedDescription)")
+                }
+            }
         }
         context.delete(self)
     }

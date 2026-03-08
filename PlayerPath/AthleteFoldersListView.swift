@@ -229,11 +229,6 @@ struct FolderRow: View {
             }
             
             Spacer()
-            
-            // Chevron
-            Image(systemName: "chevron.right")
-                .font(.caption)
-                .foregroundColor(.secondary)
         }
         .padding(.vertical, 4)
     }
@@ -416,6 +411,8 @@ struct ManageCoachesView: View {
     @State private var showingRemoveConfirmation = false
     @State private var coachToRemove: String?
     @State private var isRemoving = false
+    @State private var showingError = false
+    @State private var errorMessage = ""
     
     var body: some View {
         NavigationStack {
@@ -484,6 +481,8 @@ struct ManageCoachesView: View {
                             } catch {
                                 await MainActor.run {
                                     isRemoving = false
+                                    errorMessage = error.localizedDescription
+                                    showingError = true
                                     Haptics.error()
                                 }
                             }
@@ -493,6 +492,11 @@ struct ManageCoachesView: View {
                 }
             } message: {
                 Text("This coach will no longer have access to this folder and its videos.")
+            }
+            .alert("Error", isPresented: $showingError) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text(errorMessage)
             }
         }
     }
@@ -571,6 +575,7 @@ struct CoachPermissionRow: View {
 
     @MainActor
     private func loadCoachDetails() async {
+        guard coachName == nil else { return }
         do {
             let coachInfo = try await FirestoreManager.shared.fetchCoachInfo(coachID: coachID)
             self.coachName = coachInfo.name

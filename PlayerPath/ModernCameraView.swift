@@ -317,11 +317,9 @@ struct ModernCameraView: View {
         VStack(spacing: 0) {
             // Top Controls
             HStack(alignment: .top) {
-                cancelButton
-
-                Spacer()
-
-                VStack(spacing: 8) {
+                // Left column: cancel + timer (mirrors landscape layout, avoids Dynamic Island)
+                VStack(alignment: .leading, spacing: 8) {
+                    cancelButton
                     recordingTimerBadge
                     slowMoBadge
                 }

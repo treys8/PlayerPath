@@ -285,11 +285,11 @@ struct VideoClipsView: View {
                 }
             }
         }
-        .sheet(isPresented: $showingRecorder) {
-            VideoRecorderView_Refactored(athlete: athlete, game: liveGameContext)
+        .fullScreenCover(isPresented: $showingRecorder) {
+            DirectCameraRecorderView(athlete: athlete, game: liveGameContext)
         }
         .sheet(isPresented: $showingUploadPicker) {
-            VideoRecorderView_Refactored(athlete: athlete, uploadOnly: true)
+            VideoRecorderView_Refactored(athlete: athlete)
         }
         .fullScreenCover(item: $selectedVideo) { video in
             VideoPlayerView(clip: video)
@@ -444,6 +444,7 @@ struct VideoClipsView: View {
 
         for video in videosToMark {
             video.isHighlight = true
+            video.needsSync = true
         }
 
         do {
@@ -760,6 +761,7 @@ struct VideoClipCard: View {
             Button {
                 Haptics.light()
                 video.isHighlight.toggle()
+                video.needsSync = true
                 do {
                     try modelContext.save()
                 } catch {

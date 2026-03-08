@@ -26,346 +26,77 @@ struct VideoRecorderView_Refactored: View {
     let game: Game?
     let practice: Practice?
     
-    // Refactored: Use dedicated service objects
-    @StateObject private var permissionManager = VideoRecordingPermissionManager()
+    // Service objects
     @StateObject private var uploadService = VideoUploadService()
     @StateObject private var networkMonitor = NetworkMonitor()
-    @State private var notificationService = PushNotificationService.shared
-    
-    // Simplified state management
+
+    // State management
     @State private var recordedVideoURL: URL?
     @State private var showingPhotoPicker = false
     @State private var selectedVideoItem: PhotosPickerItem?
-    @State private var showingNativeCamera = false
-    @State private var selectedVideoQuality: UIImagePickerController.QualityType = .typeHigh
     @State private var showingDiscardConfirmation = false
     @State private var pendingDismissAction: (() -> Void)?
-    @State private var showingLowStorageAlert = false
-    @State private var showingQualityPicker = false
     @State private var saveTask: Task<Void, Never>?
     @State private var showingTrimmer = false
-    @State private var showingTrimmerFromCamera = false
     @State private var trimmedVideoURL: URL?
-    @State private var cameraFlowShowingPlayResult = false
+    @State private var uploadFlowShowingPlayResult = false
 
     // System monitoring
     @State private var availableStorageGB: Double = 0
-    @State private var batteryLevel: Float = 1.0
-    @State private var batteryState: UIDevice.BatteryState = .unknown
-    @State private var estimatedRecordingMinutes: Int = 0
-    @State private var showingBatteryWarning = false
 
-    // Smart features
-    @State private var smartSuggestion: String?
-    @State private var recordedClipsCount: Int = 0
-    @State private var autoOpeningCamera = false
-    @State private var autoOpenDidFire = false  // prevents re-fire when fullScreenCover dismisses
-
-    // Video recording constraints
-    private let maxRecordingDuration: TimeInterval = 600 // 10 minutes - matches validation
-    private let maxFileSizeBytes: Int64 = 500 * 1024 * 1024 // 500MB - matches validation
-    private let minRequiredStorageBytes: Int64 = 1024 * 1024 * 1024 // 1GB minimum
-    
-    let uploadOnly: Bool
-
-    init(athlete: Athlete?, game: Game? = nil, practice: Practice? = nil, uploadOnly: Bool = false) {
+    init(athlete: Athlete?, game: Game? = nil, practice: Practice? = nil) {
         self.athlete = athlete
         self.game = game
         self.practice = practice
-        self.uploadOnly = uploadOnly
     }
     
     var body: some View {
-        navigationView
-            .fullScreenCover(isPresented: $showingNativeCamera) {
-                nativeCameraView
+        ZStack {
+            Color.black.ignoresSafeArea()
+            networkStatusBanner
+        }
+        .photosPicker(isPresented: $showingPhotoPicker, selection: $selectedVideoItem, matching: .videos, preferredItemEncoding: .compatible)
+        .onChange(of: selectedVideoItem) { _, newItem in
+            handleSelectedVideo(newItem)
+        }
+        .onChange(of: showingPhotoPicker) { _, isShowing in
+            if !isShowing && selectedVideoItem == nil && recordedVideoURL == nil && !showingTrimmer {
+                dismiss()
             }
-            .fullScreenCover(isPresented: $showingTrimmer) {
-                videoTrimmerView
+        }
+        .fullScreenCover(isPresented: $showingTrimmer) {
+            videoTrimmerView
+        }
+        .confirmationDialog(
+            "Discard Clip?",
+            isPresented: $showingDiscardConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Discard", role: .destructive) {
+                pendingDismissAction?()
+                pendingDismissAction = nil
+                cleanupAndDismiss()
             }
-            .photosPicker(isPresented: $showingPhotoPicker, selection: $selectedVideoItem, matching: .videos, preferredItemEncoding: .compatible)
-            .sensoryFeedback(.start, trigger: showingNativeCamera)
-            .onChange(of: selectedVideoItem) { _, newItem in
-                handleSelectedVideo(newItem)
+            Button("Keep", role: .cancel) {
+                pendingDismissAction = nil
             }
-            .onChange(of: showingPhotoPicker) { _, isShowing in
-                // In upload-only mode, if the picker closes without a video being selected,
-                // dismiss the recorder so the user isn't left on the options screen.
-                // selectedVideoItem is safe to check here because onChange(of: selectedVideoItem)
-                // is declared earlier in the modifier chain and fires first in the same transaction,
-                // so it will already be non-nil by the time this fires when a video was picked.
-                if !isShowing && uploadOnly && selectedVideoItem == nil && recordedVideoURL == nil && !showingTrimmer {
-                    dismiss()
-                }
-            }
-            .alert("Permission Required", isPresented: $permissionManager.showingPermissionAlert) {
-                permissionAlert
-            } message: {
-                Text(permissionManager.permissionAlertMessage)
-            }
-            .alert("Error", isPresented: errorAlertBinding) {
-                errorAlert
-            } message: {
-                errorMessage
-            }
-            .confirmationDialog(
-                "Discard Recording?",
-                isPresented: $showingDiscardConfirmation,
-                titleVisibility: .visible
-            ) {
-                Button("Discard Video", role: .destructive) {
-                    pendingDismissAction?()
-                    pendingDismissAction = nil
-                    cleanupAndDismiss()
-                }
-                Button("Keep Recording", role: .cancel) {
-                    pendingDismissAction = nil
-                }
-            } message: {
-                Text("This video hasn't been saved yet. Are you sure you want to discard it?")
-            }
-            .alert("Low Storage", isPresented: $showingLowStorageAlert) {
-                Button("OK", role: .cancel) {}
-                Button("Settings", role: .none) {
-                    if let settingsURL = URL(string: UIApplication.openSettingsURLString) {
-                        UIApplication.shared.open(settingsURL)
-                    }
-                }
-            } message: {
-                Text("You have less than \(String(format: "%.1f", availableStorageGB)) GB of storage available. Free up space before recording to avoid issues.")
-            }
-            .sheet(isPresented: $showingQualityPicker) {
-                VideoQualityPickerView(selectedQuality: $selectedVideoQuality)
-                    .presentationDetents([.medium, .large])
-                    .presentationDragIndicator(.visible)
-            }
-            .task {
-                // Start network monitoring
-                networkMonitor.startMonitoring()
-
-                // Enable battery monitoring
-                UIDevice.current.isBatteryMonitoringEnabled = true
-                updateBatteryStatus()
-
-                // Load saved quality preference
-                if let savedQuality = UserDefaults.standard.value(forKey: "selectedVideoQuality") as? Int {
-                    selectedVideoQuality = UIImagePickerController.QualityType(rawValue: savedQuality) ?? .typeHigh
-                }
-
-                // Check storage and calculate estimates
-                checkAvailableStorage()
-                calculateRecordingTime()
-                updateRecordedClipsCount()
-                generateSmartSuggestion()
-
-                // Battery warning if low
-                if batteryLevel < 0.2 && batteryState != .charging {
-                    showingBatteryWarning = true
-                }
-
-                if uploadOnly && !autoOpenDidFire {
-                    autoOpenDidFire = true
-                    showingPhotoPicker = true
-                } else if (game?.isLive == true || practice != nil) && !autoOpenDidFire {
-                    // Quick record for live games and practice sessions - go straight to camera
-                    autoOpenDidFire = true
-                    autoOpeningCamera = true
-                    try? await Task.sleep(for: .milliseconds(100))
-                    guard !Task.isCancelled, autoOpeningCamera else { return }
-                    checkCameraPermission()
-                    autoOpeningCamera = false
-                }
-            }
-            .onDisappear {
-                // Clean up resources when view disappears
-                networkMonitor.stopMonitoring()
-                // Don't cancel saveTask here — if the user tapped Save, the task must
-                // complete even after the view disappears. cleanupAndDismiss() handles
-                // the discard path separately.
-                UIDevice.current.isBatteryMonitoringEnabled = false
-            }
-            .alert("Low Battery", isPresented: $showingBatteryWarning) {
-                Button("Continue Anyway", role: .none) { }
-                Button("Cancel", role: .cancel) {
-                    dismiss()
-                }
-            } message: {
-                let suggestion = batteryLevel < 0.1 && VideoRecordingSettings.shared.quality == .ultra4K
-                    ? "Your battery is low. Consider using 1080p instead of 4K to conserve power."
-                    : "Your battery is at \(Int(batteryLevel * 100))%. Recording may drain it quickly."
-                Text(suggestion)
-            }
-    }
-    
-    private var navigationView: some View {
-        NavigationStack {
-            ZStack {
-                Color.black.ignoresSafeArea()
-                mainContent
-                loadingOverlays
-                networkStatusBanner
-            }
-            .navigationTitle("")
-            .navigationBarTitleDisplayMode(.inline)
-            .navigationBarBackButtonHidden(true)
-            .toolbarBackground(.black, for: .navigationBar)
-            .toolbarColorScheme(.dark, for: .navigationBar)
-            .toolbar {
-                toolbarContent
-            }
+        } message: {
+            Text("This clip won't be saved to PlayerPath. Your original video in Photos is not affected.")
+        }
+        .task {
+            networkMonitor.startMonitoring()
+            checkAvailableStorage()
+            showingPhotoPicker = true
+        }
+        .onDisappear {
+            networkMonitor.stopMonitoring()
         }
     }
     
-    @ToolbarContentBuilder
-    private var toolbarContent: some ToolbarContent {
-        ToolbarItem(placement: .topBarLeading) {
-            Button {
-                handleCancelTapped()
-            } label: {
-                Label("Cancel", systemImage: "xmark")
-            }
-            .fontWeight(.semibold)
-            .accessibilityLabel("Cancel recording")
-        }
-
-        ToolbarItem(placement: .principal) {
-            // Show context instead of system indicators
-            if let game = game {
-                Text("vs \(game.opponent)")
-                    .font(.headline)
-                    .foregroundColor(.white)
-            } else if practice != nil {
-                Text("Practice Session")
-                    .font(.headline)
-                    .foregroundColor(.white)
-            } else {
-                Text("Record Video")
-                    .font(.headline)
-                    .foregroundColor(.white)
-            }
-        }
-
-        ToolbarItem(placement: .topBarTrailing) {
-            // Context-aware button
-            if recordedVideoURL != nil {
-                Button {
-                    handleCancelTapped()
-                } label: {
-                    Label("Done", systemImage: "checkmark")
-                }
-                .accessibilityLabel("Save and close")
-            } else {
-                Menu {
-                    Button {
-                        showingQualityPicker = true
-                    } label: {
-                        Label("Video Quality", systemImage: "video.badge.waveform")
-                    }
-
-                    if let suggestion = smartSuggestion {
-                        Divider()
-                        Text(suggestion)
-                            .font(.caption)
-                    }
-                } label: {
-                    Image(systemName: "gearshape")
-                        .fontWeight(.semibold)
-                }
-                .accessibilityLabel("Settings and quality")
-            }
-        }
-    }
-
-    private var storageColor: Color {
-        if availableStorageGB < 2 {
-            return .red
-        } else if availableStorageGB < 5 {
-            return .orange
-        } else {
-            return .green
-        }
-    }
-
-    private var storageIcon: String {
-        if availableStorageGB < 2 {
-            return "externaldrive.fill.badge.exclamationmark"
-        } else if availableStorageGB < 5 {
-            return "externaldrive.fill.badge.minus"
-        } else {
-            return "externaldrive.fill"
-        }
-    }
-
-    private var batteryColor: Color {
-        if batteryLevel < 0.1 {
-            return .red
-        } else if batteryLevel < 0.2 {
-            return .orange
-        } else {
-            return .green
-        }
-    }
-
-    private var batteryIcon: String {
-        if batteryState == .charging || batteryState == .full {
-            return "battery.100.bolt"
-        } else if batteryLevel < 0.1 {
-            return "battery.0"
-        } else if batteryLevel < 0.25 {
-            return "battery.25"
-        } else if batteryLevel < 0.5 {
-            return "battery.50"
-        } else if batteryLevel < 0.75 {
-            return "battery.75"
-        } else {
-            return "battery.100"
-        }
-    }
-    
-    private func qualityName(for quality: UIImagePickerController.QualityType) -> String {
-        switch quality {
-        case .typeHigh: return "High"
-        case .typeMedium: return "Medium"
-        case .typeLow: return "Low"
-        case .type640x480: return "SD"
-        case .typeIFrame1280x720: return "720p"
-        case .typeIFrame960x540: return "540p"
-        @unknown default: return "Unknown"
-        }
-    }
-
-
-
     @ViewBuilder
-    private var nativeCameraView: some View {
-        ModernCameraView(
-            settings: .shared,
-            onVideoRecorded: { videoURL in
-                recordedVideoURL = videoURL
-                // Present trimmer on top of camera (no dismiss gap)
-                showingTrimmerFromCamera = true
-            },
-            onCancel: {
-                if game?.isLive == true && recordedVideoURL == nil {
-                    // Live game auto-routed here — user never should see the recorder main screen.
-                    // Exit the entire recorder cleanly rather than dropping them on a dead screen.
-                    cleanupAndDismiss()
-                } else {
-                    showingNativeCamera = false
-                }
-            },
-            onError: { error in
-                ErrorHandlerService.shared.handle(
-                    AppError.videoRecordingFailed(error.localizedDescription),
-                    context: "Camera Recording"
-                )
-            }
-        )
-        .fullScreenCover(isPresented: $showingTrimmerFromCamera) {
-            // Swap content from trimmer → save overlay inside the same fullScreenCover
-            // to avoid dismiss→present animation gap.
-            // Practice recordings show PracticeVideoSaveView; game/standalone show PlayResultOverlayView.
-            if cameraFlowShowingPlayResult, let videoURL = recordedVideoURL {
+    private var videoTrimmerView: some View {
+        if let videoURL = recordedVideoURL {
+            if uploadFlowShowingPlayResult {
                 let finalVideoURL = trimmedVideoURL ?? videoURL
                 if practice != nil {
                     PracticeVideoSaveView(
@@ -374,9 +105,8 @@ struct VideoRecorderView_Refactored: View {
                         practice: practice,
                         onSave: { note in
                             saveVideoWithResult(videoURL: finalVideoURL, playResult: nil, note: note) {
-                                cameraFlowShowingPlayResult = false
-                                showingTrimmerFromCamera = false
-                                showingNativeCamera = false
+                                uploadFlowShowingPlayResult = false
+                                showingTrimmer = false
                                 dismiss()
                             }
                         },
@@ -388,9 +118,8 @@ struct VideoRecorderView_Refactored: View {
                                 }
                                 self.recordedVideoURL = nil
                                 self.trimmedVideoURL = nil
-                                self.cameraFlowShowingPlayResult = false
-                                self.showingTrimmerFromCamera = false
-                                self.showingNativeCamera = false
+                                self.uploadFlowShowingPlayResult = false
+                                self.showingTrimmer = false
                             }
                             showingDiscardConfirmation = true
                         }
@@ -403,9 +132,8 @@ struct VideoRecorderView_Refactored: View {
                         practice: practice,
                         onSave: { result, pitchSpeed, role in
                             saveVideoWithResult(videoURL: finalVideoURL, playResult: result, pitchSpeed: pitchSpeed, role: role) {
-                                cameraFlowShowingPlayResult = false
-                                showingTrimmerFromCamera = false
-                                showingNativeCamera = false
+                                uploadFlowShowingPlayResult = false
+                                showingTrimmer = false
                                 dismiss()
                             }
                         },
@@ -417,26 +145,25 @@ struct VideoRecorderView_Refactored: View {
                                 }
                                 self.recordedVideoURL = nil
                                 self.trimmedVideoURL = nil
-                                self.cameraFlowShowingPlayResult = false
-                                self.showingTrimmerFromCamera = false
-                                self.showingNativeCamera = false
+                                self.uploadFlowShowingPlayResult = false
+                                self.showingTrimmer = false
                             }
                             showingDiscardConfirmation = true
                         }
                     )
                 }
-            } else if let videoURL = recordedVideoURL {
+            } else {
                 PreUploadTrimmerView(
                     videoURL: videoURL,
                     onSave: { trimmedURL in
                         trimmedVideoURL = trimmedURL
                         if practice != nil { lockPortrait() }
-                        cameraFlowShowingPlayResult = true
+                        uploadFlowShowingPlayResult = true
                     },
                     onSkip: {
                         trimmedVideoURL = nil
                         if practice != nil { lockPortrait() }
-                        cameraFlowShowingPlayResult = true
+                        uploadFlowShowingPlayResult = true
                     },
                     onCancel: {
                         pendingDismissAction = {
@@ -446,8 +173,7 @@ struct VideoRecorderView_Refactored: View {
                             }
                             self.recordedVideoURL = nil
                             self.trimmedVideoURL = nil
-                            self.showingTrimmerFromCamera = false
-                            self.showingNativeCamera = false
+                            self.showingTrimmer = false
                         }
                         showingDiscardConfirmation = true
                     }
@@ -455,338 +181,9 @@ struct VideoRecorderView_Refactored: View {
             }
         }
     }
-    
-    @ViewBuilder
-    private var videoTrimmerView: some View {
-        if let videoURL = recordedVideoURL {
-            PreUploadTrimmerView(
-                videoURL: videoURL,
-                onSave: { trimmedURL in
-                    saveVideoWithResult(videoURL: trimmedURL, playResult: nil) {
-                        self.recordedVideoURL = nil
-                        self.trimmedVideoURL = nil
-                        self.showingTrimmer = false
-                        dismiss()
-                    }
-                },
-                onSkip: {
-                    saveVideoWithResult(videoURL: videoURL, playResult: nil) {
-                        self.recordedVideoURL = nil
-                        self.trimmedVideoURL = nil
-                        self.showingTrimmer = false
-                        dismiss()
-                    }
-                },
-                onCancel: {
-                    pendingDismissAction = {
-                        VideoFileManager.cleanup(url: videoURL)
-                        if let trimmed = trimmedVideoURL {
-                            VideoFileManager.cleanup(url: trimmed)
-                        }
-                        self.recordedVideoURL = nil
-                        self.trimmedVideoURL = nil
-                        self.showingTrimmer = false
-                    }
-                    showingDiscardConfirmation = true
-                }
-            )
-        }
-    }
-    
-    private var errorAlertBinding: Binding<Bool> {
-        Binding(
-            get: { ErrorHandlerService.shared.showErrorAlert },
-            set: { _ in ErrorHandlerService.shared.dismissError() }
-        )
-    }
-    
-    @ViewBuilder
-    private var permissionAlert: some View {
-        Button("Settings", role: .none) {
-            permissionManager.openSettings()
-        }
-        Button("Cancel", role: .cancel) {
-            dismiss()
-        }
-    }
-    
-    @ViewBuilder
-    private var errorAlert: some View {
-        if let error = ErrorHandlerService.shared.currentError {
-            // Show retry for errors that make sense to retry
-            if error.suggestedActions.contains(.retry) {
-                Button("Retry", role: .none) {
-                    retryLastAction()
-                }
-            }
-            Button("Copy Details") {
-                copyErrorToClipboard(error)
-            }
-        }
-        Button("OK", role: .cancel) {
-            ErrorHandlerService.shared.dismissError()
-        }
-    }
-    
-    @ViewBuilder
-    private var errorMessage: some View {
-        if let error = ErrorHandlerService.shared.currentError {
-            VStack(spacing: 12) {
-                Text(error.errorDescription ?? "An error occurred")
-                    .font(.body)
-                    .multilineTextAlignment(.center)
-                
-                if let recovery = error.recoverySuggestion {
-                    Divider()
-                    
-                    HStack(spacing: 8) {
-                        Image(systemName: "lightbulb.fill")
-                            .foregroundColor(.yellow)
-                            .font(.caption)
-                        Text(recovery)
-                            .font(.callout)
-                            .foregroundColor(.secondary)
-                    }
-                    .multilineTextAlignment(.center)
-                }
-            }
-        }
-    }
-    
-    private func copyErrorToClipboard(_ error: AppError) {
-        var details = "PlayerPath Error Report\n"
-        details += "Generated: \(Date().formatted())\n\n"
-        details += "Error: \(error.errorDescription ?? "Unknown error")\n"
-        if let recovery = error.recoverySuggestion {
-            details += "Suggestion: \(recovery)\n"
-        }
-        details += "Severity: \(error.severity)\n"
-        details += "Suggested Actions: \(error.suggestedActions.map { String(describing: $0) }.joined(separator: ", "))\n"
 
-        UIPasteboard.general.string = details
-        ErrorHandlerService.shared.dismissError()
-        UINotificationFeedbackGenerator().notificationOccurred(.success)
-    }
-    
-    private func retryLastAction() {
-        ErrorHandlerService.shared.dismissError()
-        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+    // MARK: - Network / Storage Banner
 
-        // Retry the last selected video if there was one
-        if let lastItem = selectedVideoItem {
-            handleSelectedVideo(lastItem)
-        }
-    }
-    
-    // MARK: - View Components
-    
-    private var mainContent: some View {
-        VStack(spacing: 25) {
-            headerSection
-            Spacer()
-
-            // For live games, skip the options screen and show loading while camera opens
-            if game?.isLive == true {
-                liveGameLoadingView
-            } else {
-                // Use dedicated options view for non-live games
-                VideoRecordingOptionsView(
-                    onRecordVideo: {
-                        print("VideoRecorder: Record Video button tapped")
-                        checkCameraPermission()
-                    },
-                    onUploadVideo: {
-                        print("VideoRecorder: Upload Video button tapped")
-                        showingPhotoPicker = true
-                    },
-                    tipText: "Tip: Position camera to capture the full swing and follow-through",
-                    hideUpload: false
-                )
-
-                // Recording guidelines
-                recordingGuidelinesSection
-            }
-
-            Spacer()
-        }
-        .padding()
-    }
-
-    private var liveGameLoadingView: some View {
-        VStack(spacing: 20) {
-            ProgressView()
-                .scaleEffect(1.5)
-                .tint(.white)
-
-            Text("Opening Camera...")
-                .font(.headline)
-                .foregroundColor(.white)
-
-            Text("Get ready to capture the play!")
-                .font(.subheadline)
-                .foregroundColor(.white.opacity(0.7))
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 40)
-    }
-    
-    private var recordingGuidelinesSection: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "info.circle.fill")
-                .font(.caption)
-                .foregroundColor(.blue)
-
-            Text("Up to \(Int(maxRecordingDuration / 60)) minutes • \(qualityName(for: selectedVideoQuality)) quality")
-                .font(.caption)
-                .foregroundColor(.white.opacity(0.7))
-        }
-        .padding(.horizontal)
-        .accessibilityLabel("Recording limit: Maximum \(Int(maxRecordingDuration / 60)) minutes at \(qualityName(for: selectedVideoQuality)) quality")
-    }
-    
-    private var headerSection: some View {
-        VStack(spacing: 12) {
-            if let game = game {
-                // Live game header with rich context
-                VStack(spacing: 8) {
-                    HStack {
-                        // Live badge
-                        HStack(spacing: 6) {
-                            Circle()
-                                .fill(Color.red)
-                                .frame(width: 6, height: 6)
-
-                            Text("LIVE GAME")
-                                .font(.caption)
-                                .fontWeight(.bold)
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(
-                            Capsule()
-                                .fill(Color.red)
-                        )
-                        .foregroundColor(.white)
-
-                        Spacer()
-
-                        // Clips counter
-                        if recordedClipsCount > 0 {
-                            HStack(spacing: 4) {
-                                Image(systemName: "video.fill")
-                                    .font(.caption2)
-                                Text("\(recordedClipsCount)")
-                                    .font(.caption)
-                                    .fontWeight(.semibold)
-                            }
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 5)
-                            .background(
-                                Capsule()
-                                    .fill(Color.white.opacity(0.2))
-                            )
-                        }
-                    }
-
-                    // Opponent & Score
-                    HStack {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("vs \(game.opponent)")
-                                .font(.title2)
-                                .fontWeight(.bold)
-                                .foregroundColor(.white)
-
-                            // Game date
-                            if let date = game.date {
-                                Text(date, style: .date)
-                                    .font(.caption)
-                                    .foregroundColor(.white.opacity(0.8))
-                            }
-                        }
-
-                        Spacer()
-                    }
-                }
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel("Live game versus \(game.opponent), \(recordedClipsCount) clips recorded")
-            } else if let practice = practice {
-                VStack(spacing: 4) {
-                    Text("Practice Session")
-                        .font(.title2)
-                        .fontWeight(.bold)
-                        .foregroundColor(.white)
-                        .minimumScaleFactor(0.8)
-
-                    if let date = practice.date {
-                        Text(date, formatter: DateFormatter.shortDate)
-                            .font(.subheadline)
-                            .foregroundColor(.white.opacity(0.8))
-                    } else {
-                        Text("Date TBA")
-                            .font(.subheadline)
-                            .foregroundColor(.white.opacity(0.6))
-                    }
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color.white.opacity(0.1))
-                )
-            } else {
-                Text("Video Recording")
-                    .font(.title2)
-                    .fontWeight(.bold)
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(Color.white.opacity(0.1))
-                    )
-                    .minimumScaleFactor(0.8)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var loadingOverlays: some View {
-        if uploadService.isProcessingVideo {
-            LoadingOverlay(message: "Processing video...")
-        }
-
-        if permissionManager.isRequestingPermissions {
-            LoadingOverlay(message: "Requesting permissions...")
-        }
-
-        // Auto-opening camera for live games
-        if autoOpeningCamera {
-            ZStack {
-                Color.black.opacity(0.8)
-                    .ignoresSafeArea()
-
-                VStack(spacing: 20) {
-                    ProgressView()
-                        .scaleEffect(1.5)
-                        .tint(.white)
-
-                    Text("Opening Camera...")
-                        .font(.headline)
-                        .foregroundColor(.white)
-
-                    Button("Cancel") {
-                        autoOpeningCamera = false
-                        Haptics.light()
-                    }
-                    .buttonStyle(.bordered)
-                    .tint(.white)
-                }
-            }
-            .transition(.opacity)
-        }
-    }
-    
     @ViewBuilder
     private var networkStatusBanner: some View {
         VStack(spacing: 0) {
@@ -826,14 +223,6 @@ struct VideoRecorderView_Refactored: View {
                         .font(.caption)
                         .fontWeight(.medium)
                     Spacer()
-                    Button("Manage") {
-                        showingLowStorageAlert = true
-                    }
-                    .font(.caption2)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Color.white.opacity(0.2))
-                    .cornerRadius(4)
                 }
                 .foregroundColor(.white)
                 .padding(.horizontal, 16)
@@ -848,68 +237,14 @@ struct VideoRecorderView_Refactored: View {
                 .accessibilityElement(children: .combine)
                 .accessibilityLabel("Low storage warning. \(String(format: "%.1f", availableStorageGB)) gigabytes free.")
             }
-            // Storage suggestion (moderate)
-            else if availableStorageGB > 0 && availableStorageGB < 3.0 && selectedVideoQuality == .typeHigh {
-                HStack(spacing: 8) {
-                    Image(systemName: "info.circle.fill")
-                        .font(.caption)
-                    Text("\(String(format: "%.1f", availableStorageGB)) GB free")
-                        .font(.caption)
-                        .fontWeight(.medium)
-                    Spacer()
-                    Button("Use Medium Quality") {
-                        selectedVideoQuality = .typeMedium
-                        UserDefaults.standard.set(selectedVideoQuality.rawValue, forKey: "selectedVideoQuality")
-                        Haptics.light()
-                    }
-                    .font(.caption2)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Color.white.opacity(0.2))
-                    .cornerRadius(4)
-                }
-                .foregroundColor(.white)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-                .background(
-                    Capsule()
-                        .fill(Color.yellow.opacity(0.9))
-                )
-                .padding(.horizontal)
-                .padding(.top, networkMonitor.isConnected ? 8 : 4)
-                .transition(.move(edge: .top).combined(with: .opacity))
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel("Limited storage. Consider using medium quality.")
-            }
-            
+
             Spacer()
         }
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: networkMonitor.isConnected)
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: availableStorageGB)
-        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: selectedVideoQuality)
     }
     
     // MARK: - Business Logic
-    
-    private func handleCancelTapped() {
-        let showingPlayResult = cameraFlowShowingPlayResult
-        if recordedVideoURL != nil && !showingPlayResult {
-            // Video recorded but user is back at main screen - confirm discard
-            UIAccessibility.post(notification: .announcement, argument: "Confirm discard recording")
-            UINotificationFeedbackGenerator().notificationOccurred(.warning)
-            pendingDismissAction = {
-                UIAccessibility.post(notification: .announcement, argument: "Recording discarded")
-                UINotificationFeedbackGenerator().notificationOccurred(.error)
-                self.cleanupAndDismiss()
-            }
-            showingDiscardConfirmation = true
-        } else {
-            // No video recorded, or user is in overlay (which has its own cancel)
-            UIAccessibility.post(notification: .announcement, argument: "Recording cancelled")
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-            cleanupAndDismiss()
-        }
-    }
 
     private func handleSelectedVideo(_ item: PhotosPickerItem?) {
         Task {
@@ -928,170 +263,18 @@ struct VideoRecorderView_Refactored: View {
         }
     }
     
-    private func checkCameraPermission() {
-        // First check if we have enough storage
-        let hasEnoughStorage = checkAvailableStorage()
-
-        guard hasEnoughStorage else {
-            UINotificationFeedbackGenerator().notificationOccurred(.error)
-            showingLowStorageAlert = true
-            return
-        }
-
-        // Check if permissions are already granted (no dialog will be shown)
-        let alreadyAuthorized = AVCaptureDevice.authorizationStatus(for: .video) == .authorized
-            && AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
-
-        Task {
-            let result = await permissionManager.checkPermissions()
-            switch result {
-            case .success:
-                UINotificationFeedbackGenerator().notificationOccurred(.success)
-                // Only delay if permission dialogs were shown
-                if !alreadyAuthorized {
-                    try? await Task.sleep(nanoseconds: 500_000_000)
-                }
-                showingNativeCamera = true
-            case .failure(let error):
-                UINotificationFeedbackGenerator().notificationOccurred(.error)
-                print("Permission check failed: \(error)")
-                // Error is already handled by permissionManager
-            }
-        }
-    }
-    
-    @discardableResult
-    private func checkAvailableStorage() -> Bool {
+    private func checkAvailableStorage() {
         do {
             let fileURL = URL(fileURLWithPath: NSHomeDirectory() as String)
             let values = try fileURL.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
-
             if let capacity = values.volumeAvailableCapacityForImportantUsage {
-                availableStorageGB = Double(capacity) / 1_000_000_000.0 // Convert to GB
-                print("Storage check: \(String(format: "%.2f", availableStorageGB)) GB available")
-
-                // Check if we have at least minimum required storage
-                return capacity >= minRequiredStorageBytes
+                availableStorageGB = Double(capacity) / 1_000_000_000.0
             }
         } catch {
-            print("Error checking storage: \(error)")
-        }
-
-        // If we can't determine storage, allow recording (fail open)
-        return true
-    }
-
-    private func updateBatteryStatus() {
-        batteryLevel = UIDevice.current.batteryLevel
-        batteryState = UIDevice.current.batteryState
-
-        // If battery level is unknown, assume full
-        if batteryLevel < 0 {
-            batteryLevel = 1.0
-        }
-
-        print("Battery: \(Int(batteryLevel * 100))%, state: \(batteryState.rawValue)")
-    }
-
-    private func calculateRecordingTime() {
-        guard availableStorageGB > 0 else { return }
-
-        // Get current quality estimate (MB per minute)
-        let mbPerMinute = VideoRecordingSettings.shared.estimatedFileSizePerMinute
-
-        // Calculate how many minutes we can record
-        let availableMB = availableStorageGB * 1000
-        let minutes = Int(availableMB / mbPerMinute)
-
-        estimatedRecordingMinutes = min(minutes, Int(maxRecordingDuration / 60))
-
-        print("Can record ~\(estimatedRecordingMinutes) min at current quality")
-    }
-
-    private func updateRecordedClipsCount() {
-        guard let athlete = athlete else {
-            recordedClipsCount = 0
-            return
-        }
-
-        // Capture IDs for use in predicates
-        let athleteID = athlete.id
-
-        // Count clips for this game/practice
-        let predicate: Predicate<VideoClip>
-
-        if let game = game {
-            let gameID = game.id
-            predicate = #Predicate<VideoClip> { clip in
-                clip.athlete?.id == athleteID && clip.game?.id == gameID
-            }
-        } else if let practice = practice {
-            let practiceID = practice.id
-            predicate = #Predicate<VideoClip> { clip in
-                clip.athlete?.id == athleteID && clip.practice?.id == practiceID
-            }
-        } else {
-            // No specific context, count recent clips
-            predicate = #Predicate<VideoClip> { clip in
-                clip.athlete?.id == athleteID
-            }
-        }
-
-        do {
-            var descriptor = FetchDescriptor(predicate: predicate)
-            descriptor.fetchLimit = 100
-
-            let clips = try modelContext.fetch(descriptor)
-            recordedClipsCount = clips.count
-
-            print("Found \(recordedClipsCount) existing clips for this context")
-        } catch {
-            print("Error counting clips: \(error)")
-            recordedClipsCount = 0
+            print("Storage check error: \(error)")
         }
     }
 
-    private func generateSmartSuggestion() {
-        let currentQuality = VideoRecordingSettings.shared.quality
-        let currentFPS = VideoRecordingSettings.shared.frameRate
-        let isPitching = game != nil // Simplification - could be more sophisticated
-
-        // Battery-based suggestions
-        if batteryLevel < 0.15 && batteryState != .charging {
-            if currentQuality == .ultra4K {
-                smartSuggestion = "Low battery - Switch to 1080p to conserve power"
-                return
-            } else {
-                smartSuggestion = "Low battery - Consider reducing quality"
-                return
-            }
-        }
-
-        // Storage-based suggestions
-        if availableStorageGB < 3 {
-            if currentQuality == .ultra4K {
-                smartSuggestion = "Low storage - 4K uses ~200MB/min. Consider 1080p"
-                return
-            } else if currentQuality == .high1080p {
-                smartSuggestion = "Low storage - Consider 720p to save space"
-                return
-            }
-        }
-
-        // Context-based suggestions
-        if isPitching && currentFPS.fps < 60 {
-            smartSuggestion = "Tip: Enable 60fps or higher for better slow-motion"
-            return
-        }
-
-        if availableStorageGB > 20 && currentQuality != .ultra4K {
-            smartSuggestion = "Plenty of storage - Consider 4K for maximum quality"
-            return
-        }
-
-        smartSuggestion = nil
-    }
-    
     private func saveVideoWithResult(videoURL: URL, playResult: PlayResultType?, pitchSpeed: Double? = nil, role: AthleteRole = .batter, note: String? = nil, onComplete: @escaping () -> Void) {
         guard let athlete = athlete else {
             print("ERROR: No athlete selected for video save")
@@ -1158,16 +341,8 @@ struct VideoRecorderView_Refactored: View {
     }
 
     private func cleanupAndDismiss() {
-        print("VideoRecorder: cleanupAndDismiss called")
-
-        // Cancel any pending save task
         saveTask?.cancel()
         saveTask = nil
-
-        // Kill auto-open synchronously so the .task guard sees it
-        // before checkCameraPermission() can fire after the 100ms sleep.
-        autoOpeningCamera = false
-        autoOpenDidFire = true
 
         Task { @MainActor in
             if let videoURL = recordedVideoURL {
@@ -1176,18 +351,13 @@ struct VideoRecorderView_Refactored: View {
             if let trimmedURL = trimmedVideoURL {
                 VideoFileManager.cleanup(url: trimmedURL)
             }
-            autoOpeningCamera = false
-            cameraFlowShowingPlayResult = false
             recordedVideoURL = nil
             trimmedVideoURL = nil
-            showingTrimmerFromCamera = false
-            showingNativeCamera = false
+            uploadFlowShowingPlayResult = false
             showingTrimmer = false
             showingPhotoPicker = false
             selectedVideoItem = nil
-            // Restore orientation when leaving recorder
             PlayerPathAppDelegate.orientationLock = .allButUpsideDown
-            print("VideoRecorder: State reset, attempting dismiss")
             dismiss()
         }
     }

@@ -355,7 +355,17 @@ class VideoCloudManager: ObservableObject {
     func updateVideoNote(clipId: String, note: String?) async throws {
         let db = Firestore.firestore()
         let value: Any = note ?? NSNull()
-        try await db.collection("videos").document(clipId).updateData(["note": value])
+        try await db.collection("videos").document(clipId).updateData(["note": value, "updatedAt": Timestamp(date: Date())])
+    }
+
+    /// Updates mutable video metadata fields in Firestore (isHighlight, note).
+    func updateVideoMetadata(clipId: String, isHighlight: Bool, note: String?) async throws {
+        let db = Firestore.firestore()
+        try await db.collection("videos").document(clipId).updateData([
+            "isHighlight": isHighlight,
+            "note": note ?? NSNull(),
+            "updatedAt": Timestamp(date: Date())
+        ])
     }
 
     // MARK: - Photo Storage
@@ -382,6 +392,23 @@ class VideoCloudManager: ObservableObject {
                     } else {
                         continuation.resume(throwing: VideoCloudError.invalidURL)
                     }
+                }
+            }
+        }
+    }
+
+    /// Deletes an athlete's photo from Firebase Storage.
+    func deleteAthletePhoto(fileName: String) async throws {
+        guard let ownerUID = Auth.auth().currentUser?.uid else {
+            throw VideoCloudError.uploadFailed("User session expired — please sign in again")
+        }
+        let photoRef = Storage.storage().reference().child("athlete_photos/\(ownerUID)/\(fileName)")
+        return try await withCheckedThrowingContinuation { continuation in
+            photoRef.delete { error in
+                if let error = error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume()
                 }
             }
         }
@@ -491,10 +518,17 @@ class VideoCloudManager: ObservableObject {
                 createdAt = Date()
             }
 
+            let updatedAt: Date
+            if let updatedTimestamp = data["updatedAt"] as? Timestamp {
+                updatedAt = updatedTimestamp.dateValue()
+            } else {
+                updatedAt = createdAt
+            }
             let isHighlight = data["isHighlight"] as? Bool ?? false
             let playResultName = data["playResultName"] as? String
             let playResultRawValue = data["playResult"] as? Int
             let note = data["note"] as? String
+            let gameId = data["gameId"] as? String
             let gameOpponent = data["gameOpponent"] as? String
             let fileSize = data["fileSize"] as? Int64 ?? 0
             let thumbnailURL = data["thumbnailURL"] as? String
@@ -504,10 +538,12 @@ class VideoCloudManager: ObservableObject {
                 fileName: fileName,
                 downloadURL: downloadURL,
                 createdAt: createdAt,
+                updatedAt: updatedAt,
                 isHighlight: isHighlight,
                 playResult: playResultName,
                 playResultRawValue: playResultRawValue,
                 note: note,
+                gameId: gameId,
                 gameOpponent: gameOpponent,
                 athleteName: athleteName,
                 fileSize: fileSize,
@@ -586,10 +622,12 @@ class VideoCloudManager: ObservableObject {
                         fileName: fileName,
                         downloadURL: downloadURL,
                         createdAt: createdAt,
+                        updatedAt: (data["updatedAt"] as? Timestamp)?.dateValue() ?? createdAt,
                         isHighlight: data["isHighlight"] as? Bool ?? false,
                         playResult: data["playResultName"] as? String,
                         playResultRawValue: data["playResult"] as? Int,
                         note: data["note"] as? String,
+                        gameId: data["gameId"] as? String,
                         gameOpponent: data["gameOpponent"] as? String,
                         athleteName: athleteName,
                         fileSize: data["fileSize"] as? Int64 ?? 0,
@@ -639,6 +677,30 @@ class VideoCloudManager: ObservableObject {
         }
     }
     
+    /// Deletes an athlete's video from Firebase Storage by filename.
+    /// Use this instead of deleteVideo(_:athlete:) when the VideoClip SwiftData object
+    /// may already be deleted (avoids use-after-free on the model object).
+    func deleteAthleteVideo(fileName: String) async throws {
+        guard let ownerUID = Auth.auth().currentUser?.uid else {
+            throw VideoCloudError.uploadFailed("User session expired — please sign in again to upload")
+        }
+        let videoRef = Storage.storage().reference().child("athlete_videos/\(ownerUID)/\(fileName)")
+        return try await withCheckedThrowingContinuation { continuation in
+            videoRef.delete { error in
+                if let error = error {
+                    let nsError = error as NSError
+                    if nsError.domain == "FIRStorageErrorDomain" && nsError.code == StorageErrorCode.objectNotFound.rawValue {
+                        continuation.resume()
+                    } else {
+                        continuation.resume(throwing: error)
+                    }
+                } else {
+                    continuation.resume()
+                }
+            }
+        }
+    }
+
     func getUploadStatus(for clipId: UUID) -> UploadStatus {
         if let isUploading = isUploading[clipId], isUploading {
             return .uploading(progress: uploadProgress[clipId] ?? 0.0)
@@ -1227,10 +1289,12 @@ struct VideoClipMetadata {
     let fileName: String
     let downloadURL: String
     let createdAt: Date
+    let updatedAt: Date
     let isHighlight: Bool
     let playResult: String?
     let playResultRawValue: Int?
     let note: String?
+    let gameId: String?
     let gameOpponent: String?
     let athleteName: String
     let fileSize: Int64

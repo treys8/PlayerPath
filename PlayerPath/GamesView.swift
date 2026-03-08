@@ -191,7 +191,7 @@ struct GamesView: View {
                 } else {
                     // True empty state
                     EmptyGamesView {
-                        showingGameCreation = true
+                        handleAddGame()
                     }
                 }
             } else {
@@ -442,6 +442,13 @@ struct GamesView: View {
     
     private func completeGame(_ game: Game) {
         game.isComplete = true
+        if let athlete = game.athlete {
+            do {
+                try StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: modelContext)
+            } catch {
+                print("⚠️ Failed to recalculate athlete statistics after completing game: \(error.localizedDescription)")
+            }
+        }
         do {
             try modelContext.save()
             refreshGames()
@@ -1095,11 +1102,11 @@ struct GameDetailView: View {
         } message: {
             Text("Are you sure you want to delete this game? This action cannot be undone.")
         }
-        .sheet(isPresented: $showingVideoRecorder) {
-            VideoRecorderView_Refactored(athlete: game.athlete, game: game)
+        .fullScreenCover(isPresented: $showingVideoRecorder) {
+            DirectCameraRecorderView(athlete: game.athlete, game: game)
         }
-        .sheet(isPresented: $showingUploadRecorder) {
-            VideoRecorderView_Refactored(athlete: game.athlete, game: game, uploadOnly: true)
+        .fullScreenCover(isPresented: $showingUploadRecorder) {
+            VideoRecorderView_Refactored(athlete: game.athlete, game: game)
         }
         .sheet(isPresented: $showingManualStats) {
             ManualStatisticsEntryView(game: game)
@@ -1125,9 +1132,10 @@ struct GameDetailView: View {
     @MainActor
     private func deleteGame() {
         print("Deleting game from detail view: \(game.opponent)")
-        Task { await gameService?.deleteGameDeep(game) }
-        // Dismiss the view after deletion attempt
-        dismiss()
+        Task {
+            await gameService?.deleteGameDeep(game)
+            dismiss()
+        }
     }
 }
 
@@ -1671,15 +1679,17 @@ struct VideoClipRow: View {
             switch result {
             case .success(let thumbnailPath):
                 clip.thumbnailPath = thumbnailPath
-                // Save the thumbnail path to model context
                 do {
                     try modelContext.save()
                 } catch {
                     print("Failed to save thumbnail path: \(error)")
                 }
-                Task {
-                    await loadThumbnail()
+                // Load from the path directly rather than calling loadThumbnail(),
+                // which would re-enter generateMissingThumbnail() on cache miss.
+                if let image = UIImage(contentsOfFile: thumbnailPath) {
+                    thumbnailImage = image
                 }
+                isLoadingThumbnail = false
             case .failure(let error):
                 print("Failed to generate thumbnail in VideoClipRow: \(error)")
                 isLoadingThumbnail = false
@@ -1924,10 +1934,10 @@ struct ManualStatisticsEntryView: View {
     @State private var showingValidationAlert = false
     @State private var alertMessage = ""
     
-    var gameStats: GameStatistics {
-        game.gameStats ?? GameStatistics()
-    }
-    
+    // Use game.gameStats directly — never create a throwaway GameStatistics()
+    // which would be an uninserted @Model object with misleading zero values.
+    private var existingGameStats: GameStatistics? { game.gameStats }
+
     // Calculate totals for preview
     var newSingles: Int { Int(singles) ?? 0 }
     var newDoubles: Int { Int(doubles) ?? 0 }
@@ -1942,13 +1952,13 @@ struct ManualStatisticsEntryView: View {
 
     var newHits: Int { newSingles + newDoubles + newTriples + newHomeRuns }
     var newAtBats: Int { newHits + newStrikeouts + newGroundOuts + newFlyOuts }
-    
-    var totalHits: Int { gameStats.hits + newHits }
-    var totalAtBats: Int { gameStats.atBats + newAtBats }
-    var totalRuns: Int { gameStats.runs + newRuns }
-    var totalRbis: Int { gameStats.rbis + newRbis }
-    var totalStrikeouts: Int { gameStats.strikeouts + newStrikeouts }
-    var totalWalks: Int { gameStats.walks + newWalks }
+
+    var totalHits: Int { (existingGameStats?.hits ?? 0) + newHits }
+    var totalAtBats: Int { (existingGameStats?.atBats ?? 0) + newAtBats }
+    var totalRuns: Int { (existingGameStats?.runs ?? 0) + newRuns }
+    var totalRbis: Int { (existingGameStats?.rbis ?? 0) + newRbis }
+    var totalStrikeouts: Int { (existingGameStats?.strikeouts ?? 0) + newStrikeouts }
+    var totalWalks: Int { (existingGameStats?.walks ?? 0) + newWalks }
     
     var body: some View {
         NavigationStack {
@@ -1996,33 +2006,33 @@ struct ManualStatisticsEntryView: View {
                 }
                 
                 Section("Current Game Statistics") {
-                    CurrentStatRow(title: "Hits", current: gameStats.hits, color: .blue)
-                    CurrentStatRow(title: "At Bats", current: gameStats.atBats, color: .blue)
-                    CurrentStatRow(title: "Runs", current: gameStats.runs, color: .purple)
-                    CurrentStatRow(title: "RBIs", current: gameStats.rbis, color: .pink)
-                    CurrentStatRow(title: "Strikeouts", current: gameStats.strikeouts, color: .red)
-                    CurrentStatRow(title: "Walks", current: gameStats.walks, color: .cyan)
-                    
-                    if gameStats.atBats > 0 {
+                    CurrentStatRow(title: "Hits", current: existingGameStats?.hits ?? 0, color: .blue)
+                    CurrentStatRow(title: "At Bats", current: existingGameStats?.atBats ?? 0, color: .blue)
+                    CurrentStatRow(title: "Runs", current: existingGameStats?.runs ?? 0, color: .purple)
+                    CurrentStatRow(title: "RBIs", current: existingGameStats?.rbis ?? 0, color: .pink)
+                    CurrentStatRow(title: "Strikeouts", current: existingGameStats?.strikeouts ?? 0, color: .red)
+                    CurrentStatRow(title: "Walks", current: existingGameStats?.walks ?? 0, color: .cyan)
+
+                    if let stats = existingGameStats, stats.atBats > 0 {
                         HStack {
                             Text("Current Batting Average")
                                 .fontWeight(.medium)
                             Spacer()
-                            Text(String(format: "%.3f", Double(gameStats.hits) / Double(gameStats.atBats)))
+                            Text(String(format: "%.3f", Double(stats.hits) / Double(stats.atBats)))
                                 .fontWeight(.semibold)
                                 .foregroundColor(.green)
                         }
                     }
                 }
-                
+
                 if hasAnyInput {
                     Section("Preview New Totals") {
-                        PreviewStatRow(title: "Total Hits", current: gameStats.hits, new: newHits, total: totalHits)
-                        PreviewStatRow(title: "Total At Bats", current: gameStats.atBats, new: newAtBats, total: totalAtBats)
-                        PreviewStatRow(title: "Total Runs", current: gameStats.runs, new: newRuns, total: totalRuns)
-                        PreviewStatRow(title: "Total RBIs", current: gameStats.rbis, new: newRbis, total: totalRbis)
-                        PreviewStatRow(title: "Total Strikeouts", current: gameStats.strikeouts, new: newStrikeouts, total: totalStrikeouts)
-                        PreviewStatRow(title: "Total Walks", current: gameStats.walks, new: newWalks, total: totalWalks)
+                        PreviewStatRow(title: "Total Hits", current: existingGameStats?.hits ?? 0, new: newHits, total: totalHits)
+                        PreviewStatRow(title: "Total At Bats", current: existingGameStats?.atBats ?? 0, new: newAtBats, total: totalAtBats)
+                        PreviewStatRow(title: "Total Runs", current: existingGameStats?.runs ?? 0, new: newRuns, total: totalRuns)
+                        PreviewStatRow(title: "Total RBIs", current: existingGameStats?.rbis ?? 0, new: newRbis, total: totalRbis)
+                        PreviewStatRow(title: "Total Strikeouts", current: existingGameStats?.strikeouts ?? 0, new: newStrikeouts, total: totalStrikeouts)
+                        PreviewStatRow(title: "Total Walks", current: existingGameStats?.walks ?? 0, new: newWalks, total: totalWalks)
                         
                         if totalAtBats > 0 {
                             HStack {

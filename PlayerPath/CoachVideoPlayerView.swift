@@ -134,22 +134,17 @@ struct CoachVideoPlayerView: View {
                 if !viewModel.annotations.isEmpty,
                    let duration = viewModel.videoDuration, duration > 0 {
                     GeometryReader { geometry in
-                        HStack(spacing: 0) {
+                        ZStack(alignment: .bottomLeading) {
                             ForEach(viewModel.annotations) { annotation in
-                                Spacer()
-                                    .frame(width: (CGFloat(annotation.timestamp) / CGFloat(duration)) * geometry.size.width)
-                                VStack {
-                                    Spacer()
-                                    Rectangle()
-                                        .fill(annotation.isCoachComment ? Color.green : Color.blue)
-                                        .frame(width: 3, height: 20)
-                                        .shadow(color: .black.opacity(0.5), radius: 2)
-                                }
-                                Spacer()
+                                Rectangle()
+                                    .fill(annotation.isCoachComment ? Color.green : Color.blue)
+                                    .frame(width: 3, height: 20)
+                                    .shadow(color: .black.opacity(0.5), radius: 2)
+                                    .offset(x: (CGFloat(annotation.timestamp) / CGFloat(duration)) * geometry.size.width)
                             }
                         }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
                     }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
                     .allowsHitTesting(false)
                 }
             }
@@ -202,8 +197,9 @@ struct CoachVideoPlayerView: View {
     }
 
     private var canComment: Bool {
-        guard let coachID = authManager.userID else { return false }
-        return folder.getPermissions(for: coachID)?.canComment ?? false
+        guard let userID = authManager.userID else { return false }
+        if userID == folder.ownerAthleteID { return true }
+        return folder.getPermissions(for: userID)?.canComment ?? false
     }
     
     private func addNote(text: String, timestamp: Double) async {
@@ -535,7 +531,7 @@ struct AddNoteView: View {
                 
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
-                        onSave(noteText, timestamp)
+                        onSave(noteText.trimmingCharacters(in: .whitespacesAndNewlines), timestamp)
                         dismiss()
                     }
                     .disabled(noteText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -715,10 +711,11 @@ class CoachVideoPlayerViewModel: ObservableObject {
         // Observe current time — reapply playback rate whenever the player starts playing,
         // since VideoPlayer's native controls reset rate to 1.0 on play.
         let interval = CMTime(seconds: 0.25, preferredTimescale: 600)
-        let rate = Float(self.playbackRate)
-        timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { _ in
-            if player.timeControlStatus == .playing, player.rate != rate {
-                player.rate = rate
+        timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] _ in
+            guard let self else { return }
+            let currentRate = Float(self.playbackRate)
+            if player.timeControlStatus == .playing, player.rate != currentRate {
+                player.rate = currentRate
             }
         }
     }

@@ -392,8 +392,8 @@ class SharedFolderManager: ObservableObject {
             throw SharedFolderError.coachAthleteLimitReached
         }
 
-        // Fix M: Use the permissions the athlete specified in the invitation
-        let permissions = invitation.permissions
+        // Use the permissions the athlete specified in the invitation, falling back to default.
+        let permissions = invitation.permissions ?? .default
 
         try await firestore.acceptInvitation(
             invitationID: invitationID,

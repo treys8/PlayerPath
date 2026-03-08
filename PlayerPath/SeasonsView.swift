@@ -23,145 +23,145 @@ struct SeasonsView: View {
     var body: some View {
         ScrollView {
             LazyVStack(spacing: 16) {
-                    // No Active Season Alert
-                    if !seasons.isEmpty && !hasActiveSeason {
-                        VStack(spacing: 12) {
-                            HStack {
-                                Image(systemName: "exclamationmark.triangle.fill")
-                                    .foregroundStyle(.orange)
-                                    .font(.title3)
+                // No Active Season Alert
+                if !seasons.isEmpty && !hasActiveSeason {
+                    VStack(spacing: 12) {
+                        HStack {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.orange)
+                                .font(.title3)
 
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text("No Active Season")
-                                        .font(.headline)
-                                        .fontWeight(.semibold)
-
-                                    Text("Create or activate a season to track your progress")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-
-                                Spacer()
-                            }
-                        }
-                        .padding()
-                        .background(
-                            RoundedRectangle(cornerRadius: 16)
-                                .fill(.orange.opacity(0.1))
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 16)
-                                .stroke(.orange.opacity(0.3), lineWidth: 1.5)
-                        )
-                        .padding(.horizontal)
-                    }
-
-                    // Active Season Banner (if exists)
-                    if let activeSeason = athlete.activeSeason {
-                        VStack(alignment: .leading, spacing: 12) {
-                            HStack {
-                                Image(systemName: "calendar.circle.fill")
-                                    .font(.title2)
-                                    .foregroundStyle(.blue)
-                                
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text("Active Season")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                        .textCase(.uppercase)
-                                    
-                                    Text(activeSeason.displayName)
-                                        .font(.title3)
-                                        .fontWeight(.semibold)
-                                }
-                                
-                                Spacer()
-                                
-                                Image(systemName: "chevron.right")
-                                    .foregroundStyle(.tertiary)
-                            }
-                            
-                            HStack(spacing: 20) {
-                                SeasonStatBadge(
-                                    icon: "baseball.diamond.bases",
-                                    value: activeSeason.totalGames,
-                                    label: "Games"
-                                )
-                                SeasonStatBadge(
-                                    icon: "video",
-                                    value: activeSeason.totalVideos,
-                                    label: "Videos"
-                                )
-                                SeasonStatBadge(
-                                    icon: "figure.run",
-                                    value: (activeSeason.practices ?? []).count,
-                                    label: "Practices"
-                                )
-                            }
-                        }
-                        .padding()
-                        .background(
-                            RoundedRectangle(cornerRadius: 16)
-                                .fill(.blue.opacity(0.1))
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 16)
-                                .stroke(.blue.opacity(0.3), lineWidth: 1.5)
-                        )
-                        .padding(.horizontal)
-                        .onTapGesture {
-                            selectedSeason = activeSeason
-                        }
-                    }
-                    
-                    // All Seasons List
-                    if seasons.isEmpty {
-                        EmptySeasonsView {
-                            showingCreateSeason = true
-                        }
-                    } else {
-                        VStack(alignment: .leading, spacing: 12) {
-                            HStack {
-                                Text("All Seasons")
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("No Active Season")
                                     .font(.headline)
                                     .fontWeight(.semibold)
-                                Spacer()
+
+                                Text("Create or activate a season to track your progress")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
                             }
-                            .padding(.horizontal)
-                            
-                            ForEach(seasons) { season in
-                                SeasonRow(season: season)
-                                    .onTapGesture {
-                                        selectedSeason = season
-                                    }
+
+                            Spacer()
+                        }
+                    }
+                    .padding()
+                    .background(
+                        RoundedRectangle(cornerRadius: 16)
+                            .fill(.orange.opacity(0.1))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16)
+                            .stroke(.orange.opacity(0.3), lineWidth: 1.5)
+                    )
+                    .padding(.horizontal)
+                }
+
+                // Active Season Banner (if exists)
+                if let activeSeason = athlete.activeSeason {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            Image(systemName: "calendar.circle.fill")
+                                .font(.title2)
+                                .foregroundStyle(.blue)
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Active Season")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .textCase(.uppercase)
+
+                                Text(activeSeason.displayName)
+                                    .font(.title3)
+                                    .fontWeight(.semibold)
                             }
+
+                            Spacer()
+
+                            Image(systemName: "chevron.right")
+                                .foregroundStyle(.tertiary)
+                        }
+
+                        HStack(spacing: 20) {
+                            SeasonStatBadge(
+                                icon: "baseball.diamond.bases",
+                                value: activeSeason.totalGames,
+                                label: "Games"
+                            )
+                            SeasonStatBadge(
+                                icon: "video",
+                                value: activeSeason.totalVideos,
+                                label: "Videos"
+                            )
+                            SeasonStatBadge(
+                                icon: "figure.run",
+                                value: (activeSeason.practices ?? []).count,
+                                label: "Practices"
+                            )
+                        }
+                    }
+                    .padding()
+                    .background(
+                        RoundedRectangle(cornerRadius: 16)
+                            .fill(.blue.opacity(0.1))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16)
+                            .stroke(.blue.opacity(0.3), lineWidth: 1.5)
+                    )
+                    .padding(.horizontal)
+                    .onTapGesture {
+                        selectedSeason = activeSeason
+                    }
+                }
+
+                // All Seasons List
+                if seasons.isEmpty {
+                    EmptySeasonsView {
+                        showingCreateSeason = true
+                    }
+                } else {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            Text("All Seasons")
+                                .font(.headline)
+                                .fontWeight(.semibold)
+                            Spacer()
+                        }
+                        .padding(.horizontal)
+
+                        ForEach(seasons) { season in
+                            SeasonRow(season: season)
+                                .onTapGesture {
+                                    selectedSeason = season
+                                }
                         }
                     }
                 }
-                .padding(.vertical)
             }
-            .navigationTitle("Seasons")
-            .navigationBarTitleDisplayMode(.large)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(action: { showingCreateSeason = true }) {
-                        Image(systemName: "plus")
-                    }
-                    .accessibilityLabel("Create new season")
+            .padding(.vertical)
+        }
+        .navigationTitle("Seasons")
+        .navigationBarTitleDisplayMode(.large)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button(action: { showingCreateSeason = true }) {
+                    Image(systemName: "plus")
                 }
+                .accessibilityLabel("Create new season")
             }
-            .sheet(isPresented: $showingCreateSeason) {
-                CreateSeasonView(athlete: athlete)
-            }
-            .sheet(item: $selectedSeason) { season in
-                SeasonDetailView(season: season, athlete: athlete)
-            }
-            .onAppear {
-                updateSeasons()
-            }
-            .onChange(of: athlete.seasons) { _, _ in
-                updateSeasons()
-            }
+        }
+        .sheet(isPresented: $showingCreateSeason) {
+            CreateSeasonView(athlete: athlete)
+        }
+        .sheet(item: $selectedSeason) { season in
+            SeasonDetailView(season: season, athlete: athlete)
+        }
+        .onAppear {
+            updateSeasons()
+        }
+        .onChange(of: athlete.seasons) { _, _ in
+            updateSeasons()
+        }
     }
 
     private func updateSeasons() {

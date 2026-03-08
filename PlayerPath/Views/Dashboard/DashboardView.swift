@@ -477,15 +477,7 @@ struct DashboardView: View {
             .padding(.vertical)
         }
         .refreshable {
-            await viewModel.forceRefresh()
-        }
-        .onAppear {
-            // Start auto-refresh timer when view appears
-            viewModel.startAutoRefresh()
-        }
-        .onDisappear {
-            // Stop auto-refresh timer when view disappears
-            viewModel.stopAutoRefresh()
+            await viewModel.refresh()
         }
     }
 

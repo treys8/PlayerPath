@@ -143,6 +143,7 @@ struct CoachAthletesListView: View {
     @State private var errorMessage: String?
     @State private var navigationPath = NavigationPath()
     @State private var showingArchived = false
+    @State private var hasAutoShownInvitations = false
 
     var body: some View {
         NavigationStack(path: $navigationPath) {
@@ -238,6 +239,15 @@ struct CoachAthletesListView: View {
                 navigationPath.append(folder)
             }
             .onReceive(NotificationCenter.default.publisher(for: .openCoachInvitations)) { _ in
+                showingInvitations = true
+            }
+            .onChange(of: invitationManager.pendingInvitationsCount) { _, count in
+                // Auto-open invitations sheet the first time a new coach with no accepted
+                // folders lands on the dashboard and has pending invites waiting.
+                guard !hasAutoShownInvitations,
+                      count > 0,
+                      sharedFolderManager.coachFolders.isEmpty else { return }
+                hasAutoShownInvitations = true
                 showingInvitations = true
             }
             .alert("Error", isPresented: $showingError) {

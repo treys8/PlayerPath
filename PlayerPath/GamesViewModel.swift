@@ -71,13 +71,13 @@ final class GamesViewModel: ObservableObject {
         completedGames = sortedGames.filter { $0.isComplete }
         upcomingGames = sortedGames.filter { game in
             guard !game.isLive, !game.isComplete else { return false }
-            if let d = game.date { return d > now }
-            return false
+            guard let d = game.date else { return true } // nil date → treat as upcoming
+            return d > now
         }
         pastGames = sortedGames.filter { game in
             guard !game.isLive, !game.isComplete else { return false }
-            if let d = game.date { return d <= now }
-            return false
+            guard let d = game.date else { return false }
+            return d <= now
         }
         
         #if DEBUG
@@ -100,128 +100,23 @@ final class GamesViewModel: ObservableObject {
     
     func create(opponent: String, date: Date, isLive: Bool, onError: @escaping (String) -> Void, onSuccess: ((Game) -> Void)? = nil) {
         guard let athlete = self.athlete else { return }
-
-        // Check for duplicate
-        let calendar = Calendar.current
-        for existingGame in athlete.games ?? [] {
-            if existingGame.opponent == opponent,
-               let gameDate = existingGame.date,
-               calendar.isDate(gameDate, inSameDayAs: date) {
-                print("❌ Duplicate game found")
-                onError("A game against this opponent already exists on the same day.")
-                return
+        Task {
+            let result = await gameService.createGame(for: athlete, opponent: opponent, date: date, isLive: isLive)
+            switch result {
+            case .success(let game):
+                onSuccess?(game)
+            case .failure(let error):
+                onError(error.localizedDescription)
             }
-        }
-
-        // End other live games if needed
-        if isLive {
-            for game in athlete.games ?? [] where game.isLive {
-                game.isLive = false
-            }
-        }
-
-        // Create on MAIN context
-        let game = Game(date: date, opponent: opponent)
-        game.isLive = isLive
-        game.athlete = athlete
-
-        #if DEBUG
-        print("🎮 Creating game: '\(opponent)' | isLive: \(isLive)")
-        #endif
-
-        let stats = GameStatistics()
-        game.gameStats = stats
-        stats.game = game
-        modelContext.insert(stats)
-        modelContext.insert(game)
-
-        // Append to athlete
-        var athleteGames = athlete.games ?? []
-        athleteGames.append(game)
-        athlete.games = athleteGames
-
-        do {
-            try modelContext.save()
-            #if DEBUG
-            print("✅ Game created on main context | Opponent: '\(opponent)' | isLive after save: \(game.isLive)")
-            #endif
-            onSuccess?(game)
-        } catch {
-            print("❌ Error: \(error)")
-            onError("Failed to save game. Please try again.")
         }
     }
     
     func start(_ game: Game) {
-        guard let athlete = game.athlete else {
-            print("Cannot start game: no athlete found.")
-            return
-        }
-
-        // End other live games of this athlete
-        for otherGame in athlete.games ?? [] where otherGame.isLive && otherGame != game {
-            otherGame.isLive = false
-        }
-
-        // Start this game
-        game.isLive = true
-
-        do {
-            try modelContext.save()
-            print("Started game for athlete \(athlete.name).")
-            NotificationCenter.default.post(name: .gameBecameLive, object: game)
-        } catch {
-            print("Error saving context after starting game: \(error.localizedDescription)")
-        }
+        Task { await gameService.start(game) }
     }
 
     func end(_ game: Game) {
-        game.isLive = false
-        game.isComplete = true
-
-        if let athlete = game.athlete {
-            // Create athlete statistics if they don't exist
-            if athlete.statistics == nil {
-                let newStats = AthleteStatistics()
-                newStats.athlete = athlete
-                athlete.statistics = newStats
-                modelContext.insert(newStats)
-                print("Created new AthleteStatistics for athlete.")
-            }
-
-            // Aggregate game statistics into athlete's overall statistics
-            if let athleteStats = athlete.statistics, let gameStats = game.gameStats {
-                athleteStats.atBats += gameStats.atBats
-                athleteStats.hits += gameStats.hits
-                athleteStats.singles += gameStats.singles
-                athleteStats.doubles += gameStats.doubles
-                athleteStats.triples += gameStats.triples
-                athleteStats.homeRuns += gameStats.homeRuns
-                athleteStats.runs += gameStats.runs
-                athleteStats.rbis += gameStats.rbis
-                athleteStats.strikeouts += gameStats.strikeouts
-                athleteStats.walks += gameStats.walks
-                athleteStats.updatedAt = Date()
-
-                print("Aggregated game stats into athlete stats:")
-                print("  - Added \(gameStats.hits) hits, \(gameStats.atBats) at-bats")
-                print("  - New totals: \(athleteStats.hits) hits, \(athleteStats.atBats) at-bats")
-                print("  - Batting Average: \(athleteStats.battingAverage)")
-            }
-
-            // Increment total games
-            if let athleteStats = athlete.statistics {
-                athleteStats.addCompletedGame()
-                print("Added completed game to athlete's statistics.")
-            }
-        }
-
-        do {
-            try modelContext.save()
-            print("Ended game and saved changes.")
-        } catch {
-            print("Error saving context after ending game: \(error.localizedDescription)")
-        }
+        Task { await gameService.end(game) }
     }
     
     func deleteDeep(_ game: Game) {

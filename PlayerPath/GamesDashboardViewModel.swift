@@ -29,7 +29,6 @@ final class GamesDashboardViewModel: ObservableObject {
     private let athlete: Athlete
     private let modelContext: ModelContext
     private var cancellables = Set<AnyCancellable>()
-    private var refreshTimer: Timer?
 
     // MARK: - Initialization
 
@@ -46,7 +45,6 @@ final class GamesDashboardViewModel: ObservableObject {
     }
 
     deinit {
-        refreshTimer?.invalidate()
         cancellables.removeAll()
     }
 
@@ -81,28 +79,6 @@ final class GamesDashboardViewModel: ObservableObject {
         #if DEBUG
         print("✅ Refresh complete. totalGames: \(totalGames)")
         #endif
-    }
-
-    /// Force refresh - useful for pull-to-refresh
-    func forceRefresh() async {
-        await refresh()
-    }
-
-    /// Start automatic refresh timer (every 3 seconds while view is visible)
-    func startAutoRefresh() {
-        refreshTimer?.invalidate()
-        refreshTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { [weak self] _ in
-            guard let self = self else { return }
-            Task { @MainActor in
-                await self.refresh()
-            }
-        }
-    }
-
-    /// Stop automatic refresh timer
-    func stopAutoRefresh() {
-        refreshTimer?.invalidate()
-        refreshTimer = nil
     }
 
     // MARK: - Private Methods
@@ -144,10 +120,10 @@ final class GamesDashboardViewModel: ObservableObject {
 
         // Live games are driven by DashboardView's @Query; this VM handles recent/upcoming and totals.
 
-        // Recent games (past, not live, not complete, limited to 3)
+        // Recent games (past, not live, limited to 3) — includes completed games
         recentGames = games
             .filter { game in
-                guard !game.isLive, !game.isComplete else { return false }
+                guard !game.isLive else { return false }
                 guard let date = game.date else { return false }
                 return date <= now
             }

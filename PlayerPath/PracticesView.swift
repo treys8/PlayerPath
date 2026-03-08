@@ -568,8 +568,8 @@ struct AddPracticeView: View {
                 }
             }
         }
-        .sheet(item: $createdPractice) { practice in
-            VideoRecorderView_Refactored(athlete: athlete, practice: practice)
+        .fullScreenCover(item: $createdPractice) { practice in
+            DirectCameraRecorderView(athlete: athlete, practice: practice)
         }
     }
     
@@ -637,13 +637,13 @@ struct PracticeDetailView: View {
     @State private var showingDeleteConfirmation = false
     
     private enum PracticeSheet: Identifiable {
-        case recordVideo
         case uploadVideo
         case addNote
         var id: String { String(describing: self) }
     }
-    
+
     @State private var activeSheet: PracticeSheet?
+    @State private var showingRecordCamera = false
     
     var videoClips: [VideoClip] {
         (practice.videoClips ?? []).sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
@@ -668,7 +668,7 @@ struct PracticeDetailView: View {
             
             // Actions Section
             Section("Actions") {
-                Button(action: { activeSheet = .recordVideo }) {
+                Button(action: { showingRecordCamera = true }) {
                     Label("Record Video", systemImage: "video.badge.plus")
                 }
 
@@ -691,7 +691,7 @@ struct PracticeDetailView: View {
             // Videos Section
             Section("Videos (\(videoClips.count))") {
                 if videoClips.isEmpty {
-                    Button(action: { activeSheet = .recordVideo }) {
+                    Button(action: { showingRecordCamera = true }) {
                         Label("Record your first video", systemImage: "video.badge.plus")
                     }
                 } else {
@@ -722,12 +722,13 @@ struct PracticeDetailView: View {
         }
         .navigationTitle("Practice")
         .navigationBarTitleDisplayMode(.inline)
+        .fullScreenCover(isPresented: $showingRecordCamera) {
+            DirectCameraRecorderView(athlete: practice.athlete, practice: practice)
+        }
         .sheet(item: $activeSheet) { sheet in
             switch sheet {
-            case .recordVideo:
-                VideoRecorderView_Refactored(athlete: practice.athlete, practice: practice)
             case .uploadVideo:
-                VideoRecorderView_Refactored(athlete: practice.athlete, practice: practice, uploadOnly: true)
+                VideoRecorderView_Refactored(athlete: practice.athlete, practice: practice)
             case .addNote:
                 AddPracticeNoteView(practice: practice)
             }
@@ -1007,6 +1008,7 @@ struct EditClipNoteSheet: View {
         isSaving = true
         let trimmed = noteText.trimmingCharacters(in: .whitespacesAndNewlines)
         clip.note = trimmed.isEmpty ? nil : trimmed
+        clip.needsSync = true
         try? modelContext.save()
 
         // Sync to Firestore if the clip has been uploaded

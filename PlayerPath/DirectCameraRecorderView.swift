@@ -78,11 +78,6 @@ struct DirectCameraRecorderView: View {
                 Text(error.errorDescription ?? "An error occurred")
             }
         }
-        .onDisappear {
-            // Don't cancel saveTask here — if the user tapped Save, the task must
-            // complete even after the view disappears. cleanupAndDismiss() handles
-            // the discard path separately.
-        }
     }
 
     // MARK: - Camera Phase
@@ -130,10 +125,9 @@ struct DirectCameraRecorderView: View {
             if let game = game, game.isLive {
                 VStack {
                     liveGameBadge(for: game)
-                        .padding(.top)
                     Spacer()
                 }
-                .padding(.top, 8)
+                .padding(.top, 16)
             }
         }
     }
@@ -169,26 +163,24 @@ struct DirectCameraRecorderView: View {
     @ViewBuilder
     private var trimmerPhaseView: some View {
         if let videoURL = recordedVideoURL {
-            NavigationStack {
-                PreUploadTrimmerView(
-                    videoURL: videoURL,
-                    onSave: { trimmedURL in
-                        trimmedVideoURL = trimmedURL
-                        withAnimation(.easeInOut(duration: 0.25)) {
-                            phase = .tagging
-                        }
-                    },
-                    onSkip: {
-                        trimmedVideoURL = nil
-                        withAnimation(.easeInOut(duration: 0.25)) {
-                            phase = .tagging
-                        }
-                    },
-                    onCancel: {
-                        showingDiscardConfirmation = true
+            PreUploadTrimmerView(
+                videoURL: videoURL,
+                onSave: { trimmedURL in
+                    trimmedVideoURL = trimmedURL
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        phase = .tagging
                     }
-                )
-            }
+                },
+                onSkip: {
+                    trimmedVideoURL = nil
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        phase = .tagging
+                    }
+                },
+                onCancel: {
+                    showingDiscardConfirmation = true
+                }
+            )
         }
     }
 
@@ -200,11 +192,17 @@ struct DirectCameraRecorderView: View {
             let finalVideoURL = trimmedVideoURL ?? videoURL
 
             if practice != nil {
-                // Practice videos skip the play result overlay — auto-save immediately
-                Color.black.ignoresSafeArea()
-                    .onAppear {
-                        saveVideoWithResult(videoURL: finalVideoURL, playResult: nil, role: .batter) { dismiss() }
+                PracticeVideoSaveView(
+                    videoURL: finalVideoURL,
+                    athlete: athlete,
+                    practice: practice,
+                    onSave: { note in
+                        saveVideoWithResult(videoURL: finalVideoURL, playResult: nil, role: athlete?.primaryRole ?? .batter, note: note) { dismiss() }
+                    },
+                    onDiscard: {
+                        showingDiscardConfirmation = true
                     }
+                )
             } else {
                 PlayResultOverlayView(
                     videoURL: finalVideoURL,
@@ -241,7 +239,7 @@ struct DirectCameraRecorderView: View {
         }
     }
 
-    private func saveVideoWithResult(videoURL: URL, playResult: PlayResultType?, pitchSpeed: Double? = nil, role: AthleteRole = .batter, onComplete: @escaping () -> Void) {
+    private func saveVideoWithResult(videoURL: URL, playResult: PlayResultType?, pitchSpeed: Double? = nil, role: AthleteRole = .batter, note: String? = nil, onComplete: @escaping () -> Void) {
         guard let athlete = athlete else {
             print("ERROR: No athlete selected for video save")
             UINotificationFeedbackGenerator().notificationOccurred(.error)
@@ -264,6 +262,7 @@ struct DirectCameraRecorderView: View {
                     playResult: playResult,
                     pitchSpeed: pitchSpeed,
                     role: role,
+                    note: note,
                     context: modelContext,
                     athlete: athlete,
                     game: game,

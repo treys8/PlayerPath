@@ -24,6 +24,7 @@ struct ImprovedPaywallView: View {
     @State private var showingError = false
     @State private var showingTerms = false
     @State private var showingPrivacyPolicy = false
+    @State private var hasAppeared = false
 
     var body: some View {
         NavigationStack {
@@ -59,8 +60,12 @@ struct ImprovedPaywallView: View {
             .task {
                 AnalyticsService.shared.trackPaywallShown(source: "main_app")
                 await storeManager.loadProducts()
+                // Set after loadProducts so async entitlement resolution during
+                // load doesn't immediately dismiss the paywall for existing subscribers
+                hasAppeared = true
             }
             .onChange(of: storeManager.currentTier) { _, newTier in
+                guard hasAppeared else { return }
                 if newTier >= .plus {
                     onPurchaseSucceeded()
                 }
@@ -315,6 +320,9 @@ struct ImprovedPaywallView: View {
                 isPurchasing = true
                 await storeManager.restorePurchases()
                 isPurchasing = false
+                if storeManager.error != nil {
+                    showingError = true
+                }
             }
         } label: {
             Text("Restore Purchase")
@@ -364,6 +372,11 @@ struct ImprovedPaywallView: View {
                 let result = await storeManager.purchase(product)
                 if case .failed = result { isPurchasing = false; showingError = true; return }
                 if case .cancelled = result { isPurchasing = false; return }
+            } else {
+                // Product not loaded — inform the user rather than silently failing
+                isPurchasing = false
+                showingError = true
+                return
             }
         }
 
@@ -371,7 +384,19 @@ struct ImprovedPaywallView: View {
     }
 
     private func onPurchaseSucceeded() {
-        if let product = storeManager.products.first {
+        // Look up the product the user actually purchased, not an arbitrary first product
+        let purchasedProduct: Product? = {
+            switch storeManager.currentTier {
+            case .plus:
+                return isAnnual ? storeManager.product(for: .plusAnnual) : storeManager.product(for: .plusMonthly)
+            case .pro:
+                return isAnnual ? storeManager.product(for: .proAnnual) : storeManager.product(for: .proMonthly)
+            default:
+                return nil
+            }
+        }()
+
+        if let product = purchasedProduct {
             AnalyticsService.shared.trackSubscriptionStarted(
                 planType: product.id,
                 price: product.displayPrice

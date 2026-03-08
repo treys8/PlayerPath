@@ -714,6 +714,10 @@ final class ComprehensiveAuthManager: ObservableObject {
             AnalyticsService.shared.trackSignOut()
             AnalyticsService.shared.clearUserID()
 
+            // Remove this device's push token before signing out so it stops
+            // receiving notifications for this account on this device.
+            await PushNotificationService.shared.removeTokenFromServer()
+
             try Auth.auth().signOut()
             currentFirebaseUser = nil
             isSignedIn = false
@@ -721,6 +725,7 @@ final class ComprehensiveAuthManager: ObservableObject {
             isNewUser = false
             errorMessage = nil
             userRole = .athlete // Reset to default
+            UserDefaults.standard.removeObject(forKey: "LastSelectedTab")
 
             // Clear user-specific published state immediately (auth listener also does this
             // async, but clearing here eliminates any race window between accounts)
@@ -735,8 +740,9 @@ final class ComprehensiveAuthManager: ObservableObject {
             UserDefaults.standard.removeObject(forKey: AuthConstants.UserDefaultsKeys.userRole)
             UserDefaults.standard.removeObject(forKey: AuthConstants.UserDefaultsKeys.hasCompletedOnboarding)
 
-            // Stop active Firestore listeners for this user
+            // Stop active Firestore listeners and background sync for this user
             ActivityNotificationService.shared.stopListening()
+            SyncCoordinator.shared.stopPeriodicSync()
 
             // Clear biometric credentials on logout for security
             BiometricAuthenticationManager.shared.disableBiometric()
@@ -759,22 +765,20 @@ final class ComprehensiveAuthManager: ObservableObject {
         }
     }
     
-    func resetPassword(email: String) async {
+    func resetPassword(email: String) async throws {
         isLoading = true
-        errorMessage = nil
-        
+        defer { isLoading = false }
+
         do {
             try await Auth.auth().sendPasswordReset(withEmail: email)
-            isLoading = false
             #if DEBUG
             print("🟢 Password reset sent to: \(email)")
             #endif
         } catch {
-            errorMessage = friendlyErrorMessage(from: error)
-            isLoading = false
             #if DEBUG
             print("🔴 Password reset error: \(error.localizedDescription)")
             #endif
+            throw AppError.authenticationFailed(friendlyErrorMessage(from: error))
         }
     }
 

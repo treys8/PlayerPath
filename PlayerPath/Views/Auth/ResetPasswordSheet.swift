@@ -15,6 +15,7 @@ struct ResetPasswordSheet: View {
     @State private var resetEmail = ""
     @State private var isLoading = false
     @State private var showingSuccess = false
+    @State private var errorMessage: String?
 
     private var isValidEmail: Bool {
         Validation.isValidEmail(resetEmail)
@@ -79,6 +80,16 @@ struct ResetPasswordSheet: View {
                             }
                         }
                     )
+
+                    if let errorMessage {
+                        HStack(spacing: 6) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundColor(.red)
+                            Text(errorMessage)
+                                .font(.caption)
+                                .foregroundColor(.red)
+                        }
+                    }
 
                     Button {
                         Haptics.medium()
@@ -152,11 +163,15 @@ struct ResetPasswordSheet: View {
 
     private func sendResetEmail() {
         isLoading = true
+        errorMessage = nil
         Task {
-            await authManager.resetPassword(email: resetEmail)
-            await MainActor.run {
+            do {
+                try await authManager.resetPassword(email: resetEmail)
                 isLoading = false
                 showingSuccess = true
+            } catch {
+                isLoading = false
+                errorMessage = error.localizedDescription
             }
         }
     }

@@ -11,84 +11,32 @@ class GameService {
         self.modelContext = modelContext
     }
     
-    // MARK: - File Deletion
-    
-    func deleteFiles(for clip: VideoClip) async {
-        let fileManager = FileManager.default
-        
-        // Delete video file
-        let fileURL = URL(fileURLWithPath: clip.filePath)
-        if fileManager.fileExists(atPath: fileURL.path) {
-            do {
-                try fileManager.removeItem(at: fileURL)
-                print("Deleted video file at \(fileURL.path)")
-            } catch {
-                print("Error deleting video file at \(fileURL.path): \(error.localizedDescription)")
-            }
-        } else {
-            print("Video file does not exist at \(fileURL.path)")
-        }
-        
-        // Delete thumbnail file
-        if let thumbnailPath = clip.thumbnailPath {
-            let thumbnailURL = URL(fileURLWithPath: thumbnailPath)
-            if fileManager.fileExists(atPath: thumbnailURL.path) {
-                do {
-                    try fileManager.removeItem(at: thumbnailURL)
-                    print("Deleted thumbnail file at \(thumbnailURL.path)")
-                    // Remove from cache (ThumbnailCache is an actor)
-                    ThumbnailCache.shared.removeThumbnail(at: thumbnailPath)
-                } catch {
-                    print("Error deleting thumbnail file at \(thumbnailURL.path): \(error.localizedDescription)")
-                }
-            } else {
-                print("Thumbnail file does not exist at \(thumbnailURL.path)")
-            }
-        }
-    }
-    
     // MARK: - Deep Game Deletion
-    
+
     func deleteGameDeep(_ game: Game) async {
-        guard let athlete = game.athlete else {
-            print("Game has no athlete; cannot delete deeply.")
-            return
+        // Capture primitive values before SwiftData deletion removes access
+        let firestoreId = game.firestoreId
+        let userId = game.athlete?.user?.firebaseAuthUid
+
+        // Delete all video clips — VideoClip.delete handles local files, thumbnails,
+        // cloud storage, and play results. SwiftData handles inverse relationship cleanup.
+        for clip in game.videoClips ?? [] {
+            clip.delete(in: modelContext)
         }
 
-        // Capture before SwiftData deletion removes access to these properties
-        let firestoreId = game.firestoreId
-        let userId = athlete.user?.firebaseAuthUid
-        
-        // Delete all video clips and their files
-        for clip in game.videoClips ?? [] {
-            if let clipAthlete = clip.athlete,
-               var athleteClips = clipAthlete.videoClips,
-               let clipIndex = athleteClips.firstIndex(of: clip) {
-                athleteClips.remove(at: clipIndex)
-                clipAthlete.videoClips = athleteClips
-            }
-            if let playResult = clip.playResult {
-                modelContext.delete(playResult)
-            }
-            await deleteFiles(for: clip)
-            modelContext.delete(clip)
+        // Delete all photos associated with this game — Photo.delete handles local files
+        // and cloud storage.
+        for photo in game.photos ?? [] {
+            photo.delete(in: modelContext)
         }
-        
-        // Remove game from athlete's games
-        if var athleteGames = athlete.games,
-           let index = athleteGames.firstIndex(of: game) {
-            athleteGames.remove(at: index)
-            athlete.games = athleteGames
-        }
-        
-        // Delete gameStats if exists
+
+        // Delete game stats
         if let gameStats = game.gameStats {
             modelContext.delete(gameStats)
         }
-        
-        // Delete the game itself
+
         modelContext.delete(game)
-        
+
         do {
             try modelContext.save()
             #if DEBUG
@@ -108,7 +56,7 @@ class GameService {
                 }
             }
         } catch {
-            print("Error saving context after deleting game deeply: \(error.localizedDescription)")
+            print("Error saving context after deleting game: \(error.localizedDescription)")
         }
     }
     
@@ -197,15 +145,17 @@ class GameService {
                 isLive: isLive
             )
 
-            // Trigger immediate sync to Firestore
+            // Trigger immediate sync to Firestore.
+            // Capture user before the Task to avoid accessing a SwiftData model across
+            // an async boundary after the context may have changed.
+            let userForSync = athlete.user
             Task {
-                guard let user = athlete.user else { return }
+                guard let user = userForSync else { return }
                 do {
                     try await SyncCoordinator.shared.syncGames(for: user)
                     print("✅ Game synced to Firestore successfully")
                 } catch {
                     print("⚠️ Failed to sync game to Firestore: \(error)")
-                    // Don't block game creation on sync failure
                 }
             }
 
@@ -254,9 +204,11 @@ class GameService {
             // Track game start analytics
             AnalyticsService.shared.trackGameStarted(gameID: game.id.uuidString)
 
-            // Trigger immediate sync to Firestore
+            // Capture user before the Task to avoid accessing a SwiftData model across
+            // an async boundary after the context may have changed.
+            let userForSync = athlete.user
             Task {
-                guard let user = athlete.user else { return }
+                guard let user = userForSync else { return }
                 do {
                     try await SyncCoordinator.shared.syncGames(for: user)
                     print("✅ Game start synced to Firestore successfully")
@@ -283,7 +235,11 @@ class GameService {
             // Recalculate all athlete statistics from source of truth.
             // Resetting and recomputing (rather than adding incrementally) prevents
             // double-counting if end() is ever called more than once on the same game.
-            try? StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: modelContext)
+            do {
+                try StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: modelContext)
+            } catch {
+                print("⚠️ Failed to recalculate athlete statistics after ending game: \(error.localizedDescription)")
+            }
         }
         
         do {
@@ -297,15 +253,16 @@ class GameService {
                 hits: gameStats?.hits ?? 0
             )
 
-            // Trigger immediate sync to Firestore
+            // Capture user before the Task to avoid accessing a SwiftData model across
+            // an async boundary after the context may have changed.
+            let userForSync = game.athlete?.user
             Task {
-                if let athlete = game.athlete, let user = athlete.user {
-                    do {
-                        try await SyncCoordinator.shared.syncGames(for: user)
-                        print("✅ Game end synced to Firestore successfully")
-                    } catch {
-                        print("⚠️ Failed to sync game end to Firestore: \(error)")
-                    }
+                guard let user = userForSync else { return }
+                do {
+                    try await SyncCoordinator.shared.syncGames(for: user)
+                    print("✅ Game end synced to Firestore successfully")
+                } catch {
+                    print("⚠️ Failed to sync game end to Firestore: \(error)")
                 }
             }
 

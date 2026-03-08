@@ -507,7 +507,7 @@ class FirestoreManager: ObservableObject {
                 .addDocument(data: annotationData)
 
             // Increment annotationCount on the video document
-            try? await db.collection("videos").document(videoID)
+            _ = try? await db.collection("videos").document(videoID)
                 .updateData(["annotationCount": FieldValue.increment(Int64(1))])
 
             print("✅ Added annotation to video \(videoID)")
@@ -580,9 +580,18 @@ class FirestoreManager: ObservableObject {
                 .document(annotationID)
                 .delete()
 
-            // Decrement annotationCount on the video document (floor at 0)
-            try? await db.collection("videos").document(videoID)
-                .updateData(["annotationCount": FieldValue.increment(Int64(-1))])
+            // Decrement annotationCount, floored at 0 via transaction
+            let videoRef = db.collection("videos").document(videoID)
+            try? await db.runTransaction { transaction, errorPointer in
+                do {
+                    let doc = try transaction.getDocument(videoRef)
+                    let current = doc.data()?["annotationCount"] as? Int64 ?? 0
+                    transaction.updateData(["annotationCount": max(Int64(0), current - 1)], forDocument: videoRef)
+                } catch let fetchError as NSError {
+                    errorPointer?.pointee = fetchError
+                }
+                return nil
+            }
 
             print("✅ Deleted annotation \(annotationID)")
         } catch {
@@ -633,6 +642,7 @@ class FirestoreManager: ObservableObject {
             let snapshot = try await db.collection("invitations")
                 .whereField("coachEmail", isEqualTo: email.lowercased())
                 .whereField("status", isEqualTo: "pending")
+                .whereField("expiresAt", isGreaterThan: Timestamp(date: Date()))
                 .limit(to: 100)
                 .getDocuments()
             
@@ -1930,7 +1940,7 @@ struct CoachInvitation: Codable, Identifiable {
     let athleteID: String
     let athleteName: String
     let coachEmail: String
-    let permissions: FolderPermissions
+    let permissions: FolderPermissions?
     let createdAt: Date
     var status: InvitationStatus
 
@@ -1980,6 +1990,7 @@ struct FirestoreAthlete: Codable, Identifiable {
     var id: String?           // Firestore document ID (auto-generated, not encoded)
     let swiftDataId: String   // Original SwiftData UUID
     let name: String
+    let primaryRole: String?
     let userId: String
     let createdAt: Date?
     let updatedAt: Date?
@@ -1989,6 +2000,7 @@ struct FirestoreAthlete: Codable, Identifiable {
     enum CodingKeys: String, CodingKey {
         case swiftDataId = "id"  // Maps to "id" field in Firestore document
         case name
+        case primaryRole
         case userId
         case createdAt
         case updatedAt

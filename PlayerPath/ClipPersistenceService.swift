@@ -206,7 +206,7 @@ final class ClipPersistenceService {
         print("ClipPersistenceService: ✅ Video verified as playable - \(Int(durationSeconds))s, \(fileSize / 1024 / 1024)MB")
     }
 
-    private func generateThumbnail(for videoURL: URL, at time: CMTime = CMTime(seconds: 1.0, preferredTimescale: 600)) async throws -> String {
+    func generateThumbnail(for videoURL: URL, at time: CMTime = CMTime(seconds: 1.0, preferredTimescale: 600)) async throws -> String {
         let asset = AVURLAsset(url: videoURL)
         let imageGenerator = AVAssetImageGenerator(asset: asset)
         imageGenerator.appliesPreferredTrackTransform = true

@@ -458,13 +458,14 @@ struct CreateSeasonView: View {
             return
         }
 
-        // Save state for rollback
-        let previousActiveWasActive = athlete.activeSeason?.isActive ?? false
-        let previousActiveEndDate = athlete.activeSeason?.endDate
+        // Capture before any mutations so rollback has the correct reference
+        let previousActive = athlete.activeSeason
+        let previousActiveWasActive = previousActive?.isActive ?? false
+        let previousActiveEndDate = previousActive?.endDate
 
         // If making this active, archive the current active season
-        if makeActive, let currentActive = athlete.activeSeason {
-            currentActive.archive()
+        if makeActive {
+            previousActive?.archive()
         }
 
         // Create new season
@@ -522,9 +523,9 @@ struct CreateSeasonView: View {
             modelContext.delete(newSeason)
             athlete.seasons?.removeAll { $0.id == newSeason.id }
 
-            if let previousActive = athlete.activeSeason, previousActiveWasActive {
-                previousActive.activate()
-                previousActive.endDate = previousActiveEndDate
+            if previousActiveWasActive {
+                previousActive?.activate()
+                previousActive?.endDate = previousActiveEndDate
             }
 
             errorMessage = "Failed to create season: \(error.localizedDescription)"
@@ -651,80 +652,7 @@ struct SeasonDetailView: View {
             }
 
             // Filtered Content
-            if selectedFilter == .games || selectedFilter == .all {
-                if let games = season.games, !games.isEmpty {
-                    let sortedGames = games.sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
-                    let displayGames = selectedFilter == .all ? Array(sortedGames.prefix(5)) : sortedGames
-                    Section(selectedFilter == .all ? "Recent Games" : "Games (\(games.count))") {
-                        ForEach(displayGames) { game in
-                            SeasonGameRow(game: game)
-                        }
-                        if selectedFilter == .all && games.count > 5 {
-                            Button("See All \(games.count) Games") {
-                                selectedFilter = .games
-                            }
-                            .font(.subheadline)
-                            .foregroundStyle(.blue)
-                        }
-                    }
-                }
-            }
-
-            if selectedFilter == .videos || selectedFilter == .all {
-                if let videos = season.videoClips?.filter({ !$0.isHighlight }), !videos.isEmpty, selectedFilter == .videos {
-                    Section("Videos (\(videos.count))") {
-                        ForEach(videos.sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }) { video in
-                            SeasonVideoRow(video: video)
-                        }
-                    }
-                }
-            }
-
-            if selectedFilter == .highlights || selectedFilter == .all {
-                if let highlightVideos = season.videoClips?.filter({ $0.isHighlight }), !highlightVideos.isEmpty, selectedFilter == .highlights {
-                    Section("Highlights (\(highlightVideos.count))") {
-                        ForEach(highlightVideos.sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }) { video in
-                            SeasonVideoRow(video: video)
-                        }
-                    }
-                }
-            }
-
-            if selectedFilter == .practices || selectedFilter == .all {
-                if let practicesList = season.practices, !practicesList.isEmpty, selectedFilter == .practices {
-                    Section("Practices (\(practicesList.count))") {
-                        ForEach(practicesList.sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }) { practice in
-                            HStack {
-                                Image(systemName: "figure.run")
-                                    .foregroundStyle(.green)
-                                    .frame(width: 24)
-
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text("Practice")
-                                        .font(.subheadline)
-                                        .fontWeight(.medium)
-
-                                    if let date = practice.date {
-                                        Text(date.formatted(date: .abbreviated, time: .omitted))
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                }
-
-                                Spacer()
-
-                                let videoCount = practice.videoClips?.count ?? 0
-                                if videoCount > 0 {
-                                    Text("\(videoCount) videos")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                            .padding(.vertical, 4)
-                        }
-                    }
-                }
-            }
+            filteredContent
             
             // Actions
             Section {
@@ -804,6 +732,93 @@ struct SeasonDetailView: View {
         }
         .onChange(of: season.practices) { _, _ in
             updateStats()
+        }
+    }
+
+    // Extracted to a separate @ViewBuilder to keep body small enough for Swift's type checker.
+    @ViewBuilder private var filteredContent: some View {
+        if selectedFilter == .games || selectedFilter == .all {
+            if let games = season.games, !games.isEmpty {
+                let sortedGames = games.sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
+                let displayGames = selectedFilter == .all ? Array(sortedGames.prefix(5)) : sortedGames
+                Section(selectedFilter == .all ? "Recent Games" : "Games (\(games.count))") {
+                    ForEach(displayGames) { game in
+                        SeasonGameRow(game: game)
+                    }
+                    if selectedFilter == .all && games.count > 5 {
+                        Button("See All \(games.count) Games") { selectedFilter = .games }
+                            .font(.subheadline)
+                            .foregroundStyle(.blue)
+                    }
+                }
+            }
+        }
+        if selectedFilter == .videos || selectedFilter == .all {
+            if let videos = season.videoClips?.filter({ !$0.isHighlight }), !videos.isEmpty {
+                let sorted = videos.sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
+                Section("Videos (\(videos.count))") {
+                    ForEach(selectedFilter == .all ? Array(sorted.prefix(5)) : sorted) { video in
+                        SeasonVideoRow(video: video)
+                    }
+                    if selectedFilter == .all && videos.count > 5 {
+                        Button("See All \(videos.count) Videos") { selectedFilter = .videos }
+                            .font(.subheadline)
+                            .foregroundStyle(.blue)
+                    }
+                }
+            }
+        }
+        if selectedFilter == .highlights || selectedFilter == .all {
+            if let highlightVideos = season.videoClips?.filter({ $0.isHighlight }), !highlightVideos.isEmpty {
+                let sorted = highlightVideos.sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
+                Section("Highlights (\(highlightVideos.count))") {
+                    ForEach(selectedFilter == .all ? Array(sorted.prefix(5)) : sorted) { video in
+                        SeasonVideoRow(video: video)
+                    }
+                    if selectedFilter == .all && highlightVideos.count > 5 {
+                        Button("See All \(highlightVideos.count) Highlights") { selectedFilter = .highlights }
+                            .font(.subheadline)
+                            .foregroundStyle(.blue)
+                    }
+                }
+            }
+        }
+        if selectedFilter == .practices || selectedFilter == .all {
+            if let practicesList = season.practices, !practicesList.isEmpty {
+                let sorted = practicesList.sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
+                Section("Practices (\(practicesList.count))") {
+                    ForEach(selectedFilter == .all ? Array(sorted.prefix(5)) : sorted) { practice in
+                        HStack {
+                            Image(systemName: "figure.run")
+                                .foregroundStyle(.green)
+                                .frame(width: 24)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Practice")
+                                    .font(.subheadline)
+                                    .fontWeight(.medium)
+                                if let date = practice.date {
+                                    Text(date.formatted(date: .abbreviated, time: .omitted))
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            Spacer()
+                            let videoCount = practice.videoClips?.count ?? 0
+                            if videoCount > 0 {
+                                Text("\(videoCount) videos")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                    if selectedFilter == .all && practicesList.count > 5 {
+                        Button("See All \(practicesList.count) Practices") { selectedFilter = .practices }
+                            .font(.subheadline)
+                            .foregroundStyle(.blue)
+                    }
+                }
+            }
         }
     }
 
@@ -902,25 +917,22 @@ struct SeasonDetailView: View {
     private func reactivateSeason() {
         isProcessing = true
 
-        // Save state for rollback
-        let previousActiveWasActive = athlete.activeSeason?.isActive ?? false
-        let previousActiveEndDate = athlete.activeSeason?.endDate
+        // Capture before any mutations so rollback has the correct reference
+        let previousActive = athlete.activeSeason
+        let previousActiveWasActive = previousActive?.isActive ?? false
+        let previousActiveEndDate = previousActive?.endDate
         let wasActive = season.isActive
         let previousEndDate = season.endDate
 
         // Archive current active season if exists
-        if let currentActive = athlete.activeSeason {
-            currentActive.archive()
-        }
+        previousActive?.archive()
 
         // Reactivate this season
         season.activate()
 
-        // Mark for Firestore sync (Phase 2)
+        // Mark for Firestore sync
         season.needsSync = true
-        if let previousActive = athlete.activeSeason, previousActive.id != season.id {
-            previousActive.needsSync = true
-        }
+        previousActive?.needsSync = true
 
         do {
             try modelContext.save()
@@ -945,9 +957,9 @@ struct SeasonDetailView: View {
             Haptics.medium()
         } catch {
             // Rollback on failure
-            if let previousActive = athlete.activeSeason, previousActiveWasActive {
-                previousActive.activate()
-                previousActive.endDate = previousActiveEndDate
+            if previousActiveWasActive {
+                previousActive?.activate()
+                previousActive?.endDate = previousActiveEndDate
             }
 
             if !wasActive {

@@ -22,6 +22,7 @@ final class AppleSignInManager: NSObject, ObservableObject {
     private var authManager: ComprehensiveAuthManager?
     private var reAuthNonce: String?
     private var reAuthContinuation: CheckedContinuation<ASAuthorizationAppleIDCredential, Error>?
+    private var reAuthController: ASAuthorizationController?
 
     /// Role to apply when a new user signs up via Apple ID.
     /// Set this before calling signInWithApple() based on the user's role selection.
@@ -38,6 +39,7 @@ final class AppleSignInManager: NSObject, ObservableObject {
     // MARK: - Sign in with Apple
     
     func signInWithApple() {
+        guard !isLoading else { return }
         isLoading = true
         errorMessage = nil
 
@@ -62,15 +64,27 @@ final class AppleSignInManager: NSObject, ObservableObject {
     func reauthenticate() async throws -> OAuthCredential {
         let nonce = randomNonceString()
         reAuthNonce = nonce
-        let appleCredential: ASAuthorizationAppleIDCredential = try await withCheckedThrowingContinuation { continuation in
-            reAuthContinuation = continuation
-            let request = ASAuthorizationAppleIDProvider().createRequest()
-            request.requestedScopes = []
-            request.nonce = sha256(nonce)
-            let controller = ASAuthorizationController(authorizationRequests: [request])
-            controller.delegate = self
-            controller.presentationContextProvider = self
-            controller.performRequests()
+        let appleCredential: ASAuthorizationAppleIDCredential = try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                reAuthContinuation = continuation
+                let request = ASAuthorizationAppleIDProvider().createRequest()
+                request.requestedScopes = []
+                request.nonce = sha256(nonce)
+                let controller = ASAuthorizationController(authorizationRequests: [request])
+                controller.delegate = self
+                controller.presentationContextProvider = self
+                reAuthController = controller // Retain strongly so it isn't deallocated before the delegate fires
+                controller.performRequests()
+            }
+        } onCancel: {
+            Task { @MainActor in
+                if let continuation = self.reAuthContinuation {
+                    self.reAuthContinuation = nil
+                    self.reAuthNonce = nil
+                    self.reAuthController = nil
+                    continuation.resume(throwing: CancellationError())
+                }
+            }
         }
         guard let idToken = appleCredential.identityToken,
               let idTokenString = String(data: idToken, encoding: .utf8),
@@ -149,6 +163,7 @@ extension AppleSignInManager: ASAuthorizationControllerDelegate {
             // Handle re-auth continuation before normal sign-in flow
             if let continuation = reAuthContinuation {
                 reAuthContinuation = nil
+                reAuthController = nil
                 guard let appleIDCredential = authorization.credential as? ASAuthorizationAppleIDCredential else {
                     continuation.resume(throwing: NSError(domain: "AppleSignInManager", code: -2,
                         userInfo: [NSLocalizedDescriptionKey: "Invalid Apple credential"]))
@@ -268,6 +283,7 @@ extension AppleSignInManager: ASAuthorizationControllerDelegate {
             if let continuation = reAuthContinuation {
                 reAuthContinuation = nil
                 reAuthNonce = nil
+                reAuthController = nil
                 continuation.resume(throwing: error)
                 isLoading = false
                 return

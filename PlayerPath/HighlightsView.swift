@@ -123,15 +123,22 @@ struct HighlightsView: View {
             return sortOrder == .newest ? (lDate > rDate) : (lDate < rDate)
         }
 
-        // Add practice clips as individual groups
+        // Add practice clips as individual groups before sorting so they
+        // are interleaved by date with game groups rather than appended at the end
         for clip in practiceClips {
-            let practiceID = clip.id
             groups.append(GameHighlightGroup(
-                id: practiceID,
+                id: clip.id,
                 game: nil,
                 clips: [clip],
-                isExpanded: true  // Practice clips always expanded (single clip)
+                isExpanded: true
             ))
+        }
+
+        // Sort ALL groups together — use clip createdAt as fallback for practice groups
+        groups.sort { lhs, rhs in
+            let lDate = lhs.game?.date ?? lhs.clips.first?.createdAt ?? .distantPast
+            let rDate = rhs.game?.date ?? rhs.clips.first?.createdAt ?? .distantPast
+            return sortOrder == .newest ? (lDate > rDate) : (lDate < rDate)
         }
 
         // Auto-expand single-clip game groups
@@ -197,6 +204,7 @@ struct HighlightsView: View {
                playResult.type.isHighlight,
                !video.isHighlight {
                 video.isHighlight = true
+                video.needsSync = true
                 migrationCount += 1
             }
         }
@@ -542,6 +550,7 @@ struct HighlightsView: View {
 
     private func removeClipFromHighlights(_ clip: VideoClip) {
         clip.isHighlight = false
+        clip.needsSync = true
         do {
             try modelContext.save()
             Haptics.success()
@@ -574,6 +583,7 @@ struct HighlightsView: View {
         withAnimation {
             for clip in clips {
                 clip.isHighlight = false
+                clip.needsSync = true
             }
 
             do {
@@ -1036,17 +1046,23 @@ struct HighlightCard: View {
     
     private func generateMissingThumbnail() async {
         print("Generating missing thumbnail for highlight: \(clip.fileName)")
-        
+
         let videoURL = URL(fileURLWithPath: clip.filePath)
         let result = await VideoFileManager.generateThumbnail(from: videoURL)
-        
+
         await MainActor.run {
             switch result {
             case .success(let thumbnailPath):
                 clip.thumbnailPath = thumbnailPath
-                try? modelContext.save() // persist so path survives app relaunch
-                Task {
-                    await loadThumbnail()
+                try? modelContext.save()
+                // Load directly from the just-generated path rather than calling
+                // loadThumbnail() again — avoids infinite recursion if the cache
+                // load fails and triggers another generateMissingThumbnail() call.
+                Task { @MainActor in
+                    if let image = try? await ThumbnailCache.shared.loadThumbnail(at: thumbnailPath) {
+                        self.thumbnailImage = image
+                    }
+                    self.isLoadingThumbnail = false
                 }
             case .failure(let error):
                 print("Failed to generate thumbnail in HighlightCard: \(error)")

@@ -67,7 +67,12 @@ struct DashboardLiveSection: View {
 
                                 // End button
                                 Button {
-                                    endGame(game)
+                                    guard !endingGameIDs.contains(game.id) else { return }
+                                    endingGameIDs.insert(game.id)
+                                    Task {
+                                        await GameService(modelContext: modelContext).end(game)
+                                        endingGameIDs.remove(game.id)
+                                    }
                                 } label: {
                                     Text("End")
                                         .font(.caption)
@@ -75,10 +80,11 @@ struct DashboardLiveSection: View {
                                         .foregroundColor(.white)
                                         .padding(.horizontal, 12)
                                         .padding(.vertical, 6)
-                                        .background(Color.red)
+                                        .background(endingGameIDs.contains(game.id) ? Color.gray : Color.red)
                                         .cornerRadius(8)
                                 }
                                 .buttonStyle(.plain)
+                                .disabled(endingGameIDs.contains(game.id))
                             }
                             .padding()
                             .background(Color(.systemGray6))
@@ -95,46 +101,5 @@ struct DashboardLiveSection: View {
     }
 
     @Environment(\.modelContext) private var modelContext
-
-    private func endGame(_ game: Game) {
-        game.isLive = false
-        game.isComplete = true
-
-        if let athlete = game.athlete {
-            // Create athlete statistics if they don't exist
-            if athlete.statistics == nil {
-                let newStats = AthleteStatistics()
-                newStats.athlete = athlete
-                athlete.statistics = newStats
-                modelContext.insert(newStats)
-            }
-
-            // Aggregate game statistics into athlete's overall statistics
-            if let athleteStats = athlete.statistics, let gameStats = game.gameStats {
-                athleteStats.atBats += gameStats.atBats
-                athleteStats.hits += gameStats.hits
-                athleteStats.singles += gameStats.singles
-                athleteStats.doubles += gameStats.doubles
-                athleteStats.triples += gameStats.triples
-                athleteStats.homeRuns += gameStats.homeRuns
-                athleteStats.runs += gameStats.runs
-                athleteStats.rbis += gameStats.rbis
-                athleteStats.strikeouts += gameStats.strikeouts
-                athleteStats.walks += gameStats.walks
-                athleteStats.updatedAt = Date()
-            }
-
-            // Increment total games
-            if let athleteStats = athlete.statistics {
-                athleteStats.addCompletedGame()
-            }
-        }
-
-        do {
-            try modelContext.save()
-            print("✅ Game ended successfully")
-        } catch {
-            print("❌ Error ending game: \(error)")
-        }
-    }
+    @State private var endingGameIDs: Set<UUID> = []
 }
