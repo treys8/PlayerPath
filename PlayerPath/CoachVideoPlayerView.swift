@@ -713,9 +713,11 @@ class CoachVideoPlayerViewModel: ObservableObject {
         let interval = CMTime(seconds: 0.25, preferredTimescale: 600)
         timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] _ in
             guard let self else { return }
-            let currentRate = Float(self.playbackRate)
-            if player.timeControlStatus == .playing, player.rate != currentRate {
-                player.rate = currentRate
+            MainActor.assumeIsolated {
+                let currentRate = Float(self.playbackRate)
+                if player.timeControlStatus == .playing, player.rate != currentRate {
+                    player.rate = currentRate
+                }
             }
         }
     }

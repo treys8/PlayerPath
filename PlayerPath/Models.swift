@@ -384,6 +384,7 @@ final class Game {
     var notes: String?
     var isLive: Bool = false
     var isComplete: Bool = false
+    var liveStartDate: Date? // Set when game becomes live; used for stale-game alerts
     var createdAt: Date?
     var year: Int? // Year for tracking when no season is active
     var athlete: Athlete?

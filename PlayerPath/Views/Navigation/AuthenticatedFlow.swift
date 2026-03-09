@@ -89,11 +89,11 @@ struct AuthenticatedFlow: View {
                 // the context, call it again so user.firebaseAuthUid is populated.
                 await authManager.ensureLocalUser()
 
-                // Trigger initial sync after user loads
+                // Trigger full sync after user loads so all data is available immediately on new device
                 if let user = currentUser, user.firebaseAuthUid != nil {
                     do {
-                        try await SyncCoordinator.shared.syncAthletes(for: user)
-                        print("✅ Initial athlete sync completed on app launch")
+                        try await SyncCoordinator.shared.syncAll(for: user)
+                        print("✅ Initial full sync completed on app launch")
                     } catch {
                         print("⚠️ Initial sync failed (will retry in background): \(error)")
                         // Don't block app launch on sync failure

@@ -2,14 +2,12 @@
 //  VideoThumbnailView.swift
 //  PlayerPath
 //
-//  Created by Assistant on 11/17/25.
-//
 
 import SwiftUI
 import SwiftData
 import os
 
-/// Reusable video thumbnail view with automatic loading, caching, and overlays
+/// Reusable video thumbnail view with automatic loading, caching, and overlays.
 struct VideoThumbnailView: View {
     let clip: VideoClip
     let size: CGSize
@@ -18,28 +16,19 @@ struct VideoThumbnailView: View {
     let showPlayResult: Bool
     let showHighlight: Bool
     let showSeason: Bool
-    
+    let showContext: Bool
+
     @State private var thumbnailImage: UIImage?
     @State private var isLoadingThumbnail = false
     @State private var loadError: Error?
     @State private var generationAttempts = 0
     @Environment(\.modelContext) private var modelContext
 
-    // Constants
     private let maxGenerationAttempts = 2
     private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.playerpath", category: "VideoThumbnailView")
-    
+
     // MARK: - Initializers
-    
-    /// Create a thumbnail view with customizable options
-    /// - Parameters:
-    ///   - clip: The video clip to display
-    ///   - size: The size of the thumbnail (default: 80x60)
-    ///   - cornerRadius: Corner radius for the thumbnail (default: 12)
-    ///   - showPlayButton: Whether to show the play button overlay (default: true)
-    ///   - showPlayResult: Whether to show the play result badge (default: true)
-    ///   - showHighlight: Whether to show the highlight star (default: true)
-    ///   - showSeason: Whether to show the season badge (default: false)
+
     init(
         clip: VideoClip,
         size: CGSize = CGSize(width: 80, height: 60),
@@ -47,7 +36,8 @@ struct VideoThumbnailView: View {
         showPlayButton: Bool = true,
         showPlayResult: Bool = true,
         showHighlight: Bool = true,
-        showSeason: Bool = false
+        showSeason: Bool = false,
+        showContext: Bool = true
     ) {
         self.clip = clip
         self.size = size
@@ -56,9 +46,10 @@ struct VideoThumbnailView: View {
         self.showPlayResult = showPlayResult
         self.showHighlight = showHighlight
         self.showSeason = showSeason
+        self.showContext = showContext
     }
-    
-    // Convenience initializers for common sizes (16:9 landscape aspect ratio)
+
+    // Convenience initializers for common landscape sizes (16:9)
     static func small(clip: VideoClip) -> VideoThumbnailView {
         VideoThumbnailView(clip: clip, size: CGSize(width: 50, height: 28), cornerRadius: 8)
     }
@@ -71,70 +62,67 @@ struct VideoThumbnailView: View {
         VideoThumbnailView(clip: clip, size: CGSize(width: 120, height: 68), cornerRadius: 12)
     }
 
-    // Portrait orientation (9:16 aspect ratio)
-    static func smallPortrait(clip: VideoClip) -> VideoThumbnailView {
-        VideoThumbnailView(clip: clip, size: CGSize(width: 28, height: 50), cornerRadius: 8)
-    }
-
-    static func mediumPortrait(clip: VideoClip) -> VideoThumbnailView {
-        VideoThumbnailView(clip: clip, size: CGSize(width: 45, height: 80), cornerRadius: 12)
-    }
-
-    static func largePortrait(clip: VideoClip) -> VideoThumbnailView {
-        VideoThumbnailView(clip: clip, size: CGSize(width: 68, height: 120), cornerRadius: 12)
-    }
-    
     // MARK: - Body
-    
+
     var body: some View {
-        // Defensive check to prevent zero-dimension rendering errors
-        let safeSize = CGSize(
-            width: max(size.width, 1),
-            height: max(size.height, 1)
-        )
+        let safeSize = CGSize(width: max(size.width, 1), height: max(size.height, 1))
 
         ZStack {
-            // Thumbnail Image
-            Group {
+            // Thumbnail image with fade-in transition
+            ZStack {
                 if let thumbnail = thumbnailImage {
                     Image(uiImage: thumbnail)
                         .resizable()
                         .aspectRatio(contentMode: .fill)
                         .frame(width: safeSize.width, height: safeSize.height)
                         .clipped()
+                        .transition(.opacity)
                 } else {
-                    placeholderView
+                    placeholder(size: safeSize)
+                        .transition(.opacity)
                 }
             }
+            .animation(.easeIn(duration: 0.2), value: thumbnailImage == nil)
             .background(Color.black)
-            .cornerRadius(cornerRadius)
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
             .overlay(playButtonOverlay)
 
-            // Play Result Badge Overlay (top-right, vertical layout)
-            if showPlayResult {
+            // Play result badge (top-right)
+            if showPlayResult, let playResult = clip.playResult {
                 VStack {
                     HStack {
                         Spacer()
-                        playResultBadge
+                        playResultBadge(for: playResult.type)
                     }
                     Spacer()
                 }
             }
 
-            // Highlight Star Indicator (bottom-left, larger)
+            // Highlight star (bottom-right — bottom-left reserved for VideoClipCard's duration badge)
             if showHighlight && clip.isHighlight {
                 VStack {
                     Spacer()
                     HStack {
-                        highlightIndicator
                         Spacer()
+                        highlightIndicator
                     }
                 }
             }
 
-            // Season Badge (top-right) - only if explicitly enabled and no play result shown
+            // Season badge (top-right, only when play result is hidden)
             if showSeason && !showPlayResult {
                 seasonBadge
+            }
+
+            // Context label (bottom-left): game opponent or "Practice" — hidden for untagged clips
+            if showContext, contextLabel != nil {
+                VStack {
+                    Spacer()
+                    HStack {
+                        contextBadge
+                        Spacer()
+                    }
+                }
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
@@ -150,49 +138,28 @@ struct VideoThumbnailView: View {
 
     private var accessibilityDescription: String {
         var description = "Video clip"
-
         if let playResult = clip.playResult {
             description += ", \(playResult.type.displayName)"
         } else {
             description += ", unrecorded play"
         }
-
-        if clip.isHighlight {
-            description += ", highlighted"
-        }
-
+        if clip.isHighlight { description += ", highlighted" }
         if let game = clip.game {
             description += ", from game versus \(game.opponent)"
         } else if clip.practice != nil {
             description += ", from practice session"
         }
-
-        if loadError != nil {
-            description += ", failed to load thumbnail"
-        } else if isLoadingThumbnail {
-            description += ", loading thumbnail"
-        }
-
+        if loadError != nil { description += ", failed to load thumbnail" }
+        else if isLoadingThumbnail { description += ", loading thumbnail" }
         return description
     }
-    
-    // MARK: - Subviews
-    
-    private var placeholderView: some View {
-        let safeSize = CGSize(
-            width: max(size.width, 1),
-            height: max(size.height, 1)
-        )
 
-        return Rectangle()
-            .fill(
-                LinearGradient(
-                    colors: playResultGradient,
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            )
-            .frame(width: safeSize.width, height: safeSize.height)
+    // MARK: - Subviews
+
+    private func placeholder(size: CGSize) -> some View {
+        Rectangle()
+            .fill(LinearGradient(colors: playResultGradient, startPoint: .topLeading, endPoint: .bottomTrailing))
+            .frame(width: size.width, height: size.height)
             .overlay(
                 VStack(spacing: scaledSpacing(8)) {
                     if isLoadingThumbnail {
@@ -210,7 +177,6 @@ struct VideoThumbnailView: View {
                             .font(.system(size: scaledValue(24)))
                             .accessibilityHidden(true)
                     }
-
                     Text(placeholderText)
                         .font(.system(size: scaledValue(10)))
                         .foregroundColor(.white.opacity(0.8))
@@ -220,116 +186,73 @@ struct VideoThumbnailView: View {
             )
     }
 
-    /// Gradient colors based on play result type (matches HighlightCard style)
     private var playResultGradient: [Color] {
         guard let playResult = clip.playResult else {
             return [Color.gray.opacity(0.5), Color.gray.opacity(0.7)]
         }
-        switch playResult.type {
-        case .single:
-            return [Color.green.opacity(0.5), Color.green.opacity(0.7)]
-        case .double:
-            return [Color.blue.opacity(0.5), Color.blue.opacity(0.7)]
-        case .triple:
-            return [Color.orange.opacity(0.5), Color.orange.opacity(0.7)]
-        case .homeRun:
-            return [Color.red.opacity(0.5), Color.red.opacity(0.7)]
-        case .walk:
-            return [Color.cyan.opacity(0.5), Color.cyan.opacity(0.7)]
-        case .strikeout:
-            return [Color.red.opacity(0.4), Color.red.opacity(0.6)]
-        case .groundOut, .flyOut:
-            return [Color.red.opacity(0.5), Color.red.opacity(0.7)]
-        case .ball:
-            return [Color.orange.opacity(0.5), Color.orange.opacity(0.7)]
-        case .strike:
-            return [Color.green.opacity(0.5), Color.green.opacity(0.7)]
-        case .hitByPitch:
-            return [Color.purple.opacity(0.5), Color.purple.opacity(0.7)]
-        case .wildPitch:
-            return [Color.red.opacity(0.5), Color.red.opacity(0.7)]
-        }
+        let base = playResult.type.badgeColor
+        return [base.opacity(0.5), base.opacity(0.7)]
     }
 
     private var placeholderText: String {
-        if isLoadingThumbnail {
-            return "Loading..."
-        } else if loadError != nil {
-            return "Failed to Load"
-        } else {
-            return "No Preview"
-        }
+        if isLoadingThumbnail { return "Loading..." }
+        else if loadError != nil { return "Failed to Load" }
+        else { return contextLabel ?? "No Preview" }
     }
-    
+
     @ViewBuilder
     private var playButtonOverlay: some View {
         if showPlayButton {
+            let circleSize = min(scaledValue(44), 44)
+            let iconSize = min(scaledValue(14), 15)
             Circle()
-                .fill(Color.black.opacity(0.6))
-                .frame(width: scaledValue(44), height: scaledValue(44))
+                .fill(.black.opacity(0.35))
+                .background(.ultraThinMaterial, in: Circle())
+                .frame(width: circleSize, height: circleSize)
                 .overlay(
                     Image(systemName: "play.fill")
                         .foregroundColor(.white)
-                        .font(.title3)
+                        .font(.system(size: iconSize))
+                        .offset(x: 1)
                         .accessibilityHidden(true)
                 )
+                .shadow(color: .black.opacity(0.3), radius: 8, x: 0, y: 4)
         }
     }
-    
-    @ViewBuilder
-    private var playResultBadge: some View {
-        if let playResult = clip.playResult {
-            VStack(spacing: 2) {
-                Image(systemName: playResultIcon(for: playResult.type))
-                    .foregroundColor(.white)
-                    .font(.caption)
 
-                Text(playResultAbbreviation(for: playResult.type))
-                    .font(.caption2)
-                    .fontWeight(.bold)
-                    .foregroundColor(.white)
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .background(playResultColor(for: playResult.type))
-            .cornerRadius(8)
-            .padding(.top, 8)
-            .padding(.trailing, 8)
-            .accessibilityHidden(true) // Already described in main accessibility label
-        } else {
-            // Unrecorded indicator
-            VStack(spacing: 2) {
-                Image(systemName: "questionmark.circle.fill")
-                    .foregroundColor(.white)
-                    .font(.caption)
-
-                Text("?")
-                    .font(.caption2)
-                    .fontWeight(.bold)
-                    .foregroundColor(.white)
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .background(Color.gray)
-            .cornerRadius(8)
-            .padding(.top, 8)
-            .padding(.trailing, 8)
-            .accessibilityHidden(true) // Already described in main accessibility label
+    private func playResultBadge(for type: PlayResultType) -> some View {
+        HStack(spacing: 4) {
+            Circle()
+                .fill(type.badgeColor)
+                .frame(width: 8, height: 8)
+            Text(type.abbreviation)
+                .font(.system(size: 11, weight: .bold))
+                .foregroundColor(.white)
         }
+        .padding(.horizontal, 7)
+        .padding(.vertical, 4)
+        .background {
+            ZStack {
+                RoundedRectangle(cornerRadius: 6).fill(.ultraThinMaterial)
+                RoundedRectangle(cornerRadius: 6).fill(.black.opacity(0.3))
+            }
+        }
+        .shadow(color: .black.opacity(0.25), radius: 4, x: 0, y: 2)
+        .padding(.top, 8)
+        .padding(.trailing, 8)
+        .accessibilityHidden(true)
     }
-    
+
     private var highlightIndicator: some View {
         Image(systemName: "star.fill")
-            .font(.title3)
+            .font(.system(size: 12, weight: .bold))
             .foregroundColor(.yellow)
-            .background(
-                Circle()
-                    .fill(Color.black.opacity(0.6))
-                    .frame(width: 32, height: 32)
-            )
+            .padding(6)
+            .background(.ultraThinMaterial, in: Circle())
+            .shadow(color: .black.opacity(0.25), radius: 4, x: 0, y: 2)
             .padding(.bottom, 8)
-            .padding(.leading, 8)
-            .accessibilityHidden(true) // Already described in main accessibility label
+            .padding(.trailing, 8)
+            .accessibilityHidden(true)
     }
 
     @ViewBuilder
@@ -345,7 +268,7 @@ struct VideoThumbnailView: View {
                         .padding(.horizontal, min(scaledSpacing(4), 6))
                         .padding(.vertical, min(scaledSpacing(2), 3))
                         .background(season.isActive ? Color.blue.opacity(0.9) : Color.gray.opacity(0.9))
-                        .cornerRadius(min(scaledValue(3), 5))
+                        .clipShape(RoundedRectangle(cornerRadius: min(scaledValue(3), 5)))
                         .offset(x: min(scaledValue(-4), -6), y: min(scaledValue(4), 6))
                         .accessibilityHidden(true)
                 }
@@ -353,282 +276,179 @@ struct VideoThumbnailView: View {
             Spacer()
         }
     }
-    
+
+    // MARK: - Context Label
+
+    private var contextLabel: String? {
+        if let game = clip.game { return "vs \(game.opponent)" }
+        if clip.practice != nil { return "Practice" }
+        return nil
+    }
+
+    private var contextBadge: some View {
+        Text(contextLabel ?? "")
+            .font(.system(size: min(scaledValue(9), 11), weight: .semibold))
+            .foregroundColor(.white)
+            .lineLimit(1)
+            .padding(.horizontal, min(scaledSpacing(5), 7))
+            .padding(.vertical, min(scaledSpacing(2), 3))
+            .background {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 5).fill(.ultraThinMaterial)
+                    RoundedRectangle(cornerRadius: 5).fill(.black.opacity(0.4))
+                }
+            }
+            .padding(.bottom, 8)
+            .padding(.leading, 8)
+            .accessibilityHidden(true)
+    }
+
     // MARK: - Thumbnail Loading
 
     @MainActor
     private func loadThumbnail() async {
-        // Skip if already loading or already have image
         guard !isLoadingThumbnail, thumbnailImage == nil else { return }
+        guard !Task.isCancelled else { return }
 
-        // Check for cancellation
-        guard !Task.isCancelled else {
-            Self.logger.debug("Load cancelled before start")
-            return
-        }
-
-        // Clear any previous error
         loadError = nil
 
-        // Check if we have a thumbnail path
         guard let thumbnailPath = clip.thumbnailPath else {
-            // Generate thumbnail if none exists
             await generateMissingThumbnail()
             return
         }
 
         isLoadingThumbnail = true
 
-        // Check for cancellation before loading
-        guard !Task.isCancelled else {
-            Self.logger.debug("Load cancelled before file load")
-            isLoadingThumbnail = false
-            return
-        }
+        guard !Task.isCancelled else { isLoadingThumbnail = false; return }
 
         do {
-            // Load thumbnail asynchronously using cache with downsampling for memory efficiency
-            // Downsample to 2x target size for retina display quality
             let targetSize = CGSize(width: size.width * 2, height: size.height * 2)
             let image = try await ThumbnailCache.shared.loadThumbnail(at: thumbnailPath, targetSize: targetSize)
-
-            // Check for cancellation after loading
-            guard !Task.isCancelled else {
-                Self.logger.debug("Load cancelled after file load")
-                isLoadingThumbnail = false
-                return
-            }
-
+            guard !Task.isCancelled else { isLoadingThumbnail = false; return }
             thumbnailImage = image
             isLoadingThumbnail = false
         } catch {
-            // Check for cancellation during error handling
-            guard !Task.isCancelled else {
-                Self.logger.debug("Load cancelled during error handling")
-                isLoadingThumbnail = false
-                return
-            }
-
+            guard !Task.isCancelled else { isLoadingThumbnail = false; return }
             Self.logger.warning("Failed to load thumbnail: \(error.localizedDescription, privacy: .public)")
             loadError = error
             isLoadingThumbnail = false
-
-            // Try to regenerate thumbnail only if we haven't exceeded retry limit
             if generationAttempts < maxGenerationAttempts {
                 await generateMissingThumbnail()
             }
         }
     }
-    
+
     @MainActor
     private func generateMissingThumbnail() async {
-        // Increment generation attempts to prevent infinite loops
         generationAttempts += 1
-
-        // Check for cancellation
-        guard !Task.isCancelled else {
-            Self.logger.debug("Generation cancelled before start")
-            return
-        }
-
-        // Check retry limit to prevent infinite recursion
+        guard !Task.isCancelled else { return }
         guard generationAttempts <= maxGenerationAttempts else {
             Self.logger.warning("Max generation attempts reached for \(self.clip.fileName, privacy: .public)")
-            loadError = NSError(
-                domain: "VideoThumbnailView",
-                code: -1,
-                userInfo: [NSLocalizedDescriptionKey: "Max retry attempts exceeded"]
-            )
+            loadError = NSError(domain: "VideoThumbnailView", code: -1,
+                userInfo: [NSLocalizedDescriptionKey: "Max retry attempts exceeded"])
             isLoadingThumbnail = false
             return
         }
 
         Self.logger.info("Generating thumbnail (attempt \(self.generationAttempts)/\(self.maxGenerationAttempts)) for \(self.clip.fileName, privacy: .public)")
 
-        let videoURL = URL(fileURLWithPath: clip.filePath)
-
-        // Check if video file exists before attempting generation
-        guard FileManager.default.fileExists(atPath: videoURL.path) else {
-            Self.logger.error("Video file does not exist at \(videoURL.path, privacy: .public)")
-            loadError = NSError(
-                domain: "VideoThumbnailView",
-                code: -2,
-                userInfo: [NSLocalizedDescriptionKey: "Video file not found"]
-            )
+        if let videoURL = resolveLocalVideoURL() {
+            await generateThumbnailFromURL(videoURL)
+        } else {
+            // Local file missing — show error placeholder.
+            // SyncCoordinator handles downloading cloud-only videos when needed;
+            // downloading a full video just for a thumbnail is too costly.
+            Self.logger.warning("Video file not found locally for thumbnail: \(self.clip.fileName, privacy: .public)")
+            loadError = NSError(domain: "VideoThumbnailView", code: -2,
+                userInfo: [NSLocalizedDescriptionKey: "Video not available locally"])
             isLoadingThumbnail = false
-            return
         }
+    }
 
-        // Check for cancellation before generation
-        guard !Task.isCancelled else {
-            Self.logger.debug("Generation cancelled before file check")
-            isLoadingThumbnail = false
-            return
+    /// Returns the local video URL, healing `clip.filePath` if the sandbox container path changed.
+    private func resolveLocalVideoURL() -> URL? {
+        if FileManager.default.fileExists(atPath: clip.filePath) {
+            return URL(fileURLWithPath: clip.filePath)
         }
+        guard let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
+            return nil
+        }
+        let clipsURL = documentsURL.appendingPathComponent("Clips").appendingPathComponent(clip.fileName)
+        if FileManager.default.fileExists(atPath: clipsURL.path) {
+            Self.logger.info("Healed stale filePath for \(self.clip.fileName, privacy: .public)")
+            // Guard save — only write if the stored path actually changed to avoid races
+            // when multiple thumbnail views for the same clip exist simultaneously.
+            if clip.filePath != clipsURL.path {
+                clip.filePath = clipsURL.path
+                try? modelContext.save()
+            }
+            return clipsURL
+        }
+        return nil
+    }
+
+    /// Generates a thumbnail from a known-good local URL and updates the clip.
+    private func generateThumbnailFromURL(_ videoURL: URL) async {
+        guard !Task.isCancelled else { isLoadingThumbnail = false; return }
 
         let result = await VideoFileManager.generateThumbnail(from: videoURL)
-
-        // Check for cancellation after generation
-        guard !Task.isCancelled else {
-            Self.logger.debug("Generation cancelled after completion")
-            isLoadingThumbnail = false
-            return
-        }
+        guard !Task.isCancelled else { isLoadingThumbnail = false; return }
 
         switch result {
         case .success(let thumbnailPath):
-            clip.thumbnailPath = thumbnailPath
-
-            // Save the thumbnail path to model context
-            do {
-                try modelContext.save()
-                Self.logger.debug("Thumbnail path saved for \(self.clip.fileName, privacy: .public)")
-            } catch {
-                Self.logger.error("Failed to save thumbnail path: \(error.localizedDescription, privacy: .public)")
-                // Continue anyway - the thumbnail is already generated
+            // Guard save — only write if the path changed to reduce concurrent save races.
+            if clip.thumbnailPath != thumbnailPath {
+                clip.thumbnailPath = thumbnailPath
+                do {
+                    try modelContext.save()
+                    Self.logger.debug("Thumbnail path saved for \(self.clip.fileName, privacy: .public)")
+                } catch {
+                    Self.logger.error("Failed to save thumbnail path: \(error.localizedDescription, privacy: .public)")
+                }
             }
-
-            // Load the newly generated thumbnail
             do {
                 let image = try await ThumbnailCache.shared.loadThumbnail(at: thumbnailPath)
                 thumbnailImage = image
                 isLoadingThumbnail = false
-                Self.logger.debug("Successfully loaded generated thumbnail")
             } catch {
                 Self.logger.error("Failed to load generated thumbnail: \(error.localizedDescription, privacy: .public)")
                 loadError = error
                 isLoadingThumbnail = false
             }
-
         case .failure(let error):
             Self.logger.error("Failed to generate thumbnail: \(error.localizedDescription, privacy: .public)")
             loadError = error
             isLoadingThumbnail = false
         }
     }
-    
+
     // MARK: - Scaling Helpers
-    
-    /// Scale a value based on the thumbnail size relative to the default medium size
+
     private func scaledValue(_ baseValue: CGFloat) -> CGFloat {
-        let baseWidth: CGFloat = 80 // Medium size width
-        let scale = size.width / baseWidth
-        return baseValue * scale
+        let baseWidth: CGFloat = 80
+        return baseValue * (size.width / baseWidth)
     }
-    
+
     private func scaledSpacing(_ baseSpacing: CGFloat) -> CGFloat {
         scaledValue(baseSpacing)
-    }
-    
-    // MARK: - Play Result Helpers
-
-    private func playResultIcon(for type: PlayResultType) -> String {
-        switch type {
-        case .single:
-            return "1.circle.fill"
-        case .double:
-            return "2.circle.fill"
-        case .triple:
-            return "3.circle.fill"
-        case .homeRun:
-            return "4.circle.fill"
-        case .walk:
-            return "figure.walk"
-        case .strikeout:
-            return "k.circle.fill"
-        case .groundOut:
-            return "arrow.down.circle.fill"
-        case .flyOut:
-            return "arrow.up.circle.fill"
-        case .ball:
-            return "circle"
-        case .strike:
-            return "xmark.circle.fill"
-        case .hitByPitch:
-            return "figure.fall"
-        case .wildPitch:
-            return "arrow.up.right.and.arrow.down.left"
-        }
-    }
-
-    private func playResultAbbreviation(for type: PlayResultType) -> String {
-        switch type {
-        case .single: return "1B"
-        case .double: return "2B"
-        case .triple: return "3B"
-        case .homeRun: return "HR"
-        case .walk: return "BB"
-        case .strikeout: return "K"
-        case .groundOut: return "GO"
-        case .flyOut: return "FO"
-        case .ball: return "B"
-        case .strike: return "S"
-        case .hitByPitch: return "HBP"
-        case .wildPitch: return "WP"
-        }
-    }
-
-    private func playResultColor(for type: PlayResultType) -> Color {
-        switch type {
-        case .single: return .green
-        case .double: return .blue
-        case .triple: return .orange
-        case .homeRun: return .gold
-        case .walk: return .cyan
-        case .strikeout: return .red
-        case .groundOut, .flyOut: return .red
-        case .ball: return .orange
-        case .strike: return .green
-        case .hitByPitch: return .purple
-        case .wildPitch: return .red
-        }
     }
 }
 
 // MARK: - Preview
 
 #if DEBUG
-#Preview("Small Thumbnail") {
-    VideoThumbnailView.small(clip: .preview)
-        .padding()
+#Preview("Small") {
+    VideoThumbnailView.small(clip: .preview).padding()
 }
 
-#Preview("Medium Thumbnail") {
-    VideoThumbnailView.medium(clip: .preview)
-        .padding()
+#Preview("Medium") {
+    VideoThumbnailView.medium(clip: .preview).padding()
 }
 
-#Preview("Large Thumbnail") {
-    VideoThumbnailView.large(clip: .preview)
-        .padding()
+#Preview("Large") {
+    VideoThumbnailView.large(clip: .preview).padding()
 }
 
-#Preview("Portrait Thumbnails") {
-    VStack(spacing: 16) {
-        VideoThumbnailView.smallPortrait(clip: .preview)
-        VideoThumbnailView.mediumPortrait(clip: .preview)
-        VideoThumbnailView.largePortrait(clip: .preview)
-    }
-    .padding()
-}
-
-#Preview("Landscape vs Portrait") {
-    HStack(spacing: 16) {
-        VStack {
-            Text("Landscape 16:9")
-                .font(.caption)
-            VideoThumbnailView.medium(clip: .preview)
-        }
-        VStack {
-            Text("Portrait 9:16")
-                .font(.caption)
-            VideoThumbnailView.mediumPortrait(clip: .preview)
-        }
-    }
-    .padding()
-}
-
-// Preview helper
 extension VideoClip {
     static var preview: VideoClip {
         let clip = VideoClip(fileName: "preview.mov", filePath: "/tmp/preview.mov")

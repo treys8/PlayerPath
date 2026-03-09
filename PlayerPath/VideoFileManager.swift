@@ -94,7 +94,9 @@ class VideoFileManager {
     
     static func createThumbnailURL() throws -> URL {
         let documentsPath = try documentsDirectory()
-        return documentsPath.appendingPathComponent("thumb_\(UUID().uuidString).jpg")
+        let thumbnailsDir = documentsPath.appendingPathComponent("Thumbnails", isDirectory: true)
+        try FileManager.default.createDirectory(at: thumbnailsDir, withIntermediateDirectories: true)
+        return thumbnailsDir.appendingPathComponent("thumb_\(UUID().uuidString).jpg")
     }
     
     static func copyToDocuments(from sourceURL: URL) throws -> URL {

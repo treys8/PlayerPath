@@ -582,7 +582,7 @@ class FirestoreManager: ObservableObject {
 
             // Decrement annotationCount, floored at 0 via transaction
             let videoRef = db.collection("videos").document(videoID)
-            try? await db.runTransaction { transaction, errorPointer in
+            _ = try? await db.runTransaction { transaction, errorPointer in
                 do {
                     let doc = try transaction.getDocument(videoRef)
                     let current = doc.data()?["annotationCount"] as? Int64 ?? 0

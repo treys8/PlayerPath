@@ -39,10 +39,8 @@ struct StorageInfo {
             return .low
         } else if percentageAvailable > 0.5 {
             return .good
-        } else if percentageAvailable > 0.2 {
-            return .moderate
         } else {
-            return .low
+            return .moderate
         }
     }
     

@@ -191,8 +191,7 @@ extension PlayerPathAppDelegate {
     }
     
     func sceneWillEnterForeground(_ scene: UIScene) {
-        // Called when scene is about to enter foreground
-        // Undo changes made on entering background
+        NotificationCenter.default.post(name: .appWillEnterForeground, object: nil)
     }
     
     func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {

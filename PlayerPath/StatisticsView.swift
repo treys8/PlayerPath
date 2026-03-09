@@ -1264,7 +1264,6 @@ struct QuickStatisticsEntryView: View {
     @State private var numberOfPlays: String = "1"
     @State private var showingAlert = false
     @State private var alertMessage = ""
-    @State private var isSaving = false
     @FocusState private var isPlaysFieldFocused: Bool
     
     var body: some View {
@@ -1361,7 +1360,7 @@ struct QuickStatisticsEntryView: View {
                     Button("Save") {
                         savePlayResults()
                     }
-                    .disabled(numberOfPlays.isEmpty || isSaving)
+                    .disabled(numberOfPlays.isEmpty)
                 }
 
                 ToolbarItemGroup(placement: .keyboard) {
@@ -1382,10 +1381,15 @@ struct QuickStatisticsEntryView: View {
     }
     
     private func pluralizedPlayType(_ playType: PlayResultType, count: Int) -> String {
-        if count == 1 {
-            return playType.displayName
+        if count == 1 { return playType.displayName }
+        switch playType {
+        case .homeRun: return "Home Runs"
+        case .groundOut: return "Ground Outs"
+        case .flyOut: return "Fly Outs"
+        case .hitByPitch: return "Hit By Pitches"
+        case .wildPitch: return "Wild Pitches"
+        default: return playType.displayName + "s"
         }
-        return playType.displayName
     }
 
     private func updateGameStatistics(_ gameStats: GameStatistics, playResultType: PlayResultType, playCount: Int) {
@@ -1404,10 +1408,6 @@ struct QuickStatisticsEntryView: View {
     }
 
     private func savePlayResults() {
-        guard !isSaving else { return }
-        isSaving = true
-        defer { isSaving = false }
-        
         guard let playCount = Int(numberOfPlays), playCount > 0, playCount <= 99 else {
             alertMessage = "Please enter a valid number of plays (1-99)"
             showingAlert = true

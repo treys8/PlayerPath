@@ -368,14 +368,15 @@ struct VideoClipsView: View {
     private func performDelete(_ video: VideoClip) {
         Haptics.medium()
 
-        // Use VideoClip's delete method for proper cleanup
+        // Capture ID before deletion — accessing SwiftData object properties after
+        // context.delete() is undefined behavior.
+        let videoID = video.id.uuidString
+
         video.delete(in: modelContext)
 
         do {
             try modelContext.save()
-
-            // Track video deletion analytics
-            AnalyticsService.shared.trackVideoDeleted(videoID: video.id.uuidString)
+            AnalyticsService.shared.trackVideoDeleted(videoID: videoID)
         } catch {
             errorMessage = "Failed to delete video: \(error.localizedDescription)"
             showingError = true
@@ -400,25 +401,23 @@ struct VideoClipsView: View {
 
         let videosToDelete = (athlete.videoClips ?? []).filter { selectedVideos.contains($0.id) }
 
+        // Capture IDs before deletion — accessing SwiftData object properties after
+        // context.delete() is undefined behavior.
+        let deletedIDs = videosToDelete.map { $0.id.uuidString }
+
         for video in videosToDelete {
             video.delete(in: modelContext)
         }
 
         do {
             try modelContext.save()
-
-            // Track analytics
-            for video in videosToDelete {
-                AnalyticsService.shared.trackVideoDeleted(videoID: video.id.uuidString)
-            }
-
+            deletedIDs.forEach { AnalyticsService.shared.trackVideoDeleted(videoID: $0) }
             Haptics.success()
         } catch {
             errorMessage = "Failed to delete videos: \(error.localizedDescription)"
             showingError = true
         }
 
-        // Exit selection mode
         isSelectionMode = false
         selectedVideos.removeAll()
     }
@@ -613,9 +612,9 @@ struct VideoClipCard: View {
             Haptics.light()
             onPlay()
         }) {
-            GeometryReader { geometry in
-                VStack(spacing: 0) {
-                    // Thumbnail - 16:9 aspect ratio like Highlights
+            VStack(spacing: 0) {
+                // Thumbnail - 16:9 aspect ratio
+                GeometryReader { geometry in
                     ZStack {
                         VideoThumbnailView(
                             clip: video,
@@ -623,7 +622,7 @@ struct VideoClipCard: View {
                             cornerRadius: 0,
                             showPlayButton: !isSelectionMode,
                             showPlayResult: true,
-                            showHighlight: true,
+                            showHighlight: false,
                             showSeason: false
                         )
 
@@ -672,47 +671,19 @@ struct VideoClipCard: View {
                         }
                     }
                     .clipShape(UnevenRoundedRectangle(topLeadingRadius: 12, bottomLeadingRadius: 0, bottomTrailingRadius: 0, topTrailingRadius: 12))
+                }
+                .aspectRatio(16/9, contentMode: .fit)
 
-                    // Info section - matches HighlightCard style
-                    VStack(alignment: .leading, spacing: 6) {
-                        // Play result type as headline + pitch speed
-                        if let result = video.playResult {
+                // Info section
+                VStack(alignment: .leading, spacing: 6) {
+                        // Headline: game context > practice > play result > fallback
+                        if let game = video.game {
                             HStack(spacing: 6) {
-                                Text(result.type.displayName)
+                                Text("vs \(game.opponent)")
                                     .font(.subheadline)
                                     .fontWeight(.bold)
                                     .foregroundColor(.primary)
                                     .lineLimit(1)
-
-                                if let speed = video.pitchSpeed, speed > 0 {
-                                    Text("·")
-                                        .foregroundColor(.secondary)
-                                    Text("\(Int(speed)) MPH")
-                                        .font(.caption)
-                                        .fontWeight(.semibold)
-                                        .foregroundColor(.orange)
-                                }
-                            }
-                        } else if let speed = video.pitchSpeed, speed > 0 {
-                            Text("\(Int(speed)) MPH")
-                                .font(.subheadline)
-                                .fontWeight(.bold)
-                                .foregroundColor(.orange)
-                        } else {
-                            Text("Video Clip")
-                                .font(.subheadline)
-                                .fontWeight(.semibold)
-                                .foregroundColor(.primary)
-                        }
-
-                        // Opponent or Practice + Season badge
-                        if let game = video.game {
-                            HStack(spacing: 6) {
-                                Text("vs \(game.opponent)")
-                                    .font(.caption)
-                                    .foregroundColor(.blue)
-                                    .lineLimit(1)
-
                                 if let season = video.season {
                                     SeasonBadge(season: season, fontSize: 8)
                                 }
@@ -720,12 +691,46 @@ struct VideoClipCard: View {
                         } else if video.practice != nil {
                             HStack(spacing: 6) {
                                 Text("Practice")
-                                    .font(.caption)
+                                    .font(.subheadline)
+                                    .fontWeight(.bold)
                                     .foregroundColor(.green)
-
                                 if let season = video.season {
                                     SeasonBadge(season: season, fontSize: 8)
                                 }
+                            }
+                        } else if let result = video.playResult {
+                            Text(result.type.displayName)
+                                .font(.subheadline)
+                                .fontWeight(.bold)
+                                .foregroundColor(.primary)
+                                .lineLimit(1)
+                        } else {
+                            Text("Video Clip")
+                                .font(.subheadline)
+                                .fontWeight(.semibold)
+                                .foregroundColor(.primary)
+                        }
+
+                        // Secondary: play result + pitch speed (when game/practice is headline)
+                        if video.game != nil || video.practice != nil {
+                            if let result = video.playResult {
+                                HStack(spacing: 6) {
+                                    Text(result.type.displayName)
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                    if let speed = video.pitchSpeed, speed > 0 {
+                                        Text("·").foregroundColor(.secondary)
+                                        Text("\(Int(speed)) MPH")
+                                            .font(.caption)
+                                            .fontWeight(.semibold)
+                                            .foregroundColor(.orange)
+                                    }
+                                }
+                            } else if let speed = video.pitchSpeed, speed > 0 {
+                                Text("\(Int(speed)) MPH")
+                                    .font(.caption)
+                                    .fontWeight(.semibold)
+                                    .foregroundColor(.orange)
                             }
                         }
 
@@ -739,10 +744,17 @@ struct VideoClipCard: View {
                     .padding(.horizontal, 12)
                     .padding(.vertical, 10)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .overlay(alignment: .topTrailing) {
+                        if video.isHighlight {
+                            Image(systemName: "star.fill")
+                                .font(.system(size: 12))
+                                .foregroundColor(.yellow)
+                                .padding(.top, 10)
+                                .padding(.trailing, 12)
+                        }
+                    }
                     .background(Color(.systemGray6))
                 }
-            }
-            .aspectRatio(3/4, contentMode: .fit)
             .background(Color(.systemGray6))
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             .shadow(color: .black.opacity(0.08), radius: 12, x: 0, y: 4)
@@ -954,58 +966,6 @@ struct VideoClipCard: View {
             .background(Color.gray.opacity(0.7))
             .cornerRadius(6)
             .shadow(color: .black.opacity(0.2), radius: 2, x: 0, y: 1)
-        }
-    }
-
-    // MARK: - Play Result Helpers
-
-    private func playResultIcon(for type: PlayResultType) -> Image {
-        switch type {
-        case .single: return Image(systemName: "1.circle.fill")
-        case .double: return Image(systemName: "2.circle.fill")
-        case .triple: return Image(systemName: "3.circle.fill")
-        case .homeRun: return Image(systemName: "4.circle.fill")
-        case .walk: return Image(systemName: "figure.walk")
-        case .strikeout: return Image(systemName: "k.circle.fill")
-        case .groundOut: return Image(systemName: "arrow.down.circle.fill")
-        case .flyOut: return Image(systemName: "arrow.up.circle.fill")
-        case .ball: return Image(systemName: "circle")
-        case .strike: return Image(systemName: "xmark.circle.fill")
-        case .hitByPitch: return Image(systemName: "figure.fall")
-        case .wildPitch: return Image(systemName: "arrow.up.right.and.arrow.down.left")
-        }
-    }
-
-    private func playResultAbbreviation(for type: PlayResultType) -> String {
-        switch type {
-        case .single: return "1B"
-        case .double: return "2B"
-        case .triple: return "3B"
-        case .homeRun: return "HR"
-        case .walk: return "BB"
-        case .strikeout: return "K"
-        case .groundOut: return "GO"
-        case .flyOut: return "FO"
-        case .ball: return "B"
-        case .strike: return "S"
-        case .hitByPitch: return "HBP"
-        case .wildPitch: return "WP"
-        }
-    }
-
-    private func playResultColor(for type: PlayResultType) -> Color {
-        switch type {
-        case .single: return .green
-        case .double: return .blue
-        case .triple: return .orange
-        case .homeRun: return .gold
-        case .walk: return .cyan
-        case .strikeout: return .red
-        case .groundOut, .flyOut: return .red
-        case .ball: return .orange
-        case .strike: return .green
-        case .hitByPitch: return .purple
-        case .wildPitch: return .red
         }
     }
 

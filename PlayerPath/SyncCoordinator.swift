@@ -9,7 +9,6 @@
 import Foundation
 import SwiftData
 import FirebaseAuth
-import Combine
 
 /// Coordinates bidirectional sync between SwiftData (local) and Firestore (cloud)
 /// Implements local-first architecture with background sync and conflict resolution
@@ -28,9 +27,7 @@ final class SyncCoordinator {
     // MARK: - Private Properties
 
     private var modelContext: ModelContext?
-    private var syncQueue: [SyncOperation] = []
     private var timer: Timer?
-    private var cancellables = Set<AnyCancellable>()
     /// Active background video/photo download tasks keyed by a local UUID so they
     /// can self-remove on completion and be bulk-cancelled on sign-out.
     private var pendingDownloadTasks: [UUID: Task<Void, Never>] = [:]
@@ -55,10 +52,6 @@ final class SyncCoordinator {
     /// Syncs all athletes for a user bidirectionally (upload + download + resolve)
     /// - Parameter user: The SwiftData User to sync athletes for
     func syncAthletes(for user: User) async throws {
-        guard !isSyncing else {
-            print("⚠️ Sync in progress, skipping direct syncAthletes call")
-            return
-        }
         guard let context = modelContext else {
             print("⚠️ Cannot sync - ModelContext not configured")
             return
@@ -373,6 +366,7 @@ final class SyncCoordinator {
                     startDate: remoteSeason.startDate ?? Date(),
                     sport: remoteSeason.sport == "Softball" ? .softball : .baseball
                 )
+                newSeason.id = UUID(uuidString: remoteSeason.swiftDataId) ?? UUID()
                 newSeason.firestoreId = remoteSeason.id
                 newSeason.endDate = remoteSeason.endDate
                 newSeason.isActive = remoteSeason.isActive
@@ -403,10 +397,6 @@ final class SyncCoordinator {
     /// Syncs all games for a user bidirectionally (upload + download + resolve)
     /// - Parameter user: The SwiftData User to sync games for
     func syncGames(for user: User) async throws {
-        guard !isSyncing else {
-            print("⚠️ Sync in progress, skipping direct syncGames call")
-            return
-        }
         guard let context = modelContext else {
             print("⚠️ Cannot sync games - ModelContext not configured")
             return
@@ -544,6 +534,7 @@ final class SyncCoordinator {
                     date: remoteGame.date ?? Date(),
                     opponent: remoteGame.opponent
                 )
+                newGame.id = UUID(uuidString: remoteGame.swiftDataId) ?? UUID()
                 newGame.firestoreId = remoteGame.id
                 newGame.isLive = remoteGame.isLive
                 newGame.isComplete = remoteGame.isComplete
@@ -693,11 +684,11 @@ final class SyncCoordinator {
             }
 
             if let local = localPractice {
-                // Practice exists locally - check if remote is newer
+                // Practice exists locally - check if remote is newer AND no pending local changes
                 let remoteUpdatedAt = remoteData.updatedAt ?? Date.distantPast
                 let localSyncDate = local.lastSyncDate ?? Date.distantPast
 
-                if remoteUpdatedAt > localSyncDate {
+                if remoteUpdatedAt > localSyncDate && !local.needsSync {
                     print("Updating local practice \(local.id) with remote data")
                     local.date = remoteData.date
                     local.lastSyncDate = Date()
@@ -708,6 +699,7 @@ final class SyncCoordinator {
                 // New practice from remote - create locally
                 print("Creating new local practice from remote")
                 let newPractice = Practice(date: remoteData.date ?? Date())
+                newPractice.id = UUID(uuidString: remoteData.swiftDataId) ?? UUID()
                 newPractice.firestoreId = remoteData.id
                 newPractice.createdAt = remoteData.createdAt
                 newPractice.lastSyncDate = Date()
@@ -816,7 +808,12 @@ final class SyncCoordinator {
                 try await VideoCloudManager.shared.updateVideoMetadata(
                     clipId: firestoreId,
                     isHighlight: clip.isHighlight,
-                    note: clip.note
+                    note: clip.note,
+                    playResultType: clip.playResult?.type,
+                    gameId: clip.game?.id.uuidString,
+                    gameOpponent: clip.game?.opponent,
+                    seasonId: clip.season?.id.uuidString,
+                    practiceId: clip.practice?.id.uuidString
                 )
                 clip.needsSync = false
                 print("✅ Synced updated video metadata: \(clip.fileName)")
@@ -839,6 +836,15 @@ final class SyncCoordinator {
             let localClips = athlete.videoClips ?? []
             let localClipsByID = Dictionary(uniqueKeysWithValues: localClips.map { ($0.id, $0) })
 
+            let allLocalSeasons = athlete.seasons ?? []
+            let allLocalPractices = athlete.practices ?? []
+            // Mirror uploadLocalGames: collect from both athlete.games and season.games
+            // so season-linked games are found during association lookup.
+            let directGames = athlete.games ?? []
+            let seasonGames = athlete.seasons?.flatMap { $0.games ?? [] } ?? []
+            var seenGameIDs = Set<UUID>()
+            let allLocalGames = (directGames + seasonGames).filter { seenGameIDs.insert($0.id).inserted }
+
             // Merge updates into existing clips where remote is newer and local has no pending changes
             for remoteVideo in remoteVideos {
                 guard let localClip = localClipsByID[remoteVideo.id],
@@ -856,6 +862,15 @@ final class SyncCoordinator {
                         localClip.playResult = playResult
                         context.insert(playResult)
                     }
+                }
+                if let gameId = remoteVideo.gameId {
+                    localClip.game = allLocalGames.first { $0.id.uuidString == gameId || $0.firestoreId == gameId }
+                }
+                if let seasonId = remoteVideo.seasonId {
+                    localClip.season = allLocalSeasons.first { $0.id.uuidString == seasonId || $0.firestoreId == seasonId }
+                }
+                if let practiceId = remoteVideo.practiceId {
+                    localClip.practice = allLocalPractices.first { $0.id.uuidString == practiceId }
                 }
                 localClip.lastSyncDate = Date()
             }
@@ -896,13 +911,16 @@ final class SyncCoordinator {
 
                 // Link to game by stable ID first; fall back to opponent name for older records
                 // that were uploaded before gameId was stored.
-                let games = athlete.games ?? []
                 if let gameId = remoteVideo.gameId {
-                    newClip.game = games.first {
-                        $0.id.uuidString == gameId || $0.firestoreId == gameId
-                    }
+                    newClip.game = allLocalGames.first { $0.id.uuidString == gameId || $0.firestoreId == gameId }
                 } else if let gameOpponent = remoteVideo.gameOpponent {
-                    newClip.game = games.first { $0.opponent == gameOpponent }
+                    newClip.game = allLocalGames.first { $0.opponent == gameOpponent }
+                }
+                if let seasonId = remoteVideo.seasonId {
+                    newClip.season = allLocalSeasons.first { $0.id.uuidString == seasonId || $0.firestoreId == seasonId }
+                }
+                if let practiceId = remoteVideo.practiceId {
+                    newClip.practice = allLocalPractices.first { $0.id.uuidString == practiceId }
                 }
 
                 context.insert(newClip)
@@ -1100,13 +1118,13 @@ final class SyncCoordinator {
 
                 // Link to game/practice/season by ID if available
                 if let gameId = remotePhoto.gameId {
-                    newPhoto.game = (athlete.games ?? []).first { $0.id.uuidString == gameId }
+                    newPhoto.game = (athlete.games ?? []).first { $0.id.uuidString == gameId || $0.firestoreId == gameId }
                 }
                 if let practiceId = remotePhoto.practiceId {
-                    newPhoto.practice = (athlete.practices ?? []).first { $0.id.uuidString == practiceId }
+                    newPhoto.practice = (athlete.practices ?? []).first { $0.id.uuidString == practiceId || $0.firestoreId == practiceId }
                 }
                 if let seasonId = remotePhoto.seasonId {
-                    newPhoto.season = (athlete.seasons ?? []).first { $0.id.uuidString == seasonId }
+                    newPhoto.season = (athlete.seasons ?? []).first { $0.id.uuidString == seasonId || $0.firestoreId == seasonId }
                 }
 
                 context.insert(newPhoto)
@@ -1311,18 +1329,6 @@ final class SyncCoordinator {
 // MARK: - Supporting Types
 
 /// Represents a queued sync operation (for future enhancement)
-struct SyncOperation {
-    enum OperationType {
-        case createAthlete
-        case updateAthlete
-        case deleteAthlete
-    }
-
-    let type: OperationType
-    let entityId: String
-    let timestamp: Date
-}
-
 /// Represents a sync error for UI display
 struct SyncError: Identifiable {
     enum ErrorType {

@@ -114,12 +114,16 @@ class GameService {
 
         // End all other live games if this game is going live
         if isLive {
-            (athlete.games ?? []).filter { $0.isLive }.forEach { $0.isLive = false }
+            (athlete.games ?? []).filter { $0.isLive }.forEach {
+                $0.isLive = false
+                GameAlertService.shared.cancelEndGameReminder(for: $0)
+            }
         }
 
         // Create game with relationships
         let game = Game(date: date, opponent: opponent)
         game.isLive = isLive
+        if isLive { game.liveStartDate = Date() }
         game.athlete = athlete
         game.season = athlete.activeSeason // Will be nil if no active season
 
@@ -168,6 +172,8 @@ class GameService {
 
             if game.isLive {
                 NotificationCenter.default.post(name: .gameBecameLive, object: game)
+                GameAlertService.shared.requestPermissionIfNeeded()
+                GameAlertService.shared.scheduleEndGameReminder(for: game)
             }
 
             return .success(game)
@@ -194,6 +200,7 @@ class GameService {
         
         // Start this game
         game.isLive = true
+        game.liveStartDate = Date()
 
         // Mark for Firestore sync (Phase 2)
         game.needsSync = true
@@ -219,6 +226,8 @@ class GameService {
 
             print("Started game for athlete \(athlete.name).")
             NotificationCenter.default.post(name: .gameBecameLive, object: game)
+            GameAlertService.shared.requestPermissionIfNeeded()
+            GameAlertService.shared.scheduleEndGameReminder(for: game)
         } catch {
             print("Error saving context after starting game: \(error.localizedDescription)")
         }
@@ -227,6 +236,8 @@ class GameService {
     func end(_ game: Game) async {
         game.isLive = false
         game.isComplete = true
+        game.liveStartDate = nil
+        GameAlertService.shared.cancelEndGameReminder(for: game)
 
         // Mark for Firestore sync (Phase 2)
         game.needsSync = true

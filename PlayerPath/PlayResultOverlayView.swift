@@ -493,6 +493,42 @@ extension PlayResultType {
         }
     }
 
+    /// Short abbreviation used in badges and compact displays.
+    var abbreviation: String {
+        switch self {
+        case .single: return "1B"
+        case .double: return "2B"
+        case .triple: return "3B"
+        case .homeRun: return "HR"
+        case .walk: return "BB"
+        case .strikeout: return "K"
+        case .groundOut: return "GO"
+        case .flyOut: return "FO"
+        case .ball: return "B"
+        case .strike: return "S"
+        case .hitByPitch: return "HBP"
+        case .wildPitch: return "WP"
+        }
+    }
+
+    /// Color used for badges and grid indicators.
+    var badgeColor: Color {
+        switch self {
+        case .single: return .green
+        case .double: return .blue
+        case .triple: return .orange
+        case .homeRun: return .gold
+        case .walk: return .cyan
+        case .strikeout: return .red
+        case .groundOut, .flyOut: return .red
+        case .ball: return .orange
+        case .strike: return .green
+        case .hitByPitch: return .purple
+        case .wildPitch: return .red
+        }
+    }
+
+    /// Color used for play result selection buttons (overlay UI).
     var uiColor: Color {
         switch self {
         case .single, .double, .triple: return .green

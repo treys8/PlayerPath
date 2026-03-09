@@ -32,6 +32,7 @@ extension Notification.Name {
     static let reactivateGame = Notification.Name("reactivateGame")
     static let presentSeasons = Notification.Name("presentSeasons")
     static let presentCoaches = Notification.Name("presentCoaches")
+    static let appWillEnterForeground = Notification.Name("AppWillEnterForeground")
     static let navigateToMorePractice = Notification.Name("navigateToMorePractice")
     static let navigateToMoreHighlights = Notification.Name("navigateToMoreHighlights")
     /// Coach: navigate to a specific shared folder. Post with `object: folderID` (String).

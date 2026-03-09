@@ -50,7 +50,7 @@ struct PlayerPathApp: App {
     /// inside each VersionedSchema enum per Apple's WWDC pattern.
     static let sharedModelContainer: ModelContainer = {
         do {
-            return try ModelContainer(for: Schema(SchemaV5.models))
+            return try ModelContainer(for: Schema(SchemaV6.models))
         } catch {
             fatalError("Could not create ModelContainer: \(error)")
         }

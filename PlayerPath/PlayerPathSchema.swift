@@ -154,12 +154,25 @@ enum SchemaV5: VersionedSchema {
     static var models: [any PersistentModel.Type] { SchemaV1.models }
 }
 
+// MARK: - Schema V6 (3/9/26 — Stale game alerts)
+//
+//  Changes from V5:
+//    • Game.liveStartDate (Date? = nil) added — timestamp when game went live;
+//      used by GameAlertService to detect games left running too long.
+//
+//  Optional with nil default → lightweight migration is sufficient.
+
+enum SchemaV6: VersionedSchema {
+    static var versionIdentifier = Schema.Version(6, 0, 0)
+    static var models: [any PersistentModel.Type] { SchemaV1.models }
+}
+
 // MARK: - Migration Plan
 
 enum PlayerPathMigrationPlan: SchemaMigrationPlan {
     /// All schema versions in chronological order (oldest first).
     static var schemas: [any VersionedSchema.Type] {
-        [SchemaV1.self, SchemaV2.self, SchemaV3.self, SchemaV4.self, SchemaV5.self]
+        [SchemaV1.self, SchemaV2.self, SchemaV3.self, SchemaV4.self, SchemaV5.self, SchemaV6.self]
     }
 
     /// Migration stages between consecutive versions.
@@ -168,7 +181,8 @@ enum PlayerPathMigrationPlan: SchemaMigrationPlan {
             .lightweight(fromVersion: SchemaV1.self, toVersion: SchemaV2.self),
             .lightweight(fromVersion: SchemaV2.self, toVersion: SchemaV3.self),
             .lightweight(fromVersion: SchemaV3.self, toVersion: SchemaV4.self),
-            .lightweight(fromVersion: SchemaV4.self, toVersion: SchemaV5.self)
+            .lightweight(fromVersion: SchemaV4.self, toVersion: SchemaV5.self),
+            .lightweight(fromVersion: SchemaV5.self, toVersion: SchemaV6.self)
         ]
     }
 }

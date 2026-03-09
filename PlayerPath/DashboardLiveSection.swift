@@ -30,6 +30,27 @@ struct DashboardLiveSection: View {
     }
 
     var body: some View {
+        liveGamesList
+            .onReceive(NotificationCenter.default.publisher(for: .appWillEnterForeground)) { _ in
+                staleGame = GameAlertService.shared.staleLiveGames(from: liveGames).first
+            }
+            .alert("Game Still Live", isPresented: Binding(
+                get: { staleGame != nil },
+                set: { if !$0 { staleGame = nil } }
+            ), presenting: staleGame) { game in
+                Button("End Game", role: .destructive) {
+                    Task { await GameService(modelContext: modelContext).end(game) }
+                    staleGame = nil
+                }
+                Button("Keep Going", role: .cancel) { staleGame = nil }
+            } message: { game in
+                let hours = Int(-(game.liveStartDate ?? Date()).timeIntervalSinceNow / 3600)
+                Text("Your game vs \(game.opponent) has been live for \(hours)+ hours. Did you forget to end it?")
+            }
+    }
+
+    @ViewBuilder
+    private var liveGamesList: some View {
         if !liveGames.isEmpty {
             VStack(spacing: 12) {
                 HStack {
@@ -102,4 +123,5 @@ struct DashboardLiveSection: View {
 
     @Environment(\.modelContext) private var modelContext
     @State private var endingGameIDs: Set<UUID> = []
+    @State private var staleGame: Game? = nil
 }
