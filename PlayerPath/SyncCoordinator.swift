@@ -810,9 +810,11 @@ final class SyncCoordinator {
                     isHighlight: clip.isHighlight,
                     note: clip.note,
                     playResultType: clip.playResult?.type,
-                    gameId: clip.game?.id.uuidString,
-                    gameOpponent: clip.game?.opponent,
-                    seasonId: clip.season?.id.uuidString,
+                    gameId: clip.game.map { $0.firestoreId ?? $0.id.uuidString },
+                    gameOpponent: clip.gameOpponent ?? clip.game?.opponent,
+                    gameDate: clip.gameDate ?? clip.game?.date,
+                    seasonId: clip.season.map { $0.firestoreId ?? $0.id.uuidString },
+                    seasonName: clip.seasonName ?? clip.season?.displayName,
                     practiceId: clip.practice?.id.uuidString
                 )
                 clip.needsSync = false
@@ -872,6 +874,11 @@ final class SyncCoordinator {
                 if let practiceId = remoteVideo.practiceId {
                     localClip.practice = allLocalPractices.first { $0.id.uuidString == practiceId }
                 }
+                // Restore denormalized display fields — prefer remote values, then fall back
+                // to resolved relationship so existing clips get backfilled automatically.
+                localClip.gameOpponent = remoteVideo.gameOpponent ?? localClip.game?.opponent
+                localClip.gameDate = remoteVideo.gameDate ?? localClip.game?.date
+                localClip.seasonName = remoteVideo.seasonName ?? localClip.season?.displayName
                 localClip.lastSyncDate = Date()
             }
 
@@ -922,6 +929,12 @@ final class SyncCoordinator {
                 if let practiceId = remoteVideo.practiceId {
                     newClip.practice = allLocalPractices.first { $0.id.uuidString == practiceId }
                 }
+                // Restore denormalized display fields — prefer remote values, then fall back
+                // to resolved relationship so data is always present even if Firestore fields
+                // are missing (older records) or relationship linking fails.
+                newClip.gameOpponent = remoteVideo.gameOpponent ?? newClip.game?.opponent
+                newClip.gameDate = remoteVideo.gameDate ?? newClip.game?.date
+                newClip.seasonName = remoteVideo.seasonName ?? newClip.season?.displayName
 
                 context.insert(newClip)
                 print("✅ Created local VideoClip from remote: \(remoteVideo.fileName)")

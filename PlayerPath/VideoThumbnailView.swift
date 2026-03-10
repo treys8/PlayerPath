@@ -280,7 +280,16 @@ struct VideoThumbnailView: View {
     // MARK: - Context Label
 
     private var contextLabel: String? {
-        if let game = clip.game { return "vs \(game.opponent)" }
+        let opponent = clip.gameOpponent ?? clip.game?.opponent
+        if let opponent = opponent {
+            let date = clip.gameDate ?? clip.game?.date
+            if let date = date {
+                let f = DateFormatter()
+                f.dateFormat = "MMM d"
+                return "vs \(opponent) · \(f.string(from: date))"
+            }
+            return "vs \(opponent)"
+        }
         if clip.practice != nil { return "Practice" }
         return nil
     }

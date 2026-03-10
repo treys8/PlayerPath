@@ -97,10 +97,18 @@ struct VideoClipsView: View {
         // Filter by search text
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if !query.isEmpty {
+            let dateFormatter = DateFormatter()
+            dateFormatter.dateStyle = .medium
+            dateFormatter.timeStyle = .none
+            let shortFormatter = DateFormatter()
+            shortFormatter.dateFormat = "M/d/yy"
             videos = videos.filter { video in
                 video.fileName.lowercased().contains(query) ||
                 (video.playResult?.type.displayName.lowercased().contains(query) ?? false) ||
-                (video.game?.opponent.lowercased().contains(query) ?? false)
+                (video.game?.opponent.lowercased().contains(query) ?? false) ||
+                (video.note?.lowercased().contains(query) ?? false) ||
+                (video.createdAt.map { dateFormatter.string(from: $0).lowercased() }?.contains(query) ?? false) ||
+                (video.createdAt.map { shortFormatter.string(from: $0).lowercased() }?.contains(query) ?? false)
             }
         }
 
@@ -240,20 +248,22 @@ struct VideoClipsView: View {
                     }
                 }
 
+                // Advanced Search button
+                if !(athlete.videoClips?.isEmpty ?? true) {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button {
+                            Haptics.light()
+                            showingAdvancedSearch = true
+                        } label: {
+                            Image(systemName: "line.3.horizontal.decrease.circle")
+                        }
+                        .accessibilityLabel("Advanced Search")
+                    }
+                }
+
                 // Secondary actions menu
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
-                        if !(athlete.videoClips?.isEmpty ?? true) {
-                            Button {
-                                Haptics.light()
-                                showingAdvancedSearch = true
-                            } label: {
-                                Label("Advanced Search", systemImage: "magnifyingglass.circle")
-                            }
-
-                            Divider()
-                        }
-
                         Button {
                             Haptics.light()
                             showingUploadPicker = true

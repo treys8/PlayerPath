@@ -383,6 +383,12 @@ final class ClipPersistenceService {
             videoClip.season = activeSeason
         }
 
+        // Denormalize game/season display data directly onto the clip so it survives
+        // cross-device sync even if game/season relationships cannot be re-linked.
+        videoClip.gameOpponent = game?.opponent
+        videoClip.gameDate = game?.date
+        videoClip.seasonName = athlete.activeSeason?.displayName
+
         // Insert and save
         context.insert(videoClip)
         try context.save()

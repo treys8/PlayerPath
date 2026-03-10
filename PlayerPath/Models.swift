@@ -566,6 +566,11 @@ final class VideoClip {
     @Relationship(inverse: \PlayResult.videoClip) var playResult: PlayResult?
     var isHighlight: Bool = false
     var note: String? = nil
+    // Denormalized display fields — copied at save time so data survives cross-device sync
+    // even if the game/season relationship cannot be re-linked on a new device.
+    var gameOpponent: String?
+    var gameDate: Date?
+    var seasonName: String?
     var game: Game?
     var practice: Practice?
     var athlete: Athlete?

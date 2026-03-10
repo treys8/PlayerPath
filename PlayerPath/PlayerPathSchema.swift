@@ -167,12 +167,26 @@ enum SchemaV6: VersionedSchema {
     static var models: [any PersistentModel.Type] { SchemaV1.models }
 }
 
+// MARK: - Schema V7 (3/10/26 — Denormalized clip display data)
+//
+//  Changes from V6:
+//    • VideoClip.gameOpponent (String? = nil) added — opponent copied from game.opponent at save time
+//    • VideoClip.gameDate (Date? = nil) added — date copied from game.date at save time
+//    • VideoClip.seasonName (String? = nil) added — display name copied from season at save time
+//
+//  All optional with nil defaults → lightweight migration is sufficient.
+
+enum SchemaV7: VersionedSchema {
+    static var versionIdentifier = Schema.Version(7, 0, 0)
+    static var models: [any PersistentModel.Type] { SchemaV1.models }
+}
+
 // MARK: - Migration Plan
 
 enum PlayerPathMigrationPlan: SchemaMigrationPlan {
     /// All schema versions in chronological order (oldest first).
     static var schemas: [any VersionedSchema.Type] {
-        [SchemaV1.self, SchemaV2.self, SchemaV3.self, SchemaV4.self, SchemaV5.self, SchemaV6.self]
+        [SchemaV1.self, SchemaV2.self, SchemaV3.self, SchemaV4.self, SchemaV5.self, SchemaV6.self, SchemaV7.self]
     }
 
     /// Migration stages between consecutive versions.
@@ -182,7 +196,8 @@ enum PlayerPathMigrationPlan: SchemaMigrationPlan {
             .lightweight(fromVersion: SchemaV2.self, toVersion: SchemaV3.self),
             .lightweight(fromVersion: SchemaV3.self, toVersion: SchemaV4.self),
             .lightweight(fromVersion: SchemaV4.self, toVersion: SchemaV5.self),
-            .lightweight(fromVersion: SchemaV5.self, toVersion: SchemaV6.self)
+            .lightweight(fromVersion: SchemaV5.self, toVersion: SchemaV6.self),
+            .lightweight(fromVersion: SchemaV6.self, toVersion: SchemaV7.self)
         ]
     }
 }
