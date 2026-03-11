@@ -332,6 +332,22 @@ struct SampleDataPromptView: View {
     }
 }
 
+private struct FeatureRow: View {
+    let icon: String
+    let text: String
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.body)
+                .foregroundStyle(.blue)
+                .frame(width: 24)
+            Text(text)
+                .font(.body)
+        }
+    }
+}
+
 struct SampleDataPromptView_Previews: PreviewProvider {
     static var previews: some View {
         let config = ModelConfiguration(isStoredInMemoryOnly: true)

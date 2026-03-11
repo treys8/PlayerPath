@@ -11,12 +11,11 @@ import StoreKit
 struct CoachPaywallView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
-    @StateObject private var storeManager = StoreKitManager.shared
+    @ObservedObject private var storeManager = StoreKitManager.shared
 
     @State private var selectedTier: CoachSubscriptionTier = .instructor
     @State private var isAnnual: Bool = false
     @State private var isPurchasing = false
-    @State private var showingError = false
     @State private var showingTerms = false
     @State private var showingPrivacyPolicy = false
 
@@ -37,16 +36,19 @@ struct CoachPaywallView: View {
             .navigationTitle("Coach Plans")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
+                ToolbarItem(placement: .topBarTrailing) {
                     Button("Close") { dismiss() }
                 }
             }
             .sheet(isPresented: $showingTerms) { TermsOfServiceView() }
             .sheet(isPresented: $showingPrivacyPolicy) { PrivacyPolicyView() }
-            .alert("Error", isPresented: $showingError, presenting: storeManager.error) { _ in
+            .alert("Error", isPresented: Binding(
+                get: { storeManager.error != nil },
+                set: { if !$0 { storeManager.clearError() } }
+            )) {
                 Button("OK", role: .cancel) {}
-            } message: { error in
-                Text(error.localizedDescription)
+            } message: {
+                Text(storeManager.error?.localizedDescription ?? "An unknown error occurred.")
             }
             .overlay {
                 if isPurchasing { LoadingOverlay(message: "Processing purchase...") }
@@ -104,6 +106,8 @@ struct CoachPaywallView: View {
                 .cornerRadius(9)
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(selected ? .isSelected : [])
         .animation(.easeInOut(duration: 0.2), value: selected)
     }
 
@@ -127,14 +131,14 @@ struct CoachPaywallView: View {
                 Text("Free").font(.caption).foregroundStyle(.secondary)
             } instructor: {
                 coachPriceLabel(
-                    monthly: storeManager.coachProduct(for: .instructorMonthly)?.displayPrice ?? "$9.99",
-                    annual: storeManager.coachProduct(for: .instructorAnnual)?.displayPrice ?? "$89.99",
+                    monthly: storeManager.coachProduct(for: .instructorMonthly)?.displayPrice,
+                    annual: storeManager.coachProduct(for: .instructorAnnual)?.displayPrice,
                     forAnnual: isAnnual
                 )
             } proInstructor: {
                 coachPriceLabel(
-                    monthly: storeManager.coachProduct(for: .proInstructorMonthly)?.displayPrice ?? "$19.99",
-                    annual: storeManager.coachProduct(for: .proInstructorAnnual)?.displayPrice ?? "$179.99",
+                    monthly: storeManager.coachProduct(for: .proInstructorMonthly)?.displayPrice,
+                    annual: storeManager.coachProduct(for: .proInstructorAnnual)?.displayPrice,
                     forAnnual: isAnnual
                 )
             } academy: {
@@ -157,35 +161,35 @@ struct CoachPaywallView: View {
 
             // Video Review row
             coachTableRow(feature: "Video Review") {
-                Image(systemName: "checkmark").font(.caption).foregroundStyle(.green)
+                coachCheckIcon(included: true)
             } instructor: {
-                Image(systemName: "checkmark").font(.caption).foregroundStyle(.green)
+                coachCheckIcon(included: true)
             } proInstructor: {
-                Image(systemName: "checkmark").font(.caption).foregroundStyle(.green)
+                coachCheckIcon(included: true)
             } academy: {
-                Image(systemName: "checkmark").font(.caption).foregroundStyle(.green)
+                coachCheckIcon(included: true)
             }
 
             // Annotations row
             coachTableRow(feature: "Annotations") {
-                Image(systemName: "checkmark").font(.caption).foregroundStyle(.green)
+                coachCheckIcon(included: true)
             } instructor: {
-                Image(systemName: "checkmark").font(.caption).foregroundStyle(.green)
+                coachCheckIcon(included: true)
             } proInstructor: {
-                Image(systemName: "checkmark").font(.caption).foregroundStyle(.green)
+                coachCheckIcon(included: true)
             } academy: {
-                Image(systemName: "checkmark").font(.caption).foregroundStyle(.green)
+                coachCheckIcon(included: true)
             }
 
             // Priority Support row
             coachTableRow(feature: "Priority Support") {
-                Image(systemName: "xmark").font(.caption).foregroundStyle(.secondary)
+                coachCheckIcon(included: false)
             } instructor: {
-                Image(systemName: "xmark").font(.caption).foregroundStyle(.secondary)
+                coachCheckIcon(included: false)
             } proInstructor: {
-                Image(systemName: "checkmark").font(.caption).foregroundStyle(.green)
+                coachCheckIcon(included: true)
             } academy: {
-                Image(systemName: "checkmark").font(.caption).foregroundStyle(.green)
+                coachCheckIcon(included: true)
             }
         }
         .background(Color(.secondarySystemBackground))
@@ -256,8 +260,16 @@ struct CoachPaywallView: View {
                 coachCellFrame { proInstructor() }
                     .background(selectedTier == .proInstructor ? Color.green.opacity(0.06) : Color.clear)
                 coachCellFrame { academy() }
+                    .background(selectedTier == .academy ? Color.purple.opacity(0.06) : Color.clear)
             }
         }
+    }
+
+    private func coachCheckIcon(included: Bool) -> some View {
+        Image(systemName: included ? "checkmark" : "xmark")
+            .font(.caption)
+            .foregroundStyle(included ? .green : .secondary)
+            .accessibilityLabel(included ? "Included" : "Not included")
     }
 
     private func coachCellFrame<Content: View>(@ViewBuilder content: () -> Content) -> some View {
@@ -266,11 +278,16 @@ struct CoachPaywallView: View {
             .padding(.vertical, 11)
     }
 
-    private func coachPriceLabel(monthly: String, annual: String, forAnnual: Bool) -> some View {
+    private func coachPriceLabel(monthly: String?, annual: String?, forAnnual: Bool) -> some View {
         VStack(spacing: 1) {
-            Text(forAnnual ? annual : monthly)
-                .font(.caption).fontWeight(.semibold)
-            if forAnnual {
+            if let price = forAnnual ? annual : monthly {
+                Text(price)
+                    .font(.caption).fontWeight(.semibold)
+            } else {
+                ProgressView()
+                    .controlSize(.mini)
+            }
+            if forAnnual, annual != nil {
                 Text("billed yearly")
                     .font(.system(size: 9))
                     .foregroundStyle(.secondary)
@@ -300,7 +317,7 @@ struct CoachPaywallView: View {
                 }
                 .buttonStyle(.plain)
             } else if selectedTier == .free {
-                Button {} label: {
+                Button { dismiss() } label: {
                     Text("Keep Free Plan")
                         .font(.headline).fontWeight(.semibold)
                         .frame(maxWidth: .infinity)
@@ -309,7 +326,7 @@ struct CoachPaywallView: View {
                         .foregroundStyle(.secondary)
                         .cornerRadius(14)
                 }
-                .disabled(true)
+                .buttonStyle(.plain)
             } else {
                 Button {
                     Task { await purchaseSelected() }
@@ -326,7 +343,7 @@ struct CoachPaywallView: View {
                     .cornerRadius(14)
                     .shadow(color: Color.green.opacity(0.3), radius: 8, x: 0, y: 4)
                 }
-                .disabled(isPurchasing)
+                .disabled(isPurchasing || storeManager.coachProducts.isEmpty)
                 .buttonStyle(.plain)
             }
         }
@@ -349,6 +366,7 @@ struct CoachPaywallView: View {
                 isPurchasing = true
                 await storeManager.restorePurchases()
                 isPurchasing = false
+                // error alert is driven by storeManager.error binding
             }
         } label: {
             Text("Restore Purchase")
@@ -397,8 +415,24 @@ struct CoachPaywallView: View {
 
         if let product {
             let result = await storeManager.purchase(product)
-            if case .failed = result { isPurchasing = false; showingError = true; return }
-            if case .cancelled = result { isPurchasing = false; return }
+            switch result {
+            case .failed:
+                // error alert driven by storeManager.error binding
+                isPurchasing = false
+                return
+            case .cancelled:
+                isPurchasing = false
+                return
+            case .pending:
+                // Ask to Buy / parental approval — inform user and stop spinner
+                isPurchasing = false
+                return
+            case .success:
+                // dismiss handled by onChange(of: currentCoachTier)
+                break
+            case .unknown:
+                break
+            }
         }
 
         isPurchasing = false

@@ -56,12 +56,18 @@ struct SeasonIndicatorView: View {
 struct SeasonRecommendationBanner: View {
     let athlete: Athlete
     let recommendation: SeasonManager.SeasonRecommendation
-    @Environment(\.modelContext) private var modelContext
     @State private var showingSeasonManagement = false
     @State private var dismissed = false
     
     private var dismissedKey: String {
-        "seasonBanner_\(athlete.id.uuidString)"
+        let recType: String
+        switch recommendation {
+        case .createFirst:     recType = "createFirst"
+        case .noActiveSeason:  recType = "noActiveSeason"
+        case .considerEnding:  recType = "considerEnding"
+        case .ok:              recType = "ok"
+        }
+        return "seasonBanner_\(athlete.id.uuidString)_\(recType)"
     }
     
     var body: some View {
@@ -181,10 +187,10 @@ struct CreateFirstSeasonPrompt: View {
             }
             
             VStack(alignment: .leading, spacing: 16) {
-                FeatureRow(icon: "figure.baseball", text: "Track games and tournaments")
-                FeatureRow(icon: "video", text: "Record and organize videos")
-                FeatureRow(icon: "chart.line.uptrend.xyaxis", text: "View season statistics")
-                FeatureRow(icon: "archivebox", text: "Archive seasons to keep history clean")
+                SeasonFeatureRow(icon: "figure.baseball", text: "Track games and tournaments")
+                SeasonFeatureRow(icon: "video", text: "Record and organize videos")
+                SeasonFeatureRow(icon: "chart.line.uptrend.xyaxis", text: "View season statistics")
+                SeasonFeatureRow(icon: "archivebox", text: "Archive seasons to keep history clean")
             }
             .padding()
             .background {
@@ -206,8 +212,8 @@ struct CreateFirstSeasonPrompt: View {
             }
             .padding(.horizontal)
             
-            Button("I'll Do This Later") {
-                // Create a default season in the background
+            Button("Use Default Season") {
+                Haptics.light()
                 _ = SeasonManager.ensureActiveSeason(for: athlete, in: modelContext)
             }
             .font(.subheadline)
@@ -220,7 +226,7 @@ struct CreateFirstSeasonPrompt: View {
     }
 }
 
-struct FeatureRow: View {
+struct SeasonFeatureRow: View {
     let icon: String
     let text: String
     

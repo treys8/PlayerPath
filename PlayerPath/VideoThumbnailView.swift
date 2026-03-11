@@ -374,24 +374,11 @@ struct VideoThumbnailView: View {
         }
     }
 
-    /// Returns the local video URL, healing `clip.filePath` if the sandbox container path changed.
+    /// Returns the local video URL using the model's resolved path.
     private func resolveLocalVideoURL() -> URL? {
-        if FileManager.default.fileExists(atPath: clip.filePath) {
-            return URL(fileURLWithPath: clip.filePath)
-        }
-        guard let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
-            return nil
-        }
-        let clipsURL = documentsURL.appendingPathComponent("Clips").appendingPathComponent(clip.fileName)
-        if FileManager.default.fileExists(atPath: clipsURL.path) {
-            Self.logger.info("Healed stale filePath for \(self.clip.fileName, privacy: .public)")
-            // Guard save — only write if the stored path actually changed to avoid races
-            // when multiple thumbnail views for the same clip exist simultaneously.
-            if clip.filePath != clipsURL.path {
-                clip.filePath = clipsURL.path
-                try? modelContext.save()
-            }
-            return clipsURL
+        let resolved = clip.resolvedFilePath
+        if FileManager.default.fileExists(atPath: resolved) {
+            return URL(fileURLWithPath: resolved)
         }
         return nil
     }

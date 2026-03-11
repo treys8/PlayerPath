@@ -8,6 +8,7 @@
 
 import Foundation
 import FirebaseFunctions
+import os
 
 /// Manager for generating secure, expiring URLs for video and thumbnail access
 @MainActor
@@ -15,10 +16,12 @@ class SecureURLManager {
     static let shared = SecureURLManager()
     
     private let functions = Functions.functions()
-    
+    private let log = Logger(subsystem: "com.playerpath.app", category: "SecureURLManager")
+    private static let isoFormatter = ISO8601DateFormatter()
+
     // Cache for signed URLs to avoid repeated function calls
     private var urlCache: [String: CachedURL] = [:]
-    
+
     private init() {}
     
     // MARK: - Cached URL Structure
@@ -54,49 +57,47 @@ class SecureURLManager {
     ) async throws -> String {
         
         let cacheKey = "video_\(folderID)_\(fileName)"
-        
+
+        cleanExpiredURLs()
+
         // Check cache unless force refresh
         if !forceRefresh,
            let cached = urlCache[cacheKey],
            !cached.isExpiringSoon {
-            print("📦 Using cached video URL for \(fileName)")
+            log.debug("Using cached video URL for \(fileName, privacy: .private)")
             return cached.url
         }
-        
-        print("🔐 Generating secure video URL for \(fileName)")
-        
+
+        log.debug("Generating secure video URL for \(fileName, privacy: .private)")
+
         let callable = functions.httpsCallable("getSignedVideoURL")
-        
+
         let data: [String: Any] = [
             "folderID": folderID,
             "fileName": fileName,
             "expirationHours": expirationHours
         ]
-        
+
         do {
             let result = try await callable.call(data)
-            
+
             guard let response = result.data as? [String: Any],
                   let signedURL = response["signedURL"] as? String,
                   let expiresAtString = response["expiresAt"] as? String else {
                 throw SecureURLError.invalidResponse
             }
-            
-            // Parse expiration date
-            let formatter = ISO8601DateFormatter()
-            guard let expiresAt = formatter.date(from: expiresAtString) else {
+
+            guard let expiresAt = Self.isoFormatter.date(from: expiresAtString) else {
                 throw SecureURLError.invalidExpirationDate
             }
-            
-            // Cache the URL
+
             urlCache[cacheKey] = CachedURL(url: signedURL, expiresAt: expiresAt)
-            
-            print("✅ Secure video URL generated, expires at \(expiresAt)")
-            
+            log.debug("Secure video URL generated, expires at \(expiresAt, privacy: .public)")
+
             return signedURL
-            
+
         } catch {
-            print("❌ Failed to generate secure video URL: \(error)")
+            log.error("Failed to generate secure video URL: \(error.localizedDescription, privacy: .public)")
             throw SecureURLError.functionCallFailed(error)
         }
     }
@@ -116,49 +117,47 @@ class SecureURLManager {
     ) async throws -> String {
         
         let cacheKey = "thumbnail_\(folderID)_\(videoFileName)"
-        
+
+        cleanExpiredURLs()
+
         // Check cache unless force refresh
         if !forceRefresh,
            let cached = urlCache[cacheKey],
            !cached.isExpiringSoon {
-            print("📦 Using cached thumbnail URL for \(videoFileName)")
+            log.debug("Using cached thumbnail URL for \(videoFileName, privacy: .private)")
             return cached.url
         }
-        
-        print("🔐 Generating secure thumbnail URL for \(videoFileName)")
-        
+
+        log.debug("Generating secure thumbnail URL for \(videoFileName, privacy: .private)")
+
         let callable = functions.httpsCallable("getSignedThumbnailURL")
-        
+
         let data: [String: Any] = [
             "folderID": folderID,
             "videoFileName": videoFileName,
             "expirationHours": expirationHours
         ]
-        
+
         do {
             let result = try await callable.call(data)
-            
+
             guard let response = result.data as? [String: Any],
                   let signedURL = response["signedURL"] as? String,
                   let expiresAtString = response["expiresAt"] as? String else {
                 throw SecureURLError.invalidResponse
             }
-            
-            // Parse expiration date
-            let formatter = ISO8601DateFormatter()
-            guard let expiresAt = formatter.date(from: expiresAtString) else {
+
+            guard let expiresAt = Self.isoFormatter.date(from: expiresAtString) else {
                 throw SecureURLError.invalidExpirationDate
             }
-            
-            // Cache the URL
+
             urlCache[cacheKey] = CachedURL(url: signedURL, expiresAt: expiresAt)
-            
-            print("✅ Secure thumbnail URL generated, expires at \(expiresAt)")
-            
+            log.debug("Secure thumbnail URL generated, expires at \(expiresAt, privacy: .public)")
+
             return signedURL
-            
+
         } catch {
-            print("❌ Failed to generate secure thumbnail URL: \(error)")
+            log.error("Failed to generate secure thumbnail URL: \(error.localizedDescription, privacy: .public)")
             throw SecureURLError.functionCallFailed(error)
         }
     }
@@ -175,56 +174,53 @@ class SecureURLManager {
         expirationHours: Int = 24
     ) async throws -> [(fileName: String, url: String)] {
         
-        print("🔐 Generating \(fileNames.count) secure video URLs in batch")
-        
+        log.debug("Generating \(fileNames.count) secure video URLs in batch")
+
         let callable = functions.httpsCallable("getBatchSignedVideoURLs")
-        
+
         let data: [String: Any] = [
             "folderID": folderID,
             "fileNames": fileNames,
             "expirationHours": expirationHours
         ]
-        
+
         do {
             let result = try await callable.call(data)
-            
+
             guard let response = result.data as? [String: Any],
                   let urlsData = response["urls"] as? [[String: Any]] else {
                 throw SecureURLError.invalidResponse
             }
-            
+
             var results: [(fileName: String, url: String)] = []
-            
+
             for urlData in urlsData {
                 guard let fileName = urlData["fileName"] as? String else { continue }
-                
+
                 if let error = urlData["error"] as? String {
-                    print("⚠️ Error for \(fileName): \(error)")
+                    log.warning("Batch URL error for \(fileName, privacy: .private): \(error, privacy: .public)")
                     continue
                 }
-                
+
                 guard let signedURL = urlData["signedURL"] as? String,
                       let expiresAtString = urlData["expiresAt"] as? String else {
                     continue
                 }
-                
-                // Parse expiration date
-                let formatter = ISO8601DateFormatter()
-                if let expiresAt = formatter.date(from: expiresAtString) {
-                    // Cache the URL
+
+                if let expiresAt = Self.isoFormatter.date(from: expiresAtString) {
                     let cacheKey = "video_\(folderID)_\(fileName)"
                     urlCache[cacheKey] = CachedURL(url: signedURL, expiresAt: expiresAt)
                 }
-                
+
                 results.append((fileName: fileName, url: signedURL))
             }
-            
-            print("✅ Generated \(results.count) secure video URLs")
-            
+
+            log.debug("Generated \(results.count) of \(fileNames.count) secure video URLs")
+
             return results
-            
+
         } catch {
-            print("❌ Failed to generate batch secure video URLs: \(error)")
+            log.error("Failed to generate batch secure video URLs: \(error.localizedDescription, privacy: .public)")
             throw SecureURLError.functionCallFailed(error)
         }
     }
@@ -239,6 +235,8 @@ class SecureURLManager {
     ) async throws -> String {
 
         let cacheKey = "personal_\(ownerUID)_\(fileName)"
+
+        cleanExpiredURLs()
 
         if !forceRefresh,
            let cached = urlCache[cacheKey],
@@ -260,8 +258,7 @@ class SecureURLManager {
                   let expiresAtString = response["expiresAt"] as? String else {
                 throw SecureURLError.invalidResponse
             }
-            let formatter = ISO8601DateFormatter()
-            guard let expiresAt = formatter.date(from: expiresAtString) else {
+            guard let expiresAt = Self.isoFormatter.date(from: expiresAtString) else {
                 throw SecureURLError.invalidExpirationDate
             }
             urlCache[cacheKey] = CachedURL(url: signedURL, expiresAt: expiresAt)
@@ -274,16 +271,16 @@ class SecureURLManager {
     /// Clears the URL cache
     func clearCache() {
         urlCache.removeAll()
-        print("🗑️ Cleared secure URL cache")
+        log.debug("Cleared secure URL cache")
     }
-    
+
     /// Removes expired URLs from cache
     func cleanExpiredURLs() {
         let before = urlCache.count
         urlCache = urlCache.filter { !$0.value.isExpired }
         let removed = before - urlCache.count
         if removed > 0 {
-            print("🗑️ Removed \(removed) expired URLs from cache")
+            log.debug("Removed \(removed) expired URLs from cache")
         }
     }
 }
@@ -294,8 +291,7 @@ enum SecureURLError: LocalizedError {
     case invalidResponse
     case invalidExpirationDate
     case functionCallFailed(Error)
-    case functionNotDeployed
-    
+
     var errorDescription: String? {
         switch self {
         case .invalidResponse:
@@ -308,66 +304,6 @@ enum SecureURLError: LocalizedError {
             #else
             return "Unable to load video. Please try again."
             #endif
-        case .functionNotDeployed:
-            #if DEBUG
-            return "Cloud Functions not deployed. Please deploy functions_index.ts"
-            #else
-            return "This feature is currently unavailable. Please try again later."
-            #endif
         }
     }
 }
-
-// MARK: - Example Usage
-
-/*
- 
- // Get a secure URL for a single video
- Task {
-     do {
-         let url = try await SecureURLManager.shared.getSecureVideoURL(
-             fileName: "game_video.mov",
-             folderID: "folder123",
-             expirationHours: 24
-         )
-         print("Video URL: \(url)")
-     } catch {
-         print("Error: \(error)")
-     }
- }
- 
- // Get a secure URL for a thumbnail
- Task {
-     do {
-         let url = try await SecureURLManager.shared.getSecureThumbnailURL(
-             videoFileName: "game_video.mov",
-             folderID: "folder123",
-             expirationHours: 168 // 7 days
-         )
-         print("Thumbnail URL: \(url)")
-     } catch {
-         print("Error: \(error)")
-     }
- }
- 
- // Get batch URLs for multiple videos
- Task {
-     do {
-         let urls = try await SecureURLManager.shared.getBatchSecureVideoURLs(
-             fileNames: ["video1.mov", "video2.mov", "video3.mov"],
-             folderID: "folder123"
-         )
-         for (fileName, url) in urls {
-             print("\(fileName): \(url)")
-         }
-     } catch {
-         print("Error: \(error)")
-     }
- }
- 
- // Clean expired URLs periodically
- Task {
-     SecureURLManager.shared.cleanExpiredURLs()
- }
- 
- */

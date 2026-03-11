@@ -196,8 +196,11 @@ struct DirectCameraRecorderView: View {
                     videoURL: finalVideoURL,
                     athlete: athlete,
                     practice: practice,
-                    onSave: { note in
-                        saveVideoWithResult(videoURL: finalVideoURL, playResult: nil, role: athlete?.primaryRole ?? .batter, note: note) { dismiss() }
+                    onSave: { note, completion in
+                        saveVideoWithResult(videoURL: finalVideoURL, playResult: nil, role: athlete?.primaryRole ?? .batter, note: note) {
+                            completion()
+                            dismiss()
+                        }
                     },
                     onDiscard: {
                         showingDiscardConfirmation = true

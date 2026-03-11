@@ -14,14 +14,13 @@ struct ImprovedPaywallView: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
-    @StateObject private var storeManager = StoreKitManager.shared
+    @ObservedObject private var storeManager = StoreKitManager.shared
 
     // Selection state
     @State private var selectedTier: SubscriptionTier = .plus
     @State private var isAnnual: Bool = false
 
     @State private var isPurchasing = false
-    @State private var showingError = false
     @State private var showingTerms = false
     @State private var showingPrivacyPolicy = false
     @State private var hasAppeared = false
@@ -43,16 +42,19 @@ struct ImprovedPaywallView: View {
             .navigationTitle("Choose Your Plan")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
+                ToolbarItem(placement: .topBarTrailing) {
                     Button("Close") { dismiss() }
                 }
             }
             .sheet(isPresented: $showingTerms) { TermsOfServiceView() }
             .sheet(isPresented: $showingPrivacyPolicy) { PrivacyPolicyView() }
-            .alert("Error", isPresented: $showingError, presenting: storeManager.error) { _ in
+            .alert("Error", isPresented: Binding(
+                get: { storeManager.error != nil },
+                set: { if !$0 { storeManager.clearError() } }
+            )) {
                 Button("OK", role: .cancel) {}
-            } message: { error in
-                Text(error.localizedDescription)
+            } message: {
+                Text(storeManager.error?.localizedDescription ?? "An unknown error occurred.")
             }
             .overlay {
                 if isPurchasing { LoadingOverlay(message: "Processing purchase...") }
@@ -117,6 +119,8 @@ struct ImprovedPaywallView: View {
                 .cornerRadius(9)
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(selected ? .isSelected : [])
         .animation(.easeInOut(duration: 0.2), value: selected)
     }
 
@@ -140,14 +144,14 @@ struct ImprovedPaywallView: View {
                     .font(.caption).foregroundStyle(.secondary)
             } plus: {
                 priceLabel(
-                    monthly: storeManager.product(for: .plusMonthly)?.displayPrice ?? "—",
-                    annual: storeManager.product(for: .plusAnnual)?.displayPrice ?? "—",
+                    monthly: storeManager.product(for: .plusMonthly)?.displayPrice,
+                    annual: storeManager.product(for: .plusAnnual)?.displayPrice,
                     forAnnual: isAnnual
                 )
             } pro: {
                 priceLabel(
-                    monthly: storeManager.product(for: .proMonthly)?.displayPrice ?? "—",
-                    annual: storeManager.product(for: .proAnnual)?.displayPrice ?? "—",
+                    monthly: storeManager.product(for: .proMonthly)?.displayPrice,
+                    annual: storeManager.product(for: .proAnnual)?.displayPrice,
                     forAnnual: isAnnual
                 )
             }
@@ -169,43 +173,43 @@ struct ImprovedPaywallView: View {
             }
 
             tableRow(feature: "Advanced Stats") {
-                Image(systemName: "xmark").font(.caption).foregroundStyle(.secondary)
+                checkIcon(included: false)
             } plus: {
-                Image(systemName: "checkmark").font(.caption).foregroundStyle(.green)
+                checkIcon(included: true)
             } pro: {
-                Image(systemName: "checkmark").font(.caption).foregroundStyle(.green)
+                checkIcon(included: true)
             }
 
             tableRow(feature: "Export Reports") {
-                Image(systemName: "xmark").font(.caption).foregroundStyle(.secondary)
+                checkIcon(included: false)
             } plus: {
-                Image(systemName: "checkmark").font(.caption).foregroundStyle(.green)
+                checkIcon(included: true)
             } pro: {
-                Image(systemName: "checkmark").font(.caption).foregroundStyle(.green)
+                checkIcon(included: true)
             }
 
             tableRow(feature: "Auto Highlights") {
-                Image(systemName: "xmark").font(.caption).foregroundStyle(.secondary)
+                checkIcon(included: false)
             } plus: {
-                Image(systemName: "checkmark").font(.caption).foregroundStyle(.green)
+                checkIcon(included: true)
             } pro: {
-                Image(systemName: "checkmark").font(.caption).foregroundStyle(.green)
+                checkIcon(included: true)
             }
 
             tableRow(feature: "Season Compare") {
-                Image(systemName: "xmark").font(.caption).foregroundStyle(.secondary)
+                checkIcon(included: false)
             } plus: {
-                Image(systemName: "checkmark").font(.caption).foregroundStyle(.green)
+                checkIcon(included: true)
             } pro: {
-                Image(systemName: "checkmark").font(.caption).foregroundStyle(.green)
+                checkIcon(included: true)
             }
 
             tableRow(feature: "Coach Sharing") {
-                Image(systemName: "xmark").font(.caption).foregroundStyle(.secondary)
+                checkIcon(included: false)
             } plus: {
-                Image(systemName: "xmark").font(.caption).foregroundStyle(.secondary)
+                checkIcon(included: false)
             } pro: {
-                Image(systemName: "checkmark").font(.caption).foregroundStyle(.green)
+                checkIcon(included: true)
             }
         }
         .background(Color(.secondarySystemBackground))
@@ -264,17 +268,29 @@ struct ImprovedPaywallView: View {
         }
     }
 
+    private func checkIcon(included: Bool) -> some View {
+        Image(systemName: included ? "checkmark" : "xmark")
+            .font(.caption)
+            .foregroundStyle(included ? .green : .secondary)
+            .accessibilityLabel(included ? "Included" : "Not included")
+    }
+
     private func cellFrame<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         content()
             .frame(maxWidth: .infinity)
             .padding(.vertical, 11)
     }
 
-    private func priceLabel(monthly: String, annual: String, forAnnual: Bool) -> some View {
+    private func priceLabel(monthly: String?, annual: String?, forAnnual: Bool) -> some View {
         VStack(spacing: 1) {
-            Text(forAnnual ? annual : monthly)
-                .font(.caption).fontWeight(.semibold)
-            if forAnnual {
+            if let price = forAnnual ? annual : monthly {
+                Text(price)
+                    .font(.caption).fontWeight(.semibold)
+            } else {
+                ProgressView()
+                    .controlSize(.mini)
+            }
+            if forAnnual, annual != nil {
                 Text("billed yearly")
                     .font(.system(size: 9))
                     .foregroundStyle(.secondary)
@@ -285,23 +301,38 @@ struct ImprovedPaywallView: View {
     // MARK: - CTA Button
 
     private var purchaseButton: some View {
-        Button {
-            Task { await purchaseSelected() }
-        } label: {
-            HStack(spacing: 8) {
-                Text(ctaButtonTitle)
-                    .font(.headline).fontWeight(.semibold)
-                if isPurchasing { ProgressView().tint(.white) }
+        Group {
+            if selectedTier == .free {
+                Button { dismiss() } label: {
+                    Text("Keep Free Plan")
+                        .font(.headline).fontWeight(.semibold)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                        .background(Color(.systemGray5))
+                        .foregroundStyle(.secondary)
+                        .cornerRadius(14)
+                }
+                .buttonStyle(.plain)
+            } else {
+                Button {
+                    Task { await purchaseSelected() }
+                } label: {
+                    HStack(spacing: 8) {
+                        Text(ctaButtonTitle)
+                            .font(.headline).fontWeight(.semibold)
+                        if isPurchasing { ProgressView().tint(.white) }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 16)
+                    .background(LinearGradient(colors: [.blue, .blue.opacity(0.8)], startPoint: .leading, endPoint: .trailing))
+                    .foregroundStyle(.white)
+                    .cornerRadius(14)
+                    .shadow(color: Color.blue.opacity(0.3), radius: 8, x: 0, y: 4)
+                }
+                .disabled(isPurchasing || storeManager.products.isEmpty)
+                .buttonStyle(.plain)
             }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 16)
-            .background(LinearGradient(colors: [.blue, .blue.opacity(0.8)], startPoint: .leading, endPoint: .trailing))
-            .foregroundStyle(.white)
-            .cornerRadius(14)
-            .shadow(color: Color.blue.opacity(0.3), radius: 8, x: 0, y: 4)
         }
-        .disabled(selectedTier == .free || isPurchasing)
-        .opacity(selectedTier == .free ? 0.6 : 1.0)
     }
 
     private var ctaButtonTitle: String {
@@ -320,9 +351,6 @@ struct ImprovedPaywallView: View {
                 isPurchasing = true
                 await storeManager.restorePurchases()
                 isPurchasing = false
-                if storeManager.error != nil {
-                    showingError = true
-                }
             }
         } label: {
             Text("Restore Purchase")
@@ -370,12 +398,24 @@ struct ImprovedPaywallView: View {
 
             if let product = tierProduct {
                 let result = await storeManager.purchase(product)
-                if case .failed = result { isPurchasing = false; showingError = true; return }
-                if case .cancelled = result { isPurchasing = false; return }
+                switch result {
+                case .failed:
+                    isPurchasing = false
+                    return
+                case .cancelled:
+                    isPurchasing = false
+                    return
+                case .pending:
+                    isPurchasing = false
+                    return
+                case .success:
+                    break
+                case .unknown:
+                    break
+                }
             } else {
-                // Product not loaded — inform the user rather than silently failing
+                // Product not loaded — button should be disabled, but guard just in case
                 isPurchasing = false
-                showingError = true
                 return
             }
         }

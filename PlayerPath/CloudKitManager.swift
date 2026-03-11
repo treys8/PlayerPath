@@ -8,7 +8,6 @@
 import Foundation
 import CloudKit
 import SwiftUI
-import UserNotifications
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -146,17 +145,14 @@ class CloudKitManager: CloudKitManagerProtocol {
         // Now set up subscriptions if available
         await setupSubscriptions()
         
-        await MainActor.run {
-            self.isInitialized = true
-        }
-        
+        isInitialized = true
+
         print("CloudKit: Initialization complete")
     }
     
     func checkCloudKitAvailability() {
-        // CloudKit framework is available if we can create a container
-        // This will only fail if CloudKit entitlements are missing
-        self.isCloudKitAvailable = true
+        // Assume available until checkiCloudStatusAsync proves otherwise
+        isCloudKitAvailable = true
         checkiCloudStatus()
     }
     
@@ -177,81 +173,36 @@ class CloudKitManager: CloudKitManagerProtocol {
                     return try await privateDatabase.records(matching: query, resultsLimit: 1)
                 }
                 
-                await MainActor.run {
-                    self.isSignedInToiCloud = true
-                    self.cloudKitError = nil
-                    self.cloudKitStatus = .available
-                    print("CloudKit: Successfully connected and container registered")
-                }
+                isSignedInToiCloud = true
+                cloudKitError = nil
+                cloudKitStatus = .available
+                print("CloudKit: Successfully connected and container registered")
             } else {
-                await MainActor.run {
-                    self.isSignedInToiCloud = false
-                    let reason = self.getStatusMessage(for: status)
-                    self.cloudKitError = reason
-                    self.cloudKitStatus = .unavailable(reason: reason)
-                    print("CloudKit: iCloud status - \(status)")
-                }
+                isSignedInToiCloud = false
+                let reason = getStatusMessage(for: status)
+                cloudKitError = reason
+                cloudKitStatus = .unavailable(reason: reason)
+                isCloudKitAvailable = false
+                print("CloudKit: iCloud status - \(status)")
             }
         } catch {
-            await MainActor.run {
-                self.isSignedInToiCloud = false
-                
-                let categorizedError = self.categorizeError(error)
-                let errorMessage = categorizedError.localizedDescription
-                
-                self.cloudKitError = errorMessage
-                self.cloudKitStatus = .unavailable(reason: errorMessage)
-                print("CloudKit: Error - \(error)")
-            }
+            isSignedInToiCloud = false
+            isCloudKitAvailable = false
+
+            let categorizedError = categorizeError(error)
+            let errorMessage = categorizedError.localizedDescription
+
+            cloudKitError = errorMessage
+            cloudKitStatus = .unavailable(reason: errorMessage)
+            print("CloudKit: Error - \(error)")
         }
     }
     
     // MARK: - iCloud Account Status
-    
+
     func checkiCloudStatus() {
         Task {
-            do {
-                // Use retry logic for account status check
-                let status = try await retryCloudKitOperation {
-                    try await container.accountStatus()
-                }
-                
-                // If account is available, try to access the database to register container
-                if status == .available {
-                    // This call will register the container if it hasn't been registered yet
-                    // We'll perform a simple query to test database access
-                    _ = try await retryCloudKitOperation {
-                        let query = CKQuery(recordType: "TestType", predicate: NSPredicate(value: false))
-                        return try await privateDatabase.records(matching: query, resultsLimit: 1)
-                    }
-                    
-                    await MainActor.run {
-                        self.isSignedInToiCloud = true
-                        self.cloudKitError = nil
-                        self.cloudKitStatus = .available
-                        print("CloudKit: Successfully connected and container registered")
-                    }
-                } else {
-                    await MainActor.run {
-                        self.isSignedInToiCloud = false
-                        let reason = self.getStatusMessage(for: status)
-                        self.cloudKitError = reason
-                        self.cloudKitStatus = .unavailable(reason: reason)
-                        print("CloudKit: iCloud status - \(status)")
-                    }
-                }
-            } catch {
-                await MainActor.run {
-                    self.isSignedInToiCloud = false
-                    
-                    let categorizedError = self.categorizeError(error)
-                    let errorMessage = categorizedError.localizedDescription
-                    
-                    self.cloudKitError = errorMessage
-                    self.cloudKitStatus = .unavailable(reason: errorMessage)
-                    print("CloudKit: Error - \(error)")
-                }
-            }
+            await checkiCloudStatusAsync()
         }
     }
     
@@ -381,37 +332,14 @@ class CloudKitManager: CloudKitManagerProtocol {
     @MainActor
     private func registerForRemoteNotifications() {
         #if canImport(UIKit)
-        UNUserNotificationCenter.current().getNotificationSettings { settings in
-            switch settings.authorizationStatus {
-            case .authorized, .provisional, .ephemeral:
-                // Already authorized or provisionally allowed
-                DispatchQueue.main.async {
-                    if !UIApplication.shared.isRegisteredForRemoteNotifications {
-                        UIApplication.shared.registerForRemoteNotifications()
-                        print("CloudKit: Registered for remote notifications (already authorized)")
-                    } else {
-                        print("CloudKit: Already registered for remote notifications")
-                    }
-                }
-            case .denied:
-                print("CloudKit: Notification authorization denied; not registering for remote notifications")
-            case .notDetermined:
-                UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
-                    if let error = error {
-                        print("CloudKit: Notification authorization error: \(error.localizedDescription)")
-                    }
-                    print("CloudKit: Notification authorization granted: \(granted)")
-                    if granted {
-                        DispatchQueue.main.async {
-                            UIApplication.shared.registerForRemoteNotifications()
-                        }
-                    } else {
-                        print("CloudKit: Remote notifications not granted; silent pushes may not be delivered")
-                    }
-                }
-            @unknown default:
-                print("CloudKit: Unknown authorization status; not registering")
-            }
+        // CloudKit silent pushes (shouldSendContentAvailable) only need
+        // registerForRemoteNotifications — no user-facing notification
+        // permission is required.
+        if !UIApplication.shared.isRegisteredForRemoteNotifications {
+            UIApplication.shared.registerForRemoteNotifications()
+            print("CloudKit: Registered for remote notifications (silent push)")
+        } else {
+            print("CloudKit: Already registered for remote notifications")
         }
         #else
         print("CloudKit: Remote notifications not supported on this platform")
@@ -536,10 +464,7 @@ class CloudKitManager: CloudKitManagerProtocol {
         
         // Handle UserPreferences changes
         if notification.subscriptionID == "UserPreferencesSubscription" {
-            await MainActor.run {
-                // Notify the app that preferences may have changed
-                NotificationCenter.default.post(name: .userPreferencesDidChangeRemotely, object: nil)
-            }
+            NotificationCenter.default.post(name: .userPreferencesDidChangeRemotely, object: nil)
         }
     }
     
@@ -552,20 +477,16 @@ class CloudKitManager: CloudKitManagerProtocol {
         Task {
             do {
                 print("CloudKit: Attempting to register container...")
-                
+
                 // Try to perform a simple query to test database access
                 let query = CKQuery(recordType: "TestType", predicate: NSPredicate(value: false))
                 _ = try await privateDatabase.records(matching: query, resultsLimit: 1)
-                
-                await MainActor.run {
-                    self.cloudKitError = "Container registration test completed successfully!"
-                    self.checkiCloudStatus() // Recheck status after registration
-                }
+
+                cloudKitError = nil
+                print("CloudKit: Container registration test completed successfully")
             } catch {
-                await MainActor.run {
-                    self.cloudKitError = "Container registration failed: \(error.localizedDescription)"
-                    print("CloudKit: Registration error - \(error)")
-                }
+                cloudKitError = "Container registration failed: \(error.localizedDescription)"
+                print("CloudKit: Registration error - \(error)")
             }
         }
     }
@@ -583,7 +504,9 @@ extension CloudKitManager {
         
         do {
             let recordID = CKRecord.ID(recordName: "UserPreferences")
-            let record = try await privateDatabase.record(for: recordID)
+            let record = try await retryCloudKitOperation {
+                try await privateDatabase.record(for: recordID)
+            }
             
             print("CloudKit: Found remote preferences record")
             
@@ -699,19 +622,15 @@ extension CloudKitManager {
             
             print("CloudKit: Preferences successfully synced to iCloud")
             
-            await MainActor.run {
-                syncStatus = .success
-                cloudKitStatus = .available
-            }
-            
+            syncStatus = .success
+            cloudKitStatus = .available
+
         } catch {
             let cloudKitError = categorizeError(error)
             print("CloudKit: Sync failed with error: \(error)")
-            
-            await MainActor.run {
-                syncStatus = .failed(cloudKitError)
-                self.cloudKitStatus = .syncFailed(error: cloudKitError)
-            }
+
+            syncStatus = .failed(cloudKitError)
+            cloudKitStatus = .syncFailed(error: cloudKitError)
             
             throw cloudKitError
         }

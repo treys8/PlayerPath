@@ -55,7 +55,7 @@ struct SeasonManagementView: View {
                             showingCreateSeason = true
                         } label: {
                             Label("Start New Season", systemImage: "play.fill")
-                                .foregroundColor(.white)
+                                .foregroundStyle(.white)
                         }
                         .buttonStyle(.borderedProminent)
                     }
@@ -230,9 +230,9 @@ struct ActiveSeasonCard: View {
             
             // Stats Grid - using computed values for live updates
             HStack(spacing: 20) {
-                StatBadge(value: completedGames, label: "Games", icon: "figure.baseball")
-                StatBadge(value: totalVideos, label: "Videos", icon: "video")
-                StatBadge(value: highlights, label: "Highlights", icon: "star.fill")
+                SeasonStatBadge(value: completedGames, label: "Games", icon: "figure.baseball")
+                SeasonStatBadge(value: totalVideos, label: "Videos", icon: "video")
+                SeasonStatBadge(value: highlights, label: "Highlights", icon: "star.fill")
             }
         }
         .padding()
@@ -258,7 +258,7 @@ struct ActiveSeasonCard: View {
     }
 }
 
-struct StatBadge: View {
+struct SeasonStatBadge: View {
     let value: Int
     let label: String
     let icon: String
@@ -661,7 +661,7 @@ struct SeasonDetailView: View {
                         showingEndSeasonConfirmation = true
                     } label: {
                         Label("End Season", systemImage: "checkmark.circle")
-                            .foregroundColor(.orange)
+                            .foregroundStyle(.orange)
                     }
                 } else if season.isArchived {
                     Button {
@@ -832,12 +832,27 @@ struct SeasonDetailView: View {
     private func deleteSeason() {
         isProcessing = true
 
+        // Sync deletion to Firestore before removing locally
+        if let firestoreId = season.firestoreId,
+           let user = season.athlete?.user {
+            Task {
+                do {
+                    try await FirestoreManager.shared.deleteSeason(
+                        userId: user.id.uuidString,
+                        seasonId: firestoreId
+                    )
+                } catch {
+                    // Non-fatal: local delete proceeds regardless
+                }
+            }
+        }
+
         // Store relationships for rollback
         let games = season.games
         let practices = season.practices
         let videoClips = season.videoClips
 
-        // Delink relationships - let SwiftData handle updates efficiently
+        // Delink relationships so games/practices/videos are not cascade-deleted
         season.games = nil
         season.practices = nil
         season.videoClips = nil
@@ -846,10 +861,12 @@ struct SeasonDetailView: View {
 
         do {
             try modelContext.save()
+            isProcessing = false
             Haptics.medium()
             dismiss()
         } catch {
-            // Rollback on failure
+            // Re-insert the season to undo the pending delete, then restore relationships
+            modelContext.insert(season)
             season.games = games
             season.practices = practices
             season.videoClips = videoClips
@@ -857,7 +874,6 @@ struct SeasonDetailView: View {
             isProcessing = false
             errorMessage = "Failed to delete season: \(error.localizedDescription)"
             showingError = true
-            print("Error deleting season: \(error)")
         }
     }
     

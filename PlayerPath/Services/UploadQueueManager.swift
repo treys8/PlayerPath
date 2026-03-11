@@ -323,7 +323,7 @@ final class UploadQueueManager {
             clipId: clip.id,
             athleteId: athlete.id,
             fileName: clip.fileName,
-            filePath: clip.filePath,
+            filePath: clip.resolvedFilePath,
             priority: priority,
             retryCount: 0,
             lastAttempt: nil

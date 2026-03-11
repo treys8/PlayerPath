@@ -46,6 +46,7 @@ class CameraViewModel: NSObject, ObservableObject {
     private var interruptionObserver: NSObjectProtocol?
     private var interruptionEndObserver: NSObjectProtocol?
     private var hasShownTimeWarning = false
+    @MainActor private var stoppingRecording = false
     @MainActor @Published var currentOrientation: UIDeviceOrientation = .portrait
 
     var minZoom: CGFloat = 1.0
@@ -153,6 +154,9 @@ class CameraViewModel: NSObject, ObservableObject {
     @MainActor
     func startSession() async {
         await checkPermissions()
+
+        // Reset zoom baseline for fresh session
+        zoomGestureBase = 1.0
 
         // Start monitoring orientation
         startOrientationMonitoring()
@@ -440,19 +444,29 @@ class CameraViewModel: NSObject, ObservableObject {
 
     @MainActor
     func stopRecording() {
-        guard isRecording, let output = movieFileOutput else { return }
+        guard isRecording, !stoppingRecording, let output = movieFileOutput else { return }
+
+        stoppingRecording = true
 
         sessionQueue.async {
             output.stopRecording()
         }
 
-        // Update UI
-        isRecording = false
-        recordingTimer?.invalidate()
-        pulseTimer?.invalidate()
-
         // Haptic feedback
         Haptics.medium()
+    }
+
+    /// Single place to reset all recording state — called only from delegate callbacks.
+    @MainActor
+    private func cleanupRecordingState() {
+        isRecording = false
+        stoppingRecording = false
+        recordingTimer?.invalidate()
+        recordingTimer = nil
+        pulseTimer?.invalidate()
+        pulseTimer = nil
+        recordingTimeString = "0:00"
+        recordingPulse = false
     }
 
     @MainActor
@@ -571,14 +585,16 @@ class CameraViewModel: NSObject, ObservableObject {
     func setZoom(_ zoom: CGFloat) {
         guard let device = videoDevice else { return }
 
-        do {
-            try device.lockForConfiguration()
-            device.videoZoomFactor = zoom
-            device.unlockForConfiguration()
+        currentZoom = zoom
 
-            currentZoom = zoom
-        } catch {
-            print("⚠️ Failed to set zoom: \(error.localizedDescription)")
+        sessionQueue.async {
+            do {
+                try device.lockForConfiguration()
+                device.videoZoomFactor = zoom
+                device.unlockForConfiguration()
+            } catch {
+                print("⚠️ Failed to set zoom: \(error.localizedDescription)")
+            }
         }
     }
 
@@ -606,34 +622,37 @@ class CameraViewModel: NSObject, ObservableObject {
             )
         }
 
-        do {
-            try device.lockForConfiguration()
-
-            if device.isFocusPointOfInterestSupported {
-                device.focusPointOfInterest = devicePoint
-                device.focusMode = .autoFocus
+        // Show focus reticle — cancel previous dismiss task so it doesn't clear the new point
+        lastFocusPoint = point
+        focusTask?.cancel()
+        focusTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            if !Task.isCancelled {
+                self.lastFocusPoint = nil
             }
+        }
 
-            if device.isExposurePointOfInterestSupported {
-                device.exposurePointOfInterest = devicePoint
-                device.exposureMode = .autoExpose
-            }
+        Haptics.light()
 
-            device.unlockForConfiguration()
+        // Perform device configuration off main thread
+        sessionQueue.async {
+            do {
+                try device.lockForConfiguration()
 
-            // Show focus reticle — cancel previous dismiss task so it doesn't clear the new point
-            lastFocusPoint = point
-            focusTask?.cancel()
-            focusTask = Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 2_000_000_000)
-                if !Task.isCancelled {
-                    self.lastFocusPoint = nil
+                if device.isFocusPointOfInterestSupported {
+                    device.focusPointOfInterest = devicePoint
+                    device.focusMode = .autoFocus
                 }
-            }
 
-            Haptics.light()
-        } catch {
-            print("⚠️ Failed to set focus: \(error.localizedDescription)")
+                if device.isExposurePointOfInterestSupported {
+                    device.exposurePointOfInterest = devicePoint
+                    device.exposureMode = .autoExpose
+                }
+
+                device.unlockForConfiguration()
+            } catch {
+                print("⚠️ Failed to set focus: \(error.localizedDescription)")
+            }
         }
     }
 
@@ -663,6 +682,8 @@ extension CameraViewModel: AVCaptureFileOutputRecordingDelegate {
     ) {
         print("✅ Recording started: \(fileURL)")
         Task { @MainActor in
+            // If stop was already requested before delegate fired, don't re-enable recording
+            guard !self.stoppingRecording else { return }
             self.isRecording = true
             self.recordingStartTime = Date()
             self.hasShownTimeWarning = false
@@ -681,9 +702,7 @@ extension CameraViewModel: AVCaptureFileOutputRecordingDelegate {
         if let error = error {
             print("🔴 Recording error: \(error.localizedDescription)")
             Task { @MainActor in
-                self.isRecording = false
-                self.recordingTimer?.invalidate()
-                self.pulseTimer?.invalidate()
+                self.cleanupRecordingState()
                 self.handleError("Recording failed: \(error.localizedDescription)", isFatal: false)
             }
             return
@@ -694,6 +713,7 @@ extension CameraViewModel: AVCaptureFileOutputRecordingDelegate {
         // Verify file exists
         guard FileManager.default.fileExists(atPath: outputFileURL.path) else {
             Task { @MainActor in
+                self.cleanupRecordingState()
                 self.handleError("Recording file not found", isFatal: false)
             }
             return
@@ -701,6 +721,7 @@ extension CameraViewModel: AVCaptureFileOutputRecordingDelegate {
 
         // Return the URL to SwiftUI
         Task { @MainActor in
+            self.cleanupRecordingState()
             self.recordedVideoURL = outputFileURL
         }
     }

@@ -602,13 +602,60 @@ final class VideoClip {
         self.createdAt = Date()
     }
 
+    /// Converts an absolute path to a path relative to the Documents directory.
+    /// If the path is already relative or not under Documents, returns it unchanged.
+    static func toRelativePath(_ absolutePath: String) -> String {
+        guard absolutePath.hasPrefix("/"),
+              let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
+            return absolutePath
+        }
+        let docsPath = docs.path
+        if absolutePath.hasPrefix(docsPath) {
+            let relative = String(absolutePath.dropFirst(docsPath.count))
+            return relative.hasPrefix("/") ? String(relative.dropFirst()) : relative
+        }
+        return absolutePath
+    }
+
     // Computed properties for sync status
     var needsUpload: Bool {
         return !isUploaded && cloudURL == nil
     }
 
+    /// Resolves `filePath` to an absolute path, handling both legacy absolute paths
+    /// and relative paths (relative to Documents directory). Absolute paths break
+    /// when iOS relocates the app sandbox (reinstall, backup restore), so new clips
+    /// store relative paths and this property resolves them at read time.
+    var resolvedFilePath: String {
+        // Relative path — resolve against Documents
+        if !filePath.hasPrefix("/") {
+            guard let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
+                return filePath
+            }
+            return docs.appendingPathComponent(filePath).path
+        }
+        // Legacy absolute path — use as-is if file exists
+        if FileManager.default.fileExists(atPath: filePath) {
+            return filePath
+        }
+        // Absolute path but file missing (sandbox moved) — try resolving from fileName
+        guard let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
+            return filePath
+        }
+        let recovered = docs.appendingPathComponent("Clips").appendingPathComponent(fileName).path
+        if FileManager.default.fileExists(atPath: recovered) {
+            return recovered
+        }
+        // Return original — caller will handle the missing-file case
+        return filePath
+    }
+
+    var resolvedFileURL: URL {
+        URL(fileURLWithPath: resolvedFilePath)
+    }
+
     var isAvailableOffline: Bool {
-        return FileManager.default.fileExists(atPath: filePath)
+        return FileManager.default.fileExists(atPath: resolvedFilePath)
     }
 
     // MARK: - Firestore Conversion

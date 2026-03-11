@@ -263,23 +263,14 @@ class SharedFolderManager: ObservableObject {
         // 4. Delete the folder document
         try await firestore.deleteSharedFolder(folderID: folderID)
 
-        // 5. Update local athlete's coaches if linked
-        // This helps keep Coach model in sync
-        await updateLocalCoaches(removingFolderID: folderID, forAthleteID: athleteID)
+        // TODO: Update local SwiftData Coach models to remove folder reference (requires ModelContext)
 
-        // 6. Remove from local list
+        // 5. Remove from local list
         athleteFolders.removeAll { $0.id == folderID }
 
         print("✅ Folder deletion cascade completed")
     }
 
-    /// Updates local SwiftData coaches to remove folder access
-    private func updateLocalCoaches(removingFolderID folderID: String, forAthleteID athleteID: String) async {
-        // This would require access to SwiftData ModelContext
-        // For now, we'll rely on the athlete's view to update local coaches
-        print("💡 Reminder: Update local Coach models to remove folder \(folderID)")
-    }
-    
     /// Revokes all coach access from every folder owned by an athlete.
     /// Called when the 7-day coaching add-on grace period expires.
     func revokeAllCoachAccess(forAthleteID athleteID: String) async throws {
@@ -387,7 +378,8 @@ class SharedFolderManager: ObservableObject {
 
         // Enforce coach athlete limit before accepting
         let currentAthleteCount = Set(coachFolders.map { $0.ownerAthleteID }).count
-        let limit = authManager?.coachAthleteLimit ?? Int.max
+        // Fail closed: if authManager is unavailable, treat limit as 0 rather than bypassing the check
+        let limit = authManager?.coachAthleteLimit ?? 0
         if currentAthleteCount >= limit {
             throw SharedFolderError.coachAthleteLimitReached
         }
@@ -430,9 +422,7 @@ class SharedFolderManager: ObservableObject {
     /// then removes the folder from the local coachFolders cache.
     func leaveFolder(folderID: String, coachID: String) async throws {
         try await firestore.removeCoachFromFolder(folderID: folderID, coachID: coachID)
-        await MainActor.run {
-            coachFolders.removeAll { $0.id == folderID }
-        }
+        coachFolders.removeAll { $0.id == folderID }
         print("✅ Coach \(coachID) left folder \(folderID)")
     }
 
@@ -570,8 +560,11 @@ class SharedFolderManager: ObservableObject {
     }
     
     /// Deletes a comment (user can only delete their own)
+    /// SECURITY: Ownership is NOT enforced client-side. A Firestore security rule
+    /// must enforce `request.auth.uid == resource.data.userID` on annotation deletes.
+    /// Without this rule, any authenticated user who knows the annotationID can delete
+    /// any other user's comment (privilege escalation). See firestore.rules.
     func deleteComment(videoID: String, annotationID: String, userID: String) async throws {
-        // TODO: Add server-side validation that userID matches annotation owner
         try await firestore.deleteAnnotation(videoID: videoID, annotationID: annotationID)
     }
     
@@ -616,7 +609,6 @@ enum FolderAction {
 }
 
 enum SharedFolderError: LocalizedError {
-    case premiumRequired      // legacy, keep for any existing references
     case coachingRequired
     case invalidName
     case invalidEmail
@@ -629,8 +621,6 @@ enum SharedFolderError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .premiumRequired:
-            return "Plus or Pro subscription required to use coaching features"
         case .coachingRequired:
             return "Pro subscription required to create shared folders and invite coaches."
         case .invalidName:

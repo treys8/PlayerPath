@@ -103,8 +103,9 @@ struct VideoRecorderView_Refactored: View {
                         videoURL: finalVideoURL,
                         athlete: athlete,
                         practice: practice,
-                        onSave: { note in
+                        onSave: { note, completion in
                             saveVideoWithResult(videoURL: finalVideoURL, playResult: nil, note: note) {
+                                completion()
                                 uploadFlowShowingPlayResult = false
                                 showingTrimmer = false
                                 dismiss()

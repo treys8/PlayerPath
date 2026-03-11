@@ -262,7 +262,7 @@ struct UploadStatisticsView: View {
                             .foregroundColor(.green)
                             .font(.caption)
 
-                        Text(formatBytes(FileManager.default.fileSize(atPath: video.filePath)))
+                        Text(formatBytes(FileManager.default.fileSize(atPath: video.resolvedFilePath)))
                             .font(.caption2)
                             .foregroundColor(.secondary)
                     }
@@ -305,7 +305,7 @@ struct UploadStatisticsView: View {
 
     private var totalUploadedSize: Int64 {
         uploadedVideos.reduce(0) { sum, video in
-            sum + FileManager.default.fileSize(atPath: video.filePath)
+            sum + FileManager.default.fileSize(atPath: video.resolvedFilePath)
         }
     }
 

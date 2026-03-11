@@ -524,6 +524,8 @@ final class SyncCoordinator {
                     local.isLive = remoteGame.isLive
                     local.isComplete = remoteGame.isComplete
                     local.year = remoteGame.year
+                    local.location = remoteGame.location
+                    local.notes = remoteGame.notes
                     local.lastSyncDate = Date()
                     local.version = remoteGame.version
                     print("✅ Merged remote changes for game vs: \(remoteGame.opponent)")
@@ -539,6 +541,8 @@ final class SyncCoordinator {
                 newGame.isLive = remoteGame.isLive
                 newGame.isComplete = remoteGame.isComplete
                 newGame.year = remoteGame.year
+                newGame.location = remoteGame.location
+                newGame.notes = remoteGame.notes
                 newGame.createdAt = remoteGame.createdAt
                 newGame.lastSyncDate = Date()
                 newGame.needsSync = false
@@ -810,6 +814,7 @@ final class SyncCoordinator {
                     isHighlight: clip.isHighlight,
                     note: clip.note,
                     playResultType: clip.playResult?.type,
+                    pitchSpeed: clip.pitchSpeed,
                     gameId: clip.game.map { $0.firestoreId ?? $0.id.uuidString },
                     gameOpponent: clip.gameOpponent ?? clip.game?.opponent,
                     gameDate: clip.gameDate ?? clip.game?.date,
@@ -879,6 +884,13 @@ final class SyncCoordinator {
                 localClip.gameOpponent = remoteVideo.gameOpponent ?? localClip.game?.opponent
                 localClip.gameDate = remoteVideo.gameDate ?? localClip.game?.date
                 localClip.seasonName = remoteVideo.seasonName ?? localClip.season?.displayName
+                if let pitchSpeed = remoteVideo.pitchSpeed {
+                    localClip.pitchSpeed = pitchSpeed
+                }
+                if let duration = remoteVideo.duration {
+                    localClip.duration = duration
+                }
+                localClip.cloudURL = remoteVideo.downloadURL
                 localClip.lastSyncDate = Date()
             }
 
@@ -904,6 +916,8 @@ final class SyncCoordinator {
                 newClip.createdAt = remoteVideo.createdAt
                 newClip.isHighlight = remoteVideo.isHighlight
                 newClip.note = remoteVideo.note
+                newClip.pitchSpeed = remoteVideo.pitchSpeed
+                newClip.duration = remoteVideo.duration
                 newClip.firestoreId = remoteVideo.id.uuidString
                 newClip.needsSync = false
                 newClip.athlete = athlete
@@ -983,7 +997,7 @@ final class SyncCoordinator {
 
         // Skip if already downloaded
         if FileManager.default.fileExists(atPath: localPath) {
-            clip.filePath = localPath
+            clip.filePath = VideoClip.toRelativePath(localPath)
             try? context.save()
             print("✅ Video already exists locally: \(clip.fileName)")
             return
@@ -1001,7 +1015,7 @@ final class SyncCoordinator {
             let thumbnailPath = try? await ClipPersistenceService().generateThumbnail(for: videoURL)
 
             await MainActor.run {
-                clip.filePath = localPath
+                clip.filePath = VideoClip.toRelativePath(localPath)
                 if let thumbnailPath {
                     clip.thumbnailPath = thumbnailPath
                 }

@@ -11,7 +11,7 @@ import LocalAuthentication
 /// Full-page view for managing biometric authentication settings.
 /// Used as a NavigationLink destination from the profile/settings screen.
 struct BiometricSettingsView: View {
-    @StateObject private var biometricManager = BiometricAuthenticationManager()
+    @ObservedObject private var biometricManager = BiometricAuthenticationManager.shared
     @State private var showingEnableSheet = false
     @State private var showingDisableConfirmation = false
     @State private var tempEmail = ""

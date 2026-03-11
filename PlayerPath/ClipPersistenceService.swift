@@ -110,7 +110,7 @@ final class ClipPersistenceService {
                     try fileManager.moveItem(at: oldVideoURL, to: newVideoURL)
                 }
 
-                // Update VideoClip path in SwiftData
+                // Update VideoClip path in SwiftData (store as relative)
                 let fileName = oldVideoURL.lastPathComponent
                 let predicate = #Predicate<VideoClip> { clip in
                     clip.fileName == fileName
@@ -119,8 +119,11 @@ final class ClipPersistenceService {
                 let clips = try context.fetch(descriptor)
 
                 for clip in clips {
-                    clip.filePath = newVideoURL.path
+                    clip.filePath = VideoClip.toRelativePath(newVideoURL.path)
                 }
+
+                // Save after each file so paths stay in sync with moved files
+                try context.save()
 
                 migratedCount += 1
                 print("ClipPersistenceService: Migrated \(fileName)")
@@ -131,17 +134,16 @@ final class ClipPersistenceService {
             }
         }
 
-        // Save updated paths
-        try context.save()
-
         // Clean up old directory if empty
         if let remainingFiles = try? fileManager.contentsOfDirectory(atPath: oldClipsDirectory.path),
            remainingFiles.isEmpty {
             try? fileManager.removeItem(at: oldClipsDirectory)
         }
 
-        // Mark migration complete
-        UserDefaults.standard.set(true, forKey: migrationKey)
+        // Only mark migration complete if all files succeeded
+        if failedCount == 0 {
+            UserDefaults.standard.set(true, forKey: migrationKey)
+        }
 
         print("ClipPersistenceService: Migration complete - \(migratedCount) succeeded, \(failedCount) failed")
     }
@@ -292,13 +294,16 @@ final class ClipPersistenceService {
             tracks = try await asset.load(.tracks)
             duration = try await asset.load(.duration)
         } catch {
+            if sourceNeedsDeletion { try? fileManager.removeItem(at: destinationURL) }
             throw ClipPersistenceError.failedToCreateAsset(destinationURL, underlying: error)
         }
         guard !tracks.isEmpty else {
+            if sourceNeedsDeletion { try? fileManager.removeItem(at: destinationURL) }
             throw ClipPersistenceError.failedToCreateAsset(destinationURL, underlying: nil)
         }
         let durationSeconds = CMTimeGetSeconds(duration)
         guard durationSeconds >= 0 && durationSeconds.isFinite else {
+            if sourceNeedsDeletion { try? fileManager.removeItem(at: destinationURL) }
             throw ClipPersistenceError.failedToCreateAsset(destinationURL, underlying: nil)
         }
 
@@ -324,7 +329,7 @@ final class ClipPersistenceService {
         // Create new VideoClip instance using app's model
         let videoClip = VideoClip(
             fileName: destinationURL.lastPathComponent,
-            filePath: destinationURL.path
+            filePath: VideoClip.toRelativePath(destinationURL.path)
         )
         videoClip.createdAt = now()
         videoClip.thumbnailPath = thumbnailPath
@@ -424,7 +429,7 @@ final class ClipPersistenceService {
             if let preferences = try? context.fetch(descriptor).first,
                preferences.autoUploadToCloud {
                 // Check file size limit
-                let fileSize = FileManager.default.fileSize(atPath: videoClip.filePath)
+                let fileSize = FileManager.default.fileSize(atPath: videoClip.resolvedFilePath)
                 let fileSizeMB = fileSize / 1024 / 1024
 
                 if fileSizeMB <= preferences.maxVideoFileSize {

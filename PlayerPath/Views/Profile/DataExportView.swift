@@ -238,7 +238,7 @@ struct DataExportView: View {
             return [
                 "id": video.id.uuidString,
                 "createdAt": ISO8601DateFormatter().string(from: video.createdAt ?? Date()),
-                "filePath": video.filePath,
+                "filePath": video.resolvedFilePath,
                 "thumbnailPath": video.thumbnailPath,
                 "playResult": video.playResult?.type.displayName ?? ""
             ]

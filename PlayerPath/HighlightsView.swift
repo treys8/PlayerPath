@@ -453,9 +453,10 @@ struct HighlightsView: View {
     
     private func deleteHighlight(_ clip: VideoClip) {
         // Delete the video file
-        if FileManager.default.fileExists(atPath: clip.filePath) {
-            try? FileManager.default.removeItem(atPath: clip.filePath)
-            print("Deleted video file: \(clip.filePath)")
+        let resolvedPath = clip.resolvedFilePath
+        if FileManager.default.fileExists(atPath: resolvedPath) {
+            try? FileManager.default.removeItem(atPath: resolvedPath)
+            print("Deleted video file: \(resolvedPath)")
         }
 
         // Delete the thumbnail file and remove from cache
@@ -522,8 +523,9 @@ struct HighlightsView: View {
         withAnimation {
             for clip in clips {
                 // Delete files
-                if FileManager.default.fileExists(atPath: clip.filePath) {
-                    try? FileManager.default.removeItem(atPath: clip.filePath)
+                let resolvedPath = clip.resolvedFilePath
+                if FileManager.default.fileExists(atPath: resolvedPath) {
+                    try? FileManager.default.removeItem(atPath: resolvedPath)
                 }
                 if let thumbnailPath = clip.thumbnailPath {
                     try? FileManager.default.removeItem(atPath: thumbnailPath)
@@ -561,11 +563,11 @@ struct HighlightsView: View {
     }
 
     private func shareClip(_ clip: VideoClip) {
-        guard FileManager.default.fileExists(atPath: clip.filePath) else {
-            print("No file to share at: \(clip.filePath)")
+        guard FileManager.default.fileExists(atPath: clip.resolvedFilePath) else {
+            print("No file to share at: \(clip.resolvedFilePath)")
             return
         }
-        let fileURL = URL(fileURLWithPath: clip.filePath)
+        let fileURL = clip.resolvedFileURL
         let activityVC = UIActivityViewController(activityItems: [fileURL], applicationActivities: nil)
         if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
            let window = windowScene.windows.first,
@@ -643,8 +645,8 @@ struct HighlightsView: View {
 
         // Get file URLs for all selected clips
         let fileURLs = clips.compactMap { clip -> URL? in
-            guard FileManager.default.fileExists(atPath: clip.filePath) else { return nil }
-            return URL(fileURLWithPath: clip.filePath)
+            guard FileManager.default.fileExists(atPath: clip.resolvedFilePath) else { return nil }
+            return clip.resolvedFileURL
         }
 
         guard !fileURLs.isEmpty else {
@@ -1047,7 +1049,7 @@ struct HighlightCard: View {
     private func generateMissingThumbnail() async {
         print("Generating missing thumbnail for highlight: \(clip.fileName)")
 
-        let videoURL = URL(fileURLWithPath: clip.filePath)
+        let videoURL = clip.resolvedFileURL
         let result = await VideoFileManager.generateThumbnail(from: videoURL)
 
         await MainActor.run {

@@ -7,62 +7,83 @@
 //
 
 import Foundation
-import UserNotifications
+@preconcurrency import UserNotifications
 
+@MainActor
 final class GameAlertService {
 
     static let shared = GameAlertService()
 
     /// A game is considered "stale" after this duration (default: 3.5 hours).
-    static let staleDuration: TimeInterval = 3.5 * 3600
+    nonisolated static let staleDuration: TimeInterval = 3.5 * 3600
 
     private init() {}
 
     // MARK: - Notification Permission
 
-    func requestPermissionIfNeeded() {
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+    func requestPermissionIfNeeded() async {
+        let center = UNUserNotificationCenter.current()
+        let settings = await center.notificationSettings()
+        guard settings.authorizationStatus == .notDetermined else { return }
+        do {
+            let granted = try await center.requestAuthorization(options: [.alert, .sound])
+            print("GameAlertService: notification authorization granted: \(granted)")
+        } catch {
+            print("⚠️ GameAlertService: notification authorization error — \(error)")
+        }
     }
 
     // MARK: - Schedule / Cancel
 
     /// Schedules a local notification to fire after `staleDuration` if the game is never ended.
-    func scheduleEndGameReminder(for game: Game) {
+    func scheduleEndGameReminder(for game: Game) async {
+        // Capture @MainActor-isolated model values before async boundary
+        let opponentName = game.opponent
+        let gameID = game.id
+
         let center = UNUserNotificationCenter.current()
+        let notifID = "stale-game-\(gameID.uuidString)"
 
-        center.getNotificationSettings { settings in
-            guard settings.authorizationStatus == .authorized ||
-                  settings.authorizationStatus == .provisional else { return }
+        // Check if a reminder is already pending for this game
+        let pending = await center.pendingNotificationRequests()
+        guard !pending.contains(where: { $0.identifier == notifID }) else {
+            print("GameAlertService: reminder already pending for game \(gameID)")
+            return
+        }
 
-            let content = UNMutableNotificationContent()
-            content.title = "Still playing?"
-            let opponentLabel = game.opponent.isEmpty ? "your game" : "vs \(game.opponent)"
-            content.body = "Don't forget to end \(opponentLabel) when it's over."
-            content.sound = .default
+        let settings = await center.notificationSettings()
+        guard settings.authorizationStatus == .authorized ||
+              settings.authorizationStatus == .provisional else { return }
 
-            let trigger = UNTimeIntervalNotificationTrigger(
-                timeInterval: GameAlertService.staleDuration,
-                repeats: false
-            )
+        let content = UNMutableNotificationContent()
+        content.title = "Still playing?"
+        let opponentLabel = opponentName.isEmpty ? "your game" : "vs \(opponentName)"
+        content.body = "Don't forget to end \(opponentLabel) when it's over."
+        content.sound = .default
 
-            let request = UNNotificationRequest(
-                identifier: Self.notificationID(for: game),
-                content: content,
-                trigger: trigger
-            )
+        let trigger = UNTimeIntervalNotificationTrigger(
+            timeInterval: GameAlertService.staleDuration,
+            repeats: false
+        )
 
-            center.add(request) { error in
-                if let error {
-                    print("⚠️ GameAlertService: failed to schedule reminder — \(error)")
-                }
-            }
+        let request = UNNotificationRequest(
+            identifier: notifID,
+            content: content,
+            trigger: trigger
+        )
+
+        do {
+            try await center.add(request)
+        } catch {
+            print("⚠️ GameAlertService: failed to schedule reminder — \(error)")
         }
     }
 
     /// Cancels the pending end-game reminder for the given game.
     func cancelEndGameReminder(for game: Game) {
+        let notifID = "stale-game-\(game.id.uuidString)"
         UNUserNotificationCenter.current()
-            .removePendingNotificationRequests(withIdentifiers: [Self.notificationID(for: game)])
+            .removePendingNotificationRequests(withIdentifiers: [notifID])
     }
 
     // MARK: - Foreground Stale Check
@@ -74,11 +95,5 @@ final class GameAlertService {
             guard game.isLive, let startDate = game.liveStartDate else { return false }
             return startDate < cutoff
         }
-    }
-
-    // MARK: - Helpers
-
-    private static func notificationID(for game: Game) -> String {
-        "stale-game-\(game.id.uuidString)"
     }
 }

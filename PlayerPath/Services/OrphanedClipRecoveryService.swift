@@ -68,7 +68,7 @@ final class OrphanedClipRecoveryService {
         let trackedPaths: Set<String>
         do {
             let clips = try context.fetch(descriptor)
-            trackedPaths = Set(clips.map { $0.filePath })
+            trackedPaths = Set(clips.map { $0.resolvedFilePath })
         } catch {
             print("❌ OrphanedClipRecovery: Failed to fetch existing clips: \(error.localizedDescription)")
             return []

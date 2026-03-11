@@ -2053,6 +2053,8 @@ struct FirestoreGame: Codable, Identifiable {
     let year: Int
     let isLive: Bool
     let isComplete: Bool
+    let location: String?
+    let notes: String?
     let createdAt: Date?
     let updatedAt: Date?
     let version: Int
@@ -2068,6 +2070,8 @@ struct FirestoreGame: Codable, Identifiable {
         case year
         case isLive
         case isComplete
+        case location
+        case notes
         case createdAt
         case updatedAt
         case version

@@ -24,7 +24,9 @@ struct SeasonComparisonView: View {
             seasons.append(activeSeason)
         }
         seasons.append(contentsOf: athlete.archivedSeasons)
-        return seasons.sorted { ($0.startDate ?? Date.distantPast) > ($1.startDate ?? Date.distantPast) }
+        // Dedup by ID in case activeSeason also appears in archivedSeasons
+        let unique = Dictionary(grouping: seasons, by: \.id).compactMap { $0.value.first }
+        return unique.sorted { ($0.startDate ?? Date.distantPast) > ($1.startDate ?? Date.distantPast) }
     }
 
     // Get selected season objects
@@ -105,7 +107,7 @@ struct SeasonComparisonView: View {
             VStack(spacing: 8) {
                 Image(systemName: "chart.line.uptrend.xyaxis")
                     .font(.system(size: 60))
-                    .foregroundColor(.blue)
+                    .foregroundStyle(.blue)
 
                 Text("Compare Seasons")
                     .font(.title2)
@@ -113,7 +115,7 @@ struct SeasonComparisonView: View {
 
                 Text("Select 2-4 seasons to compare statistics and trends")
                     .font(.subheadline)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal)
             }
@@ -122,14 +124,15 @@ struct SeasonComparisonView: View {
             // Season selection list
             List {
                 ForEach(allSeasons) { season in
-                    SeasonSelectionRow(
-                        season: season,
-                        isSelected: selectedSeasons.contains(season.id)
-                    )
-                    .contentShape(Rectangle())
-                    .onTapGesture {
+                    Button {
                         toggleSeasonSelection(season)
+                    } label: {
+                        SeasonSelectionRow(
+                            season: season,
+                            isSelected: selectedSeasons.contains(season.id)
+                        )
                     }
+                    .buttonStyle(.plain)
                 }
             }
             .listStyle(.insetGrouped)
@@ -144,7 +147,7 @@ struct SeasonComparisonView: View {
                         .frame(maxWidth: .infinity)
                         .padding()
                         .background(Color.blue)
-                        .foregroundColor(.white)
+                        .foregroundStyle(.white)
                         .cornerRadius(12)
                 }
                 .padding()
@@ -184,7 +187,7 @@ struct SeasonSelectionRow: View {
                         Text("ACTIVE")
                             .font(.caption2)
                             .fontWeight(.bold)
-                            .foregroundColor(.white)
+                            .foregroundStyle(.white)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
                             .background(Color.blue)
@@ -195,11 +198,11 @@ struct SeasonSelectionRow: View {
                 if let stats = season.seasonStatistics {
                     Text("\(stats.totalGames) games • \(stats.hits)/\(stats.atBats) • \(formatBattingAverage(stats.battingAverage))")
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                 } else {
                     Text("No statistics yet")
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                 }
             }
 
@@ -207,11 +210,11 @@ struct SeasonSelectionRow: View {
 
             if isSelected {
                 Image(systemName: "checkmark.circle.fill")
-                    .foregroundColor(.blue)
+                    .foregroundStyle(.blue)
                     .font(.title3)
             } else {
                 Image(systemName: "circle")
-                    .foregroundColor(.gray)
+                    .foregroundStyle(.gray)
                     .font(.title3)
             }
         }
@@ -234,6 +237,7 @@ struct TrendChartSection: View {
                 date: season.startDate ?? Date()
             )
         }
+        .sorted { $0.date < $1.date }
     }
 
     var body: some View {
@@ -245,7 +249,7 @@ struct TrendChartSection: View {
             if chartData.isEmpty {
                 Text("No data available")
                     .font(.subheadline)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                     .frame(height: 200)
                     .frame(maxWidth: .infinity)
                     .background(Color.gray.opacity(0.1))
@@ -275,12 +279,12 @@ struct TrendChartSection: View {
                         VStack(spacing: 4) {
                             Text(dataPoint.seasonName)
                                 .font(.caption)
-                                .foregroundColor(.secondary)
+                                .foregroundStyle(.secondary)
                                 .lineLimit(1)
                             Text(formatValue(dataPoint.value))
                                 .font(.title3)
                                 .fontWeight(.bold)
-                                .foregroundColor(.blue)
+                                .foregroundStyle(.blue)
                         }
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 8)
@@ -296,7 +300,7 @@ struct TrendChartSection: View {
 }
 
 struct SeasonDataPoint: Identifiable {
-    let id = UUID()
+    var id: String { seasonName }
     let seasonName: String
     let value: Double
     let date: Date
@@ -378,7 +382,7 @@ struct ComparisonRow<Value>: View {
                     .padding(.vertical, 8)
             }
         }
-        .background(Color.white)
+        .background(Color(.systemBackground))
 
         Divider()
     }

@@ -93,7 +93,7 @@ class VideoCloudManager: ObservableObject {
     func uploadVideo(_ videoClip: VideoClip, athlete: Athlete) async throws -> String {
         // Capture values from SwiftData model before async boundary (Sendable compliance)
         let clipId = videoClip.id
-        let clipFilePath = videoClip.filePath
+        let clipFilePath = videoClip.resolvedFilePath
         let clipFileName = videoClip.fileName
         // Use firestoreId as stable cross-device key; fall back to SwiftData UUID if not yet synced
         let athleteStableId = athlete.firestoreId ?? athlete.id.uuidString
@@ -271,6 +271,7 @@ class VideoCloudManager: ObservableObject {
         let clipDuration = videoClip.duration
         let clipThumbnailPath = videoClip.thumbnailPath
         let clipNote = videoClip.note
+        let clipPitchSpeed = videoClip.pitchSpeed
         let playResultType = videoClip.playResult?.type
         // Use stable firestoreId for cross-device linking; fall back to SwiftData UUID
         let gameId = videoClip.game.map { $0.firestoreId ?? $0.id.uuidString }
@@ -284,7 +285,7 @@ class VideoCloudManager: ObservableObject {
         let athleteName = athlete.name
 
         // Get file size
-        let fileSize = FileManager.default.fileSize(atPath: videoClip.filePath)
+        let fileSize = FileManager.default.fileSize(atPath: videoClip.resolvedFilePath)
 
         let db = Firestore.firestore()
 
@@ -337,6 +338,9 @@ class VideoCloudManager: ObservableObject {
         if let note = clipNote {
             data["note"] = note
         }
+        if let pitchSpeed = clipPitchSpeed {
+            data["pitchSpeed"] = pitchSpeed
+        }
 
         // Upload thumbnail to Storage if exists, then add URL to metadata
         if let thumbnailPath = clipThumbnailPath,
@@ -368,7 +372,7 @@ class VideoCloudManager: ObservableObject {
     }
 
     /// Updates mutable video metadata fields in Firestore (isHighlight, note).
-    func updateVideoMetadata(clipId: String, isHighlight: Bool, note: String?, playResultType: PlayResultType?, gameId: String?, gameOpponent: String?, gameDate: Date?, seasonId: String?, seasonName: String?, practiceId: String?) async throws {
+    func updateVideoMetadata(clipId: String, isHighlight: Bool, note: String?, playResultType: PlayResultType?, pitchSpeed: Double?, gameId: String?, gameOpponent: String?, gameDate: Date?, seasonId: String?, seasonName: String?, practiceId: String?) async throws {
         let db = Firestore.firestore()
         var data: [String: Any] = [
             "isHighlight": isHighlight,
@@ -382,6 +386,7 @@ class VideoCloudManager: ObservableObject {
             data["playResult"] = NSNull()
             data["playResultName"] = NSNull()
         }
+        data["pitchSpeed"] = pitchSpeed ?? NSNull()
         data["gameId"] = gameId ?? NSNull()
         data["gameOpponent"] = gameOpponent ?? NSNull()
         data["gameDate"] = gameDate.map { Timestamp(date: $0) } ?? NSNull()
@@ -557,6 +562,8 @@ class VideoCloudManager: ObservableObject {
             let seasonId = data["seasonId"] as? String
             let seasonName = data["seasonName"] as? String
             let practiceId = data["practiceId"] as? String
+            let pitchSpeed = data["pitchSpeed"] as? Double
+            let duration = data["duration"] as? Double
             let fileSize = data["fileSize"] as? Int64 ?? 0
             let thumbnailURL = data["thumbnailURL"] as? String
 
@@ -576,6 +583,8 @@ class VideoCloudManager: ObservableObject {
                 seasonId: seasonId,
                 seasonName: seasonName,
                 practiceId: practiceId,
+                pitchSpeed: pitchSpeed,
+                duration: duration,
                 athleteName: athleteName,
                 fileSize: fileSize,
                 thumbnailURL: thumbnailURL
@@ -664,6 +673,8 @@ class VideoCloudManager: ObservableObject {
                         seasonId: data["seasonId"] as? String,
                         seasonName: data["seasonName"] as? String,
                         practiceId: data["practiceId"] as? String,
+                        pitchSpeed: data["pitchSpeed"] as? Double,
+                        duration: data["duration"] as? Double,
                         athleteName: athleteName,
                         fileSize: data["fileSize"] as? Int64 ?? 0,
                         thumbnailURL: data["thumbnailURL"] as? String
@@ -767,7 +778,7 @@ class VideoCloudManager: ObservableObject {
             let fileName: String
         }
 
-        let clipDataArray = clips.map { ClipData(id: $0.id, filePath: $0.filePath, fileName: $0.fileName) }
+        let clipDataArray = clips.map { ClipData(id: $0.id, filePath: $0.resolvedFilePath, fileName: $0.fileName) }
         // Use firestoreId as stable cross-device key; fall back to SwiftData UUID if not yet synced
         let athleteStableId = athlete.firestoreId ?? athlete.id.uuidString
         let athleteName = athlete.name
@@ -1335,6 +1346,8 @@ struct VideoClipMetadata {
     let seasonId: String?
     let seasonName: String?
     let practiceId: String?
+    let pitchSpeed: Double?
+    let duration: Double?
     let athleteName: String
     let fileSize: Int64
     let thumbnailURL: String?

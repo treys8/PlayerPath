@@ -46,7 +46,7 @@ struct UserPreferencesView: View {
                 )
             }
             .toolbar {
-                ToolbarItemGroup(placement: .navigationBarTrailing) {
+                ToolbarItemGroup(placement: .topBarTrailing) {
                     if viewModel.hasUnsavedChanges {
                         Button("Save") {
                             Task { try? await viewModel.save() }
@@ -183,7 +183,7 @@ struct UserPreferencesView: View {
                 set: { viewModel.update(\.preferredTheme, to: $0) }
             )) {
                 ForEach(AppTheme.allCases, id: \.self) { theme in
-                    Text(theme.rawValue).tag(theme)
+                    Text(theme.displayName).tag(theme)
                 }
             }
             

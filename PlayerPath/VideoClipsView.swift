@@ -797,8 +797,8 @@ struct VideoClipCard: View {
                 )
             }
 
-            if FileManager.default.fileExists(atPath: video.filePath) {
-                ShareLink(item: URL(fileURLWithPath: video.filePath)) {
+            if FileManager.default.fileExists(atPath: video.resolvedFilePath) {
+                ShareLink(item: video.resolvedFileURL) {
                     Label("Share", systemImage: "square.and.arrow.up")
                 }
 
@@ -853,13 +853,13 @@ struct VideoClipCard: View {
     // MARK: - Save to Photos
 
     private func saveToPhotos() {
-        guard FileManager.default.fileExists(atPath: video.filePath) else {
+        guard FileManager.default.fileExists(atPath: video.resolvedFilePath) else {
             errorMessage = "Video file not found"
             showingError = true
             return
         }
 
-        let videoURL = URL(fileURLWithPath: video.filePath)
+        let videoURL = video.resolvedFileURL
 
         PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
             guard status == .authorized || status == .limited else {

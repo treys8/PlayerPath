@@ -172,8 +172,8 @@ class GameService {
 
             if game.isLive {
                 NotificationCenter.default.post(name: .gameBecameLive, object: game)
-                GameAlertService.shared.requestPermissionIfNeeded()
-                GameAlertService.shared.scheduleEndGameReminder(for: game)
+                await GameAlertService.shared.requestPermissionIfNeeded()
+                await GameAlertService.shared.scheduleEndGameReminder(for: game)
             }
 
             return .success(game)
@@ -226,8 +226,8 @@ class GameService {
 
             print("Started game for athlete \(athlete.name).")
             NotificationCenter.default.post(name: .gameBecameLive, object: game)
-            GameAlertService.shared.requestPermissionIfNeeded()
-            GameAlertService.shared.scheduleEndGameReminder(for: game)
+            await GameAlertService.shared.requestPermissionIfNeeded()
+            await GameAlertService.shared.scheduleEndGameReminder(for: game)
         } catch {
             print("Error saving context after starting game: \(error.localizedDescription)")
         }

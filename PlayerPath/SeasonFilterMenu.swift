@@ -62,7 +62,7 @@ struct SeasonFilterMenu: View {
                 if selectedSeasonID != nil {
                     Image(systemName: "circle.fill")
                         .font(.system(size: 6))
-                        .foregroundColor(.blue)
+                        .foregroundStyle(.blue)
                 }
             }
         }
@@ -98,7 +98,7 @@ struct SeasonBadge: View {
         Text(season.displayName)
             .font(.system(size: fontSize))
             .fontWeight(.semibold)
-            .foregroundColor(.white)
+            .foregroundStyle(.white)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
             .background(season.isActive ? Color.blue : Color.gray)
@@ -116,7 +116,7 @@ struct FilteredEmptyStateView: View {
         VStack(spacing: 20) {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 60))
-                .foregroundColor(.gray)
+                .foregroundStyle(.gray)
 
             Text("No Results")
                 .font(.title2)
@@ -124,7 +124,7 @@ struct FilteredEmptyStateView: View {
 
             Text("No items match \(filterDescription)")
                 .font(.subheadline)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
 
             Button("Clear Filters") {

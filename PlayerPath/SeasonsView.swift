@@ -10,11 +10,9 @@ import SwiftData
 
 struct SeasonsView: View {
     let athlete: Athlete
-    @Environment(\.modelContext) private var modelContext
     @State private var showingCreateSeason = false
     @State private var selectedSeason: Season?
     @State private var seasons: [Season] = []
-    @State private var showNoActiveSeasonAlert = false
 
     var hasActiveSeason: Bool {
         seasons.contains(where: { $0.isActive })
@@ -23,127 +21,16 @@ struct SeasonsView: View {
     var body: some View {
         ScrollView {
             LazyVStack(spacing: 16) {
-                // No Active Season Alert
-                if !seasons.isEmpty && !hasActiveSeason {
-                    VStack(spacing: 12) {
-                        HStack {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .foregroundStyle(.orange)
-                                .font(.title3)
-
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("No Active Season")
-                                    .font(.headline)
-                                    .fontWeight(.semibold)
-
-                                Text("Create or activate a season to track your progress")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-
-                            Spacer()
-                        }
-                    }
-                    .padding()
-                    .background(
-                        RoundedRectangle(cornerRadius: 16)
-                            .fill(.orange.opacity(0.1))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 16)
-                            .stroke(.orange.opacity(0.3), lineWidth: 1.5)
-                    )
-                    .padding(.horizontal)
-                }
-
-                // Active Season Banner (if exists)
-                if let activeSeason = athlete.activeSeason {
-                    VStack(alignment: .leading, spacing: 12) {
-                        HStack {
-                            Image(systemName: "calendar.circle.fill")
-                                .font(.title2)
-                                .foregroundStyle(.blue)
-
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Active Season")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .textCase(.uppercase)
-
-                                Text(activeSeason.displayName)
-                                    .font(.title3)
-                                    .fontWeight(.semibold)
-                            }
-
-                            Spacer()
-
-                            Image(systemName: "chevron.right")
-                                .foregroundStyle(.tertiary)
-                        }
-
-                        HStack(spacing: 20) {
-                            SeasonStatBadge(
-                                icon: "baseball.diamond.bases",
-                                value: activeSeason.totalGames,
-                                label: "Games"
-                            )
-                            SeasonStatBadge(
-                                icon: "video",
-                                value: activeSeason.totalVideos,
-                                label: "Videos"
-                            )
-                            SeasonStatBadge(
-                                icon: "figure.run",
-                                value: (activeSeason.practices ?? []).count,
-                                label: "Practices"
-                            )
-                        }
-                    }
-                    .padding()
-                    .background(
-                        RoundedRectangle(cornerRadius: 16)
-                            .fill(.blue.opacity(0.1))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 16)
-                            .stroke(.blue.opacity(0.3), lineWidth: 1.5)
-                    )
-                    .padding(.horizontal)
-                    .onTapGesture {
-                        selectedSeason = activeSeason
-                    }
-                }
-
-                // All Seasons List
-                if seasons.isEmpty {
-                    EmptySeasonsView {
-                        showingCreateSeason = true
-                    }
-                } else {
-                    VStack(alignment: .leading, spacing: 12) {
-                        HStack {
-                            Text("All Seasons")
-                                .font(.headline)
-                                .fontWeight(.semibold)
-                            Spacer()
-                        }
-                        .padding(.horizontal)
-
-                        ForEach(seasons) { season in
-                            SeasonRow(season: season)
-                                .onTapGesture {
-                                    selectedSeason = season
-                                }
-                        }
-                    }
-                }
+                noActiveSeasonAlert
+                activeSeasonBanner
+                seasonsList
             }
             .padding(.vertical)
         }
         .navigationTitle("Seasons")
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
+            ToolbarItem(placement: .topBarTrailing) {
                 Button(action: { showingCreateSeason = true }) {
                     Image(systemName: "plus")
                 }
@@ -154,13 +41,139 @@ struct SeasonsView: View {
             CreateSeasonView(athlete: athlete)
         }
         .sheet(item: $selectedSeason) { season in
-            SeasonDetailView(season: season, athlete: athlete)
+            NavigationStack {
+                SeasonDetailView(season: season, athlete: athlete)
+            }
         }
         .onAppear {
             updateSeasons()
         }
         .onChange(of: athlete.seasons) { _, _ in
             updateSeasons()
+        }
+    }
+
+    @ViewBuilder
+    private var noActiveSeasonAlert: some View {
+        if !seasons.isEmpty && !hasActiveSeason {
+            VStack(spacing: 12) {
+                HStack {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                        .font(.title3)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("No Active Season")
+                            .font(.headline)
+                            .fontWeight(.semibold)
+
+                        Text("Create or activate a season to track your progress")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Spacer()
+                }
+            }
+            .padding()
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(.orange.opacity(0.1))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(.orange.opacity(0.3), lineWidth: 1.5)
+            )
+            .padding(.horizontal)
+        }
+    }
+
+    @ViewBuilder
+    private var activeSeasonBanner: some View {
+        if let activeSeason = athlete.activeSeason {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Image(systemName: "calendar.circle.fill")
+                        .font(.title2)
+                        .foregroundStyle(.blue)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Active Season")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .textCase(.uppercase)
+
+                        Text(activeSeason.displayName)
+                            .font(.title3)
+                            .fontWeight(.semibold)
+                    }
+
+                    Spacer()
+
+                    Image(systemName: "chevron.right")
+                        .foregroundStyle(.tertiary)
+                }
+
+                HStack(spacing: 20) {
+                    SeasonStatBadge(
+                        value: activeSeason.totalGames,
+                        label: "Games",
+                        icon: "baseball.diamond.bases"
+                    )
+                    SeasonStatBadge(
+                        value: activeSeason.totalVideos,
+                        label: "Videos",
+                        icon: "video"
+                    )
+                    SeasonStatBadge(
+                        value: (activeSeason.practices ?? []).count,
+                        label: "Practices",
+                        icon: "figure.run"
+                    )
+                }
+            }
+            .padding()
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(.blue.opacity(0.1))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(.blue.opacity(0.3), lineWidth: 1.5)
+            )
+            .padding(.horizontal)
+            .contentShape(RoundedRectangle(cornerRadius: 16))
+            .onTapGesture { selectedSeason = activeSeason }
+            .accessibilityAddTraits(.isButton)
+            .accessibilityLabel("Active Season: \(activeSeason.displayName)")
+        }
+    }
+
+    @ViewBuilder
+    private var seasonsList: some View {
+        if seasons.isEmpty {
+            EmptySeasonsView {
+                showingCreateSeason = true
+            }
+        } else {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Text("All Seasons")
+                        .font(.headline)
+                        .fontWeight(.semibold)
+                    Spacer()
+                }
+                .padding(.horizontal)
+
+                ForEach(seasons) { season in
+                    Button {
+                        selectedSeason = season
+                    } label: {
+                        SeasonRow(season: season)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
         }
     }
 
@@ -175,29 +188,6 @@ struct SeasonsView: View {
             // Then sort by start date (most recent first)
             return (lhs.startDate ?? .distantPast) > (rhs.startDate ?? .distantPast)
         }
-    }
-}
-
-struct SeasonStatBadge: View {
-    let icon: String
-    let value: Int
-    let label: String
-    
-    var body: some View {
-        VStack(spacing: 4) {
-            Image(systemName: icon)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            
-            Text("\(value)")
-                .font(.headline)
-                .fontWeight(.bold)
-            
-            Text(label)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity)
     }
 }
 
@@ -370,44 +360,6 @@ struct SeasonGameRow: View {
             }
         }
         .padding(.vertical, 4)
-    }
-}
-
-// Full list views for videos and games
-struct SeasonVideosListView: View {
-    let season: Season
-    let videos: [VideoClip]
-    @State private var selectedVideo: VideoClip?
-    
-    var body: some View {
-        List(videos) { video in
-            Button {
-                selectedVideo = video
-            } label: {
-                SeasonVideoRow(video: video)
-            }
-            .buttonStyle(.plain)
-        }
-        .navigationTitle("\(season.displayName) Videos")
-        .fullScreenCover(item: $selectedVideo) { video in
-            VideoPlayerView(clip: video)
-        }
-    }
-}
-
-struct SeasonGamesListView: View {
-    let season: Season
-    let games: [Game]
-    
-    var body: some View {
-        List(games) { game in
-            NavigationLink {
-                GameDetailView(game: game)
-            } label: {
-                SeasonGameRow(game: game)
-            }
-        }
-        .navigationTitle("\(season.displayName) Games")
     }
 }
 

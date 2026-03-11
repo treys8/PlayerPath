@@ -1672,9 +1672,9 @@ struct VideoClipRow: View {
     private func generateMissingThumbnail() async {
         print("Generating missing thumbnail for clip in game: \(clip.fileName)")
         
-        let videoURL = URL(fileURLWithPath: clip.filePath)
+        let videoURL = clip.resolvedFileURL
         let result = await VideoFileManager.generateThumbnail(from: videoURL)
-        
+
         await MainActor.run {
             switch result {
             case .success(let thumbnailPath):

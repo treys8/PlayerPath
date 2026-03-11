@@ -15,7 +15,7 @@ struct PracticeVideoSaveView: View {
     let videoURL: URL
     let athlete: Athlete?
     let practice: Practice?
-    let onSave: (String?) -> Void
+    let onSave: (String?, @escaping () -> Void) -> Void
     let onDiscard: () -> Void
 
     @State private var noteText: String = ""
@@ -24,6 +24,7 @@ struct PracticeVideoSaveView: View {
     @State private var thumbnail: UIImage?
     @State private var keyboardHeight: CGFloat = 0
     @State private var bottomSafeArea: CGFloat = 0
+    @State private var previousOrientationLock: UIInterfaceOrientationMask = .allButUpsideDown
     @FocusState private var noteIsFocused: Bool
 
     var body: some View {
@@ -55,30 +56,30 @@ struct PracticeVideoSaveView: View {
                         HStack(spacing: 8) {
                             Image(systemName: "figure.baseball")
                                 .font(.caption)
-                                .foregroundColor(.white.opacity(0.8))
+                                .foregroundStyle(.white.opacity(0.8))
                             Text("Practice Session")
                                 .font(.headline)
                                 .fontWeight(.bold)
-                                .foregroundColor(.white)
+                                .foregroundStyle(.white)
                         }
                         if let date = practice?.date {
                             HStack(spacing: 6) {
                                 Image(systemName: "calendar")
                                     .font(.caption2)
-                                    .foregroundColor(.white.opacity(0.6))
+                                    .foregroundStyle(.white.opacity(0.6))
                                 Text(date, style: .date)
                                     .font(.subheadline)
-                                    .foregroundColor(.white.opacity(0.8))
+                                    .foregroundStyle(.white.opacity(0.8))
                             }
                         }
                         if let name = athlete?.name {
                             HStack(spacing: 6) {
                                 Image(systemName: "person.fill")
                                     .font(.caption2)
-                                    .foregroundColor(.white.opacity(0.5))
+                                    .foregroundStyle(.white.opacity(0.5))
                                 Text(name)
                                     .font(.caption)
-                                    .foregroundColor(.white.opacity(0.7))
+                                    .foregroundStyle(.white.opacity(0.7))
                             }
                         }
                     }
@@ -125,7 +126,7 @@ struct PracticeVideoSaveView: View {
                             Text("Discard")
                                 .font(.body)
                         }
-                        .foregroundColor(.white)
+                        .foregroundStyle(.white)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 8)
                         .background(Capsule().fill(.ultraThinMaterial))
@@ -149,7 +150,7 @@ struct PracticeVideoSaveView: View {
                         .tint(.white)
                     Text("Saving...")
                         .font(.headline)
-                        .foregroundColor(.white)
+                        .foregroundStyle(.white)
                 }
                 .transition(.opacity)
             }
@@ -157,13 +158,14 @@ struct PracticeVideoSaveView: View {
         .animation(.easeInOut(duration: 0.2), value: isSaving)
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: keyboardHeight)
         .onAppear {
+            previousOrientationLock = PlayerPathAppDelegate.orientationLock
             PlayerPathAppDelegate.orientationLock = .portrait
             if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
                 scene.requestGeometryUpdate(.iOS(interfaceOrientations: .portrait))
             }
         }
         .onDisappear {
-            PlayerPathAppDelegate.orientationLock = .allButUpsideDown
+            PlayerPathAppDelegate.orientationLock = previousOrientationLock
         }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { notification in
             if let frame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect {
@@ -187,11 +189,11 @@ struct PracticeVideoSaveView: View {
                 Text("Practice Recording")
                     .font(.title3)
                     .fontWeight(.bold)
-                    .foregroundColor(.white)
+                    .foregroundStyle(.white)
                     .multilineTextAlignment(.center)
                 Text("Add an optional note before saving")
                     .font(.caption)
-                    .foregroundColor(.white.opacity(0.7))
+                    .foregroundStyle(.white.opacity(0.7))
                     .multilineTextAlignment(.center)
             }
             .opacity(showContent ? 1 : 0)
@@ -202,7 +204,7 @@ struct PracticeVideoSaveView: View {
                 if noteText.isEmpty {
                     Text("What were you working on? (optional)")
                         .font(.subheadline)
-                        .foregroundColor(.white.opacity(0.6))
+                        .foregroundStyle(.white.opacity(0.6))
                         .padding(.horizontal, 4)
                         .padding(.top, 8)
                         .allowsHitTesting(false)
@@ -210,7 +212,7 @@ struct PracticeVideoSaveView: View {
                 TextEditor(text: $noteText)
                     .focused($noteIsFocused)
                     .font(.subheadline)
-                    .foregroundColor(.white)
+                    .foregroundStyle(.white)
                     .frame(minHeight: 44, maxHeight: 60)
                     .scrollContentBackground(.hidden)
                     .padding(.top, 4)
@@ -288,7 +290,9 @@ struct PracticeVideoSaveView: View {
     private func save(note: String?) {
         noteIsFocused = false
         isSaving = true
-        onSave(note)
+        onSave(note) {
+            isSaving = false
+        }
     }
 
     private func loadThumbnail() {

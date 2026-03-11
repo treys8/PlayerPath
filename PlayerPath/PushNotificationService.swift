@@ -410,7 +410,8 @@ final class PushNotificationService: NSObject, ObservableObject {
     func notifyUploadComplete() async {
         guard authorizationStatus == .authorized else { return }
         // Skip if app is in foreground — the upload UI already provides feedback
-        guard await UIApplication.shared.applicationState != .active else { return }
+        let isActive = await MainActor.run { UIApplication.shared.applicationState == .active }
+        guard !isActive else { return }
         _ = await scheduleLocalNotification(
             identifier: "upload_complete_\(UUID().uuidString)",
             title: "Upload Complete ☁️",

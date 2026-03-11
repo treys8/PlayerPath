@@ -19,7 +19,7 @@ final class BiometricAuthenticationManager: ObservableObject {
     // Shared singleton instance for accessing biometric operations from other managers
     static let shared = BiometricAuthenticationManager()
 
-    init() {
+    private init() {
         checkBiometricAvailability()
         isBiometricEnabled = keychain.isBiometricEnabled()
     }

@@ -80,6 +80,10 @@ class StoreKitManager: ObservableObject {
         isLoading = false
     }
 
+    func clearError() {
+        error = nil
+    }
+
     // MARK: - Purchase Management
 
     /// Purchase a subscription product

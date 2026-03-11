@@ -171,15 +171,15 @@ struct PracticesView: View {
 
                         List(selection: $selection) {
                             // Statistics summary — inside the list so it scrolls away
-                            if !practices.isEmpty && editMode == .inactive {
+                            if !filteredPractices.isEmpty && editMode == .inactive {
                                 HStack {
                                     Image(systemName: "chart.bar.fill")
-                                        .foregroundColor(.green)
+                                        .foregroundStyle(.green)
                                         .font(.caption)
 
                                     Text(practicesSummary)
                                         .font(.caption)
-                                        .foregroundColor(.secondary)
+                                        .foregroundStyle(.secondary)
                                         .lineLimit(1)
                                         .minimumScaleFactor(0.8)
 
@@ -213,7 +213,7 @@ struct PracticesView: View {
                 }
             }
         }
-        .navigationTitle("Practices (\(practices.count))")
+        .navigationTitle("Practices (\(filteredPractices.count))")
         .navigationBarTitleDisplayMode(.large)
         .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic))
         .animation(.default, value: filteredPractices.count)
@@ -291,9 +291,20 @@ struct PracticesView: View {
     }
     
     private func deletePracticesFromFiltered(offsets: IndexSet) {
-        let idsToDelete = offsets.map { filteredPractices[$0].persistentModelID }
-        let toDelete = practices.filter { idsToDelete.contains($0.persistentModelID) }
-        for practice in toDelete { deleteSinglePractice(practice) }
+        let toDelete = offsets.map { filteredPractices[$0] }
+        withAnimation {
+            for practice in toDelete {
+                practice.delete(in: modelContext)
+            }
+            do {
+                try modelContext.save()
+                Haptics.success()
+                log.info("Successfully deleted \(toDelete.count) practices")
+            } catch {
+                Haptics.error()
+                log.error("Failed to delete practices: \(error.localizedDescription)")
+            }
+        }
     }
 
     @MainActor
@@ -303,14 +314,14 @@ struct PracticesView: View {
     }
 
     private var practicesSummary: String {
-        let practiceCount = practices.count
+        let practiceCount = filteredPractices.count
         guard practiceCount > 0 else { return "" }
 
-        let videoCount = practices.reduce(0) { $0 + ($1.videoClips?.count ?? 0) }
-        let noteCount = practices.reduce(0) { $0 + ($1.notes?.count ?? 0) }
+        let videoCount = filteredPractices.reduce(0) { $0 + ($1.videoClips?.count ?? 0) }
+        let noteCount = filteredPractices.reduce(0) { $0 + ($1.notes?.count ?? 0) }
 
-        guard let oldest = practices.last?.date,
-              let newest = practices.first?.date else {
+        let dates = filteredPractices.compactMap(\.date)
+        guard let oldest = dates.min(), let newest = dates.max() else {
             return "\(practiceCount) practice\(practiceCount == 1 ? "" : "s") • \(videoCount) videos"
         }
 
@@ -384,6 +395,25 @@ struct PracticesView: View {
         let toDelete = practices.filter { selection.contains($0.id) }
         guard !toDelete.isEmpty else { return }
 
+        // Sync deletions to Firestore
+        for practice in toDelete {
+            if let firestoreId = practice.firestoreId,
+               let athlete = practice.athlete,
+               let user = athlete.user {
+                Task {
+                    do {
+                        try await FirestoreManager.shared.deletePractice(
+                            userId: user.id.uuidString,
+                            practiceId: firestoreId
+                        )
+                        log.info("Practice deletion synced to Firestore")
+                    } catch {
+                        log.warning("Failed to sync practice deletion: \(error.localizedDescription)")
+                    }
+                }
+            }
+        }
+
         withAnimation {
             for practice in toDelete {
                 practice.delete(in: modelContext)
@@ -391,10 +421,10 @@ struct PracticesView: View {
 
             do {
                 try modelContext.save()
-                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                Haptics.success()
                 log.info("Successfully deleted \(toDelete.count) practices")
             } catch {
-                UINotificationFeedbackGenerator().notificationOccurred(.error)
+                Haptics.error()
                 log.error("Failed to delete practices: \(error.localizedDescription)")
             }
         }
@@ -453,7 +483,7 @@ struct EmptyPracticesView: View {
         VStack(spacing: 30) {
             Image(systemName: "figure.baseball")
                 .font(.system(size: 80))
-                .foregroundColor(.green)
+                .foregroundStyle(.green)
             
             Text("No Practice Sessions Yet")
                 .font(.title)
@@ -461,7 +491,7 @@ struct EmptyPracticesView: View {
             
             Text("Create your first practice to track training")
                 .font(.subheadline)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
             
             Button("Add Practice", action: onAddPractice)
@@ -494,7 +524,7 @@ struct PracticeRow: View {
                 HStack(spacing: 6) {
                     Label("\((practice.videoClips ?? []).count)", systemImage: "video")
                         .labelStyle(.iconOnly)
-                        .foregroundColor(.blue)
+                        .foregroundStyle(.blue)
                     Text("\((practice.videoClips ?? []).count)")
                         .font(.caption2)
                         .padding(.horizontal, 6)
@@ -507,7 +537,7 @@ struct PracticeRow: View {
             if !(practice.notes ?? []).isEmpty {
                 HStack(spacing: 6) {
                     Image(systemName: "note.text")
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                     Text("\((practice.notes ?? []).count)")
                         .font(.caption2)
                         .padding(.horizontal, 6)
@@ -544,10 +574,10 @@ struct AddPracticeView: View {
                     if shouldUploadVideo {
                         HStack {
                             Image(systemName: "video.badge.plus")
-                                .foregroundColor(.green)
+                                .foregroundStyle(.green)
                             Text("Video will be uploaded after practice is created")
                                 .font(.caption)
-                                .foregroundColor(.secondary)
+                                .foregroundStyle(.secondary)
                         }
                     }
                 }
@@ -631,8 +661,6 @@ struct PracticeDetailView: View {
     let practice: Practice
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
-    @State private var showingVideoRecorder = false
-    @State private var showingAddNote = false
     @State private var selectedVideo: VideoClip?
     @State private var showingDeleteConfirmation = false
     
@@ -662,7 +690,7 @@ struct PracticeDetailView: View {
                         .fontWeight(.semibold)
                     Spacer()
                     Text((practice.date ?? .distantPast).formatted(date: .abbreviated, time: .omitted))
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                 }
             }
             
@@ -817,7 +845,7 @@ struct PracticeNoteRow: View {
             if let createdAt = note.createdAt {
                 Text(createdAt, formatter: DateFormatter.shortDateTime)
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
             }
         }
     }
@@ -843,7 +871,7 @@ struct PracticeVideoClipRow: View {
                                 .scaledToFill()
                         } else {
                             Image(systemName: "video.fill")
-                                .foregroundColor(.blue)
+                                .foregroundStyle(.blue)
                                 .font(.title3)
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                                 .background(Color.blue.opacity(0.1))
@@ -854,7 +882,7 @@ struct PracticeVideoClipRow: View {
                     .overlay(alignment: .center) {
                         Image(systemName: "play.fill")
                             .font(.caption)
-                            .foregroundColor(.white)
+                            .foregroundStyle(.white)
                             .padding(4)
                             .background(Circle().fill(.black.opacity(0.55)))
                     }
@@ -874,7 +902,7 @@ struct PracticeVideoClipRow: View {
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
                             .background(Color.blue.opacity(0.1))
-                            .foregroundColor(.blue)
+                            .foregroundStyle(.blue)
                             .cornerRadius(4)
                     }
                 }
@@ -884,7 +912,7 @@ struct PracticeVideoClipRow: View {
                 if let duration = clip.duration {
                     Text(Self.formatDuration(duration))
                         .font(.caption2)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                         .monospacedDigit()
                 }
             }
@@ -897,10 +925,10 @@ struct PracticeVideoClipRow: View {
                     HStack(spacing: 6) {
                         Image(systemName: "note.text")
                             .font(.caption)
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(.secondary)
                         Text(note)
                             .font(.caption)
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(.secondary)
                             .lineLimit(2)
                             .multilineTextAlignment(.leading)
                         Spacer()
@@ -971,7 +999,7 @@ struct EditClipNoteSheet: View {
             VStack(alignment: .leading, spacing: 16) {
                 Text("Your note is visible to your coach if you share this video.")
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                     .padding(.horizontal)
                     .padding(.top, 4)
 
@@ -1017,6 +1045,7 @@ struct EditClipNoteSheet: View {
                 try? await VideoCloudManager.shared.updateVideoNote(clipId: firestoreId, note: clip.note)
             }
         }
+        isSaving = false
         dismiss()
     }
 }

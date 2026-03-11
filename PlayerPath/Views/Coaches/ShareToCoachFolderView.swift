@@ -186,8 +186,8 @@ struct ShareToCoachFolderView: View {
             return
         }
 
-        let videoURL = URL(fileURLWithPath: clip.filePath)
-        guard FileManager.default.fileExists(atPath: clip.filePath) else {
+        let videoURL = clip.resolvedFileURL
+        guard FileManager.default.fileExists(atPath: clip.resolvedFilePath) else {
             errorMessage = "Video file not found locally. Open the video to download it first, then share."
             return
         }

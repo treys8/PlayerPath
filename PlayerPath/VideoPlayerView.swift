@@ -161,7 +161,7 @@ struct VideoPlayerView: View {
                             Label("Save to Photos", systemImage: "square.and.arrow.down")
                         }
                         .accessibilityLabel("Save video to Photos library")
-                        ShareLink(item: URL(fileURLWithPath: clip.filePath)) {
+                        ShareLink(item: clip.resolvedFileURL) {
                             Label("Share Video", systemImage: "square.and.arrow.up")
                         }
                         if authManager.hasCoachingAccess {
@@ -211,7 +211,7 @@ struct VideoPlayerView: View {
         }
         .sheet(isPresented: $showingTrimmer) {
             if let player = player {
-                VideoTrimmerSheet(player: player, sourceURL: URL(fileURLWithPath: clip.filePath)) { outputURL in
+                VideoTrimmerSheet(player: player, sourceURL: clip.resolvedFileURL) { outputURL in
                     // Reload player with trimmed clip
                     Task { await reloadPlayer(with: outputURL) }
                 }
@@ -259,8 +259,8 @@ struct VideoPlayerView: View {
     }
 
     private func saveToPhotos() {
-        let videoURL = URL(fileURLWithPath: clip.filePath)
-        guard FileManager.default.fileExists(atPath: clip.filePath) else {
+        let videoURL = clip.resolvedFileURL
+        guard FileManager.default.fileExists(atPath: clip.resolvedFilePath) else {
             saveErrorMessage = "Video file not found"
             return
         }
@@ -310,7 +310,7 @@ struct VideoPlayerView: View {
             return
         }
 
-        print("VideoPlayerView: File path: \(clip.filePath)")
+        print("VideoPlayerView: File path: \(clip.resolvedFilePath)")
 
         guard let url = await findVideoURL() else {
             print("VideoPlayerView: No valid video file found")
@@ -330,9 +330,9 @@ struct VideoPlayerView: View {
     }
     
     private func findVideoURL() async -> URL? {
-        let primaryURL = URL(fileURLWithPath: clip.filePath)
+        let primaryURL = clip.resolvedFileURL
 
-        if FileManager.default.fileExists(atPath: clip.filePath) {
+        if FileManager.default.fileExists(atPath: clip.resolvedFilePath) {
             print("VideoPlayerView: File exists at primary path")
             return primaryURL
         }
@@ -390,9 +390,9 @@ struct VideoPlayerView: View {
 
                 progressTask?.cancel()
 
-                // Update clip's filePath in database
+                // Update clip's filePath in database (store relative)
                 await MainActor.run {
-                    clip.filePath = destinationPath
+                    clip.filePath = VideoClip.toRelativePath(destinationPath)
                     try? modelContext.save()
                     isDownloadingFromCloud = false
                 }
