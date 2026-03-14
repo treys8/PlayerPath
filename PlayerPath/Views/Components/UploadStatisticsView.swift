@@ -225,11 +225,9 @@ struct UploadStatisticsView: View {
         Section {
             ForEach(recentUploads.prefix(5)) { video in
                 HStack {
-                    // Thumbnail
-                    if let thumbnail = loadThumbnail(for: video) {
-                        Image(uiImage: thumbnail)
-                            .resizable()
-                            .scaledToFill()
+                    // Thumbnail (loaded asynchronously)
+                    if let thumbPath = video.thumbnailPath, !thumbPath.isEmpty {
+                        AsyncThumbnailView(path: thumbPath, size: CGSize(width: 60, height: 40))
                             .frame(width: 60, height: 40)
                             .clipShape(RoundedRectangle(cornerRadius: 6))
                     } else {
@@ -355,14 +353,6 @@ struct UploadStatisticsView: View {
         return formatter.localizedString(for: date, relativeTo: Date())
     }
 
-    private func loadThumbnail(for video: VideoClip) -> UIImage? {
-        guard let thumbnailPath = video.thumbnailPath,
-              !thumbnailPath.isEmpty,
-              FileManager.default.fileExists(atPath: thumbnailPath) else {
-            return nil
-        }
-        return UIImage(contentsOfFile: thumbnailPath)
-    }
 
     private func retryAllFailed() {
         for upload in uploadManager.failedUploads {

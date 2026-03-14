@@ -12,7 +12,7 @@ import Foundation
 @MainActor
 final class PhotoPersistenceService {
 
-    private enum Constants {
+    private nonisolated enum Constants {
         static let photosFolderName = "Photos"
         static let thumbnailsFolderName = "PhotoThumbnails"
         static let thumbnailSize = CGSize(width: 300, height: 300)
@@ -28,32 +28,72 @@ final class PhotoPersistenceService {
 
     // MARK: - Directory Setup
 
-    private func ensurePhotosDirectory() throws -> URL {
-        let documentsURL = try fileManager.url(
+    private nonisolated func ensurePhotosDirectory() throws -> URL {
+        let documentsURL = try FileManager.default.url(
             for: .documentDirectory,
             in: .userDomainMask,
             appropriateFor: nil,
             create: true
         )
         let photosDir = documentsURL.appendingPathComponent(Constants.photosFolderName, isDirectory: true)
-        if !fileManager.fileExists(atPath: photosDir.path) {
-            try fileManager.createDirectory(at: photosDir, withIntermediateDirectories: true)
+        if !FileManager.default.fileExists(atPath: photosDir.path) {
+            try FileManager.default.createDirectory(at: photosDir, withIntermediateDirectories: true)
         }
         return photosDir
     }
 
-    private func ensureThumbnailsDirectory() throws -> URL {
-        let documentsURL = try fileManager.url(
+    private nonisolated func ensureThumbnailsDirectory() throws -> URL {
+        let documentsURL = try FileManager.default.url(
             for: .documentDirectory,
             in: .userDomainMask,
             appropriateFor: nil,
             create: true
         )
         let thumbDir = documentsURL.appendingPathComponent(Constants.thumbnailsFolderName, isDirectory: true)
-        if !fileManager.fileExists(atPath: thumbDir.path) {
-            try fileManager.createDirectory(at: thumbDir, withIntermediateDirectories: true)
+        if !FileManager.default.fileExists(atPath: thumbDir.path) {
+            try FileManager.default.createDirectory(at: thumbDir, withIntermediateDirectories: true)
         }
         return thumbDir
+    }
+
+    // MARK: - Image Processing (off main thread)
+
+    private struct ProcessedPhoto: Sendable {
+        let photoURL: URL
+        let thumbURL: URL
+    }
+
+    /// Performs CPU-intensive image normalization, compression, and thumbnail
+    /// generation off the main thread, returning file URLs for SwiftData.
+    private nonisolated func processImage(
+        _ image: UIImage,
+        photoID: UUID
+    ) async throws -> ProcessedPhoto {
+        let photosDir = try ensurePhotosDirectory()
+        let thumbDir = try ensureThumbnailsDirectory()
+
+        let fileName = "\(photoID.uuidString).jpg"
+        let photoURL = photosDir.appendingPathComponent(fileName)
+        let thumbFileName = "thumb_\(photoID.uuidString).jpg"
+        let thumbURL = thumbDir.appendingPathComponent(thumbFileName)
+
+        // Normalize orientation
+        let normalized = Self.normalizedImage(image)
+
+        // Write full-size JPEG
+        guard let imageData = normalized.jpegData(compressionQuality: Constants.jpegQuality) else {
+            throw PhotoPersistenceError.failedToEncode
+        }
+        try imageData.write(to: photoURL, options: .atomic)
+
+        // Generate and write thumbnail
+        let thumbnail = Self.resizedImage(normalized, to: Constants.thumbnailSize)
+        let thumbData = thumbnail.jpegData(compressionQuality: Constants.thumbnailQuality)
+        if let thumbData {
+            try thumbData.write(to: thumbURL, options: .atomic)
+        }
+
+        return ProcessedPhoto(photoURL: photoURL, thumbURL: thumbURL)
     }
 
     // MARK: - Save Photo
@@ -66,33 +106,15 @@ final class PhotoPersistenceService {
         game: Game? = nil,
         practice: Practice? = nil
     ) async throws -> Photo {
-        let photosDir = try ensurePhotosDirectory()
-        let thumbDir = try ensureThumbnailsDirectory()
-
         let photoID = UUID()
         let fileName = "\(photoID.uuidString).jpg"
 
-        // Normalize orientation
-        let normalized = normalizedImage(image)
+        // Process image off the main thread
+        let processed = try await processImage(image, photoID: photoID)
 
-        // Write full-size JPEG
-        guard let imageData = normalized.jpegData(compressionQuality: Constants.jpegQuality) else {
-            throw PhotoPersistenceError.failedToEncode
-        }
-        let photoURL = photosDir.appendingPathComponent(fileName)
-        try imageData.write(to: photoURL, options: .atomic)
-
-        // Generate and write thumbnail
-        let thumbnail = resizedImage(normalized, to: Constants.thumbnailSize)
-        let thumbFileName = "thumb_\(photoID.uuidString).jpg"
-        let thumbURL = thumbDir.appendingPathComponent(thumbFileName)
-        if let thumbData = thumbnail.jpegData(compressionQuality: Constants.thumbnailQuality) {
-            try thumbData.write(to: thumbURL, options: .atomic)
-        }
-
-        // Create SwiftData record
-        let photo = Photo(fileName: fileName, filePath: photoURL.path)
-        photo.thumbnailPath = thumbURL.path
+        // Create SwiftData record (must be on @MainActor)
+        let photo = Photo(fileName: fileName, filePath: processed.photoURL.path)
+        photo.thumbnailPath = processed.thumbURL.path
         photo.caption = caption
         photo.athlete = athlete
         photo.game = game
@@ -115,9 +137,9 @@ final class PhotoPersistenceService {
         print("PhotoPersistenceService: Deleted photo \(photo.fileName)")
     }
 
-    // MARK: - Image Helpers
+    // MARK: - Image Helpers (nonisolated for background processing)
 
-    private func normalizedImage(_ image: UIImage) -> UIImage {
+    private nonisolated static func normalizedImage(_ image: UIImage) -> UIImage {
         if image.imageOrientation == .up { return image }
         let format = UIGraphicsImageRendererFormat()
         format.scale = image.scale
@@ -127,7 +149,7 @@ final class PhotoPersistenceService {
         }
     }
 
-    private func resizedImage(_ image: UIImage, to targetSize: CGSize) -> UIImage {
+    private nonisolated static func resizedImage(_ image: UIImage, to targetSize: CGSize) -> UIImage {
         let scale = max(targetSize.width / image.size.width, targetSize.height / image.size.height)
         let newSize = CGSize(width: image.size.width * scale, height: image.size.height * scale)
         let format = UIGraphicsImageRendererFormat()

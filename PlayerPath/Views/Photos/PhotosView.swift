@@ -306,17 +306,31 @@ struct PhotosView: View {
             defer { isImporting = false }
 
             let service = PhotoPersistenceService()
+            var savedCount = 0
+            var failedCount = 0
             for item in items {
-                if let data = try? await item.loadTransferable(type: Data.self),
-                   let image = UIImage(data: data) {
-                    _ = try? await service.savePhoto(
+                do {
+                    guard let data = try await item.loadTransferable(type: Data.self),
+                          let image = UIImage(data: data) else {
+                        failedCount += 1
+                        continue
+                    }
+                    _ = try await service.savePhoto(
                         image: image,
                         context: modelContext,
                         athlete: athlete
                     )
+                    savedCount += 1
+                } catch {
+                    failedCount += 1
+                    print("PhotosView: Failed to import photo: \(error)")
                 }
             }
-            Haptics.success()
+            if failedCount > 0 && savedCount == 0 {
+                Haptics.error()
+            } else {
+                Haptics.success()
+            }
         }
     }
 

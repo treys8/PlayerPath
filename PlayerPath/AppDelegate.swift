@@ -8,6 +8,7 @@
 import UIKit
 import UserNotifications
 import FirebaseCore
+import FirebaseFirestore
 import BackgroundTasks
 import OSLog
 
@@ -21,6 +22,13 @@ class PlayerPathAppDelegate: NSObject, UIApplicationDelegate {
         if FirebaseApp.app() == nil {
             appLog.info("Configuring Firebase on launch")
             FirebaseApp.configure()
+            // Configure Firestore settings immediately — must happen before
+            // any code accesses Firestore.firestore() elsewhere.
+            let settings = FirestoreSettings()
+            settings.cacheSettings = PersistentCacheSettings(
+                sizeBytes: NSNumber(value: 100 * 1024 * 1024)
+            )
+            Firestore.firestore().settings = settings
         } else {
             appLog.info("Firebase already configured")
         }

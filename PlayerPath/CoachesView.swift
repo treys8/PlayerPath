@@ -405,6 +405,9 @@ struct AddCoachView: View {
     @State private var email = ""
     @State private var notes = ""
 
+    enum Field: Hashable { case name, role, phone, email, notes }
+    @FocusState private var focusedField: Field?
+
     @State private var showingError = false
     @State private var errorMessage = ""
     @State private var isSaving = false
@@ -444,9 +447,15 @@ struct AddCoachView: View {
             Form {
                 Section {
                     TextField("Name", text: $name)
+                        .focused($focusedField, equals: .name)
+                        .submitLabel(.next)
+                        .onSubmit { focusedField = .role }
                         .autocorrectionDisabled()
 
                     TextField("Role (optional)", text: $role)
+                        .focused($focusedField, equals: .role)
+                        .submitLabel(.next)
+                        .onSubmit { focusedField = .phone }
                         .autocorrectionDisabled()
                         .textContentType(.jobTitle)
                 } header: {
@@ -456,6 +465,7 @@ struct AddCoachView: View {
                 Section {
                     VStack(alignment: .leading, spacing: 4) {
                         TextField("Phone (optional)", text: $phone)
+                            .focused($focusedField, equals: .phone)
                             .keyboardType(.phonePad)
                             .textContentType(.telephoneNumber)
 
@@ -468,6 +478,9 @@ struct AddCoachView: View {
 
                     VStack(alignment: .leading, spacing: 4) {
                         TextField("Email (optional)", text: $email)
+                            .focused($focusedField, equals: .email)
+                            .submitLabel(.next)
+                            .onSubmit { focusedField = .notes }
                             .keyboardType(.emailAddress)
                             .textContentType(.emailAddress)
                             .autocapitalization(.none)
@@ -485,6 +498,7 @@ struct AddCoachView: View {
                 Section {
                     ZStack(alignment: .topLeading) {
                         TextEditor(text: $notes)
+                            .focused($focusedField, equals: .notes)
                             .frame(minHeight: 100)
 
                         if notes.isEmpty {
@@ -502,6 +516,15 @@ struct AddCoachView: View {
             .navigationTitle("Add Coach")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    if focusedField == .notes {
+                        Button("Done") { focusedField = nil }
+                            .fontWeight(.semibold)
+                    } else if focusedField == .phone {
+                        Button("Next") { focusedField = .email }
+                    }
+                }
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
                         Haptics.light()

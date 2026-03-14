@@ -7,7 +7,7 @@ import SwiftUI
 
 struct WelcomeTutorialView: View {
     @Environment(\.dismiss) private var dismiss
-    @StateObject private var onboardingManager = OnboardingManager.shared
+    @ObservedObject private var onboardingManager = OnboardingManager.shared
 
     private let steps = Tutorial.welcome.steps
     @State private var currentIndex = 0
@@ -38,7 +38,11 @@ struct WelcomeTutorialView: View {
         }
         .interactiveDismissDisabled(false)
         .onDisappear {
-            onboardingManager.markMilestoneComplete(.welcomeTutorial)
+            // Ensure milestone is marked even if user swipes to dismiss
+            // (the "Get Started" button also marks it, but this is the safety net)
+            if !onboardingManager.hasSeenWelcomeTutorial {
+                onboardingManager.markMilestoneComplete(.welcomeTutorial)
+            }
         }
     }
 

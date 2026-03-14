@@ -107,7 +107,7 @@ struct MainTabView: View {
                 // Show welcome tutorial once for new users after onboarding is complete.
                 // Existing users have hasSeenWelcomeTutorial pre-marked in AuthenticatedFlow.loadUser().
                 if !onboardingManager.hasSeenWelcomeTutorial {
-                    try? await Task.sleep(for: .milliseconds(600))
+                    try? await Task.sleep(for: .milliseconds(200))
                     showingWelcomeTutorial = true
                 }
             }
@@ -223,7 +223,8 @@ struct MainTabView: View {
                 morePath = NavigationPath()
                 selectedTab = MainTab.more.rawValue
                 Haptics.light()
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                // Append on the next run-loop tick so the tab switch completes first
+                Task { @MainActor in
                     morePath.append(MoreDestination.practice)
                 }
             }
@@ -234,7 +235,7 @@ struct MainTabView: View {
                 morePath = NavigationPath()
                 selectedTab = MainTab.more.rawValue
                 Haptics.light()
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                Task { @MainActor in
                     morePath.append(MoreDestination.highlights)
                 }
             }
@@ -257,7 +258,8 @@ struct MainTabView: View {
             DashboardView(
                 user: user,
                 athlete: selectedAthlete,
-                authManager: authManager
+                authManager: authManager,
+                modelContext: modelContext
             )
             .id(selectedAthlete.id) // Force view to recreate when athlete changes
         }

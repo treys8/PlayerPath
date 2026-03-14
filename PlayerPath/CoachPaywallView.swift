@@ -18,6 +18,7 @@ struct CoachPaywallView: View {
     @State private var isPurchasing = false
     @State private var showingTerms = false
     @State private var showingPrivacyPolicy = false
+    @State private var showingPendingAlert = false
 
     var body: some View {
         NavigationStack {
@@ -49,6 +50,11 @@ struct CoachPaywallView: View {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text(storeManager.error?.localizedDescription ?? "An unknown error occurred.")
+            }
+            .alert("Purchase Pending", isPresented: $showingPendingAlert) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text("Your purchase is awaiting approval. Once approved, your subscription will activate automatically.")
             }
             .overlay {
                 if isPurchasing { LoadingOverlay(message: "Processing purchase...") }
@@ -424,8 +430,8 @@ struct CoachPaywallView: View {
                 isPurchasing = false
                 return
             case .pending:
-                // Ask to Buy / parental approval — inform user and stop spinner
                 isPurchasing = false
+                showingPendingAlert = true
                 return
             case .success:
                 // dismiss handled by onChange(of: currentCoachTier)

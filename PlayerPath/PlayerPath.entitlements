@@ -17,6 +17,8 @@
 		<string>CloudKit</string>
 	</array>
 	<key>keychain-access-groups</key>
-	<array/>
+	<array>
+		<string>$(AppIdentifierPrefix)RZR.DT3</string>
+	</array>
 </dict>
 </plist>

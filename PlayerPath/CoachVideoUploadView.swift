@@ -65,14 +65,16 @@ struct CoachVideoUploadView: View {
                         
                         if viewModel.videoContext == .game {
                             TextField("Opponent", text: $viewModel.gameOpponent)
+                                .submitLabel(.next)
                                 .textInputAutocapitalization(.words)
-                            
+
                             DatePicker("Game Date", selection: $viewModel.contextDate, displayedComponents: .date)
                         } else {
                             DatePicker("Practice Date", selection: $viewModel.contextDate, displayedComponents: .date)
                         }
-                        
+
                         TextField("Notes (optional)", text: $viewModel.notes, axis: .vertical)
+                            .submitLabel(.done)
                             .lineLimit(3...6)
                     }
                     

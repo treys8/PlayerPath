@@ -315,7 +315,7 @@ extension AppleSignInManager: ASAuthorizationControllerPresentationContextProvid
            let window = windowScene.windows.first(where: { $0.isKeyWindow }) ?? windowScene.windows.first {
             return window
         }
-        
+
         // Fallback to any scene with a window
         for scene in UIApplication.shared.connectedScenes {
             if let windowScene = scene as? UIWindowScene,
@@ -323,11 +323,9 @@ extension AppleSignInManager: ASAuthorizationControllerPresentationContextProvid
                 return window
             }
         }
-        
+
         // Last resort: create a window with the first available window scene
-        // This satisfies the new iOS 26 requirement for UIWindow(windowScene:)
         if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
-            print("⚠️ Creating fallback window with scene for Apple Sign In")
             return UIWindow(windowScene: windowScene)
         }
 

@@ -10,6 +10,7 @@ import SwiftData
 import UserNotifications
 import Combine
 import FirebaseCore
+import FirebaseFirestore
 
 /// Provides a shared `NavigationCoordinator` via the environment so views can react
 /// to app-wide navigation requests (e.g., from notifications or deep links).
@@ -50,9 +51,18 @@ struct PlayerPathApp: App {
     /// inside each VersionedSchema enum per Apple's WWDC pattern.
     static let sharedModelContainer: ModelContainer = {
         do {
-            return try ModelContainer(for: Schema(SchemaV7.models))
+            return try ModelContainer(for: Schema(SchemaV9.models))
         } catch {
-            fatalError("Could not create ModelContainer: \(error)")
+            // Last resort: try an in-memory container so the app can launch and show
+            // an error instead of crash-looping. If even that fails, we have no choice
+            // but to terminate.
+            print("❌ Could not create ModelContainer: \(error). Falling back to in-memory store.")
+            do {
+                let config = ModelConfiguration(isStoredInMemoryOnly: true)
+                return try ModelContainer(for: Schema(SchemaV9.models), configurations: [config])
+            } catch {
+                fatalError("Could not create even an in-memory ModelContainer: \(error)")
+            }
         }
     }()
 
@@ -61,6 +71,13 @@ struct PlayerPathApp: App {
         // Configure Firebase as early as possible
         if FirebaseApp.app() == nil {
             FirebaseApp.configure()
+            // Configure Firestore settings immediately after Firebase init,
+            // before any code accesses Firestore.firestore() elsewhere.
+            let settings = FirestoreSettings()
+            settings.cacheSettings = PersistentCacheSettings(
+                sizeBytes: NSNumber(value: 100 * 1024 * 1024) // 100 MB
+            )
+            Firestore.firestore().settings = settings
             #if DEBUG
             print("🔥 Firebase configured in App init")
             #endif

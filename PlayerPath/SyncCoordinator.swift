@@ -145,13 +145,52 @@ final class SyncCoordinator {
 
         print("📥 Found \(remoteAthletes.count) athletes in Firestore")
 
+        // Track which Firestore IDs we've already linked to a local athlete
+        // to prevent multiple remote duplicates from each creating a new local record.
+        var claimedFirestoreIds = Set<String>()
+
         for remoteData in remoteAthletes {
-            // Find local athlete by firestoreId
-            let localAthlete = (user.athletes ?? []).first {
-                $0.firestoreId == remoteData.id
+            guard let remoteId = remoteData.id else { continue }
+
+            // Skip if another remote record with the same name already claimed a local athlete
+            // (handles duplicate Firestore documents for the same athlete)
+            if claimedFirestoreIds.contains(remoteId) { continue }
+
+            // 1. Match by firestoreId (exact link)
+            var localAthlete = (user.athletes ?? []).first {
+                $0.firestoreId == remoteId
+            }
+
+            // 2. Fallback: match by name for athletes that lost their firestoreId (reinstall/migration)
+            if localAthlete == nil {
+                localAthlete = (user.athletes ?? []).first {
+                    $0.firestoreId == nil && $0.name == remoteData.name
+                }
+                if let matched = localAthlete {
+                    // Re-link the local athlete to this Firestore document
+                    matched.firestoreId = remoteId
+                    print("🔗 Re-linked local athlete '\(matched.name)' to Firestore ID: \(remoteId)")
+                }
+            }
+
+            // 3. Fallback: match by name even if firestoreId is set to a different value
+            //    (handles the case where duplicates were created and the first one already claimed a different ID)
+            if localAthlete == nil {
+                let nameMatch = (user.athletes ?? []).first {
+                    $0.name == remoteData.name && !claimedFirestoreIds.contains($0.firestoreId ?? "")
+                }
+                if nameMatch != nil {
+                    // This remote doc is a duplicate — skip creating a new athlete.
+                    // The local athlete is already linked to a different Firestore doc.
+                    print("⚠️ Skipping duplicate Firestore athlete '\(remoteData.name)' (ID: \(remoteId)) — already linked locally")
+                    claimedFirestoreIds.insert(remoteId)
+                    continue
+                }
             }
 
             if let local = localAthlete {
+                claimedFirestoreIds.insert(remoteId)
+
                 // Athlete exists locally - check if remote is newer
                 let remoteUpdatedAt = remoteData.updatedAt ?? Date.distantPast
                 let localUpdatedAt = local.lastSyncDate ?? Date.distantPast
@@ -173,11 +212,11 @@ final class SyncCoordinator {
                 }
 
             } else {
-                // New athlete from another device - create locally
+                // Genuinely new athlete from another device - create locally
                 print("🆕 Creating new local athlete from Firestore: '\(remoteData.name)'")
 
                 let newAthlete = Athlete(name: remoteData.name)
-                newAthlete.firestoreId = remoteData.id
+                newAthlete.firestoreId = remoteId
                 newAthlete.createdAt = remoteData.createdAt
                 newAthlete.lastSyncDate = Date()
                 newAthlete.needsSync = false
@@ -185,6 +224,7 @@ final class SyncCoordinator {
                 newAthlete.user = user
 
                 context.insert(newAthlete)
+                claimedFirestoreIds.insert(remoteId)
             }
         }
 
@@ -340,10 +380,12 @@ final class SyncCoordinator {
                 $0.firestoreId == remoteSeason.id
             }
 
-            // Find parent athlete by athleteId
-            let parentAthlete = athletes.first {
+            // Find parent athlete by athleteId (matches firestoreId or local UUID).
+            // Falls back to the sole athlete if there's only one — handles legacy data
+            // where athleteId references a stale local UUID from a previous install.
+            let parentAthlete: Athlete? = athletes.first {
                 $0.id.uuidString == remoteSeason.athleteId || $0.firestoreId == remoteSeason.athleteId
-            }
+            } ?? (athletes.count == 1 ? athletes.first : nil)
 
             if let local = localSeason {
                 // Only merge if remote is newer AND local has no pending changes.
@@ -502,10 +544,11 @@ final class SyncCoordinator {
                 $0.firestoreId == remoteGame.id
             }
 
-            // Find parent athlete by athleteId
-            let parentAthlete = athletes.first {
+            // Find parent athlete by athleteId (matches local UUID or firestoreId).
+            // Falls back to sole athlete for legacy data with stale local UUIDs.
+            let parentAthlete: Athlete? = athletes.first {
                 $0.id.uuidString == remoteGame.athleteId || $0.firestoreId == remoteGame.athleteId
-            }
+            } ?? (athletes.count == 1 ? athletes.first : nil)
 
             // Find parent season by seasonId (optional)
             let parentSeason = allLocalSeasons.first {
@@ -676,8 +719,11 @@ final class SyncCoordinator {
         let athletes = user.athletes ?? []
 
         for remoteData in remotePractices {
-            // Find athlete by athleteId
-            guard let athlete = athletes.first(where: { $0.id.uuidString == remoteData.athleteId }) else {
+            // Find athlete by athleteId (matches local UUID or firestoreId).
+            // Falls back to sole athlete for legacy data with stale local UUIDs.
+            guard let athlete = athletes.first(where: {
+                $0.id.uuidString == remoteData.athleteId || $0.firestoreId == remoteData.athleteId
+            }) ?? (athletes.count == 1 ? athletes.first : nil) else {
                 print("⚠️ Skipping practice - athlete not found: \(remoteData.athleteId)")
                 continue
             }
@@ -977,6 +1023,11 @@ final class SyncCoordinator {
             }
             try? StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: context)
         }
+
+        // Persist the recalculated statistics
+        if !athletesWithNewClips.isEmpty {
+            try context.save()
+        }
     }
 
     /// Downloads the actual video file from Firebase Storage
@@ -987,7 +1038,7 @@ final class SyncCoordinator {
         }
 
         // Generate local file path
-        let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        guard let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
         let clipsDirectory = documentsURL.appendingPathComponent("Clips", isDirectory: true)
 
         // Ensure directory exists
@@ -1100,6 +1151,14 @@ final class SyncCoordinator {
             // Upload new photos that haven't been synced
             for photo in photos where photo.cloudURL == nil && photo.needsSync {
                 guard FileManager.default.fileExists(atPath: photo.filePath) else { continue }
+                // Enforce storage limit before uploading
+                let fileSize = (try? FileManager.default.attributesOfItem(atPath: photo.filePath)[.size] as? Int64) ?? 0
+                let tier = user.tier
+                let limitBytes = Int64(tier.storageLimitGB) * 1_073_741_824
+                guard user.cloudStorageUsedBytes + fileSize <= limitBytes else {
+                    print("⚠️ Storage limit reached — skipping photo \(photo.fileName)")
+                    continue
+                }
                 do {
                     let cloudURL = try await VideoCloudManager.shared.uploadPhoto(
                         at: URL(fileURLWithPath: photo.filePath),
@@ -1111,6 +1170,9 @@ final class SyncCoordinator {
                     )
                     photo.firestoreId = firestoreId
                     photo.needsSync = false
+                    // Update storage counter
+                    let fileSize = (try? FileManager.default.attributesOfItem(atPath: photo.filePath)[.size] as? Int64) ?? 0
+                    user.cloudStorageUsedBytes += fileSize
                     print("✅ Uploaded photo: \(photo.fileName)")
                 } catch {
                     print("❌ Failed to upload photo \(photo.fileName): \(error)")
@@ -1129,7 +1191,7 @@ final class SyncCoordinator {
                 guard let downloadURL = remotePhoto.downloadURL else { continue }
 
                 // Build local path
-                let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+                guard let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { continue }
                 let photosDir = documentsURL.appendingPathComponent("Photos", isDirectory: true)
                 try? FileManager.default.createDirectory(at: photosDir, withIntermediateDirectories: true)
                 let localPath = photosDir.appendingPathComponent(remotePhoto.fileName).path
@@ -1159,11 +1221,14 @@ final class SyncCoordinator {
                 // Download the image file in the background if not already present.
                 // Task self-removes on completion.
                 let taskID = UUID()
+                let photoRef = newPhoto
                 pendingDownloadTasks[taskID] = Task { [weak self] in
                     do {
                         try await VideoCloudManager.shared.downloadPhoto(from: downloadURL, to: localPath)
                     } catch {
                         print("❌ Failed to download photo \(remotePhoto.fileName): \(error)")
+                        // Mark for re-download on next sync so the photo doesn't remain as a ghost record
+                        await MainActor.run { photoRef.needsSync = true }
                     }
                     self?.pendingDownloadTasks.removeValue(forKey: taskID)
                 }

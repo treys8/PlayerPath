@@ -43,8 +43,18 @@ struct DashboardVideoThumbnail: View {
 
         guard let path = video.thumbnailPath else { return }
 
+        // Resolve relative paths (e.g. "Thumbnails/foo_thumb.jpg") against Documents
+        let resolvedPath: String
+        if path.hasPrefix("/") {
+            resolvedPath = path
+        } else if let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
+            resolvedPath = docs.appendingPathComponent(path).path
+        } else {
+            resolvedPath = path
+        }
+
         do {
-            let img = try await ThumbnailCache.shared.loadThumbnail(at: path)
+            let img = try await ThumbnailCache.shared.loadThumbnail(at: resolvedPath, targetSize: CGSize(width: 400, height: 225))
             await MainActor.run {
                 withAnimation(.easeInOut(duration: 0.2)) {
                     image = img

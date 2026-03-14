@@ -20,7 +20,7 @@ struct CoachDashboardView: View {
     @ObservedObject private var invitationManager = CoachInvitationManager.shared
     @ObservedObject private var activityNotifService = ActivityNotificationService.shared
     @State private var selectedTab: CoachTab = .myAthletes
-    @State private var notificationCancellable: AnyCancellable?
+    @State private var markReadTask: Task<Void, Never>?
 
     enum CoachTab: String, CaseIterable {
         case myAthletes = "My Athletes"
@@ -67,40 +67,25 @@ struct CoachDashboardView: View {
             }
         }
         .task {
-            // Start real-time listeners (replace one-shot fetches)
+            // Listeners are pre-started in AuthenticatedFlow. Just ensure
+            // archive manager is configured (idempotent — guards on coachUID).
             if let coachID = authManager.userID {
                 CoachFolderArchiveManager.shared.configure(coachUID: coachID)
-                sharedFolderManager.startCoachFoldersListener(coachID: coachID)
-                ActivityNotificationService.shared.startListening(forUserID: coachID)
-            }
-            if let coachEmail = authManager.userEmail {
-                invitationManager.startInvitationsListener(forCoachEmail: coachEmail)
             }
         }
         .onChange(of: selectedTab) { _, newTab in
             // Mark all notifications read when coach views their athletes list
             if newTab == .myAthletes, let coachID = authManager.userID {
-                Task {
+                markReadTask?.cancel()
+                markReadTask = Task {
                     await ActivityNotificationService.shared.markAllRead(forUserID: coachID)
                 }
             }
         }
-        .onAppear {
-            // Restart listeners when app becomes active in case they dropped
-            notificationCancellable = NotificationCenter.default
-                .publisher(for: UIApplication.didBecomeActiveNotification)
-                .sink { _ in
-                    if let coachID = authManager.userID {
-                        sharedFolderManager.startCoachFoldersListener(coachID: coachID)
-                    }
-                    if let coachEmail = authManager.userEmail {
-                        invitationManager.startInvitationsListener(forCoachEmail: coachEmail)
-                    }
-                }
-        }
         .onDisappear {
-            notificationCancellable?.cancel()
-            notificationCancellable = nil
+            // Listeners are managed by AuthenticatedFlow and guarded against
+            // duplicate starts, so we only stop them when the coach flow
+            // is fully torn down (sign-out).
             sharedFolderManager.stopCoachFoldersListener()
             invitationManager.stopInvitationsListener()
             ActivityNotificationService.shared.stopListening()
@@ -113,7 +98,9 @@ struct CoachDashboardView: View {
             // targetID is a folderID — switch to athletes tab and navigate to that folder
             if let folderID = notification.targetID {
                 selectedTab = .myAthletes
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                // Post after the current run loop tick so the tab switch completes first
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 50_000_000) // 50ms — enough for tab transition
                     NotificationCenter.default.post(
                         name: .navigateToCoachFolder,
                         object: folderID
@@ -275,35 +262,34 @@ struct CoachAthletesListView: View {
         }
     }
 
-    // Active (non-archived) folders grouped by athlete
-    private var groupedFolders: [CoachAthleteGroup] {
-        let active = sharedFolderManager.coachFolders.filter {
-            !archiveManager.isArchived($0.id ?? "")
+    // Single-pass partition: active vs archived folders, then group by athlete
+    private var partitionedFolders: (active: [CoachAthleteGroup], archived: [CoachAthleteGroup]) {
+        var activeFolders: [String: [SharedFolder]] = [:]
+        var archivedFolders: [String: [SharedFolder]] = [:]
+
+        for folder in sharedFolderManager.coachFolders {
+            if archiveManager.isArchived(folder.id ?? "") {
+                archivedFolders[folder.ownerAthleteID, default: []].append(folder)
+            } else {
+                activeFolders[folder.ownerAthleteID, default: []].append(folder)
+            }
         }
-        let grouped = Dictionary(grouping: active) { $0.ownerAthleteID }
-        return grouped.map { athleteID, folders in
-            CoachAthleteGroup(
-                athleteID: athleteID,
-                athleteName: folders.first?.ownerAthleteName ?? "Unknown Athlete",
-                folders: folders
-            )
-        }.sorted { $0.athleteName < $1.athleteName }
+
+        func buildGroups(_ dict: [String: [SharedFolder]]) -> [CoachAthleteGroup] {
+            dict.map { athleteID, folders in
+                CoachAthleteGroup(
+                    athleteID: athleteID,
+                    athleteName: folders.first?.ownerAthleteName ?? "Unknown Athlete",
+                    folders: folders
+                )
+            }.sorted { $0.athleteName < $1.athleteName }
+        }
+
+        return (buildGroups(activeFolders), buildGroups(archivedFolders))
     }
 
-    // Archived folders grouped by athlete
-    private var archivedGroups: [CoachAthleteGroup] {
-        let archived = sharedFolderManager.coachFolders.filter {
-            archiveManager.isArchived($0.id ?? "")
-        }
-        let grouped = Dictionary(grouping: archived) { $0.ownerAthleteID }
-        return grouped.map { athleteID, folders in
-            CoachAthleteGroup(
-                athleteID: athleteID,
-                athleteName: folders.first?.ownerAthleteName ?? "Unknown Athlete",
-                folders: folders
-            )
-        }.sorted { $0.athleteName < $1.athleteName }
-    }
+    private var groupedFolders: [CoachAthleteGroup] { partitionedFolders.active }
+    private var archivedGroups: [CoachAthleteGroup] { partitionedFolders.archived }
 
     // Filter groups by athlete name or folder name matching searchText
     private var filteredGroups: [CoachAthleteGroup] {
@@ -644,6 +630,7 @@ class CoachInvitationManager: ObservableObject {
 
     @Published var pendingInvitationsCount: Int = 0
     @Published var pendingInvitations: [CoachInvitation] = []
+    @Published var listenerError: String?
 
     private var invitationsListener: ListenerRegistration?
 
@@ -656,7 +643,8 @@ class CoachInvitationManager: ObservableObject {
     /// Starts a real-time listener for pending invitations. Replaces one-shot checkPendingInvitations.
     @MainActor
     func startInvitationsListener(forCoachEmail email: String) {
-        stopInvitationsListener()
+        // Skip if listener is already active
+        guard invitationsListener == nil else { return }
         let db = Firestore.firestore()
         invitationsListener = db.collection("invitations")
             .whereField("coachEmail", isEqualTo: email.lowercased())
@@ -665,8 +653,10 @@ class CoachInvitationManager: ObservableObject {
                 guard let self else { return }
                 if let error {
                     print("❌ Invitations listener error: \(error)")
+                    self.listenerError = "Unable to refresh invitations."
                     return
                 }
+                self.listenerError = nil
                 let invitations = snapshot?.documents.compactMap { doc -> CoachInvitation? in
                     var inv = try? doc.data(as: CoachInvitation.self)
                     inv?.id = doc.documentID
@@ -682,6 +672,7 @@ class CoachInvitationManager: ObservableObject {
     func stopInvitationsListener() {
         invitationsListener?.remove()
         invitationsListener = nil
+        listenerError = nil
     }
 
     @MainActor

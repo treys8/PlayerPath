@@ -23,6 +23,7 @@ struct ImprovedPaywallView: View {
     @State private var isPurchasing = false
     @State private var showingTerms = false
     @State private var showingPrivacyPolicy = false
+    @State private var showingPendingAlert = false
     @State private var hasAppeared = false
 
     var body: some View {
@@ -55,6 +56,11 @@ struct ImprovedPaywallView: View {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text(storeManager.error?.localizedDescription ?? "An unknown error occurred.")
+            }
+            .alert("Purchase Pending", isPresented: $showingPendingAlert) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text("Your purchase is awaiting approval. Once approved, your subscription will activate automatically.")
             }
             .overlay {
                 if isPurchasing { LoadingOverlay(message: "Processing purchase...") }
@@ -407,6 +413,7 @@ struct ImprovedPaywallView: View {
                     return
                 case .pending:
                     isPurchasing = false
+                    showingPendingAlert = true
                     return
                 case .success:
                     break

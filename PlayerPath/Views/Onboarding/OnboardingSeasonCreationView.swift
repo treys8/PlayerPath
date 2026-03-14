@@ -217,14 +217,16 @@ struct OnboardingSeasonCreationView: View {
                     .opacity(seasonName.trimmingCharacters(in: .whitespaces).isEmpty ? 0.6 : 1.0)
                     .padding(.horizontal)
 
-                    Text("You can create more seasons later in settings")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.bottom, 40)
+                    Button(action: { skipSeasonCreation() }) {
+                        Text("Skip for Now")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.bottom, 40)
                 }
                 .padding()
             }
+            .scrollDismissesKeyboard(.interactively)
             .toolbar(.hidden, for: .navigationBar)
         }
         .alert("Error", isPresented: $showingError) {
@@ -232,6 +234,14 @@ struct OnboardingSeasonCreationView: View {
         } message: {
             Text(errorMessage)
         }
+    }
+
+    private func skipSeasonCreation() {
+        Haptics.light()
+        authManager.resetNewUserFlag()
+        #if DEBUG
+        print("🟡 User skipped season creation during onboarding")
+        #endif
     }
 
     private func createSeason() {

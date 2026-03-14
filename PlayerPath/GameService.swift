@@ -17,6 +17,7 @@ class GameService {
         // Capture primitive values before SwiftData deletion removes access
         let firestoreId = game.firestoreId
         let userId = game.athlete?.user?.firebaseAuthUid
+        let gameAthlete = game.athlete
 
         // Delete all video clips — VideoClip.delete handles local files, thumbnails,
         // cloud storage, and play results. SwiftData handles inverse relationship cleanup.
@@ -38,7 +39,13 @@ class GameService {
         modelContext.delete(game)
 
         do {
+            // Recalculate athlete statistics to reflect the removed game and play results,
+            // then save once (skipSave avoids a redundant double-save).
+            if let athlete = gameAthlete {
+                try StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: modelContext, skipSave: true)
+            }
             try modelContext.save()
+
             #if DEBUG
             print("Deleted game and related data successfully.")
             #endif
@@ -46,12 +53,18 @@ class GameService {
             // Soft-delete from Firestore if the game was previously synced
             if let firestoreId, let userId {
                 Task {
-                    do {
-                        try await FirestoreManager.shared.deleteGame(userId: userId, gameId: firestoreId)
-                    } catch {
-                        #if DEBUG
-                        print("⚠️ Failed to delete game from Firestore: \(error)")
-                        #endif
+                    for attempt in 1...3 {
+                        do {
+                            try await FirestoreManager.shared.deleteGame(userId: userId, gameId: firestoreId)
+                            return
+                        } catch {
+                            #if DEBUG
+                            print("⚠️ Failed to delete game from Firestore (attempt \(attempt)/3): \(error)")
+                            #endif
+                            if attempt < 3 {
+                                try? await Task.sleep(for: .seconds(2))
+                            }
+                        }
                     }
                 }
             }
@@ -246,13 +259,14 @@ class GameService {
             // Recalculate all athlete statistics from source of truth.
             // Resetting and recomputing (rather than adding incrementally) prevents
             // double-counting if end() is ever called more than once on the same game.
+            // Use skipSave to consolidate into a single save below.
             do {
-                try StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: modelContext)
+                try StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: modelContext, skipSave: true)
             } catch {
                 print("⚠️ Failed to recalculate athlete statistics after ending game: \(error.localizedDescription)")
             }
         }
-        
+
         do {
             try modelContext.save()
 

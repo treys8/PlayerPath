@@ -146,16 +146,17 @@ struct AthleteInvitationsSheet: View {
     }
 
     private func acceptInvitation(_ invitation: CoachToAthleteInvitation) async {
-        processingInvitationID = invitation.id
+        guard let invitationID = invitation.id else { return }
+        processingInvitationID = invitationID
 
         do {
             // Update invitation status in Firestore
             try await FirestoreManager.shared.acceptCoachToAthleteInvitation(
-                invitationID: invitation.id,
+                invitationID: invitationID,
                 athleteUserID: authManager.userID ?? ""
             )
 
-            // Create coach record locally
+            // Create coach record locally and link to athlete
             let coach = Coach(
                 name: invitation.coachName,
                 email: invitation.coachEmail
@@ -165,7 +166,13 @@ struct AthleteInvitationsSheet: View {
             coach.firebaseCoachID = invitation.coachID
             coach.lastInvitationStatus = "accepted"
 
-            // TODO: Link to athlete properly
+            // Link coach to the current user's athlete
+            let athleteDescriptor = FetchDescriptor<Athlete>()
+            if let athletes = try? modelContext.fetch(athleteDescriptor),
+               let athlete = athletes.first {
+                coach.athlete = athlete
+            }
+
             modelContext.insert(coach)
             try modelContext.save()
 
@@ -184,10 +191,11 @@ struct AthleteInvitationsSheet: View {
     }
 
     private func declineInvitation(_ invitation: CoachToAthleteInvitation) async {
-        processingInvitationID = invitation.id
+        guard let invitationID = invitation.id else { return }
+        processingInvitationID = invitationID
 
         do {
-            try await FirestoreManager.shared.declineCoachToAthleteInvitation(invitationID: invitation.id)
+            try await FirestoreManager.shared.declineCoachToAthleteInvitation(invitationID: invitationID)
 
             await MainActor.run {
                 processingInvitationID = nil

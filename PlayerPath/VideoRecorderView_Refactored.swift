@@ -298,7 +298,10 @@ struct VideoRecorderView_Refactored: View {
 
         // Save in background — video file stays on disk until copy completes
         saveTask = Task {
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled else {
+                await MainActor.run { self.saveTask = nil }
+                return
+            }
 
             do {
                 _ = try await ClipPersistenceService().saveClip(
@@ -321,12 +324,17 @@ struct VideoRecorderView_Refactored: View {
                     }
                     self.recordedVideoURL = nil
                     self.trimmedVideoURL = nil
+                    self.saveTask = nil
                 }
             } catch {
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled else {
+                    await MainActor.run { self.saveTask = nil }
+                    return
+                }
                 print("Failed to save video: \(error)")
                 await MainActor.run {
                     UINotificationFeedbackGenerator().notificationOccurred(.error)
+                    self.saveTask = nil
                 }
             }
         }
@@ -487,7 +495,13 @@ private struct AVPlayerLayerView: UIViewRepresentable {
 
     private class PlayerUIView: UIView {
         override class var layerClass: AnyClass { AVPlayerLayer.self }
-        var playerLayer: AVPlayerLayer { layer as! AVPlayerLayer }
+        var playerLayer: AVPlayerLayer {
+            // Safe: layerClass is overridden above to return AVPlayerLayer.self
+            guard let avLayer = layer as? AVPlayerLayer else {
+                fatalError("layerClass must be AVPlayerLayer — override was removed or changed")
+            }
+            return avLayer
+        }
     }
 }
 

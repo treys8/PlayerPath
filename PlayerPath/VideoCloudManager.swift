@@ -115,6 +115,20 @@ class VideoCloudManager: ObservableObject {
             throw VideoCloudError.uploadFailed("Local file not found at \(clipFilePath)")
         }
 
+        // Enforce per-tier cloud storage limit
+        if let user = athlete.user {
+            let tier = user.tier
+            let limitBytes = Int64(tier.storageLimitGB) * 1_073_741_824
+            let fileAttrs = try? FileManager.default.attributesOfItem(atPath: localURL.path)
+            let fileSize = (fileAttrs?[.size] as? Int64) ?? 0
+            if user.cloudStorageUsedBytes + fileSize > limitBytes {
+                let usedGB = Double(user.cloudStorageUsedBytes) / 1_073_741_824.0
+                throw VideoCloudError.uploadFailed(
+                    String(format: "Storage limit reached (%.1f GB of %d GB used). Upgrade your plan for more storage.", usedGB, tier.storageLimitGB)
+                )
+            }
+        }
+
         // Create storage reference for athlete videos
         // Use Firebase Auth UID as the path segment so storage rules can enforce ownership
         guard let ownerUID = Auth.auth().currentUser?.uid else {
@@ -189,6 +203,10 @@ class VideoCloudManager: ObservableObject {
     ///   - localPath: Local file path where the video should be saved
     ///   - clipId: Optional UUID for progress tracking (defaults to new UUID)
     func downloadVideo(from url: String, to localPath: String, clipId: UUID = UUID()) async throws {
+        guard ConnectivityMonitor.shared.isConnected else {
+            throw VideoCloudError.networkUnavailable
+        }
+
         isDownloading[clipId] = true
         downloadProgress[clipId] = 0.0
 
@@ -444,6 +462,9 @@ class VideoCloudManager: ObservableObject {
 
     /// Downloads a photo file from Firebase Storage to a local path.
     func downloadPhoto(from cloudURL: String, to localPath: String) async throws {
+        guard ConnectivityMonitor.shared.isConnected else {
+            throw VideoCloudError.networkUnavailable
+        }
         guard let storageURL = URL(string: cloudURL) else { throw VideoCloudError.invalidURL }
         let localURL = URL(fileURLWithPath: localPath)
         try? FileManager.default.createDirectory(
@@ -745,6 +766,20 @@ class VideoCloudManager: ObservableObject {
                 }
             }
         }
+    }
+
+    /// Records a failed Storage deletion in Firestore so the server-side cleanup
+    /// function can garbage-collect the orphaned file later.
+    func recordPendingDeletion(clipId: UUID, fileName: String) async throws {
+        guard let ownerUID = Auth.auth().currentUser?.uid else { return }
+        let db = Firestore.firestore()
+        try await db.collection("pendingDeletions").document(clipId.uuidString).setData([
+            "ownerUID": ownerUID,
+            "fileName": fileName,
+            "storagePath": "athlete_videos/\(ownerUID)/\(fileName)",
+            "createdAt": Timestamp(date: Date())
+        ])
+        print("VideoCloudManager: Recorded pending deletion for \(fileName)")
     }
 
     func getUploadStatus(for clipId: UUID) -> UploadStatus {
@@ -1065,6 +1100,9 @@ class VideoCloudManager: ObservableObject {
         folderID: String,
         isThumbnail: Bool = false
     ) async throws -> String {
+        guard ConnectivityMonitor.shared.isConnected else {
+            throw VideoCloudError.networkUnavailable
+        }
 
         let storage = Storage.storage()
         let storageRef = storage.reference()
@@ -1230,6 +1268,10 @@ class VideoCloudManager: ObservableObject {
     /// This deletes all files in the user's athlete_videos folder in Firebase Storage
     /// - Parameter userID: The user ID whose videos should be deleted
     func deleteAllUserVideos(userID: String) async throws {
+        guard ConnectivityMonitor.shared.isConnected else {
+            throw VideoCloudError.networkUnavailable
+        }
+
         let storage = Storage.storage()
         let storageRef = storage.reference()
 
@@ -1324,7 +1366,7 @@ enum VideoCloudError: LocalizedError {
         case .storageQuotaExceeded:
             return "Cloud storage quota exceeded"
         case .networkUnavailable:
-            return "Network unavailable"
+            return "No internet connection. Please check your network and try again."
         }
     }
 }

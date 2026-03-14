@@ -17,6 +17,7 @@ struct VideoThumbnailView: View {
     let showHighlight: Bool
     let showSeason: Bool
     let showContext: Bool
+    let fillsContainer: Bool
 
     @State private var thumbnailImage: UIImage?
     @State private var isLoadingThumbnail = false
@@ -37,7 +38,8 @@ struct VideoThumbnailView: View {
         showPlayResult: Bool = true,
         showHighlight: Bool = true,
         showSeason: Bool = false,
-        showContext: Bool = true
+        showContext: Bool = true,
+        fillsContainer: Bool = false
     ) {
         self.clip = clip
         self.size = size
@@ -47,6 +49,7 @@ struct VideoThumbnailView: View {
         self.showHighlight = showHighlight
         self.showSeason = showSeason
         self.showContext = showContext
+        self.fillsContainer = fillsContainer
     }
 
     // Convenience initializers for common landscape sizes (16:9)
@@ -74,12 +77,23 @@ struct VideoThumbnailView: View {
                     Image(uiImage: thumbnail)
                         .resizable()
                         .aspectRatio(contentMode: .fill)
-                        .frame(width: safeSize.width, height: safeSize.height)
+                        .frame(
+                            minWidth: fillsContainer ? 0 : safeSize.width,
+                            maxWidth: fillsContainer ? .infinity : safeSize.width,
+                            minHeight: fillsContainer ? 0 : safeSize.height,
+                            maxHeight: fillsContainer ? .infinity : safeSize.height
+                        )
                         .clipped()
                         .transition(.opacity)
                 } else {
-                    placeholder(size: safeSize)
-                        .transition(.opacity)
+                    if fillsContainer {
+                        placeholder(size: safeSize)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .transition(.opacity)
+                    } else {
+                        placeholder(size: safeSize)
+                            .transition(.opacity)
+                    }
                 }
             }
             .animation(.easeIn(duration: 0.2), value: thumbnailImage == nil)
@@ -279,14 +293,18 @@ struct VideoThumbnailView: View {
 
     // MARK: - Context Label
 
+    private static let contextDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "MMM d"
+        return f
+    }()
+
     private var contextLabel: String? {
         let opponent = clip.gameOpponent ?? clip.game?.opponent
         if let opponent = opponent {
             let date = clip.gameDate ?? clip.game?.date
             if let date = date {
-                let f = DateFormatter()
-                f.dateFormat = "MMM d"
-                return "vs \(opponent) · \(f.string(from: date))"
+                return "vs \(opponent) · \(Self.contextDateFormatter.string(from: date))"
             }
             return "vs \(opponent)"
         }
@@ -361,7 +379,7 @@ struct VideoThumbnailView: View {
 
         Self.logger.info("Generating thumbnail (attempt \(self.generationAttempts)/\(self.maxGenerationAttempts)) for \(self.clip.fileName, privacy: .public)")
 
-        if let videoURL = resolveLocalVideoURL() {
+        if let videoURL = await resolveLocalVideoURL() {
             await generateThumbnailFromURL(videoURL)
         } else {
             // Local file missing — show error placeholder.
@@ -375,12 +393,15 @@ struct VideoThumbnailView: View {
     }
 
     /// Returns the local video URL using the model's resolved path.
-    private func resolveLocalVideoURL() -> URL? {
+    /// File existence check runs off main thread to avoid blocking during scroll.
+    private func resolveLocalVideoURL() async -> URL? {
         let resolved = clip.resolvedFilePath
-        if FileManager.default.fileExists(atPath: resolved) {
-            return URL(fileURLWithPath: resolved)
-        }
-        return nil
+        return await Task.detached(priority: .userInitiated) {
+            if FileManager.default.fileExists(atPath: resolved) {
+                return URL(fileURLWithPath: resolved)
+            }
+            return nil
+        }.value
     }
 
     /// Generates a thumbnail from a known-good local URL and updates the clip.

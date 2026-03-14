@@ -29,6 +29,7 @@ struct VideoPlayerView: View {
     @State private var downloadProgress: Double = 0.0
     @State private var showingSaveSuccess = false
     @State private var saveErrorMessage: String?
+    @State private var videoDuration: Double?
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.modelContext) private var modelContext
     @Environment(\.verticalSizeClass) private var vSizeClass
@@ -74,7 +75,7 @@ struct VideoPlayerView: View {
     }
     
     private func activePlayerView(player: AVPlayer) -> some View {
-        EnhancedVideoPlayer(player: player)
+        EnhancedVideoPlayer(player: player, preloadedDuration: videoDuration, onClose: { dismiss() })
             .accessibilityLabel("Video player")
             .onDisappear {
                 print("VideoPlayerView: VideoPlayer disappeared, pausing playback")
@@ -312,7 +313,8 @@ struct VideoPlayerView: View {
 
         print("VideoPlayerView: File path: \(clip.resolvedFilePath)")
 
-        guard let url = await findVideoURL() else {
+        let result = await findVideoURL()
+        guard let url = result.url else {
             print("VideoPlayerView: No valid video file found")
             await MainActor.run {
                 isLoading = false
@@ -326,27 +328,32 @@ struct VideoPlayerView: View {
             return
         }
 
-        await loadPlayer(from: url)
+        await loadPlayer(from: url, isLocal: result.isLocal)
     }
     
-    private func findVideoURL() async -> URL? {
+    private struct VideoURLResult {
+        let url: URL?
+        let isLocal: Bool
+    }
+
+    private func findVideoURL() async -> VideoURLResult {
         let primaryURL = clip.resolvedFileURL
 
         if FileManager.default.fileExists(atPath: clip.resolvedFilePath) {
             print("VideoPlayerView: File exists at primary path")
-            return primaryURL
+            return VideoURLResult(url: primaryURL, isLocal: true)
         }
 
         print("VideoPlayerView: File not found at primary path, trying alternate")
         guard let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
             print("VideoPlayerView: Could not access documents directory")
-            return nil
+            return VideoURLResult(url: nil, isLocal: false)
         }
         let alternateURL = documentsPath.appendingPathComponent(clip.fileName)
 
         if FileManager.default.fileExists(atPath: alternateURL.path) {
             print("VideoPlayerView: File found at alternate path: \(alternateURL.path)")
-            return alternateURL
+            return VideoURLResult(url: alternateURL, isLocal: true)
         }
 
         // Try downloading from cloud if cloudURL exists and file is uploaded
@@ -372,23 +379,23 @@ struct VideoPlayerView: View {
             let destinationPath = clipsDirectory.appendingPathComponent(clip.fileName).path
 
             let cloudManager = VideoCloudManager.shared
+            let clipId = clip.id
 
-            // Fix X: Declare progressTask before do/catch so it's accessible in both branches.
-            var progressTask: Task<Void, Never>? = nil
+            // Monitor download progress. Uses a polling task because downloadProgress
+            // is a @State property that can only be updated from @MainActor context.
+            let progressTask = Task { @MainActor in
+                while !Task.isCancelled {
+                    if let progress = cloudManager.downloadProgress[clipId] {
+                        downloadProgress = progress
+                    }
+                    try? await Task.sleep(nanoseconds: 250_000_000) // 0.25s
+                }
+            }
 
             do {
-                progressTask = Task { @MainActor in
-                    while isDownloadingFromCloud {
-                        if let progress = cloudManager.downloadProgress[clip.id] {
-                            downloadProgress = progress
-                        }
-                        try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
-                    }
-                }
+                try await cloudManager.downloadVideo(from: downloadURL, to: destinationPath, clipId: clipId)
 
-                try await cloudManager.downloadVideo(from: downloadURL, to: destinationPath, clipId: clip.id)
-
-                progressTask?.cancel()
+                progressTask.cancel()
 
                 // Update clip's filePath in database (store relative)
                 await MainActor.run {
@@ -398,24 +405,24 @@ struct VideoPlayerView: View {
                 }
 
                 print("VideoPlayerView: Successfully downloaded video from cloud to: \(destinationPath)")
-                return URL(fileURLWithPath: destinationPath)
+                return VideoURLResult(url: URL(fileURLWithPath: destinationPath), isLocal: true)
 
             } catch {
-                progressTask?.cancel()
+                progressTask.cancel()
                 print("VideoPlayerView: Failed to download from cloud: \(error.localizedDescription)")
                 await MainActor.run {
                     isDownloadingFromCloud = false
                     errorMessage = "Failed to download video from cloud: \(error.localizedDescription)"
                 }
-                return nil
+                return VideoURLResult(url: nil, isLocal: false)
             }
         }
 
         print("VideoPlayerView: No cloud URL available for download")
-        return nil
+        return VideoURLResult(url: nil, isLocal: false)
     }
     
-    private func loadPlayer(from url: URL) async {
+    private func loadPlayer(from url: URL, isLocal: Bool = false) async {
         print("VideoPlayerView: Creating AVPlayer with URL: \(url)")
 
         guard !Task.isCancelled else {
@@ -423,39 +430,60 @@ struct VideoPlayerView: View {
             return
         }
 
-        let newPlayer = AVPlayer(url: url)
+        // Use a single AVURLAsset so loaded properties carry over to the player.
         let asset = AVURLAsset(url: url)
+        let item = AVPlayerItem(asset: asset)
+        let newPlayer = AVPlayer(playerItem: item)
 
-        do {
-            let (isPlayable, _) = try await asset.load(.isPlayable, .duration)
-
-            guard !Task.isCancelled else {
-                print("VideoPlayerView: Load cancelled after loading asset")
-                return
-            }
-
+        if isLocal {
+            // Local files recorded by this app are known-good — show the player
+            // immediately without waiting for async metadata validation.
             await MainActor.run {
-                if isPlayable {
-                    self.player = newPlayer
-                    self.isPlayerReady = true
-                    self.isLoading = false
-                    print("VideoPlayerView: Player setup successful and ready")
-                } else {
-                    self.isLoading = false
-                    self.errorMessage = "Video file is not playable"
-                    print("VideoPlayerView: Player setup failed: Video is not playable")
+                self.player = newPlayer
+                self.isPlayerReady = true
+                self.isLoading = false
+                print("VideoPlayerView: Local file — player shown immediately")
+            }
+            // Load duration in the background so EnhancedVideoPlayer's scrubber works.
+            if let loadedDuration = try? await asset.load(.duration) {
+                await MainActor.run {
+                    self.videoDuration = CMTimeGetSeconds(loadedDuration)
                 }
             }
-        } catch {
-            guard !Task.isCancelled else {
-                print("VideoPlayerView: Load cancelled during error handling")
-                return
-            }
+        } else {
+            // Remote/downloaded files: validate before displaying.
+            do {
+                let (isPlayable, loadedDuration) = try await asset.load(.isPlayable, .duration)
 
-            await MainActor.run {
-                self.isLoading = false
-                self.errorMessage = "Unable to load video: \(error.localizedDescription)"
-                print("VideoPlayerView: Player setup failed: \(self.errorMessage)")
+                guard !Task.isCancelled else {
+                    print("VideoPlayerView: Load cancelled after loading asset")
+                    return
+                }
+
+                await MainActor.run {
+                    if isPlayable {
+                        self.player = newPlayer
+                        self.isPlayerReady = true
+                        self.isLoading = false
+                        self.videoDuration = CMTimeGetSeconds(loadedDuration)
+                        print("VideoPlayerView: Player setup successful and ready")
+                    } else {
+                        self.isLoading = false
+                        self.errorMessage = "Video file is not playable"
+                        print("VideoPlayerView: Player setup failed: Video is not playable")
+                    }
+                }
+            } catch {
+                guard !Task.isCancelled else {
+                    print("VideoPlayerView: Load cancelled during error handling")
+                    return
+                }
+
+                await MainActor.run {
+                    self.isLoading = false
+                    self.errorMessage = "Unable to load video: \(error.localizedDescription)"
+                    print("VideoPlayerView: Player setup failed: \(self.errorMessage)")
+                }
             }
         }
     }
@@ -466,7 +494,7 @@ struct VideoPlayerView: View {
             isPlayerReady = false
             errorMessage = ""
         }
-        await loadPlayer(from: url)
+        await loadPlayer(from: url, isLocal: true)
     }
 }
 
@@ -738,6 +766,15 @@ struct PlayResultEditorView: View {
 
         do {
             try modelContext.save()
+
+            // Recalculate stats after play result change to keep them consistent
+            if let athlete = clip.athlete {
+                if let game = clip.game {
+                    try? StatisticsService.shared.recalculateGameStatistics(for: game, context: modelContext)
+                }
+                try? StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: modelContext)
+            }
+
             Haptics.success()
             dismiss()
         } catch {

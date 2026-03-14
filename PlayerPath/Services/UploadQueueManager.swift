@@ -28,13 +28,19 @@ final class UploadQueueManager {
 
     // MARK: - Private State
 
+    private var queueIsDirty = false
+    private var notificationObservers: [Any] = []
     private var processingTask: Task<Void, Never>?
+    private var retryTasks: [UUID: Task<Void, Never>] = [:] // clipId → retry sleep task
+    private var backgroundBatchTask: Task<Void, Never>?
     private let maxConcurrentUploads = 2
     private let maxRetries = 10
-    private let retryDelays: [TimeInterval] = [5, 15, 60, 120, 300, 600, 900, 1800, 3600] // 5s→15s→1m→2m→5m→10m→15m→30m→1hr
+    static let retryDelays: [TimeInterval] = [5, 15, 60, 120, 300, 600, 900, 1800, 3600] // 5s→15s→1m→2m→5m→10m→15m→30m→1hr
 
     private var modelContext: ModelContext?
     private var isConfigured = false
+    private var cachedPreferences: UserPreferences?
+    private var preferencesLastFetched: Date?
 
     private init() {}
 
@@ -102,19 +108,20 @@ final class UploadQueueManager {
         task.expirationHandler = { [weak self] in
             Task { @MainActor in
                 self?.processingTask?.cancel()
-                self?.persistQueueToDatabase()
+                self?.backgroundBatchTask?.cancel()
+                await self?.persistQueueToDatabase()
                 print("UploadQueueManager: Background task expired, queue persisted")
             }
         }
 
-        // Process uploads
-        Task { @MainActor in
-            // Process a limited batch in background
+        // Process uploads — store the task so the expiration handler can cancel it
+        backgroundBatchTask = Task { @MainActor in
             await processBackgroundBatch()
 
             // Persist state and complete
-            persistQueueToDatabase()
+            await persistQueueToDatabase()
             task.setTaskCompleted(success: true)
+            backgroundBatchTask = nil
             print("UploadQueueManager: Background task completed")
         }
     }
@@ -127,7 +134,7 @@ final class UploadQueueManager {
         let maxBackgroundUploads = 3
         var processed = 0
 
-        while processed < maxBackgroundUploads && !pendingUploads.isEmpty {
+        while processed < maxBackgroundUploads && !pendingUploads.isEmpty && !Task.isCancelled {
             guard let upload = pendingUploads.first else { break }
             await processUpload(upload, context: modelContext)
             processed += 1
@@ -136,7 +143,7 @@ final class UploadQueueManager {
 
     private func setupNetworkMonitoring() {
         // Listen for network status changes
-        NotificationCenter.default.addObserver(
+        let networkObserver = NotificationCenter.default.addObserver(
             forName: .networkStatusChanged,
             object: nil,
             queue: .main
@@ -150,9 +157,10 @@ final class UploadQueueManager {
                 }
             }
         }
+        notificationObservers.append(networkObserver)
 
         // Listen for app going to background
-        NotificationCenter.default.addObserver(
+        let backgroundObserver = NotificationCenter.default.addObserver(
             forName: UIApplication.didEnterBackgroundNotification,
             object: nil,
             queue: .main
@@ -160,15 +168,16 @@ final class UploadQueueManager {
             Task { @MainActor [weak self] in
                 guard let self = self else { return }
                 // Persist queue and schedule background task
-                self.persistQueueToDatabase()
+                await self.persistQueueToDatabase()
                 if !self.pendingUploads.isEmpty {
                     self.scheduleBackgroundUpload()
                 }
             }
         }
+        notificationObservers.append(backgroundObserver)
 
         // Listen for app becoming active
-        NotificationCenter.default.addObserver(
+        let activeObserver = NotificationCenter.default.addObserver(
             forName: UIApplication.didBecomeActiveNotification,
             object: nil,
             queue: .main
@@ -181,12 +190,14 @@ final class UploadQueueManager {
                 }
             }
         }
+        notificationObservers.append(activeObserver)
     }
 
     // MARK: - Queue Persistence
 
     /// Persist pending uploads to database for recovery after app restart
-    func persistQueueToDatabase() {
+    func persistQueueToDatabase() async {
+        guard queueIsDirty else { return }
         guard let modelContext = modelContext else {
             print("UploadQueueManager: Cannot persist - no ModelContext")
             return
@@ -202,23 +213,11 @@ final class UploadQueueManager {
                 modelContext.delete(upload)
             }
 
-            // Insert current pending uploads
-            for upload in pendingUploads {
-                let persistedUpload = PendingUpload(
-                    clipId: upload.clipId,
-                    athleteId: upload.athleteId,
-                    fileName: upload.fileName,
-                    filePath: upload.filePath,
-                    priority: upload.priority.rawValue,
-                    retryCount: upload.retryCount,
-                    lastAttempt: upload.lastAttempt,
-                    status: PendingUploadStatus.pending
-                )
-                modelContext.insert(persistedUpload)
-            }
+            // Insert current pending uploads, yielding periodically to avoid blocking main thread
+            let allUploads: [(QueuedUpload, PendingUploadStatus)] =
+                pendingUploads.map { ($0, .pending) } + failedUploads.map { ($0, .failed) }
 
-            // Also persist failed uploads
-            for upload in failedUploads {
+            for (index, (upload, status)) in allUploads.enumerated() {
                 let persistedUpload = PendingUpload(
                     clipId: upload.clipId,
                     athleteId: upload.athleteId,
@@ -227,12 +226,18 @@ final class UploadQueueManager {
                     priority: upload.priority.rawValue,
                     retryCount: upload.retryCount,
                     lastAttempt: upload.lastAttempt,
-                    status: PendingUploadStatus.failed
+                    status: status
                 )
                 modelContext.insert(persistedUpload)
+
+                // Yield every 20 inserts to keep UI responsive
+                if index > 0 && index % 20 == 0 {
+                    await Task.yield()
+                }
             }
 
             try modelContext.save()
+            queueIsDirty = false
             print("UploadQueueManager: Persisted \(pendingUploads.count) pending + \(failedUploads.count) failed uploads")
         } catch {
             print("UploadQueueManager: Failed to persist queue: \(error.localizedDescription)")
@@ -313,9 +318,11 @@ final class UploadQueueManager {
             return
         }
 
-        // Don't queue if already in queue
-        guard !pendingUploads.contains(where: { $0.clipId == clip.id }) else {
-            print("UploadQueueManager: Clip already queued: \(clip.fileName)")
+        // Don't queue if already in any queue (pending, active, or failed)
+        guard !pendingUploads.contains(where: { $0.clipId == clip.id }),
+              !failedUploads.contains(where: { $0.clipId == clip.id }),
+              activeUploads[clip.id] == nil else {
+            print("UploadQueueManager: Clip already queued or in progress: \(clip.fileName)")
             return
         }
 
@@ -331,6 +338,7 @@ final class UploadQueueManager {
 
         pendingUploads.append(upload)
         pendingUploads.sort { $0.priority.rawValue > $1.priority.rawValue }
+        queueIsDirty = true
 
         print("UploadQueueManager: Queued upload for \(clip.fileName) (priority: \(priority))")
 
@@ -350,6 +358,7 @@ final class UploadQueueManager {
 
         pendingUploads.append(retryUpload)
         pendingUploads.sort { $0.priority.rawValue > $1.priority.rawValue }
+        queueIsDirty = true
 
         print("UploadQueueManager: Manually retrying upload for \(upload.fileName)")
     }
@@ -358,6 +367,7 @@ final class UploadQueueManager {
     func cancel(_ clipId: UUID) {
         pendingUploads.removeAll { $0.clipId == clipId }
         activeUploads.removeValue(forKey: clipId)
+        queueIsDirty = true
         print("UploadQueueManager: Cancelled upload for clip \(clipId)")
     }
 
@@ -366,12 +376,21 @@ final class UploadQueueManager {
         // Stop any active processing
         processingTask?.cancel()
         processingTask = nil
+        backgroundBatchTask?.cancel()
+        backgroundBatchTask = nil
+
+        // Cancel all pending retry tasks so they don't resurrect uploads
+        for (_, task) in retryTasks {
+            task.cancel()
+        }
+        retryTasks.removeAll()
 
         // Clear in-memory queues
         pendingUploads.removeAll()
         failedUploads.removeAll()
         activeUploads.removeAll()
         isProcessing = false
+        queueIsDirty = true
 
         // Clear persisted records from database
         guard let modelContext = modelContext else { return }
@@ -423,15 +442,20 @@ final class UploadQueueManager {
     }
 
     private func processNextBatch() async {
-        guard let modelContext = await getModelContext() else {
+        guard let modelContext = getModelContext() else {
             print("UploadQueueManager: Cannot process without ModelContext")
             return
         }
 
-        // Check network conditions
+        // Check network conditions (cache preferences to avoid fetching every 0.5s)
         let networkMonitor = ConnectivityMonitor.shared
-        let descriptor = FetchDescriptor<UserPreferences>()
-        let preferences = try? modelContext.fetch(descriptor).first
+        let now = Date()
+        if cachedPreferences == nil || preferencesLastFetched.map({ now.timeIntervalSince($0) > 30 }) != false {
+            let descriptor = FetchDescriptor<UserPreferences>()
+            cachedPreferences = try? modelContext.fetch(descriptor).first
+            preferencesLastFetched = now
+        }
+        let preferences = cachedPreferences
 
         guard networkMonitor.shouldAllowUploads(preferences: preferences) else {
             if !networkMonitor.isConnected {
@@ -460,11 +484,20 @@ final class UploadQueueManager {
     private func processUpload(_ upload: QueuedUpload, context: ModelContext) async {
         // Remove from pending
         pendingUploads.removeAll { $0.clipId == upload.clipId }
+        queueIsDirty = true
 
         // Mark as active
         activeUploads[upload.clipId] = 0.0
 
         print("UploadQueueManager: Processing upload for \(upload.fileName) (attempt \(upload.retryCount + 1))")
+
+        // Progress monitoring task — declared before do/catch so it can be
+        // cancelled on both success and failure paths.
+        var progressTask: Task<Void, Never>?
+
+        // Track reserved bytes so they can be released on failure
+        var reservedBytes: Int64 = 0
+        weak var quotaUser: User?
 
         do {
             // Fetch VideoClip and Athlete from database
@@ -473,13 +506,30 @@ final class UploadQueueManager {
                 throw UploadError.entityNotFound
             }
 
+            // Enforce per-tier cloud storage limit before uploading.
+            // Reserve bytes optimistically to prevent concurrent uploads from
+            // both passing the quota check before either finishes.
+            if let user = athlete.user {
+                let fileSize = FileManager.default.fileSize(atPath: upload.filePath)
+                let tier = user.tier
+                let limitBytes = Int64(tier.storageLimitGB) * 1_073_741_824 // 1 GB in bytes
+                let projectedUsage = user.cloudStorageUsedBytes + fileSize
+                if projectedUsage > limitBytes {
+                    let usedGB = Double(user.cloudStorageUsedBytes) / 1_073_741_824.0
+                    throw UploadError.storageLimitExceeded(usedGB: usedGB, limitGB: tier.storageLimitGB)
+                }
+                // Reserve space now; released on failure or kept on success
+                user.cloudStorageUsedBytes += fileSize
+                reservedBytes = fileSize
+                quotaUser = user
+            }
+
             // Perform upload with progress updates
             let cloudManager = VideoCloudManager.shared
-            let cloudURL = try await cloudManager.uploadVideo(clip, athlete: athlete)
 
-            // Monitor progress
-            let progressTask = Task { @MainActor in
-                while activeUploads[upload.clipId] != nil {
+            // Start progress monitor BEFORE the upload so UI gets incremental updates
+            progressTask = Task { @MainActor in
+                while activeUploads[upload.clipId] != nil && !Task.isCancelled {
                     if let progress = cloudManager.uploadProgress[upload.clipId] {
                         activeUploads[upload.clipId] = progress
                     }
@@ -487,10 +537,27 @@ final class UploadQueueManager {
                 }
             }
 
+            // 10-minute timeout prevents stalled uploads from hanging indefinitely
+            let cloudURL = try await withThrowingTaskGroup(of: String.self) { group in
+                group.addTask {
+                    try await cloudManager.uploadVideo(clip, athlete: athlete)
+                }
+                group.addTask {
+                    try await Task.sleep(nanoseconds: 600_000_000_000) // 10 minutes
+                    throw UploadError.uploadFailed("Upload timed out after 10 minutes")
+                }
+                let result = try await group.next()!
+                group.cancelAll()
+                return result
+            }
+
             // Update clip with cloud URL
             clip.cloudURL = cloudURL
             clip.isUploaded = true
             clip.lastSyncDate = Date()
+
+            // Storage bytes already reserved above — no additional increment needed
+
             try context.save()
 
             // Notify user of successful upload if enabled
@@ -499,20 +566,37 @@ final class UploadQueueManager {
             }
 
             // Stop progress monitoring
-            progressTask.cancel()
+            progressTask?.cancel()
+            progressTask = nil
             activeUploads.removeValue(forKey: upload.clipId)
 
-            // Save metadata to Firestore for cross-device sync
+            // Save metadata to Firestore for cross-device sync.
+            // If this fails, rollback the Storage file to prevent orphans.
             do {
                 try await cloudManager.saveVideoMetadataToFirestore(clip, athlete: athlete, downloadURL: cloudURL)
                 print("UploadQueueManager: ✅ Successfully uploaded and synced \(upload.fileName)")
             } catch {
-                // Storage upload succeeded but Firestore metadata write failed.
-                // Mark needsSync=true so SyncCoordinator's predicate (isUploaded && firestoreId==nil)
-                // picks it up, then trigger an immediate sync rather than waiting for the 60s tick.
                 print("UploadQueueManager: ⚠️ Upload succeeded but Firestore sync failed: \(error.localizedDescription)")
+
+                // Attempt to rollback the Storage file
+                do {
+                    try await cloudManager.deleteAthleteVideo(fileName: upload.fileName)
+                    print("UploadQueueManager: 🗑️ Rolled back orphaned Storage file: \(upload.fileName)")
+                } catch {
+                    print("UploadQueueManager: ❌ Failed to rollback orphaned file \(upload.fileName): \(error.localizedDescription)")
+                }
+
+                // Revert local state so the upload is retried from scratch
+                clip.cloudURL = nil
+                clip.isUploaded = false
+                clip.lastSyncDate = nil
+                if let user = athlete.user {
+                    let fileSize = FileManager.default.fileSize(atPath: upload.filePath)
+                    user.cloudStorageUsedBytes = max(0, user.cloudStorageUsedBytes - fileSize)
+                }
                 clip.needsSync = true
                 try? context.save()
+
                 if let user = athlete.user {
                     Task {
                         try? await SyncCoordinator.shared.syncAll(for: user)
@@ -528,9 +612,25 @@ final class UploadQueueManager {
             )
 
         } catch {
+            // Stop progress monitoring on failure
+            progressTask?.cancel()
+            progressTask = nil
             activeUploads.removeValue(forKey: upload.clipId)
 
+            // Release reserved storage quota on failure
+            if reservedBytes > 0 {
+                quotaUser?.cloudStorageUsedBytes -= reservedBytes
+            }
+
             print("UploadQueueManager: ❌ Upload failed for \(upload.fileName): \(error.localizedDescription)")
+
+            // If the clip or athlete was deleted, don't retry — move straight to failed
+            if let uploadError = error as? UploadError, case .entityNotFound = uploadError {
+                print("UploadQueueManager: Clip or athlete deleted, skipping retries for \(upload.fileName)")
+                failedUploads.append(upload)
+                queueIsDirty = true
+                return
+            }
 
             // Handle retry logic
             var updatedUpload = upload
@@ -539,23 +639,33 @@ final class UploadQueueManager {
 
             if updatedUpload.retryCount < maxRetries {
                 // Schedule retry with exponential backoff
-                let delayIndex = min(updatedUpload.retryCount - 1, retryDelays.count - 1)
-                let delay = retryDelays[delayIndex]
+                let delayIndex = min(updatedUpload.retryCount - 1, Self.retryDelays.count - 1)
+                let delay = Self.retryDelays[delayIndex]
 
                 print("UploadQueueManager: Scheduling retry in \(Int(delay))s (attempt \(updatedUpload.retryCount + 1)/\(maxRetries))")
 
-                Task { @MainActor in
+                let clipId = updatedUpload.clipId
+                let retryTask = Task { @MainActor in
                     try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
 
-                    // Re-queue if not cancelled
+                    // Clean up tracking entry
+                    self.retryTasks.removeValue(forKey: clipId)
+
+                    // Re-queue only if not cancelled (clearAllQueues cancels these)
                     if !Task.isCancelled {
                         self.pendingUploads.append(updatedUpload)
                         self.pendingUploads.sort { $0.priority.rawValue > $1.priority.rawValue }
+                        self.queueIsDirty = true
+                        if !self.isProcessing {
+                            self.startProcessing()
+                        }
                     }
                 }
+                retryTasks[clipId] = retryTask
             } else {
                 // Max retries reached, move to failed
                 failedUploads.append(updatedUpload)
+                queueIsDirty = true
                 print("UploadQueueManager: Max retries reached for \(upload.fileName), moving to failed queue")
             }
         }
@@ -563,7 +673,7 @@ final class UploadQueueManager {
 
     // MARK: - Database Helpers
 
-    private func getModelContext() async -> ModelContext? {
+    private func getModelContext() -> ModelContext? {
         return modelContext
     }
 
@@ -599,8 +709,8 @@ struct QueuedUpload: Identifiable {
     var lastAttempt: Date?
 
     var timeUntilRetry: TimeInterval? {
-        guard let lastAttempt = lastAttempt else { return nil }
-        let delays: [TimeInterval] = [5, 15, 60]
+        guard let lastAttempt = lastAttempt, retryCount > 0 else { return nil }
+        let delays = UploadQueueManager.retryDelays
         let delayIndex = min(retryCount - 1, delays.count - 1)
         let delay = delays[delayIndex]
         let elapsed = Date().timeIntervalSince(lastAttempt)
@@ -621,6 +731,7 @@ enum UploadPriority: Int, Comparable {
 enum UploadError: LocalizedError {
     case entityNotFound
     case uploadFailed(String)
+    case storageLimitExceeded(usedGB: Double, limitGB: Int)
 
     var errorDescription: String? {
         switch self {
@@ -628,6 +739,8 @@ enum UploadError: LocalizedError {
             return "Video clip or athlete not found in database"
         case .uploadFailed(let reason):
             return "Upload failed: \(reason)"
+        case .storageLimitExceeded(let usedGB, let limitGB):
+            return String(format: "Storage limit reached (%.1f GB of %d GB used). Upgrade your plan for more storage.", usedGB, limitGB)
         }
     }
 }

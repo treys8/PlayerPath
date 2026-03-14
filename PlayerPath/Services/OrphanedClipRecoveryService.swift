@@ -26,35 +26,64 @@ final class OrphanedClipRecoveryService {
     /// Safe to call on every launch — it's fully idempotent.
     func recoverIfNeeded(context: ModelContext, athletes: [Athlete]) async {
         guard !athletes.isEmpty else {
+            #if DEBUG
             print("🔄 OrphanedClipRecovery: No athletes in DB — skipping recovery")
+            #endif
             return
         }
 
         let orphans = findOrphanedVideoFiles(context: context)
         guard !orphans.isEmpty else {
+            #if DEBUG
             print("✅ OrphanedClipRecovery: No orphaned video files found")
+            #endif
             return
         }
 
+        #if DEBUG
         print("🔄 OrphanedClipRecovery: Found \(orphans.count) orphaned video file(s) — recovering...")
+        #endif
 
-        // Assign to the first athlete found (best guess for single-tester builds;
-        // if multiple athletes exist we still pick one rather than lose the footage).
-        let targetAthlete = athletes[0]
+        // Pick the most recently created athlete as the best guess for ownership.
+        // For single-athlete accounts this is the only one; for multi-athlete it's
+        // the most likely active player. Sorted descending by createdAt.
+        let sortedAthletes = athletes.sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
+        guard let targetAthlete = sortedAthletes.first else { return }
         var recoveredCount = 0
+        var clipsNeedingThumbnails: [(VideoClip, URL)] = []
 
         for fileURL in orphans {
-            if await recoverClip(at: fileURL, athlete: targetAthlete, context: context) {
+            if let clip = await recoverClip(at: fileURL, athlete: targetAthlete, context: context) {
                 recoveredCount += 1
+                if clip.thumbnailPath == nil {
+                    clipsNeedingThumbnails.append((clip, fileURL))
+                }
             }
         }
 
         if recoveredCount > 0 {
             do {
                 try context.save()
+                #if DEBUG
                 print("✅ OrphanedClipRecovery: Recovered \(recoveredCount) clip(s) for \(targetAthlete.name)")
+                #endif
+
+                // Generate thumbnails AFTER the bulk save succeeds, so we never
+                // commit a clip that the main flow considered failed.
+                for (clip, fileURL) in clipsNeedingThumbnails {
+                    let result = await VideoFileManager.generateThumbnail(from: fileURL)
+                    if case .success(let path) = result {
+                        clip.thumbnailPath = path
+                    }
+                }
+                // Single save for all thumbnails
+                if !clipsNeedingThumbnails.isEmpty {
+                    try? context.save()
+                }
             } catch {
+                #if DEBUG
                 print("❌ OrphanedClipRecovery: Failed to save recovered clips: \(error.localizedDescription)")
+                #endif
             }
         }
     }
@@ -63,14 +92,17 @@ final class OrphanedClipRecoveryService {
 
     /// Returns video files in Documents/Clips that have no matching VideoClip record.
     private func findOrphanedVideoFiles(context: ModelContext) -> [URL] {
-        // Collect all tracked file paths from SwiftData
+        // Collect only file names from SwiftData to avoid loading full model objects.
+        // All orphan candidates are in Documents/Clips, so comparing by fileName is sufficient.
         let descriptor = FetchDescriptor<VideoClip>()
-        let trackedPaths: Set<String>
+        let trackedFileNames: Set<String>
         do {
             let clips = try context.fetch(descriptor)
-            trackedPaths = Set(clips.map { $0.resolvedFilePath })
+            trackedFileNames = Set(clips.map { $0.fileName })
         } catch {
+            #if DEBUG
             print("❌ OrphanedClipRecovery: Failed to fetch existing clips: \(error.localizedDescription)")
+            #endif
             return []
         }
 
@@ -88,22 +120,29 @@ final class OrphanedClipRecoveryService {
             )
             return contents.filter { url in
                 videoExtensions.contains(url.pathExtension.lowercased()) &&
-                !trackedPaths.contains(url.path)
+                !trackedFileNames.contains(url.lastPathComponent)
             }
         } catch {
+            #if DEBUG
             print("❌ OrphanedClipRecovery: Failed to scan Clips directory: \(error.localizedDescription)")
+            #endif
             return []
         }
     }
 
     /// Attempts to create a VideoClip record for a single orphaned file.
-    private func recoverClip(at fileURL: URL, athlete: Athlete, context: ModelContext) async -> Bool {
+    /// Returns the clip on success, nil on failure.
+    private func recoverClip(at fileURL: URL, athlete: Athlete, context: ModelContext) async -> VideoClip? {
         // Basic file sanity check
         let attributes = (try? fileManager.attributesOfItem(atPath: fileURL.path)) ?? [:]
         let fileSize = (attributes[.size] as? Int64) ?? 0
         guard fileSize > 10_000 else {
-            print("⚠️ OrphanedClipRecovery: Skipping tiny/corrupt file: \(fileURL.lastPathComponent)")
-            return false
+            // Delete tiny/corrupt files so they don't get re-scanned every launch
+            #if DEBUG
+            print("⚠️ OrphanedClipRecovery: Deleting tiny/corrupt file: \(fileURL.lastPathComponent) (\(fileSize) bytes)")
+            #endif
+            try? fileManager.removeItem(at: fileURL)
+            return nil
         }
 
         // Load duration from the video asset
@@ -113,12 +152,16 @@ final class OrphanedClipRecoveryService {
             let cmDuration = try await asset.load(.duration)
             duration = CMTimeGetSeconds(cmDuration)
             guard duration > 0 && duration.isFinite && duration < 3600 else {
+                #if DEBUG
                 print("⚠️ OrphanedClipRecovery: Invalid duration for \(fileURL.lastPathComponent)")
-                return false
+                #endif
+                return nil
             }
         } catch {
+            #if DEBUG
             print("⚠️ OrphanedClipRecovery: Could not load asset \(fileURL.lastPathComponent): \(error.localizedDescription)")
-            return false
+            #endif
+            return nil
         }
 
         // Use file system creation date, fall back to now
@@ -127,10 +170,13 @@ final class OrphanedClipRecoveryService {
         // Try to find a pre-existing thumbnail in Documents/Thumbnails
         let thumbnailPath = existingThumbnailPath(for: fileURL)
 
+        // Store a relative path so the clip survives sandbox relocation
+        let relativePath = "Clips/\(fileURL.lastPathComponent)"
+
         // Build the recovered clip — no game, no play result (shows as practice clip)
         let clip = VideoClip(
             fileName: fileURL.lastPathComponent,
-            filePath: fileURL.path
+            filePath: relativePath
         )
         clip.createdAt = createdAt
         clip.duration = duration
@@ -144,19 +190,10 @@ final class OrphanedClipRecoveryService {
 
         context.insert(clip)
 
-        // Generate a thumbnail in the background if none was found
-        if thumbnailPath == nil {
-            Task {
-                let result = await VideoFileManager.generateThumbnail(from: fileURL)
-                if case .success(let path) = result {
-                    clip.thumbnailPath = path
-                    try? context.save()
-                }
-            }
-        }
-
+        #if DEBUG
         print("🔄 OrphanedClipRecovery: Recovered \(fileURL.lastPathComponent) (\(Int(duration))s)")
-        return true
+        #endif
+        return clip
     }
 
     /// Returns an existing thumbnail path for the given video file URL, if one is present.

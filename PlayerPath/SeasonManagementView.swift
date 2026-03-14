@@ -21,7 +21,9 @@ struct SeasonManagementView: View {
     @State private var isProcessing = false
     @State private var showingError = false
     @State private var errorMessage = ""
-    
+    @State private var showingSuccess = false
+    @State private var successMessage = ""
+
     var body: some View {
         List {
             // Active Season Section
@@ -136,9 +138,14 @@ struct SeasonManagementView: View {
         } message: {
             Text(errorMessage)
         }
+        .alert("Success", isPresented: $showingSuccess) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(successMessage)
+        }
         .disabled(isProcessing)
     }
-    
+
     private func archiveSeason(_ season: Season) {
         isProcessing = true
 
@@ -171,6 +178,8 @@ struct SeasonManagementView: View {
                 isProcessing = false
             }
             Haptics.medium()
+            successMessage = "\(season.displayName) has been archived."
+            showingSuccess = true
         } catch {
             // Rollback on failure
             if wasActive {
@@ -367,6 +376,7 @@ struct CreateSeasonView: View {
                 Section {
                     TextField("Season Name", text: $seasonName)
                         .autocorrectionDisabled()
+                        .submitLabel(.done)
                     
                     // Quick suggestions
                     if seasonName.isEmpty {
@@ -557,6 +567,8 @@ struct SeasonDetailView: View {
     @State private var showingError = false
     @State private var errorMessage = ""
     @State private var selectedFilter: SeasonContentFilter = .all
+    @State private var showingSuccess = false
+    @State private var successMessage = ""
 
     // Cached stats - updated via relationships
     @State private var completedGames: Int = 0
@@ -720,6 +732,23 @@ struct SeasonDetailView: View {
         } message: {
             Text(errorMessage)
         }
+        .alert("Success", isPresented: $showingSuccess) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(successMessage)
+        }
+        .overlay {
+            if isProcessing {
+                ZStack {
+                    Color.black.opacity(0.3)
+                        .ignoresSafeArea()
+                    ProgressView()
+                        .scaleEffect(1.2)
+                        .padding()
+                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+                }
+            }
+        }
         .disabled(isProcessing)
         .task {
             updateStats()
@@ -835,14 +864,21 @@ struct SeasonDetailView: View {
         // Sync deletion to Firestore before removing locally
         if let firestoreId = season.firestoreId,
            let user = season.athlete?.user {
+            let userId = user.id.uuidString
             Task {
-                do {
-                    try await FirestoreManager.shared.deleteSeason(
-                        userId: user.id.uuidString,
-                        seasonId: firestoreId
-                    )
-                } catch {
-                    // Non-fatal: local delete proceeds regardless
+                for attempt in 1...3 {
+                    do {
+                        try await FirestoreManager.shared.deleteSeason(
+                            userId: userId,
+                            seasonId: firestoreId
+                        )
+                        return
+                    } catch {
+                        print("⚠️ Failed to delete season from Firestore (attempt \(attempt)/3): \(error)")
+                        if attempt < 3 {
+                            try? await Task.sleep(for: .seconds(2))
+                        }
+                    }
                 }
             }
         }
@@ -915,6 +951,8 @@ struct SeasonDetailView: View {
                 isProcessing = false
             }
             Haptics.medium()
+            successMessage = "\(season.displayName) has been ended and archived."
+            showingSuccess = true
             print("✅ Season ended: \(season.displayName)")
         } catch {
             // Rollback on failure
@@ -971,6 +1009,8 @@ struct SeasonDetailView: View {
                 isProcessing = false
             }
             Haptics.medium()
+            successMessage = "\(season.displayName) is now active."
+            showingSuccess = true
         } catch {
             // Rollback on failure
             if previousActiveWasActive {

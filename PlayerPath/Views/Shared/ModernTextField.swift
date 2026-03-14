@@ -54,10 +54,16 @@ struct ModernTextField: View {
     var textContentType: UITextContentType? = nil
     var autocapitalization: TextInputAutocapitalization = .sentences
     var validationState: FieldValidationState = .idle
+    var submitLabel: SubmitLabel = .return
     var onSubmit: (() -> Void)? = nil
+    var focusedBinding: FocusState<Bool>.Binding? = nil
 
-    @FocusState private var isFocused: Bool
+    @FocusState private var internalFocus: Bool
     @State private var showPassword: Bool = false
+
+    private var isFocused: Bool {
+        focusedBinding?.wrappedValue ?? internalFocus
+    }
 
     private var shouldShowSecure: Bool {
         isSecure && !showPassword
@@ -87,7 +93,8 @@ struct ModernTextField: View {
                 }
             }
             .font(.body)
-            .focused($isFocused)
+            .focused(focusedBinding ?? $internalFocus)
+            .submitLabel(submitLabel)
             .disableAutocorrection(isSecure || keyboardType == .emailAddress)
             .onSubmit {
                 onSubmit?()
@@ -155,7 +162,9 @@ struct LabeledModernTextField: View {
     var autocapitalization: TextInputAutocapitalization = .sentences
     var validationState: FieldValidationState = .idle
     var validationMessage: String? = nil
+    var submitLabel: SubmitLabel = .return
     var onSubmit: (() -> Void)? = nil
+    var focusedBinding: FocusState<Bool>.Binding? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -175,7 +184,9 @@ struct LabeledModernTextField: View {
                 textContentType: textContentType,
                 autocapitalization: autocapitalization,
                 validationState: validationState,
-                onSubmit: onSubmit
+                submitLabel: submitLabel,
+                onSubmit: onSubmit,
+                focusedBinding: focusedBinding
             )
 
             // Validation message

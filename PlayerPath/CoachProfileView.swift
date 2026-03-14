@@ -200,15 +200,7 @@ struct CoachProfileView: View {
                 }
             }
             .navigationTitle("Profile")
-            .task {
-                // Ensure folder data is loaded so athlete/video counts are accurate.
-                // CoachDashboardView normally starts the listener, but if this view
-                // appears before the dashboard (e.g. deep link), counts would be 0.
-                if sharedFolderManager.coachFolders.isEmpty,
-                   let coachID = authManager.userID {
-                    sharedFolderManager.startCoachFoldersListener(coachID: coachID)
-                }
-            }
+            // Listener is pre-started in AuthenticatedFlow; no need to start here.
             .disabled(isSigningOut)
             .overlay {
                 if isSigningOut {
@@ -310,6 +302,10 @@ struct EditCoachProfileView: View {
                     TextField("Your name", text: $displayName)
                         .textContentType(.name)
                         .autocorrectionDisabled()
+                        .submitLabel(.done)
+                        .onSubmit {
+                            Task { await saveProfile() }
+                        }
                 }
 
                 Section {

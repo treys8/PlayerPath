@@ -22,6 +22,9 @@ struct InviteCoachSheet: View {
     @State private var showingSuccess = false
     @State private var errorMessage: String?
 
+    private enum Field: Hashable { case name, email }
+    @FocusState private var focusedField: Field?
+
     private var isValidEmail: Bool {
         let emailRegex = #"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$"#
         return coachEmail.range(of: emailRegex, options: .regularExpression) != nil
@@ -71,6 +74,9 @@ struct InviteCoachSheet: View {
                                 .textFieldStyle(.roundedBorder)
                                 .textContentType(.name)
                                 .autocorrectionDisabled()
+                                .focused($focusedField, equals: .name)
+                                .submitLabel(.next)
+                                .onSubmit { focusedField = .email }
                         }
 
                         // Coach Email
@@ -86,6 +92,9 @@ struct InviteCoachSheet: View {
                                 .keyboardType(.emailAddress)
                                 .autocapitalization(.none)
                                 .autocorrectionDisabled()
+                                .focused($focusedField, equals: .email)
+                                .submitLabel(.done)
+                                .onSubmit { focusedField = nil }
 
                             if !coachEmail.isEmpty && !isValidEmail {
                                 Text("Please enter a valid email address")
@@ -182,6 +191,7 @@ struct InviteCoachSheet: View {
                     .padding(.bottom)
                 }
             }
+            .scrollDismissesKeyboard(.interactively)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
@@ -212,6 +222,14 @@ struct InviteCoachSheet: View {
                     throw NSError(domain: "InviteCoach", code: -1, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
                 }
 
+                // Check for existing pending invitation to this coach from this athlete
+                let existingInvitations = try await FirestoreManager.shared.fetchPendingInvitations(forEmail: coachEmail.lowercased())
+                if existingInvitations.contains(where: { $0.athleteID == athlete.id.uuidString }) {
+                    throw NSError(domain: "InviteCoach", code: -2, userInfo: [
+                        NSLocalizedDescriptionKey: "An invitation has already been sent to this coach."
+                    ])
+                }
+
                 // Create a shared folder for the coach
                 let folderName = "\(athlete.name)'s Videos"
                 let folderID = try await SharedFolderManager.shared.createFolder(
@@ -226,7 +244,8 @@ struct InviteCoachSheet: View {
                     athleteName: athlete.name,
                     coachEmail: coachEmail.lowercased(),
                     folderID: folderID,
-                    folderName: folderName
+                    folderName: folderName,
+                    permissions: selectedPermissions
                 )
 
                 // Save coach locally (pending status)

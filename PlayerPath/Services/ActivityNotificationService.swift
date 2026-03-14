@@ -54,6 +54,8 @@ final class ActivityNotificationService: ObservableObject {
     @Published private(set) var recentNotifications: [ActivityNotification] = []
     /// Most-recently-arrived notification, used to drive the in-app banner.
     @Published private(set) var incomingBanner: ActivityNotification?
+    /// Set when the real-time listener encounters an error. Views can show a stale-data hint.
+    @Published private(set) var listenerError: String?
 
     private let db = Firestore.firestore()
     private var listener: ListenerRegistration?
@@ -76,8 +78,10 @@ final class ActivityNotificationService: ObservableObject {
                 guard let self else { return }
                 if let error {
                     print("❌ Notification listener error: \(error)")
+                    self.listenerError = "Unable to refresh notifications."
                     return
                 }
+                self.listenerError = nil
                 guard let docs = snapshot?.documents else { return }
 
                 let notifications = docs.compactMap { doc -> ActivityNotification? in
@@ -107,6 +111,7 @@ final class ActivityNotificationService: ObservableObject {
         listener?.remove()
         listener = nil
         previousIDs = []
+        listenerError = nil
     }
 
     func dismissBanner() {

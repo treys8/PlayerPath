@@ -18,13 +18,14 @@ struct UserMainFlow: View {
     @State private var selectedAthlete: Athlete?
     @State private var showCreationToast = false
     @State private var showingAthleteSelection = false
+    @State private var hasRestoredSelection = false
     private let userID: UUID
 
     // NotificationCenter observer management using StateObject
     @StateObject private var notificationManager = NotificationObserverManager()
 
     // Activity notification service (Firestore-backed in-app notifications)
-    @ObservedObject private var activityNotifService = ActivityNotificationService.shared
+    @StateObject private var activityNotifService = ActivityNotificationService.shared
 
     // Quick Actions manager
     @StateObject private var quickActionsManager = QuickActionsManager.shared
@@ -178,9 +179,15 @@ struct UserMainFlow: View {
                 print("🟢 Auto-selecting only athlete: \(only.name) (ID: \(only.id))")
                 #endif
                 selectedAthlete = only
-                showCreationToast = true
-                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                    showCreationToast = false
+                // Only show the toast if the initial restoration has already run.
+                // Otherwise this fires on every app launch when @Query populates
+                // before .task restores the saved selection.
+                if hasRestoredSelection {
+                    showCreationToast = true
+                    Task {
+                        try? await Task.sleep(nanoseconds: 1_200_000_000)
+                        showCreationToast = false
+                    }
                 }
             } else if let current = selectedAthlete {
                 #if DEBUG
@@ -194,10 +201,8 @@ struct UserMainFlow: View {
             print("🎯 UserMainFlow - User email: \(user.email)")
             print("🎯 UserMainFlow - Athletes count: \(athletesForUser.count)")
 
-            // Start Firestore-backed activity notification listener
-            if let firebaseUID = authManager.userID {
-                ActivityNotificationService.shared.startListening(forUserID: firebaseUID)
-            }
+            // Activity notification listener is now started in AuthenticatedFlow
+            // before this view appears, so navigation is not blocked by Firestore setup.
 
             setupNotificationObservers()
 
@@ -221,6 +226,7 @@ struct UserMainFlow: View {
                     selectedAthlete = only
                 }
             }
+            hasRestoredSelection = true
         }
         .onChange(of: selectedAthlete) { _, newValue in
             // Persist athlete selection

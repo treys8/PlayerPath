@@ -91,13 +91,18 @@ struct CreateFolderView: View {
                 .textContentType(.emailAddress)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
-            
+                .submitLabel(.done)
+                .onSubmit {
+                    guard isValid else { return }
+                    Task { await createFolder() }
+                }
+
             if !coachEmail.isEmpty && !isValidEmail(coachEmail) {
                 Label("Please enter a valid email address", systemImage: "exclamationmark.triangle.fill")
                     .font(.caption)
                     .foregroundColor(.orange)
             }
-            
+
         } header: {
             Text("Invite Coach")
         } footer: {
@@ -105,7 +110,7 @@ struct CreateFolderView: View {
                 .font(.caption)
         }
     }
-    
+
     private var permissionsSection: some View {
         Section {
             Toggle(isOn: $permissions.canUpload) {
@@ -227,13 +232,18 @@ struct InviteCoachView: View {
                         .textContentType(.emailAddress)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
-                    
+                        .submitLabel(.done)
+                        .onSubmit {
+                            guard isValid else { return }
+                            Task { await sendInvitation() }
+                        }
+
                     if !coachEmail.isEmpty && !isValidEmail(coachEmail) {
                         Label("Please enter a valid email address", systemImage: "exclamationmark.triangle.fill")
                             .font(.caption)
                             .foregroundColor(.orange)
                     }
-                    
+
                 } header: {
                     Text("Coach Email")
                 } footer: {

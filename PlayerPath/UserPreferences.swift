@@ -112,7 +112,7 @@ final class UserPreferences {
             if all.count > 1 {
                 // Keep the most recently modified, delete the rest
                 let sorted = all.sorted { $0.lastModified > $1.lastModified }
-                let keep = sorted.first!
+                guard let keep = sorted.first else { return first }
                 for extra in sorted.dropFirst() {
                     context.delete(extra)
                 }

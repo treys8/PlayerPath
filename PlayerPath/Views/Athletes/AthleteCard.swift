@@ -6,10 +6,17 @@
 //
 
 import SwiftUI
+import SwiftData
 
 struct AthleteCard: View {
     let athlete: Athlete
     let action: () -> Void
+    @Environment(\.modelContext) private var modelContext
+
+    /// The currently live game for this athlete, if any.
+    private var liveGame: Game? {
+        (athlete.games ?? []).first(where: { $0.isLive })
+    }
 
     var body: some View {
         Button(action: action) {
@@ -72,14 +79,18 @@ struct AthleteCard: View {
             .appCard(cornerRadius: 16)
             .contextMenu {
                 Button {
-                    // Open
+                    action()
                 } label: {
                     Label("Open", systemImage: "arrow.right.circle")
                 }
-                Button {
-                    // Toggle live (stub)
-                } label: {
-                    Label((athlete.games ?? []).first?.isLive == true ? "End Live" : "Mark Live", systemImage: (athlete.games ?? []).first?.isLive == true ? "stop.circle" : "record.circle")
+                if let liveGame = liveGame {
+                    Button {
+                        Task {
+                            await GameService(modelContext: modelContext).end(liveGame)
+                        }
+                    } label: {
+                        Label("End Live", systemImage: "stop.circle")
+                    }
                 }
             }
         }

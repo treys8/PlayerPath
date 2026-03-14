@@ -25,6 +25,9 @@ class SharedFolderManager: ObservableObject {
     @Published var coachFolders: [SharedFolder] = []
     @Published var isLoading = false
     @Published var errorMessage: String?
+    /// Set when a real-time listener encounters an error (e.g. offline, permissions).
+    /// Views can display a "data may be stale" indicator when this is non-nil.
+    @Published var listenerError: String?
     
     private var cancellables = Set<AnyCancellable>()
     private var coachFoldersListener: ListenerRegistration?
@@ -117,7 +120,8 @@ class SharedFolderManager: ObservableObject {
             athleteName: athleteName,
             coachEmail: cleanEmail,
             folderID: folderID,
-            folderName: folderName
+            folderName: folderName,
+            permissions: permissions
         )
         
         print("✅ Created invitation \(invitationID) for \(cleanEmail)")
@@ -307,7 +311,8 @@ class SharedFolderManager: ObservableObject {
     /// Starts a real-time Firestore listener for all folders shared with this coach.
     /// Replaces the one-shot loadCoachFolders fetch — UI auto-updates when folders change.
     func startCoachFoldersListener(coachID: String) {
-        stopCoachFoldersListener()
+        // Skip if listener is already active for this coach
+        guard coachFoldersListener == nil else { return }
         isLoading = true
 
         let db = Firestore.firestore()
@@ -319,8 +324,10 @@ class SharedFolderManager: ObservableObject {
                 self.isLoading = false
                 if let error {
                     print("❌ Coach folders listener error: \(error)")
+                    self.listenerError = "Unable to refresh folders. Showing cached data."
                     return
                 }
+                self.listenerError = nil
                 guard let docs = snapshot?.documents else { return }
                 let folders = docs.compactMap { doc -> SharedFolder? in
                     var folder = try? doc.data(as: SharedFolder.self)
@@ -334,6 +341,7 @@ class SharedFolderManager: ObservableObject {
     func stopCoachFoldersListener() {
         coachFoldersListener?.remove()
         coachFoldersListener = nil
+        listenerError = nil
     }
 
     /// Loads all folders shared with a coach (one-shot fetch, kept for backward compatibility)

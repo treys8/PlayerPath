@@ -40,8 +40,16 @@ struct HighlightsView: View {
         return uniqueSeasons.sorted { ($0.startDate ?? Date.distantPast) > ($1.startDate ?? Date.distantPast) }
     }
 
-    var highlights: [VideoClip] {
-        guard let athlete = athlete, let videoClips = athlete.videoClips else { return [] }
+    // Cached highlights — recomputed via recomputeHighlights() when inputs change
+    @State private var cachedHighlights: [VideoClip] = []
+
+    var highlights: [VideoClip] { cachedHighlights }
+
+    private func recomputeHighlights() {
+        guard let athlete = athlete, let videoClips = athlete.videoClips else {
+            cachedHighlights = []
+            return
+        }
         var filtered = videoClips.filter { $0.isHighlight }
 
         // Filter by season
@@ -76,16 +84,34 @@ struct HighlightsView: View {
         }
 
         // Sort
-        return filtered.sorted { lhs, rhs in
+        cachedHighlights = filtered.sorted { lhs, rhs in
             let l = lhs.createdAt ?? .distantPast
             let r = rhs.createdAt ?? .distantPast
             return sortOrder == .newest ? (l > r) : (l < r)
         }
     }
 
+    // Cached grouped highlights — recomputed only when inputs change
+    @State private var cachedGroupedHighlights: [GameHighlightGroup] = []
+    @State private var lastGroupInputHash: Int = 0
+
     // Group highlights by game for better organization
     var groupedHighlights: [GameHighlightGroup] {
+        cachedGroupedHighlights
+    }
+
+    private func recomputeGroupedHighlights() {
         let clips = highlights
+
+        // Build a lightweight hash from the inputs that affect grouping
+        var hasher = Hasher()
+        hasher.combine(clips.count)
+        hasher.combine(sortOrder)
+        hasher.combine(expandedGroups)
+        for clip in clips.prefix(20) { hasher.combine(clip.id) }
+        let inputHash = hasher.finalize()
+        guard inputHash != lastGroupInputHash else { return }
+        lastGroupInputHash = inputHash
 
         // Separate game clips and practice clips
         var gameClips: [UUID: [VideoClip]] = [:]
@@ -116,15 +142,7 @@ struct HighlightsView: View {
             )
         }
 
-        // Sort groups by game date
-        groups.sort { lhs, rhs in
-            let lDate = lhs.game?.date ?? .distantPast
-            let rDate = rhs.game?.date ?? .distantPast
-            return sortOrder == .newest ? (lDate > rDate) : (lDate < rDate)
-        }
-
-        // Add practice clips as individual groups before sorting so they
-        // are interleaved by date with game groups rather than appended at the end
+        // Add practice clips as individual groups
         for clip in practiceClips {
             groups.append(GameHighlightGroup(
                 id: clip.id,
@@ -150,7 +168,7 @@ struct HighlightsView: View {
             return updatedGroup
         }
 
-        return groups
+        cachedGroupedHighlights = groups
     }
     
     var body: some View {
@@ -187,7 +205,15 @@ struct HighlightsView: View {
         }
         .onAppear {
             migrateHitVideosToHighlights()
+            recomputeHighlights()
+            recomputeGroupedHighlights()
         }
+        .onChange(of: athlete?.videoClips?.count) { _, _ in recomputeHighlights(); recomputeGroupedHighlights() }
+        .onChange(of: selectedSeasonFilter) { _, _ in recomputeHighlights(); recomputeGroupedHighlights() }
+        .onChange(of: filter) { _, _ in recomputeHighlights(); recomputeGroupedHighlights() }
+        .onChange(of: searchText) { _, _ in recomputeHighlights(); recomputeGroupedHighlights() }
+        .onChange(of: sortOrder) { _, _ in recomputeHighlights(); recomputeGroupedHighlights() }
+        .onChange(of: expandedGroups) { _, _ in recomputeGroupedHighlights() }
     }
 
     private func migrateHitVideosToHighlights() {
@@ -288,34 +314,64 @@ struct HighlightsView: View {
 
     private var highlightGridView: some View {
         ScrollView {
-            LazyVStack(spacing: 20) {
-                ForEach(groupedHighlights) { group in
-                    GameHighlightSection(
-                        group: group,
+            LazyVGrid(
+                columns: [
+                    GridItem(.adaptive(minimum: 160, maximum: 220), spacing: 16, alignment: .top)
+                ],
+                spacing: 16
+            ) {
+                ForEach(highlights) { clip in
+                    HighlightCard(
+                        clip: clip,
                         editMode: editMode,
-                        selection: $selection,
-                        onToggleExpand: {
-                            toggleGroupExpansion(group.id)
-                        },
-                        onClipTap: { clip in
+                        onTap: {
                             if editMode == .inactive {
                                 selectedClip = clip
                                 showingVideoPlayer = true
                             } else {
                                 toggleSelection(clip)
                             }
-                        },
-                        onDeleteClip: { clip in
-                            clipToDelete = clip
-                            showingDeleteAlert = true
-                        },
-                        onRemoveFromHighlights: { clip in
-                            removeClipFromHighlights(clip)
-                        },
-                        onShareClip: { clip in
-                            shareClip(clip)
                         }
                     )
+                    .contextMenu {
+                        Button {
+                            selectedClip = clip
+                            showingVideoPlayer = true
+                        } label: {
+                            Label("Play", systemImage: "play.fill")
+                        }
+                        Button {
+                            shareClip(clip)
+                        } label: {
+                            Label("Share", systemImage: "square.and.arrow.up")
+                        }
+                        Divider()
+                        Button {
+                            removeClipFromHighlights(clip)
+                        } label: {
+                            Label("Remove from Highlights", systemImage: "star.slash")
+                        }
+                        Divider()
+                        Button(role: .destructive) {
+                            clipToDelete = clip
+                            showingDeleteAlert = true
+                        } label: {
+                            Label("Delete", systemImage: "trash")
+                        }
+                    }
+                    .overlay(alignment: .topLeading) {
+                        if editMode == .active {
+                            Button {
+                                toggleSelection(clip)
+                            } label: {
+                                Image(systemName: selection.contains(clip.id) ? "checkmark.circle.fill" : "circle")
+                                    .font(.title2)
+                                    .foregroundColor(selection.contains(clip.id) ? .blue : .white)
+                                    .shadow(color: .black.opacity(0.3), radius: 4)
+                            }
+                            .padding(8)
+                        }
+                    }
                 }
             }
             .padding()
@@ -333,18 +389,18 @@ struct HighlightsView: View {
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         // Season filter (only show if we have highlights)
-        if !groupedHighlights.isEmpty {
+        if !highlights.isEmpty {
             ToolbarItem(placement: .topBarLeading) {
                 SeasonFilterMenu(
                     selectedSeasonID: $selectedSeasonFilter,
                     availableSeasons: availableSeasons,
-                    showNoSeasonOption: (athlete?.videoClips ?? []).filter { $0.isHighlight }.contains(where: { $0.season == nil })
+                    showNoSeasonOption: cachedHighlights.contains(where: { $0.season == nil })
                 )
             }
         }
 
         // Combined Filter & Sort menu
-        if !groupedHighlights.isEmpty {
+        if !highlights.isEmpty {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     Section("Filter") {
@@ -452,40 +508,26 @@ struct HighlightsView: View {
     }
     
     private func deleteHighlight(_ clip: VideoClip) {
-        // Delete the video file
-        let resolvedPath = clip.resolvedFilePath
-        if FileManager.default.fileExists(atPath: resolvedPath) {
-            try? FileManager.default.removeItem(atPath: resolvedPath)
-            print("Deleted video file: \(resolvedPath)")
-        }
-
-        // Delete the thumbnail file and remove from cache
-        if let thumbnailPath = clip.thumbnailPath {
-            do {
-                try FileManager.default.removeItem(atPath: thumbnailPath)
-                print("Deleted thumbnail file: \(thumbnailPath)")
-
-                // Remove from cache (ThumbnailCache is @MainActor, synchronous)
-                ThumbnailCache.shared.removeThumbnail(at: thumbnailPath)
-            } catch {
-                print("Failed to delete thumbnail file: \(error)")
-            }
-        }
+        // Capture references before deletion — accessing SwiftData object properties after
+        // context.delete() is undefined behavior.
+        let clipID = clip.id.uuidString
+        let clipAthlete = clip.athlete
 
         withAnimation {
-            // SwiftData handles relationship cleanup automatically
-            // Just delete the clip and its associated PlayResult
-            if let playResult = clip.playResult {
-                modelContext.delete(playResult)
-            }
-
-            modelContext.delete(clip)
+            // Use the canonical delete method which handles local files, thumbnails,
+            // cloud storage, and play result cleanup.
+            clip.delete(in: modelContext)
 
             do {
                 try modelContext.save()
 
                 // Track video deletion analytics
-                AnalyticsService.shared.trackVideoDeleted(videoID: clip.id.uuidString)
+                AnalyticsService.shared.trackVideoDeleted(videoID: clipID)
+
+                // Recalculate athlete statistics to reflect the removed play result
+                if let athlete = clipAthlete {
+                    try StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: modelContext)
+                }
 
                 print("Successfully deleted highlight")
             } catch {
@@ -520,25 +562,26 @@ struct HighlightsView: View {
         let clips = highlights.filter { selection.contains($0.id) }
         guard !clips.isEmpty else { return }
 
+        // Capture references before deletion — accessing SwiftData object properties after
+        // context.delete() is undefined behavior.
+        let deletedIDs = clips.map { $0.id.uuidString }
+        let clipAthlete = clips.first?.athlete
+
         withAnimation {
             for clip in clips {
-                // Delete files
-                let resolvedPath = clip.resolvedFilePath
-                if FileManager.default.fileExists(atPath: resolvedPath) {
-                    try? FileManager.default.removeItem(atPath: resolvedPath)
-                }
-                if let thumbnailPath = clip.thumbnailPath {
-                    try? FileManager.default.removeItem(atPath: thumbnailPath)
-                    ThumbnailCache.shared.removeThumbnail(at: thumbnailPath)
-                }
-                if let playResult = clip.playResult {
-                    modelContext.delete(playResult)
-                }
-                modelContext.delete(clip)
-                AnalyticsService.shared.trackVideoDeleted(videoID: clip.id.uuidString)
+                // Use the canonical delete method which handles local files, thumbnails,
+                // cloud storage, and play result cleanup.
+                clip.delete(in: modelContext)
             }
             do {
                 try modelContext.save()
+                deletedIDs.forEach { AnalyticsService.shared.trackVideoDeleted(videoID: $0) }
+
+                // Recalculate athlete statistics to reflect the removed play results
+                if let athlete = clipAthlete {
+                    try StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: modelContext)
+                }
+
                 Haptics.success()
             } catch {
                 print("Failed to batch delete highlights: \(error)")
@@ -607,6 +650,7 @@ struct HighlightsView: View {
         guard !clips.isEmpty, let athlete = athlete else { return }
 
         Task {
+            var failedCount = 0
             for clip in clips {
                 guard clip.needsUpload else { continue }
 
@@ -617,8 +661,14 @@ struct HighlightsView: View {
                         clip.cloudURL = cloudURL
                         clip.isUploaded = true
                         clip.lastSyncDate = Date()
+                        // Update storage counter
+                        if let user = athlete.user {
+                            let fileSize = (try? FileManager.default.attributesOfItem(atPath: clip.resolvedFilePath)[.size] as? Int64) ?? 0
+                            user.cloudStorageUsedBytes += fileSize
+                        }
                     }
                 } catch {
+                    failedCount += 1
                     print("Failed to upload \(clip.fileName): \(error)")
                 }
             }
@@ -626,8 +676,13 @@ struct HighlightsView: View {
             await MainActor.run {
                 do {
                     try modelContext.save()
-                    print("Successfully uploaded \(clips.count) highlights")
-                    Haptics.success()
+                    if failedCount > 0 {
+                        print("⚠️ \(failedCount) of \(clips.count) highlights failed to upload")
+                        Haptics.error()
+                    } else {
+                        print("Successfully uploaded \(clips.count) highlights")
+                        Haptics.success()
+                    }
                 } catch {
                     print("Failed to save after uploads: \(error)")
                     Haptics.error()
@@ -975,10 +1030,16 @@ struct HighlightCard: View {
             await loadThumbnail()
         }
         .onAppear {
-            // Start shimmer animation
-            withAnimation(.linear(duration: 1.5).repeatForever(autoreverses: false)) {
-                shimmerPhase = 1
+            // Start shimmer animation only while loading
+            if isLoadingThumbnail && thumbnailImage == nil {
+                withAnimation(.linear(duration: 1.5).repeatForever(autoreverses: false)) {
+                    shimmerPhase = 1
+                }
             }
+        }
+        .onDisappear {
+            // Stop shimmer animation when offscreen to reduce CPU usage
+            shimmerPhase = 0
         }
         .sheet(isPresented: $showingShareToFolder) {
             ShareToCoachFolderView(clip: clip)
@@ -1035,7 +1096,8 @@ struct HighlightCard: View {
         
         do {
             // Load thumbnail asynchronously using the same cache system
-            let image = try await ThumbnailCache.shared.loadThumbnail(at: thumbnailPath)
+            let size = CGSize(width: 160, height: 90)
+            let image = try await ThumbnailCache.shared.loadThumbnail(at: thumbnailPath, targetSize: size)
             thumbnailImage = image
         } catch {
             print("Failed to load thumbnail in HighlightCard: \(error)")
@@ -1061,7 +1123,8 @@ struct HighlightCard: View {
                 // loadThumbnail() again — avoids infinite recursion if the cache
                 // load fails and triggers another generateMissingThumbnail() call.
                 Task { @MainActor in
-                    if let image = try? await ThumbnailCache.shared.loadThumbnail(at: thumbnailPath) {
+                    let size = CGSize(width: 160, height: 90)
+                    if let image = try? await ThumbnailCache.shared.loadThumbnail(at: thumbnailPath, targetSize: size) {
                         self.thumbnailImage = image
                     }
                     self.isLoadingThumbnail = false
@@ -1254,6 +1317,11 @@ struct SimpleCloudProgressView: View {
                 clip.cloudURL = cloudURL
                 clip.isUploaded = true
                 clip.lastSyncDate = Date()
+                // Update storage counter
+                if let user = athlete.user {
+                    let fileSize = (try? FileManager.default.attributesOfItem(atPath: clip.resolvedFilePath)[.size] as? Int64) ?? 0
+                    user.cloudStorageUsedBytes += fileSize
+                }
 
                 do {
                     try modelContext.save()
@@ -1448,6 +1516,11 @@ struct SimpleCloudStorageView: View {
                 clip.cloudURL = cloudURL
                 clip.isUploaded = true
                 clip.lastSyncDate = Date()
+                // Update storage counter
+                if let user = athlete.user {
+                    let fileSize = (try? FileManager.default.attributesOfItem(atPath: clip.resolvedFilePath)[.size] as? Int64) ?? 0
+                    user.cloudStorageUsedBytes += fileSize
+                }
 
                 do {
                     try modelContext.save()

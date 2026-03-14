@@ -13,6 +13,9 @@ struct ContactSupportView: View {
     @State private var selectedCategory: SupportCategory = .general
     @State private var showingAlert = false
     @State private var alertMessage = ""
+    @FocusState private var focusedField: FormField?
+
+    private enum FormField: Hashable { case subject, message }
 
     var body: some View {
         Form {
@@ -45,11 +48,15 @@ struct ContactSupportView: View {
 
             Section("Subject") {
                 TextField("Brief description", text: $subject)
+                    .focused($focusedField, equals: .subject)
+                    .submitLabel(.next)
+                    .onSubmit { focusedField = .message }
             }
 
             Section {
                 TextEditor(text: $message)
                     .frame(minHeight: 150)
+                    .focused($focusedField, equals: .message)
             } header: {
                 Text("Message")
             } footer: {
@@ -82,6 +89,14 @@ struct ContactSupportView: View {
             }
         }
         .navigationTitle("Contact Support")
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("Done") {
+                    focusedField = nil
+                }
+            }
+        }
         .alert("Message Sent", isPresented: $showingAlert) {
             Button("OK") {
                 // Clear form

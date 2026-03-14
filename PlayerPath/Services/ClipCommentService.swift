@@ -35,6 +35,19 @@ final class ClipCommentService {
 
     private let db = Firestore.firestore()
 
+    /// In-memory cache keyed by clipId to avoid redundant Firestore fetches.
+    private var cache: [String: [ClipComment]] = [:]
+
+    /// Returns cached comments for a clip, or nil if not yet fetched.
+    func cachedComments(for clipId: String) -> [ClipComment]? {
+        cache[clipId]
+    }
+
+    /// Clears the cache for a specific clip (e.g. after posting a new comment).
+    func invalidateCache(for clipId: String) {
+        cache[clipId] = nil
+    }
+
     // MARK: - Write
 
     /// Posts a comment to the clip's thread.
@@ -61,12 +74,20 @@ final class ClipCommentService {
             .document(clipId)
             .collection("comments")
             .addDocument(data: data)
+
+        // Invalidate cache so next fetch picks up the new comment
+        invalidateCache(for: clipId)
     }
 
     // MARK: - Read
 
     /// Fetches all comments for a clip, ordered by createdAt ascending.
+    /// Returns cached results when available to avoid redundant Firestore reads.
     func fetchComments(clipId: String) async throws -> [ClipComment] {
+        if let cached = cache[clipId] {
+            return cached
+        }
+
         let snapshot = try await db
             .collection("videos")
             .document(clipId)
@@ -74,11 +95,14 @@ final class ClipCommentService {
             .order(by: "createdAt")
             .getDocuments()
 
-        return snapshot.documents.compactMap { doc -> ClipComment? in
+        let comments = snapshot.documents.compactMap { doc -> ClipComment? in
             var comment = try? doc.data(as: ClipComment.self)
             comment?.id = doc.documentID
             return comment
         }
+
+        cache[clipId] = comments
+        return comments
     }
 
     // MARK: - Real-time listener

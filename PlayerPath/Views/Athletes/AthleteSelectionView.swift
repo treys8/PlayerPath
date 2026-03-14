@@ -80,15 +80,19 @@ struct AthleteSelectionView: View {
                         }
                         .padding(.top)
 
-                        ScrollView {
-                            LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), spacing: 16)], spacing: 16) {
-                                ForEach(filteredAthletes) { athlete in
-                                    AthleteCard(athlete: athlete) {
-                                        selectedAthlete = athlete
+                        if filteredAthletes.isEmpty && !searchText.isEmpty {
+                            ContentUnavailableView.search(text: searchText)
+                        } else {
+                            ScrollView {
+                                LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), spacing: 16)], spacing: 16) {
+                                    ForEach(filteredAthletes) { athlete in
+                                        AthleteCard(athlete: athlete) {
+                                            selectedAthlete = athlete
+                                        }
                                     }
                                 }
+                                .padding(.horizontal)
                             }
-                            .padding(.horizontal)
                         }
                     }
                 }

@@ -159,8 +159,9 @@ final class UserPreferencesViewModel: ObservableObject {
     }
     
     func update<T>(_ keyPath: WritableKeyPath<UserPreferences, T>, to newValue: T) {
-        guard preferences != nil else { return }
-        preferences![keyPath: keyPath] = newValue
+        guard var prefs = preferences else { return }
+        prefs[keyPath: keyPath] = newValue
+        preferences = prefs
         hasUnsavedChanges = true
     }
     

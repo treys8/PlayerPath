@@ -39,9 +39,7 @@ struct UserPreferencesView: View {
             .alert(item: $viewModel.alert) { alert in
                 Alert(
                     title: Text(alert.title),
-                    message: alert.recoverySuggestion != nil
-                        ? Text("\(alert.message)\n\n\(alert.recoverySuggestion!)")
-                        : Text(alert.message),
+                    message: Text(alert.message + (alert.recoverySuggestion.map { "\n\n\($0)" } ?? "")),
                     dismissButton: .default(Text("OK"))
                 )
             }

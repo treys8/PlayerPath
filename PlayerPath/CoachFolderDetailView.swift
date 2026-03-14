@@ -66,15 +66,15 @@ struct CoachFolderDetailView: View {
             Group {
                 switch selectedTab {
                 case .games:
-                    GamesTabView(folder: folder, videos: viewModel.gameVideos) {
+                    GamesTabView(folder: folder, videos: viewModel.gameVideos, isLoading: viewModel.isLoading, errorMessage: viewModel.errorMessage) {
                         await viewModel.loadVideos()
                     }
                 case .practices:
-                    PracticesTabView(folder: folder, videos: viewModel.practiceVideos) {
+                    PracticesTabView(folder: folder, videos: viewModel.practiceVideos, isLoading: viewModel.isLoading, errorMessage: viewModel.errorMessage) {
                         await viewModel.loadVideos()
                     }
                 case .all:
-                    AllVideosTabView(folder: folder, videos: viewModel.videos) {
+                    AllVideosTabView(folder: folder, videos: viewModel.videos, isLoading: viewModel.isLoading, errorMessage: viewModel.errorMessage) {
                         await viewModel.loadVideos()
                     }
                 }
@@ -307,11 +307,22 @@ struct FolderInfoHeader: View {
 struct GamesTabView: View {
     let folder: SharedFolder
     let videos: [CoachVideoItem]
+    var isLoading: Bool = false
+    var errorMessage: String? = nil
     let onRefresh: () async -> Void
 
     var body: some View {
         Group {
-            if videos.isEmpty {
+            if isLoading && videos.isEmpty {
+                ProgressView("Loading game videos...")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let error = errorMessage, videos.isEmpty {
+                EmptyFolderView(
+                    icon: "exclamationmark.triangle",
+                    title: "Failed to Load",
+                    message: error
+                )
+            } else if videos.isEmpty {
                 EmptyFolderView(
                     icon: "figure.baseball",
                     title: "No Game Videos",
@@ -409,11 +420,22 @@ struct GameGroupView: View {
 struct PracticesTabView: View {
     let folder: SharedFolder
     let videos: [CoachVideoItem]
+    var isLoading: Bool = false
+    var errorMessage: String? = nil
     let onRefresh: () async -> Void
 
     var body: some View {
         Group {
-            if videos.isEmpty {
+            if isLoading && videos.isEmpty {
+                ProgressView("Loading practice videos...")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let error = errorMessage, videos.isEmpty {
+                EmptyFolderView(
+                    icon: "exclamationmark.triangle",
+                    title: "Failed to Load",
+                    message: error
+                )
+            } else if videos.isEmpty {
                 EmptyFolderView(
                     icon: "figure.run",
                     title: "No Practice Videos",
@@ -511,11 +533,22 @@ struct PracticeGroupView: View {
 struct AllVideosTabView: View {
     let folder: SharedFolder
     let videos: [CoachVideoItem]
+    var isLoading: Bool = false
+    var errorMessage: String? = nil
     let onRefresh: () async -> Void
 
     var body: some View {
         Group {
-            if videos.isEmpty {
+            if isLoading && videos.isEmpty {
+                ProgressView("Loading videos...")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let error = errorMessage, videos.isEmpty {
+                EmptyFolderView(
+                    icon: "exclamationmark.triangle",
+                    title: "Failed to Load",
+                    message: error
+                )
+            } else if videos.isEmpty {
                 EmptyFolderView(
                     icon: "video.slash",
                     title: "No Videos Yet",

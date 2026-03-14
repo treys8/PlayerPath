@@ -28,6 +28,7 @@ struct PlayResultOverlayView: View {
     @State private var showContent = false
     @State private var isSaving = false
     @State private var pitchSpeedText = ""
+    @FocusState private var pitchSpeedFocused: Bool
 
     @Environment(\.verticalSizeClass) private var vSizeClass
     private var isLandscape: Bool { vSizeClass == .compact }
@@ -285,6 +286,7 @@ struct PlayResultOverlayView: View {
                         .foregroundColor(.white.opacity(0.8))
                     TextField("", text: $pitchSpeedText, prompt: Text("Pitch Speed").foregroundStyle(.white.opacity(0.4)))
                         .keyboardType(.decimalPad)
+                        .focused($pitchSpeedFocused)
                         .foregroundColor(.white)
                         .font(.subheadline.weight(.semibold))
                         .frame(maxWidth: .infinity)
@@ -292,6 +294,17 @@ struct PlayResultOverlayView: View {
                         .font(.caption)
                         .fontWeight(.bold)
                         .foregroundColor(.white.opacity(0.6))
+
+                    if pitchSpeedFocused {
+                        Button {
+                            pitchSpeedFocused = false
+                        } label: {
+                            Text("Done")
+                                .font(.subheadline)
+                                .fontWeight(.semibold)
+                                .foregroundColor(.blue)
+                        }
+                    }
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
@@ -577,6 +590,8 @@ struct PlayResultButton: View {
                     .font(.subheadline)
                     .fontWeight(.bold)
                     .foregroundColor(.white)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
 
                 Spacer()
 

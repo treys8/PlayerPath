@@ -278,7 +278,12 @@ final class ClipPersistenceService {
         } else {
             destinationURL = uniqueDestinationURL(basedOn: proposedDestination)
             do {
-                try fileManager.copyItem(at: url, to: destinationURL)
+                // Copy on a background thread to avoid blocking the main actor for large videos
+                let source = url
+                let dest = destinationURL
+                try await Task.detached(priority: .userInitiated) {
+                    try FileManager.default.copyItem(at: source, to: dest)
+                }.value
             } catch {
                 throw ClipPersistenceError.failedToCopy(from: url, to: destinationURL, underlying: error)
             }

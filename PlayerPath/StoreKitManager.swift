@@ -185,23 +185,40 @@ class StoreKitManager: ObservableObject {
 
         // Check billing retry BEFORE applying expiration downgrade.
         // Uses status.state == .inBillingRetryPeriod — the correct StoreKit 2 API.
-        // Runs only after products are loaded; returns false on first call from init().
         var resolvedBillingRetry = false
-        for product in products {
-            guard let subscription = product.subscription else { continue }
-            guard let statuses = try? await subscription.status else { continue }
-            for status in statuses {
-                if status.state == .inBillingRetryPeriod {
-                    resolvedBillingRetry = true
+        var billingRetryCheckSucceeded = false
+
+        if !products.isEmpty {
+            billingRetryCheckSucceeded = true
+            for product in products {
+                guard let subscription = product.subscription else { continue }
+                guard let statuses = try? await subscription.status else {
+                    // If any status query fails (e.g. offline), mark the check as unreliable
+                    billingRetryCheckSucceeded = false
+                    continue
+                }
+                for status in statuses {
+                    if status.state == .inBillingRetryPeriod {
+                        resolvedBillingRetry = true
+                    }
                 }
             }
         }
 
-        // Only downgrade on expiration if Apple is not still retrying payment.
-        // A user in billing retry is still considered subscribed by Apple.
-        if let exp = resolvedTierExpiration, exp <= Date(), !resolvedBillingRetry {
-            resolvedTier = .free
-            resolvedTierExpiration = nil
+        // Only downgrade on expiration if we can confirm Apple is NOT retrying payment.
+        // If products aren't loaded or the status query failed, keep the current tier
+        // to avoid incorrectly downgrading a user whose payment Apple is still retrying.
+        if let exp = resolvedTierExpiration, exp <= Date() {
+            if resolvedBillingRetry {
+                // Apple is retrying — keep the tier
+            } else if !billingRetryCheckSucceeded {
+                // Can't confirm billing state — keep tier, log warning
+                print("⚠️ Subscription expired but billing retry check unavailable — keeping current tier")
+            } else {
+                // Confirmed: expired and not in billing retry
+                resolvedTier = .free
+                resolvedTierExpiration = nil
+            }
         }
 
         purchasedProductIDs = newPurchasedIDs
@@ -225,6 +242,8 @@ class StoreKitManager: ObservableObject {
                     print("✅ Transaction update processed: \(transaction.productID)")
                 } catch {
                     print("❌ Transaction verification failed: \(error)")
+                    // Still refresh entitlements so any other valid transactions are picked up
+                    await updateEntitlements()
                 }
             }
         }

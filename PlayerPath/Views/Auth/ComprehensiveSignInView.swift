@@ -19,6 +19,10 @@ struct ComprehensiveSignInView: View {
     @State private var showingResetPasswordSheet = false
     @State private var selectedRole: UserRole = .athlete
 
+    @FocusState private var nameFocused: Bool
+    @FocusState private var emailFocused: Bool
+    @FocusState private var passwordFocused: Bool
+
     // Computed validation states
     private var emailValidationState: FieldValidationState {
         guard !email.isEmpty else { return .idle }
@@ -122,7 +126,10 @@ struct ComprehensiveSignInView: View {
                                 icon: "person.fill",
                                 textContentType: .name,
                                 autocapitalization: .words,
-                                validationState: displayNameValidationState
+                                validationState: displayNameValidationState,
+                                submitLabel: .next,
+                                onSubmit: { emailFocused = true },
+                                focusedBinding: $nameFocused
                             )
                             .accessibilityLabel("Display name")
                             .accessibilityHint("Enter your preferred display name")
@@ -136,11 +143,9 @@ struct ComprehensiveSignInView: View {
                             textContentType: .emailAddress,
                             autocapitalization: .never,
                             validationState: emailValidationState,
-                            onSubmit: {
-                                if canSubmitForm() && !authManager.isLoading {
-                                    performAuth()
-                                }
-                            }
+                            submitLabel: .next,
+                            onSubmit: { passwordFocused = true },
+                            focusedBinding: $emailFocused
                         )
                         .accessibilityLabel("Email address")
                         .accessibilityHint("Enter your email address")
@@ -153,11 +158,13 @@ struct ComprehensiveSignInView: View {
                             textContentType: isSignUpMode ? .newPassword : .password,
                             autocapitalization: .never,
                             validationState: passwordValidationState,
+                            submitLabel: .go,
                             onSubmit: {
                                 if canSubmitForm() && !authManager.isLoading {
                                     performAuth()
                                 }
-                            }
+                            },
+                            focusedBinding: $passwordFocused
                         )
                         .accessibilityLabel("Password")
                         .accessibilityHint("Enter your password")
@@ -293,6 +300,7 @@ struct ComprehensiveSignInView: View {
                 .padding(.horizontal, 20)
                 .padding(.vertical, 16)
             }
+            .scrollDismissesKeyboard(.interactively)
             .background(Color(.systemGroupedBackground))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

@@ -11,6 +11,11 @@ import Combine
 
 struct EnhancedVideoPlayer: View {
     let player: AVPlayer
+    /// Pre-loaded duration from the parent to avoid a redundant asset.load(.duration) call.
+    /// Falls back to async loading if not provided (e.g. from contexts that don't pre-load).
+    var preloadedDuration: Double?
+    /// Called when the user taps the close button (shown in landscape when the nav bar is hidden).
+    var onClose: (() -> Void)?
     @State private var isPlaying = false
     @State private var currentTime: Double = 0
     @State private var duration: Double = 1
@@ -19,6 +24,9 @@ struct EnhancedVideoPlayer: View {
     @State private var showControls = true
     @State private var timeObserver: Any?
     @State private var hideControlsTask: Task<Void, Never>?
+    @State private var isAtEnd = false
+    @Environment(\.verticalSizeClass) private var vSizeClass
+    private var isLandscape: Bool { vSizeClass == .compact }
 
     // Zoom
     @State private var zoomScale: CGFloat = 1.0
@@ -87,30 +95,8 @@ struct EnhancedVideoPlayer: View {
 
                 // Custom controls overlay
                 if showControls {
-                    VStack {
-                        Spacer()
-
-                        // Control panel
-                        VStack(spacing: 12) {
-                            // Timeline scrubber
-                            timelineView
-
-                            // Play controls
-                            playbackControlsView
-
-                            // Speed controls
-                            speedControlsView
-                        }
-                        .padding()
-                        .background(
-                            LinearGradient(
-                                colors: [.clear, .black.opacity(0.7), .black.opacity(0.9)],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                        )
-                    }
-                    .transition(.opacity)
+                    controlsOverlay
+                        .transition(.opacity)
                 }
             }
         }
@@ -121,9 +107,105 @@ struct EnhancedVideoPlayer: View {
         .onDisappear {
             cleanup()
         }
-        .onReceive(player.publisher(for: \.timeControlStatus)) { status in
-            isPlaying = status == .playing
+        .onChange(of: preloadedDuration) { _, newDuration in
+            // Parent may supply the duration after the view has already appeared
+            // (e.g. local-file path loads duration in the background).
+            if let d = newDuration, d > 0 {
+                duration = d
+                durationTask?.cancel()
+                durationTask = nil
+            }
         }
+        .onReceive(player.publisher(for: \.timeControlStatus)) { status in
+            let nowPlaying = status == .playing
+            isPlaying = nowPlaying
+            // When playback starts, kick off the auto-hide timer.
+            // showControlsTemporarily() can't do this itself because isPlaying
+            // updates asynchronously after the tap that triggers play.
+            if nowPlaying && showControls {
+                scheduleControlsHide()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime, object: player.currentItem)) { _ in
+            isAtEnd = true
+            withAnimation { showControls = true }
+            hideControlsTask?.cancel()
+        }
+    }
+
+    // MARK: - Controls Overlay
+
+    private var controlsOverlay: some View {
+        ZStack(alignment: .topTrailing) {
+            // Close button in landscape (nav bar is hidden)
+            if isLandscape, let onClose {
+                Button {
+                    onClose()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.title2)
+                        .symbolRenderingMode(.hierarchical)
+                        .foregroundStyle(.white)
+                        .shadow(color: .black.opacity(0.5), radius: 4)
+                }
+                .padding(16)
+                .zIndex(1)
+            }
+
+            VStack {
+                Spacer()
+
+                if isLandscape {
+                    landscapeControls
+                } else {
+                    portraitControls
+                }
+            }
+        }
+    }
+
+    // MARK: - Portrait Controls (stacked layout)
+
+    private var portraitControls: some View {
+        VStack(spacing: 12) {
+            timelineView
+            playbackControlsView
+            speedControlsView
+        }
+        .padding()
+        .background(controlsGradient)
+    }
+
+    // MARK: - Landscape Controls (compact single-row layout)
+
+    private var landscapeControls: some View {
+        VStack(spacing: 8) {
+            timelineView
+
+            HStack(spacing: 0) {
+                // Speed picker on the left
+                speedControlsCompact
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                // Playback controls centered
+                playbackControlsView
+
+                // Spacer to balance
+                Color.clear
+                    .frame(maxWidth: .infinity)
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 10)
+        .background(controlsGradient)
+    }
+
+    private var controlsGradient: some View {
+        LinearGradient(
+            colors: [.clear, .black.opacity(0.7), .black.opacity(0.9)],
+            startPoint: .top,
+            endPoint: .bottom
+        )
     }
 
     // MARK: - Timeline View
@@ -135,6 +217,9 @@ struct EnhancedVideoPlayer: View {
                 in: 0...duration,
                 onEditingChanged: { dragging in
                     isDragging = dragging
+                    if dragging {
+                        isAtEnd = false
+                    }
                     if !dragging {
                         seek(to: currentTime)
                     }
@@ -150,7 +235,7 @@ struct EnhancedVideoPlayer: View {
 
                 Spacer()
 
-                Text(formatTime(duration))
+                Text("-\(formatTime(duration - currentTime))")
                     .font(.caption)
                     .foregroundColor(.white.opacity(0.7))
             }
@@ -160,14 +245,14 @@ struct EnhancedVideoPlayer: View {
     // MARK: - Playback Controls
 
     private var playbackControlsView: some View {
-        HStack(spacing: 32) {
+        HStack(spacing: isLandscape ? 24 : 32) {
             // Frame backward
             Button {
                 stepBackward()
                 showControlsTemporarily()
             } label: {
                 Image(systemName: "backward.frame.fill")
-                    .font(.title2)
+                    .font(isLandscape ? .body : .title2)
                     .foregroundColor(.white)
             }
 
@@ -177,18 +262,19 @@ struct EnhancedVideoPlayer: View {
                 showControlsTemporarily()
             } label: {
                 Image(systemName: "gobackward.5")
-                    .font(.title)
+                    .font(isLandscape ? .title3 : .title)
                     .foregroundColor(.white)
             }
 
-            // Play/Pause
+            // Play/Pause/Replay
             Button {
                 togglePlayPause()
                 showControlsTemporarily()
             } label: {
-                Image(systemName: isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                    .font(.system(size: 50))
+                Image(systemName: playPauseIcon)
+                    .font(.system(size: isLandscape ? 40 : 50))
                     .foregroundColor(.white)
+                    .contentTransition(.symbolEffect(.replace))
             }
 
             // Skip forward 5 seconds
@@ -197,7 +283,7 @@ struct EnhancedVideoPlayer: View {
                 showControlsTemporarily()
             } label: {
                 Image(systemName: "goforward.5")
-                    .font(.title)
+                    .font(isLandscape ? .title3 : .title)
                     .foregroundColor(.white)
             }
 
@@ -207,9 +293,19 @@ struct EnhancedVideoPlayer: View {
                 showControlsTemporarily()
             } label: {
                 Image(systemName: "forward.frame.fill")
-                    .font(.title2)
+                    .font(isLandscape ? .body : .title2)
                     .foregroundColor(.white)
             }
+        }
+    }
+
+    private var playPauseIcon: String {
+        if isPlaying {
+            return "pause.circle.fill"
+        } else if isAtEnd {
+            return "arrow.counterclockwise.circle.fill"
+        } else {
+            return "play.circle.fill"
         }
     }
 
@@ -239,22 +335,46 @@ struct EnhancedVideoPlayer: View {
         }
     }
 
+    /// Compact speed picker for landscape — shows current speed as a tappable capsule that cycles through speeds
+    private var speedControlsCompact: some View {
+        Button {
+            cyclePlaybackSpeed()
+            showControlsTemporarily()
+        } label: {
+            Text(playbackSpeed.displayName)
+                .font(.caption)
+                .fontWeight(.semibold)
+                .monospacedDigit()
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(Color.blue)
+                .foregroundColor(.white)
+                .clipShape(Capsule())
+        }
+    }
+
     // MARK: - Player Control Methods
 
+    @State private var durationTask: Task<Void, Never>?
+
     private func setupPlayer() {
-        // Get duration asynchronously
-        if let currentItem = player.currentItem {
-            Task {
+        // Use pre-loaded duration if available; otherwise load asynchronously.
+        if let preloaded = preloadedDuration, preloaded > 0 {
+            duration = preloaded
+        } else if let currentItem = player.currentItem {
+            durationTask = Task {
                 if let loadedDuration = try? await currentItem.asset.load(.duration) {
-                    await MainActor.run {
-                        self.duration = CMTimeGetSeconds(loadedDuration)
+                    if !Task.isCancelled {
+                        await MainActor.run {
+                            self.duration = CMTimeGetSeconds(loadedDuration)
+                        }
                     }
                 }
             }
         }
 
         // Add time observer
-        let interval = CMTime(seconds: 0.1, preferredTimescale: CMTimeScale(NSEC_PER_SEC))
+        let interval = CMTime(seconds: 0.1, preferredTimescale: 600)
         timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { time in
             if !isDragging {
                 currentTime = CMTimeGetSeconds(time)
@@ -263,8 +383,11 @@ struct EnhancedVideoPlayer: View {
     }
 
     private func cleanup() {
+        durationTask?.cancel()
+        durationTask = nil
         if let observer = timeObserver {
             player.removeTimeObserver(observer)
+            timeObserver = nil
         }
         hideControlsTask?.cancel()
     }
@@ -273,6 +396,15 @@ struct EnhancedVideoPlayer: View {
         if isPlaying {
             player.pause()
         } else {
+            // If the video has ended, seek to the beginning and replay
+            if isAtEnd {
+                isAtEnd = false
+                player.seek(to: .zero) { _ in
+                    self.player.play()
+                }
+                Haptics.light()
+                return
+            }
             player.play()
         }
         Haptics.light()
@@ -284,6 +416,7 @@ struct EnhancedVideoPlayer: View {
     }
 
     private func skip(by seconds: Double) {
+        isAtEnd = false
         let newTime = max(0, min(currentTime + seconds, duration))
         seek(to: newTime)
         Haptics.light()
@@ -296,6 +429,7 @@ struct EnhancedVideoPlayer: View {
     }
 
     private func stepBackward() {
+        isAtEnd = false
         player.currentItem?.step(byCount: -1)
         player.pause()
         Haptics.light()
@@ -309,13 +443,28 @@ struct EnhancedVideoPlayer: View {
         Haptics.light()
     }
 
+    private func cyclePlaybackSpeed() {
+        let allSpeeds = PlaybackSpeed.allCases
+        if let index = allSpeeds.firstIndex(of: playbackSpeed) {
+            let next = allSpeeds[(index + 1) % allSpeeds.count]
+            setPlaybackSpeed(next)
+        }
+    }
+
     private func showControlsTemporarily() {
-        showControls = true
+        withAnimation { showControls = true }
         hideControlsTask?.cancel()
 
+        // Keep controls visible while paused or at end — only auto-hide during playback
+        guard isPlaying else { return }
+        scheduleControlsHide()
+    }
+
+    private func scheduleControlsHide() {
+        hideControlsTask?.cancel()
         hideControlsTask = Task {
             try? await Task.sleep(nanoseconds: 3_000_000_000) // 3 seconds
-            if !Task.isCancelled && !isDragging {
+            if !Task.isCancelled && !isDragging && isPlaying {
                 withAnimation {
                     showControls = false
                 }
@@ -324,7 +473,7 @@ struct EnhancedVideoPlayer: View {
     }
 
     private func formatTime(_ seconds: Double) -> String {
-        let totalSeconds = Int(seconds)
+        let totalSeconds = Int(max(0, seconds))
         let minutes = totalSeconds / 60
         let remainingSeconds = totalSeconds % 60
         return String(format: "%d:%02d", minutes, remainingSeconds)

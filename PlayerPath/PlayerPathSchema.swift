@@ -99,7 +99,7 @@ enum SchemaV1: VersionedSchema {
 //  Changes from V1:
 //    • User.isPremium (Bool) removed
 //    • User.subscriptionTier (String = "free") added
-//    • User.hasCoachingAddOn (Bool = false) added
+//    • User.hasCoachingAddOn (Bool = false) added (later removed in V8)
 //
 //  Both additions have default values → lightweight migration is sufficient.
 //  Removal of isPremium is also handled by lightweight migration.
@@ -181,12 +181,38 @@ enum SchemaV7: VersionedSchema {
     static var models: [any PersistentModel.Type] { SchemaV1.models }
 }
 
+// MARK: - Schema V8 (3/12/26 — Remove dead hasCoachingAddOn field)
+//
+//  Changes from V7:
+//    • User.hasCoachingAddOn (Bool) removed — coaching access is now gated
+//      by SubscriptionTier.pro, not a separate add-on flag.
+//
+//  Property removal → lightweight migration is sufficient.
+
+enum SchemaV8: VersionedSchema {
+    static var versionIdentifier = Schema.Version(8, 0, 0)
+    static var models: [any PersistentModel.Type] { SchemaV1.models }
+}
+
+// MARK: - Schema V9 (3/12/26 — Cloud storage usage tracking)
+//
+//  Changes from V8:
+//    • User.cloudStorageUsedBytes (Int64 = 0) added — running total of bytes
+//      stored in Firebase Storage, used to enforce per-tier storage limits.
+//
+//  Default value of 0 → lightweight migration is sufficient.
+
+enum SchemaV9: VersionedSchema {
+    static var versionIdentifier = Schema.Version(9, 0, 0)
+    static var models: [any PersistentModel.Type] { SchemaV1.models }
+}
+
 // MARK: - Migration Plan
 
 enum PlayerPathMigrationPlan: SchemaMigrationPlan {
     /// All schema versions in chronological order (oldest first).
     static var schemas: [any VersionedSchema.Type] {
-        [SchemaV1.self, SchemaV2.self, SchemaV3.self, SchemaV4.self, SchemaV5.self, SchemaV6.self, SchemaV7.self]
+        [SchemaV1.self, SchemaV2.self, SchemaV3.self, SchemaV4.self, SchemaV5.self, SchemaV6.self, SchemaV7.self, SchemaV8.self, SchemaV9.self]
     }
 
     /// Migration stages between consecutive versions.
@@ -197,7 +223,9 @@ enum PlayerPathMigrationPlan: SchemaMigrationPlan {
             .lightweight(fromVersion: SchemaV3.self, toVersion: SchemaV4.self),
             .lightweight(fromVersion: SchemaV4.self, toVersion: SchemaV5.self),
             .lightweight(fromVersion: SchemaV5.self, toVersion: SchemaV6.self),
-            .lightweight(fromVersion: SchemaV6.self, toVersion: SchemaV7.self)
+            .lightweight(fromVersion: SchemaV6.self, toVersion: SchemaV7.self),
+            .lightweight(fromVersion: SchemaV7.self, toVersion: SchemaV8.self),
+            .lightweight(fromVersion: SchemaV8.self, toVersion: SchemaV9.self)
         ]
     }
 }

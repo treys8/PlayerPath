@@ -11,7 +11,6 @@ import PDFKit
 import UniformTypeIdentifiers
 
 /// Service to export athlete statistics to various formats
-@MainActor
 final class StatisticsExportService {
 
     // MARK: - Public Export Methods

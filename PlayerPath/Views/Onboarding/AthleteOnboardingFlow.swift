@@ -7,6 +7,7 @@
 
 import SwiftUI
 import SwiftData
+import FirebaseAuth
 
 struct AthleteOnboardingFlow: View {
     let modelContext: ModelContext
@@ -160,27 +161,26 @@ struct AthleteOnboardingFlow: View {
     private func completeOnboarding() {
         print("🟡 Completing athlete onboarding welcome screens...")
 
-        Task {
-            do {
-                // Create onboarding progress record
-                let progress = OnboardingProgress()
-                progress.markCompleted()
-                modelContext.insert(progress)
+        // Mark onboarding complete immediately so the transition fires without delay
+        authManager.markOnboardingComplete()
+        Haptics.medium()
 
-                try modelContext.save()
-                print("🟢 Successfully saved onboarding progress")
-
-                // Mark onboarding complete but DON'T reset new user flag yet
-                // The new user flag will be reset when first athlete is created
-                await MainActor.run {
-                    authManager.markOnboardingComplete()
-                    print("🟢 Onboarding completed, user still flagged as new until athlete created")
-
-                    // Provide haptic feedback
-                    Haptics.medium()
+        // Persist to SwiftData in the background so the save doesn't block the transition
+        Task.detached { @MainActor in
+            let progress = OnboardingProgress(firebaseAuthUid: authManager.currentFirebaseUser?.uid ?? "")
+            progress.markCompleted()
+            modelContext.insert(progress)
+            for attempt in 1...3 {
+                do {
+                    try modelContext.save()
+                    print("🟢 Successfully saved onboarding progress")
+                    return
+                } catch {
+                    print("🔴 Failed to save onboarding progress (attempt \(attempt)/3): \(error)")
+                    if attempt < 3 {
+                        try? await Task.sleep(for: .seconds(1))
+                    }
                 }
-            } catch {
-                print("🔴 Failed to save onboarding progress: \(error)")
             }
         }
     }

@@ -116,13 +116,12 @@ struct PhotoDetailView: View {
         } message: {
             Text("This photo will be permanently deleted.")
         }
-        .alert("Caption", isPresented: $isEditingCaption) {
-            TextField("Add a caption...", text: $captionText)
-            Button("Save") {
+        .sheet(isPresented: $isEditingCaption) {
+            CaptionEditSheet(captionText: $captionText) {
                 photo.caption = captionText.isEmpty ? nil : captionText
                 try? modelContext.save()
             }
-            Button("Cancel", role: .cancel) { }
+            .presentationDetents([.height(200)])
         }
         .sheet(isPresented: $showingTagSheet) {
             PhotoTagSheet(photo: photo)
@@ -170,6 +169,43 @@ struct PhotoDetailView: View {
     private func loadFullImage() async {
         if let image = UIImage(contentsOfFile: photo.filePath) {
             fullImage = image
+        }
+    }
+}
+
+// MARK: - Caption Edit Sheet
+
+private struct CaptionEditSheet: View {
+    @Binding var captionText: String
+    let onSave: () -> Void
+    @Environment(\.dismiss) private var dismiss
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                TextField("Add a caption...", text: $captionText)
+                    .focused($isFocused)
+                    .submitLabel(.done)
+                    .onSubmit {
+                        onSave()
+                        dismiss()
+                    }
+            }
+            .navigationTitle("Caption")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        onSave()
+                        dismiss()
+                    }
+                }
+            }
+            .onAppear { isFocused = true }
         }
     }
 }

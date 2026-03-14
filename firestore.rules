@@ -18,10 +18,19 @@ service cloud.firestore {
       return request.auth.uid == userID;
     }
 
-    // Coaching access requires Pro tier (add-on model removed 3/1/26)
-    function hasCoachingAccess() {
+    // Checks if the requesting user has a Pro athlete subscription tier.
+    // Used to gate shared folder and invitation creation.
+    function hasProTier() {
       let user = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
       return user.subscriptionTier == "pro";
+    }
+
+    // Checks if the requesting user has any coach subscription tier.
+    // Coach-to-athlete invitations require at least an instructor-level coach plan.
+    function hasCoachTier() {
+      let user = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      return user.coachSubscriptionTier != null
+          && user.coachSubscriptionTier != "free";
     }
 
     function canAccessFolder(folderID) {
@@ -43,6 +52,11 @@ service cloud.firestore {
       return request.time < expiresAt;
     }
 
+    // Helper to get the parent video's data (used by comments/annotations subcollections)
+    function getVideoData(videoID) {
+      return get(/databases/$(database)/documents/videos/$(videoID)).data;
+    }
+
     // ========================================================================
     // USER PROFILES
     // ========================================================================
@@ -55,9 +69,11 @@ service cloud.firestore {
       allow create: if isAuthenticated() && isOwner(userID);
 
       // Users can update their own profile, but cannot change their role.
-      // subscriptionTier and coachSubscriptionTier are written by the client from StoreKit
-      // receipts — this is safe because StoreKit is the source of truth and the tier only
-      // unlocks UI, not server-side data access.
+      // NOTE: subscriptionTier and coachSubscriptionTier are currently writable by
+      // the client (via syncSubscriptionTiers). Ideally tier writes should go through
+      // a Cloud Function with server-side App Store receipt validation to prevent
+      // direct Firestore writes that bypass StoreKit. See: enforceStorageQuota for
+      // an example of server-side tier enforcement that would also need updating.
       allow update: if isAuthenticated()
                     && isOwner(userID)
                     && request.resource.data.role == resource.data.role;
@@ -71,7 +87,6 @@ service cloud.firestore {
 
       match /athletes/{athleteID} {
         allow read:   if isAuthenticated() && isOwner(userID);
-        // Path-based ownership (isOwner) is sufficient — no redundant field check needed
         allow create: if isAuthenticated() && isOwner(userID);
         allow update: if isAuthenticated() && isOwner(userID);
         allow delete: if isAuthenticated() && isOwner(userID);
@@ -149,9 +164,9 @@ service cloud.firestore {
     match /sharedFolders/{folderID} {
       allow read:   if isAuthenticated() && canAccessFolder(folderID);
 
-      // Only users with coaching access can create folders
+      // Only athletes with Pro tier can create shared folders
       allow create: if isAuthenticated()
-                    && hasCoachingAccess()
+                    && hasProTier()
                     && request.resource.data.ownerAthleteID == request.auth.uid;
 
       // Only the folder owner can update or delete
@@ -202,11 +217,9 @@ service cloud.firestore {
       match /comments/{commentID} {
         // Read: the video owner OR any coach sharing the folder
         allow read: if isAuthenticated() && (
-          get(/databases/$(database)/documents/videos/$(videoID)).data.uploadedBy == request.auth.uid
-          || ('sharedFolderID' in get(/databases/$(database)/documents/videos/$(videoID)).data
-              && canAccessFolder(
-                   get(/databases/$(database)/documents/videos/$(videoID)).data.sharedFolderID
-                 ))
+          getVideoData(videoID).uploadedBy == request.auth.uid
+          || ('sharedFolderID' in getVideoData(videoID)
+              && canAccessFolder(getVideoData(videoID).sharedFolderID))
         );
 
         // Create: authenticated user posting as themselves
@@ -223,17 +236,16 @@ service cloud.firestore {
       // ======================================================================
 
       match /annotations/{annotationID} {
+        // Read: folder owner OR shared folder member (annotations only exist on shared videos)
         allow read: if isAuthenticated()
-                    && canAccessFolder(
-                         get(/databases/$(database)/documents/videos/$(videoID)).data.sharedFolderID
-                       );
+                    && 'sharedFolderID' in getVideoData(videoID)
+                    && canAccessFolder(getVideoData(videoID).sharedFolderID);
 
+        // Create: user posting as themselves with comment permission
         allow create: if isAuthenticated()
                       && request.resource.data.userID == request.auth.uid
-                      && hasPermission(
-                           get(/databases/$(database)/documents/videos/$(videoID)).data.sharedFolderID,
-                           "comment"
-                         );
+                      && 'sharedFolderID' in getVideoData(videoID)
+                      && hasPermission(getVideoData(videoID).sharedFolderID, "comment");
 
         // Users can edit their own annotations
         allow update: if isAuthenticated()
@@ -243,7 +255,7 @@ service cloud.firestore {
         allow delete: if isAuthenticated()
                       && (resource.data.userID == request.auth.uid
                           || get(/databases/$(database)/documents/sharedFolders/$(
-                               get(/databases/$(database)/documents/videos/$(videoID)).data.sharedFolderID
+                               getVideoData(videoID).sharedFolderID
                              )).data.ownerAthleteID == request.auth.uid);
       }
     }
@@ -256,9 +268,10 @@ service cloud.firestore {
       // Only the recipient can read their notifications
       allow read:   if isAuthenticated() && isOwner(userID);
 
-      // Any authenticated user can write a notification to another user
-      // (coaches notify athletes on upload/comment, athletes notify coaches on acceptance)
-      allow create: if isAuthenticated();
+      // Authenticated users can create notifications, but must identify themselves
+      // as the sender to prevent spoofing
+      allow create: if isAuthenticated()
+                    && request.resource.data.senderID == request.auth.uid;
 
       // Only the recipient can mark notifications as read
       allow update: if isAuthenticated() && isOwner(userID);
@@ -293,30 +306,54 @@ service cloud.firestore {
     // ========================================================================
 
     match /invitations/{invitationID} {
-      // Athletes can always read their own invitations (including expired, for cleanup)
-      // Coaches can only read non-expired invitations sent to their email
+      // Athlete-to-coach invitations: athlete reads by athleteID, coach reads by coachEmail
+      // Coach-to-athlete invitations: coach reads by coachID, athlete reads by athleteEmail
+      // Expired invitations are still readable by the sender (for cleanup)
       allow read: if isAuthenticated() && (
+        // Athlete-to-coach: sender (athlete) can always read
         resource.data.athleteID == request.auth.uid ||
-        (resource.data.coachEmail == request.auth.token.email &&
-         isInvitationNotExpired(resource.data.expiresAt))
+        // Athlete-to-coach: recipient (coach) can read if not expired
+        (resource.data.coachEmail == request.auth.token.email
+         && isInvitationNotExpired(resource.data.expiresAt)) ||
+        // Coach-to-athlete: sender (coach) can always read
+        resource.data.coachID == request.auth.uid ||
+        // Coach-to-athlete: recipient (athlete) can read if not expired
+        (resource.data.athleteEmail == request.auth.token.email
+         && isInvitationNotExpired(resource.data.expiresAt))
       );
 
-      // Only users with coaching access can send invitations
+      // Athlete-to-coach invitation: athlete creates, must have Pro tier
+      // Coach-to-athlete invitation: coach creates, must have a coach tier
       allow create: if isAuthenticated()
-                    && hasCoachingAccess()
-                    && request.resource.data.athleteID == request.auth.uid
                     && request.resource.data.keys().hasAll(['expiresAt'])
-                    && isInvitationNotExpired(request.resource.data.expiresAt);
+                    && isInvitationNotExpired(request.resource.data.expiresAt)
+                    && (
+                      // Athlete-to-coach: athlete is the sender
+                      (request.resource.data.athleteID == request.auth.uid
+                       && hasProTier())
+                      ||
+                      // Coach-to-athlete: coach is the sender
+                      (request.resource.data.coachID == request.auth.uid
+                       && request.resource.data.type == "coach_to_athlete"
+                       && hasCoachTier())
+                    );
 
-      // Athlete can cancel; coach can accept/decline — only while not expired
+      // Sender can cancel; recipient can accept/decline — only while not expired
       allow update: if isAuthenticated()
                     && isInvitationNotExpired(resource.data.expiresAt)
-                    && (resource.data.athleteID == request.auth.uid ||
-                        resource.data.coachEmail == request.auth.token.email);
+                    && (
+                      // Athlete-to-coach: athlete (sender) or coach (recipient)
+                      resource.data.athleteID == request.auth.uid ||
+                      resource.data.coachEmail == request.auth.token.email ||
+                      // Coach-to-athlete: coach (sender) or athlete (recipient)
+                      resource.data.coachID == request.auth.uid ||
+                      resource.data.athleteEmail == request.auth.token.email
+                    );
 
-      // Only the sending athlete can delete (including expired invitations)
+      // Only the sender can delete
       allow delete: if isAuthenticated()
-                    && resource.data.athleteID == request.auth.uid;
+                    && (resource.data.athleteID == request.auth.uid
+                        || resource.data.coachID == request.auth.uid);
     }
 
     // ========================================================================

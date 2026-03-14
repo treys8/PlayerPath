@@ -45,7 +45,7 @@ struct SeasonsView: View {
                 SeasonDetailView(season: season, athlete: athlete)
             }
         }
-        .onAppear {
+        .task {
             updateSeasons()
         }
         .onChange(of: athlete.seasons) { _, _ in

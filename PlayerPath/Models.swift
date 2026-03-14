@@ -51,9 +51,11 @@ final class User {
     var profileImagePath: String?
     var createdAt: Date?
     var subscriptionTier: String = "free"
-    var hasCoachingAddOn: Bool = false
     /// Firebase Auth UID — used as the Firestore document key for all user data
     var firebaseAuthUid: String?
+    /// Running total of bytes stored in Firebase Storage (videos + photos).
+    /// Updated after each successful upload/delete. Used to enforce tier storage limits.
+    var cloudStorageUsedBytes: Int64 = 0
 
     /// Computed tier from stored string — not persisted by SwiftData
     var tier: SubscriptionTier {
@@ -129,6 +131,69 @@ final class Athlete {
         self.createdAt = Date()
     }
 
+    // MARK: - Deep Deletion
+
+    /// Properly delete athlete with all associated files and data.
+    /// Use this instead of modelContext.delete(athlete) to avoid orphaning children.
+    func delete(in context: ModelContext) {
+        // Track which clips are owned by a game or practice so we don't double-delete
+        var deletedClipIDs = Set<UUID>()
+
+        // Delete all games (and their video clips, stats)
+        for game in games ?? [] {
+            for clip in game.videoClips ?? [] {
+                clip.delete(in: context)
+                deletedClipIDs.insert(clip.id)
+            }
+            if let gameStats = game.gameStats {
+                context.delete(gameStats)
+            }
+            context.delete(game)
+        }
+
+        // Delete all practices (and their video clips, notes)
+        for practice in practices ?? [] {
+            for clip in practice.videoClips ?? [] where !deletedClipIDs.contains(clip.id) {
+                clip.delete(in: context)
+                deletedClipIDs.insert(clip.id)
+            }
+            for note in practice.notes ?? [] {
+                context.delete(note)
+            }
+            context.delete(practice)
+        }
+
+        // Delete remaining standalone video clips (not attached to a game or practice)
+        for clip in videoClips ?? [] where !deletedClipIDs.contains(clip.id) {
+            clip.delete(in: context)
+        }
+
+        // Delete all photos (handles local files and cloud)
+        for photo in photos ?? [] {
+            photo.delete(in: context)
+        }
+
+        // Delete seasons and their statistics
+        for season in seasons ?? [] {
+            if let seasonStats = season.seasonStatistics {
+                context.delete(seasonStats)
+            }
+            context.delete(season)
+        }
+
+        // Delete coaches
+        for coach in coaches ?? [] {
+            context.delete(coach)
+        }
+
+        // Delete athlete statistics
+        if let stats = statistics {
+            context.delete(stats)
+        }
+
+        context.delete(self)
+    }
+
     // MARK: - Firestore Conversion
     func toFirestoreData() -> [String: Any] {
         return [
@@ -190,30 +255,33 @@ final class Season {
         needsSync == false && firestoreId != nil
     }
 
+    private static let yearFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy"
+        return f
+    }()
+    private static let yearPattern = try! NSRegularExpression(pattern: #"\b\d{4}\b"#)
+
     /// Computed display name with year range
     var displayName: String {
         // If name already contains a year (4 digits), just return it
-        let yearPattern = #"\b\d{4}\b"#
-        if let _ = name.range(of: yearPattern, options: .regularExpression) {
+        let range = NSRange(name.startIndex..., in: name)
+        if Self.yearPattern.firstMatch(in: name, range: range) != nil {
             return name
         }
-        
+
         // Otherwise, append year from dates
         if let start = startDate, let end = endDate {
-            let formatter = DateFormatter()
-            formatter.dateFormat = "yyyy"
-            let startYear = formatter.string(from: start)
-            let endYear = formatter.string(from: end)
-            
+            let startYear = Self.yearFormatter.string(from: start)
+            let endYear = Self.yearFormatter.string(from: end)
+
             if startYear == endYear {
                 return "\(name) \(startYear)"
             } else {
                 return "\(name) \(startYear)-\(endYear)"
             }
         } else if let start = startDate {
-            let formatter = DateFormatter()
-            formatter.dateFormat = "yyyy"
-            return "\(name) \(formatter.string(from: start))"
+            return "\(name) \(Self.yearFormatter.string(from: start))"
         }
         return name
     }
@@ -357,10 +425,13 @@ final class Season {
     // MARK: - Firestore Conversion
 
     func toFirestoreData() -> [String: Any] {
+        // Prefer firestoreId for the athlete reference so it survives reinstalls.
+        // Fall back to local UUID for athletes that haven't synced yet.
+        let athleteRef = athlete?.firestoreId ?? athlete?.id.uuidString ?? ""
         return [
             "id": id.uuidString,
             "name": name,
-            "athleteId": athlete?.id.uuidString ?? "",
+            "athleteId": athleteRef,
             "startDate": startDate ?? Date(),
             "endDate": endDate as Any,
             "isActive": isActive,
@@ -428,10 +499,12 @@ final class Game {
     // MARK: - Firestore Conversion
 
     func toFirestoreData() -> [String: Any] {
+        let athleteRef = athlete?.firestoreId ?? athlete?.id.uuidString ?? ""
+        let seasonRef = season?.firestoreId ?? season?.id.uuidString
         var data: [String: Any] = [
             "id": id.uuidString,
-            "athleteId": athlete?.id.uuidString ?? "",
-            "seasonId": season?.id.uuidString as Any,
+            "athleteId": athleteRef,
+            "seasonId": seasonRef as Any,
             "opponent": opponent,
             "date": date ?? Date(),
             "year": year ?? Calendar.current.component(.year, from: date ?? Date()),
@@ -492,10 +565,12 @@ final class Practice {
     // MARK: - Firestore Conversion
 
     func toFirestoreData() -> [String: Any] {
+        let athleteRef = athlete?.firestoreId ?? athlete?.id.uuidString ?? ""
+        let seasonRef = season?.firestoreId ?? season?.id.uuidString
         return [
             "id": id.uuidString,
-            "athleteId": athlete?.id.uuidString ?? "",
-            "seasonId": season?.id.uuidString as Any,
+            "athleteId": athleteRef,
+            "seasonId": seasonRef as Any,
             "date": date ?? Date(),
             "createdAt": createdAt ?? Date(),
             "updatedAt": Date(),
@@ -697,9 +772,10 @@ final class VideoClip {
 
     /// Properly delete video clip with all associated files and data
     func delete(in context: ModelContext) {
-        // Delete local video file
-        if FileManager.default.fileExists(atPath: filePath) {
-            try? FileManager.default.removeItem(atPath: filePath)
+        // Delete local video file — use resolvedFilePath to handle relative paths
+        let absolutePath = resolvedFilePath
+        if FileManager.default.fileExists(atPath: absolutePath) {
+            try? FileManager.default.removeItem(atPath: absolutePath)
             print("VideoClip: Deleted local video file: \(fileName)")
         }
 
@@ -717,16 +793,35 @@ final class VideoClip {
         }
 
         // Delete from cloud storage if uploaded.
-        // Capture fileName before context.delete(self) to avoid accessing a deleted SwiftData object.
+        // Capture values before context.delete(self) to avoid accessing a deleted SwiftData object.
         if isUploaded {
             let capturedFileName = self.fileName
+            let capturedClipId = self.id
+            let capturedUser = athlete?.user
+            let fileSize = (try? FileManager.default.attributesOfItem(atPath: resolvedFilePath)[.size] as? Int64) ?? 0
             Task { @MainActor in
-                do {
-                    try await VideoCloudManager.shared.deleteAthleteVideo(fileName: capturedFileName)
-                    print("VideoClip: Deleted video from cloud: \(capturedFileName)")
-                } catch {
-                    print("VideoClip: Failed to delete from cloud: \(error.localizedDescription)")
+                let cloudManager = VideoCloudManager.shared
+                for attempt in 1...3 {
+                    do {
+                        try await cloudManager.deleteAthleteVideo(fileName: capturedFileName)
+                        print("VideoClip: Deleted video from cloud: \(capturedFileName)")
+                        // Only decrement quota after the Storage file is actually deleted
+                        if let user = capturedUser {
+                            user.cloudStorageUsedBytes = max(0, user.cloudStorageUsedBytes - fileSize)
+                        }
+                        return
+                    } catch {
+                        print("VideoClip: Failed to delete from cloud (attempt \(attempt)/3): \(error.localizedDescription)")
+                        if attempt < 3 {
+                            try? await Task.sleep(for: .seconds(2))
+                        }
+                    }
                 }
+                // All retries exhausted — record as pending deletion so the server-side
+                // cleanup function can remove the orphaned Storage file later.
+                // Quota is NOT freed — the dailyStorageCleanup function will handle it.
+                print("VideoClip: ❌ All deletion attempts failed for \(capturedFileName). Recording pending deletion.")
+                try? await cloudManager.recordPendingDeletion(clipId: capturedClipId, fileName: capturedFileName)
             }
         }
 
@@ -1096,10 +1191,19 @@ final class OnboardingProgress {
     var hasCompletedOnboarding: Bool = false
     var completedAt: Date?
     var createdAt: Date?
+    /// Firebase Auth UID that owns this record. Prevents cross-account leakage
+    /// when multiple accounts are used on the same device.
+    var firebaseAuthUid: String?
 
     init() {
         self.id = UUID()
         self.createdAt = Date()
+    }
+
+    init(firebaseAuthUid: String) {
+        self.id = UUID()
+        self.createdAt = Date()
+        self.firebaseAuthUid = firebaseAuthUid
     }
 
     func markCompleted() {
@@ -1302,11 +1406,17 @@ final class Photo {
         if cloudURL != nil {
             let capturedFileName = self.fileName
             Task { @MainActor in
-                do {
-                    try await VideoCloudManager.shared.deleteAthletePhoto(fileName: capturedFileName)
-                    print("Photo: Deleted from cloud: \(capturedFileName)")
-                } catch {
-                    print("Photo: Failed to delete from cloud: \(error.localizedDescription)")
+                for attempt in 1...3 {
+                    do {
+                        try await VideoCloudManager.shared.deleteAthletePhoto(fileName: capturedFileName)
+                        print("Photo: Deleted from cloud: \(capturedFileName)")
+                        return
+                    } catch {
+                        print("Photo: Failed to delete from cloud (attempt \(attempt)/3): \(error.localizedDescription)")
+                        if attempt < 3 {
+                            try? await Task.sleep(for: .seconds(2))
+                        }
+                    }
                 }
             }
         }

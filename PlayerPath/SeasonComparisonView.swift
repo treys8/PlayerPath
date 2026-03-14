@@ -122,20 +122,36 @@ struct SeasonComparisonView: View {
             .padding(.top, 40)
 
             // Season selection list
-            List {
-                ForEach(allSeasons) { season in
-                    Button {
-                        toggleSeasonSelection(season)
-                    } label: {
-                        SeasonSelectionRow(
-                            season: season,
-                            isSelected: selectedSeasons.contains(season.id)
-                        )
-                    }
-                    .buttonStyle(.plain)
+            if allSeasons.isEmpty {
+                VStack(spacing: 12) {
+                    Image(systemName: "calendar.badge.plus")
+                        .font(.system(size: 40))
+                        .foregroundStyle(.secondary)
+                    Text("No Seasons Yet")
+                        .font(.headline)
+                    Text("Create at least two seasons with game data to start comparing.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
                 }
+                .frame(maxHeight: .infinity)
+            } else {
+                List {
+                    ForEach(allSeasons) { season in
+                        Button {
+                            toggleSeasonSelection(season)
+                        } label: {
+                            SeasonSelectionRow(
+                                season: season,
+                                isSelected: selectedSeasons.contains(season.id)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .listStyle(.insetGrouped)
             }
-            .listStyle(.insetGrouped)
 
             // Compare button
             if selectedSeasons.count >= 2 {

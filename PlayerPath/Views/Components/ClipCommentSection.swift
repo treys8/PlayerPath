@@ -15,6 +15,7 @@ struct ClipCommentSection: View {
 
     @State private var comments: [ClipComment] = []
     @State private var isLoading = false
+    @State private var loadError: String?
 
     var coachComments: [ClipComment] {
         comments.filter { $0.isCoachComment }
@@ -22,7 +23,31 @@ struct ClipCommentSection: View {
 
     var body: some View {
         Group {
-            if !coachComments.isEmpty {
+            if isLoading {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .scaleEffect(0.8)
+                    Text("Loading comments...")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+            } else if loadError != nil {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.caption)
+                        .foregroundColor(.orange)
+                    Text("Couldn't load comments")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .onTapGesture {
+                    Task { await loadComments() }
+                }
+            } else if !coachComments.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
                     ForEach(coachComments) { comment in
                         CoachCommentRow(comment: comment)
@@ -31,11 +56,21 @@ struct ClipCommentSection: View {
             }
         }
         .task {
-            guard !isLoading else { return }
-            isLoading = true
-            comments = (try? await ClipCommentService.shared.fetchComments(clipId: clipId)) ?? []
-            isLoading = false
+            await loadComments()
         }
+    }
+
+    private func loadComments() async {
+        guard !isLoading else { return }
+        isLoading = true
+        loadError = nil
+        do {
+            comments = try await ClipCommentService.shared.fetchComments(clipId: clipId)
+        } catch {
+            loadError = error.localizedDescription
+            print("ClipCommentSection: Failed to load comments: \(error.localizedDescription)")
+        }
+        isLoading = false
     }
 }
 

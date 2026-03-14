@@ -33,7 +33,14 @@ final class OnboardingManager: ObservableObject {
 
     // MARK: - UserDefaults Keys
 
-    private enum Keys {
+    /// Current user ID prefix for scoping keys. Empty string for legacy/unscoped usage.
+    private var userPrefix: String = ""
+
+    private func key(_ base: String) -> String {
+        userPrefix.isEmpty ? base : "\(userPrefix)_\(base)"
+    }
+
+    private enum BaseKeys {
         static let hasCompletedInitialOnboarding = "hasCompletedInitialOnboarding"
         static let hasSeenWelcomeTutorial = "hasSeenWelcomeTutorial"
         static let hasRecordedFirstVideo = "hasRecordedFirstVideo"
@@ -53,27 +60,46 @@ final class OnboardingManager: ObservableObject {
     // MARK: - Initialization
 
     private init() {
-        // Load saved state
-        self.hasCompletedInitialOnboarding = UserDefaults.standard.bool(forKey: Keys.hasCompletedInitialOnboarding)
-        self.hasSeenWelcomeTutorial = UserDefaults.standard.bool(forKey: Keys.hasSeenWelcomeTutorial)
-        self.hasRecordedFirstVideo = UserDefaults.standard.bool(forKey: Keys.hasRecordedFirstVideo)
-        self.hasCreatedFirstGame = UserDefaults.standard.bool(forKey: Keys.hasCreatedFirstGame)
-        self.hasCreatedFirstPractice = UserDefaults.standard.bool(forKey: Keys.hasCreatedFirstPractice)
-        self.hasViewedStats = UserDefaults.standard.bool(forKey: Keys.hasViewedStats)
-        self.hasUsedSearch = UserDefaults.standard.bool(forKey: Keys.hasUsedSearch)
-        self.hasExportedData = UserDefaults.standard.bool(forKey: Keys.hasExportedData)
-        self.hasUsedQuickActions = UserDefaults.standard.bool(forKey: Keys.hasUsedQuickActions)
-        self.hasInvitedCoach = UserDefaults.standard.bool(forKey: Keys.hasInvitedCoach)
+        // Start with defaults; actual state is loaded when configure(forUserID:) is called
+        self.hasCompletedInitialOnboarding = false
+        self.hasSeenWelcomeTutorial = false
+        self.hasRecordedFirstVideo = false
+        self.hasCreatedFirstGame = false
+        self.hasCreatedFirstPractice = false
+        self.hasViewedStats = false
+        self.hasUsedSearch = false
+        self.hasExportedData = false
+        self.hasUsedQuickActions = false
+        self.hasInvitedCoach = false
+    }
 
-        if let tipsData = UserDefaults.standard.array(forKey: Keys.dismissedTips) as? [String] {
-            self.dismissedTips = Set(tipsData)
+    /// Call this when the user signs in to scope all UserDefaults keys to their account.
+    func configure(forUserID userID: String?) {
+        userPrefix = userID ?? ""
+        reloadState()
+    }
+
+    private func reloadState() {
+        hasCompletedInitialOnboarding = UserDefaults.standard.bool(forKey: key(BaseKeys.hasCompletedInitialOnboarding))
+        hasSeenWelcomeTutorial = UserDefaults.standard.bool(forKey: key(BaseKeys.hasSeenWelcomeTutorial))
+        hasRecordedFirstVideo = UserDefaults.standard.bool(forKey: key(BaseKeys.hasRecordedFirstVideo))
+        hasCreatedFirstGame = UserDefaults.standard.bool(forKey: key(BaseKeys.hasCreatedFirstGame))
+        hasCreatedFirstPractice = UserDefaults.standard.bool(forKey: key(BaseKeys.hasCreatedFirstPractice))
+        hasViewedStats = UserDefaults.standard.bool(forKey: key(BaseKeys.hasViewedStats))
+        hasUsedSearch = UserDefaults.standard.bool(forKey: key(BaseKeys.hasUsedSearch))
+        hasExportedData = UserDefaults.standard.bool(forKey: key(BaseKeys.hasExportedData))
+        hasUsedQuickActions = UserDefaults.standard.bool(forKey: key(BaseKeys.hasUsedQuickActions))
+        hasInvitedCoach = UserDefaults.standard.bool(forKey: key(BaseKeys.hasInvitedCoach))
+
+        if let tipsData = UserDefaults.standard.array(forKey: key(BaseKeys.dismissedTips)) as? [String] {
+            dismissedTips = Set(tipsData)
+        } else {
+            dismissedTips.removeAll()
         }
 
-        // Check if onboarding needs reset due to version change
-        let savedVersion = UserDefaults.standard.integer(forKey: Keys.onboardingVersion)
+        let savedVersion = UserDefaults.standard.integer(forKey: key(BaseKeys.onboardingVersion))
         if savedVersion < currentOnboardingVersion {
-            // New onboarding version - could show "What's New" or reset certain tips
-            UserDefaults.standard.set(currentOnboardingVersion, forKey: Keys.onboardingVersion)
+            UserDefaults.standard.set(currentOnboardingVersion, forKey: key(BaseKeys.onboardingVersion))
         }
     }
 
@@ -83,34 +109,34 @@ final class OnboardingManager: ObservableObject {
         switch milestone {
         case .initialOnboarding:
             hasCompletedInitialOnboarding = true
-            UserDefaults.standard.set(true, forKey: Keys.hasCompletedInitialOnboarding)
+            UserDefaults.standard.set(true, forKey: key(BaseKeys.hasCompletedInitialOnboarding))
         case .welcomeTutorial:
             hasSeenWelcomeTutorial = true
-            UserDefaults.standard.set(true, forKey: Keys.hasSeenWelcomeTutorial)
+            UserDefaults.standard.set(true, forKey: key(BaseKeys.hasSeenWelcomeTutorial))
         case .firstVideo:
             hasRecordedFirstVideo = true
-            UserDefaults.standard.set(true, forKey: Keys.hasRecordedFirstVideo)
+            UserDefaults.standard.set(true, forKey: key(BaseKeys.hasRecordedFirstVideo))
         case .firstGame:
             hasCreatedFirstGame = true
-            UserDefaults.standard.set(true, forKey: Keys.hasCreatedFirstGame)
+            UserDefaults.standard.set(true, forKey: key(BaseKeys.hasCreatedFirstGame))
         case .firstPractice:
             hasCreatedFirstPractice = true
-            UserDefaults.standard.set(true, forKey: Keys.hasCreatedFirstPractice)
+            UserDefaults.standard.set(true, forKey: key(BaseKeys.hasCreatedFirstPractice))
         case .viewStats:
             hasViewedStats = true
-            UserDefaults.standard.set(true, forKey: Keys.hasViewedStats)
+            UserDefaults.standard.set(true, forKey: key(BaseKeys.hasViewedStats))
         case .useSearch:
             hasUsedSearch = true
-            UserDefaults.standard.set(true, forKey: Keys.hasUsedSearch)
+            UserDefaults.standard.set(true, forKey: key(BaseKeys.hasUsedSearch))
         case .exportData:
             hasExportedData = true
-            UserDefaults.standard.set(true, forKey: Keys.hasExportedData)
+            UserDefaults.standard.set(true, forKey: key(BaseKeys.hasExportedData))
         case .useQuickActions:
             hasUsedQuickActions = true
-            UserDefaults.standard.set(true, forKey: Keys.hasUsedQuickActions)
+            UserDefaults.standard.set(true, forKey: key(BaseKeys.hasUsedQuickActions))
         case .inviteCoach:
             hasInvitedCoach = true
-            UserDefaults.standard.set(true, forKey: Keys.hasInvitedCoach)
+            UserDefaults.standard.set(true, forKey: key(BaseKeys.hasInvitedCoach))
         }
 
         // Post notification for achievement tracking
@@ -143,17 +169,17 @@ final class OnboardingManager: ObservableObject {
 
     func dismissTip(_ tipID: String) {
         dismissedTips.insert(tipID)
-        UserDefaults.standard.set(Array(dismissedTips), forKey: Keys.dismissedTips)
+        UserDefaults.standard.set(Array(dismissedTips), forKey: key(BaseKeys.dismissedTips))
     }
 
     func resetWelcomeTutorial() {
         hasSeenWelcomeTutorial = false
-        UserDefaults.standard.removeObject(forKey: Keys.hasSeenWelcomeTutorial)
+        UserDefaults.standard.removeObject(forKey: key(BaseKeys.hasSeenWelcomeTutorial))
     }
 
     func resetTips() {
         dismissedTips.removeAll()
-        UserDefaults.standard.removeObject(forKey: Keys.dismissedTips)
+        UserDefaults.standard.removeObject(forKey: key(BaseKeys.dismissedTips))
     }
 
     // MARK: - Tutorial Flow
@@ -219,17 +245,17 @@ final class OnboardingManager: ObservableObject {
         dismissedTips.removeAll()
         currentTutorialStep = nil
 
-        UserDefaults.standard.removeObject(forKey: Keys.hasCompletedInitialOnboarding)
-        UserDefaults.standard.removeObject(forKey: Keys.hasSeenWelcomeTutorial)
-        UserDefaults.standard.removeObject(forKey: Keys.hasRecordedFirstVideo)
-        UserDefaults.standard.removeObject(forKey: Keys.hasCreatedFirstGame)
-        UserDefaults.standard.removeObject(forKey: Keys.hasCreatedFirstPractice)
-        UserDefaults.standard.removeObject(forKey: Keys.hasViewedStats)
-        UserDefaults.standard.removeObject(forKey: Keys.hasUsedSearch)
-        UserDefaults.standard.removeObject(forKey: Keys.hasExportedData)
-        UserDefaults.standard.removeObject(forKey: Keys.hasUsedQuickActions)
-        UserDefaults.standard.removeObject(forKey: Keys.hasInvitedCoach)
-        UserDefaults.standard.removeObject(forKey: Keys.dismissedTips)
+        UserDefaults.standard.removeObject(forKey: key(BaseKeys.hasCompletedInitialOnboarding))
+        UserDefaults.standard.removeObject(forKey: key(BaseKeys.hasSeenWelcomeTutorial))
+        UserDefaults.standard.removeObject(forKey: key(BaseKeys.hasRecordedFirstVideo))
+        UserDefaults.standard.removeObject(forKey: key(BaseKeys.hasCreatedFirstGame))
+        UserDefaults.standard.removeObject(forKey: key(BaseKeys.hasCreatedFirstPractice))
+        UserDefaults.standard.removeObject(forKey: key(BaseKeys.hasViewedStats))
+        UserDefaults.standard.removeObject(forKey: key(BaseKeys.hasUsedSearch))
+        UserDefaults.standard.removeObject(forKey: key(BaseKeys.hasExportedData))
+        UserDefaults.standard.removeObject(forKey: key(BaseKeys.hasUsedQuickActions))
+        UserDefaults.standard.removeObject(forKey: key(BaseKeys.hasInvitedCoach))
+        UserDefaults.standard.removeObject(forKey: key(BaseKeys.dismissedTips))
     }
 }
 
@@ -394,14 +420,19 @@ enum Tutorial: CaseIterable {
 }
 
 struct TutorialStep: Identifiable, Equatable {
-    let id = UUID()
+    let id: String
     let title: String
     let description: String
     let imageName: String
     let targetView: String? // Optional view to highlight
 
-    static func == (lhs: TutorialStep, rhs: TutorialStep) -> Bool {
-        lhs.id == rhs.id
+    init(title: String, description: String, imageName: String, targetView: String?) {
+        // Derive a stable ID from the title so steps can be compared across accesses
+        self.id = title
+        self.title = title
+        self.description = description
+        self.imageName = imageName
+        self.targetView = targetView
     }
 }
 

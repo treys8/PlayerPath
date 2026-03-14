@@ -15,7 +15,7 @@ struct DashboardView: View {
     let authManager: ComprehensiveAuthManager
     @Environment(\.modelContext) private var modelContext
 
-    @State private var viewModel: GamesDashboardViewModel?
+    @State private var viewModel: GamesDashboardViewModel
     @State private var pulseAnimation = false
     @State private var showingPaywall = false
     @State private var showingDirectCamera = false
@@ -27,11 +27,11 @@ struct DashboardView: View {
     private let athleteID: UUID
     @Query private var liveGames: [Game]
 
-    init(user: User, athlete: Athlete, authManager: ComprehensiveAuthManager) {
+    init(user: User, athlete: Athlete, authManager: ComprehensiveAuthManager, modelContext: ModelContext) {
         self.user = user
         self.athlete = athlete
         self.authManager = authManager
-        self._viewModel = State(initialValue: nil)
+        self._viewModel = State(initialValue: GamesDashboardViewModel(athlete: athlete, modelContext: modelContext))
         self._pulseAnimation = State(initialValue: false)
         self.athleteID = athlete.id
         // Configure the query with a predicate bound to a stable value (athleteID)
@@ -51,13 +51,7 @@ struct DashboardView: View {
     // MARK: - Body
 
     var body: some View {
-        Group {
-            if let viewModel = viewModel {
-                dashboardContent(viewModel: viewModel)
-            } else {
-                ProgressView("Loading...")
-            }
-        }
+        dashboardContent(viewModel: viewModel)
         .navigationTitle(athlete.name)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -101,29 +95,8 @@ struct DashboardView: View {
                 }
             }
         }
-        .task {
-            // Initialize ViewModel with environment modelContext once
-            if viewModel == nil {
-                viewModel = GamesDashboardViewModel(
-                    athlete: athlete,
-                    modelContext: modelContext
-                )
-            }
+        .onAppear {
             pulseAnimation = true
-            #if DEBUG
-            print("🔍 DashboardView liveGames count: \(liveGames.count) for athlete: \(athlete.name)")
-            // Debug: Check all games for this athlete
-            let allAthleteGames = try? modelContext.fetch(FetchDescriptor<Game>())
-            let athleteGames = allAthleteGames?.filter { $0.athlete?.id == athlete.id } ?? []
-            print("   Total games for athlete: \(athleteGames.count)")
-            let liveCount = athleteGames.filter { $0.isLive }.count
-            print("   Live games (manual filter): \(liveCount)")
-            if liveCount > 0 {
-                for game in athleteGames.filter({ $0.isLive }) {
-                    print("   - Live game: \(game.opponent), isLive=\(game.isLive), athlete.id=\(game.athlete?.id.uuidString ?? "nil")")
-                }
-            }
-            #endif
         }
         .sheet(isPresented: $showingPaywall) {
             ImprovedPaywallView(user: user)
@@ -153,54 +126,45 @@ struct DashboardView: View {
 
     // MARK: - Content
 
-    private func toggleGameLive(_ game: Game) {
-        Haptics.light()
-        game.isLive.toggle()
-        do {
-            try modelContext.save()
-            NotificationCenter.default.post(name: .gameBecameLive, object: game)
-        } catch {
-            print("❌ Failed to toggle game live: \(error)")
-        }
-    }
-
     private func endLiveGame(_ game: Game) {
         Haptics.light()
         game.isLive = false
         game.isComplete = true
+        game.liveStartDate = nil
+        game.needsSync = true
+        GameAlertService.shared.cancelEndGameReminder(for: game)
 
+        // Recalculate from scratch to avoid double-counting
         if let athlete = game.athlete {
-            // Create athlete statistics if they don't exist
-            if athlete.statistics == nil {
-                let newStats = AthleteStatistics()
-                newStats.athlete = athlete
-                athlete.statistics = newStats
-                modelContext.insert(newStats)
-            }
-
-            // Aggregate game statistics into athlete's overall statistics
-            if let athleteStats = athlete.statistics, let gameStats = game.gameStats {
-                athleteStats.atBats += gameStats.atBats
-                athleteStats.hits += gameStats.hits
-                athleteStats.singles += gameStats.singles
-                athleteStats.doubles += gameStats.doubles
-                athleteStats.triples += gameStats.triples
-                athleteStats.homeRuns += gameStats.homeRuns
-                athleteStats.runs += gameStats.runs
-                athleteStats.rbis += gameStats.rbis
-                athleteStats.strikeouts += gameStats.strikeouts
-                athleteStats.walks += gameStats.walks
-                athleteStats.updatedAt = Date()
-            }
-
-            // Increment total games
-            if let athleteStats = athlete.statistics {
-                athleteStats.addCompletedGame()
+            do {
+                try StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: modelContext)
+            } catch {
+                print("⚠️ Failed to recalculate athlete statistics after ending game: \(error.localizedDescription)")
             }
         }
 
         do {
             try modelContext.save()
+
+            // Track game end analytics
+            let gameStats = game.gameStats
+            AnalyticsService.shared.trackGameEnded(
+                gameID: game.id.uuidString,
+                atBats: gameStats?.atBats ?? 0,
+                hits: gameStats?.hits ?? 0
+            )
+
+            // Trigger Firestore sync
+            let userForSync = game.athlete?.user
+            Task {
+                guard let user = userForSync else { return }
+                do {
+                    try await SyncCoordinator.shared.syncGames(for: user)
+                } catch {
+                    print("⚠️ Failed to sync game end to Firestore: \(error)")
+                }
+            }
+
             print("✅ Game ended successfully")
         } catch {
             print("❌ Error ending game: \(error)")
@@ -392,7 +356,7 @@ struct DashboardView: View {
                         DashboardFeatureCard(
                             icon: "figure.run",
                             title: "Practice",
-                            subtitle: "0 Sessions",
+                            subtitle: "\((athlete.practices ?? []).count) Sessions",
                             color: .green
                         ) {
                             NotificationCenter.default.post(name: .navigateToMorePractice, object: nil)
@@ -428,13 +392,13 @@ struct DashboardView: View {
                         DashboardPremiumFeatureCard(
                             icon: "person.3.fill",
                             title: "Coaches",
-                            subtitle: "0 Coaches",
+                            subtitle: "\((athlete.coaches ?? []).count) Coaches",
                             color: .indigo,
                             isPremium: authManager.currentTier == .pro
                         ) {
                             if authManager.currentTier == .pro {
                                 postSwitchTab(.home)
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                Task { @MainActor in
                                     NotificationCenter.default.post(name: Notification.Name.presentCoaches, object: athlete)
                                 }
                             } else {

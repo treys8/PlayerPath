@@ -71,7 +71,7 @@ struct StatisticsView: View {
             .navigationTitle("Statistics")
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
-                if statistics != nil, let ath = athlete {
+                if statistics != nil {
                     // View Charts button
                     ToolbarItem(placement: .topBarLeading) {
                         Button {
@@ -104,11 +104,29 @@ struct StatisticsView: View {
                             )
                         }
                     }
+                }
 
-                    // Export menu (Plus+)
-                    if authManager.currentTier >= .plus {
-                        ToolbarItem(placement: .primaryAction) {
-                            Menu {
+                if let ath = athlete {
+                    // Actions menu (always available)
+                    ToolbarItem(placement: .primaryAction) {
+                        Menu {
+                            if let game = currentLiveGame {
+                                Button {
+                                    activeSheet = .quickEntry(game)
+                                } label: {
+                                    Label("Record Live Game Stats", systemImage: "chart.bar.doc.horizontal.fill")
+                                }
+                            }
+
+                            Button {
+                                activeSheet = .gameSelection
+                            } label: {
+                                Label("Add Past Game Statistics", systemImage: "plus.circle.fill")
+                            }
+
+                            if statistics != nil, authManager.currentTier >= .plus {
+                                Divider()
+
                                 Button {
                                     exportCSV(athlete: ath)
                                 } label: {
@@ -120,11 +138,11 @@ struct StatisticsView: View {
                                 } label: {
                                     Label("Export as PDF", systemImage: "doc.richtext")
                                 }
-                            } label: {
-                                Image(systemName: "square.and.arrow.up")
                             }
-                            .accessibilityLabel("Export statistics")
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
                         }
+                        .accessibilityLabel("Statistics actions")
                     }
                 }
             }
@@ -170,17 +188,18 @@ struct StatisticsView: View {
     private func exportCSV(athlete: Athlete) {
         guard let stats = statistics else { return }
 
-        let result = StatisticsExportService.exportToCSV(athlete: athlete, stats: stats)
-
-        switch result {
-        case .success(let url):
-            exportedFileURL = url
-            showingShareSheet = true
-            Haptics.success()
-        case .failure(let error):
-            exportError = error.localizedDescription
-            showingExportError = true
-            Haptics.warning()
+        Task {
+            let result = StatisticsExportService.exportToCSV(athlete: athlete, stats: stats)
+            switch result {
+            case .success(let url):
+                exportedFileURL = url
+                showingShareSheet = true
+                Haptics.success()
+            case .failure(let error):
+                exportError = error.localizedDescription
+                showingExportError = true
+                Haptics.warning()
+            }
         }
     }
 
@@ -191,21 +210,22 @@ struct StatisticsView: View {
             availableSeasons.first { $0.id.uuidString == id }
         } ?? athlete.activeSeason
 
-        let result = StatisticsExportService.exportToPDF(
-            athlete: athlete,
-            stats: stats,
-            season: selectedSeason
-        )
-
-        switch result {
-        case .success(let url):
-            exportedFileURL = url
-            showingShareSheet = true
-            Haptics.success()
-        case .failure(let error):
-            exportError = error.localizedDescription
-            showingExportError = true
-            Haptics.warning()
+        Task {
+            let result = StatisticsExportService.exportToPDF(
+                athlete: athlete,
+                stats: stats,
+                season: selectedSeason
+            )
+            switch result {
+            case .success(let url):
+                exportedFileURL = url
+                showingShareSheet = true
+                Haptics.success()
+            case .failure(let error):
+                exportError = error.localizedDescription
+                showingExportError = true
+                Haptics.warning()
+            }
         }
     }
     
@@ -214,15 +234,6 @@ struct StatisticsView: View {
         if let stats = statistics {
             ScrollView {
                 LazyVStack(spacing: 20) {
-                    // Manual Entry Section
-                    ManualEntrySection(
-                        currentLiveGame: currentLiveGame,
-                        showQuickEntry: {
-                            if let game = currentLiveGame { activeSheet = .quickEntry(game) }
-                        },
-                        showGameSelection: { activeSheet = .gameSelection }
-                    )
-
                     // Charts Prompt Card
                     ChartsPromptCard {
                         showingCharts = true
@@ -470,104 +481,7 @@ extension Notification.Name {
     static let switchToGamesTab = Notification.Name("switchToGamesTab")
 }
 
-// MARK: - Manual Entry Section
-struct ManualEntrySection: View {
-    let currentLiveGame: Game?
-    let showQuickEntry: () -> Void
-    let showGameSelection: () -> Void
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 15) {
-            Text("Manual Statistics Entry")
-                .font(.headline)
-                .fontWeight(.bold)
-            
-            VStack(spacing: 12) {
-                // Current Live Game Option
-                if let game = currentLiveGame {
-                    Button(action: { showQuickEntry() }) {
-                        HStack {
-                            VStack(alignment: .leading) {
-                                HStack {
-                                    Image(systemName: "circle.fill")
-                                        .foregroundColor(.red)
-                                        .font(.caption)
-                                    Text("LIVE GAME")
-                                        .font(.caption)
-                                        .fontWeight(.bold)
-                                        .foregroundColor(.red)
-                                }
-                                
-                                Text("Record stats for vs \(game.opponent)")
-                                    .font(.subheadline)
-                                    .fontWeight(.semibold)
-                                    .foregroundColor(.primary)
-                                
-                                Text("Tap to add at-bats and hits")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                            
-                            Spacer()
-                            
-                            Image(systemName: "chevron.right")
-                                .foregroundColor(.blue)
-                        }
-                        .padding()
-                        .statCardBackground()
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Record statistics for live game")
-                    .accessibilityHint("Add at-bats, hits, and results for the current game")
-                } else {
-                    // No Live Game Available
-                    VStack {
-                        HStack {
-                            Image(systemName: "info.circle")
-                                .foregroundColor(.orange)
-                            Text("No active game")
-                                .font(.subheadline)
-                                .foregroundColor(.secondary)
-                            Spacer()
-                        }
-                        .padding()
-                        .statCardBackground()
-                        .accessibilityElement(children: .combine)
-                        .accessibilityLabel("No active game. Start a live game to record current game stats.")
-                    }
-                }
-                
-                // Add Past Game Option
-                Button(action: { showGameSelection() }) {
-                    HStack {
-                        VStack(alignment: .leading) {
-                            Text("Add Past Game Statistics")
-                                .font(.subheadline)
-                                .fontWeight(.semibold)
-                                .foregroundColor(.primary)
-                            
-                            Text("Select a game to record statistics")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                        
-                        Spacer()
-                        
-                        Image(systemName: "chevron.right")
-                            .foregroundColor(.blue)
-                    }
-                    .padding()
-                    .statCardBackground()
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Add past game statistics")
-                .accessibilityHint("Select a previous game to record statistics")
-            }
-        }
-    }
-}
-
-// MARK: - Career vs Season Comparison Section (NEW)
+// MARK: - Career vs Season Comparison Section
 struct CareerSeasonComparisonSection: View {
     let careerStats: AthleteStatistics
     let seasonStats: AthleteStatistics
@@ -1012,6 +926,8 @@ struct DetailedStatsSection: View {
             VStack(spacing: 0) {
                 DetailedStatRow(label: "At Bats", value: "\(statistics.atBats)")
                 DetailedStatRow(label: "Hits", value: "\(statistics.hits)")
+                DetailedStatRow(label: "Runs", value: "\(statistics.runs)")
+                DetailedStatRow(label: "RBIs", value: "\(statistics.rbis)")
                 DetailedStatRow(label: "Walks", value: "\(statistics.walks)")
                 DetailedStatRow(label: "Strikeouts", value: "\(statistics.strikeouts)")
                 DetailedStatRow(label: "Ground Outs", value: "\(statistics.groundOuts)")

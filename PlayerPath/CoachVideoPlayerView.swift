@@ -118,7 +118,7 @@ struct CoachVideoPlayerView: View {
 
     @ViewBuilder
     private var playerContent: some View {
-        if let player = viewModel.player {
+        if let player = viewModel.player, viewModel.isPlayerReady {
             ZStack(alignment: .bottom) {
                 VideoPlayer(player: player)
                     .onAppear {
@@ -154,11 +154,17 @@ struct CoachVideoPlayerView: View {
                 ProgressView("Loading video...")
                     .tint(.white)
             }
-        } else {
+        } else if viewModel.errorMessage != nil {
             ZStack {
                 Color(white: 0.3)
                 Text("Failed to load video")
                     .foregroundColor(.white)
+            }
+        } else {
+            ZStack {
+                Color.black
+                ProgressView("Buffering...")
+                    .tint(.white)
             }
         }
     }
@@ -180,6 +186,7 @@ struct CoachVideoPlayerView: View {
                     NotesTabView(
                         notes: viewModel.annotations,
                         isLoading: viewModel.isLoadingAnnotations,
+                        errorMessage: viewModel.errorMessage,
                         onAddNote: { showingAddNote = true },
                         onDeleteNote: { note in
                             Task { await viewModel.deleteAnnotation(note) }
@@ -225,6 +232,7 @@ struct CoachVideoPlayerView: View {
 struct NotesTabView: View {
     let notes: [VideoAnnotation]
     let isLoading: Bool
+    var errorMessage: String? = nil
     let onAddNote: () -> Void
     let onDeleteNote: (VideoAnnotation) -> Void
     let onSeekToTimestamp: (Double) -> Void
@@ -252,6 +260,22 @@ struct NotesTabView: View {
             if isLoading {
                 ProgressView("Loading notes...")
                     .frame(maxHeight: .infinity)
+            } else if let error = errorMessage, notes.isEmpty {
+                VStack(spacing: 16) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.system(size: 50))
+                        .foregroundColor(.orange.opacity(0.7))
+
+                    Text("Failed to Load Notes")
+                        .font(.headline)
+
+                    Text(error)
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+                }
+                .frame(maxHeight: .infinity)
             } else if notes.isEmpty {
                 VStack(spacing: 16) {
                     Image(systemName: "note.text")
@@ -485,17 +509,19 @@ struct InfoRow: View {
 struct AddNoteView: View {
     let currentTime: Double
     let onSave: (String, Double) -> Void
-    
+
     @Environment(\.dismiss) private var dismiss
     @State private var noteText = ""
     @State private var timestamp: Double
-    
+    @State private var isSaving = false
+    @FocusState private var isTextEditorFocused: Bool
+
     init(currentTime: Double, onSave: @escaping (String, Double) -> Void) {
         self.currentTime = currentTime
         self.onSave = onSave
         _timestamp = State(initialValue: currentTime)
     }
-    
+
     var body: some View {
         NavigationStack {
             Form {
@@ -508,12 +534,13 @@ struct AddNoteView: View {
                             .foregroundColor(.secondary)
                     }
                 }
-                
+
                 Section("Note") {
                     TextEditor(text: $noteText)
                         .frame(minHeight: 150)
+                        .focused($isTextEditorFocused)
                 }
-                
+
                 Section {
                     Text("Add feedback, coaching tips, or observations at this point in the video.")
                         .font(.caption)
@@ -527,14 +554,28 @@ struct AddNoteView: View {
                     Button("Cancel") {
                         dismiss()
                     }
+                    .disabled(isSaving)
                 }
-                
+
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        onSave(noteText.trimmingCharacters(in: .whitespacesAndNewlines), timestamp)
-                        dismiss()
+                    if isSaving {
+                        ProgressView()
+                    } else {
+                        Button("Save") {
+                            isSaving = true
+                            isTextEditorFocused = false
+                            onSave(noteText.trimmingCharacters(in: .whitespacesAndNewlines), timestamp)
+                            dismiss()
+                        }
+                        .disabled(noteText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
-                    .disabled(noteText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") {
+                        isTextEditorFocused = false
+                    }
                 }
             }
         }
@@ -556,6 +597,7 @@ class CoachVideoPlayerViewModel: ObservableObject {
     
     @Published var player: AVPlayer?
     @Published var isLoading = false
+    @Published var isPlayerReady = false
     @Published var annotations: [VideoAnnotation] = []
     @Published var isLoadingAnnotations = false
     @Published var errorMessage: String?
@@ -570,8 +612,11 @@ class CoachVideoPlayerViewModel: ObservableObject {
         self.folder = folder
     }
     
+    private var statusObservation: NSKeyValueObservation?
+
     func loadVideo() async {
         isLoading = true
+        isPlayerReady = false
 
         // Prefer a short-lived signed URL; fall back to the stored permanent URL
         let playbackURLString: String
@@ -584,11 +629,31 @@ class CoachVideoPlayerViewModel: ObservableObject {
             playbackURLString = video.firebaseStorageURL
         }
 
-        if let url = URL(string: playbackURLString) {
-            player = AVPlayer(url: url)
+        guard let url = URL(string: playbackURLString) else {
+            isLoading = false
+            return
         }
 
-        isLoading = false
+        let newPlayer = AVPlayer(url: url)
+        player = newPlayer
+
+        // Observe the player item's status so we don't hide the loading
+        // indicator until the player has actually buffered enough to play.
+        statusObservation = newPlayer.currentItem?.observe(\.status, options: [.new]) { [weak self] item, _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                switch item.status {
+                case .readyToPlay:
+                    self.isPlayerReady = true
+                    self.isLoading = false
+                case .failed:
+                    self.isLoading = false
+                    self.errorMessage = item.error?.localizedDescription ?? "Failed to load video"
+                default:
+                    break
+                }
+            }
+        }
     }
     
     func loadAnnotations() async {

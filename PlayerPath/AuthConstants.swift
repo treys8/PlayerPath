@@ -53,6 +53,7 @@ enum AuthConstants {
     enum UserDefaultsKeys {
         static let userRole = "userRole"
         static let hasCompletedOnboarding = "hasCompletedOnboarding"
+        static let hasAthleteTierOverride = "hasAthleteTierOverride"
         static let biometricEnabled = "biometric_enabled"
     }
 

@@ -8,11 +8,17 @@ final class ComprehensiveAuthManager: ObservableObject {
     @Published private(set) var currentFirebaseUser: FirebaseAuth.User?
     @Published var isLoading: Bool = false
     @Published var errorMessage: String?
-    @Published var isNewUser: Bool = false // Track if this was a signup vs signin
+    @Published var isNewUser: Bool = false { // Track if this was a signup vs signin
+        didSet {
+            guard oldValue != isNewUser else { return }
+            UserDefaults.standard.set(isNewUser, forKey: "isNewUser")
+        }
+    }
     
     @Published var localUser: User?
     @Published var hasCompletedOnboarding: Bool = false {
         didSet {
+            guard oldValue != hasCompletedOnboarding else { return }
             // Persist onboarding completion to UserDefaults to survive app restarts
             UserDefaults.standard.set(hasCompletedOnboarding, forKey: AuthConstants.UserDefaultsKeys.hasCompletedOnboarding)
             #if DEBUG
@@ -27,6 +33,7 @@ final class ComprehensiveAuthManager: ObservableObject {
     // User role management (for coach sharing feature)
     @Published var userRole: UserRole = .athlete {
         didSet {
+            guard oldValue != userRole else { return }
             // Persist role to UserDefaults to survive app state changes
             UserDefaults.standard.set(userRole.rawValue, forKey: AuthConstants.UserDefaultsKeys.userRole)
             #if DEBUG
@@ -49,8 +56,16 @@ final class ComprehensiveAuthManager: ObservableObject {
         currentFirebaseUser?.uid
     }
     
-    // Subscription tier — kept in sync with StoreKitManager via Combine
+    // Subscription tier — kept in sync with StoreKitManager via Combine.
+    // Can be overridden by Firestore for comped users (see loadUserProfile).
     @Published var currentTier: SubscriptionTier = .free
+
+    /// True when the athlete tier was manually granted via Firestore (not StoreKit).
+    /// Used to prevent syncSubscriptionTiers from overwriting the comped value.
+    /// Persisted to UserDefaults so it survives app restarts.
+    private(set) var hasAthleteTierOverride: Bool = false {
+        didSet { UserDefaults.standard.set(hasAthleteTierOverride, forKey: AuthConstants.UserDefaultsKeys.hasAthleteTierOverride) }
+    }
 
     /// Bridge for legacy call sites — true when user has Plus or Pro
     var isPremiumUser: Bool { currentTier >= .plus }
@@ -90,23 +105,51 @@ final class ComprehensiveAuthManager: ObservableObject {
 
         // Restore persisted onboarding completion from UserDefaults
         hasCompletedOnboarding = UserDefaults.standard.bool(forKey: AuthConstants.UserDefaultsKeys.hasCompletedOnboarding)
+        isNewUser = UserDefaults.standard.bool(forKey: "isNewUser")
+        // Restore comped tier override flag BEFORE Combine sinks fire, so a StoreKit
+        // .free resolution doesn't overwrite a Firestore-granted comp on cold launch.
+        hasAthleteTierOverride = UserDefaults.standard.bool(forKey: AuthConstants.UserDefaultsKeys.hasAthleteTierOverride)
         #if DEBUG
         if hasCompletedOnboarding {
             print("💾 Restored hasCompletedOnboarding from UserDefaults: true")
         }
+        if isNewUser {
+            print("💾 Restored isNewUser from UserDefaults: true")
+        }
+        if hasAthleteTierOverride {
+            print("💾 Restored hasAthleteTierOverride from UserDefaults: true")
+        }
         #endif
 
-        // Keep athlete tier in sync with StoreKitManager
+        // Keep athlete tier in sync with StoreKitManager.
+        // If Firestore granted a comped tier (hasAthleteTierOverride), only accept
+        // StoreKit updates that are equal or higher — don't downgrade a comp.
         StoreKitManager.shared.$currentTier
+            .removeDuplicates()
             .receive(on: RunLoop.main)
             .sink { [weak self] tier in
-                self?.currentTier = tier
-                self?.syncSubscriptionTierToFirestore()
+                guard let self else { return }
+                if self.hasAthleteTierOverride && tier < self.currentTier {
+                    // StoreKit resolved lower than the Firestore comp — keep the comp
+                    #if DEBUG
+                    print("⏭️ StoreKit tier \(tier.rawValue) lower than comped tier \(self.currentTier.rawValue) — keeping comp")
+                    #endif
+                } else {
+                    let hadOverride = self.hasAthleteTierOverride
+                    self.currentTier = tier
+                    // If StoreKit now meets or exceeds the comped tier, clear the override
+                    if hadOverride { self.hasAthleteTierOverride = false }
+                }
+                self.syncSubscriptionTierToFirestore()
+                // Keep SwiftData User model in sync so user.tier doesn't go stale
+                // (e.g. subscription expires while app is backgrounded)
+                self.syncTierToLocalUser(self.currentTier)
             }
             .store(in: &storeKitCancellables)
 
         // Keep coach tier in sync with StoreKitManager (Academy override happens in loadUserProfile)
         StoreKitManager.shared.$currentCoachTier
+            .removeDuplicates()
             .receive(on: RunLoop.main)
             .sink { [weak self] tier in
                 self?.currentCoachTier = tier
@@ -130,8 +173,8 @@ final class ComprehensiveAuthManager: ObservableObject {
                     self?.hasCompletedOnboarding = false
                     self?.currentTier = .free
                     self?.currentCoachTier = .free
-                    UserDefaults.standard.removeObject(forKey: AuthConstants.UserDefaultsKeys.userRole)
-                    UserDefaults.standard.removeObject(forKey: AuthConstants.UserDefaultsKeys.hasCompletedOnboarding)
+                    self?.hasAthleteTierOverride = false
+                    self?.clearPersistedUserDefaults()
                     #if DEBUG
                     print("🔄 Cleared all user data on sign out")
                     #endif
@@ -157,12 +200,9 @@ final class ComprehensiveAuthManager: ObservableObject {
             }
         }
         
-        // Load profile for already signed-in users
-        if currentFirebaseUser != nil {
-            Task {
-                await self.loadUserProfile()
-            }
-        }
+        // Profile loading for already signed-in users is handled by the
+        // auth state listener above (which fires on init). No need to
+        // double-fetch here.
     }
     
     deinit {
@@ -226,13 +266,27 @@ final class ComprehensiveAuthManager: ObservableObject {
         hasCompletedOnboarding = true
     }
     
+    /// Keeps the SwiftData User.subscriptionTier in sync with the live StoreKit tier.
+    /// Without this, the SwiftData field only updates at purchase time in the paywall
+    /// and becomes stale when a subscription expires or renews in the background.
+    private func syncTierToLocalUser(_ tier: SubscriptionTier) {
+        guard let localUser, localUser.subscriptionTier != tier.rawValue else { return }
+        localUser.subscriptionTier = tier.rawValue
+        try? modelContext?.save()
+        #if DEBUG
+        print("🔄 Synced SwiftData User.subscriptionTier to \(tier.rawValue)")
+        #endif
+    }
+
     private func syncSubscriptionTierToFirestore() {
         guard let userID = currentFirebaseUser?.uid else { return }
         let tier = currentTier
         let coachTier = currentCoachTier
+        let hasOverride = hasAthleteTierOverride
         Task {
             await FirestoreManager.shared.syncSubscriptionTiers(
-                userID: userID, tier: tier, coachTier: coachTier
+                userID: userID, tier: tier, coachTier: coachTier,
+                hasAthleteTierOverride: hasOverride
             )
         }
     }
@@ -432,6 +486,19 @@ final class ComprehensiveAuthManager: ObservableObject {
                     #if DEBUG
                     print("✅ Academy coach tier applied from Firestore override")
                     #endif
+                }
+
+                // Athlete tier can be comped via Firestore — if Firestore holds a higher
+                // tier than StoreKit resolved, treat it as a manual grant and override.
+                // This mirrors the coach Academy pattern for athlete tiers.
+                if profile.tier > currentTier {
+                    currentTier = profile.tier
+                    hasAthleteTierOverride = true
+                    #if DEBUG
+                    print("✅ Comped athlete tier applied from Firestore override: \(profile.tier.displayName)")
+                    #endif
+                } else {
+                    hasAthleteTierOverride = false
                 }
 
                 // Only update userRole if it's different AND this is not a new user
@@ -705,8 +772,17 @@ final class ComprehensiveAuthManager: ObservableObject {
         )
     }
 
+    /// Removes all user-specific UserDefaults keys. Called from sign-out,
+    /// account deletion, and the auth state listener on sign-out.
+    private func clearPersistedUserDefaults() {
+        UserDefaults.standard.removeObject(forKey: AuthConstants.UserDefaultsKeys.userRole)
+        UserDefaults.standard.removeObject(forKey: AuthConstants.UserDefaultsKeys.hasCompletedOnboarding)
+        UserDefaults.standard.removeObject(forKey: AuthConstants.UserDefaultsKeys.hasAthleteTierOverride)
+    }
+
     func signOut() async {
         isLoading = true
+        defer { isLoading = false }
         errorMessage = nil
 
         do {
@@ -721,7 +797,6 @@ final class ComprehensiveAuthManager: ObservableObject {
             try Auth.auth().signOut()
             currentFirebaseUser = nil
             isSignedIn = false
-            isLoading = false
             isNewUser = false
             errorMessage = nil
             userRole = .athlete // Reset to default
@@ -733,12 +808,12 @@ final class ComprehensiveAuthManager: ObservableObject {
             localUser = nil
             currentTier = .free
             currentCoachTier = .free
+            hasAthleteTierOverride = false
 
             // Clear persisted role and onboarding completion (both in memory and UserDefaults).
             // Don't wait for the auth listener — it fires asynchronously and leaves a race window.
             hasCompletedOnboarding = false
-            UserDefaults.standard.removeObject(forKey: AuthConstants.UserDefaultsKeys.userRole)
-            UserDefaults.standard.removeObject(forKey: AuthConstants.UserDefaultsKeys.hasCompletedOnboarding)
+            clearPersistedUserDefaults()
 
             // Stop active Firestore listeners and background sync for this user
             ActivityNotificationService.shared.stopListening()
@@ -758,7 +833,6 @@ final class ComprehensiveAuthManager: ObservableObject {
             #endif
         } catch {
             errorMessage = "Failed to sign out: \(error.localizedDescription)"
-            isLoading = false
             #if DEBUG
             print("🔴 Sign out error: \(error.localizedDescription)")
             #endif
@@ -791,6 +865,9 @@ final class ComprehensiveAuthManager: ObservableObject {
     func deleteAccount() async throws {
         guard let user = currentFirebaseUser else {
             throw NSError(domain: "ComprehensiveAuthManager", code: -1, userInfo: [NSLocalizedDescriptionKey: "No user signed in"])
+        }
+        guard ConnectivityMonitor.shared.isConnected else {
+            throw NSError(domain: "ComprehensiveAuthManager", code: -2, userInfo: [NSLocalizedDescriptionKey: "Account deletion requires an internet connection. Please connect and try again."])
         }
 
         isLoading = true
@@ -841,10 +918,21 @@ final class ComprehensiveAuthManager: ObservableObject {
             // Step 3: Clear biometric credentials
             BiometricAuthenticationManager.shared.disableBiometric()
 
-            // Step 4: Delete Firebase Auth account
+            // Step 4: Clear local SwiftData records (before Firebase Auth deletion
+            // so data isn't orphaned if the app crashes after auth deletion)
+            if let context = modelContext, let localUser = localUser {
+                // Deep-delete all athletes and their children (videos, games, photos, etc.)
+                for athlete in localUser.athletes ?? [] {
+                    athlete.delete(in: context)
+                }
+                context.delete(localUser)
+                try? context.save()
+            }
+
+            // Step 5: Delete Firebase Auth account
             try await user.delete()
 
-            // Step 5: Clear local state
+            // Step 6: Clear local state
             currentFirebaseUser = nil
             isSignedIn = false
             userProfile = nil
@@ -853,9 +941,8 @@ final class ComprehensiveAuthManager: ObservableObject {
             isNewUser = false
             userRole = .athlete
 
-            // Clear persisted role and onboarding completion from UserDefaults
-            UserDefaults.standard.removeObject(forKey: AuthConstants.UserDefaultsKeys.userRole)
-            UserDefaults.standard.removeObject(forKey: AuthConstants.UserDefaultsKeys.hasCompletedOnboarding)
+            // Clear all persisted user data from UserDefaults
+            clearPersistedUserDefaults()
 
             // Track account deletion completion
             AnalyticsService.shared.trackAccountDeletionCompleted(userID: userID)
@@ -882,16 +969,6 @@ final class ComprehensiveAuthManager: ObservableObject {
     
     func resetNewUserFlag() {
         isNewUser = false
-    }
-
-    /// Marks onboarding as completed and resets new user flag
-    /// Use this when user skips onboarding or completes it
-    func completeOnboarding() {
-        hasCompletedOnboarding = true
-        isNewUser = false
-        #if DEBUG
-        print("✅ Onboarding marked as completed")
-        #endif
     }
 
     // Method to allow external sign-in managers (like Apple Sign In) to update the user

@@ -17,14 +17,16 @@ struct AuthenticatedFlow: View {
     
     @State private var currentUser: User?
     @State private var isLoading = true
-    @State private var loadTask: Task<Void, Never>?
+
     
     var body: some View {
         Group {
             if isLoading {
                 LoadingView(title: "Setting up your profile...", subtitle: "This will only take a moment")
             } else if let user = currentUser {
+                #if DEBUG
                 let _ = print("🎯 AuthenticatedFlow - isNewUser: \(authManager.isNewUser), hasCompletedOnboarding: \(hasCompletedOnboarding), userRole: \(authManager.userRole.rawValue)")
+                #endif
                 
                 // Show onboarding whenever it hasn't been completed. isNewUser alone is not
                 // sufficient — a user who signs out mid-onboarding has isNewUser reset to false
@@ -53,65 +55,85 @@ struct AuthenticatedFlow: View {
             }
         }
         .task(priority: .userInitiated) {
-            loadTask = Task {
-                // Configure SyncCoordinator with ModelContext
-                SyncCoordinator.shared.configure(modelContext: modelContext)
+            // .task automatically cancels when the view disappears — no need for
+            // a separate loadTask + onDisappear cancellation.
 
-                // Configure UploadQueueManager with ModelContext
-                UploadQueueManager.shared.configure(modelContext: modelContext)
+            // Scope OnboardingManager to the current user
+            OnboardingManager.shared.configure(forUserID: authManager.currentFirebaseUser?.uid)
 
-                // Setup iOS Home Screen Quick Actions
-                QuickActionsManager.shared.setupQuickActions()
+            // Configure SyncCoordinator with ModelContext
+            SyncCoordinator.shared.configure(modelContext: modelContext)
 
-                // Load user
-                await loadUser()
+            // Configure UploadQueueManager with ModelContext
+            UploadQueueManager.shared.configure(modelContext: modelContext)
 
-                // Migrate videos from Caches to Documents (one-time operation)
-                do {
-                    try await ClipPersistenceService().migrateVideosToDocuments(context: modelContext)
-                } catch {
-                    print("⚠️ Video migration failed (non-blocking): \(error)")
-                    // Don't block app launch on migration failure
+            // Setup iOS Home Screen Quick Actions
+            QuickActionsManager.shared.setupQuickActions()
+
+            // Start Firestore-backed activity notification listener early so it's
+            // ready before any view (UserMainFlow / CoachDashboardView) appears.
+            if let firebaseUID = authManager.currentFirebaseUser?.uid {
+                ActivityNotificationService.shared.startListening(forUserID: firebaseUID)
+            }
+
+            // Pre-start coach listeners so data is ready before CoachDashboardView appears.
+            if authManager.userRole == .coach {
+                if let coachID = authManager.currentFirebaseUser?.uid {
+                    CoachFolderArchiveManager.shared.configure(coachUID: coachID)
+                    SharedFolderManager.shared.startCoachFoldersListener(coachID: coachID)
                 }
-
-                // Recover any video files orphaned by a SwiftData store reset
-                // (happens between TestFlight builds when model schema changes).
-                // Run after loadUser() so athletes are in the context.
-                let athletes = (currentUser?.athletes ?? [])
-                await OrphanedClipRecoveryService.shared.recoverIfNeeded(
-                    context: modelContext,
-                    athletes: athletes
-                )
-
-                // Ensure firebaseAuthUid is written before sync builds Firestore paths.
-                // ensureLocalUser() is called from the auth state listener but modelContext
-                // is nil at that point, so it returns early. Now that loadUser() has attached
-                // the context, call it again so user.firebaseAuthUid is populated.
-                await authManager.ensureLocalUser()
-
-                // Trigger full sync after user loads so all data is available immediately on new device
-                if let user = currentUser, user.firebaseAuthUid != nil {
-                    do {
-                        try await SyncCoordinator.shared.syncAll(for: user)
-                        print("✅ Initial full sync completed on app launch")
-                    } catch {
-                        print("⚠️ Initial sync failed (will retry in background): \(error)")
-                        // Don't block app launch on sync failure
-                    }
-                } else if currentUser?.firebaseAuthUid == nil {
-                    print("⚠️ Skipping sync — firebaseAuthUid not yet available (will sync on next foreground)")
+                if let coachEmail = authManager.currentFirebaseUser?.email?.lowercased() {
+                    CoachInvitationManager.shared.startInvitationsListener(forCoachEmail: coachEmail)
                 }
             }
-        }
-        .onDisappear {
-            loadTask?.cancel()
+
+            // Load user
+            await loadUser()
+
+            // Migrate videos from Caches to Documents (one-time operation)
+            do {
+                try await ClipPersistenceService().migrateVideosToDocuments(context: modelContext)
+            } catch {
+                print("⚠️ Video migration failed (non-blocking): \(error)")
+                // Don't block app launch on migration failure
+            }
+
+            // Recover any video files orphaned by a SwiftData store reset
+            // (happens between TestFlight builds when model schema changes).
+            // Run after loadUser() so athletes are in the context.
+            let athletes = (currentUser?.athletes ?? [])
+            await OrphanedClipRecoveryService.shared.recoverIfNeeded(
+                context: modelContext,
+                athletes: athletes
+            )
+
+            // Ensure firebaseAuthUid is written before sync builds Firestore paths.
+            // ensureLocalUser() is called from the auth state listener but modelContext
+            // is nil at that point, so it returns early. Now that loadUser() has attached
+            // the context, call it again so user.firebaseAuthUid is populated.
+            await authManager.ensureLocalUser()
+
+            // Trigger full sync after user loads so all data is available immediately on new device
+            if let user = currentUser, user.firebaseAuthUid != nil {
+                do {
+                    try await SyncCoordinator.shared.syncAll(for: user)
+                    print("✅ Initial full sync completed on app launch")
+                } catch {
+                    print("⚠️ Initial sync failed (will retry in background): \(error)")
+                    // Don't block app launch on sync failure
+                }
+            } else if currentUser?.firebaseAuthUid == nil {
+                print("⚠️ Skipping sync — firebaseAuthUid not yet available (will sync on next foreground)")
+            }
         }
     }
     
     // Computed property to check if onboarding has been completed
     private var hasCompletedOnboarding: Bool {
-        // Check if onboarding progress exists or auth manager flag is set
-        return onboardingProgress.contains { $0.hasCompletedOnboarding } || authManager.hasCompletedOnboarding
+        // Check if onboarding progress exists for the current user, or auth manager flag is set
+        let currentUID = authManager.currentFirebaseUser?.uid
+        return onboardingProgress.contains { $0.hasCompletedOnboarding && $0.firebaseAuthUid == currentUID }
+            || authManager.hasCompletedOnboarding
     }
     
     private func loadUser() async {
@@ -209,6 +231,11 @@ struct AuthenticatedFlow: View {
         // UserDefaults that may have been left by a previous account on this device.
         if !authManager.isNewUser {
             OnboardingManager.shared.markMilestoneComplete(.welcomeTutorial)
+            // Ensure existing users always skip onboarding even if their
+            // OnboardingProgress record was lost (reinstall, data migration, etc.)
+            if !hasCompletedOnboarding {
+                authManager.markOnboardingComplete()
+            }
         } else {
             // Ensure welcome tutorial fires when the new user first reaches MainTabView,
             // even if a previous account on this device had already seen it.

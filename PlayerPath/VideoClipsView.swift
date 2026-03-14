@@ -21,7 +21,6 @@ struct VideoClipsView: View {
     @State private var selectedVideo: VideoClip?
     @State private var searchText = ""
     @State private var liveGameContext: Game?
-    @State private var refreshTrigger = UUID()
     @State private var errorMessage: String?
     @State private var showingError = false
     @State private var isImporting = false
@@ -35,6 +34,7 @@ struct VideoClipsView: View {
     @State private var selectedVideos: Set<UUID> = []
     @State private var showingBulkDeleteConfirmation = false
     @State private var showingStatistics = false
+    @State private var bulkOperationMessage: String?
 
     // Get all unique seasons from videos
     private var availableSeasons: [Season] {
@@ -55,10 +55,20 @@ struct VideoClipsView: View {
         !(athlete.videoClips?.isEmpty ?? true)
     }
 
-    private var filteredVideos: [VideoClip] {
-        // Force refresh by accessing refreshTrigger
-        _ = refreshTrigger
+    private static let searchDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateStyle = .medium
+        f.timeStyle = .none
+        return f
+    }()
 
+    private static let searchShortFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "M/d/yy"
+        return f
+    }()
+
+    private var filteredVideos: [VideoClip] {
         var videos = athlete.videoClips ?? []
 
         // Filter by season
@@ -72,8 +82,12 @@ struct VideoClipsView: View {
             }
         }
 
-        // Filter by upload status
+        // Filter by upload status — build ID sets once for O(1) lookups
         if selectedUploadFilter != .all {
+            let pendingIDs = Set(uploadManager.pendingUploads.map(\.clipId))
+            let failedIDs = Set(uploadManager.failedUploads.map(\.clipId))
+            let activeIDs = Set(uploadManager.activeUploads.keys)
+
             videos = videos.filter { video in
                 switch selectedUploadFilter {
                 case .all:
@@ -82,14 +96,13 @@ struct VideoClipsView: View {
                     return video.isUploaded
                 case .notUploaded:
                     return !video.isUploaded &&
-                           !uploadManager.activeUploads.keys.contains(video.id) &&
-                           !uploadManager.pendingUploads.contains(where: { $0.clipId == video.id }) &&
-                           !uploadManager.failedUploads.contains(where: { $0.clipId == video.id })
+                           !activeIDs.contains(video.id) &&
+                           !pendingIDs.contains(video.id) &&
+                           !failedIDs.contains(video.id)
                 case .uploading:
-                    return uploadManager.activeUploads.keys.contains(video.id) ||
-                           uploadManager.pendingUploads.contains(where: { $0.clipId == video.id })
+                    return activeIDs.contains(video.id) || pendingIDs.contains(video.id)
                 case .failed:
-                    return uploadManager.failedUploads.contains(where: { $0.clipId == video.id })
+                    return failedIDs.contains(video.id)
                 }
             }
         }
@@ -97,18 +110,13 @@ struct VideoClipsView: View {
         // Filter by search text
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if !query.isEmpty {
-            let dateFormatter = DateFormatter()
-            dateFormatter.dateStyle = .medium
-            dateFormatter.timeStyle = .none
-            let shortFormatter = DateFormatter()
-            shortFormatter.dateFormat = "M/d/yy"
             videos = videos.filter { video in
                 video.fileName.lowercased().contains(query) ||
                 (video.playResult?.type.displayName.lowercased().contains(query) ?? false) ||
                 (video.game?.opponent.lowercased().contains(query) ?? false) ||
                 (video.note?.lowercased().contains(query) ?? false) ||
-                (video.createdAt.map { dateFormatter.string(from: $0).lowercased() }?.contains(query) ?? false) ||
-                (video.createdAt.map { shortFormatter.string(from: $0).lowercased() }?.contains(query) ?? false)
+                (video.createdAt.map { Self.searchDateFormatter.string(from: $0).lowercased() }?.contains(query) ?? false) ||
+                (video.createdAt.map { Self.searchShortFormatter.string(from: $0).lowercased() }?.contains(query) ?? false)
             }
         }
 
@@ -330,9 +338,8 @@ struct VideoClipsView: View {
             NotificationCenter.default.post(name: .videosManageOwnControls, object: false)
             liveGameContext = nil
         }
-        .onChange(of: athlete.videoClips?.count) { _, _ in
-            refreshTrigger = UUID()
-        }
+        // SwiftData observation handles re-rendering when videoClips changes;
+        // no manual refreshTrigger needed.
         .alert("Error", isPresented: $showingError) {
             Button("OK", role: .cancel) { }
         } message: {
@@ -373,20 +380,40 @@ struct VideoClipsView: View {
                 }
             }
         }
+        .overlay(alignment: .bottom) {
+            if let message = bulkOperationMessage {
+                Text(message)
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 12)
+                    .background(Color.green, in: Capsule())
+                    .shadow(radius: 8)
+                    .padding(.bottom, 32)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
     }
 
     private func performDelete(_ video: VideoClip) {
         Haptics.medium()
 
-        // Capture ID before deletion — accessing SwiftData object properties after
+        // Capture ID and athlete before deletion — accessing SwiftData object properties after
         // context.delete() is undefined behavior.
         let videoID = video.id.uuidString
+        let videoAthlete = video.athlete
 
         video.delete(in: modelContext)
 
         do {
             try modelContext.save()
             AnalyticsService.shared.trackVideoDeleted(videoID: videoID)
+
+            // Recalculate athlete statistics to reflect the removed play result
+            if let athlete = videoAthlete {
+                try StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: modelContext)
+            }
         } catch {
             errorMessage = "Failed to delete video: \(error.localizedDescription)"
             showingError = true
@@ -422,6 +449,10 @@ struct VideoClipsView: View {
         do {
             try modelContext.save()
             deletedIDs.forEach { AnalyticsService.shared.trackVideoDeleted(videoID: $0) }
+
+            // Recalculate athlete statistics to reflect the removed play results
+            try StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: modelContext)
+
             Haptics.success()
         } catch {
             errorMessage = "Failed to delete videos: \(error.localizedDescription)"
@@ -434,14 +465,17 @@ struct VideoClipsView: View {
 
     private func bulkUploadSelected() {
         let videosToUpload = (athlete.videoClips ?? []).filter { selectedVideos.contains($0.id) }
+        var queuedCount = 0
 
         for video in videosToUpload {
             if !video.isUploaded {
                 UploadQueueManager.shared.enqueue(video, athlete: athlete, priority: .high)
+                queuedCount += 1
             }
         }
 
         Haptics.success()
+        showBulkToast("\(queuedCount) video\(queuedCount == 1 ? "" : "s") queued for upload")
 
         // Exit selection mode
         isSelectionMode = false
@@ -459,6 +493,7 @@ struct VideoClipsView: View {
         do {
             try modelContext.save()
             Haptics.success()
+            showBulkToast("\(videosToMark.count) video\(videosToMark.count == 1 ? "" : "s") marked as highlights")
         } catch {
             errorMessage = "Failed to mark videos as highlights: \(error.localizedDescription)"
             showingError = true
@@ -467,6 +502,19 @@ struct VideoClipsView: View {
         // Exit selection mode
         isSelectionMode = false
         selectedVideos.removeAll()
+    }
+
+    private func showBulkToast(_ message: String) {
+        withAnimation(.spring(response: 0.4)) {
+            bulkOperationMessage = message
+        }
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut) {
+                bulkOperationMessage = nil
+            }
+        }
     }
 
     private var emptyStateView: some View {
@@ -534,7 +582,7 @@ struct VideoClipsView: View {
 
     private var videoListView: some View {
         ScrollView {
-            VStack(spacing: 0) {
+            LazyVStack(spacing: 0) {
                 // Upload status filter picker
                 if hasAnyVideos {
                     uploadStatusFilterPicker
@@ -546,7 +594,7 @@ struct VideoClipsView: View {
                     ],
                     spacing: 16
                 ) {
-                    ForEach(Array(filteredVideos.enumerated()), id: \.element.id) { index, video in
+                    ForEach(filteredVideos) { video in
                         VideoClipCard(
                             video: video,
                             isSelectionMode: isSelectionMode,
@@ -568,7 +616,9 @@ struct VideoClipsView: View {
                             }
                         )
                         .onAppear {
-                            prefetchNearbyThumbnails(for: index, in: filteredVideos)
+                            if let index = filteredVideos.firstIndex(where: { $0.id == video.id }) {
+                                prefetchNearbyThumbnails(for: index, in: filteredVideos)
+                            }
                         }
                     }
                 }
@@ -583,7 +633,6 @@ struct VideoClipsView: View {
     @MainActor
     private func refreshVideos() async {
         Haptics.light()
-        refreshTrigger = UUID()
         // Small delay for haptic feedback
         try? await Task.sleep(nanoseconds: 300_000_000)
     }
@@ -597,7 +646,7 @@ struct VideoClipsView: View {
         guard startIndex <= endIndex else { return }
 
         let thumbnailPaths = videos[startIndex...endIndex].compactMap { $0.thumbnailPath }
-        let targetSize = CGSize(width: 400, height: 300) // 2x display size for retina
+        let targetSize = CGSize(width: 320, height: 180) // 2x of 160x90 display size for retina
 
         ThumbnailCache.shared.prefetchThumbnails(paths: thumbnailPaths, targetSize: targetSize)
     }
@@ -616,6 +665,7 @@ struct VideoClipCard: View {
     @State private var showingSaveSuccess = false
     @State private var uploadManager = UploadQueueManager.shared
     @State private var isPressed = false
+    @State private var isSavingToPhotos = false
 
     var body: some View {
         Button(action: {
@@ -623,66 +673,66 @@ struct VideoClipCard: View {
             onPlay()
         }) {
             VStack(spacing: 0) {
-                // Thumbnail - 16:9 aspect ratio
-                GeometryReader { geometry in
-                    ZStack {
-                        VideoThumbnailView(
-                            clip: video,
-                            size: CGSize(width: geometry.size.width, height: geometry.size.width * 9/16),
-                            cornerRadius: 0,
-                            showPlayButton: !isSelectionMode,
-                            showPlayResult: true,
-                            showHighlight: false,
-                            showSeason: false
+                // Thumbnail - 16:9 aspect ratio (no GeometryReader for better LazyVGrid perf)
+                ZStack {
+                    VideoThumbnailView(
+                        clip: video,
+                        size: CGSize(width: 200, height: 112),
+                        cornerRadius: 0,
+                        showPlayButton: !isSelectionMode,
+                        showPlayResult: true,
+                        showHighlight: false,
+                        showSeason: false,
+                        fillsContainer: true
+                    )
+
+                    // Gradient overlay for better contrast
+                    VStack {
+                        Spacer()
+                        LinearGradient(
+                            colors: [.clear, .black.opacity(0.4)],
+                            startPoint: .top,
+                            endPoint: .bottom
                         )
+                        .frame(maxHeight: .infinity, alignment: .bottom)
+                        .frame(height: 40)
+                    }
 
-                        // Gradient overlay for better contrast
-                        VStack {
-                            Spacer()
-                            LinearGradient(
-                                colors: [.clear, .black.opacity(0.4)],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                            .frame(height: geometry.size.width * 9/16 * 0.4)
-                        }
-
-                        // Duration badge (bottom-left)
-                        VStack {
-                            Spacer()
-                            HStack {
-                                if let duration = video.duration, duration > 0 {
-                                    Text(formatDuration(duration))
-                                        .font(.caption2)
-                                        .fontWeight(.semibold)
-                                        .foregroundColor(.white)
-                                        .padding(.horizontal, 6)
-                                        .padding(.vertical, 3)
-                                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 4))
-                                        .padding(8)
-                                }
-                                Spacer()
+                    // Duration badge (bottom-left)
+                    VStack {
+                        Spacer()
+                        HStack {
+                            if let duration = video.duration, duration > 0 {
+                                Text(formatDuration(duration))
+                                    .font(.caption2)
+                                    .fontWeight(.semibold)
+                                    .foregroundColor(.white)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 3)
+                                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 4))
+                                    .padding(8)
                             }
-                        }
-
-                        // Selection overlay
-                        selectionOverlay
-
-                        // Backup status badge (top-left, moved from top-right to not conflict with play result)
-                        if !isSelectionMode {
-                            VStack {
-                                HStack {
-                                    backupStatusBadge
-                                        .padding(8)
-                                    Spacer()
-                                }
-                                Spacer()
-                            }
+                            Spacer()
                         }
                     }
-                    .clipShape(UnevenRoundedRectangle(topLeadingRadius: 12, bottomLeadingRadius: 0, bottomTrailingRadius: 0, topTrailingRadius: 12))
+
+                    // Selection overlay
+                    selectionOverlay
+
+                    // Backup status badge (top-left, moved from top-right to not conflict with play result)
+                    if !isSelectionMode {
+                        VStack {
+                            HStack {
+                                backupStatusBadge
+                                    .padding(8)
+                                Spacer()
+                            }
+                            Spacer()
+                        }
+                    }
                 }
                 .aspectRatio(16/9, contentMode: .fit)
+                .clipShape(UnevenRoundedRectangle(topLeadingRadius: 12, bottomLeadingRadius: 0, bottomTrailingRadius: 0, topTrailingRadius: 12))
 
                 // Info section
                 VStack(alignment: .leading, spacing: 6) {
@@ -848,6 +898,22 @@ struct VideoClipCard: View {
         } message: {
             Text("Video has been saved to your Photos library.")
         }
+        .overlay {
+            if isSavingToPhotos {
+                ZStack {
+                    Color.black.opacity(0.4)
+                    VStack(spacing: 10) {
+                        ProgressView()
+                        Text("Saving to Photos...")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding()
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+                }
+                .allowsHitTesting(false)
+            }
+        }
     }
 
     // MARK: - Save to Photos
@@ -859,11 +925,13 @@ struct VideoClipCard: View {
             return
         }
 
+        isSavingToPhotos = true
         let videoURL = video.resolvedFileURL
 
         PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
             guard status == .authorized || status == .limited else {
                 DispatchQueue.main.async {
+                    self.isSavingToPhotos = false
                     self.errorMessage = "Photo library access denied. Please enable in Settings."
                     self.showingError = true
                 }
@@ -874,6 +942,7 @@ struct VideoClipCard: View {
                 PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: videoURL)
             } completionHandler: { success, error in
                 DispatchQueue.main.async {
+                    self.isSavingToPhotos = false
                     if success {
                         Haptics.success()
                         self.showingSaveSuccess = true

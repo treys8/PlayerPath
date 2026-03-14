@@ -8,6 +8,7 @@
 
 import SwiftUI
 import SwiftData
+import FirebaseAuth
 
 struct CoachOnboardingFlow: View {
     let modelContext: ModelContext
@@ -55,20 +56,27 @@ struct CoachOnboardingFlow: View {
     }
 
     private func completeCoachOnboarding() {
-        Task {
-            do {
-                let progress = OnboardingProgress()
-                progress.markCompleted()
-                modelContext.insert(progress)
-                try modelContext.save()
+        // Mark onboarding complete immediately so the transition fires without delay
+        authManager.resetNewUserFlag()
+        authManager.markOnboardingComplete()
+        Haptics.medium()
 
-                await MainActor.run {
-                    authManager.resetNewUserFlag()
-                    authManager.markOnboardingComplete()
-                    Haptics.medium()
+        // Persist to SwiftData in the background so the save doesn't block the transition
+        Task.detached { @MainActor in
+            let progress = OnboardingProgress(firebaseAuthUid: authManager.currentFirebaseUser?.uid ?? "")
+            progress.markCompleted()
+            modelContext.insert(progress)
+            for attempt in 1...3 {
+                do {
+                    try modelContext.save()
+                    print("🟢 Successfully saved coach onboarding progress")
+                    return
+                } catch {
+                    print("🔴 Failed to save coach onboarding progress (attempt \(attempt)/3): \(error)")
+                    if attempt < 3 {
+                        try? await Task.sleep(for: .seconds(1))
+                    }
                 }
-            } catch {
-                print("🔴 Failed to save coach onboarding progress: \(error)")
             }
         }
     }

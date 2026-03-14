@@ -44,6 +44,10 @@ struct GamesView: View {
     // Season check states
     @State private var showingSeasonCreation = false
 
+    // Delete confirmation
+    @State private var gameToDelete: Game?
+    @State private var showingDeleteGameConfirmation = false
+
     // Alert state
     private enum AlertType: Identifiable {
         case error
@@ -124,6 +128,13 @@ struct GamesView: View {
         }
     }
 
+    private static let searchDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateStyle = .medium
+        f.timeStyle = .none
+        return f
+    }()
+
     private func filterGames(_ games: [Game]) -> [Game] {
         var filtered = games
 
@@ -143,7 +154,7 @@ struct GamesView: View {
             let query = searchText.lowercased()
             filtered = filtered.filter { game in
                 game.opponent.lowercased().contains(query) ||
-                (game.date?.formatted(date: .abbreviated, time: .omitted).lowercased().contains(query) ?? false)
+                (game.date.map { Self.searchDateFormatter.string(from: $0).lowercased().contains(query) } ?? false)
             }
         }
 
@@ -176,252 +187,290 @@ struct GamesView: View {
         }
     }
     
-    var body: some View {
+    // MARK: - Sub-views
+    
+    @ViewBuilder
+    private var gamesListContent: some View {
+        // Live Games Section
+        if !liveGames.isEmpty {
+            Section("Live") {
+                ForEach(liveGames) { game in
+                    NavigationLink(destination: GameDetailView(game: game)) {
+                        GameRow(game: game)
+                    }
+                    .swipeActions(edge: .trailing) {
+                        Button("End") {
+                            endGame(game)
+                        }
+                        .tint(.red)
+                    }
+                }
+                .onDelete { indexSet in
+                    if let index = indexSet.first, index < liveGames.count {
+                        gameToDelete = liveGames[index]
+                        showingDeleteGameConfirmation = true
+                    }
+                }
+            }
+        }
+        
+        // Upcoming Games Section
+        if !upcomingGames.isEmpty {
+            Section("Upcoming") {
+                ForEach(upcomingGames) { game in
+                    NavigationLink(destination: GameDetailView(game: game)) {
+                        GameRow(game: game)
+                    }
+                    .swipeActions(edge: .trailing) {
+                        Button("Start") {
+                            startGame(game)
+                        }
+                        .tint(.green)
+                    }
+                    .swipeActions(edge: .leading) {
+                        Button(role: .destructive) {
+                            gameToDelete = game
+                            showingDeleteGameConfirmation = true
+                        } label: {
+                            Text("Delete")
+                        }
+                    }
+                }
+                .onDelete { indexSet in
+                    if let index = indexSet.first, index < upcomingGames.count {
+                        gameToDelete = upcomingGames[index]
+                        showingDeleteGameConfirmation = true
+                    }
+                }
+            }
+        }
+
+        // Past Games Section (games that happened but weren't marked as complete)
+        if !pastGames.isEmpty {
+            Section("Past Games") {
+                ForEach(pastGames) { game in
+                    NavigationLink(destination: GameDetailView(game: game)) {
+                        GameRow(game: game)
+                    }
+                    .swipeActions(edge: .trailing) {
+                        Button("Complete") {
+                            completeGame(game)
+                        }
+                        .tint(.blue)
+                    }
+                    .swipeActions(edge: .leading) {
+                        Button(role: .destructive) {
+                            gameToDelete = game
+                            showingDeleteGameConfirmation = true
+                        } label: {
+                            Text("Delete")
+                        }
+                    }
+                }
+                .onDelete { indexSet in
+                    if let index = indexSet.first, index < pastGames.count {
+                        gameToDelete = pastGames[index]
+                        showingDeleteGameConfirmation = true
+                    }
+                }
+            }
+        }
+        
+        // Completed Games Section
+        if !completedGames.isEmpty {
+            Section("Completed") {
+                ForEach(completedGames) { game in
+                    NavigationLink(destination: GameDetailView(game: game)) {
+                        GameRow(game: game)
+                    }
+                }
+                .onDelete { indexSet in
+                    if let index = indexSet.first, index < completedGames.count {
+                        gameToDelete = completedGames[index]
+                        showingDeleteGameConfirmation = true
+                    }
+                }
+            }
+        }
+    }
+    
+    @ViewBuilder
+    private var seasonFilterMenu: some View {
+        Menu {
+            Button {
+                selectedSeasonFilter = nil
+            } label: {
+                HStack {
+                    Text("All Seasons")
+                    if selectedSeasonFilter == nil {
+                        Image(systemName: "checkmark")
+                    }
+                }
+            }
+
+            Divider()
+
+            ForEach(availableSeasons) { season in
+                Button {
+                    selectedSeasonFilter = season.id.uuidString
+                } label: {
+                    HStack {
+                        Text(season.displayName)
+                        if selectedSeasonFilter == season.id.uuidString {
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                }
+            }
+
+            // Show "No Season" option if there are games without a season
+            if allGames.contains(where: { $0.season == nil }) {
+                Divider()
+                Button {
+                    selectedSeasonFilter = "no_season"
+                } label: {
+                    HStack {
+                        Text("No Season")
+                        if selectedSeasonFilter == "no_season" {
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "line.3.horizontal.decrease.circle")
+                if selectedSeasonFilter != nil {
+                    Image(systemName: "circle.fill")
+                        .font(.system(size: 6))
+                        .foregroundColor(.blue)
+                }
+            }
+        }
+        .accessibilityLabel("Filter by season")
+    }
+
+    @ViewBuilder
+    private var mainContent: some View {
         Group {
             if isLoading {
                 ProgressView("Loading games...")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if !hasFilteredResults {
                 if hasActiveFilters && hasGames {
-                    // Filtered empty state
                     FilteredEmptyStateView(
                         filterDescription: filterDescription,
                         onClearFilters: clearAllFilters
                     )
                 } else {
-                    // True empty state
                     EmptyGamesView {
                         handleAddGame()
                     }
                 }
             } else {
                 List {
-                    // Live Games Section
-                    if !liveGames.isEmpty {
-                        Section("Live") {
-                            ForEach(liveGames) { game in
-                                NavigationLink(destination: GameDetailView(game: game)) {
-                                    GameRow(game: game)
-                                }
-                                .swipeActions(edge: .trailing) {
-                                    Button("End") {
-                                        endGame(game)
-                                    }
-                                    .tint(.red)
-                                }
-                            }
-                            .onDelete { indexSet in
-                                deleteGames(from: liveGames, at: indexSet)
-                            }
-                        }
-                    }
-                    
-                    // Upcoming Games Section
-                    if !upcomingGames.isEmpty {
-                        Section("Upcoming") {
-                            ForEach(upcomingGames) { game in
-                                NavigationLink(destination: GameDetailView(game: game)) {
-                                    GameRow(game: game)
-                                }
-                                .swipeActions(edge: .trailing) {
-                                    Button("Start") {
-                                        startGame(game)
-                                    }
-                                    .tint(.green)
-                                }
-                                .swipeActions(edge: .leading) {
-                                    Button(role: .destructive) {
-                                        deleteGame(game)
-                                    } label: {
-                                        Text("Delete")
-                                    }
-                                }
-                            }
-                            .onDelete { indexSet in
-                                deleteGames(from: upcomingGames, at: indexSet)
-                            }
-                        }
-                    }
-                    
-                    // Past Games Section (games that happened but weren't marked as complete)
-                    if !pastGames.isEmpty {
-                        Section("Past Games") {
-                            ForEach(pastGames) { game in
-                                NavigationLink(destination: GameDetailView(game: game)) {
-                                    GameRow(game: game)
-                                }
-                                .swipeActions(edge: .trailing) {
-                                    Button("Complete") {
-                                        completeGame(game)
-                                    }
-                                    .tint(.blue)
-                                }
-                                .swipeActions(edge: .leading) {
-                                    Button(role: .destructive) {
-                                        deleteGame(game)
-                                    } label: {
-                                        Text("Delete")
-                                    }
-                                }
-                            }
-                            .onDelete { indexSet in
-                                deleteGames(from: pastGames, at: indexSet)
-                            }
-                        }
-                    }
-                    
-                    // Completed Games Section
-                    if !completedGames.isEmpty {
-                        Section("Completed") {
-                            ForEach(completedGames) { game in
-                                NavigationLink(destination: GameDetailView(game: game)) {
-                                    GameRow(game: game)
-                                }
-                            }
-                            .onDelete { indexSet in
-                                deleteGames(from: completedGames, at: indexSet)
-                            }
-                        }
-                    }
+                    gamesListContent
                 }
                 .refreshable {
                     await refreshGames()
                 }
             }
         }
-        .navigationTitle("Games")
-        .navigationBarTitleDisplayMode(.large)
-        .searchable(text: $searchText, prompt: "Search by opponent or date")
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button(action: { handleAddGame() }) {
-                    Image(systemName: "plus")
-                }
-                .accessibilityLabel("Add new game")
-            }
-
-            if hasGames {
-                ToolbarItem(placement: .topBarLeading) {
-                    EditButton()
-                }
-
-                // Season filter menu
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Button {
-                            selectedSeasonFilter = nil
-                        } label: {
-                            HStack {
-                                Text("All Seasons")
-                                if selectedSeasonFilter == nil {
-                                    Image(systemName: "checkmark")
-                                }
-                            }
-                        }
-
-                        Divider()
-
-                        ForEach(availableSeasons) { season in
-                            Button {
-                                selectedSeasonFilter = season.id.uuidString
-                            } label: {
-                                HStack {
-                                    Text(season.displayName)
-                                    if selectedSeasonFilter == season.id.uuidString {
-                                        Image(systemName: "checkmark")
-                                    }
-                                }
-                            }
-                        }
-
-                        // Show "No Season" option if there are games without a season
-                        if allGames.contains(where: { $0.season == nil }) {
-                            Divider()
-                            Button {
-                                selectedSeasonFilter = "no_season"
-                            } label: {
-                                HStack {
-                                    Text("No Season")
-                                    if selectedSeasonFilter == "no_season" {
-                                        Image(systemName: "checkmark")
-                                    }
-                                }
-                            }
-                        }
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "line.3.horizontal.decrease.circle")
-                            if selectedSeasonFilter != nil {
-                                Image(systemName: "circle.fill")
-                                    .font(.system(size: 6))
-                                    .foregroundColor(.blue)
-                            }
-                        }
-                    }
-                    .accessibilityLabel("Filter by season")
-                }
-            }
-        }
-        .onAppear {
-            if viewModelHolder.viewModel == nil {
-                viewModelHolder.viewModel = GamesViewModel(modelContext: modelContext, athlete: athlete, allGames: allGames)
-                #if DEBUG
-                print("🎮 GamesView: Initialized ViewModel with \(allGames.count) games")
-                #endif
-            } else {
-                viewModelHolder.viewModel?.update(allGames: allGames)
-                #if DEBUG
-                print("🎮 GamesView: Updated ViewModel with \(allGames.count) games")
-                #endif
-            }
-        }
-        .onChange(of: athlete?.id) { oldValue, newValue in
-            #if DEBUG
-            print("🎮 GamesView: Athlete changed from \(oldValue?.uuidString ?? "nil") to \(newValue?.uuidString ?? "nil")")
-            #endif
-            // Recreate ViewModel when athlete changes
-            viewModelHolder.viewModel = GamesViewModel(modelContext: modelContext, athlete: athlete, allGames: allGames)
-        }
-        .onChange(of: allGames) { oldValue, newValue in
-            #if DEBUG
-            print("🎮 GamesView: Games changed from \(oldValue.count) to \(newValue.count)")
-            if let athlete = athlete {
-                let athleteGames = newValue.filter { $0.athlete?.id == athlete.id }
-                print("🎮 GamesView: Athlete '\(athlete.name)' has \(athleteGames.count) games")
-            }
-            #endif
-            viewModelHolder.viewModel?.update(allGames: newValue)
-        }
-        .sheet(isPresented: $showingGameCreation) {
-            gameCreationSheet
-        }
-        .sheet(isPresented: $showingSeasonCreation) {
-            seasonCreationSheet
-        }
-        .alert(item: $activeAlert) { alertType in
-            switch alertType {
-            case .error:
-                Alert(
-                    title: Text("Error"),
-                    message: Text(errorMessage),
-                    dismissButton: .default(Text("OK"))
-                )
-            case .noSeason:
-                Alert(
-                    title: Text("Create a Season First"),
-                    message: Text("Games belong to a season. Create a season to start tracking games."),
-                    primaryButton: .default(Text("Create Season")) {
-                        showingSeasonCreation = true
-                    },
-                    secondaryButton: .cancel()
-                )
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .presentAddGame)) { _ in
-            handleAddGame()
-        }
     }
-    
+
+    var body: some View {
+        mainContent
+            .navigationTitle("Games")
+            .navigationBarTitleDisplayMode(.large)
+            .searchable(text: $searchText, prompt: "Search by opponent or date")
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button(action: { handleAddGame() }) {
+                        Image(systemName: "plus")
+                    }
+                    .accessibilityLabel("Add new game")
+                }
+
+                if hasGames {
+                    ToolbarItem(placement: .topBarLeading) {
+                        EditButton()
+                    }
+
+                    ToolbarItem(placement: .topBarTrailing) {
+                        seasonFilterMenu
+                    }
+                }
+            }
+            .onAppear {
+                if viewModelHolder.viewModel == nil {
+                    viewModelHolder.viewModel = GamesViewModel(modelContext: modelContext, athlete: athlete, allGames: allGames)
+                    #if DEBUG
+                    print("🎮 GamesView: Initialized ViewModel with \(allGames.count) games")
+                    #endif
+                } else {
+                    viewModelHolder.viewModel?.update(allGames: allGames)
+                    #if DEBUG
+                    print("🎮 GamesView: Updated ViewModel with \(allGames.count) games")
+                    #endif
+                }
+            }
+            .onChange(of: athlete?.id) { oldValue, newValue in
+                #if DEBUG
+                print("🎮 GamesView: Athlete changed from \(oldValue?.uuidString ?? "nil") to \(newValue?.uuidString ?? "nil")")
+                #endif
+                viewModelHolder.viewModel = GamesViewModel(modelContext: modelContext, athlete: athlete, allGames: allGames)
+            }
+            .onChange(of: allGames) { oldValue, newValue in
+                #if DEBUG
+                print("🎮 GamesView: Games changed from \(oldValue.count) to \(newValue.count)")
+                if let athlete = athlete {
+                    let athleteGames = newValue.filter { $0.athlete?.id == athlete.id }
+                    print("🎮 GamesView: Athlete '\(athlete.name)' has \(athleteGames.count) games")
+                }
+                #endif
+                viewModelHolder.viewModel?.update(allGames: newValue)
+            }
+            .sheet(isPresented: $showingGameCreation) {
+                gameCreationSheet
+            }
+            .sheet(isPresented: $showingSeasonCreation) {
+                seasonCreationSheet
+            }
+            .alert(item: $activeAlert) { alertType in
+                switch alertType {
+                case .error:
+                    Alert(
+                        title: Text("Error"),
+                        message: Text(errorMessage),
+                        dismissButton: .default(Text("OK"))
+                    )
+                case .noSeason:
+                    Alert(
+                        title: Text("Create a Season First"),
+                        message: Text("Games belong to a season. Create a season to start tracking games."),
+                        primaryButton: .default(Text("Create Season")) {
+                            showingSeasonCreation = true
+                        },
+                        secondaryButton: .cancel()
+                    )
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .presentAddGame)) { _ in
+                handleAddGame()
+            }
+            .confirmationDialog(
+                "Delete Game",
+                isPresented: $showingDeleteGameConfirmation,
+                presenting: gameToDelete
+            ) { game in
+                Button("Delete \"\(game.opponent)\"", role: .destructive) {
+                    deleteGame(game)
+                }
+            } message: { game in
+                Text("This will permanently delete this game and all its video clips, photos, and statistics.")
+            }
+    }
+
     // MARK: - Helper Methods
     
     private func startGame(_ game: Game) {
@@ -1150,6 +1199,9 @@ struct EditGameSheet: View {
     @State private var date: Date = Date()
     @State private var location: String = ""
     @State private var notes: String = ""
+
+    enum Field: Hashable { case opponent, location, notes }
+    @FocusState private var focusedField: Field?
     @State private var showingSaveError = false
 
     private var isValidOpponent: Bool {
@@ -1169,6 +1221,9 @@ struct EditGameSheet: View {
             Form {
                 Section("Game Details") {
                     TextField("Opponent", text: $opponent)
+                        .focused($focusedField, equals: .opponent)
+                        .submitLabel(.next)
+                        .onSubmit { focusedField = .location }
                         .textInputAutocapitalization(.words)
                         .autocorrectionDisabled()
 
@@ -1183,11 +1238,16 @@ struct EditGameSheet: View {
 
                 Section("Location (Optional)") {
                     TextField("Location", text: $location)
+                        .focused($focusedField, equals: .location)
+                        .submitLabel(.next)
+                        .onSubmit { focusedField = .notes }
                         .textInputAutocapitalization(.words)
                 }
 
                 Section("Notes (Optional)") {
                     TextField("Game notes", text: $notes, axis: .vertical)
+                        .focused($focusedField, equals: .notes)
+                        .submitLabel(.done)
                         .lineLimit(3...6)
                 }
 
@@ -1300,10 +1360,11 @@ struct AddGameView: View {
             Form {
                 Section("Game Details") {
                     TextField("Opponent", text: $opponent)
+                        .submitLabel(.done)
                         .textInputAutocapitalization(.words)
                         .autocorrectionDisabled()
                         .accessibilityLabel("Opponent name")
-                    
+
                     if !opponent.isEmpty && !isValidOpponent {
                         Label {
                             Text("Opponent name must be 2-50 characters")
@@ -1346,7 +1407,8 @@ struct AddGameView: View {
                 Button("Create Season") {
                     dismiss()
                     // Post notification to open seasons view
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: 100_000_000) // 100ms for dismiss animation
                         NotificationCenter.default.post(name: Notification.Name.presentSeasons, object: athlete)
                     }
                 }
@@ -1658,7 +1720,8 @@ struct VideoClipRow: View {
         
         do {
             // Load thumbnail asynchronously using the same cache system
-            let image = try await ThumbnailCache.shared.loadThumbnail(at: thumbnailPath)
+            let size = CGSize(width: 160, height: 90)
+            let image = try await ThumbnailCache.shared.loadThumbnail(at: thumbnailPath, targetSize: size)
             thumbnailImage = image
         } catch {
             print("Failed to load thumbnail in VideoClipRow: \(error)")
@@ -1684,15 +1747,17 @@ struct VideoClipRow: View {
                 } catch {
                     print("Failed to save thumbnail path: \(error)")
                 }
-                // Load from the path directly rather than calling loadThumbnail(),
-                // which would re-enter generateMissingThumbnail() on cache miss.
-                if let image = UIImage(contentsOfFile: thumbnailPath) {
-                    thumbnailImage = image
-                }
                 isLoadingThumbnail = false
             case .failure(let error):
                 print("Failed to generate thumbnail in VideoClipRow: \(error)")
                 isLoadingThumbnail = false
+            }
+        }
+        // Load through the cache (off main thread) after saving the path
+        if case .success(let thumbnailPath) = result {
+            let size = CGSize(width: 160, height: 90)
+            if let image = try? await ThumbnailCache.shared.loadThumbnail(at: thumbnailPath, targetSize: size) {
+                await MainActor.run { thumbnailImage = image }
             }
         }
     }
@@ -1780,6 +1845,7 @@ struct GameCreationView: View {
             Form {
                 Section("Game Details") {
                     TextField("Opponent", text: $opponent)
+                        .submitLabel(.done)
                         .textInputAutocapitalization(.words)
                         .autocorrectionDisabled()
 
@@ -1933,7 +1999,6 @@ struct ManualStatisticsEntryView: View {
     @State private var flyOuts: String = ""
     @State private var showingValidationAlert = false
     @State private var alertMessage = ""
-    
     // Use game.gameStats directly — never create a throwaway GameStatistics()
     // which would be an uninserted @Model object with misleading zero values.
     private var existingGameStats: GameStatistics? { game.gameStats }
@@ -2054,12 +2119,19 @@ struct ManualStatisticsEntryView: View {
             .navigationTitle("Enter Statistics")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") {
+                        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                    }
+                    .fontWeight(.semibold)
+                }
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
                         dismiss()
                     }
                 }
-                
+
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
                         saveStatistics()
@@ -2092,10 +2164,11 @@ struct ManualStatisticsEntryView: View {
         // Create game stats if they don't exist
         var stats = game.gameStats
         if stats == nil {
-            stats = GameStatistics()
-            game.gameStats = stats
-            stats?.game = game
-            modelContext.insert(stats!)
+            let newStats = GameStatistics()
+            game.gameStats = newStats
+            newStats.game = game
+            modelContext.insert(newStats)
+            stats = newStats
         }
         
         // Add the new statistics
@@ -2154,17 +2227,17 @@ struct StatEntryRow: View {
     @Binding var value: String
     let icon: String
     let color: Color
-    
+
     var body: some View {
         HStack {
             Image(systemName: icon)
                 .foregroundColor(color)
                 .frame(width: 25)
-            
+
             Text(title)
                 .fontWeight(.medium)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            
+
             TextField("0", text: $value)
                 .keyboardType(.numberPad)
                 .textFieldStyle(.roundedBorder)

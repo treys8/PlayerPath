@@ -98,7 +98,7 @@ struct ProfileView: View {
                 LoadingOverlay(message: "Signing out...")
             }
         }
-        .onAppear {
+        .task {
             updateSortedAthletes()
         }
         .onChange(of: user.athletes) { _, _ in
@@ -140,8 +140,11 @@ struct ProfileView: View {
         sortedAthletes = (user.athletes ?? []).sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
+    /// Use authManager.currentTier (sourced live from StoreKit) instead of the
+    /// SwiftData user.tier, which is only written at purchase time and becomes stale
+    /// when a subscription expires or renews outside the paywall.
     private var canAddMoreAthletes: Bool {
-        (user.athletes ?? []).count < user.tier.athleteLimit
+        (user.athletes ?? []).count < authManager.currentTier.athleteLimit
     }
     
     // MARK: - View Components
@@ -150,8 +153,13 @@ struct ProfileView: View {
         Group {
             if !searchText.isEmpty {
                 Section("Search Results") {
-                    ForEach(filteredSearchResults, id: \.title) { result in
-                        result.link
+                    if filteredSearchResults.isEmpty {
+                        Text("No results for \"\(searchText)\"")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(filteredSearchResults, id: \.title) { result in
+                            result.link
+                        }
                     }
                 }
             }
@@ -264,7 +272,7 @@ struct ProfileView: View {
             )
         ))
 
-        if user.tier == .pro {
+        if authManager.currentTier == .pro {
             items.append(SearchResult(
                 title: "Shared Folders",
                 icon: "folder.badge.person.crop",
@@ -287,7 +295,7 @@ struct ProfileView: View {
                 NavigationLink {
                     SubscriptionView(user: user)
                 } label: {
-                    Label(user.tier == .free ? "Upgrade Plan" : "\(user.tier.displayName) Plan", systemImage: user.tier == .free ? "crown" : "crown.fill")
+                    Label(authManager.currentTier == .free ? "Upgrade Plan" : "\(authManager.currentTier.displayName) Plan", systemImage: authManager.currentTier == .free ? "crown" : "crown.fill")
                 }
             )
         ))
@@ -404,7 +412,7 @@ struct ProfileView: View {
             }
             .tint(.blue)
             
-            if (user.athletes ?? []).count >= user.tier.athleteLimit {
+            if (user.athletes ?? []).count >= authManager.currentTier.athleteLimit {
                 HStack {
                     Image(systemName: "crown.fill")
                         .foregroundColor(.yellow)
@@ -415,7 +423,7 @@ struct ProfileView: View {
                 }
                 .padding(.vertical, 4)
             } else {
-                Text("\((user.athletes ?? []).count) of \(user.tier.athleteLimit) athlete\(user.tier.athleteLimit == 1 ? "" : "s") used")
+                Text("\((user.athletes ?? []).count) of \(authManager.currentTier.athleteLimit) athlete\(authManager.currentTier.athleteLimit == 1 ? "" : "s") used")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
@@ -426,7 +434,7 @@ struct ProfileView: View {
     private var settingsSection: some View {
         Section("Settings") {
             // Coach Sharing Feature (requires Pro tier)
-            if user.tier == .pro {
+            if authManager.currentTier == .pro {
                 NavigationLink {
                     AthleteFoldersListView()
                 } label: {
@@ -518,11 +526,11 @@ struct ProfileView: View {
             NavigationLink {
                 SubscriptionView(user: user)
             } label: {
-                if user.tier == .free {
+                if authManager.currentTier == .free {
                     Label("Upgrade Plan", systemImage: "crown")
                 } else {
-                    Label("\(user.tier.displayName) Plan", systemImage: "crown.fill")
-                        .badge(Text(user.tier.displayName).foregroundColor(.yellow))
+                    Label("\(authManager.currentTier.displayName) Plan", systemImage: "crown.fill")
+                        .badge(Text(authManager.currentTier.displayName).foregroundColor(.yellow))
                 }
             }
 
@@ -992,6 +1000,7 @@ struct EditAccountView: View {
     @State private var saveErrorMessage = ""
     @State private var showEmailVerificationAlert = false
     @State private var isSaving = false
+    @FocusState private var emailFocused: Bool
 
     init(user: User) {
         self.user = user
@@ -1029,10 +1038,14 @@ struct EditAccountView: View {
 
             Section("Account Information") {
                 TextField("Username", text: $username)
+                    .submitLabel(.next)
+                    .onSubmit { emailFocused = true }
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled(true)
-                
+
                 TextField("Email", text: $email)
+                    .focused($emailFocused)
+                    .submitLabel(.done)
                     .keyboardType(.emailAddress)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled(true)
@@ -1427,13 +1440,16 @@ struct ChangePasswordView: View {
 
 /// Single source of truth for athlete deletion. Called from both ProfileView and AthleteManagementView.
 private func performDeleteAthlete(_ athlete: Athlete, selectedAthlete: Binding<Athlete?>, user: User, modelContext: ModelContext) throws {
-    if athlete.id == selectedAthlete.wrappedValue?.id {
-        let remaining = (user.athletes ?? []).filter { $0.id != athlete.id }
+    // Capture values before deletion — accessing SwiftData object properties after
+    // delete is undefined behavior.
+    let athleteID = athlete.id
+    if athleteID == selectedAthlete.wrappedValue?.id {
+        let remaining = (user.athletes ?? []).filter { $0.id != athleteID }
         selectedAthlete.wrappedValue = remaining.first
     }
-    modelContext.delete(athlete)
+    athlete.delete(in: modelContext)
     try modelContext.save()
-    AnalyticsService.shared.trackAthleteDeleted(athleteID: athlete.id.uuidString)
+    AnalyticsService.shared.trackAthleteDeleted(athleteID: athleteID.uuidString)
     if (user.athletes ?? []).isEmpty {
         selectedAthlete.wrappedValue = nil
     }
@@ -1555,7 +1571,7 @@ struct SubscriptionView: View {
 
     var body: some View {
         List {
-            if user.tier >= .plus {
+            if authManager.currentTier >= .plus {
                 tierActiveSection
                 tierFeaturesSection
                 managementSection
@@ -1579,7 +1595,7 @@ struct SubscriptionView: View {
                     .font(.title2)
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("\(user.tier.displayName) Plan")
+                    Text("\(authManager.currentTier.displayName) Plan")
                         .font(.headline)
                         .fontWeight(.bold)
                     Text("Thank you for your support!")
@@ -1604,13 +1620,13 @@ struct SubscriptionView: View {
     }
 
     private var tierFeaturesSection: some View {
-        Section("Your \(user.tier.displayName) Features") {
-            SubscriptionFeatureRow(icon: "person.2.fill", title: "\(user.tier.athleteLimit) Athlete\(user.tier.athleteLimit == 1 ? "" : "s")", description: "Track up to \(user.tier.athleteLimit) athlete\(user.tier.athleteLimit == 1 ? "" : "s")")
-            SubscriptionFeatureRow(icon: "internaldrive.fill", title: "\(user.tier.storageLimitGB) GB Storage", description: "Cloud backup and sync")
+        Section("Your \(authManager.currentTier.displayName) Features") {
+            SubscriptionFeatureRow(icon: "person.2.fill", title: "\(authManager.currentTier.athleteLimit) Athlete\(authManager.currentTier.athleteLimit == 1 ? "" : "s")", description: "Track up to \(authManager.currentTier.athleteLimit) athlete\(authManager.currentTier.athleteLimit == 1 ? "" : "s")")
+            SubscriptionFeatureRow(icon: "internaldrive.fill", title: "\(authManager.currentTier.storageLimitGB) GB Storage", description: "Cloud backup and sync")
             SubscriptionFeatureRow(icon: "chart.bar.fill", title: "Advanced Statistics", description: "Detailed performance analytics")
             SubscriptionFeatureRow(icon: "square.and.arrow.up", title: "Export Reports", description: "CSV and PDF statistics export")
             SubscriptionFeatureRow(icon: "star.fill", title: "Auto Highlights", description: "Automatically generated highlight reels")
-            if user.tier == .pro {
+            if authManager.currentTier == .pro {
                 SubscriptionFeatureRow(icon: "person.badge.shield.checkmark.fill", title: "Coach Sharing", description: "Share videos and get coach feedback")
             }
         }

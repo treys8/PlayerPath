@@ -18,17 +18,15 @@ class FirestoreManager: ObservableObject {
     static let shared = FirestoreManager()
     
     private let db = Firestore.firestore()
-    
+
     // Published state for reactive UI
     @Published var isLoading = false
     @Published var errorMessage: String?
-    
+
     private init() {
-        // Enable offline persistence with a 100MB cache cap
-        let settings = FirestoreSettings()
-        let cacheSizeBytes = 100 * 1024 * 1024 // 100 MB
-        settings.cacheSettings = PersistentCacheSettings(sizeBytes: NSNumber(value: cacheSizeBytes))
-        db.settings = settings
+        // Firestore settings (cache, offline persistence) are configured in
+        // PlayerPathApp.init() immediately after FirebaseApp.configure(),
+        // before any code accesses the Firestore instance.
     }
     
     // MARK: - Shared Folders
@@ -507,8 +505,12 @@ class FirestoreManager: ObservableObject {
                 .addDocument(data: annotationData)
 
             // Increment annotationCount on the video document
-            _ = try? await db.collection("videos").document(videoID)
-                .updateData(["annotationCount": FieldValue.increment(Int64(1))])
+            do {
+                try await db.collection("videos").document(videoID)
+                    .updateData(["annotationCount": FieldValue.increment(Int64(1))])
+            } catch {
+                print("⚠️ Failed to increment annotation count for video \(videoID): \(error)")
+            }
 
             print("✅ Added annotation to video \(videoID)")
             return docRef.documentID
@@ -582,15 +584,19 @@ class FirestoreManager: ObservableObject {
 
             // Decrement annotationCount, floored at 0 via transaction
             let videoRef = db.collection("videos").document(videoID)
-            _ = try? await db.runTransaction { transaction, errorPointer in
-                do {
-                    let doc = try transaction.getDocument(videoRef)
-                    let current = doc.data()?["annotationCount"] as? Int64 ?? 0
-                    transaction.updateData(["annotationCount": max(Int64(0), current - 1)], forDocument: videoRef)
-                } catch let fetchError as NSError {
-                    errorPointer?.pointee = fetchError
+            do {
+                _ = try await db.runTransaction { transaction, errorPointer in
+                    do {
+                        let doc = try transaction.getDocument(videoRef)
+                        let current = doc.data()?["annotationCount"] as? Int64 ?? 0
+                        transaction.updateData(["annotationCount": max(Int64(0), current - 1)], forDocument: videoRef)
+                    } catch let fetchError as NSError {
+                        errorPointer?.pointee = fetchError
+                    }
+                    return nil
                 }
-                return nil
+            } catch {
+                print("⚠️ Failed to decrement annotation count for video \(videoID): \(error)")
             }
 
             print("✅ Deleted annotation \(annotationID)")
@@ -609,17 +615,19 @@ class FirestoreManager: ObservableObject {
         athleteName: String,
         coachEmail: String,
         folderID: String,
-        folderName: String
+        folderName: String,
+        permissions: FolderPermissions = .default
     ) async throws -> String {
         isLoading = true
         defer { isLoading = false }
-        
+
         let invitationData: [String: Any] = [
             "athleteID": athleteID,
             "athleteName": athleteName,
             "coachEmail": coachEmail.lowercased(),
             "folderID": folderID,
             "folderName": folderName,
+            "permissions": permissions.toDictionary(),
             "status": "pending",
             "sentAt": FieldValue.serverTimestamp(),
             "expiresAt": Date().addingTimeInterval(30 * 24 * 60 * 60) // 30 days
@@ -728,6 +736,21 @@ class FirestoreManager: ObservableObject {
         isLoading = true
         defer { isLoading = false }
 
+        // Check for existing pending invitation to same athlete from this coach
+        let existingSnapshot = try await db.collection("invitations")
+            .whereField("type", isEqualTo: "coach_to_athlete")
+            .whereField("coachID", isEqualTo: coachID)
+            .whereField("athleteEmail", isEqualTo: athleteEmail.lowercased())
+            .whereField("status", isEqualTo: "pending")
+            .limit(to: 1)
+            .getDocuments()
+
+        if !existingSnapshot.documents.isEmpty {
+            throw NSError(domain: "FirestoreManager", code: -2, userInfo: [
+                NSLocalizedDescriptionKey: "An invitation has already been sent to this email address."
+            ])
+        }
+
         var invitationData: [String: Any] = [
             "type": "coach_to_athlete",
             "coachID": coachID,
@@ -748,9 +771,6 @@ class FirestoreManager: ObservableObject {
             let docRef = try await db.collection("invitations").addDocument(data: invitationData)
             print("✅ Created coach-to-athlete invitation")
 
-            // TODO: Trigger Cloud Function to send email notification
-            // For now, the invitation will be visible when the athlete logs in
-
             return docRef.documentID
         } catch {
             print("❌ Failed to create coach-to-athlete invitation: \(error)")
@@ -766,22 +786,14 @@ class FirestoreManager: ObservableObject {
                 .whereField("type", isEqualTo: "coach_to_athlete")
                 .whereField("athleteEmail", isEqualTo: email.lowercased())
                 .whereField("status", isEqualTo: "pending")
+                .whereField("expiresAt", isGreaterThan: Timestamp(date: Date()))
                 .limit(to: 100)
                 .getDocuments()
 
             let invitations = snapshot.documents.compactMap { doc -> CoachToAthleteInvitation? in
-                let data = doc.data()
-                return CoachToAthleteInvitation(
-                    id: doc.documentID,
-                    coachID: data["coachID"] as? String ?? "",
-                    coachEmail: data["coachEmail"] as? String ?? "",
-                    coachName: data["coachName"] as? String ?? "",
-                    athleteEmail: data["athleteEmail"] as? String ?? "",
-                    athleteName: data["athleteName"] as? String ?? "",
-                    message: data["message"] as? String,
-                    status: data["status"] as? String ?? "pending",
-                    sentAt: (data["sentAt"] as? Timestamp)?.dateValue()
-                )
+                var invitation = try? doc.data(as: CoachToAthleteInvitation.self)
+                invitation?.id = doc.documentID
+                return invitation
             }
 
             print("✅ Found \(invitations.count) pending coach invitations")
@@ -861,7 +873,7 @@ class FirestoreManager: ObservableObject {
         ]
         
         // Strip subscription/billing fields from general profile updates — use syncSubscriptionTiers() for tier writes
-        let serverOnlyFields: Set<String> = ["subscriptionTier"]
+        let serverOnlyFields: Set<String> = ["subscriptionTier", "coachSubscriptionTier"]
         let safeProfileData = profileData.filter { !serverOnlyFields.contains($0.key) }
 
         // Merge additional profile data; keep explicitly set fields (email, role) on conflict
@@ -882,12 +894,18 @@ class FirestoreManager: ObservableObject {
     func syncSubscriptionTiers(
         userID: String,
         tier: SubscriptionTier,
-        coachTier: CoachSubscriptionTier
+        coachTier: CoachSubscriptionTier,
+        hasAthleteTierOverride: Bool = false
     ) async {
         var data: [String: Any] = [
-            "subscriptionTier": tier.rawValue,
             "updatedAt": FieldValue.serverTimestamp()
         ]
+        // Only write subscriptionTier when StoreKit resolves a paid tier.
+        // If StoreKit resolves .free, leave Firestore alone — it may hold a
+        // manually-granted comped tier (e.g. "plus" or "pro" set by an admin).
+        if tier != .free || !hasAthleteTierOverride {
+            data["subscriptionTier"] = tier.rawValue
+        }
         // Only write coachSubscriptionTier when StoreKit resolves a paid coach tier.
         // If StoreKit resolves .free, leave Firestore alone — it may hold "coach_academy"
         // which must not be overwritten.
@@ -898,7 +916,10 @@ class FirestoreManager: ObservableObject {
             try await db.collection("users").document(userID).setData(data, merge: true)
             print("✅ Synced tiers to Firestore: \(tier.rawValue) / \(coachTier.rawValue)")
         } catch {
-            print("⚠️ Failed to sync subscription tiers to Firestore: \(error)")
+            // Firestore offline persistence normally queues this write, so errors here indicate
+            // a real problem (e.g. cache full, permissions). Log prominently but don't set
+            // errorMessage — this runs in a background Combine sink and would flash in unrelated views.
+            print("❌ Failed to sync subscription tiers to Firestore: \(error)")
         }
     }
 
@@ -992,7 +1013,11 @@ class FirestoreManager: ObservableObject {
                 try await batch.commit()
                 notificationCount += snap.documents.count
             }
-            try? await db.collection("notifications").document(userID).delete()
+            do {
+                try await db.collection("notifications").document(userID).delete()
+            } catch {
+                print("⚠️ Failed to delete notifications document for user \(userID): \(error)")
+            }
             print("✅ Deleted \(notificationCount) notifications")
 
             // Step 5: Delete user profile document
@@ -1808,8 +1833,8 @@ struct FolderPermissions: Codable, Equatable {
         ]
     }
     
-    static let `default` = FolderPermissions(canUpload: true, canComment: true, canDelete: false)
-    static let viewOnly = FolderPermissions(canUpload: false, canComment: true, canDelete: false)
+    static nonisolated let `default` = FolderPermissions(canUpload: true, canComment: true, canDelete: false)
+    static nonisolated let viewOnly = FolderPermissions(canUpload: false, canComment: true, canDelete: false)
 }
 
 // MARK: - Firestore Models
@@ -1952,15 +1977,15 @@ struct CoachInvitation: Codable, Identifiable {
 }
 
 /// Coach-to-Athlete invitation (when coach initiates the connection)
-struct CoachToAthleteInvitation: Identifiable {
-    let id: String
+struct CoachToAthleteInvitation: Codable, Identifiable {
+    var id: String?
     let coachID: String
     let coachEmail: String
     let coachName: String
     let athleteEmail: String
     let athleteName: String
     let message: String?
-    let status: String
+    let status: CoachInvitation.InvitationStatus
     let sentAt: Date?
 }
 

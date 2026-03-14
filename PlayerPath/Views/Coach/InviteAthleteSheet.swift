@@ -19,6 +19,9 @@ struct InviteAthleteSheet: View {
     @State private var showingSuccess = false
     @State private var errorMessage: String?
 
+    private enum Field: Hashable { case name, email, message }
+    @FocusState private var focusedField: Field?
+
     private var isValidEmail: Bool {
         let emailRegex = #"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$"#
         return athleteEmail.range(of: emailRegex, options: .regularExpression) != nil
@@ -68,6 +71,9 @@ struct InviteAthleteSheet: View {
                                 .textFieldStyle(.roundedBorder)
                                 .textContentType(.name)
                                 .autocorrectionDisabled()
+                                .focused($focusedField, equals: .name)
+                                .submitLabel(.next)
+                                .onSubmit { focusedField = .email }
                         }
 
                         // Parent/Guardian Email
@@ -83,6 +89,9 @@ struct InviteAthleteSheet: View {
                                 .keyboardType(.emailAddress)
                                 .autocapitalization(.none)
                                 .autocorrectionDisabled()
+                                .focused($focusedField, equals: .email)
+                                .submitLabel(.next)
+                                .onSubmit { focusedField = .message }
 
                             if !athleteEmail.isEmpty && !isValidEmail {
                                 Text("Please enter a valid email address")
@@ -101,6 +110,9 @@ struct InviteAthleteSheet: View {
                             TextField("Add a note to the invitation...", text: $personalMessage, axis: .vertical)
                                 .textFieldStyle(.roundedBorder)
                                 .lineLimit(3...5)
+                                .focused($focusedField, equals: .message)
+                                .submitLabel(.done)
+                                .onSubmit { focusedField = nil }
                         }
                     }
                     .padding(.horizontal)
@@ -159,6 +171,7 @@ struct InviteAthleteSheet: View {
                     .padding(.bottom)
                 }
             }
+            .scrollDismissesKeyboard(.interactively)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {

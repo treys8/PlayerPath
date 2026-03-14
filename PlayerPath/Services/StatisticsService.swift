@@ -18,8 +18,10 @@ final class StatisticsService {
 
     /// Recalculates all statistics for an athlete from scratch by querying all play results
     /// Use this to ensure statistics are accurate after deletions or manual edits
-    func recalculateAthleteStatistics(for athlete: Athlete, context: ModelContext) throws {
+    func recalculateAthleteStatistics(for athlete: Athlete, context: ModelContext, skipSave: Bool = false) throws {
+        #if DEBUG
         print("StatisticsService: Recalculating statistics for athlete \(athlete.name)")
+        #endif
 
         // Ensure athlete has statistics model
         if athlete.statistics == nil {
@@ -45,6 +47,11 @@ final class StatisticsService {
         stats.groundOuts = 0
         stats.flyOuts = 0
         stats.totalGames = 0
+        stats.totalPitches = 0
+        stats.balls = 0
+        stats.strikes = 0
+        stats.hitByPitches = 0
+        stats.wildPitches = 0
 
         // Get all completed games for this athlete
         let games = athlete.games ?? []
@@ -65,6 +72,9 @@ final class StatisticsService {
                 stats.rbis += gameStats.rbis
                 stats.strikeouts += gameStats.strikeouts
                 stats.walks += gameStats.walks
+                stats.groundOuts += gameStats.groundOuts
+                stats.flyOuts += gameStats.flyOuts
+                stats.hitByPitches += gameStats.hitByPitches
             }
         }
 
@@ -79,14 +89,26 @@ final class StatisticsService {
         }
 
         stats.updatedAt = Date()
-        try context.save()
 
+        #if DEBUG
         print("StatisticsService: ✅ Recalculated - BA: \(stats.battingAverage.formatted(.number.precision(.fractionLength(3)))), OBP: \(stats.onBasePercentage.formatted(.number.precision(.fractionLength(3)))), OPS: \(stats.ops.formatted(.number.precision(.fractionLength(3))))")
+        #endif
+
+        // Also recalculate season statistics so they stay in sync
+        for season in athlete.seasons ?? [] {
+            try recalculateSeasonStatistics(for: season, athlete: athlete, context: context, skipSave: true)
+        }
+
+        if !skipSave {
+            try context.save()
+        }
     }
 
     /// Recalculates statistics for a specific season
-    func recalculateSeasonStatistics(for season: Season, athlete: Athlete, context: ModelContext) throws {
+    func recalculateSeasonStatistics(for season: Season, athlete: Athlete, context: ModelContext, skipSave: Bool = false) throws {
+        #if DEBUG
         print("StatisticsService: Recalculating statistics for season \(season.displayName)")
+        #endif
 
         // Ensure season has statistics model
         if season.seasonStatistics == nil {
@@ -113,6 +135,11 @@ final class StatisticsService {
         stats.groundOuts = 0
         stats.flyOuts = 0
         stats.totalGames = 0
+        stats.totalPitches = 0
+        stats.balls = 0
+        stats.strikes = 0
+        stats.hitByPitches = 0
+        stats.wildPitches = 0
 
         // Get all completed games for this season
         let games = season.games ?? []
@@ -133,6 +160,9 @@ final class StatisticsService {
                 stats.rbis += gameStats.rbis
                 stats.strikeouts += gameStats.strikeouts
                 stats.walks += gameStats.walks
+                stats.groundOuts += gameStats.groundOuts
+                stats.flyOuts += gameStats.flyOuts
+                stats.hitByPitches += gameStats.hitByPitches
             }
         }
 
@@ -147,14 +177,21 @@ final class StatisticsService {
         }
 
         stats.updatedAt = Date()
-        try context.save()
 
+        if !skipSave {
+            try context.save()
+        }
+
+        #if DEBUG
         print("StatisticsService: ✅ Season stats - BA: \(stats.battingAverage.formatted(.number.precision(.fractionLength(3))))")
+        #endif
     }
 
     /// Recalculates game statistics from scratch based on video play results
     func recalculateGameStatistics(for game: Game, context: ModelContext) throws {
+        #if DEBUG
         print("StatisticsService: Recalculating statistics for game vs \(game.opponent)")
+        #endif
 
         // Ensure game has statistics model
         if game.gameStats == nil {
@@ -177,6 +214,9 @@ final class StatisticsService {
         stats.rbis = 0
         stats.strikeouts = 0
         stats.walks = 0
+        stats.groundOuts = 0
+        stats.flyOuts = 0
+        stats.hitByPitches = 0
 
         // Get all videos for this game and sum up play results
         let videos = game.videoClips ?? []
@@ -206,15 +246,23 @@ final class StatisticsService {
                     stats.walks += 1
                 case .strikeout:
                     stats.strikeouts += 1
-                case .groundOut, .flyOut, .ball, .strike, .hitByPitch, .wildPitch:
-                    break // Not tracked separately in GameStatistics
+                case .groundOut:
+                    stats.groundOuts += 1
+                case .flyOut:
+                    stats.flyOuts += 1
+                case .hitByPitch:
+                    stats.hitByPitches += 1
+                case .ball, .strike, .wildPitch:
+                    break // Pitching stats are not tracked in GameStatistics
                 }
             }
         }
 
         try context.save()
 
+        #if DEBUG
         print("StatisticsService: ✅ Game stats - Hits: \(stats.hits), AB: \(stats.atBats), BA: \(stats.battingAverage.formatted(.number.precision(.fractionLength(3))))")
+        #endif
     }
 
     // MARK: - Helper Methods

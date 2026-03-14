@@ -243,16 +243,17 @@ struct AddAthleteView: View {
             return
         }
 
-        // Fix T: Enforce tier limit at the data layer, not just in the calling UI
+        // Enforce tier limit using live StoreKit tier (not stale SwiftData user.tier)
+        let liveTier = authManager.currentTier
         let currentCount = (user.athletes ?? []).count
-        guard currentCount < user.tier.athleteLimit else {
+        guard currentCount < liveTier.athleteLimit else {
             let upgradeMessage: String
-            switch user.tier {
+            switch liveTier {
             case .free: upgradeMessage = "Upgrade to Plus to track up to 3 athletes, or Pro to track up to 5."
             case .plus: upgradeMessage = "Upgrade to Pro to track up to 5 athletes."
             case .pro:  upgradeMessage = "You've reached the maximum of 5 athletes."
             }
-            validationErrorMessage = "You've reached the \(user.tier.athleteLimit)-athlete limit for your \(user.tier.displayName) plan. \(upgradeMessage)"
+            validationErrorMessage = "You've reached the \(liveTier.athleteLimit)-athlete limit for your \(liveTier.displayName) plan. \(upgradeMessage)"
             showingValidationError = true
             return
         }
@@ -324,7 +325,7 @@ struct AddAthleteView: View {
                 if isFirstAthlete {
                     await MainActor.run {
                         // Create onboarding progress record to persist completion
-                        let progress = OnboardingProgress()
+                        let progress = OnboardingProgress(firebaseAuthUid: authManager.currentFirebaseUser?.uid ?? "")
                         progress.markCompleted()
                         modelContext.insert(progress)
 

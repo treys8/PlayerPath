@@ -276,11 +276,19 @@ struct PracticesView: View {
     }
     
     private func deleteSinglePractice(_ practice: Practice) {
+        let practiceAthlete = practice.athlete
+
         withAnimation {
             practice.delete(in: modelContext)
 
             do {
                 try modelContext.save()
+
+                // Recalculate athlete statistics to reflect the removed play results
+                if let athlete = practiceAthlete {
+                    try StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: modelContext)
+                }
+
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
                 log.info("Successfully deleted practice")
             } catch {
@@ -292,12 +300,20 @@ struct PracticesView: View {
     
     private func deletePracticesFromFiltered(offsets: IndexSet) {
         let toDelete = offsets.map { filteredPractices[$0] }
+        let practiceAthlete = toDelete.first?.athlete
+
         withAnimation {
             for practice in toDelete {
                 practice.delete(in: modelContext)
             }
             do {
                 try modelContext.save()
+
+                // Recalculate athlete statistics to reflect the removed play results
+                if let athlete = practiceAthlete {
+                    try StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: modelContext)
+                }
+
                 Haptics.success()
                 log.info("Successfully deleted \(toDelete.count) practices")
             } catch {
@@ -313,6 +329,12 @@ struct PracticesView: View {
         // Practices automatically refresh via SwiftData
     }
 
+    private static let summaryDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateStyle = .medium
+        return f
+    }()
+
     private var practicesSummary: String {
         let practiceCount = filteredPractices.count
         guard practiceCount > 0 else { return "" }
@@ -325,9 +347,7 @@ struct PracticesView: View {
             return "\(practiceCount) practice\(practiceCount == 1 ? "" : "s") • \(videoCount) videos"
         }
 
-        let dateFormatter = DateFormatter()
-        dateFormatter.dateStyle = .medium
-        let dateRange = "\(dateFormatter.string(from: oldest)) - \(dateFormatter.string(from: newest))"
+        let dateRange = "\(Self.summaryDateFormatter.string(from: oldest)) - \(Self.summaryDateFormatter.string(from: newest))"
 
         return "\(practiceCount) practices • \(videoCount) videos • \(noteCount) notes • \(dateRange)"
     }
@@ -395,24 +415,33 @@ struct PracticesView: View {
         let toDelete = practices.filter { selection.contains($0.id) }
         guard !toDelete.isEmpty else { return }
 
-        // Sync deletions to Firestore
+        // Sync deletions to Firestore with retry
         for practice in toDelete {
             if let firestoreId = practice.firestoreId,
                let athlete = practice.athlete,
                let user = athlete.user {
+                let userId = user.id.uuidString
                 Task {
-                    do {
-                        try await FirestoreManager.shared.deletePractice(
-                            userId: user.id.uuidString,
-                            practiceId: firestoreId
-                        )
-                        log.info("Practice deletion synced to Firestore")
-                    } catch {
-                        log.warning("Failed to sync practice deletion: \(error.localizedDescription)")
+                    for attempt in 1...3 {
+                        do {
+                            try await FirestoreManager.shared.deletePractice(
+                                userId: userId,
+                                practiceId: firestoreId
+                            )
+                            log.info("Practice deletion synced to Firestore")
+                            return
+                        } catch {
+                            log.warning("Failed to sync practice deletion (attempt \(attempt)/3): \(error.localizedDescription)")
+                            if attempt < 3 {
+                                try? await Task.sleep(for: .seconds(2))
+                            }
+                        }
                     }
                 }
             }
         }
+
+        let practiceAthlete = toDelete.first?.athlete
 
         withAnimation {
             for practice in toDelete {
@@ -421,6 +450,12 @@ struct PracticesView: View {
 
             do {
                 try modelContext.save()
+
+                // Recalculate athlete statistics to reflect the removed play results
+                if let athlete = practiceAthlete {
+                    try StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: modelContext)
+                }
+
                 Haptics.success()
                 log.info("Successfully deleted \(toDelete.count) practices")
             } catch {
@@ -807,15 +842,22 @@ struct PracticeDetailView: View {
         if let firestoreId = practice.firestoreId,
            let athlete = practice.athlete,
            let user = athlete.user {
+            let userId = user.id.uuidString
             Task {
-                do {
-                    try await FirestoreManager.shared.deletePractice(
-                        userId: user.id.uuidString,
-                        practiceId: firestoreId
-                    )
-                    print("✅ Practice deletion synced to Firestore")
-                } catch {
-                    print("⚠️ Failed to sync practice deletion: \(error)")
+                for attempt in 1...3 {
+                    do {
+                        try await FirestoreManager.shared.deletePractice(
+                            userId: userId,
+                            practiceId: firestoreId
+                        )
+                        print("✅ Practice deletion synced to Firestore")
+                        return
+                    } catch {
+                        print("⚠️ Failed to sync practice deletion (attempt \(attempt)/3): \(error)")
+                        if attempt < 3 {
+                            try? await Task.sleep(for: .seconds(2))
+                        }
+                    }
                 }
             }
         }
@@ -857,6 +899,7 @@ struct PracticeVideoClipRow: View {
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @State private var showingShareToFolder = false
     @State private var showingNoteEditor = false
+    @State private var thumbnailImage: UIImage?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -864,8 +907,7 @@ struct PracticeVideoClipRow: View {
                 // Thumbnail — tappable play button
                 Button(action: { onPlay?() }) {
                     Group {
-                        if let thumbPath = clip.thumbnailPath,
-                           let uiImage = UIImage(contentsOfFile: thumbPath) {
+                        if let uiImage = thumbnailImage {
                             Image(uiImage: uiImage)
                                 .resizable()
                                 .scaledToFill()
@@ -963,6 +1005,14 @@ struct PracticeVideoClipRow: View {
         .sheet(isPresented: $showingNoteEditor) {
             EditClipNoteSheet(clip: clip)
         }
+        .task {
+            // Load thumbnail asynchronously instead of synchronously in the view body
+            guard thumbnailImage == nil, let thumbPath = clip.thumbnailPath else { return }
+            let size = CGSize(width: 112, height: 80)
+            if let image = try? await ThumbnailCache.shared.loadThumbnail(at: thumbPath, targetSize: size) {
+                thumbnailImage = image
+            }
+        }
     }
 
     // "2:45 PM" — readable clip title derived from creation time
@@ -988,6 +1038,7 @@ struct EditClipNoteSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var noteText: String
     @State private var isSaving = false
+    @FocusState private var isFocused: Bool
 
     init(clip: VideoClip) {
         self.clip = clip
@@ -1004,6 +1055,7 @@ struct EditClipNoteSheet: View {
                     .padding(.top, 4)
 
                 TextEditor(text: $noteText)
+                    .focused($isFocused)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
                     .frame(minHeight: 140)
@@ -1016,6 +1068,11 @@ struct EditClipNoteSheet: View {
             .navigationTitle(clip.note?.isEmpty == false ? "Edit Note" : "Add Note")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") { isFocused = false }
+                        .fontWeight(.semibold)
+                }
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                 }
