@@ -63,6 +63,10 @@ final class ActivityNotificationService: ObservableObject {
 
     private init() {}
 
+    deinit {
+        listener?.remove()
+    }
+
     // MARK: - Listening
 
     func startListening(forUserID userID: String) {
@@ -76,12 +80,12 @@ final class ActivityNotificationService: ObservableObject {
             .limit(to: 50)
             .addSnapshotListener { [weak self] snapshot, error in
                 guard let self else { return }
-                if let error {
-                    print("❌ Notification listener error: \(error)")
-                    self.listenerError = "Unable to refresh notifications."
+                if error != nil {
+                    Task { @MainActor in
+                        self.listenerError = "Unable to refresh notifications."
+                    }
                     return
                 }
-                self.listenerError = nil
                 guard let docs = snapshot?.documents else { return }
 
                 let notifications = docs.compactMap { doc -> ActivityNotification? in
@@ -90,20 +94,23 @@ final class ActivityNotificationService: ObservableObject {
                     return n
                 }
 
-                self.recentNotifications = notifications
-                self.unreadCount = notifications.filter { !$0.isRead }.count
+                Task { @MainActor in
+                    self.listenerError = nil
+                    self.recentNotifications = notifications
+                    self.unreadCount = notifications.filter { !$0.isRead }.count
 
-                // Surface in-app banner for any genuinely new (unseen) notification
-                let currentIDs = Set(notifications.compactMap { $0.id })
-                if !self.previousIDs.isEmpty {
-                    if let newest = notifications.first(where: {
-                        guard let id = $0.id else { return false }
-                        return !self.previousIDs.contains(id) && !$0.isRead
-                    }) {
-                        self.incomingBanner = newest
+                    // Surface in-app banner for any genuinely new (unseen) notification
+                    let currentIDs = Set(notifications.compactMap { $0.id })
+                    if !self.previousIDs.isEmpty {
+                        if let newest = notifications.first(where: {
+                            guard let id = $0.id else { return false }
+                            return !self.previousIDs.contains(id) && !$0.isRead
+                        }) {
+                            self.incomingBanner = newest
+                        }
                     }
+                    self.previousIDs = currentIDs
                 }
-                self.previousIDs = currentIDs
             }
     }
 
@@ -133,7 +140,6 @@ final class ActivityNotificationService: ObservableObject {
         do {
             try await batch.commit()
         } catch {
-            print("❌ Failed to mark notifications as read: \(error)")
         }
     }
 
@@ -145,7 +151,6 @@ final class ActivityNotificationService: ObservableObject {
                 .document(notifID)
                 .updateData(["isRead": true])
         } catch {
-            print("❌ Failed to mark notification read: \(error)")
         }
     }
 
@@ -265,16 +270,21 @@ final class ActivityNotificationService: ObservableObject {
     // MARK: - Internal Write
 
     private func writeNotification(_ data: [String: Any], toUserIDs userIDs: [String]) async {
+        guard !userIDs.isEmpty else { return }
+
+        // Batch writes to reduce Firestore operations
+        let batch = db.batch()
         for userID in userIDs {
-            do {
-                try await db
-                    .collection("notifications")
-                    .document(userID)
-                    .collection("items")
-                    .addDocument(data: data)
-            } catch {
-                print("❌ Failed to write notification to \(userID): \(error)")
-            }
+            let ref = db
+                .collection("notifications")
+                .document(userID)
+                .collection("items")
+                .document()
+            batch.setData(data, forDocument: ref)
+        }
+        do {
+            try await batch.commit()
+        } catch {
         }
     }
 
@@ -290,7 +300,6 @@ final class ActivityNotificationService: ObservableObject {
                 .getDocuments()
             return snapshot.documents.first?.documentID
         } catch {
-            print("⚠️ Could not look up user by email: \(error)")
             return nil
         }
     }

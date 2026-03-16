@@ -32,19 +32,10 @@ struct OnboardingFlow: View {
             }
         }
         .onAppear {
-            print("🎯 OnboardingFlow - User role: \(authManager.userRole.rawValue)")
-            print("🎯 OnboardingFlow - User email: \(user.email)")
-            print("🎯 OnboardingFlow - Showing \(authManager.userRole == .coach ? "COACH" : "ATHLETE") onboarding")
-            print("🎯 OnboardingFlow - isNewUser: \(authManager.isNewUser)")
-            print("🎯 OnboardingFlow - isSignedIn: \(authManager.isSignedIn)")
 
             // Extra debugging
-            if let profile = authManager.userProfile {
-                print("🎯 OnboardingFlow - Profile role: \(profile.userRole.rawValue)")
-                print("🎯 OnboardingFlow - Profile email: \(profile.email)")
+            if authManager.userProfile != nil {
             } else {
-                print("⚠️ OnboardingFlow - NO PROFILE LOADED (this is expected for new users)")
-                print("⚠️ OnboardingFlow - Using local userRole value: \(authManager.userRole.rawValue)")
             }
         }
     }

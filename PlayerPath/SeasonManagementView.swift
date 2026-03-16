@@ -159,38 +159,33 @@ struct SeasonManagementView: View {
         // Mark for Firestore sync (Phase 2)
         season.needsSync = true
 
-        do {
-            try modelContext.save()
+        Task {
+            do {
+                try modelContext.save()
 
-            // Trigger immediate sync to Firestore
-            Task {
-                guard let user = season.athlete?.user else { return }
-                do {
-                    try await SyncCoordinator.shared.syncSeasons(for: user)
-                    print("✅ Season archive synced to Firestore successfully")
-                } catch {
-                    print("⚠️ Failed to sync season archive to Firestore: \(error)")
+                // Trigger immediate sync to Firestore
+                if let user = season.athlete?.user {
+                    try? await SyncCoordinator.shared.syncSeasons(for: user)
                 }
-            }
 
-            // Success - animate the change
-            withAnimation {
+                // Success - animate the change
+                withAnimation {
+                    isProcessing = false
+                }
+                Haptics.medium()
+                successMessage = "\(season.displayName) has been archived."
+                showingSuccess = true
+            } catch {
+                // Rollback on failure
+                if wasActive {
+                    season.activate()
+                }
+                season.endDate = previousEndDate
+
                 isProcessing = false
+                errorMessage = "Failed to archive season: \(error.localizedDescription)"
+                showingError = true
             }
-            Haptics.medium()
-            successMessage = "\(season.displayName) has been archived."
-            showingSuccess = true
-        } catch {
-            // Rollback on failure
-            if wasActive {
-                season.activate()
-            }
-            season.endDate = previousEndDate
-
-            isProcessing = false
-            errorMessage = "Failed to archive season: \(error.localizedDescription)"
-            showingError = true
-            print("Failed to archive season: \(error)")
         }
     }
 }
@@ -498,48 +493,43 @@ struct CreateSeasonView: View {
         // Insert and save
         modelContext.insert(newSeason)
 
-        do {
-            try modelContext.save()
+        Task {
+            do {
+                try modelContext.save()
 
-            // Track season creation analytics
-            AnalyticsService.shared.trackSeasonCreated(
-                seasonID: newSeason.id.uuidString,
-                sport: selectedSport.rawValue,
-                isActive: makeActive
-            )
+                // Track season creation analytics
+                AnalyticsService.shared.trackSeasonCreated(
+                    seasonID: newSeason.id.uuidString,
+                    sport: selectedSport.rawValue,
+                    isActive: makeActive
+                )
 
-            // Track season activation if making active
-            if makeActive {
-                AnalyticsService.shared.trackSeasonActivated(seasonID: newSeason.id.uuidString)
-            }
-
-            // Trigger immediate sync to Firestore
-            Task {
-                guard let user = athlete.user else { return }
-                do {
-                    try await SyncCoordinator.shared.syncSeasons(for: user)
-                    print("✅ Season synced to Firestore successfully")
-                } catch {
-                    print("⚠️ Failed to sync season to Firestore: \(error)")
-                    // Don't block season creation on sync failure
+                // Track season activation if making active
+                if makeActive {
+                    AnalyticsService.shared.trackSeasonActivated(seasonID: newSeason.id.uuidString)
                 }
+
+                // Trigger immediate sync to Firestore
+                if let user = athlete.user {
+                    try? await SyncCoordinator.shared.syncSeasons(for: user)
+                }
+
+                // Success - provide feedback and dismiss
+                Haptics.medium()
+                dismiss()
+            } catch {
+                // Rollback on failure
+                modelContext.delete(newSeason)
+                athlete.seasons?.removeAll { $0.id == newSeason.id }
+
+                if previousActiveWasActive {
+                    previousActive?.activate()
+                    previousActive?.endDate = previousActiveEndDate
+                }
+
+                errorMessage = "Failed to create season: \(error.localizedDescription)"
+                showingError = true
             }
-
-            // Success - provide feedback and dismiss
-            Haptics.medium()
-            dismiss()
-        } catch {
-            // Rollback on failure
-            modelContext.delete(newSeason)
-            athlete.seasons?.removeAll { $0.id == newSeason.id }
-
-            if previousActiveWasActive {
-                previousActive?.activate()
-                previousActive?.endDate = previousActiveEndDate
-            }
-
-            errorMessage = "Failed to create season: \(error.localizedDescription)"
-            showingError = true
         }
     }
 }
@@ -575,6 +565,12 @@ struct SeasonDetailView: View {
     @State private var totalVideos: Int = 0
     @State private var highlights: Int = 0
     @State private var practices: Int = 0
+
+    // Cached filtered content arrays to avoid expensive recomputation on every render
+    @State private var filteredGames: [Game] = []
+    @State private var filteredVideos: [VideoClip] = []
+    @State private var filteredHighlights: [VideoClip] = []
+    @State private var filteredPractices: [Practice] = []
 
     var body: some View {
         List {
@@ -752,30 +748,38 @@ struct SeasonDetailView: View {
         .disabled(isProcessing)
         .task {
             updateStats()
+            updateFilteredContent()
+        }
+        .onChange(of: selectedFilter) { _, _ in
+            updateFilteredContent()
         }
         .onChange(of: season.games) { _, _ in
             updateStats()
+            updateFilteredContent()
         }
         .onChange(of: season.videoClips) { _, _ in
             updateStats()
+            updateFilteredContent()
         }
         .onChange(of: season.practices) { _, _ in
             updateStats()
+            updateFilteredContent()
         }
     }
 
     // Extracted to a separate @ViewBuilder to keep body small enough for Swift's type checker.
+    // Uses pre-computed @State arrays instead of filtering/sorting on every render.
     @ViewBuilder private var filteredContent: some View {
         if selectedFilter == .games || selectedFilter == .all {
-            if let games = season.games, !games.isEmpty {
-                let sortedGames = games.sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
-                let displayGames = selectedFilter == .all ? Array(sortedGames.prefix(5)) : sortedGames
-                Section(selectedFilter == .all ? "Recent Games" : "Games (\(games.count))") {
+            if !filteredGames.isEmpty {
+                let totalGames = season.games?.count ?? 0
+                let displayGames = selectedFilter == .all ? Array(filteredGames.prefix(5)) : filteredGames
+                Section(selectedFilter == .all ? "Recent Games" : "Games (\(totalGames))") {
                     ForEach(displayGames) { game in
                         SeasonGameRow(game: game)
                     }
-                    if selectedFilter == .all && games.count > 5 {
-                        Button("See All \(games.count) Games") { selectedFilter = .games }
+                    if selectedFilter == .all && totalGames > 5 {
+                        Button("See All \(totalGames) Games") { selectedFilter = .games }
                             .font(.subheadline)
                             .foregroundStyle(.blue)
                     }
@@ -783,14 +787,13 @@ struct SeasonDetailView: View {
             }
         }
         if selectedFilter == .videos || selectedFilter == .all {
-            if let videos = season.videoClips?.filter({ !$0.isHighlight }), !videos.isEmpty {
-                let sorted = videos.sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
-                Section("Videos (\(videos.count))") {
-                    ForEach(selectedFilter == .all ? Array(sorted.prefix(5)) : sorted) { video in
+            if !filteredVideos.isEmpty {
+                Section("Videos (\(filteredVideos.count))") {
+                    ForEach(selectedFilter == .all ? Array(filteredVideos.prefix(5)) : filteredVideos) { video in
                         SeasonVideoRow(video: video)
                     }
-                    if selectedFilter == .all && videos.count > 5 {
-                        Button("See All \(videos.count) Videos") { selectedFilter = .videos }
+                    if selectedFilter == .all && filteredVideos.count > 5 {
+                        Button("See All \(filteredVideos.count) Videos") { selectedFilter = .videos }
                             .font(.subheadline)
                             .foregroundStyle(.blue)
                     }
@@ -798,14 +801,13 @@ struct SeasonDetailView: View {
             }
         }
         if selectedFilter == .highlights || selectedFilter == .all {
-            if let highlightVideos = season.videoClips?.filter({ $0.isHighlight }), !highlightVideos.isEmpty {
-                let sorted = highlightVideos.sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
-                Section("Highlights (\(highlightVideos.count))") {
-                    ForEach(selectedFilter == .all ? Array(sorted.prefix(5)) : sorted) { video in
+            if !filteredHighlights.isEmpty {
+                Section("Highlights (\(filteredHighlights.count))") {
+                    ForEach(selectedFilter == .all ? Array(filteredHighlights.prefix(5)) : filteredHighlights) { video in
                         SeasonVideoRow(video: video)
                     }
-                    if selectedFilter == .all && highlightVideos.count > 5 {
-                        Button("See All \(highlightVideos.count) Highlights") { selectedFilter = .highlights }
+                    if selectedFilter == .all && filteredHighlights.count > 5 {
+                        Button("See All \(filteredHighlights.count) Highlights") { selectedFilter = .highlights }
                             .font(.subheadline)
                             .foregroundStyle(.blue)
                     }
@@ -813,10 +815,9 @@ struct SeasonDetailView: View {
             }
         }
         if selectedFilter == .practices || selectedFilter == .all {
-            if let practicesList = season.practices, !practicesList.isEmpty {
-                let sorted = practicesList.sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
-                Section("Practices (\(practicesList.count))") {
-                    ForEach(selectedFilter == .all ? Array(sorted.prefix(5)) : sorted) { practice in
+            if !filteredPractices.isEmpty {
+                Section("Practices (\(filteredPractices.count))") {
+                    ForEach(selectedFilter == .all ? Array(filteredPractices.prefix(5)) : filteredPractices) { practice in
                         HStack {
                             Image(systemName: "figure.run")
                                 .foregroundStyle(.green)
@@ -841,14 +842,27 @@ struct SeasonDetailView: View {
                         }
                         .padding(.vertical, 4)
                     }
-                    if selectedFilter == .all && practicesList.count > 5 {
-                        Button("See All \(practicesList.count) Practices") { selectedFilter = .practices }
+                    if selectedFilter == .all && filteredPractices.count > 5 {
+                        Button("See All \(filteredPractices.count) Practices") { selectedFilter = .practices }
                             .font(.subheadline)
                             .foregroundStyle(.blue)
                     }
                 }
             }
         }
+    }
+
+    private func updateFilteredContent() {
+        filteredGames = (season.games ?? [])
+            .sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
+        filteredVideos = (season.videoClips ?? [])
+            .filter { !$0.isHighlight }
+            .sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
+        filteredHighlights = (season.videoClips ?? [])
+            .filter { $0.isHighlight }
+            .sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
+        filteredPractices = (season.practices ?? [])
+            .sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
     }
 
     private func updateStats() {
@@ -874,7 +888,6 @@ struct SeasonDetailView: View {
                         )
                         return
                     } catch {
-                        print("⚠️ Failed to delete season from Firestore (attempt \(attempt)/3): \(error)")
                         if attempt < 3 {
                             try? await Task.sleep(for: .seconds(2))
                         }
@@ -895,21 +908,23 @@ struct SeasonDetailView: View {
 
         modelContext.delete(season)
 
-        do {
-            try modelContext.save()
-            isProcessing = false
-            Haptics.medium()
-            dismiss()
-        } catch {
-            // Re-insert the season to undo the pending delete, then restore relationships
-            modelContext.insert(season)
-            season.games = games
-            season.practices = practices
-            season.videoClips = videoClips
+        Task {
+            do {
+                try modelContext.save()
+                isProcessing = false
+                Haptics.medium()
+                dismiss()
+            } catch {
+                // Re-insert the season to undo the pending delete, then restore relationships
+                modelContext.insert(season)
+                season.games = games
+                season.practices = practices
+                season.videoClips = videoClips
 
-            isProcessing = false
-            errorMessage = "Failed to delete season: \(error.localizedDescription)"
-            showingError = true
+                isProcessing = false
+                errorMessage = "Failed to delete season: \(error.localizedDescription)"
+                showingError = true
+            }
         }
     }
     
@@ -926,45 +941,39 @@ struct SeasonDetailView: View {
         // Mark for Firestore sync (Phase 2)
         season.needsSync = true
 
-        do {
-            try modelContext.save()
+        Task {
+            do {
+                try modelContext.save()
 
-            // Track season end analytics
-            let gameCount = season.games?.count ?? 0
-            AnalyticsService.shared.trackSeasonEnded(
-                seasonID: season.id.uuidString,
-                totalGames: gameCount
-            )
+                // Track season end analytics
+                let gameCount = season.games?.count ?? 0
+                AnalyticsService.shared.trackSeasonEnded(
+                    seasonID: season.id.uuidString,
+                    totalGames: gameCount
+                )
 
-            // Trigger immediate sync to Firestore
-            Task {
-                guard let user = season.athlete?.user else { return }
-                do {
-                    try await SyncCoordinator.shared.syncSeasons(for: user)
-                    print("✅ Season end synced to Firestore successfully")
-                } catch {
-                    print("⚠️ Failed to sync season end to Firestore: \(error)")
+                // Trigger immediate sync to Firestore
+                if let user = season.athlete?.user {
+                    try? await SyncCoordinator.shared.syncSeasons(for: user)
                 }
-            }
 
-            withAnimation {
+                withAnimation {
+                    isProcessing = false
+                }
+                Haptics.medium()
+                successMessage = "\(season.displayName) has been ended and archived."
+                showingSuccess = true
+            } catch {
+                // Rollback on failure
+                if wasActive {
+                    season.activate()
+                }
+                season.endDate = previousEndDate
+
                 isProcessing = false
+                errorMessage = "Failed to end season: \(error.localizedDescription)"
+                showingError = true
             }
-            Haptics.medium()
-            successMessage = "\(season.displayName) has been ended and archived."
-            showingSuccess = true
-            print("✅ Season ended: \(season.displayName)")
-        } catch {
-            // Rollback on failure
-            if wasActive {
-                season.activate()
-            }
-            season.endDate = previousEndDate
-
-            isProcessing = false
-            errorMessage = "Failed to end season: \(error.localizedDescription)"
-            showingError = true
-            print("❌ Error ending season: \(error)")
         }
     }
 
@@ -999,9 +1008,7 @@ struct SeasonDetailView: View {
                 guard let user = season.athlete?.user else { return }
                 do {
                     try await SyncCoordinator.shared.syncSeasons(for: user)
-                    print("✅ Season reactivation synced to Firestore successfully")
                 } catch {
-                    print("⚠️ Failed to sync season reactivation to Firestore: \(error)")
                 }
             }
 
@@ -1026,7 +1033,6 @@ struct SeasonDetailView: View {
             isProcessing = false
             errorMessage = "Failed to reactivate season: \(error.localizedDescription)"
             showingError = true
-            print("Error reactivating season: \(error)")
         }
     }
 }

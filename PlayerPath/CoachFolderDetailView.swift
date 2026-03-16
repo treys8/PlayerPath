@@ -25,6 +25,7 @@ struct CoachFolderDetailView: View {
     @State private var lastRefreshed: Date?
     @State private var showingLeaveConfirmation = false
     @State private var isLeaving = false
+    @State private var lastFetchDate: Date?
     @ObservedObject private var archiveManager = CoachFolderArchiveManager.shared
 
     init(folder: SharedFolder) {
@@ -66,11 +67,11 @@ struct CoachFolderDetailView: View {
             Group {
                 switch selectedTab {
                 case .games:
-                    GamesTabView(folder: folder, videos: viewModel.gameVideos, isLoading: viewModel.isLoading, errorMessage: viewModel.errorMessage) {
+                    GamesTabView(folder: folder, videos: viewModel.cachedGameVideos, isLoading: viewModel.isLoading, errorMessage: viewModel.errorMessage) {
                         await viewModel.loadVideos()
                     }
                 case .practices:
-                    PracticesTabView(folder: folder, videos: viewModel.practiceVideos, isLoading: viewModel.isLoading, errorMessage: viewModel.errorMessage) {
+                    PracticesTabView(folder: folder, videos: viewModel.cachedPracticeVideos, isLoading: viewModel.isLoading, errorMessage: viewModel.errorMessage) {
                         await viewModel.loadVideos()
                     }
                 case .all:
@@ -144,7 +145,9 @@ struct CoachFolderDetailView: View {
             }
         }
         .task {
+            if let lastFetch = lastFetchDate, Date().timeIntervalSince(lastFetch) < 60 { return }
             await loadWithPermissionCheck()
+            lastFetchDate = Date()
         }
         .alert("Access Error", isPresented: $showingPermissionError) {
             Button("OK") { }
@@ -209,12 +212,10 @@ struct CoachFolderDetailView: View {
             )
             verifiedFolder = updated
             lastRefreshed = Date()
-            print("✅ Verified permissions for folder: \(folder.name)")
         } catch {
             // Handle permission errors
             permissionError = error.localizedDescription
             showingPermissionError = true
-            print("❌ Permission verification failed: \(error)")
             return
         }
 
@@ -240,12 +241,10 @@ struct CoachFolderDetailView: View {
             verifiedFolder = updated
             lastRefreshed = Date()
             Haptics.success()
-            print("✅ Refreshed permissions for folder: \(folder.name)")
         } catch {
             permissionError = "Failed to refresh permissions: \(error.localizedDescription)"
             showingPermissionError = true
             Haptics.error()
-            print("❌ Permission refresh failed: \(error)")
         }
 
         isRefreshingPermissions = false
@@ -311,6 +310,8 @@ struct GamesTabView: View {
     var errorMessage: String? = nil
     let onRefresh: () async -> Void
 
+    @State private var cachedGameGroups: [GameGroup] = []
+
     var body: some View {
         Group {
             if isLoading && videos.isEmpty {
@@ -331,7 +332,7 @@ struct GamesTabView: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: 12) {
-                        ForEach(gameGroups, id: \.opponent) { group in
+                        ForEach(cachedGameGroups, id: \.opponent) { group in
                             GameGroupView(folder: folder, gameGroup: group)
                         }
                     }
@@ -340,15 +341,16 @@ struct GamesTabView: View {
                 .refreshable { await onRefresh() }
             }
         }
+        .onAppear { updateGroupedVideos() }
+        .onChange(of: videos.count) { _ in updateGroupedVideos() }
     }
-    
-    // Group videos by game opponent
-    private var gameGroups: [GameGroup] {
+
+    private func updateGroupedVideos() {
         let grouped = Dictionary(grouping: videos) { video -> String in
             video.gameOpponent ?? "Unknown Game"
         }
-        
-        return grouped.map { opponent, videos in
+
+        cachedGameGroups = grouped.map { opponent, videos in
             GameGroup(
                 opponent: opponent,
                 date: videos.first?.createdAt ?? Date(),
@@ -424,6 +426,8 @@ struct PracticesTabView: View {
     var errorMessage: String? = nil
     let onRefresh: () async -> Void
 
+    @State private var cachedPracticeGroups: [PracticeGroup] = []
+
     var body: some View {
         Group {
             if isLoading && videos.isEmpty {
@@ -444,7 +448,7 @@ struct PracticesTabView: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: 12) {
-                        ForEach(practiceGroups, id: \.date) { group in
+                        ForEach(cachedPracticeGroups, id: \.date) { group in
                             PracticeGroupView(folder: folder, practiceGroup: group)
                         }
                     }
@@ -453,17 +457,17 @@ struct PracticesTabView: View {
                 .refreshable { await onRefresh() }
             }
         }
+        .onAppear { updateGroupedVideos() }
+        .onChange(of: videos.count) { _ in updateGroupedVideos() }
     }
-    
-    // Group videos by practice date
-    private var practiceGroups: [PracticeGroup] {
+
+    private func updateGroupedVideos() {
         let grouped = Dictionary(grouping: videos) { video -> Date in
-            // Group by day (strip time component)
             let calendar = Calendar.current
             return calendar.startOfDay(for: video.practiceDate ?? video.createdAt ?? Date())
         }
-        
-        return grouped.map { date, videos in
+
+        cachedPracticeGroups = grouped.map { date, videos in
             PracticeGroup(
                 date: date,
                 videos: videos.sorted { ($0.createdAt ?? Date()) > ($1.createdAt ?? Date()) }
@@ -615,7 +619,8 @@ struct CoachVideoRow: View {
                     .font(.subheadline)
                     .fontWeight(.medium)
                     .lineLimit(2)
-                
+                    .truncationMode(.tail)
+
                 HStack(spacing: 8) {
                     Label(video.uploadedByName, systemImage: "person.fill")
                         .font(.caption)
@@ -701,14 +706,13 @@ class CoachFolderViewModel: ObservableObject {
         self.folder = folder
     }
     
-    /// Videos marked as game videos (has gameOpponent)
-    var gameVideos: [CoachVideoItem] {
-        videos.filter { $0.videoType == "game" || $0.gameOpponent != nil }
-    }
-    
-    /// Videos marked as practice videos (has practiceDate but no gameOpponent)
-    var practiceVideos: [CoachVideoItem] {
-        videos.filter { $0.videoType == "practice" || ($0.practiceDate != nil && $0.gameOpponent == nil) }
+    /// Cached filtered arrays — updated whenever `videos` changes
+    @Published var cachedGameVideos: [CoachVideoItem] = []
+    @Published var cachedPracticeVideos: [CoachVideoItem] = []
+
+    private func updateFilteredVideos() {
+        cachedGameVideos = videos.filter { $0.videoType == "game" || $0.gameOpponent != nil }
+        cachedPracticeVideos = videos.filter { $0.videoType == "practice" || ($0.practiceDate != nil && $0.gameOpponent == nil) }
     }
     
     func loadVideos() async {
@@ -726,10 +730,10 @@ class CoachFolderViewModel: ObservableObject {
             // Convert to CoachVideoItem
             videos = firestoreVideos.map { CoachVideoItem(from: $0) }
                 .sorted { ($0.createdAt ?? Date()) > ($1.createdAt ?? Date()) }
-            
+            updateFilteredVideos()
+
         } catch {
             errorMessage = "Failed to load videos: \(error.localizedDescription)"
-            print("❌ Failed to load videos: \(error)")
         }
     }
 }

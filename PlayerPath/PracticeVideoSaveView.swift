@@ -259,13 +259,10 @@ struct PracticeVideoSaveView: View {
             ZStack {
                 RoundedRectangle(cornerRadius: 28, style: .continuous).fill(.ultraThinMaterial)
                 RoundedRectangle(cornerRadius: 28, style: .continuous)
-                    .fill(LinearGradient(
-                        colors: [Color.black.opacity(0.2), Color.black.opacity(0.4)],
-                        startPoint: .top, endPoint: .bottom
-                    ))
+                    .fill(LinearGradient.glassDark)
                 VStack {
                     RoundedRectangle(cornerRadius: 28, style: .continuous)
-                        .fill(LinearGradient(colors: [.white.opacity(0.15), .clear], startPoint: .top, endPoint: .center))
+                        .fill(LinearGradient.glassShine)
                         .frame(height: 100)
                     Spacer()
                 }
@@ -274,13 +271,7 @@ struct PracticeVideoSaveView: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .strokeBorder(
-                    LinearGradient(
-                        colors: [.white.opacity(0.3), .white.opacity(0.1)],
-                        startPoint: .topLeading, endPoint: .bottomTrailing
-                    ),
-                    lineWidth: 1
-                )
+                .strokeBorder(LinearGradient.glassBorder, lineWidth: 1)
         )
         .shadow(color: .black.opacity(0.4), radius: 30, x: 0, y: 15)
     }

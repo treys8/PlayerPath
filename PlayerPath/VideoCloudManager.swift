@@ -7,6 +7,7 @@
 
 import Foundation
 import Combine
+import os
 @preconcurrency import SwiftData
 import FirebaseStorage
 import FirebaseFirestore
@@ -115,9 +116,9 @@ class VideoCloudManager: ObservableObject {
             throw VideoCloudError.uploadFailed("Local file not found at \(clipFilePath)")
         }
 
-        // Enforce per-tier cloud storage limit
+        // Enforce per-tier cloud storage limit using live StoreKit tier
         if let user = athlete.user {
-            let tier = user.tier
+            let tier = StoreKitManager.shared.currentTier
             let limitBytes = Int64(tier.storageLimitGB) * 1_073_741_824
             let fileAttrs = try? FileManager.default.attributesOfItem(atPath: localURL.path)
             let fileSize = (fileAttrs?[.size] as? Int64) ?? 0
@@ -153,19 +154,36 @@ class VideoCloudManager: ObservableObject {
         let uploadBox = UploadTaskBox()
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
-                let uploadTask = videoRef.putFile(from: localURL, metadata: metadata) { metadata, error in
+                // Flag to ensure continuation is resumed exactly once
+                let hasResumed = OSAllocatedUnfairLock(initialState: false)
+                let uploadTask = videoRef.putFile(from: localURL, metadata: metadata) { [weak uploadBox] metadata, error in
+                    // Remove progress observer to prevent memory leaks
+                    uploadBox?.task?.removeAllObservers()
+
                     if let error = error {
-                        print("VideoCloudManager: Upload failed for \(clipFileName): \(error)")
-                        continuation.resume(throwing: error)
+                        let alreadyResumed = hasResumed.withLock { val -> Bool in
+                            if val { return true }
+                            val = true
+                            return false
+                        }
+                        if !alreadyResumed {
+                            continuation.resume(throwing: error)
+                        }
                         return
                     }
 
                     // Get download URL
                     videoRef.downloadURL { url, error in
+                        let alreadyResumed = hasResumed.withLock { val -> Bool in
+                            if val { return true }
+                            val = true
+                            return false
+                        }
+                        guard !alreadyResumed else { return }
+
                         if let error = error {
                             continuation.resume(throwing: error)
                         } else if let url = url {
-                            print("VideoCloudManager: Upload completed successfully for \(clipFileName)")
                             continuation.resume(returning: url.absoluteString)
                         } else {
                             continuation.resume(throwing: VideoCloudError.invalidURL)
@@ -187,7 +205,6 @@ class VideoCloudManager: ObservableObject {
                             progress: percentComplete
                         ) { progress in
                             self.uploadProgress[clipId] = progress
-                            print("VideoCloudManager: Upload progress for \(clipFileName): \(Int(progress * 100))%")
                         }
                     }
                 }
@@ -237,9 +254,11 @@ class VideoCloudManager: ObservableObject {
         let downloadBox = DownloadTaskBox()
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
-                let downloadTask = storageRef.write(toFile: localURL) { url, error in
+                let downloadTask = storageRef.write(toFile: localURL) { [weak downloadBox] url, error in
+                    // Remove progress observer to prevent memory leaks
+                    downloadBox?.task?.removeAllObservers()
+
                     if let error = error {
-                        print("VideoCloudManager: Download failed: \(error)")
                         continuation.resume(throwing: error)
                     } else {
                         #if DEBUG
@@ -263,7 +282,6 @@ class VideoCloudManager: ObservableObject {
                             progress: percentComplete
                         ) { progress in
                             self.downloadProgress[clipId] = progress
-                            print("VideoCloudManager: Download progress: \(Int(progress * 100))%")
                         }
                     }
                 }
@@ -295,6 +313,7 @@ class VideoCloudManager: ObservableObject {
         let gameId = videoClip.game.map { $0.firestoreId ?? $0.id.uuidString }
         let gameOpponent = videoClip.gameOpponent ?? videoClip.game?.opponent
         let gameDate = videoClip.gameDate ?? videoClip.game?.date
+        let practiceDate = videoClip.practiceDate ?? videoClip.practice?.date
         let practiceId = videoClip.practice?.id
         let seasonId = videoClip.season.map { $0.firestoreId ?? $0.id.uuidString }
         let seasonName = videoClip.seasonName ?? videoClip.season?.displayName
@@ -347,6 +366,9 @@ class VideoCloudManager: ObservableObject {
         if let practiceId = practiceId {
             data["practiceId"] = practiceId.uuidString
         }
+        if let practiceDate = practiceDate {
+            data["practiceDate"] = Timestamp(date: practiceDate)
+        }
         if let seasonId = seasonId {
             data["seasonId"] = seasonId
         }
@@ -372,14 +394,12 @@ class VideoCloudManager: ObservableObject {
                 )
                 data["thumbnailURL"] = cloudThumbnailURL
             } catch {
-                print("VideoCloudManager: Failed to upload thumbnail, continuing without: \(error)")
             }
         }
 
         // Save to Firestore - use clipId as document ID for easy lookup
         try await db.collection("videos").document(clipId.uuidString).setData(data)
 
-        print("VideoCloudManager: ✅ Saved video metadata to Firestore: \(clipFileName)")
     }
 
     /// Updates only the note field on an existing video document in Firestore.
@@ -390,7 +410,7 @@ class VideoCloudManager: ObservableObject {
     }
 
     /// Updates mutable video metadata fields in Firestore (isHighlight, note).
-    func updateVideoMetadata(clipId: String, isHighlight: Bool, note: String?, playResultType: PlayResultType?, pitchSpeed: Double?, gameId: String?, gameOpponent: String?, gameDate: Date?, seasonId: String?, seasonName: String?, practiceId: String?) async throws {
+    func updateVideoMetadata(clipId: String, isHighlight: Bool, note: String?, playResultType: PlayResultType?, pitchSpeed: Double?, gameId: String?, gameOpponent: String?, gameDate: Date?, seasonId: String?, seasonName: String?, practiceId: String?, practiceDate: Date? = nil) async throws {
         let db = Firestore.firestore()
         var data: [String: Any] = [
             "isHighlight": isHighlight,
@@ -411,6 +431,7 @@ class VideoCloudManager: ObservableObject {
         data["seasonId"] = seasonId ?? NSNull()
         data["seasonName"] = seasonName ?? NSNull()
         data["practiceId"] = practiceId ?? NSNull()
+        data["practiceDate"] = practiceDate.map { Timestamp(date: $0) } ?? NSNull()
         try await db.collection("videos").document(clipId).updateData(data)
     }
 
@@ -583,10 +604,12 @@ class VideoCloudManager: ObservableObject {
             let seasonId = data["seasonId"] as? String
             let seasonName = data["seasonName"] as? String
             let practiceId = data["practiceId"] as? String
+            let practiceDate = (data["practiceDate"] as? Timestamp)?.dateValue()
             let pitchSpeed = data["pitchSpeed"] as? Double
             let duration = data["duration"] as? Double
             let fileSize = data["fileSize"] as? Int64 ?? 0
             let thumbnailURL = data["thumbnailURL"] as? String
+            let isDeleted = data["isDeleted"] as? Bool ?? false
 
             let metadata = VideoClipMetadata(
                 id: id,
@@ -604,17 +627,18 @@ class VideoCloudManager: ObservableObject {
                 seasonId: seasonId,
                 seasonName: seasonName,
                 practiceId: practiceId,
+                practiceDate: practiceDate,
                 pitchSpeed: pitchSpeed,
                 duration: duration,
                 athleteName: athleteName,
                 fileSize: fileSize,
-                thumbnailURL: thumbnailURL
+                thumbnailURL: thumbnailURL,
+                isDeleted: isDeleted
             )
 
             videos.append(metadata)
         }
 
-        print("VideoCloudManager: Synced \(videos.count) videos from Firestore for \(athlete.name)")
         return videos
     }
 
@@ -628,7 +652,6 @@ class VideoCloudManager: ObservableObject {
             "deletedAt": Timestamp(date: Date())
         ])
 
-        print("VideoCloudManager: Marked video as deleted in Firestore: \(clipId)")
     }
 
     /// Sets up a real-time listener for new videos from other devices
@@ -644,7 +667,6 @@ class VideoCloudManager: ObservableObject {
         let athleteStableId = athlete.firestoreId ?? athlete.id.uuidString
         let db = Firestore.firestore()
         guard let ownerUID = Auth.auth().currentUser?.uid else {
-            print("VideoCloudManager: ⚠️ listenForNewVideos called without authenticated user — returning no-op listener")
             return db.collection("videos").limit(to: 0).addSnapshotListener { _, _ in }
         }
 
@@ -655,7 +677,6 @@ class VideoCloudManager: ObservableObject {
             .limit(to: 200)
             .addSnapshotListener { snapshot, error in
                 guard let snapshot = snapshot else {
-                    print("VideoCloudManager: Listener error: \(error?.localizedDescription ?? "Unknown")")
                     return
                 }
 
@@ -694,18 +715,19 @@ class VideoCloudManager: ObservableObject {
                         seasonId: data["seasonId"] as? String,
                         seasonName: data["seasonName"] as? String,
                         practiceId: data["practiceId"] as? String,
+                        practiceDate: (data["practiceDate"] as? Timestamp)?.dateValue(),
                         pitchSpeed: data["pitchSpeed"] as? Double,
                         duration: data["duration"] as? Double,
                         athleteName: athleteName,
                         fileSize: data["fileSize"] as? Int64 ?? 0,
-                        thumbnailURL: data["thumbnailURL"] as? String
+                        thumbnailURL: data["thumbnailURL"] as? String,
+                        isDeleted: data["isDeleted"] as? Bool ?? false
                     )
 
                     onNewVideo(metadata)
                 }
             }
 
-        print("VideoCloudManager: Started listening for new videos for \(athlete.name)")
         return listener
     }
     
@@ -730,14 +752,11 @@ class VideoCloudManager: ObservableObject {
                     // Check if file doesn't exist (not really an error in deletion context)
                     let nsError = error as NSError
                     if nsError.domain == "FIRStorageErrorDomain" && nsError.code == StorageErrorCode.objectNotFound.rawValue {
-                        print("⚠️ Video file not found in storage, treating as already deleted: \(clipFileName)")
                         continuation.resume()
                     } else {
-                        print("VideoCloudManager: Failed to delete video \(clipFileName): \(error)")
                         continuation.resume(throwing: error)
                     }
                 } else {
-                    print("VideoCloudManager: Video deleted from cloud successfully: \(clipFileName)")
                     continuation.resume()
                 }
             }
@@ -779,7 +798,6 @@ class VideoCloudManager: ObservableObject {
             "storagePath": "athlete_videos/\(ownerUID)/\(fileName)",
             "createdAt": Timestamp(date: Date())
         ])
-        print("VideoCloudManager: Recorded pending deletion for \(fileName)")
     }
 
     func getUploadStatus(for clipId: UUID) -> UploadStatus {
@@ -924,7 +942,6 @@ class VideoCloudManager: ObservableObject {
             try await withCheckedThrowingContinuation { continuation in
                 let uploadTask = videoRef.putFile(from: localURL, metadata: metadata) { metadata, error in
                     if let error = error {
-                        print("VideoCloudManager: Upload failed for \(fileName): \(error)")
                         continuation.resume(throwing: error)
                         return
                     }
@@ -934,7 +951,6 @@ class VideoCloudManager: ObservableObject {
                         if let error = error {
                             continuation.resume(throwing: error)
                         } else if let url = url {
-                            print("VideoCloudManager: Upload completed successfully for \(fileName)")
                             continuation.resume(returning: url.absoluteString)
                         } else {
                             continuation.resume(throwing: VideoCloudError.invalidURL)
@@ -956,7 +972,6 @@ class VideoCloudManager: ObservableObject {
                             progress: percentComplete
                         ) { progress in
                             self.uploadProgress[clipId] = progress
-                            print("VideoCloudManager: Upload progress for \(fileName): \(Int(progress * 100))%")
                         }
                     }
                 }
@@ -1221,13 +1236,11 @@ class VideoCloudManager: ObservableObject {
                     // Check if file doesn't exist (not really an error in deletion context)
                     let nsError = error as NSError
                     if nsError.domain == "FIRStorageErrorDomain" && nsError.code == StorageErrorCode.objectNotFound.rawValue {
-                        print("⚠️ Video file not found in storage, treating as already deleted: \(fileName)")
                         continuation.resume()
                     } else {
                         continuation.resume(throwing: error)
                     }
                 } else {
-                    print("✅ Deleted video from storage: \(fileName)")
                     continuation.resume()
                 }
             }
@@ -1251,13 +1264,11 @@ class VideoCloudManager: ObservableObject {
                     // Check if file doesn't exist (not really an error)
                     let nsError = error as NSError
                     if nsError.domain == "FIRStorageErrorDomain" && nsError.code == StorageErrorCode.objectNotFound.rawValue {
-                        print("⚠️ Thumbnail file not found in storage, treating as already deleted")
                         continuation.resume()
                     } else {
                         continuation.resume(throwing: error)
                     }
                 } else {
-                    print("✅ Deleted thumbnail from storage")
                     continuation.resume()
                 }
             }
@@ -1275,7 +1286,6 @@ class VideoCloudManager: ObservableObject {
         let storage = Storage.storage()
         let storageRef = storage.reference()
 
-        print("🗑️ Deleting all videos for user: \(userID)")
 
         // Path to user's video folder
         let userFolderRef = storageRef.child("athlete_videos/\(userID)")
@@ -1284,15 +1294,12 @@ class VideoCloudManager: ObservableObject {
             // List all files in the user's folder
             let result = try await userFolderRef.listAll()
 
-            print("🗑️ Found \(result.items.count) files and \(result.prefixes.count) subdirectories to delete")
 
             // Delete all files
             for fileRef in result.items {
                 do {
                     try await fileRef.delete()
-                    print("✅ Deleted file: \(fileRef.name)")
                 } catch {
-                    print("⚠️ Failed to delete file \(fileRef.name): \(error)")
                     // Continue deleting other files even if one fails
                 }
             }
@@ -1303,21 +1310,17 @@ class VideoCloudManager: ObservableObject {
                     let subResult = try await prefixRef.listAll()
                     for subFileRef in subResult.items {
                         try await subFileRef.delete()
-                        print("✅ Deleted subfolder file: \(subFileRef.name)")
                     }
                 } catch {
-                    print("⚠️ Failed to delete subdirectory \(prefixRef.name): \(error)")
                     // Continue with other directories
                 }
             }
 
-            print("✅ Deleted all videos for user \(userID)")
 
         } catch {
             // If folder doesn't exist, that's fine - no videos to delete
             let nsError = error as NSError
             if nsError.domain == "FIRStorageErrorDomain" && nsError.code == StorageErrorCode.objectNotFound.rawValue {
-                print("⚠️ No videos folder found for user \(userID), treating as already deleted")
                 return
             }
             throw error
@@ -1388,9 +1391,11 @@ struct VideoClipMetadata {
     let seasonId: String?
     let seasonName: String?
     let practiceId: String?
+    let practiceDate: Date?
     let pitchSpeed: Double?
     let duration: Double?
     let athleteName: String
     let fileSize: Int64
     let thumbnailURL: String?
+    let isDeleted: Bool
 }

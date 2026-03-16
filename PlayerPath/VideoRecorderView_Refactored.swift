@@ -257,9 +257,8 @@ struct VideoRecorderView_Refactored: View {
                 #if canImport(UIKit)
                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                 #endif
-            case .failure(let error):
-                print("Failed to process video: \(error)")
-                // Error is already handled by uploadService
+            case .failure:
+                break
             }
         }
     }
@@ -272,13 +271,11 @@ struct VideoRecorderView_Refactored: View {
                 availableStorageGB = Double(capacity) / 1_000_000_000.0
             }
         } catch {
-            print("Storage check error: \(error)")
         }
     }
 
     private func saveVideoWithResult(videoURL: URL, playResult: PlayResultType?, pitchSpeed: Double? = nil, role: AthleteRole = .batter, note: String? = nil, onComplete: @escaping () -> Void) {
         guard let athlete = athlete else {
-            print("ERROR: No athlete selected for video save")
             UINotificationFeedbackGenerator().notificationOccurred(.error)
             onComplete() // Still dismiss UI to avoid stuck state
             return
@@ -287,7 +284,6 @@ struct VideoRecorderView_Refactored: View {
         // If a save is already in progress, let it finish (cancelling mid-copy
         // would orphan a partial file in Clips/ with no database record)
         guard saveTask == nil else {
-            print("VideoRecorder: Save already in progress, ignoring duplicate")
             return
         }
 
@@ -331,7 +327,6 @@ struct VideoRecorderView_Refactored: View {
                     await MainActor.run { self.saveTask = nil }
                     return
                 }
-                print("Failed to save video: \(error)")
                 await MainActor.run {
                     UINotificationFeedbackGenerator().notificationOccurred(.error)
                     self.saveTask = nil
@@ -399,7 +394,6 @@ struct GuidelineItem: View {
 }
 
 
-
 // MARK: - Network Monitoring
 
 class NetworkMonitor: ObservableObject {
@@ -422,22 +416,18 @@ class NetworkMonitor: ObservableObject {
 
                 if path.status == .satisfied {
                     if let type = path.availableInterfaces.first?.type {
-                        let typeString = self?.interfaceTypeName(type) ?? "unknown"
-                        print("NetworkMonitor: Connected via \(typeString)")
+                        _ = self?.interfaceTypeName(type) ?? "unknown"
                     }
                 } else {
-                    print("NetworkMonitor: Disconnected")
                 }
             }
         }
         pathMonitor.start(queue: queue)
-        print("NetworkMonitor: Started monitoring")
     }
 
     func stopMonitoring() {
         monitor?.cancel()
         monitor = nil
-        print("NetworkMonitor: Stopped monitoring")
     }
 
     private func interfaceTypeName(_ type: NWInterface.InterfaceType) -> String {
@@ -769,19 +759,11 @@ struct PreUploadTrimmerView: View {
                     .padding(.vertical, 16)
                     .background(
                         RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .fill(LinearGradient(
-                                colors: [.blue, .blue.opacity(0.8)],
-                                startPoint: .topLeading, endPoint: .bottomTrailing
-                            ))
+                            .fill(LinearGradient.primaryButton)
                     )
                     .overlay(
                         RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .strokeBorder(
-                                LinearGradient(
-                                    colors: [.white.opacity(0.3), .white.opacity(0.1)],
-                                    startPoint: .top, endPoint: .bottom
-                                ), lineWidth: 1
-                            )
+                            .strokeBorder(LinearGradient.glassBorder, lineWidth: 1)
                     )
                     .shadow(color: .blue.opacity(0.4), radius: 8, x: 0, y: 4)
                 }
@@ -807,12 +789,7 @@ struct PreUploadTrimmerView: View {
                     )
                     .overlay(
                         RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .strokeBorder(
-                                LinearGradient(
-                                    colors: [.white.opacity(0.3), .white.opacity(0.1)],
-                                    startPoint: .top, endPoint: .bottom
-                                ), lineWidth: 1
-                            )
+                            .strokeBorder(LinearGradient.glassBorder, lineWidth: 1)
                     )
                 }
                 .disabled(isExporting)
@@ -826,16 +803,10 @@ struct PreUploadTrimmerView: View {
                 RoundedRectangle(cornerRadius: 28, style: .continuous)
                     .fill(.ultraThinMaterial)
                 RoundedRectangle(cornerRadius: 28, style: .continuous)
-                    .fill(LinearGradient(
-                        colors: [Color.black.opacity(0.2), Color.black.opacity(0.4)],
-                        startPoint: .top, endPoint: .bottom
-                    ))
+                    .fill(LinearGradient.glassDark)
                 VStack {
                     RoundedRectangle(cornerRadius: 28, style: .continuous)
-                        .fill(LinearGradient(
-                            colors: [.white.opacity(0.15), .clear],
-                            startPoint: .top, endPoint: .center
-                        ))
+                        .fill(LinearGradient.glassShine)
                         .frame(height: 100)
                     Spacer()
                 }
@@ -844,12 +815,7 @@ struct PreUploadTrimmerView: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .strokeBorder(
-                    LinearGradient(
-                        colors: [.white.opacity(0.3), .white.opacity(0.1)],
-                        startPoint: .topLeading, endPoint: .bottomTrailing
-                    ), lineWidth: 1
-                )
+                .strokeBorder(LinearGradient.glassBorder, lineWidth: 1)
         )
         .shadow(color: .black.opacity(0.4), radius: 30, x: 0, y: 15)
     }

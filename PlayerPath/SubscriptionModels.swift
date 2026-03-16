@@ -54,9 +54,9 @@ enum SubscriptionTier: String, Comparable, CaseIterable {
     /// Cloud storage limit in GB
     var storageLimitGB: Int {
         switch self {
-        case .free: return 1
-        case .plus: return 5
-        case .pro:  return 15
+        case .free: return 2
+        case .plus: return 25
+        case .pro:  return 100
         }
     }
 

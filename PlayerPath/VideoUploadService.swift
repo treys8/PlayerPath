@@ -40,7 +40,6 @@ class VideoUploadService: ObservableObject {
             let validationResult = await VideoFileManager.validateVideo(at: video.url)
             switch validationResult {
             case .success:
-                print("VideoUploadService: Video validation successful")
                 return .success(video.url)
             case .failure(let error):
                 // Clean up the imported file since validation failed

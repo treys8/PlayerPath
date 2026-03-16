@@ -12,6 +12,7 @@ import Charts
 
 struct SeasonComparisonView: View {
     let athlete: Athlete
+    @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @Environment(\.dismiss) private var dismiss
 
     // Selected seasons for comparison (max 4)
@@ -41,43 +42,51 @@ struct SeasonComparisonView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                if canCompare {
-                    // Comparison view
-                    ScrollView {
-                        VStack(spacing: 20) {
-                            // Batting Average Trend
-                            TrendChartSection(
-                                title: "Batting Average",
-                                seasons: seasonsToCompare,
-                                getValue: { $0.seasonStatistics?.battingAverage ?? 0.0 },
-                                formatValue: { formatBattingAverage($0) }
-                            )
-
-                            // On-Base Percentage Trend
-                            TrendChartSection(
-                                title: "On-Base Percentage",
-                                seasons: seasonsToCompare,
-                                getValue: { $0.seasonStatistics?.onBasePercentage ?? 0.0 },
-                                formatValue: { formatThreeDecimal($0) }
-                            )
-
-                            // Home Runs Trend
-                            TrendChartSection(
-                                title: "Home Runs",
-                                seasons: seasonsToCompare,
-                                getValue: { Double($0.seasonStatistics?.homeRuns ?? 0) },
-                                formatValue: { "\(Int($0))" }
-                            )
-
-                            // Detailed Comparison Table
-                            DetailedComparisonTable(seasons: seasonsToCompare)
-                        }
-                        .padding()
-                    }
+            Group {
+                if authManager.currentTier < .plus {
+                    // Entitlement guard — prevents access via deep links or stale navigation
+                    LockedFeaturePlaceholder(message: "Upgrade to Plus to compare seasons side-by-side")
                 } else {
-                    // Season selection view
-                    seasonSelectionView
+                    VStack(spacing: 0) {
+                        if canCompare {
+                            // Comparison view
+                            ScrollView {
+                                VStack(spacing: 20) {
+                                    // Batting Average Trend
+                                    TrendChartSection(
+                                        title: "Batting Average",
+                                        seasons: seasonsToCompare,
+                                        getValue: { $0.seasonStatistics?.battingAverage ?? 0.0 },
+                                        formatValue: { formatBattingAverage($0) }
+                                    )
+
+                                    // On-Base Percentage Trend
+                                    TrendChartSection(
+                                        title: "On-Base Percentage",
+                                        seasons: seasonsToCompare,
+                                        getValue: { $0.seasonStatistics?.onBasePercentage ?? 0.0 },
+                                        formatValue: { formatThreeDecimal($0) }
+                                    )
+
+                                    // Home Runs Trend
+                                    TrendChartSection(
+                                        title: "Home Runs",
+                                        seasons: seasonsToCompare,
+                                        getValue: { Double($0.seasonStatistics?.homeRuns ?? 0) },
+                                        formatValue: { "\(Int($0))" }
+                                    )
+
+                                    // Detailed Comparison Table
+                                    DetailedComparisonTable(seasons: seasonsToCompare)
+                                }
+                                .padding()
+                            }
+                        } else {
+                            // Season selection view
+                            seasonSelectionView
+                        }
+                    }
+                    .onAppear { AnalyticsService.shared.trackScreenView(screenName: "Season Comparison", screenClass: "SeasonComparisonView") }
                 }
             }
             .navigationTitle("Season Comparison")
@@ -89,7 +98,7 @@ struct SeasonComparisonView: View {
                     }
                 }
 
-                if canCompare {
+                if authManager.currentTier >= .plus && canCompare {
                     ToolbarItem(placement: .primaryAction) {
                         Button("Change Seasons") {
                             // Clear selections to go back to selection view
@@ -297,6 +306,7 @@ struct TrendChartSection: View {
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
+                                .truncationMode(.tail)
                             Text(formatValue(dataPoint.value))
                                 .font(.title3)
                                 .fontWeight(.bold)
@@ -419,4 +429,40 @@ private func formatBattingAverage(_ value: Double) -> String {
 /// Alias kept for call sites that use OBP/SLG — delegates to formatBattingAverage
 private func formatThreeDecimal(_ value: Double) -> String {
     formatBattingAverage(value)
+}
+
+// MARK: - Locked Feature Placeholder (entitlement guard)
+
+private struct LockedFeaturePlaceholder: View {
+    let message: String
+    @State private var showingPaywall = false
+    @EnvironmentObject private var authManager: ComprehensiveAuthManager
+
+    var body: some View {
+        VStack(spacing: 20) {
+            Spacer()
+            Image(systemName: "crown.fill")
+                .font(.system(size: 56))
+                .foregroundStyle(.yellow)
+            Text("Plus Feature")
+                .font(.title2)
+                .fontWeight(.semibold)
+            Text(message)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 32)
+            Button("View Plans") { showingPaywall = true }
+                .buttonStyle(.borderedProminent)
+                .padding(.top, 4)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(.systemGroupedBackground))
+        .sheet(isPresented: $showingPaywall) {
+            if let user = authManager.localUser {
+                ImprovedPaywallView(user: user)
+            }
+        }
+    }
 }

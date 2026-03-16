@@ -23,6 +23,9 @@ struct CoachesView: View {
     @State private var showingDeleteConfirmation = false
     @State private var coachToReport: Coach?
     @State private var showingReportConfirmation = false
+    @State private var isReinviting = false
+    @State private var reinviteError: String?
+    @State private var showingReinviteError = false
 
     // Use @Query to automatically fetch coaches for this athlete
     private var athleteID: UUID
@@ -109,11 +112,22 @@ struct CoachesView: View {
                                 }
                                 .tint(.orange)
                             }
+                            .swipeActions(edge: .leading) {
+                                if coach.isInvitationExpired || coach.lastInvitationStatus == "declined" {
+                                    Button {
+                                        reinviteCoach(coach)
+                                    } label: {
+                                        Label("Re-invite", systemImage: "paperplane")
+                                    }
+                                    .tint(.indigo)
+                                }
+                            }
                         }
                     }
                 }
             }
         }
+        .onAppear { AnalyticsService.shared.trackScreenView(screenName: "Coaches", screenClass: "CoachesView") }
         .navigationTitle("Coaches")
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
@@ -183,6 +197,11 @@ struct CoachesView: View {
         } message: { coach in
             Text("Report \(coach.name) for inappropriate behavior? Our team will review this report.")
         }
+        .alert("Re-invite Failed", isPresented: $showingReinviteError) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(reinviteError ?? "Could not send invitation. Check your connection and try again.")
+        }
     }
 
     private func reportCoach(_ coach: Coach) {
@@ -196,15 +215,85 @@ struct CoachesView: View {
         Haptics.medium()
     }
 
+    private func reinviteCoach(_ coach: Coach) {
+        guard !coach.email.isEmpty else {
+            Haptics.error()
+            return
+        }
+        guard authManager.hasCoachingAccess else {
+            showingPremiumAlert = true
+            Haptics.warning()
+            return
+        }
+        guard !isReinviting else { return }
+
+        isReinviting = true
+        Task {
+            do {
+                // Re-use existing shared folder if available, otherwise create one
+                let folderID: String
+                if let existingFolderID = coach.sharedFolderIDs.first {
+                    folderID = existingFolderID
+                } else {
+                    let folderName = "\(athlete.name)'s Videos"
+                    folderID = try await SharedFolderManager.shared.createFolder(
+                        name: folderName,
+                        forAthlete: athlete.id.uuidString,
+                        hasCoachingAccess: authManager.hasCoachingAccess
+                    )
+                }
+
+                // Create a new Firestore invitation document
+                _ = try await FirestoreManager.shared.createInvitation(
+                    athleteID: athlete.id.uuidString,
+                    athleteName: athlete.name,
+                    coachEmail: coach.email.lowercased(),
+                    folderID: folderID,
+                    folderName: "\(athlete.name)'s Videos"
+                )
+
+                // Update local coach record
+                coach.invitationSentAt = Date()
+                coach.lastInvitationStatus = "pending"
+                coach.needsSync = true
+                try modelContext.save()
+                isReinviting = false
+                Haptics.success()
+            } catch {
+                isReinviting = false
+                reinviteError = error.localizedDescription
+                showingReinviteError = true
+                Haptics.error()
+            }
+        }
+    }
+
     private func deleteCoach(_ coach: Coach) {
+        // Capture Firestore identifiers before deletion clears the object
+        let firebaseCoachID = coach.firebaseCoachID
+        let sharedFolderIDs = coach.sharedFolderIDs
+
         withAnimation {
             modelContext.delete(coach)
-            do {
-                try modelContext.save()
-                Haptics.medium()
-            } catch {
-                print("Error deleting coach: \(error)")
-                Haptics.error()
+            Task {
+                do {
+                    try modelContext.save()
+                    Haptics.medium()
+                } catch {
+                    Haptics.error()
+                }
+
+                // Revoke Firestore folder access in the background.
+                // Silent failures are acceptable — Firestore rules prevent
+                // unauthorized access regardless.
+                if let coachID = firebaseCoachID, !sharedFolderIDs.isEmpty {
+                    for folderID in sharedFolderIDs {
+                        try? await FirestoreManager.shared.removeCoachFromFolder(
+                            folderID: folderID,
+                            coachID: coachID
+                        )
+                    }
+                }
             }
         }
     }
@@ -339,6 +428,12 @@ struct CoachRow: View {
                     }
                 }
 
+                if coach.isInvitationExpired || coach.lastInvitationStatus == "declined" {
+                    Text(coach.isInvitationExpired ? "Invitation expired — swipe right to re-invite" : "Invitation declined — swipe right to re-invite")
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                }
+
                 if !coach.role.isEmpty {
                     Text(coach.role)
                         .font(.subheadline)
@@ -360,6 +455,7 @@ struct CoachRow: View {
                         Text(coach.email)
                             .font(.caption)
                             .lineLimit(1)
+                            .truncationMode(.tail)
                     }
                     .foregroundStyle(.secondary)
                 }
@@ -762,14 +858,29 @@ struct CoachDetailView: View {
     }
 
     private func deleteCoach() {
+        // Capture Firestore identifiers before deletion clears the object
+        let firebaseCoachID = coach.firebaseCoachID
+        let sharedFolderIDs = coach.sharedFolderIDs
+
         modelContext.delete(coach)
         do {
             try modelContext.save()
             Haptics.medium()
             dismiss()
         } catch {
-            print("Error deleting coach: \(error)")
             Haptics.error()
+        }
+
+        // Revoke Firestore folder access in the background
+        if let coachID = firebaseCoachID, !sharedFolderIDs.isEmpty {
+            Task {
+                for folderID in sharedFolderIDs {
+                    try? await FirestoreManager.shared.removeCoachFromFolder(
+                        folderID: folderID,
+                        coachID: coachID
+                    )
+                }
+            }
         }
     }
 
@@ -811,7 +922,9 @@ struct CoachDetailView: View {
 
 #Preview {
     let config = ModelConfiguration(isStoredInMemoryOnly: true)
-    let container = try! ModelContainer(for: User.self, Athlete.self, Coach.self, configurations: config)
+    guard let container = try? ModelContainer(for: User.self, Athlete.self, Coach.self, configurations: config) else {
+        return NavigationStack { Text("Preview unavailable") }
+    }
 
     let athlete = Athlete(name: "Test Athlete")
     container.mainContext.insert(athlete)

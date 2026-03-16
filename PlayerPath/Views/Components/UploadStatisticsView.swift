@@ -12,8 +12,8 @@ struct UploadStatisticsView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
 
-    @State private var uploadManager = UploadQueueManager.shared
-    @State private var networkMonitor = ConnectivityMonitor.shared
+    private let uploadManager = UploadQueueManager.shared
+    private let networkMonitor = ConnectivityMonitor.shared
 
     @Query private var allVideos: [VideoClip]
     @Query private var preferences: [UserPreferences]
@@ -245,6 +245,7 @@ struct UploadStatisticsView: View {
                         Text(video.fileName)
                             .font(.subheadline)
                             .lineLimit(1)
+                            .truncationMode(.tail)
 
                         if let syncDate = video.lastSyncDate {
                             Text(formatRelativeDate(syncDate))

@@ -132,12 +132,15 @@ struct TermsOfServiceView: View {
                 )
 
                 TermsSection(
-                    title: "Premium Features",
+                    title: "Subscriptions and Premium Features",
                     content: """
-                    • Some features may require a premium subscription (future)
-                    • Subscription fees are non-refundable except as required by law
-                    • Subscriptions auto-renew unless cancelled before the renewal date
-                    • We may change pricing with notice to existing subscribers
+                    • Certain features require a paid subscription (Plus, Pro, or Coach plans)
+                    • Subscription prices are displayed in the App before purchase and are charged through your Apple ID
+                    • Subscriptions automatically renew unless cancelled at least 24 hours before the end of the current billing period
+                    • Your account will be charged for renewal within 24 hours prior to the end of the current period at the same price
+                    • You can manage or cancel your subscription at any time in Settings > Subscriptions on your device
+                    • Subscription fees are non-refundable except as required by applicable law
+                    • We may change pricing with advance notice to existing subscribers; price changes take effect at the start of the next billing period
                     • Free features may become premium features with notice
                     """
                 )

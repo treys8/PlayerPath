@@ -26,6 +26,12 @@ struct AdvancedSearchView: View {
     @State private var showingSaveSearch = false
     @State private var newSearchName = ""
 
+    // Cached filtered results (updated via updateFilteredResults)
+    @State private var cachedFilteredVideos: [VideoClip] = []
+    @State private var cachedFilteredGames: [Game] = []
+    @State private var cachedFilteredPractices: [Practice] = []
+    @State private var cachedFilteredPhotos: [Photo] = []
+
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
@@ -65,6 +71,30 @@ struct AdvancedSearchView: View {
             }
             .sheet(isPresented: $showingSaveSearch) {
                 saveSearchSheet
+            }
+            .onAppear {
+                updateFilteredResults()
+            }
+            .onChange(of: searchText) { _, _ in
+                updateFilteredResults()
+            }
+            .onChange(of: selectedContentType) { _, _ in
+                updateFilteredResults()
+            }
+            .onChange(of: selectedDateRange) { _, _ in
+                updateFilteredResults()
+            }
+            .onChange(of: selectedSeason) { _, _ in
+                updateFilteredResults()
+            }
+            .onChange(of: selectedGame) { _, _ in
+                updateFilteredResults()
+            }
+            .onChange(of: selectedPlayResults) { _, _ in
+                updateFilteredResults()
+            }
+            .onChange(of: highlightsOnly) { _, _ in
+                updateFilteredResults()
             }
         }
     }
@@ -188,7 +218,7 @@ struct AdvancedSearchView: View {
     }
 
     private var videosResultsView: some View {
-        let results = filteredVideos
+        let results = cachedFilteredVideos
 
         return Group {
             if results.isEmpty {
@@ -210,7 +240,7 @@ struct AdvancedSearchView: View {
     }
 
     private var gamesResultsView: some View {
-        let results = filteredGames
+        let results = cachedFilteredGames
 
         return Group {
             if results.isEmpty {
@@ -235,7 +265,7 @@ struct AdvancedSearchView: View {
     }
 
     private var practicesResultsView: some View {
-        let results = filteredPractices
+        let results = cachedFilteredPractices
 
         return Group {
             if results.isEmpty {
@@ -256,7 +286,7 @@ struct AdvancedSearchView: View {
     }
 
     private var photosResultsView: some View {
-        let results = filteredPhotos
+        let results = cachedFilteredPhotos
 
         return Group {
             if results.isEmpty {
@@ -450,7 +480,8 @@ struct AdvancedSearchView: View {
 
     // MARK: - Filtering Logic
 
-    private var filteredVideos: [VideoClip] {
+    private func updateFilteredResults() {
+        // --- Videos ---
         var videos = athlete.videoClips ?? []
 
         // Text search
@@ -494,10 +525,9 @@ struct AdvancedSearchView: View {
             videos = videos.filter { $0.isHighlight }
         }
 
-        return videos.sorted { ($0.createdAt ?? Date.distantPast) > ($1.createdAt ?? Date.distantPast) }
-    }
+        cachedFilteredVideos = videos.sorted { ($0.createdAt ?? Date.distantPast) > ($1.createdAt ?? Date.distantPast) }
 
-    private var filteredGames: [Game] {
+        // --- Games ---
         var games = athlete.games ?? []
 
         // Text search
@@ -521,10 +551,9 @@ struct AdvancedSearchView: View {
             games = games.filter { $0.season?.id == season.id }
         }
 
-        return games.sorted { ($0.date ?? Date.distantPast) > ($1.date ?? Date.distantPast) }
-    }
+        cachedFilteredGames = games.sorted { ($0.date ?? Date.distantPast) > ($1.date ?? Date.distantPast) }
 
-    private var filteredPractices: [Practice] {
+        // --- Practices ---
         var practices = athlete.practices ?? []
 
         // Date range filter
@@ -541,10 +570,9 @@ struct AdvancedSearchView: View {
             practices = practices.filter { $0.season?.id == season.id }
         }
 
-        return practices.sorted { ($0.date ?? Date.distantPast) > ($1.date ?? Date.distantPast) }
-    }
+        cachedFilteredPractices = practices.sorted { ($0.date ?? Date.distantPast) > ($1.date ?? Date.distantPast) }
 
-    private var filteredPhotos: [Photo] {
+        // --- Photos ---
         var photos = athlete.photos ?? []
 
         // Text search
@@ -569,7 +597,7 @@ struct AdvancedSearchView: View {
             photos = photos.filter { $0.season?.id == season.id }
         }
 
-        return photos.sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
+        cachedFilteredPhotos = photos.sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
     }
 
     // MARK: - Actions
@@ -868,6 +896,7 @@ struct PhotoSearchResultCard: View {
                         .font(.subheadline)
                         .fontWeight(.semibold)
                         .lineLimit(1)
+                        .truncationMode(.tail)
                 }
 
                 if let game = photo.game {

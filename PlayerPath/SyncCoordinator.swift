@@ -9,6 +9,10 @@
 import Foundation
 import SwiftData
 import FirebaseAuth
+import UIKit
+import os
+
+private let syncLog = Logger(subsystem: "com.playerpath.app", category: "Sync")
 
 /// Coordinates bidirectional sync between SwiftData (local) and Firestore (cloud)
 /// Implements local-first architecture with background sync and conflict resolution
@@ -31,10 +35,16 @@ final class SyncCoordinator {
     /// Active background video/photo download tasks keyed by a local UUID so they
     /// can self-remove on completion and be bulk-cancelled on sign-out.
     private var pendingDownloadTasks: [UUID: Task<Void, Never>] = [:]
+    /// Tokens for background/foreground NotificationCenter observers so they
+    /// can be removed before re-adding (avoids duplicates when configure() is
+    /// called more than once).
+    private var backgroundObservers: [Any] = []
 
     private init() {
-        print("🔄 SyncCoordinator initialized")
     }
+
+    // Note: As a @MainActor singleton, deinit cannot access isolated properties.
+    // Timer and task cleanup is handled by stopPeriodicSync() called on sign-out.
 
     // MARK: - Configuration
 
@@ -43,8 +53,40 @@ final class SyncCoordinator {
     /// without leaking additional timers.
     func configure(modelContext: ModelContext) {
         self.modelContext = modelContext
+
+        // Remove any previous background/foreground observers to avoid duplicates
+        // when configure() is called more than once.
+        for observer in backgroundObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        backgroundObservers.removeAll()
+
+        // Pause the timer when the app enters background
+        let bgObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.didEnterBackgroundNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.timer?.invalidate()
+                self?.timer = nil
+            }
+        }
+        backgroundObservers.append(bgObserver)
+
+        // Resume the timer when the app returns to foreground
+        let fgObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.willEnterForegroundNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.startPeriodicSync()
+            }
+        }
+        backgroundObservers.append(fgObserver)
+
         startPeriodicSync()
-        print("✅ SyncCoordinator configured with ModelContext")
     }
 
     // MARK: - Public Sync Methods
@@ -53,19 +95,15 @@ final class SyncCoordinator {
     /// - Parameter user: The SwiftData User to sync athletes for
     func syncAthletes(for user: User) async throws {
         guard let context = modelContext else {
-            print("⚠️ Cannot sync - ModelContext not configured")
             return
         }
 
-        print("🔄 Starting athlete sync for user: \(user.email)")
 
         do {
             try await uploadLocalAthletes(user, context: context)
             try await downloadRemoteAthletes(user, context: context)
             try await resolveConflicts(user: user, context: context)
-            print("✅ Athlete sync completed successfully")
         } catch {
-            print("❌ Athlete sync failed: \(error)")
             appendSyncError(SyncError(
                 type: .syncFailed,
                 entityId: (user.firebaseAuthUid ?? user.id.uuidString),
@@ -82,11 +120,9 @@ final class SyncCoordinator {
         let dirtyAthletes = athletes.filter { $0.needsSync && !$0.isDeletedRemotely }
 
         guard !dirtyAthletes.isEmpty else {
-            print("✅ No local athletes need uploading")
             return
         }
 
-        print("📤 Uploading \(dirtyAthletes.count) local athletes to Firestore")
 
         for athlete in dirtyAthletes {
             do {
@@ -97,7 +133,6 @@ final class SyncCoordinator {
                         athleteId: firestoreId,
                         data: athlete.toFirestoreData()
                     )
-                    print("✅ Updated athlete '\(athlete.name)' in Firestore")
 
                 } else {
                     // Create new athlete in Firestore
@@ -106,7 +141,6 @@ final class SyncCoordinator {
                         data: athlete.toFirestoreData()
                     )
                     athlete.firestoreId = docId
-                    print("✅ Created athlete '\(athlete.name)' in Firestore with ID: \(docId)")
                 }
 
                 // Mark as synced
@@ -115,7 +149,6 @@ final class SyncCoordinator {
                 athlete.version += 1
 
             } catch {
-                print("❌ Failed to upload athlete '\(athlete.name)': \(error)")
                 appendSyncError(SyncError(
                     type: .uploadFailed,
                     entityId: athlete.id.uuidString,
@@ -125,25 +158,21 @@ final class SyncCoordinator {
         }
 
         // Save all changes to SwiftData
-        try context.save()
-        print("✅ Saved athlete upload metadata to SwiftData")
+        if context.hasChanges { try context.save() }
     }
 
     // MARK: - Download (Firestore → Local)
 
     private func downloadRemoteAthletes(_ user: User, context: ModelContext) async throws {
-        print("📥 Downloading athletes from Firestore for user: \(user.email)")
 
         let remoteAthletes = try await FirestoreManager.shared.fetchAthletes(
             userId: (user.firebaseAuthUid ?? user.id.uuidString)
         )
 
         guard !remoteAthletes.isEmpty else {
-            print("✅ No remote athletes found")
             return
         }
 
-        print("📥 Found \(remoteAthletes.count) athletes in Firestore")
 
         // Track which Firestore IDs we've already linked to a local athlete
         // to prevent multiple remote duplicates from each creating a new local record.
@@ -169,7 +198,6 @@ final class SyncCoordinator {
                 if let matched = localAthlete {
                     // Re-link the local athlete to this Firestore document
                     matched.firestoreId = remoteId
-                    print("🔗 Re-linked local athlete '\(matched.name)' to Firestore ID: \(remoteId)")
                 }
             }
 
@@ -182,7 +210,6 @@ final class SyncCoordinator {
                 if nameMatch != nil {
                     // This remote doc is a duplicate — skip creating a new athlete.
                     // The local athlete is already linked to a different Firestore doc.
-                    print("⚠️ Skipping duplicate Firestore athlete '\(remoteData.name)' (ID: \(remoteId)) — already linked locally")
                     claimedFirestoreIds.insert(remoteId)
                     continue
                 }
@@ -196,24 +223,26 @@ final class SyncCoordinator {
                 let localUpdatedAt = local.lastSyncDate ?? Date.distantPast
 
                 if remoteUpdatedAt > localUpdatedAt && !local.needsSync {
-                    // Remote is newer and local doesn't have pending changes - merge
-                    print("🔄 Merging remote changes for athlete '\(remoteData.name)'")
-                    local.name = remoteData.name
+                    // Only write properties that actually changed to avoid
+                    // dirtying the object and triggering unnecessary @Query updates.
+                    var changed = false
+                    if local.name != remoteData.name { local.name = remoteData.name; changed = true }
                     if let roleRaw = remoteData.primaryRole,
-                       let role = AthleteRole(rawValue: roleRaw) {
-                        local.primaryRole = role
+                       let role = AthleteRole(rawValue: roleRaw),
+                       local.primaryRole != role {
+                        local.primaryRole = role; changed = true
                     }
-                    local.lastSyncDate = Date()
-                    local.version = remoteData.version
+                    if local.version != remoteData.version { local.version = remoteData.version; changed = true }
+                    if changed {
+                        local.lastSyncDate = Date()
+                    }
 
                 } else if local.needsSync {
-                    print("⚠️ Conflict detected for athlete '\(local.name)' - local has pending changes")
                     // Will be resolved in resolveConflicts()
                 }
 
             } else {
                 // Genuinely new athlete from another device - create locally
-                print("🆕 Creating new local athlete from Firestore: '\(remoteData.name)'")
 
                 let newAthlete = Athlete(name: remoteData.name)
                 newAthlete.firestoreId = remoteId
@@ -234,14 +263,12 @@ final class SyncCoordinator {
             if let firestoreId = localAthlete.firestoreId,
                !remoteAthleteIds.contains(firestoreId) {
                 // Athlete was deleted on another device
-                print("🗑️ Athlete '\(localAthlete.name)' was deleted remotely")
                 localAthlete.isDeletedRemotely = true
             }
         }
 
         // Save all changes
-        try context.save()
-        print("✅ Saved downloaded athletes to SwiftData")
+        if context.hasChanges { try context.save() }
     }
 
     // MARK: - Conflict Resolution
@@ -256,19 +283,16 @@ final class SyncCoordinator {
         }
 
         guard !conflictedAthletes.isEmpty else {
-            print("✅ No conflicts to resolve")
             return
         }
 
-        print("⚠️ Resolving \(conflictedAthletes.count) conflicts using last-write-wins")
 
-        for athlete in conflictedAthletes {
+        for _ in conflictedAthletes {
             // For now, local changes win (already marked needsSync)
             // Upload will overwrite remote version
-            print("🔄 Conflict resolution: Local version of '\(athlete.name)' will be uploaded")
         }
 
-        try context.save()
+        if context.hasChanges { try context.save() }
     }
 
     // MARK: - Seasons Sync
@@ -277,11 +301,9 @@ final class SyncCoordinator {
     /// - Parameter user: The SwiftData User to sync seasons for
     func syncSeasons(for user: User) async throws {
         guard let context = modelContext else {
-            print("⚠️ Cannot sync seasons - ModelContext not configured")
             return
         }
 
-        print("🔄 Starting season sync for user: \(user.email)")
 
         do {
             // Step 1: Upload local changes to Firestore
@@ -293,10 +315,8 @@ final class SyncCoordinator {
             // Step 3: Resolve conflicts (if any)
             try await resolveSeasonConflicts(user: user, context: context)
 
-            print("✅ Season sync completed successfully")
 
         } catch {
-            print("❌ Season sync failed: \(error)")
             appendSyncError(SyncError(
                 type: .syncFailed,
                 entityId: (user.firebaseAuthUid ?? user.id.uuidString),
@@ -313,11 +333,9 @@ final class SyncCoordinator {
         let dirtySeasons = allSeasons.filter { $0.needsSync && !$0.isDeletedRemotely }
 
         guard !dirtySeasons.isEmpty else {
-            print("✅ No local seasons need uploading")
             return
         }
 
-        print("📤 Uploading \(dirtySeasons.count) local seasons to Firestore")
 
         for season in dirtySeasons {
             do {
@@ -328,7 +346,6 @@ final class SyncCoordinator {
                         seasonId: firestoreId,
                         data: season.toFirestoreData()
                     )
-                    print("✅ Updated season '\(season.name)' in Firestore")
 
                 } else {
                     // Create new season in Firestore
@@ -337,7 +354,6 @@ final class SyncCoordinator {
                         data: season.toFirestoreData()
                     )
                     season.firestoreId = docId
-                    print("✅ Created season '\(season.name)' in Firestore with ID: \(docId)")
                 }
 
                 // Mark as synced
@@ -346,7 +362,6 @@ final class SyncCoordinator {
                 season.version += 1
 
             } catch {
-                print("❌ Failed to upload season '\(season.name)': \(error)")
                 appendSyncError(SyncError(
                     type: .uploadFailed,
                     entityId: season.id.uuidString,
@@ -356,19 +371,16 @@ final class SyncCoordinator {
         }
 
         // Save all changes to SwiftData
-        try context.save()
-        print("✅ Saved season upload metadata to SwiftData")
+        if context.hasChanges { try context.save() }
     }
 
     private func downloadRemoteSeasons(_ user: User, context: ModelContext) async throws {
         let remoteSeasons = try await FirestoreManager.shared.fetchSeasons(userId: (user.firebaseAuthUid ?? user.id.uuidString))
 
         guard !remoteSeasons.isEmpty else {
-            print("✅ No remote seasons to download")
             return
         }
 
-        print("📥 Downloaded \(remoteSeasons.count) seasons from Firestore")
 
         // Get all local seasons
         let athletes = user.athletes ?? []
@@ -392,20 +404,24 @@ final class SyncCoordinator {
                 // If needsSync is true, local edits haven't uploaded yet — don't overwrite them.
                 if (remoteSeason.updatedAt ?? Date.distantPast) > (local.lastSyncDate ?? Date.distantPast)
                     && !local.needsSync {
-                    local.name = remoteSeason.name
-                    local.startDate = remoteSeason.startDate
-                    local.endDate = remoteSeason.endDate
-                    local.isActive = remoteSeason.isActive
-                    local.notes = remoteSeason.notes
-                    local.lastSyncDate = Date()
-                    local.version = remoteSeason.version
-                    print("✅ Merged remote changes for season: \(remoteSeason.name)")
+                    // Only write properties that actually changed to avoid
+                    // dirtying the object and triggering unnecessary @Query updates.
+                    var changed = false
+                    if local.name != remoteSeason.name { local.name = remoteSeason.name; changed = true }
+                    if local.startDate != remoteSeason.startDate { local.startDate = remoteSeason.startDate; changed = true }
+                    if local.endDate != remoteSeason.endDate { local.endDate = remoteSeason.endDate; changed = true }
+                    if local.isActive != remoteSeason.isActive { local.isActive = remoteSeason.isActive; changed = true }
+                    if local.notes != remoteSeason.notes { local.notes = remoteSeason.notes; changed = true }
+                    if local.version != remoteSeason.version { local.version = remoteSeason.version; changed = true }
+                    if changed {
+                        local.lastSyncDate = Date()
+                    }
                 }
             } else if let athlete = parentAthlete {
                 // Create new local season from remote
                 let newSeason = Season(
                     name: remoteSeason.name,
-                    startDate: remoteSeason.startDate ?? Date(),
+                    startDate: remoteSeason.startDate ?? Date.distantPast,
                     sport: remoteSeason.sport == "Softball" ? .softball : .baseball
                 )
                 newSeason.id = UUID(uuidString: remoteSeason.swiftDataId) ?? UUID()
@@ -419,19 +435,16 @@ final class SyncCoordinator {
                 newSeason.version = remoteSeason.version
                 newSeason.athlete = athlete
                 context.insert(newSeason)
-                print("✅ Created local season from remote: \(remoteSeason.name)")
             } else {
-                print("⚠️ Cannot find parent athlete for remote season: \(remoteSeason.name)")
+                syncLog.warning("Dropped remote season '\(remoteSeason.name)' (id: \(remoteSeason.id ?? "nil")) — no matching athlete found for athleteId '\(remoteSeason.athleteId)'")
             }
         }
 
-        try context.save()
-        print("✅ Saved remote seasons to SwiftData")
+        if context.hasChanges { try context.save() }
     }
 
     private func resolveSeasonConflicts(user: User, context: ModelContext) async throws {
         // For now, local changes win (already marked needsSync)
-        print("✅ Season conflict resolution complete (using local-first)")
     }
 
     // MARK: - Games Sync
@@ -440,19 +453,15 @@ final class SyncCoordinator {
     /// - Parameter user: The SwiftData User to sync games for
     func syncGames(for user: User) async throws {
         guard let context = modelContext else {
-            print("⚠️ Cannot sync games - ModelContext not configured")
             return
         }
 
-        print("🔄 Starting game sync for user: \(user.email)")
 
         do {
             try await uploadLocalGames(user, context: context)
             try await downloadRemoteGames(user, context: context)
             try await resolveGameConflicts(user: user, context: context)
-            print("✅ Game sync completed successfully")
         } catch {
-            print("❌ Game sync failed: \(error)")
             appendSyncError(SyncError(
                 type: .syncFailed,
                 entityId: (user.firebaseAuthUid ?? user.id.uuidString),
@@ -474,11 +483,9 @@ final class SyncCoordinator {
         let dirtyGames = allGames.filter { $0.needsSync && !$0.isDeletedRemotely }
 
         guard !dirtyGames.isEmpty else {
-            print("✅ No local games need uploading")
             return
         }
 
-        print("📤 Uploading \(dirtyGames.count) local games to Firestore")
 
         for game in dirtyGames {
             do {
@@ -489,7 +496,6 @@ final class SyncCoordinator {
                         gameId: firestoreId,
                         data: game.toFirestoreData()
                     )
-                    print("✅ Updated game vs '\(game.opponent)' in Firestore")
 
                 } else {
                     // Create new game in Firestore
@@ -498,7 +504,6 @@ final class SyncCoordinator {
                         data: game.toFirestoreData()
                     )
                     game.firestoreId = docId
-                    print("✅ Created game vs '\(game.opponent)' in Firestore with ID: \(docId)")
                 }
 
                 // Mark as synced
@@ -507,7 +512,6 @@ final class SyncCoordinator {
                 game.version += 1
 
             } catch {
-                print("❌ Failed to upload game vs '\(game.opponent)': \(error)")
                 appendSyncError(SyncError(
                     type: .uploadFailed,
                     entityId: game.id.uuidString,
@@ -517,19 +521,16 @@ final class SyncCoordinator {
         }
 
         // Save all changes to SwiftData
-        try context.save()
-        print("✅ Saved game upload metadata to SwiftData")
+        if context.hasChanges { try context.save() }
     }
 
     private func downloadRemoteGames(_ user: User, context: ModelContext) async throws {
         let remoteGames = try await FirestoreManager.shared.fetchGames(userId: (user.firebaseAuthUid ?? user.id.uuidString))
 
         guard !remoteGames.isEmpty else {
-            print("✅ No remote games to download")
             return
         }
 
-        print("📥 Downloaded \(remoteGames.count) games from Firestore")
 
         // Get all local games and athletes/seasons
         let athletes = user.athletes ?? []
@@ -562,21 +563,25 @@ final class SyncCoordinator {
                 // Only merge if remote is newer AND local has no pending changes.
                 if (remoteGame.updatedAt ?? Date.distantPast) > (local.lastSyncDate ?? Date.distantPast)
                     && !local.needsSync {
-                    local.opponent = remoteGame.opponent
-                    local.date = remoteGame.date
-                    local.isLive = remoteGame.isLive
-                    local.isComplete = remoteGame.isComplete
-                    local.year = remoteGame.year
-                    local.location = remoteGame.location
-                    local.notes = remoteGame.notes
-                    local.lastSyncDate = Date()
-                    local.version = remoteGame.version
-                    print("✅ Merged remote changes for game vs: \(remoteGame.opponent)")
+                    // Only write properties that actually changed to avoid
+                    // dirtying the object and triggering unnecessary @Query updates.
+                    var changed = false
+                    if local.opponent != remoteGame.opponent { local.opponent = remoteGame.opponent; changed = true }
+                    if local.date != remoteGame.date { local.date = remoteGame.date; changed = true }
+                    if local.isLive != remoteGame.isLive { local.isLive = remoteGame.isLive; changed = true }
+                    if local.isComplete != remoteGame.isComplete { local.isComplete = remoteGame.isComplete; changed = true }
+                    if local.year != remoteGame.year { local.year = remoteGame.year; changed = true }
+                    if local.location != remoteGame.location { local.location = remoteGame.location; changed = true }
+                    if local.notes != remoteGame.notes { local.notes = remoteGame.notes; changed = true }
+                    if local.version != remoteGame.version { local.version = remoteGame.version; changed = true }
+                    if changed {
+                        local.lastSyncDate = Date()
+                    }
                 }
             } else if let athlete = parentAthlete {
                 // Create new local game from remote
                 let newGame = Game(
-                    date: remoteGame.date ?? Date(),
+                    date: remoteGame.date ?? Date.distantPast,
                     opponent: remoteGame.opponent
                 )
                 newGame.id = UUID(uuidString: remoteGame.swiftDataId) ?? UUID()
@@ -593,30 +598,25 @@ final class SyncCoordinator {
                 newGame.athlete = athlete
                 newGame.season = parentSeason
                 context.insert(newGame)
-                print("✅ Created local game from remote vs: \(remoteGame.opponent)")
             } else {
-                print("⚠️ Cannot find parent athlete for remote game vs: \(remoteGame.opponent)")
+                syncLog.warning("Dropped remote game '\(remoteGame.opponent)' (id: \(remoteGame.id ?? "nil")) — no matching athlete found for athleteId '\(remoteGame.athleteId)'")
             }
         }
 
-        try context.save()
-        print("✅ Saved remote games to SwiftData")
+        if context.hasChanges { try context.save() }
     }
 
     private func resolveGameConflicts(user: User, context: ModelContext) async throws {
         // For now, local changes win (already marked needsSync)
-        print("✅ Game conflict resolution complete (using local-first)")
     }
 
     // MARK: - Practices Sync (Phase 3)
 
     func syncPractices(for user: User) async throws {
         guard let context = modelContext else {
-            print("⚠️ Cannot sync practices - ModelContext not configured")
             return
         }
 
-        print("🔄 Starting practice sync for user: \(user.email)")
 
         do {
             // Step 1: Upload local changes to Firestore
@@ -628,10 +628,8 @@ final class SyncCoordinator {
             // Step 3: Resolve conflicts (if any)
             try await resolvePracticeConflicts(user: user, context: context)
 
-            print("✅ Practice sync completed successfully")
 
         } catch {
-            print("❌ Practice sync failed: \(error)")
             appendSyncError(SyncError(
                 type: .syncFailed,
                 entityId: (user.firebaseAuthUid ?? user.id.uuidString),
@@ -654,15 +652,12 @@ final class SyncCoordinator {
         let dirtyPractices = allPractices.filter { $0.needsSync }
 
         guard !dirtyPractices.isEmpty else {
-            print("No local practice changes to upload")
             return
         }
 
-        print("Uploading \(dirtyPractices.count) practices...")
 
         for practice in dirtyPractices {
             if practice.isDeletedRemotely {
-                print("Skipping \(practice.id) - deleted remotely")
                 continue
             }
 
@@ -674,7 +669,6 @@ final class SyncCoordinator {
                         practiceId: firestoreId,
                         data: practice.toFirestoreData()
                     )
-                    print("✅ Updated practice \(practice.id)")
                 } else {
                     // Create new
                     let docId = try await FirestoreManager.shared.createPractice(
@@ -682,7 +676,6 @@ final class SyncCoordinator {
                         data: practice.toFirestoreData()
                     )
                     practice.firestoreId = docId
-                    print("✅ Created practice \(practice.id) with Firestore ID \(docId)")
                 }
 
                 practice.needsSync = false
@@ -695,26 +688,22 @@ final class SyncCoordinator {
                     entityId: practice.id.uuidString,
                     message: "Practice upload failed: \(error.localizedDescription)"
                 ))
-                print("❌ Failed to sync practice \(practice.id): \(error)")
             }
         }
 
-        try context.save()
+        if context.hasChanges { try context.save() }
     }
 
     private func downloadRemotePractices(_ user: User, context: ModelContext) async throws {
-        print("Downloading remote practices...")
 
         let remotePractices = try await FirestoreManager.shared.fetchPractices(
             userId: (user.firebaseAuthUid ?? user.id.uuidString)
         )
 
         guard !remotePractices.isEmpty else {
-            print("No remote practices found")
             return
         }
 
-        print("Found \(remotePractices.count) remote practices")
 
         let athletes = user.athletes ?? []
 
@@ -724,7 +713,6 @@ final class SyncCoordinator {
             guard let athlete = athletes.first(where: {
                 $0.id.uuidString == remoteData.athleteId || $0.firestoreId == remoteData.athleteId
             }) ?? (athletes.count == 1 ? athletes.first : nil) else {
-                print("⚠️ Skipping practice - athlete not found: \(remoteData.athleteId)")
                 continue
             }
 
@@ -739,7 +727,6 @@ final class SyncCoordinator {
                 let localSyncDate = local.lastSyncDate ?? Date.distantPast
 
                 if remoteUpdatedAt > localSyncDate && !local.needsSync {
-                    print("Updating local practice \(local.id) with remote data")
                     local.date = remoteData.date
                     local.lastSyncDate = Date()
                     local.version = remoteData.version
@@ -747,8 +734,7 @@ final class SyncCoordinator {
                 }
             } else {
                 // New practice from remote - create locally
-                print("Creating new local practice from remote")
-                let newPractice = Practice(date: remoteData.date ?? Date())
+                let newPractice = Practice(date: remoteData.date ?? Date.distantPast)
                 newPractice.id = UUID(uuidString: remoteData.swiftDataId) ?? UUID()
                 newPractice.firestoreId = remoteData.id
                 newPractice.createdAt = remoteData.createdAt
@@ -768,12 +754,11 @@ final class SyncCoordinator {
             }
         }
 
-        try context.save()
+        if context.hasChanges { try context.save() }
     }
 
     private func resolvePracticeConflicts(user: User, context: ModelContext) async throws {
         // For now, local changes win (already marked needsSync)
-        print("✅ Practice conflict resolution complete (using local-first)")
     }
 
     // MARK: - Videos Sync (Cross-Device)
@@ -784,11 +769,9 @@ final class SyncCoordinator {
     /// - Parameter user: The SwiftData User to sync videos for
     func syncVideos(for user: User) async throws {
         guard let context = modelContext else {
-            print("⚠️ Cannot sync videos - ModelContext not configured")
             return
         }
 
-        print("🔄 Starting video sync for user: \(user.email)")
 
         do {
             // Step 1: Upload local video metadata that isn't synced yet
@@ -797,10 +780,8 @@ final class SyncCoordinator {
             // Step 2: Download remote videos from Firestore
             try await downloadRemoteVideos(user, context: context)
 
-            print("✅ Video sync completed successfully")
 
         } catch {
-            print("❌ Video sync failed: \(error)")
             appendSyncError(SyncError(
                 type: .syncFailed,
                 entityId: (user.firebaseAuthUid ?? user.id.uuidString),
@@ -819,6 +800,7 @@ final class SyncCoordinator {
         for athlete in athletes {
             let videos = athlete.videoClips ?? []
             for clip in videos {
+                if clip.isDeletedRemotely { continue }
                 if clip.isUploaded && clip.cloudURL != nil && clip.firestoreId == nil {
                     // New clip — full metadata upload
                     newVideos.append((clip, athlete))
@@ -830,11 +812,9 @@ final class SyncCoordinator {
         }
 
         guard !newVideos.isEmpty || !updatedVideos.isEmpty else {
-            print("✅ No local video metadata needs Firestore sync")
             return
         }
 
-        print("📤 Syncing \(newVideos.count) new + \(updatedVideos.count) updated video(s) to Firestore")
 
         for (clip, athlete) in newVideos {
             guard let cloudURL = clip.cloudURL else { continue }
@@ -846,9 +826,7 @@ final class SyncCoordinator {
                 )
                 clip.firestoreId = clip.id.uuidString
                 clip.needsSync = false
-                print("✅ Synced new video metadata: \(clip.fileName)")
             } catch {
-                print("❌ Failed to sync new video metadata \(clip.fileName): \(error)")
             }
         }
 
@@ -866,16 +844,15 @@ final class SyncCoordinator {
                     gameDate: clip.gameDate ?? clip.game?.date,
                     seasonId: clip.season.map { $0.firestoreId ?? $0.id.uuidString },
                     seasonName: clip.seasonName ?? clip.season?.displayName,
-                    practiceId: clip.practice?.id.uuidString
+                    practiceId: clip.practice?.id.uuidString,
+                    practiceDate: clip.practiceDate ?? clip.practice?.date
                 )
                 clip.needsSync = false
-                print("✅ Synced updated video metadata: \(clip.fileName)")
             } catch {
-                print("❌ Failed to sync updated video metadata \(clip.fileName): \(error)")
             }
         }
 
-        try context.save()
+        if context.hasChanges { try context.save() }
     }
 
     private func downloadRemoteVideos(_ user: User, context: ModelContext) async throws {
@@ -889,6 +866,16 @@ final class SyncCoordinator {
             let localClips = athlete.videoClips ?? []
             let localClipsByID = Dictionary(uniqueKeysWithValues: localClips.map { ($0.id, $0) })
 
+            // Detect clips deleted on another device — remote set no longer contains them
+            let remoteVideoIds = Set(remoteVideos.map { $0.id })
+            for localClip in localClips {
+                if localClip.firestoreId != nil,
+                   !remoteVideoIds.contains(localClip.id) {
+                    // Clip was deleted on another device — remove locally
+                    localClip.delete(in: context)
+                }
+            }
+
             let allLocalSeasons = athlete.seasons ?? []
             let allLocalPractices = athlete.practices ?? []
             // Mirror uploadLocalGames: collect from both athlete.games and season.games
@@ -900,6 +887,7 @@ final class SyncCoordinator {
 
             // Merge updates into existing clips where remote is newer and local has no pending changes
             for remoteVideo in remoteVideos {
+                if remoteVideo.isDeleted { continue }
                 guard let localClip = localClipsByID[remoteVideo.id],
                       remoteVideo.updatedAt > (localClip.lastSyncDate ?? .distantPast),
                       !localClip.needsSync else { continue }
@@ -929,6 +917,7 @@ final class SyncCoordinator {
                 // to resolved relationship so existing clips get backfilled automatically.
                 localClip.gameOpponent = remoteVideo.gameOpponent ?? localClip.game?.opponent
                 localClip.gameDate = remoteVideo.gameDate ?? localClip.game?.date
+                localClip.practiceDate = remoteVideo.practiceDate ?? localClip.practice?.date
                 localClip.seasonName = remoteVideo.seasonName ?? localClip.season?.displayName
                 if let pitchSpeed = remoteVideo.pitchSpeed {
                     localClip.pitchSpeed = pitchSpeed
@@ -940,15 +929,14 @@ final class SyncCoordinator {
                 localClip.lastSyncDate = Date()
             }
 
-            // Find videos that exist remotely but not locally
+            // Find videos that exist remotely but not locally — skip deleted ones
             let localVideoIds = Set(localClips.map { $0.id })
-            let newRemoteVideos = remoteVideos.filter { !localVideoIds.contains($0.id) }
+            let newRemoteVideos = remoteVideos.filter { !localVideoIds.contains($0.id) && !$0.isDeleted }
 
             guard !newRemoteVideos.isEmpty else {
                 continue
             }
 
-            print("📥 Found \(newRemoteVideos.count) new videos from Firestore for \(athlete.name)")
 
             for remoteVideo in newRemoteVideos {
                 // Create local VideoClip from remote metadata
@@ -994,10 +982,10 @@ final class SyncCoordinator {
                 // are missing (older records) or relationship linking fails.
                 newClip.gameOpponent = remoteVideo.gameOpponent ?? newClip.game?.opponent
                 newClip.gameDate = remoteVideo.gameDate ?? newClip.game?.date
+                newClip.practiceDate = remoteVideo.practiceDate ?? newClip.practice?.date
                 newClip.seasonName = remoteVideo.seasonName ?? newClip.season?.displayName
 
                 context.insert(newClip)
-                print("✅ Created local VideoClip from remote: \(remoteVideo.fileName)")
 
                 // Queue video for background download; task self-removes on completion.
                 let taskID = UUID()
@@ -1011,7 +999,7 @@ final class SyncCoordinator {
             athletesWithNewClips.append(athlete)
         }
 
-        try context.save()
+        if context.hasChanges { try context.save() }
 
         // Rebuild derived statistics for athletes that received new clips.
         // GameStatistics and AthleteStatistics are not stored in Firestore — they are
@@ -1026,14 +1014,13 @@ final class SyncCoordinator {
 
         // Persist the recalculated statistics
         if !athletesWithNewClips.isEmpty {
-            try context.save()
+            if context.hasChanges { try context.save() }
         }
     }
 
     /// Downloads the actual video file from Firebase Storage
     private func downloadVideoFile(clip: VideoClip, context: ModelContext) async {
         guard let cloudURL = clip.cloudURL else {
-            print("⚠️ Cannot download video - no cloud URL")
             return
         }
 
@@ -1049,8 +1036,7 @@ final class SyncCoordinator {
         // Skip if already downloaded
         if FileManager.default.fileExists(atPath: localPath) {
             clip.filePath = VideoClip.toRelativePath(localPath)
-            try? context.save()
-            print("✅ Video already exists locally: \(clip.fileName)")
+            if context.hasChanges { try? context.save() }
             return
         }
 
@@ -1065,18 +1051,14 @@ final class SyncCoordinator {
             let videoURL = URL(fileURLWithPath: localPath)
             let thumbnailPath = try? await ClipPersistenceService().generateThumbnail(for: videoURL)
 
-            await MainActor.run {
-                clip.filePath = VideoClip.toRelativePath(localPath)
-                if let thumbnailPath {
-                    clip.thumbnailPath = thumbnailPath
-                }
-                try? context.save()
+            clip.filePath = VideoClip.toRelativePath(localPath)
+            if let thumbnailPath {
+                clip.thumbnailPath = thumbnailPath
             }
+            if context.hasChanges { try? context.save() }
 
-            print("✅ Downloaded video: \(clip.fileName)")
 
         } catch {
-            print("❌ Failed to download video \(clip.fileName): \(error)")
         }
     }
 
@@ -1113,7 +1095,6 @@ final class SyncCoordinator {
                     }
                     note.needsSync = false
                 } catch {
-                    print("❌ Failed to sync practice note: \(error)")
                 }
             }
 
@@ -1133,8 +1114,7 @@ final class SyncCoordinator {
             }
         }
 
-        try context.save()
-        print("✅ Practice notes sync completed")
+        if context.hasChanges { try context.save() }
     }
 
     // MARK: - Photos Sync
@@ -1151,12 +1131,11 @@ final class SyncCoordinator {
             // Upload new photos that haven't been synced
             for photo in photos where photo.cloudURL == nil && photo.needsSync {
                 guard FileManager.default.fileExists(atPath: photo.filePath) else { continue }
-                // Enforce storage limit before uploading
+                // Enforce storage limit before uploading (use live StoreKit tier)
                 let fileSize = (try? FileManager.default.attributesOfItem(atPath: photo.filePath)[.size] as? Int64) ?? 0
-                let tier = user.tier
+                let tier = StoreKitManager.shared.currentTier
                 let limitBytes = Int64(tier.storageLimitGB) * 1_073_741_824
                 guard user.cloudStorageUsedBytes + fileSize <= limitBytes else {
-                    print("⚠️ Storage limit reached — skipping photo \(photo.fileName)")
                     continue
                 }
                 do {
@@ -1173,9 +1152,7 @@ final class SyncCoordinator {
                     // Update storage counter
                     let fileSize = (try? FileManager.default.attributesOfItem(atPath: photo.filePath)[.size] as? Int64) ?? 0
                     user.cloudStorageUsedBytes += fileSize
-                    print("✅ Uploaded photo: \(photo.fileName)")
                 } catch {
-                    print("❌ Failed to upload photo \(photo.fileName): \(error)")
                 }
             }
 
@@ -1226,17 +1203,15 @@ final class SyncCoordinator {
                     do {
                         try await VideoCloudManager.shared.downloadPhoto(from: downloadURL, to: localPath)
                     } catch {
-                        print("❌ Failed to download photo \(remotePhoto.fileName): \(error)")
                         // Mark for re-download on next sync so the photo doesn't remain as a ghost record
-                        await MainActor.run { photoRef.needsSync = true }
+                        photoRef.needsSync = true
                     }
                     self?.pendingDownloadTasks.removeValue(forKey: taskID)
                 }
             }
         }
 
-        try context.save()
-        print("✅ Photos sync completed")
+        if context.hasChanges { try context.save() }
     }
 
     // MARK: - Coaches Sync
@@ -1272,7 +1247,6 @@ final class SyncCoordinator {
                     }
                     coach.needsSync = false
                 } catch {
-                    print("❌ Failed to sync coach \(coach.name): \(error)")
                 }
             }
 
@@ -1297,12 +1271,10 @@ final class SyncCoordinator {
                 newCoach.lastInvitationStatus = remoteCoach.invitationStatus
                 newCoach.athlete = athlete
                 context.insert(newCoach)
-                print("✅ Restored coach from Firestore: \(remoteCoach.name)")
             }
         }
 
-        try context.save()
-        print("✅ Coaches sync completed")
+        if context.hasChanges { try context.save() }
     }
 
     // MARK: - Comprehensive Sync (All Entities)
@@ -1312,13 +1284,11 @@ final class SyncCoordinator {
     /// Order: Athletes → Seasons → Games → Practices → Videos → PracticeNotes → Photos → Coaches
     func syncAll(for user: User) async throws {
         guard !isSyncing else {
-            print("⚠️ Sync already in progress, skipping")
             return
         }
         isSyncing = true
         defer { isSyncing = false }
 
-        print("🔄 Starting comprehensive sync (Athletes → Seasons → Games → Practices → Videos → Notes → Photos → Coaches)")
 
         await isolatedSync("Athletes")  { try await syncAthletes(for: user) }
         await isolatedSync("Seasons")   { try await syncSeasons(for: user) }
@@ -1330,7 +1300,6 @@ final class SyncCoordinator {
         await isolatedSync("Coaches")   { try await syncCoaches(for: user) }
 
         lastSyncDate = Date()
-        print("✅ Comprehensive sync completed")
     }
 
     /// Runs a sync step, recording any error without propagating it so sibling steps still run.
@@ -1338,7 +1307,6 @@ final class SyncCoordinator {
         do {
             try await operation()
         } catch {
-            print("⚠️ \(name) sync failed (non-blocking): \(error)")
             appendSyncError(SyncError(type: .syncFailed, entityId: name, message: error.localizedDescription))
         }
     }
@@ -1355,12 +1323,12 @@ final class SyncCoordinator {
 
     private func startPeriodicSync() {
         timer?.invalidate() // Prevent multiple timers if configure() is called again
-        timer = Timer.scheduledTimer(withTimeInterval: 60.0, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                await self?.syncInBackground()
+        timer = Timer.scheduledTimer(withTimeInterval: 300.0, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                await self.syncInBackground()
             }
         }
-        print("⏰ Periodic sync enabled (every 60 seconds)")
     }
 
     private func syncInBackground() async {
@@ -1375,7 +1343,6 @@ final class SyncCoordinator {
             // Sync all entities in dependency order
             try await syncAll(for: user)
         } catch {
-            print("⚠️ Background sync failed: \(error)")
             // Don't throw - background sync failures shouldn't crash the app
         }
     }
@@ -1398,7 +1365,6 @@ final class SyncCoordinator {
         do {
             return try context.fetch(descriptor).first
         } catch {
-            print("❌ Failed to fetch current user: \(error)")
             return nil
         }
     }
@@ -1408,13 +1374,17 @@ final class SyncCoordinator {
         syncErrors.removeAll()
     }
 
-    /// Stops the periodic sync timer and cancels any in-flight background downloads
+    /// Stops the periodic sync timer, removes background/foreground observers,
+    /// and cancels any in-flight background downloads.
     func stopPeriodicSync() {
         timer?.invalidate()
         timer = nil
+        for observer in backgroundObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        backgroundObservers.removeAll()
         pendingDownloadTasks.values.forEach { $0.cancel() }
         pendingDownloadTasks.removeAll()
-        print("⏸️ Periodic sync stopped")
     }
 }
 

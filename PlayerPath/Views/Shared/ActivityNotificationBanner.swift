@@ -30,11 +30,13 @@ struct ActivityNotificationBanner: View {
                     .fontWeight(.semibold)
                     .foregroundColor(.primary)
                     .lineLimit(1)
+                    .truncationMode(.tail)
 
                 Text(notification.body)
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .lineLimit(2)
+                    .truncationMode(.tail)
             }
 
             Spacer()
@@ -48,7 +50,7 @@ struct ActivityNotificationBanner: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: .cornerXLarge))
         .shadow(color: .black.opacity(0.12), radius: 8, x: 0, y: 4)
         .padding(.horizontal, 16)
         .onAppear {

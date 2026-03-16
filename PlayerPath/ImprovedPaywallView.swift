@@ -88,8 +88,7 @@ struct ImprovedPaywallView: View {
             Image(systemName: "crown.fill")
                 .font(.system(size: 52))
                 .foregroundStyle(
-                    LinearGradient(colors: [.yellow, .orange],
-                                   startPoint: .topLeading, endPoint: .bottomTrailing)
+                    LinearGradient.premiumAccent
                 )
                 .padding(.top, 8)
 
@@ -171,11 +170,11 @@ struct ImprovedPaywallView: View {
             }
 
             tableRow(feature: "Storage") {
-                Text("1 GB").font(.caption).foregroundStyle(.secondary)
+                Text("2 GB").font(.caption).foregroundStyle(.secondary)
             } plus: {
-                Text("5 GB").font(.caption)
+                Text("25 GB").font(.caption)
             } pro: {
-                Text("15 GB").font(.caption).foregroundStyle(.blue)
+                Text("100 GB").font(.caption).foregroundStyle(.blue)
             }
 
             tableRow(feature: "Advanced Stats") {
@@ -292,14 +291,12 @@ struct ImprovedPaywallView: View {
             if let price = forAnnual ? annual : monthly {
                 Text(price)
                     .font(.caption).fontWeight(.semibold)
+                Text(forAnnual ? "per year" : "per month")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.secondary)
             } else {
                 ProgressView()
                     .controlSize(.mini)
-            }
-            if forAnnual, annual != nil {
-                Text("billed yearly")
-                    .font(.system(size: 9))
-                    .foregroundStyle(.secondary)
             }
         }
     }
@@ -330,7 +327,7 @@ struct ImprovedPaywallView: View {
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 16)
-                    .background(LinearGradient(colors: [.blue, .blue.opacity(0.8)], startPoint: .leading, endPoint: .trailing))
+                    .background(LinearGradient.primaryButton)
                     .foregroundStyle(.white)
                     .cornerRadius(14)
                     .shadow(color: Color.blue.opacity(0.3), radius: 8, x: 0, y: 4)
@@ -368,7 +365,7 @@ struct ImprovedPaywallView: View {
 
     private var termsSection: some View {
         VStack(spacing: 6) {
-            Text("Cancel anytime. Auto-renews until cancelled.")
+            Text("Subscription automatically renews unless cancelled at least 24 hours before the end of the current period. Manage or cancel anytime in Settings > Subscriptions.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             HStack(spacing: 16) {
@@ -449,8 +446,8 @@ struct ImprovedPaywallView: View {
                 price: product.displayPrice
             )
         }
-        user.subscriptionTier = storeManager.currentTier.rawValue
-        try? modelContext.save()
+        // Subscription tier is managed by StoreKit verification + Firestore sync.
+        // Do not write tier to local SwiftData — it's the server's source of truth.
         dismiss()
     }
 }

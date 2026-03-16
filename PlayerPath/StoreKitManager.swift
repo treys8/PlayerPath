@@ -68,12 +68,7 @@ class StoreKitManager: ObservableObject {
             products = storeProducts.sorted { $0.price < $1.price }
             // Only mark as loaded once we have actual products
             if !products.isEmpty { productsLoaded = true }
-            print("✅ Loaded \(products.count) products from App Store")
-            for product in products {
-                print("  - \(product.displayName): \(product.displayPrice)")
-            }
         } catch {
-            print("❌ Failed to load products: \(error)")
             self.error = .productLoadFailed(error)
         }
 
@@ -99,28 +94,23 @@ class StoreKitManager: ObservableObject {
                 let transaction = try checkVerified(verification)
                 await updateEntitlements()
                 await transaction.finish()
-                print("✅ Purchase successful: \(product.displayName)")
                 Haptics.success()
                 isLoading = false
                 return .success
 
             case .userCancelled:
-                print("ℹ️ User cancelled purchase")
                 isLoading = false
                 return .cancelled
 
             case .pending:
-                print("⏳ Purchase pending approval")
                 isLoading = false
                 return .pending
 
             @unknown default:
-                print("⚠️ Unknown purchase result")
                 isLoading = false
                 return .unknown
             }
         } catch {
-            print("❌ Purchase failed: \(error)")
             self.error = .purchaseFailed(error)
             isLoading = false
             return .failed(error)
@@ -135,10 +125,8 @@ class StoreKitManager: ObservableObject {
         do {
             try await AppStore.sync()
             await updateEntitlements()
-            print("✅ Purchases restored successfully")
             Haptics.success()
         } catch {
-            print("❌ Failed to restore purchases: \(error)")
             self.error = .restoreFailed(error)
         }
 
@@ -213,7 +201,6 @@ class StoreKitManager: ObservableObject {
                 // Apple is retrying — keep the tier
             } else if !billingRetryCheckSucceeded {
                 // Can't confirm billing state — keep tier, log warning
-                print("⚠️ Subscription expired but billing retry check unavailable — keeping current tier")
             } else {
                 // Confirmed: expired and not in billing retry
                 resolvedTier = .free
@@ -227,7 +214,6 @@ class StoreKitManager: ObservableObject {
         isInBillingRetryPeriod = resolvedBillingRetry
         currentCoachTier = resolvedCoachTier
 
-        print("✅ Entitlements: tier=\(resolvedTier.displayName), coachTier=\(resolvedCoachTier.displayName), billingRetry=\(resolvedBillingRetry)")
     }
 
     // MARK: - Transaction Listening
@@ -239,9 +225,7 @@ class StoreKitManager: ObservableObject {
                     let transaction = try checkVerified(result)
                     await updateEntitlements()
                     await transaction.finish()
-                    print("✅ Transaction update processed: \(transaction.productID)")
                 } catch {
-                    print("❌ Transaction verification failed: \(error)")
                     // Still refresh entitlements so any other valid transactions are picked up
                     await updateEntitlements()
                 }
@@ -315,14 +299,14 @@ enum StoreError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .productLoadFailed(let error):
-            return "Failed to load products: \(error.localizedDescription)"
-        case .purchaseFailed(let error):
-            return "Purchase failed: \(error.localizedDescription)"
-        case .restoreFailed(let error):
-            return "Failed to restore purchases: \(error.localizedDescription)"
+        case .productLoadFailed:
+            return "Unable to load subscription plans. Please check your connection and try again."
+        case .purchaseFailed:
+            return "Purchase could not be completed. You have not been charged. Please try again."
+        case .restoreFailed:
+            return "Unable to restore purchases. Please check your connection and try again."
         case .transactionVerificationFailed:
-            return "Transaction verification failed"
+            return "Purchase verification failed. If you were charged, your subscription will activate automatically."
         }
     }
 }

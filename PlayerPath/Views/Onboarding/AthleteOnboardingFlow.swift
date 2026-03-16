@@ -13,35 +13,15 @@ struct AthleteOnboardingFlow: View {
     let modelContext: ModelContext
     @ObservedObject var authManager: ComprehensiveAuthManager
     let user: User
+    @State private var isCompleting = false
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 40) {
+            VStack(spacing: 32) {
                 Spacer()
-
-                // ATHLETE BADGE - Makes it obvious this is the athlete flow
-                HStack {
-                    Spacer()
-                    HStack(spacing: 8) {
-                        Image(systemName: "figure.baseball")
-                            .font(.caption)
-                        Text("ATHLETE ACCOUNT")
-                            .font(.caption)
-                            .fontWeight(.bold)
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(
-                        Capsule()
-                            .fill(Color.blue.opacity(0.2))
-                    )
-                    .foregroundColor(.blue)
-                    Spacer()
-                }
 
                 VStack(spacing: 24) {
                     ZStack {
-                        // Glow effect
                         Circle()
                             .fill(
                                 RadialGradient(
@@ -75,7 +55,7 @@ struct AthleteOnboardingFlow: View {
                             .minimumScaleFactor(0.8)
                             .accessibilityAddTraits(.isHeader)
 
-                        Text("Let's get you set up to begin tracking")
+                        Text("We'll get you set up in 3 quick steps")
                             .font(.title3)
                             .foregroundColor(.secondary)
                             .multilineTextAlignment(.center)
@@ -83,9 +63,9 @@ struct AthleteOnboardingFlow: View {
                     }
                 }
 
-                // Onboarding benefits
+                // Setup steps preview
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("What You Can Do:")
+                    Text("Here's what's next:")
                         .font(.headline)
                         .fontWeight(.bold)
                         .padding(.bottom, 4)
@@ -93,63 +73,63 @@ struct AthleteOnboardingFlow: View {
 
                     FeatureHighlight(
                         icon: "person.crop.circle.badge.plus",
-                        title: "Create Athlete Profiles",
-                        description: "Track multiple players and their progress",
+                        title: "Create an Athlete Profile",
+                        description: "Add your player's name to start tracking",
                         color: .blue
                     )
 
                     FeatureHighlight(
-                        icon: "video.circle.fill",
-                        title: "Record & Analyze",
-                        description: "Capture sessions and games",
-                        color: .red
-                    )
-
-                    FeatureHighlight(
-                        icon: "chart.line.uptrend.xyaxis.circle.fill",
-                        title: "Track Statistics",
-                        description: "Monitor batting averages and performance",
-                        color: .purple
-                    )
-
-                    FeatureHighlight(
-                        icon: "arrow.triangle.2.circlepath.circle.fill",
-                        title: "Sync Everywhere",
-                        description: "Access your data on all your devices",
+                        icon: "calendar.badge.plus",
+                        title: "Set Up Your Season",
+                        description: "Organize games and track stats over time",
                         color: .green
+                    )
+
+                    FeatureHighlight(
+                        icon: "icloud.and.arrow.up",
+                        title: "Choose Backup Settings",
+                        description: "Keep your videos safe in the cloud",
+                        color: .purple
                     )
                 }
                 .padding(.horizontal)
 
                 Spacer()
 
-                Button(action: { Haptics.medium(); completeOnboarding() }) {
-                    HStack(spacing: 12) {
-                        Image(systemName: "arrow.right.circle.fill")
-                            .font(.title3)
-                            .fontWeight(.semibold)
-                        Text("Get Started")
-                            .font(.title3)
-                            .fontWeight(.bold)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 58)
-                    .background(
-                        LinearGradient(
-                            colors: [.blue, .blue.opacity(0.85)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
+                VStack(spacing: 8) {
+                    Button(action: { Haptics.medium(); completeOnboarding() }) {
+                        HStack(spacing: 12) {
+                            Image(systemName: "arrow.right.circle.fill")
+                                .font(.title3)
+                                .fontWeight(.semibold)
+                            Text("Let's Go")
+                                .font(.title3)
+                                .fontWeight(.bold)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 58)
+                        .background(
+                            LinearGradient(
+                                colors: [.blue, .blue.opacity(0.85)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
                         )
-                    )
-                    .foregroundColor(.white)
-                    .cornerRadius(16)
-                    .shadow(color: .blue.opacity(0.4), radius: 12, x: 0, y: 6)
+                        .foregroundColor(.white)
+                        .cornerRadius(16)
+                        .shadow(color: .blue.opacity(0.4), radius: 12, x: 0, y: 6)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isCompleting)
+                    .accessibilityLabel("Start setup")
+                    .accessibilityHint("Begin the 3-step setup process")
+                    .accessibilitySortPriority(1)
+
+                    Text("Takes less than 2 minutes")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
-                .buttonStyle(.plain)
                 .padding(.horizontal)
-                .accessibilityLabel("Complete onboarding and get started")
-                .accessibilityHint("Completes the setup process and takes you to create your first athlete")
-                .accessibilitySortPriority(1)
 
                 Spacer()
             }
@@ -159,7 +139,8 @@ struct AthleteOnboardingFlow: View {
     }
 
     private func completeOnboarding() {
-        print("🟡 Completing athlete onboarding welcome screens...")
+        guard !isCompleting else { return }
+        isCompleting = true
 
         // Mark onboarding complete immediately so the transition fires without delay
         authManager.markOnboardingComplete()
@@ -173,10 +154,8 @@ struct AthleteOnboardingFlow: View {
             for attempt in 1...3 {
                 do {
                     try modelContext.save()
-                    print("🟢 Successfully saved onboarding progress")
                     return
                 } catch {
-                    print("🔴 Failed to save onboarding progress (attempt \(attempt)/3): \(error)")
                     if attempt < 3 {
                         try? await Task.sleep(for: .seconds(1))
                     }

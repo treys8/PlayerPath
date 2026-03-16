@@ -105,6 +105,7 @@ struct PhotoDetailView: View {
                         .foregroundStyle(.white, .white.opacity(0.3))
                         .font(.title3)
                 }
+                .accessibilityLabel("Photo options")
             }
         }
         .alert("Delete Photo?", isPresented: $showingDeleteConfirmation) {
@@ -119,7 +120,7 @@ struct PhotoDetailView: View {
         .sheet(isPresented: $isEditingCaption) {
             CaptionEditSheet(captionText: $captionText) {
                 photo.caption = captionText.isEmpty ? nil : captionText
-                try? modelContext.save()
+                Task { try? modelContext.save() }
             }
             .presentationDetents([.height(200)])
         }
@@ -180,6 +181,7 @@ private struct CaptionEditSheet: View {
     let onSave: () -> Void
     @Environment(\.dismiss) private var dismiss
     @FocusState private var isFocused: Bool
+    @State private var hasSaved = false
 
     var body: some View {
         NavigationStack {
@@ -188,6 +190,8 @@ private struct CaptionEditSheet: View {
                     .focused($isFocused)
                     .submitLabel(.done)
                     .onSubmit {
+                        guard !hasSaved else { return }
+                        hasSaved = true
                         onSave()
                         dismiss()
                     }
@@ -200,6 +204,8 @@ private struct CaptionEditSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
+                        guard !hasSaved else { return }
+                        hasSaved = true
                         onSave()
                         dismiss()
                     }

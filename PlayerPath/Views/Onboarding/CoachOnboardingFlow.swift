@@ -69,10 +69,8 @@ struct CoachOnboardingFlow: View {
             for attempt in 1...3 {
                 do {
                     try modelContext.save()
-                    print("🟢 Successfully saved coach onboarding progress")
                     return
                 } catch {
-                    print("🔴 Failed to save coach onboarding progress (attempt \(attempt)/3): \(error)")
                     if attempt < 3 {
                         try? await Task.sleep(for: .seconds(1))
                     }
@@ -184,6 +182,7 @@ private struct CoachWelcomePage: View {
                             .font(.caption)
                             .foregroundColor(.white.opacity(0.55))
                             .lineLimit(1)
+                            .truncationMode(.tail)
                     }
                     Spacer()
                 }

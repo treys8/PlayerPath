@@ -173,7 +173,7 @@ final class OrphanedClipRecoveryService {
         // Store a relative path so the clip survives sandbox relocation
         let relativePath = "Clips/\(fileURL.lastPathComponent)"
 
-        // Build the recovered clip — no game, no play result (shows as practice clip)
+        // Build the recovered clip
         let clip = VideoClip(
             fileName: fileURL.lastPathComponent,
             filePath: relativePath
@@ -183,8 +183,20 @@ final class OrphanedClipRecoveryService {
         clip.thumbnailPath = thumbnailPath
         clip.athlete = athlete
 
-        // Link to active season if one exists
-        if let activeSeason = athlete.activeSeason {
+        // Attempt to match the clip to a game based on the file's creation date
+        if let matchedGame = findMatchingGame(for: athlete, fileDate: createdAt) {
+            clip.game = matchedGame
+            clip.gameOpponent = matchedGame.opponent
+            clip.gameDate = matchedGame.date
+            if let season = matchedGame.season {
+                clip.season = season
+                clip.seasonName = season.displayName
+            }
+            #if DEBUG
+            print("🔄 OrphanedClipRecovery: Matched \(fileURL.lastPathComponent) to game vs \(matchedGame.opponent)")
+            #endif
+        } else if let activeSeason = athlete.activeSeason {
+            // No game match — link to active season as a practice clip
             clip.season = activeSeason
         }
 
@@ -194,6 +206,28 @@ final class OrphanedClipRecoveryService {
         print("🔄 OrphanedClipRecovery: Recovered \(fileURL.lastPathComponent) (\(Int(duration))s)")
         #endif
         return clip
+    }
+
+    /// Finds the best matching game for an athlete on the same calendar day as the file date.
+    /// If multiple games exist on the same day, returns the one whose scheduled time is closest.
+    private func findMatchingGame(for athlete: Athlete, fileDate: Date) -> Game? {
+        let calendar = Calendar.current
+        let games = (athlete.games ?? []).filter { game in
+            guard let gameDate = game.date else { return false }
+            return calendar.isDate(gameDate, inSameDayAs: fileDate)
+        }
+
+        guard !games.isEmpty else { return nil }
+
+        // Single match — return it directly
+        if games.count == 1 { return games.first }
+
+        // Multiple games on the same day — pick the one closest in time
+        return games.min(by: { a, b in
+            let distA = abs((a.date ?? .distantPast).timeIntervalSince(fileDate))
+            let distB = abs((b.date ?? .distantPast).timeIntervalSince(fileDate))
+            return distA < distB
+        })
     }
 
     /// Returns an existing thumbnail path for the given video file URL, if one is present.

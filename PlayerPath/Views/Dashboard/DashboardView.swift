@@ -14,14 +14,23 @@ struct DashboardView: View {
     let athlete: Athlete
     let authManager: ComprehensiveAuthManager
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    @State private var viewModel: GamesDashboardViewModel
+    @StateObject private var viewModel: GamesDashboardViewModel
     @State private var pulseAnimation = false
     @State private var showingPaywall = false
     @State private var showingDirectCamera = false
     @State private var selectedVideoForPlayback: VideoClip?
     @State private var showingSeasons = false
     @State private var showingPhotos = false
+    @State private var isCheckingPermissions = false
+
+    // Cached computed values to avoid recalculation during body evaluation
+    @State private var seasonRecommendation: SeasonManager.SeasonRecommendation = .ok
+    @State private var cachedBA: String = ".000"
+    @State private var cachedSLG: String = ".000"
+    @State private var cachedHits: String = "0"
 
     // Dynamic live games query configured via init to safely capture athleteID
     private let athleteID: UUID
@@ -31,7 +40,7 @@ struct DashboardView: View {
         self.user = user
         self.athlete = athlete
         self.authManager = authManager
-        self._viewModel = State(initialValue: GamesDashboardViewModel(athlete: athlete, modelContext: modelContext))
+        self._viewModel = StateObject(wrappedValue: GamesDashboardViewModel(athlete: athlete, modelContext: modelContext))
         self._pulseAnimation = State(initialValue: false)
         self.athleteID = athlete.id
         // Configure the query with a predicate bound to a stable value (athleteID)
@@ -48,10 +57,32 @@ struct DashboardView: View {
         liveGames.first
     }
 
+    private var isRegularWidth: Bool {
+        horizontalSizeClass == .regular
+    }
+
+    private var managementColumns: [GridItem] {
+        if isRegularWidth {
+            return Array(repeating: GridItem(.flexible()), count: 4)
+        } else {
+            return [GridItem(.flexible()), GridItem(.flexible())]
+        }
+    }
+
+    private var dashboardHorizontalPadding: CGFloat {
+        isRegularWidth ? 32 : 16
+    }
+
     // MARK: - Body
 
     var body: some View {
-        dashboardContent(viewModel: viewModel)
+        Group {
+            if viewModel.isLoading && viewModel.totalGames == 0 && viewModel.totalVideos == 0 {
+                DashboardSkeletonView()
+            } else {
+                dashboardContent(viewModel: viewModel)
+            }
+        }
         .navigationTitle(athlete.name)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -95,8 +126,17 @@ struct DashboardView: View {
                 }
             }
         }
+        .task {
+            await viewModel.refresh()
+        }
         .onAppear {
-            pulseAnimation = true
+            if !reduceMotion {
+                pulseAnimation = true
+            }
+            updateCachedStats()
+        }
+        .onChange(of: athlete.statistics?.updatedAt) { _, _ in
+            updateCachedStats()
         }
         .sheet(isPresented: $showingPaywall) {
             ImprovedPaywallView(user: user)
@@ -134,40 +174,38 @@ struct DashboardView: View {
         game.needsSync = true
         GameAlertService.shared.cancelEndGameReminder(for: game)
 
-        // Recalculate from scratch to avoid double-counting
-        if let athlete = game.athlete {
-            do {
-                try StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: modelContext)
-            } catch {
-                print("⚠️ Failed to recalculate athlete statistics after ending game: \(error.localizedDescription)")
-            }
-        }
-
-        do {
-            try modelContext.save()
-
-            // Track game end analytics
-            let gameStats = game.gameStats
-            AnalyticsService.shared.trackGameEnded(
-                gameID: game.id.uuidString,
-                atBats: gameStats?.atBats ?? 0,
-                hits: gameStats?.hits ?? 0
-            )
-
-            // Trigger Firestore sync
-            let userForSync = game.athlete?.user
-            Task {
-                guard let user = userForSync else { return }
+        Task {
+            // Recalculate from scratch to avoid double-counting
+            if let athlete = game.athlete {
                 do {
-                    try await SyncCoordinator.shared.syncGames(for: user)
+                    try StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: modelContext)
                 } catch {
-                    print("⚠️ Failed to sync game end to Firestore: \(error)")
                 }
             }
 
-            print("✅ Game ended successfully")
-        } catch {
-            print("❌ Error ending game: \(error)")
+            do {
+                try modelContext.save()
+
+                // Track game end analytics
+                let gameStats = game.gameStats
+                AnalyticsService.shared.trackGameEnded(
+                    gameID: game.id.uuidString,
+                    atBats: gameStats?.atBats ?? 0,
+                    hits: gameStats?.hits ?? 0
+                )
+
+                // Trigger Firestore sync
+                let userForSync = game.athlete?.user
+                Task {
+                    guard let user = userForSync else { return }
+                    do {
+                        try await SyncCoordinator.shared.syncGames(for: user)
+                    } catch {
+                    }
+                }
+
+            } catch {
+            }
         }
     }
 
@@ -179,24 +217,16 @@ struct DashboardView: View {
 
                 // COACH INVITATIONS BANNER - Shows pending invitations from coaches
                 AthleteInvitationsBanner()
-                    .padding(.horizontal)
+                    .padding(.horizontal, dashboardHorizontalPadding)
 
                 // SEASON RECOMMENDATION BANNER - Shows when athlete needs a season
-                let seasonRecommendation = SeasonManager.checkSeasonStatus(for: athlete)
                 if seasonRecommendation.message != nil {
                     SeasonRecommendationBanner(athlete: athlete, recommendation: seasonRecommendation)
-                        .padding(.horizontal)
+                        .padding(.horizontal, dashboardHorizontalPadding)
                 }
 
                 // LIVE GAMES SECTION - Shows when games are live
                 if !liveGames.isEmpty {
-                    #if DEBUG
-                    let _ = print("🔴 DashboardView: Showing \(liveGames.count) live game(s)")
-                    let _ = liveGames.enumerated().forEach { index, game in
-                        print("   [\(index)] \(game.opponent) | isLive: \(game.isLive) | date: \(game.date?.description ?? "nil")")
-                    }
-                    #endif
-
                     VStack(spacing: 12) {
                         // Header with pulsing indicator
                         HStack {
@@ -206,7 +236,7 @@ struct DashboardView: View {
                                     .frame(width: 8, height: 8)
                                     .opacity(pulseAnimation ? 0.4 : 1.0)
                                     .shadow(color: .red.opacity(0.8), radius: pulseAnimation ? 4 : 2)
-                                    .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: pulseAnimation)
+                                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: pulseAnimation)
 
                                 Text("Live Now")
                                     .font(.title3)
@@ -244,7 +274,7 @@ struct DashboardView: View {
                             .buttonStyle(.plain)
                         }
                     }
-                    .padding(.horizontal)
+                    .padding(.horizontal, dashboardHorizontalPadding)
                 }
 
                 // Quick Actions Section
@@ -280,6 +310,10 @@ struct DashboardView: View {
                                 color: .red
                             ) {
                                 Task { @MainActor in
+                                    guard !isCheckingPermissions else { return }
+                                    isCheckingPermissions = true
+                                    defer { isCheckingPermissions = false }
+
                                     #if DEBUG
                                     print("🎬 Record Live tapped")
                                     #endif
@@ -302,16 +336,17 @@ struct DashboardView: View {
                                     Haptics.medium()
                                 }
                             }
+                            .disabled(isCheckingPermissions)
                         }
                     }
                 }
-                .padding(.horizontal)
+                .padding(.horizontal, dashboardHorizontalPadding)
 
                 // Management Section
                 VStack(spacing: 16) {
                     DashboardSectionHeader(title: "Management", icon: "square.grid.2x2.fill", color: .blue)
 
-                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 16) {
+                    LazyVGrid(columns: managementColumns, spacing: 16) {
                         // 1. Games
                         DashboardFeatureCard(
                             icon: "baseball.diamond.bases",
@@ -336,7 +371,7 @@ struct DashboardView: View {
                         DashboardFeatureCard(
                             icon: "chart.bar.fill",
                             title: "Statistics",
-                            subtitle: (athlete.statistics.map { formatBattingAverage($0.battingAverage) + " AVG" }) ?? ".000 AVG",
+                            subtitle: cachedBA + " AVG",
                             color: .blue
                         ) {
                             postSwitchTab(.stats)
@@ -408,7 +443,7 @@ struct DashboardView: View {
                         }
                     }
                 }
-                .padding(.horizontal)
+                .padding(.horizontal, dashboardHorizontalPadding)
 
                 // Quick Stats Section
                 VStack(spacing: 16) {
@@ -417,25 +452,25 @@ struct DashboardView: View {
                     HStack(spacing: 12) {
                         DashboardStatCard(
                             title: "AVG",
-                            value: athlete.statistics.map { formatBattingAverage($0.battingAverage) } ?? ".000",
+                            value: cachedBA,
                             icon: "square.grid.2x2.fill",
                             color: .blue
                         )
                         DashboardStatCard(
                             title: "SLG",
-                            value: athlete.statistics.map { formatBattingAverage($0.sluggingPercentage) } ?? ".000",
+                            value: cachedSLG,
                             icon: "chart.bar.fill",
                             color: .purple
                         )
                         DashboardStatCard(
                             title: "Hits",
-                            value: athlete.statistics.map { String($0.hits) } ?? "0",
+                            value: cachedHits,
                             icon: "hand.tap.fill",
                             color: .green
                         )
                     }
                 }
-                .padding(.horizontal)
+                .padding(.horizontal, dashboardHorizontalPadding)
 
             }
             .padding(.vertical)
@@ -447,13 +482,27 @@ struct DashboardView: View {
 
     // MARK: - Helper Functions
 
-    /// Formats batting average without leading zero (e.g., .333 instead of 0.333)
-    private func formatBattingAverage(_ value: Double) -> String {
-        let formatted = String(format: "%.3f", value)
-        if formatted.hasPrefix("0.") {
-            return String(formatted.dropFirst()) // Remove the leading "0"
+    private func updateCachedStats() {
+        seasonRecommendation = SeasonManager.checkSeasonStatus(for: athlete)
+        if let stats = athlete.statistics {
+            cachedBA = formatBattingAverage(stats.battingAverage)
+            cachedSLG = formatBattingAverage(stats.sluggingPercentage)
+            cachedHits = String(stats.hits)
+        } else {
+            cachedBA = ".000"
+            cachedSLG = ".000"
+            cachedHits = "0"
         }
-        return formatted
+    }
+
+    /// Formats a rate stat in baseball style: ".325" for values < 1.0, "1.400" for SLG/OPS >= 1.0
+    private func formatBattingAverage(_ value: Double) -> String {
+        guard !value.isNaN, !value.isInfinite else { return ".000" }
+        // SLG can exceed 1.0; show full decimal in that case
+        if value >= 1.0 { return String(format: "%.3f", value) }
+        let thousandths = Int((value * 1000).rounded())
+        guard thousandths > 0 else { return ".000" }
+        return String(format: ".%03d", thousandths)
     }
 
 }

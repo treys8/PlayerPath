@@ -29,6 +29,11 @@ struct AddAthleteView: View {
             ScrollView {
                 VStack(spacing: 40) {
                     if authManager.userRole == .athlete {
+                        if isFirstAthlete {
+                            OnboardingStepIndicator(currentStep: 0, totalSteps: 3)
+                                .padding(.top, 8)
+                        }
+
                         Spacer()
                             .frame(height: 20)
 
@@ -312,9 +317,7 @@ struct AddAthleteView: View {
                     Task {
                         do {
                             try await SyncCoordinator.shared.syncAthletes(for: user)
-                            print("✅ Athlete synced to Firestore successfully")
                         } catch {
-                            print("⚠️ Failed to sync athlete to Firestore: \(error)")
                             // Don't block athlete creation on sync failure
                         }
                     }
@@ -336,7 +339,6 @@ struct AddAthleteView: View {
                             print("🟢 Saved onboarding completion to SwiftData")
                             #endif
                         } catch {
-                            print("🔴 Failed to save onboarding progress: \(error)")
                         }
 
                         // Mark onboarding complete in auth manager (for session state)
@@ -375,7 +377,6 @@ struct AddAthleteView: View {
                     validationErrorMessage = getErrorMessage(for: error)
                     showingValidationError = true
                 }
-                print("🔴 Failed to save athlete: \(error)")
             }
         }
     }

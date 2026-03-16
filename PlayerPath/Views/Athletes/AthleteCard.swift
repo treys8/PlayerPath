@@ -12,6 +12,7 @@ struct AthleteCard: View {
     let athlete: Athlete
     let action: () -> Void
     @Environment(\.modelContext) private var modelContext
+    @State private var isEndingGame = false
 
     /// The currently live game for this athlete, if any.
     private var liveGame: Game? {
@@ -45,6 +46,7 @@ struct AthleteCard: View {
                         .foregroundColor(.primary)
                         .multilineTextAlignment(.center)
                         .lineLimit(2)
+                        .truncationMode(.tail)
                         .minimumScaleFactor(0.8)
 
                     if let created = athlete.createdAt {
@@ -76,7 +78,7 @@ struct AthleteCard: View {
             .padding()
             .frame(maxWidth: .infinity)
             .frame(height: 200)
-            .appCard(cornerRadius: 16)
+            .appCard(cornerRadius: .cornerXLarge)
             .contextMenu {
                 Button {
                     action()
@@ -85,12 +87,16 @@ struct AthleteCard: View {
                 }
                 if let liveGame = liveGame {
                     Button {
+                        guard !isEndingGame else { return }
+                        isEndingGame = true
                         Task {
                             await GameService(modelContext: modelContext).end(liveGame)
+                            await MainActor.run { isEndingGame = false }
                         }
                     } label: {
-                        Label("End Live", systemImage: "stop.circle")
+                        Label(isEndingGame ? "Ending..." : "End Live", systemImage: "stop.circle")
                     }
+                    .disabled(isEndingGame)
                 }
             }
         }

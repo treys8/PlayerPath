@@ -17,13 +17,15 @@ struct MainTabView: View {
     @State private var showingSeasons = false
     @State private var showingCoaches = false
     @Environment(\.modelContext) private var modelContext
-    
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
     // More tab programmatic navigation
     @State private var morePath = NavigationPath()
 
     // Welcome tutorial — shown once after first-time setup is complete
-    @StateObject private var onboardingManager = OnboardingManager.shared
+    @ObservedObject private var onboardingManager = OnboardingManager.shared
     @State private var showingWelcomeTutorial = false
+    @State private var hasRunInitialSetup = false
 
     // Swipe gesture tracking
     @GestureState private var dragOffset: CGFloat = 0
@@ -36,12 +38,8 @@ struct MainTabView: View {
     // NotificationCenter observer management using StateObject for lifecycle safety
     @StateObject private var notificationManager = NotificationObserverManager()
 
-    // Activity notification service for unread badge count
-    @ObservedObject private var activityNotifService = ActivityNotificationService.shared
-
     private func applyRecordedHitResult(_ info: [String: Any]) {
         guard let hitType = info["hitType"] as? String else { 
-            print("⚠️ Invalid hit result format")
             return 
         }
         
@@ -49,7 +47,9 @@ struct MainTabView: View {
         print("⚾️ Recording hit result: \(hitType) for athlete: \(selectedAthlete.name)")
         #endif
         
-        StatisticsHelpers.record(hitType: hitType, for: selectedAthlete, in: modelContext)
+        Task {
+            StatisticsHelpers.record(hitType: hitType, for: selectedAthlete, in: modelContext)
+        }
         
         // Provide haptic feedback for successful stat recording
         Haptics.success()
@@ -59,7 +59,7 @@ struct MainTabView: View {
     private func toggleGameLive(_ game: Game) {
         Haptics.light()
         game.isLive.toggle()
-        do { try modelContext.save() } catch { print("Failed to toggle game live: \(error)") }
+        Task { do { try modelContext.save() } catch { print("Failed to toggle game live: \(error)") } }
     }
 
     // Removed toggleTournamentActive(_:) as tournaments are removed
@@ -95,17 +95,36 @@ struct MainTabView: View {
         tabViewContent
             .tint(.blue)
             .task {
-                // Use task modifier which automatically handles cancellation
+                // Always restore tab and observers on appear
                 restoreSelectedTab()
                 setupNotificationObservers()
-                // Fix AE: Request notification permission here, after the user has completed
-                // onboarding and can see the app's value. The system dialog is only shown
-                // once (.notDetermined). Subsequent launches are a no-op.
+
+                // Run heavy one-time setup only once per app launch
+                guard !hasRunInitialSetup else { return }
+                hasRunInitialSetup = true
+
+                // Track initial screen view
+                let initialScreen: String
+                switch selectedTab {
+                case MainTab.home.rawValue: initialScreen = "Dashboard"
+                case MainTab.games.rawValue: initialScreen = "Games"
+                case MainTab.videos.rawValue: initialScreen = "Videos"
+                case MainTab.stats.rawValue: initialScreen = "Statistics"
+                case MainTab.more.rawValue: initialScreen = "More"
+                default: initialScreen = "Dashboard"
+                }
+                AnalyticsService.shared.trackScreenView(screenName: initialScreen, screenClass: "MainTabView")
+
+                // Request notification permission (system dialog only shown once)
                 if PushNotificationService.shared.authorizationStatus == .notDetermined {
                     _ = await PushNotificationService.shared.requestAuthorization()
                 }
-                // Show welcome tutorial once for new users after onboarding is complete.
-                // Existing users have hasSeenWelcomeTutorial pre-marked in AuthenticatedFlow.loadUser().
+                // Schedule weekly summary notification with real stats
+                if UserDefaults.standard.object(forKey: "notif_weeklyStats") as? Bool ?? true {
+                    await scheduleWeeklySummaryWithStats()
+                }
+
+                // Show welcome tutorial once for new users after onboarding is complete
                 if !onboardingManager.hasSeenWelcomeTutorial {
                     try? await Task.sleep(for: .milliseconds(200))
                     showingWelcomeTutorial = true
@@ -116,6 +135,17 @@ struct MainTabView: View {
             }
             .onChange(of: selectedTab) { _, newValue in
                 saveSelectedTab(newValue)
+                // Track screen views for feature usage analytics
+                let screenName: String
+                switch newValue {
+                case MainTab.home.rawValue: screenName = "Dashboard"
+                case MainTab.games.rawValue: screenName = "Games"
+                case MainTab.videos.rawValue: screenName = "Videos"
+                case MainTab.stats.rawValue: screenName = "Statistics"
+                case MainTab.more.rawValue: screenName = "More"
+                default: screenName = "Unknown"
+                }
+                AnalyticsService.shared.trackScreenView(screenName: screenName, screenClass: "MainTabView")
                 // Mark activity notifications read when entering Videos tab
                 if newValue == MainTab.videos.rawValue, let firebaseUID = authManager.userID {
                     Task {
@@ -244,12 +274,23 @@ struct MainTabView: View {
     
     @ViewBuilder
     private var tabViewContent: some View {
-        TabView(selection: $selectedTab) {
-            homeTab
-            gamesTab
-            videosTab
-            statsTab
-            moreTab
+        if horizontalSizeClass == .regular {
+            TabView(selection: $selectedTab) {
+                homeTab
+                gamesTab
+                videosTab
+                statsTab
+                moreTab
+            }
+            .tabViewStyle(.sidebarAdaptable)
+        } else {
+            TabView(selection: $selectedTab) {
+                homeTab
+                gamesTab
+                videosTab
+                statsTab
+                moreTab
+            }
         }
     }
     
@@ -286,7 +327,7 @@ struct MainTabView: View {
 
     private var statsTab: some View {
         NavigationStack {
-            StatisticsView(athlete: selectedAthlete)
+            StatisticsView(athlete: selectedAthlete, currentTier: authManager.currentTier)
                 .id(selectedAthlete.id) // Force view to recreate when athlete changes
         }
         .tabItem {
@@ -302,7 +343,7 @@ struct MainTabView: View {
             VideoClipsView(athlete: selectedAthlete)
                 .id(selectedAthlete.id) // Force view to recreate when athlete changes
         }
-        .badge(activityNotifService.unreadCount > 0 ? activityNotifService.unreadCount : 0)
+        .modifier(UnreadBadgeModifier())
         .tabItem {
             Label("Videos", systemImage: "video.fill")
         }
@@ -339,7 +380,7 @@ struct MainTabView: View {
                 case .practice:
                     PracticesView(athlete: selectedAthlete).id(selectedAthlete.id)
                 case .highlights:
-                    HighlightsView(athlete: selectedAthlete).id(selectedAthlete.id).plusRequired()
+                    HighlightsView(athlete: selectedAthlete, currentTier: authManager.currentTier, hasCoachingAccess: authManager.hasCoachingAccess).id(selectedAthlete.id).plusRequired()
                 }
             }
         }
@@ -366,5 +407,46 @@ struct MainTabView: View {
             // Default to home tab if saved tab is invalid
             selectedTab = MainTab.home.rawValue
         }
+    }
+
+    /// Compute this week's stats from the athlete's data and schedule
+    /// a one-shot weekly summary notification for next Sunday.
+    private func scheduleWeeklySummaryWithStats() async {
+        let athlete = selectedAthlete
+        let calendar = Calendar.current
+        let now = Date()
+        let startOfWeek = calendar.date(from: calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: now)) ?? now
+
+        let games = athlete.games ?? []
+        let gamesThisWeek = games.filter { game in
+            guard let date = game.date else { return false }
+            return date >= startOfWeek
+        }.count
+
+        let videos = athlete.videoClips ?? []
+        let videosThisWeek = videos.filter { clip in
+            guard let date = clip.createdAt else { return false }
+            return date >= startOfWeek
+        }.count
+
+        let avg = athlete.statistics?.battingAverage
+
+        await PushNotificationService.shared.scheduleWeeklySummary(
+            athleteId: athlete.id.uuidString,
+            gamesThisWeek: gamesThisWeek,
+            videosThisWeek: videosThisWeek,
+            battingAverage: avg
+        )
+    }
+}
+
+/// Isolates the badge observation so that changes to unreadCount
+/// only invalidate this modifier's body — not the entire MainTabView.
+private struct UnreadBadgeModifier: ViewModifier {
+    @ObservedObject private var activityNotifService = ActivityNotificationService.shared
+
+    func body(content: Content) -> some View {
+        content
+            .badge(activityNotifService.unreadCount > 0 ? activityNotifService.unreadCount : 0)
     }
 }

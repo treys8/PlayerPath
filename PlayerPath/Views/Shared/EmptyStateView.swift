@@ -16,6 +16,7 @@ struct EmptyStateView: View {
 
     @State private var isAnimating = false
     @State private var floatOffset: CGFloat = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(systemImage: String, title: String, message: String, actionTitle: String? = nil, action: (() -> Void)? = nil) {
         self.systemImage = systemImage
@@ -114,12 +115,16 @@ struct EmptyStateView: View {
             .padding(.horizontal, 40)
         }
         .onAppear {
-            withAnimation(.spring(response: 0.8, dampingFraction: 0.7)) {
+            if reduceMotion {
                 isAnimating = true
-            }
-            // Floating animation
-            withAnimation(.easeInOut(duration: 2.5).repeatForever(autoreverses: true)) {
-                floatOffset = -8
+            } else {
+                withAnimation(.spring(response: 0.8, dampingFraction: 0.7)) {
+                    isAnimating = true
+                }
+                // Floating animation
+                withAnimation(.easeInOut(duration: 2.5).repeatForever(autoreverses: true)) {
+                    floatOffset = -8
+                }
             }
         }
     }

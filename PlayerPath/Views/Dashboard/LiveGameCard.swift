@@ -12,6 +12,8 @@ struct LiveGameCard: View {
     var onEnd: (() -> Void)?
 
     @State private var isPulsing = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         HStack(spacing: 14) {
@@ -22,7 +24,7 @@ struct LiveGameCard: View {
                     .fill(Color.red.opacity(isPulsing ? 0.15 : 0.25))
                     .frame(width: 50, height: 50)
                     .blur(radius: 4)
-                    .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: isPulsing)
+                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: isPulsing)
 
                 Circle()
                     .fill(Color.red.opacity(0.2))
@@ -31,14 +33,21 @@ struct LiveGameCard: View {
                 Circle()
                     .fill(Color.red.opacity(isPulsing ? 0.1 : 0.35))
                     .frame(width: 36, height: 36)
-                    .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: isPulsing)
+                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: isPulsing)
 
                 Image(systemName: "baseball.fill")
                     .font(.system(size: 18, weight: .semibold))
                     .foregroundColor(.red)
                     .symbolRenderingMode(.hierarchical)
             }
-            .onAppear { isPulsing = true }
+            .onAppear { if !reduceMotion { isPulsing = true } }
+            .onChange(of: scenePhase) { _, newPhase in
+                if newPhase == .active {
+                    if !reduceMotion { isPulsing = true }
+                } else {
+                    isPulsing = false
+                }
+            }
 
             // Game info
             VStack(alignment: .leading, spacing: 5) {
@@ -73,6 +82,7 @@ struct LiveGameCard: View {
                     .fontWeight(.semibold)
                     .foregroundColor(.primary)
                     .lineLimit(1)
+                    .truncationMode(.tail)
 
                 // Show stats if available
                 if let stats = game.gameStats, stats.atBats > 0 {
@@ -129,7 +139,7 @@ struct LiveGameCard: View {
         .padding(16)
         .contentShape(Rectangle())
         .background(
-            RoundedRectangle(cornerRadius: 16)
+            RoundedRectangle(cornerRadius: .cornerXLarge)
                 .fill(
                     LinearGradient(
                         colors: [Color.red.opacity(0.1), Color.red.opacity(0.05)],
@@ -139,7 +149,7 @@ struct LiveGameCard: View {
                 )
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 16)
+            RoundedRectangle(cornerRadius: .cornerXLarge)
                 .stroke(Color.red.opacity(0.4), lineWidth: 2)
         )
         .shadow(color: .red.opacity(0.15), radius: 8, x: 0, y: 4)

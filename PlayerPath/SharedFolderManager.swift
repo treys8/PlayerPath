@@ -36,9 +36,13 @@ class SharedFolderManager: ObservableObject {
         // Observe Firestore loading state
         firestore.$isLoading
             .assign(to: &$isLoading)
-        
+
         firestore.$errorMessage
             .assign(to: &$errorMessage)
+    }
+
+    deinit {
+        coachFoldersListener?.remove()
     }
     
     // MARK: - Athlete Functions
@@ -124,7 +128,6 @@ class SharedFolderManager: ObservableObject {
             permissions: permissions
         )
         
-        print("✅ Created invitation \(invitationID) for \(cleanEmail)")
 
         // Notify the coach in-app if they already have an account
         if let coachUserID = await ActivityNotificationService.shared.lookupUserID(byEmail: cleanEmail) {
@@ -152,7 +155,6 @@ class SharedFolderManager: ObservableObject {
         folderName: String,
         athleteID: String
     ) async throws {
-        print("🚫 Removing coach \(coachID) from folder \(folderID)")
 
         // 1. Revoke permissions in Firestore — pass known values to skip 2 redundant reads
         try await firestore.removeCoachFromFolder(
@@ -162,7 +164,6 @@ class SharedFolderManager: ObservableObject {
             coachEmail: coachEmail,
             athleteID: athleteID
         )
-        print("✅ Permissions revoked in Firestore")
 
         // 2. Send notification to coach (TODO: Implement push notification)
         await notifyCoachAccessRevoked(
@@ -177,7 +178,6 @@ class SharedFolderManager: ObservableObject {
             try await loadAthleteFolders(athleteID: currentUserID)
         }
 
-        print("✅ Coach removal completed")
     }
 
     /// Legacy method for backward compatibility
@@ -221,7 +221,6 @@ class SharedFolderManager: ObservableObject {
     ///   3. Send notifications to affected coaches
     ///   4. Delete the folder document
     func deleteFolder(folderID: String, athleteID: String) async throws {
-        print("🗑️ Starting cascade deletion for folder: \(folderID)")
 
         // 1. Get folder details before deletion
         guard let folder = athleteFolders.first(where: { $0.id == folderID }) else {
@@ -234,24 +233,19 @@ class SharedFolderManager: ObservableObject {
             do {
                 try await firestore.removeCoachFromFolder(folderID: folderID, coachID: coachID)
                 // TODO: Send push notification to coach about folder deletion
-                print("✅ Revoked access for coach: \(coachID)")
             } catch {
-                print("⚠️ Failed to revoke access for coach \(coachID): \(error)")
             }
         }
 
         // 3. Delete all videos and their storage files
         do {
             let videos = try await firestore.fetchVideos(forFolder: folderID)
-            print("📹 Found \(videos.count) videos to delete")
 
             for video in videos {
                 // Delete from Firebase Storage using fileName, folderID
                 do {
                     try await VideoCloudManager.shared.deleteVideo(fileName: video.fileName, folderID: folderID)
-                    print("✅ Deleted storage file: \(video.fileName)")
                 } catch {
-                    print("⚠️ Failed to delete storage file \(video.fileName): \(error)")
                 }
 
                 // Delete metadata from Firestore
@@ -260,7 +254,6 @@ class SharedFolderManager: ObservableObject {
                 }
             }
         } catch {
-            print("⚠️ Error deleting videos: \(error)")
             // Continue with folder deletion even if video deletion fails
         }
 
@@ -272,13 +265,11 @@ class SharedFolderManager: ObservableObject {
         // 5. Remove from local list
         athleteFolders.removeAll { $0.id == folderID }
 
-        print("✅ Folder deletion cascade completed")
     }
 
     /// Revokes all coach access from every folder owned by an athlete.
     /// Called when the 7-day coaching add-on grace period expires.
     func revokeAllCoachAccess(forAthleteID athleteID: String) async throws {
-        print("⏰ Grace period expired — revoking all coach access for athlete: \(athleteID)")
 
         let folders = try await firestore.fetchSharedFolders(forAthlete: athleteID)
 
@@ -294,16 +285,13 @@ class SharedFolderManager: ObservableObject {
                         folderName: folder.name,
                         athleteID: athleteID
                     )
-                    print("✅ Revoked access for coach \(coachID) from folder \(folder.name)")
                 } catch {
-                    print("⚠️ Failed to revoke coach \(coachID) from folder \(folderID): \(error)")
                 }
             }
         }
 
         // Refresh local folders list
         try await loadAthleteFolders(athleteID: athleteID)
-        print("✅ All coach access revoked — grace period enforcement complete")
     }
 
     // MARK: - Coach Functions
@@ -319,22 +307,38 @@ class SharedFolderManager: ObservableObject {
         coachFoldersListener = db.collection("sharedFolders")
             .whereField("sharedWithCoachIDs", arrayContains: coachID)
             .order(by: "updatedAt", descending: true)
+            .limit(to: 100)
             .addSnapshotListener { [weak self] snapshot, error in
                 guard let self else { return }
-                self.isLoading = false
-                if let error {
-                    print("❌ Coach folders listener error: \(error)")
-                    self.listenerError = "Unable to refresh folders. Showing cached data."
+
+                if let error = error as NSError? {
+                    Task { @MainActor in
+                        self.isLoading = false
+                        // Permission denied (code 7) means coach access was revoked
+                        if error.code == 7 {
+                            self.coachFolders = []
+                            self.stopCoachFoldersListener()
+                            self.listenerError = "Your access to shared folders has been revoked."
+                        } else {
+                            // Transient error — keep cached data visible
+                            self.listenerError = "Unable to refresh folders. Showing cached data."
+                        }
+                    }
                     return
                 }
-                self.listenerError = nil
+
                 guard let docs = snapshot?.documents else { return }
+
                 let folders = docs.compactMap { doc -> SharedFolder? in
                     var folder = try? doc.data(as: SharedFolder.self)
                     folder?.id = doc.documentID
                     return folder
                 }
-                self.coachFolders = folders
+                Task { @MainActor in
+                    self.isLoading = false
+                    self.listenerError = nil
+                    self.coachFolders = folders
+                }
             }
     }
 
@@ -431,7 +435,6 @@ class SharedFolderManager: ObservableObject {
     func leaveFolder(folderID: String, coachID: String) async throws {
         try await firestore.removeCoachFromFolder(folderID: folderID, coachID: coachID)
         coachFolders.removeAll { $0.id == folderID }
-        print("✅ Coach \(coachID) left folder \(folderID)")
     }
 
     // MARK: - Video Management
@@ -461,7 +464,6 @@ class SharedFolderManager: ObservableObject {
             folderID: folderID,
             progressHandler: { progress in
                 // Progress is already published by VideoCloudManager
-                print("Upload progress: \(Int(progress * 100))%")
             }
         )
 
@@ -471,7 +473,6 @@ class SharedFolderManager: ObservableObject {
             let attributes = try FileManager.default.attributesOfItem(atPath: videoURL.path)
             fileSize = attributes[.size] as? Int64 ?? 0
         } catch {
-            print("⚠️ Failed to get file size: \(error)")
             fileSize = 0
         }
 
@@ -524,13 +525,10 @@ class SharedFolderManager: ObservableObject {
                 if let _ = Auth.auth().currentUser?.uid {
                     try await VideoCloudManager.shared.deleteVideo(fileName: meta.fileName, folderID: folderID)
                 } else {
-                    print("⚠️ No authenticated user found; skipping storage deletion for video \(videoID)")
                 }
             } else {
-                print("⚠️ Could not find metadata for video \(videoID); skipping storage deletion")
             }
         } catch {
-            print("⚠️ Error while attempting storage deletion for video \(videoID): \(error)")
         }
 
         // Then delete metadata from Firestore

@@ -37,6 +37,7 @@ struct ProfileView: View {
     @State private var showingQuickSearch = false
     @State private var showingSeasons = false
     @State private var seasonsAthlete: Athlete?
+    @State private var isDeletingAthlete = false
 
     var body: some View {
         List {
@@ -279,7 +280,7 @@ struct ProfileView: View {
                 keywords: ["shared", "folders", "coach", "sharing"],
                 link: AnyView(
                     NavigationLink {
-                        AthleteFoldersListView()
+                        AthleteFoldersListView(userID: authManager.userID)
                     } label: {
                         Label("Shared Folders", systemImage: "folder.badge.person.crop")
                     }
@@ -333,6 +334,7 @@ struct ProfileView: View {
             link: AnyView(
                 NavigationLink {
                     StatisticsExportView(athletes: sortedAthletes)
+                        .plusRequired()
                 } label: {
                     Label("Export Statistics", systemImage: "chart.bar.doc.horizontal")
                 }
@@ -436,7 +438,7 @@ struct ProfileView: View {
             // Coach Sharing Feature (requires Pro tier)
             if authManager.currentTier == .pro {
                 NavigationLink {
-                    AthleteFoldersListView()
+                    AthleteFoldersListView(userID: authManager.userID)
                 } label: {
                     Label("Shared Folders", systemImage: "folder.badge.person.crop")
                 }
@@ -541,9 +543,10 @@ struct ProfileView: View {
                 Label("Export My Data", systemImage: "arrow.down.doc")
             }
 
-            // Statistics Export (CSV/PDF Reports)
+            // Statistics Export (CSV/PDF Reports) — Plus+
             NavigationLink {
                 StatisticsExportView(athletes: sortedAthletes)
+                    .plusRequired()
             } label: {
                 Label("Export Statistics", systemImage: "chart.bar.doc.horizontal")
             }
@@ -570,15 +573,17 @@ struct ProfileView: View {
     }
 
     private func delete(athlete: Athlete) {
+        guard !isDeletingAthlete else { return }
+        isDeletingAthlete = true
         do {
             try performDeleteAthlete(athlete, selectedAthlete: $selectedAthlete, user: user, modelContext: modelContext)
             Haptics.success()
         } catch {
-            print("Failed to delete athlete: \(error)")
             deleteErrorMessage = String(format: ProfileStrings.deleteFailed, error.localizedDescription)
             showDeleteError = true
             Haptics.error()
         }
+        isDeletingAthlete = false
     }
 }
 
@@ -592,9 +597,7 @@ struct UserProfileHeader: View {
                 // Save context when profile image is updated
                 do {
                     try modelContext.save()
-                    print("Profile image updated successfully")
                 } catch {
-                    print("Failed to save profile image update: \(error)")
                 }
             }
 
@@ -735,6 +738,7 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
                         .lineLimit(1)
+                        .truncationMode(.tail)
                 }
 
                 if provider != "apple.com" {
@@ -746,6 +750,7 @@ struct SettingsView: View {
                 }
             }
         }
+        .onAppear { AnalyticsService.shared.trackScreenView(screenName: "Settings", screenClass: "ProfileView") }
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -1025,10 +1030,8 @@ struct EditAccountView: View {
                         do {
                             try modelContext.save()
                             Haptics.light()
-                            print("Profile image updated successfully")
                         } catch {
                             Haptics.error()
-                            print("Failed to save profile image update: \(error)")
                         }
                     }
                     Spacer()
@@ -1147,7 +1150,6 @@ struct EditAccountView: View {
                 dismiss()
             }
         } catch {
-            print("Failed to save user: \(error)")
             saveErrorMessage = String(format: ProfileStrings.saveFailed, error.localizedDescription)
             showSaveError = true
             Haptics.error()
@@ -1466,6 +1468,7 @@ struct AthleteManagementView: View {
     @State private var showingDeleteAthleteAlert = false
     @State private var showDeleteError = false
     @State private var deleteErrorMessage = ""
+    @State private var isDeletingAthlete = false
     @State private var sortedAthletes: [Athlete] = []
 
     var body: some View {
@@ -1533,15 +1536,17 @@ struct AthleteManagementView: View {
     }
 
     private func delete(athlete: Athlete) {
+        guard !isDeletingAthlete else { return }
+        isDeletingAthlete = true
         do {
             try performDeleteAthlete(athlete, selectedAthlete: $selectedAthlete, user: user, modelContext: modelContext)
             Haptics.success()
         } catch {
-            print("Failed to delete athlete: \(error)")
             deleteErrorMessage = String(format: ProfileStrings.deleteFailed, error.localizedDescription)
             showDeleteError = true
             Haptics.error()
         }
+        isDeletingAthlete = false
     }
 }
 

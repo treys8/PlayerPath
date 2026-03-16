@@ -19,6 +19,8 @@ struct ComprehensiveSignInView: View {
     @State private var showingResetPasswordSheet = false
     @State private var selectedRole: UserRole = .athlete
 
+    @State private var confirmedAge = false
+
     @FocusState private var nameFocused: Bool
     @FocusState private var emailFocused: Bool
     @FocusState private var passwordFocused: Bool
@@ -185,6 +187,30 @@ struct ComprehensiveSignInView: View {
                     }
                     .animation(.easeInOut(duration: 0.2), value: password.isEmpty)
 
+                    // Age confirmation (sign up only)
+                    if isSignUpMode {
+                        Button {
+                            confirmedAge.toggle()
+                            Haptics.light()
+                        } label: {
+                            HStack(alignment: .top, spacing: 10) {
+                                Image(systemName: confirmedAge ? "checkmark.square.fill" : "square")
+                                    .foregroundColor(confirmedAge ? .blue : .gray)
+                                    .font(.title3)
+
+                                Text("I confirm that I am at least 18 years old, or a parent/guardian creating this account on behalf of my child.")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                    .multilineTextAlignment(.leading)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.horizontal, 4)
+                        .accessibilityLabel("Age confirmation")
+                        .accessibilityValue(confirmedAge ? "Confirmed" : "Not confirmed")
+                        .accessibilityHint("Confirm that you are at least 18 years old or a parent creating this account for your child")
+                    }
+
                     // Action Buttons
                     VStack(spacing: 16) {
                         Button(action: { Haptics.medium(); performAuth() }) {
@@ -332,6 +358,7 @@ struct ComprehensiveSignInView: View {
     }
 
     private func performAuth() {
+        guard !authManager.isLoading else { return }
         Task {
             let normalizedEmail = email.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
             let trimmedDisplayName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -400,8 +427,9 @@ struct ComprehensiveSignInView: View {
         let emailValid = isValidEmail(email)
         let passwordValid = isValidPassword(password)
         let displayNameValid = isSignUpMode ? (displayName.isEmpty || isValidDisplayName(displayName)) : true
+        let ageConfirmed = isSignUpMode ? confirmedAge : true
 
-        return emailValid && passwordValid && displayNameValid
+        return emailValid && passwordValid && displayNameValid && ageConfirmed
     }
 
 }

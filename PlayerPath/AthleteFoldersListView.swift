@@ -10,7 +10,7 @@ import SwiftUI
 
 /// Athlete's view of all their shared folders
 struct AthleteFoldersListView: View {
-    @EnvironmentObject private var authManager: ComprehensiveAuthManager
+    let userID: String?
     @ObservedObject private var folderManager = SharedFolderManager.shared
     
     enum SheetType: Identifiable {
@@ -27,7 +27,8 @@ struct AthleteFoldersListView: View {
     @State private var showingError = false
     @State private var errorMessage = ""
     @State private var isDeletingFolders = false
-    
+    @State private var lastFetchDate: Date?
+
     var body: some View {
         Group {
             if folderManager.isLoading {
@@ -71,7 +72,9 @@ struct AthleteFoldersListView: View {
             }
         }
         .task {
+            if let lastFetch = lastFetchDate, Date().timeIntervalSince(lastFetch) < 60 { return }
             await loadFolders()
+            lastFetchDate = Date()
         }
         .refreshable {
             await loadFolders()
@@ -131,7 +134,7 @@ struct AthleteFoldersListView: View {
     // MARK: - Actions
     
     private func loadFolders() async {
-        guard let athleteID = authManager.userID else {
+        guard let athleteID = userID else {
             errorMessage = "Not authenticated"
             showingError = true
             return
@@ -146,10 +149,12 @@ struct AthleteFoldersListView: View {
     }
     
     private func deleteFolders(at offsets: IndexSet) {
-        let foldersToDelete = offsets.map { folderManager.athleteFolders[$0] }
-        
+        let foldersToDelete = offsets.compactMap { index in
+            index < folderManager.athleteFolders.count ? folderManager.athleteFolders[index] : nil
+        }
+
+        isDeletingFolders = true
         Task {
-            await MainActor.run { isDeletingFolders = true }
             
             var errors: [String] = []
             
@@ -159,7 +164,7 @@ struct AthleteFoldersListView: View {
                     continue
                 }
 
-                guard let athleteID = authManager.userID else {
+                guard let athleteID = userID else {
                     errors.append("Not authenticated to delete folder '\(folder.name)'")
                     continue
                 }
@@ -310,11 +315,11 @@ private struct AthleteFolderDetailContent: View {
             Group {
                 switch selectedTab {
                 case .games:
-                    GamesTabView(folder: folder, videos: viewModel.gameVideos) {
+                    GamesTabView(folder: folder, videos: viewModel.cachedGameVideos) {
                         await viewModel.loadVideos()
                     }
                 case .practices:
-                    PracticesTabView(folder: folder, videos: viewModel.practiceVideos) {
+                    PracticesTabView(folder: folder, videos: viewModel.cachedPracticeVideos) {
                         await viewModel.loadVideos()
                     }
                 case .all:
@@ -405,9 +410,8 @@ struct ManageCoachesView: View {
     let folder: SharedFolder
     
     @Environment(\.dismiss) private var dismiss
-    @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @ObservedObject private var folderManager = SharedFolderManager.shared
-    
+
     @State private var showingRemoveConfirmation = false
     @State private var coachToRemove: String?
     @State private var isRemoving = false
@@ -505,6 +509,8 @@ struct ManageCoachesView: View {
 // MARK: - Coach Permission Row
 
 struct CoachPermissionRow: View {
+    private static var coachDetailsCache: [String: (name: String, email: String)] = [:]
+
     let coachID: String
     let permissions: FolderPermissions
     let onRemove: () -> Void
@@ -576,17 +582,25 @@ struct CoachPermissionRow: View {
     @MainActor
     private func loadCoachDetails() async {
         guard coachName == nil else { return }
+
+        if let cached = Self.coachDetailsCache[coachID] {
+            coachName = cached.name
+            coachEmail = cached.email
+            isLoadingName = false
+            return
+        }
+
         do {
             let coachInfo = try await FirestoreManager.shared.fetchCoachInfo(coachID: coachID)
             self.coachName = coachInfo.name
             self.coachEmail = coachInfo.email
             isLoadingName = false
+            Self.coachDetailsCache[coachID] = (name: coachInfo.name, email: coachInfo.email)
         } catch {
             // If fetch fails, show coach ID as fallback
             self.coachName = "Coach \(coachID.prefix(8))"
             self.coachEmail = nil
             isLoadingName = false
-            print("⚠️ Failed to load coach details for \(coachID): \(error)")
         }
     }
 }
@@ -610,8 +624,7 @@ struct PermissionBadge: View {
 
 #Preview("Athlete Folders List") {
     NavigationStack {
-        AthleteFoldersListView()
-            .environmentObject(ComprehensiveAuthManager())
+        AthleteFoldersListView(userID: "preview-user-id")
     }
 }
 

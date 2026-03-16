@@ -16,6 +16,7 @@ import Combine
 struct ModernCameraView: View {
     @StateObject private var viewModel: CameraViewModel
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
 
     let onVideoRecorded: (URL) -> Void
     let onCancel: () -> Void
@@ -52,17 +53,7 @@ struct ModernCameraView: View {
             CameraPreviewLayer(session: viewModel.captureSession, orientation: viewModel.currentOrientation)
                 .ignoresSafeArea()
                 .opacity(viewModel.isSessionReady ? 1 : 0)
-
-            // Loading State
-            if !viewModel.isSessionReady {
-                VStack(spacing: 16) {
-                    ProgressView()
-                        .scaleEffect(1.5)
-                    Text("Preparing Camera...")
-                        .font(.subheadline)
-                        .foregroundColor(.white)
-                }
-            }
+                .animation(.easeInOut(duration: 0.3), value: viewModel.isSessionReady)
 
             // Focus Reticle
             if let focusPoint = viewModel.lastFocusPoint {
@@ -84,7 +75,6 @@ struct ModernCameraView: View {
             }
         }
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: isLandscape)
-        .preferredColorScheme(.dark)
         .statusBar(hidden: true)
         .gesture(
             MagnificationGesture()
@@ -95,7 +85,7 @@ struct ModernCameraView: View {
                     viewModel.endZoomGesture()
                 }
         )
-        .gesture(
+        .simultaneousGesture(
             DragGesture(minimumDistance: 0)
                 .onEnded { gesture in
                     viewModel.handleTapToFocus(at: gesture.location, viewSize: geometry.size)
@@ -108,6 +98,13 @@ struct ModernCameraView: View {
         }
         .onDisappear {
             viewModel.stopSession()
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            if newPhase == .active {
+                Task { await viewModel.startSession() }
+            } else {
+                viewModel.stopSession()
+            }
         }
         .alert("Camera Error", isPresented: $viewModel.showingError) {
             Button("OK", role: .cancel) {
@@ -644,10 +641,8 @@ struct CameraSettingsView: View {
 #Preview {
     ModernCameraView(
         onVideoRecorded: { url in
-            print("Video recorded: \(url)")
         },
         onCancel: {
-            print("Cancelled")
         }
     )
 }

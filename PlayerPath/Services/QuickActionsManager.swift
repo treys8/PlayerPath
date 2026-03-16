@@ -79,18 +79,15 @@ final class QuickActionsManager: ObservableObject {
         ]
 
         UIApplication.shared.shortcutItems = shortcuts
-        print("✅ QuickActionsManager: Setup \(shortcuts.count) quick actions")
     }
 
     // MARK: - Handle Quick Action
 
     func handleQuickAction(_ shortcutItem: UIApplicationShortcutItem) -> Bool {
         guard let action = QuickAction(rawValue: shortcutItem.type) else {
-            print("⚠️ QuickActionsManager: Unknown quick action type: \(shortcutItem.type)")
             return false
         }
 
-        print("🎯 QuickActionsManager: Handling quick action: \(action.title)")
         selectedQuickAction = action
         return true
     }
@@ -116,8 +113,8 @@ final class QuickActionsManager: ObservableObject {
         }
 
         // Clear the action after executing
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            self.selectedQuickAction = nil
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            self?.selectedQuickAction = nil
         }
     }
 

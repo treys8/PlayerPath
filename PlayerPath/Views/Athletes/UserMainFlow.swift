@@ -14,7 +14,7 @@ struct UserMainFlow: View {
     let hasCompletedOnboarding: Bool
     @Query(sort: \Athlete.createdAt) private var allAthletes: [Athlete]
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
-    @StateObject private var sharedFolderManager = SharedFolderManager.shared
+    @ObservedObject private var sharedFolderManager = SharedFolderManager.shared
     @State private var selectedAthlete: Athlete?
     @State private var showCreationToast = false
     @State private var showingAthleteSelection = false
@@ -25,10 +25,10 @@ struct UserMainFlow: View {
     @StateObject private var notificationManager = NotificationObserverManager()
 
     // Activity notification service (Firestore-backed in-app notifications)
-    @StateObject private var activityNotifService = ActivityNotificationService.shared
+    @ObservedObject private var activityNotifService = ActivityNotificationService.shared
 
     // Quick Actions manager
-    @StateObject private var quickActionsManager = QuickActionsManager.shared
+    @ObservedObject private var quickActionsManager = QuickActionsManager.shared
 
     // Onboarding (tutorial shown from MainTabView after setup is complete)
 
@@ -71,7 +71,6 @@ struct UserMainFlow: View {
                 CoachDashboardView()
                     .environmentObject(sharedFolderManager)
                     .onAppear {
-                        print("🎯 UserMainFlow - Showing CoachDashboardView for user: \(user.email)")
                     }
             }
             // Show athlete selection if user explicitly requested it via "Manage Athletes"
@@ -94,7 +93,6 @@ struct UserMainFlow: View {
                     (athlete.seasons ?? []).isEmpty {
                 OnboardingSeasonCreationView(athlete: athlete)
                     .onAppear {
-                        print("🎯 UserMainFlow - Showing OnboardingSeasonCreationView for athlete: \(athlete.name)")
                     }
             }
             // After season exists but still new user - show backup preference
@@ -103,7 +101,6 @@ struct UserMainFlow: View {
                     !(athlete.seasons ?? []).isEmpty {
                 OnboardingBackupView(athlete: athlete)
                     .onAppear {
-                        print("🎯 UserMainFlow - Showing OnboardingBackupView for athlete: \(athlete.name)")
                     }
             }
             // Only check athlete-related logic if user is an athlete
@@ -116,7 +113,6 @@ struct UserMainFlow: View {
                     )
                 )
                 .onAppear {
-                    print("🎯 UserMainFlow - Showing MainTabView for athlete: \(athlete.name)")
                 }
             } else if athletesForUser.count > 1 {
                 AthleteSelectionView(
@@ -155,9 +151,11 @@ struct UserMainFlow: View {
                         .animation(.spring(response: 0.4, dampingFraction: 0.8), value: showCreationToast)
                 }
                 if let banner = activityNotifService.incomingBanner {
-                    ActivityNotificationBanner(notification: banner) {
+                    ActivityNotificationBanner(notification: banner, onDismiss: {
                         activityNotifService.dismissBanner()
-                    }
+                    }, onTap: {
+                        handleActivityNotificationTap(banner)
+                    })
                     .padding(.top, showCreationToast ? 0 : 12)
                     .transition(.move(edge: .top).combined(with: .opacity))
                     .animation(.spring(response: 0.4, dampingFraction: 0.8), value: activityNotifService.incomingBanner?.id)
@@ -197,9 +195,6 @@ struct UserMainFlow: View {
         }
         .task {
             // Use task modifier for automatic cancellation handling
-            print("🎯 UserMainFlow - User role: \(authManager.userRole.rawValue)")
-            print("🎯 UserMainFlow - User email: \(user.email)")
-            print("🎯 UserMainFlow - Athletes count: \(athletesForUser.count)")
 
             // Activity notification listener is now started in AuthenticatedFlow
             // before this view appears, so navigation is not blocked by Firestore setup.
@@ -246,6 +241,29 @@ struct UserMainFlow: View {
                 print("🎯 UserMainFlow - Executing quick action: \(action.title)")
                 #endif
                 quickActionsManager.executeAction(action)
+            }
+        }
+    }
+
+    // MARK: - Activity Notification Tap Handling
+
+    private func handleActivityNotificationTap(_ notification: ActivityNotification) {
+        switch notification.type {
+        case .invitationAccepted, .coachComment, .newVideo:
+            // Navigate to the More tab where Shared Folders lives
+            postSwitchTab(.more)
+        case .invitationReceived:
+            // Athlete shouldn't normally receive this (coaches do), but handle gracefully
+            postSwitchTab(.more)
+        case .accessRevoked:
+            // Informational only — no navigation target
+            break
+        }
+
+        // Mark as read
+        if let notifID = notification.id, let userID = authManager.userID {
+            Task {
+                await activityNotifService.markRead(notifID, forUserID: userID)
             }
         }
     }

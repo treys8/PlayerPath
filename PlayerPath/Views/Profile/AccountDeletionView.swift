@@ -196,7 +196,6 @@ struct AccountDeletionView: View {
             // Delete account via AuthManager (handles both Firebase Auth and Firestore)
             try await authManager.deleteAccount()
 
-            print("✅ Account deleted successfully")
 
             // AuthManager will automatically sign out the user
             // The UI will return to WelcomeFlow
@@ -209,10 +208,9 @@ struct AccountDeletionView: View {
             } else if error.code == AuthErrorCode.requiresRecentLogin.rawValue {
                 errorMessage = "For security, please sign out and sign back in, then try again."
             } else {
-                errorMessage = "Failed to delete account: \(error.localizedDescription)"
+                errorMessage = "Failed to delete account. Please try again or contact support."
             }
             showError = true
-            print("❌ Account deletion failed: \(error)")
         }
     }
 
@@ -225,7 +223,7 @@ struct AccountDeletionView: View {
             try await authManager.deleteAccount()
         } catch let error as NSError {
             if error.code == ASAuthorizationError.canceled.rawValue { return }
-            errorMessage = "Failed to delete account: \(error.localizedDescription)"
+            errorMessage = "Failed to delete account. Please try again or contact support."
             showError = true
         }
     }

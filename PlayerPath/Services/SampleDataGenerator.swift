@@ -15,7 +15,6 @@ struct SampleDataGenerator {
     // MARK: - Generate Sample Data
 
     static func generateSampleData(for user: User, context: ModelContext) throws {
-        print("🎯 Generating sample data for user: \(user.username)")
 
         // Create sample athlete
         let athlete = createSampleAthlete(for: user)
@@ -37,11 +36,6 @@ struct SampleDataGenerator {
         // Save all
         try context.save()
 
-        print("✅ Sample data generated successfully")
-        print("   - 1 athlete: \(athlete.name)")
-        print("   - 1 season: \(season.name)")
-        print("   - \(games.count) games")
-        print("   - \(practices.count) practices")
     }
 
     // MARK: - Sample Athlete
@@ -220,7 +214,6 @@ struct SampleDataGenerator {
         }
 
         try context.save()
-        print("✅ Sample data removed")
     }
 }
 
@@ -351,10 +344,12 @@ private struct FeatureRow: View {
 struct SampleDataPromptView_Previews: PreviewProvider {
     static var previews: some View {
         let config = ModelConfiguration(isStoredInMemoryOnly: true)
-        let container = try! ModelContainer(for: User.self, configurations: config)
+        guard let container = try? ModelContainer(for: User.self, configurations: config) else {
+            return AnyView(Text("Preview unavailable"))
+        }
         let user = User(username: "Test", email: "test@example.com")
 
-        return SampleDataPromptView(user: user)
-            .modelContainer(container)
+        return AnyView(SampleDataPromptView(user: user)
+            .modelContainer(container))
     }
 }

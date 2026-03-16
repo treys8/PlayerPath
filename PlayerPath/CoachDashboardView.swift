@@ -87,7 +87,9 @@ struct CoachDashboardView: View {
             // duplicate starts, so we only stop them when the coach flow
             // is fully torn down (sign-out).
             sharedFolderManager.stopCoachFoldersListener()
-            invitationManager.stopInvitationsListener()
+            Task { @MainActor in
+                CoachInvitationManager.shared.stopInvitationsListener()
+            }
             ActivityNotificationService.shared.stopListening()
         }
     }
@@ -114,6 +116,13 @@ struct CoachDashboardView: View {
             // Switch to athletes list — no specific deep link available without videoID+folderID pair
             selectedTab = .myAthletes
         }
+
+        // Mark the notification as read
+        if let notifID = notification.id, let coachID = authManager.userID {
+            Task {
+                await ActivityNotificationService.shared.markRead(notifID, forUserID: coachID)
+            }
+        }
     }
 }
 
@@ -131,6 +140,9 @@ struct CoachAthletesListView: View {
     @State private var navigationPath = NavigationPath()
     @State private var showingArchived = false
     @State private var hasAutoShownInvitations = false
+    @State private var cachedActiveGroups: [CoachAthleteGroup] = []
+    @State private var cachedArchivedGroups: [CoachAthleteGroup] = []
+    @State private var cachedFilteredGroups: [CoachAthleteGroup] = []
 
     var body: some View {
         NavigationStack(path: $navigationPath) {
@@ -145,7 +157,7 @@ struct CoachAthletesListView: View {
                             Section {
                                 PendingInvitationsBanner(showingInvitations: $showingInvitations)
 
-                                ForEach(filteredGroups, id: \CoachAthleteGroup.athleteID) { group in
+                                ForEach(cachedFilteredGroups, id: \CoachAthleteGroup.athleteID) { group in
                                     AthleteSection(
                                         athleteID: group.athleteID,
                                         athleteName: group.athleteName,
@@ -154,7 +166,7 @@ struct CoachAthletesListView: View {
                                 }
 
                                 // Archived folders toggle
-                                if !archivedGroups.isEmpty {
+                                if !cachedArchivedGroups.isEmpty {
                                     Button {
                                         withAnimation { showingArchived.toggle() }
                                         Haptics.light()
@@ -162,7 +174,7 @@ struct CoachAthletesListView: View {
                                         HStack {
                                             Image(systemName: showingArchived ? "archivebox.fill" : "archivebox")
                                                 .foregroundColor(.secondary)
-                                            Text(showingArchived ? "Hide Archived" : "Show Archived (\(archivedGroups.flatMap(\.folders).count))")
+                                            Text(showingArchived ? "Hide Archived" : "Show Archived (\(cachedArchivedGroups.flatMap(\.folders).count))")
                                                 .font(.subheadline)
                                                 .foregroundColor(.secondary)
                                             Spacer()
@@ -172,12 +184,12 @@ struct CoachAthletesListView: View {
                                         }
                                         .padding()
                                         .background(Color(.secondarySystemBackground))
-                                        .cornerRadius(12)
+                                        .cornerRadius(.cornerLarge)
                                     }
                                     .buttonStyle(.plain)
 
                                     if showingArchived {
-                                        ForEach(archivedGroups, id: \CoachAthleteGroup.athleteID) { group in
+                                        ForEach(cachedArchivedGroups, id: \CoachAthleteGroup.athleteID) { group in
                                             AthleteSection(
                                                 athleteID: group.athleteID,
                                                 athleteName: group.athleteName,
@@ -200,6 +212,11 @@ struct CoachAthletesListView: View {
                     }
                 }
             }
+            .onAppear { AnalyticsService.shared.trackScreenView(screenName: "Coach Dashboard", screenClass: "CoachDashboardView") }
+            .task { updateFolderGroups() }
+            .onChange(of: searchText) { _, _ in updateFolderGroups() }
+            .onChange(of: sharedFolderManager.coachFolders) { _, _ in updateFolderGroups() }
+            .onChange(of: archiveManager.archivedFolderIDs) { _, _ in updateFolderGroups() }
             .navigationTitle("My Athletes")
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
@@ -262,8 +279,10 @@ struct CoachAthletesListView: View {
         }
     }
 
-    // Single-pass partition: active vs archived folders, then group by athlete
-    private var partitionedFolders: (active: [CoachAthleteGroup], archived: [CoachAthleteGroup]) {
+    // MARK: - Cache
+
+    private func updateFolderGroups() {
+        // Single-pass partition: active vs archived folders, then group by athlete
         var activeFolders: [String: [SharedFolder]] = [:]
         var archivedFolders: [String: [SharedFolder]] = [:]
 
@@ -285,19 +304,19 @@ struct CoachAthletesListView: View {
             }.sorted { $0.athleteName < $1.athleteName }
         }
 
-        return (buildGroups(activeFolders), buildGroups(archivedFolders))
-    }
+        let activeGroups = buildGroups(activeFolders)
+        cachedArchivedGroups = buildGroups(archivedFolders)
+        cachedActiveGroups = activeGroups
 
-    private var groupedFolders: [CoachAthleteGroup] { partitionedFolders.active }
-    private var archivedGroups: [CoachAthleteGroup] { partitionedFolders.archived }
-
-    // Filter groups by athlete name or folder name matching searchText
-    private var filteredGroups: [CoachAthleteGroup] {
-        guard !searchText.isEmpty else { return groupedFolders }
-        let q = searchText.lowercased()
-        return groupedFolders.filter {
-            $0.athleteName.lowercased().contains(q) ||
-            $0.folders.contains(where: { $0.name.lowercased().contains(q) })
+        // Filter groups by athlete name or folder name matching searchText
+        if searchText.isEmpty {
+            cachedFilteredGroups = activeGroups
+        } else {
+            let q = searchText.lowercased()
+            cachedFilteredGroups = activeGroups.filter {
+                $0.athleteName.lowercased().contains(q) ||
+                $0.folders.contains(where: { $0.name.lowercased().contains(q) })
+            }
         }
     }
 }
@@ -361,7 +380,7 @@ struct AthleteSection: View {
                 }
                 .padding()
                 .background(Color(.secondarySystemBackground))
-                .cornerRadius(12)
+                .cornerRadius(.cornerLarge)
             }
             .buttonStyle(.plain)
             .accessibilityLabel(athleteName)
@@ -560,7 +579,7 @@ struct PendingInvitationsBanner: View {
                         endPoint: .trailing
                     )
                 )
-                .cornerRadius(12)
+                .cornerRadius(.cornerLarge)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Pending Invitations")
@@ -587,6 +606,7 @@ struct PendingInvitationsStickyHeader: View {
 /// Tracks which folders a coach has locally archived, stored in UserDefaults.
 /// Archiving is per-coach (keyed by coach UID) and per-device — it only hides the folder
 /// from the list without revoking Firestore access.
+@MainActor
 class CoachFolderArchiveManager: ObservableObject {
     static let shared = CoachFolderArchiveManager()
 
@@ -625,6 +645,7 @@ class CoachFolderArchiveManager: ObservableObject {
 
 // MARK: - Coach Invitations Manager
 
+@MainActor
 class CoachInvitationManager: ObservableObject {
     static let shared = CoachInvitationManager()
 
@@ -637,7 +658,8 @@ class CoachInvitationManager: ObservableObject {
     private init() {}
 
     deinit {
-        stopInvitationsListener()
+        invitationsListener?.remove()
+        invitationsListener = nil
     }
 
     /// Starts a real-time listener for pending invitations. Replaces one-shot checkPendingInvitations.
@@ -649,20 +671,23 @@ class CoachInvitationManager: ObservableObject {
         invitationsListener = db.collection("invitations")
             .whereField("coachEmail", isEqualTo: email.lowercased())
             .whereField("status", isEqualTo: "pending")
+            .whereField("expiresAt", isGreaterThan: Timestamp(date: Date()))
+            .limit(to: 50)
             .addSnapshotListener { [weak self] snapshot, error in
                 guard let self else { return }
-                if let error {
-                    print("❌ Invitations listener error: \(error)")
-                    self.listenerError = "Unable to refresh invitations."
+                if error != nil {
+                    Task { @MainActor in
+                        self.listenerError = "Unable to refresh invitations."
+                    }
                     return
                 }
-                self.listenerError = nil
                 let invitations = snapshot?.documents.compactMap { doc -> CoachInvitation? in
                     var inv = try? doc.data(as: CoachInvitation.self)
                     inv?.id = doc.documentID
                     return inv
                 } ?? []
                 Task { @MainActor in
+                    self.listenerError = nil
                     self.pendingInvitations = invitations
                     self.pendingInvitationsCount = invitations.count
                 }
@@ -682,7 +707,6 @@ class CoachInvitationManager: ObservableObject {
             pendingInvitations = invitations
             pendingInvitationsCount = invitations.count
         } catch {
-            print("❌ Error checking invitations: \(error)")
             pendingInvitationsCount = 0
             pendingInvitations = []
         }

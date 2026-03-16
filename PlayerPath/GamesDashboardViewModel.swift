@@ -37,11 +37,6 @@ final class GamesDashboardViewModel: ObservableObject {
         self.modelContext = modelContext
 
         setupNotificationObservers()
-
-        // Initial load
-        Task {
-            await refresh()
-        }
     }
 
     deinit {

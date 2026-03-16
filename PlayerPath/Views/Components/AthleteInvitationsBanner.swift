@@ -13,6 +13,7 @@ struct AthleteInvitationsBanner: View {
     @State private var pendingInvitations: [CoachToAthleteInvitation] = []
     @State private var isLoading = false
     @State private var showingInvitations = false
+    @State private var lastFetchDate: Date?
 
     var body: some View {
         Group {
@@ -50,10 +51,10 @@ struct AthleteInvitationsBanner: View {
                     }
                     .padding()
                     .background(
-                        RoundedRectangle(cornerRadius: 16)
+                        RoundedRectangle(cornerRadius: .cornerXLarge)
                             .fill(Color.green.opacity(0.08))
                             .overlay(
-                                RoundedRectangle(cornerRadius: 16)
+                                RoundedRectangle(cornerRadius: .cornerXLarge)
                                     .stroke(Color.green.opacity(0.3), lineWidth: 1)
                             )
                     )
@@ -62,7 +63,12 @@ struct AthleteInvitationsBanner: View {
             }
         }
         .task {
+            // Only re-fetch if stale (more than 60 seconds since last check)
+            if let lastFetch = lastFetchDate, Date().timeIntervalSince(lastFetch) < 60 {
+                return
+            }
             await checkForInvitations()
+            lastFetchDate = Date()
         }
         .sheet(isPresented: $showingInvitations) {
             AthleteInvitationsSheet(
@@ -85,7 +91,6 @@ struct AthleteInvitationsBanner: View {
                 isLoading = false
             }
         } catch {
-            print("Failed to fetch coach invitations: \(error)")
             await MainActor.run {
                 isLoading = false
             }
@@ -257,7 +262,7 @@ struct CoachInvitationCard: View {
                     .foregroundColor(.secondary)
                     .padding()
                     .background(Color(.systemGray6))
-                    .cornerRadius(8)
+                    .cornerRadius(.cornerMedium)
             }
 
             // Action buttons
@@ -300,7 +305,7 @@ struct CoachInvitationCard: View {
         }
         .padding()
         .background(Color(.secondarySystemBackground))
-        .cornerRadius(16)
+        .cornerRadius(.cornerXLarge)
         .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
         .listRowSeparator(.hidden)
     }

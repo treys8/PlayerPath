@@ -38,6 +38,7 @@ struct PhotoThumbnailCell: View {
                         Text(game.opponent)
                             .font(.system(size: 8))
                             .lineLimit(1)
+                            .truncationMode(.tail)
                     }
                 }
                 .foregroundColor(.white)

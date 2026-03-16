@@ -11,8 +11,9 @@ import Foundation
 
 struct HighlightsView: View {
     let athlete: Athlete?
+    let currentTier: SubscriptionTier
+    let hasCoachingAccess: Bool
     @Environment(\.modelContext) private var modelContext
-    @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @ObservedObject private var autoHighlightSettings = AutoHighlightSettings.shared
     @State private var selectedClip: VideoClip?
     @State private var showingVideoPlayer = false
@@ -40,10 +41,22 @@ struct HighlightsView: View {
         return uniqueSeasons.sorted { ($0.startDate ?? Date.distantPast) > ($1.startDate ?? Date.distantPast) }
     }
 
-    // Cached highlights — recomputed via recomputeHighlights() when inputs change
+    // Cached highlights — recomputed via recomputeAll() when inputs change
     @State private var cachedHighlights: [VideoClip] = []
+    @State private var recomputeTask: Task<Void, Never>?
 
     var highlights: [VideoClip] { cachedHighlights }
+
+    /// Single entry point that debounces and calls both recompute functions.
+    private func recomputeAll() {
+        recomputeTask?.cancel()
+        recomputeTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 100_000_000) // 100ms debounce
+            guard !Task.isCancelled else { return }
+            recomputeHighlights()
+            recomputeGroupedHighlights()
+        }
+    }
 
     private func recomputeHighlights() {
         guard let athlete = athlete, let videoClips = athlete.videoClips else {
@@ -204,15 +217,18 @@ struct HighlightsView: View {
             }
         }
         .onAppear {
-            migrateHitVideosToHighlights()
+            AnalyticsService.shared.trackScreenView(screenName: "Highlights", screenClass: "HighlightsView")
+            Task { @MainActor in
+                migrateHitVideosToHighlights()
+            }
             recomputeHighlights()
             recomputeGroupedHighlights()
         }
-        .onChange(of: athlete?.videoClips?.count) { _, _ in recomputeHighlights(); recomputeGroupedHighlights() }
-        .onChange(of: selectedSeasonFilter) { _, _ in recomputeHighlights(); recomputeGroupedHighlights() }
-        .onChange(of: filter) { _, _ in recomputeHighlights(); recomputeGroupedHighlights() }
-        .onChange(of: searchText) { _, _ in recomputeHighlights(); recomputeGroupedHighlights() }
-        .onChange(of: sortOrder) { _, _ in recomputeHighlights(); recomputeGroupedHighlights() }
+        .onChange(of: athlete?.videoClips?.count) { _, _ in recomputeAll() }
+        .onChange(of: selectedSeasonFilter) { _, _ in recomputeAll() }
+        .onChange(of: filter) { _, _ in recomputeAll() }
+        .onChange(of: searchText) { _, _ in recomputeAll() }
+        .onChange(of: sortOrder) { _, _ in recomputeAll() }
         .onChange(of: expandedGroups) { _, _ in recomputeGroupedHighlights() }
     }
 
@@ -239,10 +255,8 @@ struct HighlightsView: View {
         if migrationCount > 0 {
             do {
                 try modelContext.save()
-                print("HighlightsView: Migrated \(migrationCount) hit videos to highlights")
                 hasCompletedMigration = true
             } catch {
-                print("HighlightsView: Failed to migrate highlights: \(error)")
             }
         } else {
             // No videos to migrate, mark as complete anyway
@@ -331,7 +345,8 @@ struct HighlightsView: View {
                             } else {
                                 toggleSelection(clip)
                             }
-                        }
+                        },
+                        hasCoachingAccess: hasCoachingAccess
                     )
                     .contextMenu {
                         Button {
@@ -424,7 +439,7 @@ struct HighlightsView: View {
         }
 
         // Auto-highlight settings (Plus+ only)
-        if authManager.currentTier >= .plus {
+        if currentTier >= .plus {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     Haptics.light()
@@ -508,9 +523,12 @@ struct HighlightsView: View {
     }
     
     private func deleteHighlight(_ clip: VideoClip) {
+        Haptics.medium()
+
         // Capture references before deletion — accessing SwiftData object properties after
         // context.delete() is undefined behavior.
         let clipID = clip.id.uuidString
+        let clipGame = clip.game
         let clipAthlete = clip.athlete
 
         withAnimation {
@@ -524,14 +542,17 @@ struct HighlightsView: View {
                 // Track video deletion analytics
                 AnalyticsService.shared.trackVideoDeleted(videoID: clipID)
 
-                // Recalculate athlete statistics to reflect the removed play result
+                // Recalculate game statistics first (if clip belonged to a game),
+                // then athlete statistics which aggregate from game stats.
+                if let game = clipGame {
+                    try StatisticsService.shared.recalculateGameStatistics(for: game, context: modelContext)
+                }
                 if let athlete = clipAthlete {
                     try StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: modelContext)
                 }
 
-                print("Successfully deleted highlight")
             } catch {
-                print("Failed to delete highlight: \(error)")
+                print("[HighlightsView] Failed to save or recalculate stats after deleting clip \(clipID): \(error)")
             }
         }
     }
@@ -565,6 +586,7 @@ struct HighlightsView: View {
         // Capture references before deletion — accessing SwiftData object properties after
         // context.delete() is undefined behavior.
         let deletedIDs = clips.map { $0.id.uuidString }
+        let affectedGames = Set(clips.compactMap { $0.game })
         let clipAthlete = clips.first?.athlete
 
         withAnimation {
@@ -577,14 +599,17 @@ struct HighlightsView: View {
                 try modelContext.save()
                 deletedIDs.forEach { AnalyticsService.shared.trackVideoDeleted(videoID: $0) }
 
-                // Recalculate athlete statistics to reflect the removed play results
+                // Recalculate game statistics first for any affected games,
+                // then athlete statistics which aggregate from game stats.
+                for game in affectedGames {
+                    try StatisticsService.shared.recalculateGameStatistics(for: game, context: modelContext)
+                }
                 if let athlete = clipAthlete {
                     try StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: modelContext)
                 }
 
                 Haptics.success()
             } catch {
-                print("Failed to batch delete highlights: \(error)")
                 Haptics.error()
             }
         }
@@ -600,14 +625,12 @@ struct HighlightsView: View {
             try modelContext.save()
             Haptics.success()
         } catch {
-            print("Failed to remove clip from highlights: \(error)")
             Haptics.error()
         }
     }
 
     private func shareClip(_ clip: VideoClip) {
         guard FileManager.default.fileExists(atPath: clip.resolvedFilePath) else {
-            print("No file to share at: \(clip.resolvedFilePath)")
             return
         }
         let fileURL = clip.resolvedFileURL
@@ -633,10 +656,8 @@ struct HighlightsView: View {
 
             do {
                 try modelContext.save()
-                print("Successfully removed \(clips.count) clips from highlights")
                 Haptics.success()
             } catch {
-                print("Failed to remove from highlights: \(error)")
                 Haptics.error()
             }
         }
@@ -669,7 +690,6 @@ struct HighlightsView: View {
                     }
                 } catch {
                     failedCount += 1
-                    print("Failed to upload \(clip.fileName): \(error)")
                 }
             }
 
@@ -677,14 +697,11 @@ struct HighlightsView: View {
                 do {
                     try modelContext.save()
                     if failedCount > 0 {
-                        print("⚠️ \(failedCount) of \(clips.count) highlights failed to upload")
                         Haptics.error()
                     } else {
-                        print("Successfully uploaded \(clips.count) highlights")
                         Haptics.success()
                     }
                 } catch {
-                    print("Failed to save after uploads: \(error)")
                     Haptics.error()
                 }
 
@@ -705,7 +722,6 @@ struct HighlightsView: View {
         }
 
         guard !fileURLs.isEmpty else {
-            print("No valid files to share")
             return
         }
 
@@ -831,11 +847,8 @@ struct HighlightCard: View {
     let clip: VideoClip
     let editMode: EditMode
     let onTap: () -> Void
+    let hasCoachingAccess: Bool
     @Environment(\.modelContext) private var modelContext
-    @EnvironmentObject private var authManager: ComprehensiveAuthManager
-    @State private var thumbnailImage: UIImage?
-    @State private var isLoadingThumbnail = false
-    @State private var shimmerPhase: CGFloat = 0
     @State private var showingShareToFolder = false
 
     var body: some View {
@@ -844,117 +857,46 @@ struct HighlightCard: View {
             onTap()
         }) {
             VStack(spacing: 0) {
-                // Video thumbnail area with proper thumbnail loading
-                GeometryReader { geometry in
-                    ZStack {
-                        Group {
-                            if let thumbnail = thumbnailImage {
-                                Image(uiImage: thumbnail)
-                                    .resizable()
-                                    .scaledToFill()
-                                    .frame(width: geometry.size.width, height: geometry.size.height)
-                                    .clipped()
-                            } else {
-                                // Shimmer loading placeholder
-                                Rectangle()
-                                    .fill(
-                                        LinearGradient(
-                                            colors: playResultGradient,
-                                            startPoint: .topLeading,
-                                            endPoint: .bottomTrailing
-                                        )
-                                    )
-                                    .overlay(
-                                        shimmerOverlay
-                                            .opacity(isLoadingThumbnail ? 1 : 0)
-                                    )
-                                    .overlay(
-                                        VStack(spacing: 8) {
-                                            Image(systemName: "play.circle.fill")
-                                                .font(.system(size: 36))
-                                                .foregroundColor(.white.opacity(0.8))
-                                        }
-                                        .opacity(isLoadingThumbnail ? 0 : 1)
-                                    )
-                            }
-                        }
+                // Video thumbnail area — uses shared VideoThumbnailView for consistency with VideoClipsView
+                ZStack {
+                    VideoThumbnailView(
+                        clip: clip,
+                        size: CGSize(width: 200, height: 112),
+                        cornerRadius: 0,
+                        showPlayButton: editMode == .inactive,
+                        showPlayResult: true,
+                        showHighlight: true,
+                        showSeason: false,
+                        showContext: false,
+                        fillsContainer: true
+                    )
 
-                        // Gradient overlay for better contrast
+                    // Gradient overlay for better contrast
+                    VStack {
+                        Spacer()
                         LinearGradient(
-                            colors: [.clear, .clear, .black.opacity(0.5)],
+                            colors: [.clear, .black.opacity(0.4)],
                             startPoint: .top,
                             endPoint: .bottom
                         )
+                        .frame(height: 40)
+                    }
 
-                        // Play button overlay (only in normal mode)
-                        if editMode == .inactive && thumbnailImage != nil {
-                            Circle()
-                                .fill(.ultraThinMaterial)
-                                .frame(width: 48, height: 48)
-                                .overlay(
-                                    Image(systemName: "play.fill")
-                                        .font(.title3)
-                                        .foregroundColor(.white)
-                                        .offset(x: 2)
-                                )
-                                .shadow(color: .black.opacity(0.3), radius: 8, x: 0, y: 4)
-                        }
-
-                        // Play result badge in top-right corner
-                        VStack {
-                            HStack {
-                                Spacer()
-
-                                if let playResult = clip.playResult {
-                                    VStack(spacing: 2) {
-                                        Image(systemName: playResultIcon(for: playResult.type))
-                                            .foregroundColor(.white)
-                                            .font(.caption)
-
-                                        Text(playResultAbbreviation(for: playResult.type))
-                                            .font(.caption2)
-                                            .fontWeight(.bold)
-                                            .foregroundColor(.white)
-                                    }
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 6)
-                                    .background(playResultColor(for: playResult.type))
-                                    .cornerRadius(8)
-                                    .shadow(color: .black.opacity(0.3), radius: 4, x: 0, y: 2)
-                                    .padding(.top, 8)
-                                    .padding(.trailing, 8)
-                                }
+                    // Duration badge (bottom-left)
+                    VStack {
+                        Spacer()
+                        HStack {
+                            if let duration = clip.duration, duration > 0 {
+                                Text(formatDuration(duration))
+                                    .font(.caption2)
+                                    .fontWeight(.semibold)
+                                    .foregroundColor(.white)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 3)
+                                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 4))
+                                    .padding(8)
                             }
-
                             Spacer()
-
-                            // Bottom row: highlight star and duration
-                            HStack(alignment: .bottom) {
-                                // Highlight star
-                                Image(systemName: "star.fill")
-                                    .font(.system(size: 14))
-                                    .foregroundColor(.yellow)
-                                    .padding(6)
-                                    .background(.ultraThinMaterial, in: Circle())
-                                    .shadow(color: .black.opacity(0.2), radius: 4, x: 0, y: 2)
-                                    .padding(.bottom, 8)
-                                    .padding(.leading, 8)
-
-                                Spacer()
-
-                                // Duration badge
-                                if let duration = clip.duration, duration > 0 {
-                                    Text(formatDuration(duration))
-                                        .font(.caption2)
-                                        .fontWeight(.semibold)
-                                        .foregroundColor(.white)
-                                        .padding(.horizontal, 6)
-                                        .padding(.vertical, 3)
-                                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 4))
-                                        .padding(.bottom, 8)
-                                        .padding(.trailing, 8)
-                                }
-                            }
                         }
                     }
                 }
@@ -969,6 +911,7 @@ struct HighlightCard: View {
                             .fontWeight(.bold)
                             .foregroundColor(.primary)
                             .lineLimit(1)
+                            .truncationMode(.tail)
                     }
 
                     if let game = clip.game {
@@ -977,7 +920,8 @@ struct HighlightCard: View {
                                 .font(.caption)
                                 .foregroundColor(.blue)
                                 .lineLimit(1)
-
+                                .truncationMode(.tail)
+                            Spacer()
                             if let season = clip.season {
                                 SeasonBadge(season: season, fontSize: 8)
                             }
@@ -991,7 +935,7 @@ struct HighlightCard: View {
                             Text("Practice")
                                 .font(.caption)
                                 .foregroundColor(.green)
-
+                            Spacer()
                             if let season = clip.season {
                                 SeasonBadge(season: season, fontSize: 8)
                             }
@@ -1012,13 +956,13 @@ struct HighlightCard: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityLabel)
         .accessibilityHint(editMode == .active ? "Tap to select. Use bottom toolbar to delete." : "Tap to play the highlight.")
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: .cornerLarge, style: .continuous))
         .shadow(color: .black.opacity(0.08), radius: 12, x: 0, y: 4)
         .shadow(color: .black.opacity(0.04), radius: 2, x: 0, y: 1)
         .scaleEffect(editMode == .active ? 0.96 : 1.0)
         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: editMode)
         .contextMenu {
-            if authManager.hasCoachingAccess && editMode == .inactive {
+            if hasCoachingAccess && editMode == .inactive {
                 Button {
                     showingShareToFolder = true
                 } label: {
@@ -1026,42 +970,9 @@ struct HighlightCard: View {
                 }
             }
         }
-        .task {
-            await loadThumbnail()
-        }
-        .onAppear {
-            // Start shimmer animation only while loading
-            if isLoadingThumbnail && thumbnailImage == nil {
-                withAnimation(.linear(duration: 1.5).repeatForever(autoreverses: false)) {
-                    shimmerPhase = 1
-                }
-            }
-        }
-        .onDisappear {
-            // Stop shimmer animation when offscreen to reduce CPU usage
-            shimmerPhase = 0
-        }
         .sheet(isPresented: $showingShareToFolder) {
             ShareToCoachFolderView(clip: clip)
         }
-    }
-
-    // Shimmer loading effect
-    private var shimmerOverlay: some View {
-        GeometryReader { geometry in
-            LinearGradient(
-                colors: [
-                    .white.opacity(0),
-                    .white.opacity(0.3),
-                    .white.opacity(0)
-                ],
-                startPoint: .leading,
-                endPoint: .trailing
-            )
-            .frame(width: geometry.size.width * 0.6)
-            .offset(x: -geometry.size.width * 0.3 + geometry.size.width * 1.3 * shimmerPhase)
-        }
-        .clipped()
     }
 
     private func formatDuration(_ seconds: Double) -> String {
@@ -1069,7 +980,7 @@ struct HighlightCard: View {
         let secs = Int(seconds) % 60
         return String(format: "%d:%02d", mins, secs)
     }
-    
+
     private var accessibilityLabel: String {
         var parts: [String] = []
         if let pr = clip.playResult { parts.append(pr.type.displayName) }
@@ -1078,165 +989,6 @@ struct HighlightCard: View {
         let dateText = DateFormatter.pp_shortDate.string(from: (clip.createdAt ?? Date()))
         parts.append(dateText)
         return parts.joined(separator: ", ")
-    }
-    
-    @MainActor
-    private func loadThumbnail() async {
-        // Skip if already loading or already have image
-        guard !isLoadingThumbnail, thumbnailImage == nil else { return }
-        
-        // Check if we have a thumbnail path
-        guard let thumbnailPath = clip.thumbnailPath else {
-            // Generate thumbnail if none exists
-            await generateMissingThumbnail()
-            return
-        }
-        
-        isLoadingThumbnail = true
-        
-        do {
-            // Load thumbnail asynchronously using the same cache system
-            let size = CGSize(width: 160, height: 90)
-            let image = try await ThumbnailCache.shared.loadThumbnail(at: thumbnailPath, targetSize: size)
-            thumbnailImage = image
-        } catch {
-            print("Failed to load thumbnail in HighlightCard: \(error)")
-            // Try to regenerate thumbnail
-            await generateMissingThumbnail()
-        }
-        
-        isLoadingThumbnail = false
-    }
-    
-    private func generateMissingThumbnail() async {
-        print("Generating missing thumbnail for highlight: \(clip.fileName)")
-
-        let videoURL = clip.resolvedFileURL
-        let result = await VideoFileManager.generateThumbnail(from: videoURL)
-
-        await MainActor.run {
-            switch result {
-            case .success(let thumbnailPath):
-                clip.thumbnailPath = thumbnailPath
-                try? modelContext.save()
-                // Load directly from the just-generated path rather than calling
-                // loadThumbnail() again — avoids infinite recursion if the cache
-                // load fails and triggers another generateMissingThumbnail() call.
-                Task { @MainActor in
-                    let size = CGSize(width: 160, height: 90)
-                    if let image = try? await ThumbnailCache.shared.loadThumbnail(at: thumbnailPath, targetSize: size) {
-                        self.thumbnailImage = image
-                    }
-                    self.isLoadingThumbnail = false
-                }
-            case .failure(let error):
-                print("Failed to generate thumbnail in HighlightCard: \(error)")
-                isLoadingThumbnail = false
-            }
-        }
-    }
-    
-    private var playResultGradient: [Color] {
-        guard let playResult = clip.playResult else { return [.gray, .gray.opacity(0.7)] }
-        
-        switch playResult.type {
-        case .single:
-            return [.green, .green.opacity(0.7)]
-        case .double:
-            return [.blue, .blue.opacity(0.7)]
-        case .triple:
-            return [.orange, .orange.opacity(0.7)]
-        case .homeRun:
-            return [.red, .red.opacity(0.7)]
-        default:
-            return [.gray, .gray.opacity(0.7)]
-        }
-    }
-    
-    // Helper functions for play result styling
-    private func playResultIcon(for type: PlayResultType) -> String {
-        switch type {
-        case .single:
-            return "1.circle.fill"
-        case .double:
-            return "2.circle.fill"
-        case .triple:
-            return "3.circle.fill"
-        case .homeRun:
-            return "4.circle.fill"
-        case .walk:
-            return "figure.walk"
-        case .strikeout:
-            return "k.circle.fill"
-        case .groundOut:
-            return "arrow.down.circle.fill"
-        case .flyOut:
-            return "arrow.up.circle.fill"
-        case .ball:
-            return "circle"
-        case .strike:
-            return "xmark.circle.fill"
-        case .hitByPitch:
-            return "figure.fall"
-        case .wildPitch:
-            return "arrow.up.right.and.arrow.down.left"
-        }
-    }
-
-    private func playResultAbbreviation(for type: PlayResultType) -> String {
-        switch type {
-        case .single:
-            return "1B"
-        case .double:
-            return "2B"
-        case .triple:
-            return "3B"
-        case .homeRun:
-            return "HR"
-        case .walk:
-            return "BB"
-        case .strikeout:
-            return "K"
-        case .groundOut:
-            return "GO"
-        case .flyOut:
-            return "FO"
-        case .ball:
-            return "B"
-        case .strike:
-            return "S"
-        case .hitByPitch:
-            return "HBP"
-        case .wildPitch:
-            return "WP"
-        }
-    }
-
-    private func playResultColor(for type: PlayResultType) -> Color {
-        switch type {
-        case .single:
-            return .green
-        case .double:
-            return .blue
-        case .triple:
-            return .orange
-        case .homeRun:
-            return .red
-        case .walk:
-            return .cyan
-        case .strikeout:
-            return .red.opacity(0.8)
-        case .groundOut, .flyOut:
-            return .gray
-        case .ball:
-            return .orange
-        case .strike:
-            return .green
-        case .hitByPitch:
-            return .purple
-        case .wildPitch:
-            return .red
-        }
     }
 }
 
@@ -1296,7 +1048,7 @@ struct SimpleCloudProgressView: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
         .background(Color(.systemGray6))
-        .cornerRadius(8)
+        .cornerRadius(.cornerMedium)
     }
 
     private func uploadVideo() async {
@@ -1325,10 +1077,8 @@ struct SimpleCloudProgressView: View {
 
                 do {
                     try modelContext.save()
-                    print("✅ Successfully uploaded and saved clip: \(clip.fileName)")
                 } catch {
                     uploadError = "Failed to save: \(error.localizedDescription)"
-                    print("🔴 Error saving clip after upload: \(error)")
                 }
 
                 isUploading = false
@@ -1337,7 +1087,6 @@ struct SimpleCloudProgressView: View {
             await MainActor.run {
                 uploadError = error.localizedDescription
                 isUploading = false
-                print("🔴 Upload failed: \(error)")
             }
         }
     }
@@ -1378,7 +1127,6 @@ struct SimpleCloudProgressView: View {
         }
     }
 }
-
 
 
 // MARK: - Simple Cloud Storage View
@@ -1502,7 +1250,6 @@ struct SimpleCloudStorageView: View {
     private func uploadClip(_ clip: VideoClip) async {
         guard let athlete = clip.athlete else {
             uploadErrors[clip.id] = "No athlete associated with clip"
-            print("🔴 Cannot upload clip: no athlete")
             return
         }
 
@@ -1524,10 +1271,8 @@ struct SimpleCloudStorageView: View {
 
                 do {
                     try modelContext.save()
-                    print("✅ Successfully uploaded clip: \(clip.fileName)")
                 } catch {
                     uploadErrors[clip.id] = "Failed to save: \(error.localizedDescription)"
-                    print("🔴 Error saving clip after upload: \(error)")
                 }
 
                 uploadingClips.remove(clip.id)
@@ -1536,7 +1281,6 @@ struct SimpleCloudStorageView: View {
             await MainActor.run {
                 uploadErrors[clip.id] = error.localizedDescription
                 uploadingClips.remove(clip.id)
-                print("🔴 Upload failed for \(clip.fileName): \(error)")
             }
         }
     }
@@ -1575,7 +1319,6 @@ struct SimpleCloudStorageView: View {
 
         await MainActor.run {
             isBulkUploading = false
-            print("✅ Bulk upload completed")
         }
     }
 }
@@ -1630,6 +1373,7 @@ struct GameHighlightSection: View {
     let onDeleteClip: (VideoClip) -> Void
     let onRemoveFromHighlights: (VideoClip) -> Void
     let onShareClip: (VideoClip) -> Void
+    let hasCoachingAccess: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -1670,7 +1414,7 @@ struct GameHighlightSection: View {
                     }
                     .padding()
                     .background(Color(.secondarySystemBackground))
-                    .cornerRadius(12)
+                    .cornerRadius(.cornerLarge)
                 }
                 .buttonStyle(.plain)
             }
@@ -1711,7 +1455,8 @@ struct GameHighlightSection: View {
             HighlightCard(
                 clip: clip,
                 editMode: editMode,
-                onTap: onTap
+                onTap: onTap,
+                hasCoachingAccess: hasCoachingAccess
             )
             .contextMenu {
                 Button {
@@ -1838,6 +1583,5 @@ struct AutoHighlightSettingsView: View {
 }
 
 #Preview {
-    HighlightsView(athlete: nil)
-        .environmentObject(ComprehensiveAuthManager())
+    HighlightsView(athlete: nil, currentTier: .free, hasCoachingAccess: false)
 }

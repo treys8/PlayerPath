@@ -32,7 +32,7 @@ struct DashboardVideoThumbnail: View {
                 .symbolEffect(.bounce, options: .speed(0.5))
         }
         .aspectRatio(16/9, contentMode: .fit)
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .clipShape(RoundedRectangle(cornerRadius: .cornerLarge))
         .task { await load() }
     }
 

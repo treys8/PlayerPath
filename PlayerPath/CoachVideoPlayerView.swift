@@ -21,6 +21,7 @@ struct CoachVideoPlayerView: View {
     @State private var selectedTab: VideoTab = .notes
     @State private var showingSpeedPicker = false
     @Environment(\.verticalSizeClass) private var vSizeClass
+    @Environment(\.scenePhase) private var scenePhase
     private var isLandscape: Bool { vSizeClass == .compact }
     
     init(folder: SharedFolder, video: CoachVideoItem) {
@@ -93,7 +94,20 @@ struct CoachVideoPlayerView: View {
         }
         .task {
             await viewModel.loadVideo()
-            await viewModel.loadAnnotations()
+            if viewModel.annotations.isEmpty {
+                await viewModel.loadAnnotations()
+            }
+        }
+        .onChange(of: scenePhase) { oldPhase, newPhase in
+            if newPhase != .active {
+                viewModel.shouldResumeOnActive = (viewModel.player?.rate ?? 0) > 0
+                viewModel.player?.pause()
+            } else if newPhase == .active, oldPhase != .active {
+                if viewModel.shouldResumeOnActive {
+                    viewModel.player?.play()
+                }
+                viewModel.shouldResumeOnActive = false
+            }
         }
     }
     
@@ -602,7 +616,9 @@ class CoachVideoPlayerViewModel: ObservableObject {
     @Published var isLoadingAnnotations = false
     @Published var errorMessage: String?
     @Published var playbackRate: Double = 1.0
-    
+    var shouldResumeOnActive = false
+    private var durationTask: Task<Void, Never>?
+
     var currentPlaybackTime: Double {
         player?.currentTime().seconds ?? 0.0
     }
@@ -611,7 +627,11 @@ class CoachVideoPlayerViewModel: ObservableObject {
         self.video = video
         self.folder = folder
     }
-    
+
+    deinit {
+        statusObservation = nil
+    }
+
     private var statusObservation: NSKeyValueObservation?
 
     func loadVideo() async {
@@ -639,6 +659,7 @@ class CoachVideoPlayerViewModel: ObservableObject {
 
         // Observe the player item's status so we don't hide the loading
         // indicator until the player has actually buffered enough to play.
+        statusObservation = nil  // Remove old KVO before setting up new one
         statusObservation = newPlayer.currentItem?.observe(\.status, options: [.new]) { [weak self] item, _ in
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -670,7 +691,6 @@ class CoachVideoPlayerViewModel: ObservableObject {
             
         } catch {
             errorMessage = "Failed to load notes: \(error.localizedDescription)"
-            print("❌ Failed to load annotations: \(error)")
         }
         
         isLoadingAnnotations = false
@@ -728,7 +748,6 @@ class CoachVideoPlayerViewModel: ObservableObject {
 
         } catch {
             errorMessage = "Failed to add note: \(error.localizedDescription)"
-            print("❌ Failed to add annotation: \(error)")
             Haptics.error()
         }
     }
@@ -746,7 +765,6 @@ class CoachVideoPlayerViewModel: ObservableObject {
 
         } catch {
             errorMessage = "Failed to delete note: \(error.localizedDescription)"
-            print("❌ Failed to delete annotation: \(error)")
             Haptics.error()
         }
     }
@@ -759,23 +777,23 @@ class CoachVideoPlayerViewModel: ObservableObject {
     func startTimeObserver() {
         guard let player = player else { return }
 
-        // Observe duration
+        // Observe duration (cancel any previous task to prevent accumulation)
+        durationTask?.cancel()
         if let currentItem = player.currentItem {
-            Task {
+            durationTask = Task {
                 do {
                     let duration = try await currentItem.asset.load(.duration)
-                    await MainActor.run {
+                    if !Task.isCancelled {
                         self.videoDuration = duration.seconds
                     }
                 } catch {
-                    print("Failed to load video duration: \(error)")
                 }
             }
         }
 
         // Observe current time — reapply playback rate whenever the player starts playing,
         // since VideoPlayer's native controls reset rate to 1.0 on play.
-        let interval = CMTime(seconds: 0.25, preferredTimescale: 600)
+        let interval = CMTime(seconds: 1.0, preferredTimescale: 600)
         timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] _ in
             guard let self else { return }
             MainActor.assumeIsolated {
@@ -788,6 +806,8 @@ class CoachVideoPlayerViewModel: ObservableObject {
     }
 
     func stopTimeObserver() {
+        durationTask?.cancel()
+        durationTask = nil
         if let observer = timeObserver {
             player?.removeTimeObserver(observer)
             timeObserver = nil

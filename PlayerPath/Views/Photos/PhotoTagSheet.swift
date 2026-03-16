@@ -13,15 +13,26 @@ struct PhotoTagSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
 
-    @Query(sort: \Game.date, order: .reverse) private var allGames: [Game]
-    @Query(sort: \Practice.date, order: .reverse) private var allPractices: [Practice]
+    // Query games and practices for the photo's athlete only
+    @Query private var games: [Game]
+    @Query private var practices: [Practice]
 
-    private var games: [Game] {
-        allGames.filter { $0.athlete?.id == photo.athlete?.id }
-    }
-
-    private var practices: [Practice] {
-        allPractices.filter { $0.athlete?.id == photo.athlete?.id }
+    init(photo: Photo) {
+        self.photo = photo
+        let id = photo.athlete?.id
+        if let id {
+            self._games = Query(
+                filter: #Predicate<Game> { $0.athlete?.id == id },
+                sort: [SortDescriptor(\Game.date, order: .reverse)]
+            )
+            self._practices = Query(
+                filter: #Predicate<Practice> { $0.athlete?.id == id },
+                sort: [SortDescriptor(\Practice.date, order: .reverse)]
+            )
+        } else {
+            self._games = Query(sort: [SortDescriptor(\Game.date, order: .reverse)])
+            self._practices = Query(sort: [SortDescriptor(\Practice.date, order: .reverse)])
+        }
     }
 
     var body: some View {

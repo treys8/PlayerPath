@@ -27,6 +27,7 @@ struct SeasonsView: View {
             }
             .padding(.vertical)
         }
+        .onAppear { AnalyticsService.shared.trackScreenView(screenName: "Seasons", screenClass: "SeasonsView") }
         .navigationTitle("Seasons")
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
@@ -77,11 +78,11 @@ struct SeasonsView: View {
             }
             .padding()
             .background(
-                RoundedRectangle(cornerRadius: 16)
+                RoundedRectangle(cornerRadius: .cornerXLarge)
                     .fill(.orange.opacity(0.1))
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 16)
+                RoundedRectangle(cornerRadius: .cornerXLarge)
                     .stroke(.orange.opacity(0.3), lineWidth: 1.5)
             )
             .padding(.horizontal)
@@ -134,15 +135,15 @@ struct SeasonsView: View {
             }
             .padding()
             .background(
-                RoundedRectangle(cornerRadius: 16)
+                RoundedRectangle(cornerRadius: .cornerXLarge)
                     .fill(.blue.opacity(0.1))
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 16)
+                RoundedRectangle(cornerRadius: .cornerXLarge)
                     .stroke(.blue.opacity(0.3), lineWidth: 1.5)
             )
             .padding(.horizontal)
-            .contentShape(RoundedRectangle(cornerRadius: 16))
+            .contentShape(RoundedRectangle(cornerRadius: .cornerXLarge))
             .onTapGesture { selectedSeason = activeSeason }
             .accessibilityAddTraits(.isButton)
             .accessibilityLabel("Active Season: \(activeSeason.displayName)")
@@ -242,11 +243,11 @@ struct SeasonRow: View {
         }
         .padding()
         .background(
-            RoundedRectangle(cornerRadius: 12)
+            RoundedRectangle(cornerRadius: .cornerLarge)
                 .fill(Color(.systemBackground))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 12)
+            RoundedRectangle(cornerRadius: .cornerLarge)
                 .stroke(Color(.systemGray5), lineWidth: 1)
         )
         .padding(.horizontal)

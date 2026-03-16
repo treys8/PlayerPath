@@ -26,10 +26,8 @@ final class GameAlertService {
         let settings = await center.notificationSettings()
         guard settings.authorizationStatus == .notDetermined else { return }
         do {
-            let granted = try await center.requestAuthorization(options: [.alert, .sound])
-            print("GameAlertService: notification authorization granted: \(granted)")
+            _ = try await center.requestAuthorization(options: [.alert, .sound])
         } catch {
-            print("⚠️ GameAlertService: notification authorization error — \(error)")
         }
     }
 
@@ -47,7 +45,6 @@ final class GameAlertService {
         // Check if a reminder is already pending for this game
         let pending = await center.pendingNotificationRequests()
         guard !pending.contains(where: { $0.identifier == notifID }) else {
-            print("GameAlertService: reminder already pending for game \(gameID)")
             return
         }
 
@@ -75,7 +72,6 @@ final class GameAlertService {
         do {
             try await center.add(request)
         } catch {
-            print("⚠️ GameAlertService: failed to schedule reminder — \(error)")
         }
     }
 

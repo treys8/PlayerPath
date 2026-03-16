@@ -31,6 +31,7 @@ struct DashboardPremiumFeatureCard: View {
                         .foregroundColor(.primary)
                         .multilineTextAlignment(.center)
                         .lineLimit(1)
+                        .truncationMode(.tail)
                         .minimumScaleFactor(0.9)
 
                     Text(subtitle)
@@ -56,11 +57,7 @@ struct DashboardPremiumFeatureCard: View {
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
                     .background(
-                        LinearGradient(
-                            colors: [.yellow, .orange],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
+                        LinearGradient.premiumAccent
                     )
                     .clipShape(Capsule())
                     .shadow(color: .orange.opacity(0.4), radius: 4, x: 0, y: 2)
@@ -71,7 +68,7 @@ struct DashboardPremiumFeatureCard: View {
         .appCard()
         .overlay {
             if !isPremium {
-                RoundedRectangle(cornerRadius: 16)
+                RoundedRectangle(cornerRadius: .cornerXLarge)
                     .stroke(
                         LinearGradient(
                             colors: [.yellow.opacity(0.5), .orange.opacity(0.5)],

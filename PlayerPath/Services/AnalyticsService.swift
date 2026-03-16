@@ -14,6 +14,7 @@ import FirebaseCrashlytics
 @MainActor
 final class AnalyticsService {
     static let shared = AnalyticsService()
+    private static let iso8601Formatter = ISO8601DateFormatter()
 
     private init() {
         configureAnalytics()
@@ -29,7 +30,6 @@ final class AnalyticsService {
         // Set user properties for segmentation
         setDefaultUserProperties()
 
-        print("📊 Analytics configured and enabled")
     }
 
     /// Updates analytics and crash-reporting collection to match the user's preference.
@@ -37,7 +37,6 @@ final class AnalyticsService {
     func setCollection(enabled: Bool) {
         Analytics.setAnalyticsCollectionEnabled(enabled)
         Crashlytics.crashlytics().setCrashlyticsCollectionEnabled(enabled)
-        print("📊 Analytics collection \(enabled ? "enabled" : "disabled")")
     }
 
     private func setDefaultUserProperties() {
@@ -338,7 +337,7 @@ final class AnalyticsService {
         var params = parameters ?? [:]
 
         // Add timestamp to all events
-        params["timestamp"] = ISO8601DateFormatter().string(from: Date())
+        params["timestamp"] = Self.iso8601Formatter.string(from: Date())
 
         // Log to Firebase Analytics
         Analytics.logEvent(event.rawValue, parameters: params)

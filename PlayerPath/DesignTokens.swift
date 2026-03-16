@@ -39,24 +39,24 @@ extension CGFloat {
 // MARK: - Typography
 
 extension Font {
-    /// Display fonts
-    static let displayLarge = Font.system(size: 34, weight: .bold)
-    static let displayMedium = Font.system(size: 28, weight: .bold)
-    
+    /// Display fonts (use text styles for Dynamic Type support)
+    static let displayLarge = Font.system(.largeTitle, weight: .bold)
+    static let displayMedium = Font.system(.title, weight: .bold)
+
     /// Heading fonts
-    static let headingLarge = Font.system(size: 22, weight: .semibold)
-    static let headingMedium = Font.system(size: 18, weight: .semibold)
-    static let headingSmall = Font.system(size: 16, weight: .semibold)
-    
+    static let headingLarge = Font.system(.title2, weight: .semibold)
+    static let headingMedium = Font.system(.headline, weight: .semibold)
+    static let headingSmall = Font.system(.subheadline, weight: .semibold)
+
     /// Body fonts
-    static let bodyLarge = Font.system(size: 17, weight: .regular)
-    static let bodyMedium = Font.system(size: 15, weight: .regular)
-    static let bodySmall = Font.system(size: 13, weight: .regular)
-    
+    static let bodyLarge = Font.system(.body, weight: .regular)
+    static let bodyMedium = Font.system(.callout, weight: .regular)
+    static let bodySmall = Font.system(.footnote, weight: .regular)
+
     /// Label fonts
-    static let labelLarge = Font.system(size: 15, weight: .medium)
-    static let labelMedium = Font.system(size: 13, weight: .medium)
-    static let labelSmall = Font.system(size: 11, weight: .medium)
+    static let labelLarge = Font.system(.callout, weight: .medium)
+    static let labelMedium = Font.system(.footnote, weight: .medium)
+    static let labelSmall = Font.system(.caption2, weight: .medium)
 }
 
 // MARK: - Colors (Semantic)
@@ -87,6 +87,52 @@ extension Color {
     /// Text colors
     static let textPrimary = Color.primary
     static let textSecondary = Color.secondary
+}
+
+// MARK: - Gradients
+
+extension LinearGradient {
+    /// Primary button gradient (blue CTA buttons)
+    static let primaryButton = LinearGradient(
+        colors: [.blue, .blue.opacity(0.85)],
+        startPoint: .topLeading, endPoint: .bottomTrailing
+    )
+
+    /// Coach/green button gradient
+    static let coachButton = LinearGradient(
+        colors: [.green, .green.opacity(0.8)],
+        startPoint: .leading, endPoint: .trailing
+    )
+
+    /// Premium/purple button gradient
+    static let premiumButton = LinearGradient(
+        colors: [.purple, .purple.opacity(0.8)],
+        startPoint: .leading, endPoint: .trailing
+    )
+
+    /// Premium accent gradient (yellow-orange)
+    static let premiumAccent = LinearGradient(
+        colors: [.yellow, .orange],
+        startPoint: .topLeading, endPoint: .bottomTrailing
+    )
+
+    /// Glass panel border highlight
+    static let glassBorder = LinearGradient(
+        colors: [.white.opacity(0.3), .white.opacity(0.1)],
+        startPoint: .topLeading, endPoint: .bottomTrailing
+    )
+
+    /// Glass panel top shine effect
+    static let glassShine = LinearGradient(
+        colors: [.white.opacity(0.15), .clear],
+        startPoint: .top, endPoint: .center
+    )
+
+    /// Dark glass panel background overlay
+    static let glassDark = LinearGradient(
+        colors: [Color.black.opacity(0.2), Color.black.opacity(0.4)],
+        startPoint: .top, endPoint: .bottom
+    )
 }
 
 // MARK: - Shadow

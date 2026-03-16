@@ -16,6 +16,7 @@ struct DataExportView: View {
     @State private var isExporting = false
     @State private var exportedData: String?
     @State private var showShareSheet = false
+    @State private var exportFileURL: URL?
     @State private var showError = false
     @State private var errorMessage = ""
 
@@ -76,8 +77,8 @@ struct DataExportView: View {
         }
         .navigationTitle("Export Data")
         .sheet(isPresented: $showShareSheet) {
-            if let data = exportedData {
-                ShareSheet(items: [createExportFile(data: data)])
+            if let url = exportFileURL {
+                ShareSheet(items: [url])
             }
         }
         .alert("Export Failed", isPresented: $showError) {
@@ -101,7 +102,13 @@ struct DataExportView: View {
 
             let exportDict = try await gatherAllData()
             let jsonData = try JSONSerialization.data(withJSONObject: exportDict, options: .prettyPrinted)
-            exportedData = String(data: jsonData, encoding: .utf8)
+            let dataString = String(data: jsonData, encoding: .utf8)
+            exportedData = dataString
+
+            // Write file off main thread (we're already in async context)
+            if let dataString {
+                exportFileURL = createExportFile(data: dataString)
+            }
 
             // Track export completion
             AnalyticsService.shared.trackDataExportCompleted(fileSize: jsonData.count)
@@ -262,7 +269,6 @@ struct DataExportView: View {
             try data.write(to: tempURL, atomically: true, encoding: .utf8)
             return tempURL
         } catch {
-            print("❌ Failed to write export file: \(error)")
             return tempURL
         }
     }

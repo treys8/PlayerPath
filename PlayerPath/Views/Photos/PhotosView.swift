@@ -14,54 +14,23 @@ struct PhotosView: View {
     let athlete: Athlete
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
-    @Query(sort: \Photo.createdAt, order: .reverse) private var allPhotos: [Photo]
+    // Query photos for the current athlete only
+    private let athleteID: UUID
+    @Query private var allPhotos: [Photo]
 
-    private var photos: [Photo] {
-        let athleteID = athlete.id
-        var filtered = allPhotos.filter { $0.athlete?.id == athleteID }
-
-        // Content type filter
-        switch activeFilter {
-        case .all:
-            break
-        case .games:
-            filtered = filtered.filter { $0.game != nil }
-        case .practice:
-            filtered = filtered.filter { $0.practice != nil }
-        }
-
-        // Season filter
-        if let seasonFilter = selectedSeasonFilter {
-            filtered = filtered.filter { photo in
-                if seasonFilter == "no_season" {
-                    return photo.season == nil
-                } else {
-                    return photo.season?.id.uuidString == seasonFilter
-                }
-            }
-        }
-
-        // Date range filter
-        if selectedDateRange != .allTime {
-            let range = selectedDateRange.dateRange
-            filtered = filtered.filter { photo in
-                guard let date = photo.createdAt else { return false }
-                return date >= range.start && date <= range.end
-            }
-        }
-
-        // Text search
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if !query.isEmpty {
-            filtered = filtered.filter { photo in
-                (photo.game?.opponent.lowercased().contains(query) ?? false) ||
-                (photo.caption?.lowercased().contains(query) ?? false)
-            }
-        }
-
-        return filtered
+    init(athlete: Athlete) {
+        self.athlete = athlete
+        let id = athlete.id
+        self.athleteID = id
+        self._allPhotos = Query(
+            filter: #Predicate<Photo> { $0.athlete?.id == id },
+            sort: [SortDescriptor(\Photo.createdAt, order: .reverse)]
+        )
     }
+
+    @State private var cachedPhotos: [Photo] = []
 
     // State
     @State private var activeFilter: PhotoFilter = .all
@@ -79,11 +48,10 @@ struct PhotosView: View {
         selectedDateRange != .allTime || selectedSeasonFilter != nil
     }
 
-    private let columns = [
-        GridItem(.flexible(), spacing: 2),
-        GridItem(.flexible(), spacing: 2),
-        GridItem(.flexible(), spacing: 2)
-    ]
+    private var columns: [GridItem] {
+        let count = horizontalSizeClass == .regular ? 5 : 3
+        return Array(repeating: GridItem(.flexible(), spacing: 2), count: count)
+    }
 
     enum PhotoFilter: String, CaseIterable {
         case all = "All"
@@ -96,13 +64,20 @@ struct PhotosView: View {
             // Filter chips
             filterBar
 
-            if photos.isEmpty {
+            if cachedPhotos.isEmpty {
                 emptyState
             } else {
                 photosGrid
             }
         }
         .searchable(text: $searchText, prompt: "Search photos")
+        .onAppear { AnalyticsService.shared.trackScreenView(screenName: "Photos", screenClass: "PhotosView") }
+        .task { updatePhotosCache() }
+        .onChange(of: activeFilter) { _, _ in updatePhotosCache() }
+        .onChange(of: selectedSeasonFilter) { _, _ in updatePhotosCache() }
+        .onChange(of: selectedDateRange) { _, _ in updatePhotosCache() }
+        .onChange(of: searchText) { _, _ in updatePhotosCache() }
+        .onChange(of: allPhotos) { _, _ in updatePhotosCache() }
         .navigationTitle("Photos")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -204,7 +179,7 @@ struct PhotosView: View {
     private var photosGrid: some View {
         ScrollView {
             LazyVGrid(columns: columns, spacing: 2) {
-                ForEach(photos) { photo in
+                ForEach(cachedPhotos) { photo in
                     NavigationLink {
                         PhotoDetailView(photo: photo) {
                             deletePhoto(photo)
@@ -282,6 +257,53 @@ struct PhotosView: View {
         }
     }
 
+    // MARK: - Cache
+
+    private func updatePhotosCache() {
+        var filtered = Array(allPhotos)
+
+        // Content type filter
+        switch activeFilter {
+        case .all:
+            break
+        case .games:
+            filtered = filtered.filter { $0.game != nil }
+        case .practice:
+            filtered = filtered.filter { $0.practice != nil }
+        }
+
+        // Season filter
+        if let seasonFilter = selectedSeasonFilter {
+            filtered = filtered.filter { photo in
+                if seasonFilter == "no_season" {
+                    return photo.season == nil
+                } else {
+                    return photo.season?.id.uuidString == seasonFilter
+                }
+            }
+        }
+
+        // Date range filter
+        if selectedDateRange != .allTime {
+            let range = selectedDateRange.dateRange
+            filtered = filtered.filter { photo in
+                guard let date = photo.createdAt else { return false }
+                return date >= range.start && date <= range.end
+            }
+        }
+
+        // Text search
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if !query.isEmpty {
+            filtered = filtered.filter { photo in
+                (photo.game?.opponent.lowercased().contains(query) ?? false) ||
+                (photo.caption?.lowercased().contains(query) ?? false)
+            }
+        }
+
+        cachedPhotos = filtered
+    }
+
     // MARK: - Actions
 
     private func savePhoto(_ image: UIImage) {
@@ -294,7 +316,6 @@ struct PhotosView: View {
                 )
                 Haptics.success()
             } catch {
-                print("PhotosView: Failed to save photo: \(error)")
                 Haptics.error()
             }
         }
@@ -323,7 +344,6 @@ struct PhotosView: View {
                     savedCount += 1
                 } catch {
                     failedCount += 1
-                    print("PhotosView: Failed to import photo: \(error)")
                 }
             }
             if failedCount > 0 && savedCount == 0 {
@@ -335,7 +355,9 @@ struct PhotosView: View {
     }
 
     private func deletePhoto(_ photo: Photo) {
-        PhotoPersistenceService().deletePhoto(photo, context: modelContext)
-        Haptics.light()
+        Task {
+            PhotoPersistenceService().deletePhoto(photo, context: modelContext)
+            Haptics.light()
+        }
     }
 }

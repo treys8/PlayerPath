@@ -21,6 +21,7 @@ struct ValidationResult {
 }
 
 // MARK: - Form Validator
+@MainActor
 final class FormValidator: ObservableObject {
     static let shared = FormValidator()
 

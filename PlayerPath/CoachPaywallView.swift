@@ -289,14 +289,12 @@ struct CoachPaywallView: View {
             if let price = forAnnual ? annual : monthly {
                 Text(price)
                     .font(.caption).fontWeight(.semibold)
+                Text(forAnnual ? "per year" : "per month")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.secondary)
             } else {
                 ProgressView()
                     .controlSize(.mini)
-            }
-            if forAnnual, annual != nil {
-                Text("billed yearly")
-                    .font(.system(size: 9))
-                    .foregroundStyle(.secondary)
             }
         }
     }
@@ -316,7 +314,7 @@ struct CoachPaywallView: View {
                         .font(.headline).fontWeight(.semibold)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 16)
-                        .background(LinearGradient(colors: [.purple, .purple.opacity(0.8)], startPoint: .leading, endPoint: .trailing))
+                        .background(LinearGradient.premiumButton)
                         .foregroundStyle(.white)
                         .cornerRadius(14)
                         .shadow(color: Color.purple.opacity(0.3), radius: 8, x: 0, y: 4)
@@ -335,6 +333,8 @@ struct CoachPaywallView: View {
                 .buttonStyle(.plain)
             } else {
                 Button {
+                    guard !isPurchasing else { return }
+                    isPurchasing = true
                     Task { await purchaseSelected() }
                 } label: {
                     HStack(spacing: 8) {
@@ -344,7 +344,7 @@ struct CoachPaywallView: View {
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 16)
-                    .background(LinearGradient(colors: [.green, .green.opacity(0.8)], startPoint: .leading, endPoint: .trailing))
+                    .background(LinearGradient.coachButton)
                     .foregroundStyle(.white)
                     .cornerRadius(14)
                     .shadow(color: Color.green.opacity(0.3), radius: 8, x: 0, y: 4)
@@ -368,11 +368,11 @@ struct CoachPaywallView: View {
 
     private var restoreButton: some View {
         Button {
+            guard !isPurchasing else { return }
+            isPurchasing = true
             Task {
-                isPurchasing = true
                 await storeManager.restorePurchases()
                 isPurchasing = false
-                // error alert is driven by storeManager.error binding
             }
         } label: {
             Text("Restore Purchase")
@@ -384,7 +384,7 @@ struct CoachPaywallView: View {
 
     private var termsSection: some View {
         VStack(spacing: 6) {
-            Text("Cancel anytime. Auto-renews until cancelled.")
+            Text("Subscription automatically renews unless cancelled at least 24 hours before the end of the current period. Manage or cancel anytime in Settings > Subscriptions.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             HStack(spacing: 16) {

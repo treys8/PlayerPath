@@ -62,10 +62,9 @@ final class ComprehensiveAuthManager: ObservableObject {
 
     /// True when the athlete tier was manually granted via Firestore (not StoreKit).
     /// Used to prevent syncSubscriptionTiers from overwriting the comped value.
-    /// Persisted to UserDefaults so it survives app restarts.
-    private(set) var hasAthleteTierOverride: Bool = false {
-        didSet { UserDefaults.standard.set(hasAthleteTierOverride, forKey: AuthConstants.UserDefaultsKeys.hasAthleteTierOverride) }
-    }
+    /// NOT persisted to UserDefaults (security: tamper-resistant). Re-derived from
+    /// Firestore profile on every app launch via loadUserProfile().
+    private(set) var hasAthleteTierOverride: Bool = false
 
     /// Bridge for legacy call sites — true when user has Plus or Pro
     var isPremiumUser: Bool { currentTier >= .plus }
@@ -106,9 +105,9 @@ final class ComprehensiveAuthManager: ObservableObject {
         // Restore persisted onboarding completion from UserDefaults
         hasCompletedOnboarding = UserDefaults.standard.bool(forKey: AuthConstants.UserDefaultsKeys.hasCompletedOnboarding)
         isNewUser = UserDefaults.standard.bool(forKey: "isNewUser")
-        // Restore comped tier override flag BEFORE Combine sinks fire, so a StoreKit
-        // .free resolution doesn't overwrite a Firestore-granted comp on cold launch.
-        hasAthleteTierOverride = UserDefaults.standard.bool(forKey: AuthConstants.UserDefaultsKeys.hasAthleteTierOverride)
+        // hasAthleteTierOverride is NOT restored from UserDefaults (security).
+        // It will be re-derived from Firestore profile in loadUserProfile().
+        // On cold launch, StoreKit tier applies until Firestore loads.
         #if DEBUG
         if hasCompletedOnboarding {
             print("💾 Restored hasCompletedOnboarding from UserDefaults: true")
@@ -116,9 +115,7 @@ final class ComprehensiveAuthManager: ObservableObject {
         if isNewUser {
             print("💾 Restored isNewUser from UserDefaults: true")
         }
-        if hasAthleteTierOverride {
-            print("💾 Restored hasAthleteTierOverride from UserDefaults: true")
-        }
+        // hasAthleteTierOverride is no longer persisted — derived from Firestore on load
         #endif
 
         // Keep athlete tier in sync with StoreKitManager.

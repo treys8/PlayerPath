@@ -16,6 +16,7 @@ struct ClipCommentSection: View {
     @State private var comments: [ClipComment] = []
     @State private var isLoading = false
     @State private var loadError: String?
+    @State private var lastFetchDate: Date?
 
     var coachComments: [ClipComment] {
         comments.filter { $0.isCoachComment }
@@ -56,7 +57,14 @@ struct ClipCommentSection: View {
             }
         }
         .task {
+            // Skip if comments already loaded and fetched within the last 30 seconds
+            if !comments.isEmpty,
+               let lastFetch = lastFetchDate,
+               Date().timeIntervalSince(lastFetch) < 30 {
+                return
+            }
             await loadComments()
+            lastFetchDate = Date()
         }
     }
 
@@ -68,7 +76,6 @@ struct ClipCommentSection: View {
             comments = try await ClipCommentService.shared.fetchComments(clipId: clipId)
         } catch {
             loadError = error.localizedDescription
-            print("ClipCommentSection: Failed to load comments: \(error.localizedDescription)")
         }
         isLoading = false
     }

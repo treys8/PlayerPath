@@ -21,7 +21,10 @@ class ProfileImageManager {
     
     // Directory for storing profile images
     private var profileImagesDirectory: URL {
-        let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        guard let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
+            log.error("Failed to locate documents directory")
+            return FileManager.default.temporaryDirectory.appendingPathComponent("ProfileImages")
+        }
         let profileDir = documentsPath.appendingPathComponent("ProfileImages")
         if !FileManager.default.fileExists(atPath: profileDir.path) {
             do {

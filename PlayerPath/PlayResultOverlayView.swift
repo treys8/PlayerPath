@@ -92,7 +92,7 @@ struct PlayResultOverlayView: View {
                                             .foregroundColor(.white.opacity(0.8))
                                     }
                                 } else {
-                                    Text("Date TBA")
+                                    Text("No date")
                                         .font(.subheadline)
                                         .foregroundColor(.white.opacity(0.6))
                                 }
@@ -116,7 +116,7 @@ struct PlayResultOverlayView: View {
                                             .foregroundColor(.white.opacity(0.8))
                                     }
                                 } else {
-                                    Text("Date TBA")
+                                    Text("No date")
                                         .font(.subheadline)
                                         .foregroundColor(.white.opacity(0.6))
                                 }
@@ -136,7 +136,7 @@ struct PlayResultOverlayView: View {
                     }
                     .padding(.leading, isLandscape ? 120 : 104)
                     .padding(.trailing, 20)
-                    .padding(.top, 16)
+                    .padding(.top, isLandscape ? 28 : 16)
                     .padding(.bottom, 20)
                     .accessibilitySortPriority(2)
                     .background(alignment: .top) {
@@ -182,7 +182,7 @@ struct PlayResultOverlayView: View {
                 .padding(.horizontal, 16)
                 Spacer()
             }
-            .padding(.top, 16)
+            .padding(.top, isLandscape ? 28 : 16)
 
             // Saving overlay
             if isSaving {
@@ -356,13 +356,10 @@ struct PlayResultOverlayView: View {
             ZStack {
                 RoundedRectangle(cornerRadius: 28, style: .continuous).fill(.ultraThinMaterial)
                 RoundedRectangle(cornerRadius: 28, style: .continuous)
-                    .fill(LinearGradient(
-                        colors: [Color.black.opacity(0.2), Color.black.opacity(0.4)],
-                        startPoint: .top, endPoint: .bottom
-                    ))
+                    .fill(LinearGradient.glassDark)
                 VStack {
                     RoundedRectangle(cornerRadius: 28, style: .continuous)
-                        .fill(LinearGradient(colors: [.white.opacity(0.15), .clear], startPoint: .top, endPoint: .center))
+                        .fill(LinearGradient.glassShine)
                         .frame(height: 100)
                     Spacer()
                 }
@@ -372,10 +369,7 @@ struct PlayResultOverlayView: View {
         .overlay(
             RoundedRectangle(cornerRadius: 28, style: .continuous)
                 .strokeBorder(
-                    LinearGradient(
-                        colors: [.white.opacity(0.3), .white.opacity(0.1)],
-                        startPoint: .topLeading, endPoint: .bottomTrailing
-                    ),
+                    LinearGradient.glassBorder,
                     lineWidth: 1
                 )
         )
@@ -591,6 +585,7 @@ struct PlayResultButton: View {
                     .fontWeight(.bold)
                     .foregroundColor(.white)
                     .lineLimit(1)
+                    .truncationMode(.tail)
                     .minimumScaleFactor(0.75)
 
                 Spacer()
@@ -787,13 +782,7 @@ struct PlayResultModePicker: View {
                     ZStack {
                         if isSelected {
                             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .fill(
-                                    LinearGradient(
-                                        colors: [.blue, .blue.opacity(0.8)],
-                                        startPoint: .top,
-                                        endPoint: .bottom
-                                    )
-                                )
+                                .fill(LinearGradient.primaryButton)
                                 .shadow(color: .blue.opacity(0.4), radius: 8, x: 0, y: 2)
                         }
                     }
@@ -833,13 +822,7 @@ struct PlayResultActionButton: View {
         switch style {
         case .primary:
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [.blue, .blue.opacity(0.8)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
+                .fill(LinearGradient.primaryButton)
         case .secondary:
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(Color.white.opacity(0.15))
@@ -873,11 +856,7 @@ struct PlayResultActionButton: View {
             .overlay(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .strokeBorder(
-                        LinearGradient(
-                            colors: [.white.opacity(0.3), .white.opacity(0.1)],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        ),
+                        LinearGradient.glassBorder,
                         lineWidth: 1
                     )
             )

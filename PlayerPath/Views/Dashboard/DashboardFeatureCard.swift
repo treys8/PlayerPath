@@ -50,6 +50,7 @@ struct DashboardFeatureCard: View {
                         .foregroundColor(.primary)
                         .multilineTextAlignment(.center)
                         .lineLimit(1)
+                        .truncationMode(.tail)
                         .minimumScaleFactor(0.9)
 
                     Text(subtitle)
@@ -58,6 +59,7 @@ struct DashboardFeatureCard: View {
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
                         .lineLimit(1)
+                        .truncationMode(.tail)
                 }
                 .opacity(isAnimating ? 1.0 : 0)
                 .offset(y: isAnimating ? 0 : 8)
@@ -68,12 +70,12 @@ struct DashboardFeatureCard: View {
             .background(
                 ZStack {
                     // Base background
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    RoundedRectangle(cornerRadius: .cornerXLarge, style: .continuous)
                         .fill(Color(uiColor: .secondarySystemGroupedBackground))
 
                     // Subtle color tint at top
                     VStack {
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        RoundedRectangle(cornerRadius: .cornerXLarge, style: .continuous)
                             .fill(
                                 LinearGradient(
                                     colors: [color.opacity(0.08), .clear],
@@ -84,7 +86,7 @@ struct DashboardFeatureCard: View {
                             .frame(height: 60)
                         Spacer()
                     }
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: .cornerXLarge, style: .continuous))
 
                     // Top accent line
                     VStack {

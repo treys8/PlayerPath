@@ -11,7 +11,7 @@ import SwiftUI
 struct CreateFolderView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
-    @StateObject private var folderManager = SharedFolderManager.shared
+    @ObservedObject private var folderManager = SharedFolderManager.shared
     
     @State private var coachEmail = ""
     @State private var permissions = FolderPermissions.default
@@ -184,11 +184,11 @@ struct CreateFolderView: View {
             showingSuccess = true
             
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = "Failed to create folder. Please check your connection and try again."
             showingError = true
             Haptics.error()
         }
-        
+
         isCreating = false
     }
     
@@ -208,7 +208,7 @@ struct InviteCoachView: View {
     
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
-    @StateObject private var folderManager = SharedFolderManager.shared
+    @ObservedObject private var folderManager = SharedFolderManager.shared
     
     @State private var coachEmail = ""
     @State private var permissions = FolderPermissions.default
@@ -351,11 +351,11 @@ struct InviteCoachView: View {
             showingSuccess = true
             
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = "Failed to send invitation. Please check your connection and try again."
             showingError = true
             Haptics.error()
         }
-        
+
         isSending = false
     }
     

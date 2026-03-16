@@ -128,7 +128,7 @@ struct ModernTextField: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
         .background(
-            RoundedRectangle(cornerRadius: 12)
+            RoundedRectangle(cornerRadius: .cornerLarge)
                 .fill(Color(.systemBackground))
                 .shadow(
                     color: isFocused ? .blue.opacity(0.15) : .black.opacity(0.04),
@@ -138,7 +138,7 @@ struct ModernTextField: View {
                 )
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 12)
+            RoundedRectangle(cornerRadius: .cornerLarge)
                 .stroke(
                     isFocused ? Color.blue : validationState.borderColor,
                     lineWidth: isFocused ? 2 : 1

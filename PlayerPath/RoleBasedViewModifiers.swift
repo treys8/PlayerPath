@@ -222,14 +222,12 @@ struct RoleRestrictionView: View {
         // Fix V: The previous implementation ran an empty 30-second sleep loop that
         // consumed a Task indefinitely without performing any actual permission checks.
         // Removed until the Firestore snapshot listener is implemented.
-        print("👂 Permission change listener registered for folder: \(folderID) (snapshot listener not yet implemented)")
     }
 
     /// Stops listening
     func stopListening() {
         listener?.cancel()
         listener = nil
-        print("🔇 Stopped listening for permission changes")
     }
 
     /// Updates permissions and notifies UI

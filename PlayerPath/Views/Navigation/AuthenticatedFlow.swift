@@ -11,6 +11,7 @@ import FirebaseAuth
 
 struct AuthenticatedFlow: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @Query private var users: [User]
     @Query(sort: \OnboardingProgress.createdAt, order: .forward) private var onboardingProgress: [OnboardingProgress]
@@ -47,36 +48,69 @@ struct AuthenticatedFlow: View {
                     )
                 }
             } else {
-                ErrorView(message: "Unable to load user profile") {
-                    Task {
-                        await authManager.signOut()
+                ErrorView(
+                    message: "Unable to load your profile. This may be a connection issue or a problem with your account.",
+                    retry: {
+                        Task {
+                            await authManager.signOut()
+                        }
+                    },
+                    errorType: .network,
+                    title: "Profile Load Failed",
+                    suggestion: "Check your internet connection or sign in again."
+                )
+            }
+        }
+        .onDisappear {
+            ActivityNotificationService.shared.stopListening()
+            SharedFolderManager.shared.stopCoachFoldersListener()
+            CoachInvitationManager.shared.stopInvitationsListener()
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            switch newPhase {
+            case .background:
+                ActivityNotificationService.shared.stopListening()
+                SharedFolderManager.shared.stopCoachFoldersListener()
+                CoachInvitationManager.shared.stopInvitationsListener()
+            case .active:
+                // Re-start listeners if user is authenticated
+                if let firebaseUID = authManager.currentFirebaseUser?.uid {
+                    ActivityNotificationService.shared.startListening(forUserID: firebaseUID)
+                    if authManager.userRole == .coach {
+                        SharedFolderManager.shared.startCoachFoldersListener(coachID: firebaseUID)
+                        if let email = authManager.currentFirebaseUser?.email?.lowercased() {
+                            CoachInvitationManager.shared.startInvitationsListener(forCoachEmail: email)
+                        }
                     }
                 }
+            default:
+                break
             }
         }
         .task(priority: .userInitiated) {
-            // .task automatically cancels when the view disappears — no need for
-            // a separate loadTask + onDisappear cancellation.
-
-            // Scope OnboardingManager to the current user
+            // Scope OnboardingManager to the current user (needed for routing)
             OnboardingManager.shared.configure(forUserID: authManager.currentFirebaseUser?.uid)
 
-            // Configure SyncCoordinator with ModelContext
+            // Load user FIRST — this gates the UI appearing.
+            // Everything else is deferred until after the UI is visible.
+            await loadUser()
+
+            // Ensure firebaseAuthUid is written before sync builds Firestore paths.
+            await authManager.ensureLocalUser()
+
+            // --- Post-UI setup: none of this blocks the loading screen ---
+
+            // Configure services that need ModelContext
             SyncCoordinator.shared.configure(modelContext: modelContext)
-
-            // Configure UploadQueueManager with ModelContext
             UploadQueueManager.shared.configure(modelContext: modelContext)
-
-            // Setup iOS Home Screen Quick Actions
             QuickActionsManager.shared.setupQuickActions()
 
-            // Start Firestore-backed activity notification listener early so it's
-            // ready before any view (UserMainFlow / CoachDashboardView) appears.
+            // Start Firestore listeners for real-time updates
             if let firebaseUID = authManager.currentFirebaseUser?.uid {
                 ActivityNotificationService.shared.startListening(forUserID: firebaseUID)
             }
 
-            // Pre-start coach listeners so data is ready before CoachDashboardView appears.
+            // Coach-specific listeners
             if authManager.userRole == .coach {
                 if let coachID = authManager.currentFirebaseUser?.uid {
                     CoachFolderArchiveManager.shared.configure(coachUID: coachID)
@@ -87,43 +121,26 @@ struct AuthenticatedFlow: View {
                 }
             }
 
-            // Load user
-            await loadUser()
-
-            // Migrate videos from Caches to Documents (one-time operation)
-            do {
-                try await ClipPersistenceService().migrateVideosToDocuments(context: modelContext)
-            } catch {
-                print("⚠️ Video migration failed (non-blocking): \(error)")
-                // Don't block app launch on migration failure
-            }
-
-            // Recover any video files orphaned by a SwiftData store reset
-            // (happens between TestFlight builds when model schema changes).
-            // Run after loadUser() so athletes are in the context.
-            let athletes = (currentUser?.athletes ?? [])
-            await OrphanedClipRecoveryService.shared.recoverIfNeeded(
-                context: modelContext,
-                athletes: athletes
-            )
-
-            // Ensure firebaseAuthUid is written before sync builds Firestore paths.
-            // ensureLocalUser() is called from the auth state listener but modelContext
-            // is nil at that point, so it returns early. Now that loadUser() has attached
-            // the context, call it again so user.firebaseAuthUid is populated.
-            await authManager.ensureLocalUser()
-
-            // Trigger full sync after user loads so all data is available immediately on new device
-            if let user = currentUser, user.firebaseAuthUid != nil {
+            // Run migration, recovery, and sync in background — don't block the UI
+            Task(priority: .utility) {
+                // Migrate videos from Caches to Documents (one-time operation)
                 do {
-                    try await SyncCoordinator.shared.syncAll(for: user)
-                    print("✅ Initial full sync completed on app launch")
+                    try await ClipPersistenceService().migrateVideosToDocuments(context: modelContext)
                 } catch {
-                    print("⚠️ Initial sync failed (will retry in background): \(error)")
-                    // Don't block app launch on sync failure
+                    // Don't block app launch on migration failure
                 }
-            } else if currentUser?.firebaseAuthUid == nil {
-                print("⚠️ Skipping sync — firebaseAuthUid not yet available (will sync on next foreground)")
+
+                // Recover any video files orphaned by a SwiftData store reset
+                let athletes = (currentUser?.athletes ?? [])
+                await OrphanedClipRecoveryService.shared.recoverIfNeeded(
+                    context: modelContext,
+                    athletes: athletes
+                )
+
+                // Trigger full sync so all data is available on new device
+                if let user = currentUser, user.firebaseAuthUid != nil {
+                    try? await SyncCoordinator.shared.syncAll(for: user)
+                }
             }
         }
     }
@@ -139,14 +156,12 @@ struct AuthenticatedFlow: View {
     private func loadUser() async {
         guard let authUser = authManager.currentFirebaseUser,
               let rawEmail = authUser.email else {
-            print("🔴 No authenticated user found")
             isLoading = false
             return
         }
         
         // Check for cancellation early
         guard !Task.isCancelled else {
-            print("🟡 loadUser cancelled early")
             return
         }
         
@@ -181,7 +196,6 @@ struct AuthenticatedFlow: View {
 
             // Check cancellation before updating state
             guard !Task.isCancelled else {
-                print("🟡 loadUser cancelled before setting currentUser")
                 return
             }
 
@@ -212,7 +226,6 @@ struct AuthenticatedFlow: View {
             
             // Check cancellation before creating
             guard !Task.isCancelled else {
-                print("🟡 loadUser cancelled before createNewUser")
                 return
             }
             
@@ -221,7 +234,6 @@ struct AuthenticatedFlow: View {
         
         // Final cancellation check before marking complete
         guard !Task.isCancelled else {
-            print("🟡 loadUser cancelled before setting isLoading false")
             return
         }
 
@@ -287,7 +299,9 @@ struct AuthenticatedFlow: View {
                 }
             }
         } catch {
-            print("🔴 Failed to create user: \(error)")
+            #if DEBUG
+            print("❌ Failed to save new user to SwiftData: \(error.localizedDescription)")
+            #endif
         }
     }
 }

@@ -25,6 +25,10 @@ final class ConnectivityMonitor {
         startMonitoring()
     }
 
+    deinit {
+        monitor.cancel()
+    }
+
     // MARK: - Connection Types
 
     enum ConnectionType {
@@ -73,7 +77,6 @@ final class ConnectivityMonitor {
                     self.connectionType = .unknown
                 }
 
-                print("ConnectivityMonitor: Connection changed - \(self.connectionType.displayName), Connected: \(self.isConnected), Expensive: \(self.isExpensive)")
 
                 // Notify upload manager of network change
                 NotificationCenter.default.post(name: .networkStatusChanged, object: nil)

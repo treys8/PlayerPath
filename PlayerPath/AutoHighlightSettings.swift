@@ -12,6 +12,7 @@ import SwiftUI
 import SwiftData
 import Combine
 
+@MainActor
 final class AutoHighlightSettings: ObservableObject {
     static let shared = AutoHighlightSettings()
 
@@ -42,7 +43,7 @@ final class AutoHighlightSettings: ObservableObject {
         // Write defaults on first launch
         if !defaults.bool(forKey: Key.defaultsSet.rawValue) {
             defaults.set(true,  forKey: Key.enabled.rawValue)
-            defaults.set(false, forKey: Key.includeSingles.rawValue)
+            defaults.set(true,  forKey: Key.includeSingles.rawValue)
             defaults.set(true,  forKey: Key.includeDoubles.rawValue)
             defaults.set(true,  forKey: Key.includeTriples.rawValue)
             defaults.set(true,  forKey: Key.includeHomeRuns.rawValue)

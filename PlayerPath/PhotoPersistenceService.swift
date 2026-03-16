@@ -125,7 +125,6 @@ final class PhotoPersistenceService {
         context.insert(photo)
         try context.save()
 
-        print("PhotoPersistenceService: Saved photo \(fileName)")
         return photo
     }
 
@@ -134,7 +133,6 @@ final class PhotoPersistenceService {
     func deletePhoto(_ photo: Photo, context: ModelContext) {
         photo.delete(in: context)
         try? context.save()
-        print("PhotoPersistenceService: Deleted photo \(photo.fileName)")
     }
 
     // MARK: - Image Helpers (nonisolated for background processing)

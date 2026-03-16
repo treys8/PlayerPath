@@ -56,7 +56,6 @@ struct PlayerPathApp: App {
             // Last resort: try an in-memory container so the app can launch and show
             // an error instead of crash-looping. If even that fails, we have no choice
             // but to terminate.
-            print("❌ Could not create ModelContainer: \(error). Falling back to in-memory store.")
             do {
                 let config = ModelConfiguration(isStoredInMemoryOnly: true)
                 return try ModelContainer(for: Schema(SchemaV9.models), configurations: [config])
@@ -283,6 +282,16 @@ struct ScenePhaseSaveHandler<Content: View>: View {
             // Refresh entitlements each time the app returns to foreground to catch
             // renewals, expirations, or revocations that occurred in the background.
             Task { await StoreKitManager.shared.updateEntitlements() }
+            // Track session for review prompt eligibility
+            Task { ReviewPromptManager.shared.recordSession() }
+            // Trigger immediate sync to catch changes made while backgrounded
+            Task {
+                let descriptor = FetchDescriptor<User>()
+                if let user = try? modelContext.fetch(descriptor).first,
+                   user.firebaseAuthUid != nil {
+                    try? await SyncCoordinator.shared.syncAll(for: user)
+                }
+            }
             lastSavedPhase = .active
 
         case .inactive:

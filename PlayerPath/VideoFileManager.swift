@@ -13,7 +13,7 @@ import os
 
 class VideoFileManager {
     
-    private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.example.PlayerPath", category: "VideoFileManager")
+    private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "RZR.DT3", category: "VideoFileManager")
     
     enum ValidationError: LocalizedError {
         case fileNotFound
@@ -243,7 +243,12 @@ class VideoFileManager {
             if #available(iOS 18.0, *) {
                 cgImage = try await imageGenerator.image(at: thumbnailTime).image
             } else {
-                cgImage = try imageGenerator.copyCGImage(at: thumbnailTime, actualTime: nil)
+                // copyCGImage is synchronous — run off main thread to avoid blocking UI
+                let gen = imageGenerator
+                let time = thumbnailTime
+                cgImage = try await Task.detached(priority: .userInitiated) {
+                    try gen.copyCGImage(at: time, actualTime: nil)
+                }.value
             }
             
             let baseImage = UIImage(cgImage: cgImage)

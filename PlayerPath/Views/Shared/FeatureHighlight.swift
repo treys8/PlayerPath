@@ -50,6 +50,7 @@ struct FeatureHighlight: View {
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .lineLimit(2)
+                    .truncationMode(.tail)
             }
 
             Spacer(minLength: 0)

@@ -14,6 +14,7 @@ struct CoachInvitationsView: View {
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @StateObject private var viewModel = CoachInvitationsViewModel()
     @State private var showingPaywall = false
+    @State private var lastFetchDate: Date?
 
     var body: some View {
         NavigationStack {
@@ -77,7 +78,9 @@ struct CoachInvitationsView: View {
                 }
             }
             .task {
+                if let lastFetch = lastFetchDate, Date().timeIntervalSince(lastFetch) < 60 { return }
                 await loadInvitations()
+                lastFetchDate = Date()
             }
             .alert("Error", isPresented: .constant(viewModel.errorMessage != nil)) {
                 Button("OK") {
@@ -132,7 +135,7 @@ struct InvitationRow: View {
                 Spacer()
             }
 
-            Text("Sent \(invitation.createdAt.formatted(.relative(presentation: .named)))")
+            Text("Sent \((invitation.sentAt ?? invitation.createdAt ?? Date()).formatted(.relative(presentation: .named)))")
                 .font(.caption)
                 .foregroundColor(.secondary)
 
@@ -151,8 +154,9 @@ struct InvitationRow: View {
             } else {
                 HStack(spacing: 12) {
                     Button {
+                        guard !isProcessing else { return }
+                        isProcessing = true
                         Task {
-                            isProcessing = true
                             await onDecline()
                             isProcessing = false
                         }
@@ -199,8 +203,9 @@ struct InvitationRow: View {
                 Haptics.light()
             }
             Button("Accept") {
+                guard !isProcessing else { return }
+                isProcessing = true
                 Task {
-                    isProcessing = true
                     await onAccept()
                     isProcessing = false
                 }
@@ -325,7 +330,6 @@ class CoachInvitationsViewModel: ObservableObject {
             invitations = try await SharedFolderManager.shared.checkPendingInvitations(forEmail: email)
         } catch {
             errorMessage = "Failed to load invitations: \(error.localizedDescription)"
-            print("❌ Failed to load invitations: \(error)")
         }
 
         isLoading = false
@@ -360,12 +364,10 @@ class CoachInvitationsViewModel: ObservableObject {
 
             // Step 4: Only show success if everything completed
             Haptics.success()
-            print("✅ Successfully accepted invitation for folder: \(invitation.folderName)")
 
         } catch SharedFolderError.coachAthleteLimitReached {
             limitReached = true
             Haptics.error()
-            print("⚠️ Coach athlete limit reached — presenting paywall")
         } catch {
             // Show user-friendly error message
             if error.localizedDescription.contains("Network") {
@@ -376,7 +378,6 @@ class CoachInvitationsViewModel: ObservableObject {
                 errorMessage = "Failed to accept invitation: \(error.localizedDescription)"
             }
 
-            print("❌ Failed to accept invitation: \(error)")
             Haptics.error()
         }
     }
@@ -410,7 +411,6 @@ class CoachInvitationsViewModel: ObservableObject {
 
             // Step 4: Only show success if everything completed
             Haptics.success()
-            print("✅ Successfully declined invitation for folder: \(invitation.folderName)")
 
         } catch {
             // Show user-friendly error message
@@ -422,7 +422,6 @@ class CoachInvitationsViewModel: ObservableObject {
                 errorMessage = "Failed to decline invitation: \(error.localizedDescription)"
             }
 
-            print("❌ Failed to decline invitation: \(error)")
             Haptics.error()
         }
     }

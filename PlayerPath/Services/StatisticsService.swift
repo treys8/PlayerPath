@@ -310,9 +310,14 @@ final class StatisticsService {
 
     // MARK: - Statistics Formatting
 
-    /// Format batting average with 3 decimal places (.XXX)
+    /// Format batting average in baseball style: ".325" for values < 1.0, "1.400" for SLG/OPS >= 1.0
     func formatBattingAverage(_ value: Double) -> String {
-        return value.formatted(.number.precision(.fractionLength(3)))
+        guard !value.isNaN, !value.isInfinite else { return ".000" }
+        // SLG can exceed 1.0; show full decimal in that case
+        if value >= 1.0 { return String(format: "%.3f", value) }
+        let thousandths = Int((value * 1000).rounded())
+        guard thousandths > 0 else { return ".000" }
+        return String(format: ".%03d", thousandths)
     }
 
     /// Format percentage with 3 decimal places (.XXX)

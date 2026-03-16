@@ -46,7 +46,7 @@ struct QuickActionButton: View {
             .frame(maxWidth: .infinity)
             .padding()
             .background(
-                RoundedRectangle(cornerRadius: 12)
+                RoundedRectangle(cornerRadius: .cornerLarge)
                     .fill(
                         LinearGradient(
                             colors: [color, color.opacity(0.8)],

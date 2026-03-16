@@ -11,22 +11,16 @@ import SwiftData
 struct DashboardLiveSection: View {
     let athlete: Athlete
 
-    // Query ALL games (no predicate) - SwiftData boolean predicates can be unreliable
-    @Query(sort: \Game.date, order: .reverse) private var allGames: [Game]
+    // Query live games for this athlete only (same pattern as DashboardView)
+    @Query private var liveGames: [Game]
 
-    // Filter for live games for this athlete in memory (more reliable than @Query predicate)
-    private var liveGames: [Game] {
-        let filtered = allGames.filter { game in
-            game.isLive == true && game.athlete?.id == athlete.id
-        }
-        #if DEBUG
-        print("📊 DashboardLiveSection: allGames=\(allGames.count), live games for athlete '\(athlete.name)'=\(filtered.count)")
-        for game in filtered {
-            let athleteIdString = game.athlete.map { String($0.id.uuidString.prefix(8)) } ?? "nil"
-            print("  ✓ Live game: \(game.opponent) | isLive=\(game.isLive) | athleteId=\(athleteIdString)")
-        }
-        #endif
-        return filtered
+    init(athlete: Athlete) {
+        self.athlete = athlete
+        let id = athlete.id
+        self._liveGames = Query(
+            filter: #Predicate<Game> { $0.isLive == true && $0.athlete?.id == id },
+            sort: [SortDescriptor(\Game.date, order: .reverse)]
+        )
     }
 
     var body: some View {

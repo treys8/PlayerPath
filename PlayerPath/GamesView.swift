@@ -13,9 +13,24 @@ import Combine
 struct GamesView: View {
     let athlete: Athlete?
     @Environment(\.modelContext) private var modelContext
-    
-    // Query all games with sorting - SwiftData will automatically observe changes
-    @Query(sort: \Game.date, order: .reverse) private var allGames: [Game]
+
+    // Query games for the current athlete only — avoids loading all games across athletes
+    private let athleteID: UUID?
+    @Query private var allGames: [Game]
+
+    init(athlete: Athlete?) {
+        self.athlete = athlete
+        let id = athlete?.id
+        self.athleteID = id
+        if let id {
+            self._allGames = Query(
+                filter: #Predicate<Game> { $0.athlete?.id == id },
+                sort: [SortDescriptor(\Game.date, order: .reverse)]
+            )
+        } else {
+            self._allGames = Query(sort: [SortDescriptor(\Game.date, order: .reverse)])
+        }
+    }
     
     @StateObject private var viewModelHolder = ViewModelHolder()
     
@@ -56,31 +71,18 @@ struct GamesView: View {
     }
     @State private var activeAlert: AlertType?
     
+    // Cached filtered game arrays (updated via updateFilteredGames)
+    @State private var cachedLiveGames: [Game] = []
+    @State private var cachedUpcomingGames: [Game] = []
+    @State private var cachedPastGames: [Game] = []
+    @State private var cachedCompletedGames: [Game] = []
+    @State private var cachedAvailableSeasons: [Season] = []
+
     // Computed properties for cleaner code
     private var hasGames: Bool {
         guard let vm = viewModelHolder.viewModel else { return false }
-        return !vm.liveGames.isEmpty || !vm.upcomingGames.isEmpty || 
+        return !vm.liveGames.isEmpty || !vm.upcomingGames.isEmpty ||
                !vm.pastGames.isEmpty || !vm.completedGames.isEmpty
-    }
-    
-    private var liveGames: [Game] {
-        filterGames(viewModelHolder.viewModel?.liveGames ?? [])
-    }
-    private var upcomingGames: [Game] {
-        filterGames(viewModelHolder.viewModel?.upcomingGames ?? [])
-    }
-    private var pastGames: [Game] {
-        filterGames(viewModelHolder.viewModel?.pastGames ?? [])
-    }
-    private var completedGames: [Game] {
-        filterGames(viewModelHolder.viewModel?.completedGames ?? [])
-    }
-
-    // Get all unique seasons from games
-    private var availableSeasons: [Season] {
-        let seasons = allGames.compactMap { $0.season }
-        let uniqueSeasons = Array(Set(seasons))
-        return uniqueSeasons.sorted { ($0.startDate ?? Date.distantPast) > ($1.startDate ?? Date.distantPast) }
     }
 
     // Check if filters are active
@@ -91,7 +93,17 @@ struct GamesView: View {
 
     // Check if we have any filtered results
     private var hasFilteredResults: Bool {
-        !liveGames.isEmpty || !upcomingGames.isEmpty || !pastGames.isEmpty || !completedGames.isEmpty
+        !cachedLiveGames.isEmpty || !cachedUpcomingGames.isEmpty || !cachedPastGames.isEmpty || !cachedCompletedGames.isEmpty
+    }
+
+    private func updateFilteredGames() {
+        cachedLiveGames = filterGames(viewModelHolder.viewModel?.liveGames ?? [])
+        cachedUpcomingGames = filterGames(viewModelHolder.viewModel?.upcomingGames ?? [])
+        cachedPastGames = filterGames(viewModelHolder.viewModel?.pastGames ?? [])
+        cachedCompletedGames = filterGames(viewModelHolder.viewModel?.completedGames ?? [])
+        let seasons = allGames.compactMap { $0.season }
+        let uniqueSeasons = Array(Set(seasons))
+        cachedAvailableSeasons = uniqueSeasons.sorted { ($0.startDate ?? Date.distantPast) > ($1.startDate ?? Date.distantPast) }
     }
 
     // Check if athlete has any seasons
@@ -167,7 +179,7 @@ struct GamesView: View {
         if let seasonID = selectedSeasonFilter {
             if seasonID == "no_season" {
                 parts.append("season: None")
-            } else if let season = availableSeasons.first(where: { $0.id.uuidString == seasonID }) {
+            } else if let season = cachedAvailableSeasons.first(where: { $0.id.uuidString == seasonID }) {
                 parts.append("season: \(season.displayName)")
             }
         }
@@ -192,9 +204,9 @@ struct GamesView: View {
     @ViewBuilder
     private var gamesListContent: some View {
         // Live Games Section
-        if !liveGames.isEmpty {
+        if !cachedLiveGames.isEmpty {
             Section("Live") {
-                ForEach(liveGames) { game in
+                ForEach(cachedLiveGames) { game in
                     NavigationLink(destination: GameDetailView(game: game)) {
                         GameRow(game: game)
                     }
@@ -206,8 +218,8 @@ struct GamesView: View {
                     }
                 }
                 .onDelete { indexSet in
-                    if let index = indexSet.first, index < liveGames.count {
-                        gameToDelete = liveGames[index]
+                    if let index = indexSet.first, index < cachedLiveGames.count {
+                        gameToDelete = cachedLiveGames[index]
                         showingDeleteGameConfirmation = true
                     }
                 }
@@ -215,9 +227,9 @@ struct GamesView: View {
         }
         
         // Upcoming Games Section
-        if !upcomingGames.isEmpty {
+        if !cachedUpcomingGames.isEmpty {
             Section("Upcoming") {
-                ForEach(upcomingGames) { game in
+                ForEach(cachedUpcomingGames) { game in
                     NavigationLink(destination: GameDetailView(game: game)) {
                         GameRow(game: game)
                     }
@@ -237,8 +249,8 @@ struct GamesView: View {
                     }
                 }
                 .onDelete { indexSet in
-                    if let index = indexSet.first, index < upcomingGames.count {
-                        gameToDelete = upcomingGames[index]
+                    if let index = indexSet.first, index < cachedUpcomingGames.count {
+                        gameToDelete = cachedUpcomingGames[index]
                         showingDeleteGameConfirmation = true
                     }
                 }
@@ -246,9 +258,9 @@ struct GamesView: View {
         }
 
         // Past Games Section (games that happened but weren't marked as complete)
-        if !pastGames.isEmpty {
+        if !cachedPastGames.isEmpty {
             Section("Past Games") {
-                ForEach(pastGames) { game in
+                ForEach(cachedPastGames) { game in
                     NavigationLink(destination: GameDetailView(game: game)) {
                         GameRow(game: game)
                     }
@@ -268,8 +280,8 @@ struct GamesView: View {
                     }
                 }
                 .onDelete { indexSet in
-                    if let index = indexSet.first, index < pastGames.count {
-                        gameToDelete = pastGames[index]
+                    if let index = indexSet.first, index < cachedPastGames.count {
+                        gameToDelete = cachedPastGames[index]
                         showingDeleteGameConfirmation = true
                     }
                 }
@@ -277,16 +289,16 @@ struct GamesView: View {
         }
         
         // Completed Games Section
-        if !completedGames.isEmpty {
+        if !cachedCompletedGames.isEmpty {
             Section("Completed") {
-                ForEach(completedGames) { game in
+                ForEach(cachedCompletedGames) { game in
                     NavigationLink(destination: GameDetailView(game: game)) {
                         GameRow(game: game)
                     }
                 }
                 .onDelete { indexSet in
-                    if let index = indexSet.first, index < completedGames.count {
-                        gameToDelete = completedGames[index]
+                    if let index = indexSet.first, index < cachedCompletedGames.count {
+                        gameToDelete = cachedCompletedGames[index]
                         showingDeleteGameConfirmation = true
                     }
                 }
@@ -310,7 +322,7 @@ struct GamesView: View {
 
             Divider()
 
-            ForEach(availableSeasons) { season in
+            ForEach(cachedAvailableSeasons) { season in
                 Button {
                     selectedSeasonFilter = season.id.uuidString
                 } label: {
@@ -354,7 +366,7 @@ struct GamesView: View {
     private var mainContent: some View {
         Group {
             if isLoading {
-                ProgressView("Loading games...")
+                ListSkeletonView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if !hasFilteredResults {
                 if hasActiveFilters && hasGames {
@@ -413,12 +425,14 @@ struct GamesView: View {
                     print("🎮 GamesView: Updated ViewModel with \(allGames.count) games")
                     #endif
                 }
+                updateFilteredGames()
             }
             .onChange(of: athlete?.id) { oldValue, newValue in
                 #if DEBUG
                 print("🎮 GamesView: Athlete changed from \(oldValue?.uuidString ?? "nil") to \(newValue?.uuidString ?? "nil")")
                 #endif
                 viewModelHolder.viewModel = GamesViewModel(modelContext: modelContext, athlete: athlete, allGames: allGames)
+                updateFilteredGames()
             }
             .onChange(of: allGames) { oldValue, newValue in
                 #if DEBUG
@@ -429,6 +443,13 @@ struct GamesView: View {
                 }
                 #endif
                 viewModelHolder.viewModel?.update(allGames: newValue)
+                updateFilteredGames()
+            }
+            .onChange(of: searchText) { _, _ in
+                updateFilteredGames()
+            }
+            .onChange(of: selectedSeasonFilter) { _, _ in
+                updateFilteredGames()
             }
             .sheet(isPresented: $showingGameCreation) {
                 gameCreationSheet
@@ -491,21 +512,23 @@ struct GamesView: View {
     
     private func completeGame(_ game: Game) {
         game.isComplete = true
-        if let athlete = game.athlete {
+        Task {
+            // Recalculate game stats first (they feed into athlete stats)
+            try? StatisticsService.shared.recalculateGameStatistics(for: game, context: modelContext)
+            if let athlete = game.athlete {
+                try? StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: modelContext)
+            }
             do {
-                try StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: modelContext)
+                try modelContext.save()
+                refreshGames()
+                // Track completed game for review prompt eligibility
+                ReviewPromptManager.shared.recordCompletedGame()
             } catch {
-                print("⚠️ Failed to recalculate athlete statistics after completing game: \(error.localizedDescription)")
+                showError("Failed to mark game as complete: \(error.localizedDescription)")
             }
         }
-        do {
-            try modelContext.save()
-            refreshGames()
-        } catch {
-            showError("Failed to mark game as complete: \(error.localizedDescription)")
-        }
     }
-    
+
     private func deleteGame(_ game: Game) {
         viewModelHolder.viewModel?.deleteDeep(game)
         refreshGames()
@@ -576,7 +599,7 @@ struct GameRow: View {
                 .padding(.vertical, 4)
 
             HStack(spacing: 12) {
-                GameInfoView(game: game)
+                GameInfoView(game: game, showSeason: !game.isLive)
                 Spacer()
                 RightStatusView(game: game)
             }
@@ -585,7 +608,7 @@ struct GameRow: View {
             .padding(.vertical, 12)
         }
         .background(Color(.systemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: .cornerLarge, style: .continuous))
         .shadow(color: .black.opacity(0.06), radius: 8, x: 0, y: 2)
         .shadow(color: .black.opacity(0.04), radius: 2, x: 0, y: 1)
         .scaleEffect(isPressed ? 0.98 : 1.0)
@@ -651,6 +674,7 @@ struct GameRow: View {
 
     private struct GameInfoView: View {
         let game: Game
+        var showSeason: Bool = true
 
         var body: some View {
             VStack(alignment: .leading, spacing: 6) {
@@ -666,13 +690,14 @@ struct GameRow: View {
                         HStack(spacing: 4) {
                             Image(systemName: "calendar")
                                 .font(.caption2)
-                            Text(date, style: .date)
+                            Text(date, format: .dateTime.month(.abbreviated).day().year())
                                 .font(.caption)
+                                .lineLimit(1)
                         }
                         .foregroundColor(.secondary)
                     }
 
-                    if let season = game.season {
+                    if showSeason, let season = game.season {
                         Text(season.displayName)
                             .font(.caption2)
                             .fontWeight(.medium)
@@ -844,6 +869,7 @@ struct GameDetailView: View {
     let game: Game
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @State private var showingEndGame = false
     @State private var showingVideoRecorder = false
     @State private var showingUploadRecorder = false
@@ -999,7 +1025,7 @@ struct GameDetailView: View {
                         .font(.subheadline)
                 } else {
                     ForEach(videoClips) { clip in
-                        VideoClipRow(clip: clip)
+                        VideoClipRow(clip: clip, hasCoachingAccess: authManager.hasCoachingAccess)
                     }
                 }
             }
@@ -1180,7 +1206,6 @@ struct GameDetailView: View {
     
     @MainActor
     private func deleteGame() {
-        print("Deleting game from detail view: \(game.opponent)")
         Task {
             await gameService?.deleteGameDeep(game)
             dismiss()
@@ -1307,14 +1332,14 @@ struct EditGameSheet: View {
         game.location = location.isEmpty ? nil : location.trimmingCharacters(in: .whitespacesAndNewlines)
         game.notes = notes.isEmpty ? nil : notes.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        do {
-            try modelContext.save()
+        Task {
+            do {
+                try modelContext.save()
 
-            // Reschedule game reminder if date changed
-            if dateChanged && UserDefaults.standard.bool(forKey: "notif_gameReminders") {
-                PushNotificationService.shared.cancelNotifications(withIdentifiers: ["game_reminder_\(gameId)"])
-                if date > Date().addingTimeInterval(60 * 60) {
-                    Task {
+                // Reschedule game reminder if date changed
+                if dateChanged && UserDefaults.standard.bool(forKey: "notif_gameReminders") {
+                    PushNotificationService.shared.cancelNotifications(withIdentifiers: ["game_reminder_\(gameId)"])
+                    if date > Date().addingTimeInterval(60 * 60) {
                         await PushNotificationService.shared.scheduleGameReminder(
                             gameId: gameId,
                             opponent: newOpponent,
@@ -1322,14 +1347,13 @@ struct EditGameSheet: View {
                         )
                     }
                 }
-            }
 
-            Haptics.success()
-            dismiss()
-        } catch {
-            print("Failed to save game changes: \(error)")
-            showingSaveError = true
-            Haptics.error()
+                Haptics.success()
+                dismiss()
+            } catch {
+                showingSaveError = true
+                Haptics.error()
+            }
         }
     }
 }
@@ -1528,9 +1552,6 @@ struct AddGameView: View {
                 switch result {
                 case .success(let createdGame):
                     // Success - dismiss
-                    let calendar = Calendar.current
-                    let year = calendar.component(.year, from: date)
-                    print("✅ Game added to year \(year): \(trimmedOpponent)")
                     // Schedule a reminder if the game is in the future and reminders are enabled
                     if UserDefaults.standard.bool(forKey: "notif_gameReminders"),
                        let gameDate = createdGame.date,
@@ -1557,12 +1578,12 @@ struct AddGameView: View {
 
 struct VideoClipRow: View {
     let clip: VideoClip
+    let hasCoachingAccess: Bool
     @State private var showingVideoPlayer = false
     @State private var showingShareToFolder = false
     @State private var thumbnailImage: UIImage?
     @State private var isLoadingThumbnail = false
     @Environment(\.modelContext) private var modelContext
-    @EnvironmentObject private var authManager: ComprehensiveAuthManager
     
     var body: some View {
         Button(action: { showingVideoPlayer = true }) {
@@ -1685,7 +1706,7 @@ struct VideoClipRow: View {
         .accessibilityLabel(clip.playResult?.type.displayName ?? "Unrecorded Play")
         .accessibilityHint("Opens the video")
         .contextMenu {
-            if authManager.hasCoachingAccess {
+            if hasCoachingAccess {
                 Button {
                     showingShareToFolder = true
                 } label: {
@@ -1724,7 +1745,6 @@ struct VideoClipRow: View {
             let image = try await ThumbnailCache.shared.loadThumbnail(at: thumbnailPath, targetSize: size)
             thumbnailImage = image
         } catch {
-            print("Failed to load thumbnail in VideoClipRow: \(error)")
             // Try to regenerate thumbnail
             await generateMissingThumbnail()
         }
@@ -1733,7 +1753,6 @@ struct VideoClipRow: View {
     }
     
     private func generateMissingThumbnail() async {
-        print("Generating missing thumbnail for clip in game: \(clip.fileName)")
         
         let videoURL = clip.resolvedFileURL
         let result = await VideoFileManager.generateThumbnail(from: videoURL)
@@ -1745,11 +1764,9 @@ struct VideoClipRow: View {
                 do {
                     try modelContext.save()
                 } catch {
-                    print("Failed to save thumbnail path: \(error)")
                 }
                 isLoadingThumbnail = false
-            case .failure(let error):
-                print("Failed to generate thumbnail in VideoClipRow: \(error)")
+            case .failure(_):
                 isLoadingThumbnail = false
             }
         }
@@ -2111,7 +2128,7 @@ struct ManualStatisticsEntryView: View {
                             }
                             .padding(.vertical, 4)
                             .background(Color.green.opacity(0.1))
-                            .cornerRadius(8)
+                            .cornerRadius(.cornerMedium)
                         }
                     }
                 }
@@ -2186,7 +2203,6 @@ struct ManualStatisticsEntryView: View {
                 flyOuts: newFlyOuts
             )
 
-            print("Updated game statistics: \(gameStats.hits) hits in \(gameStats.atBats) at bats, \(gameStats.runs) runs, \(gameStats.rbis) RBIs")
 
             // Also update athlete's overall statistics if they exist
             if let athlete = game.athlete,
@@ -2205,16 +2221,13 @@ struct ManualStatisticsEntryView: View {
                     flyOuts: newFlyOuts
                 )
                 
-                print("Updated athlete overall statistics: \(athleteStats.hits) total hits in \(athleteStats.atBats) total at bats")
             }
         }
         
         do {
             try modelContext.save()
-            print("Successfully saved comprehensive manual statistics")
             dismiss()
         } catch {
-            print("Failed to save statistics: \(error)")
             alertMessage = "Failed to save statistics. Please try again."
             showingValidationAlert = true
         }

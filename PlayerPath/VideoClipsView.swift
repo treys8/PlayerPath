@@ -14,7 +14,8 @@ import Photos
 struct VideoClipsView: View {
     let athlete: Athlete
     @Environment(\.modelContext) private var modelContext
-    @State private var uploadManager = UploadQueueManager.shared
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    private let uploadManager = UploadQueueManager.shared
     @State private var showingRecorder = false
     @State private var showingUploadPicker = false
     @State private var showingAdvancedSearch = false
@@ -36,11 +37,22 @@ struct VideoClipsView: View {
     @State private var showingStatistics = false
     @State private var bulkOperationMessage: String?
 
+    // Delete guard
+    @State private var isDeleting = false
+
+    // Post-import tagging
+    @State private var clipToTag: VideoClip?
+    @State private var isAwaitingImportedClip = false
+
+    // Cached computed results — updated explicitly via updateFilteredVideos() / updateAvailableSeasons()
+    @State private var cachedFilteredVideos: [VideoClip] = []
+    @State private var cachedAvailableSeasons: [Season] = []
+
     // Get all unique seasons from videos
-    private var availableSeasons: [Season] {
+    private func updateAvailableSeasons() {
         let seasons = (athlete.videoClips ?? []).compactMap { $0.season }
         let uniqueSeasons = Array(Set(seasons))
-        return uniqueSeasons.sorted { ($0.startDate ?? Date.distantPast) > ($1.startDate ?? Date.distantPast) }
+        cachedAvailableSeasons = uniqueSeasons.sorted { ($0.startDate ?? Date.distantPast) > ($1.startDate ?? Date.distantPast) }
     }
 
     // Check if filters are active
@@ -68,7 +80,7 @@ struct VideoClipsView: View {
         return f
     }()
 
-    private var filteredVideos: [VideoClip] {
+    private func updateFilteredVideos() {
         var videos = athlete.videoClips ?? []
 
         // Filter by season
@@ -121,7 +133,7 @@ struct VideoClipsView: View {
         }
 
         // Sort by creation date
-        return videos.sorted { (lhs: VideoClip, rhs: VideoClip) in
+        cachedFilteredVideos = videos.sorted { (lhs: VideoClip, rhs: VideoClip) in
             switch (lhs.createdAt, rhs.createdAt) {
             case let (l?, r?):
                 return l > r
@@ -141,7 +153,7 @@ struct VideoClipsView: View {
         if let seasonID = selectedSeasonFilter {
             if seasonID == "no_season" {
                 parts.append("season: None")
-            } else if let season = availableSeasons.first(where: { $0.id.uuidString == seasonID }) {
+            } else if let season = cachedAvailableSeasons.first(where: { $0.id.uuidString == seasonID }) {
                 parts.append("season: \(season.displayName)")
             }
         }
@@ -164,14 +176,121 @@ struct VideoClipsView: View {
             selectedUploadFilter = .all
             searchText = ""
         }
+        updateFilteredVideos()
+        updateAvailableSeasons()
     }
     
-    var body: some View {
-        Group {
-            if filteredVideos.isEmpty {
-                if hasActiveFilters && hasAnyVideos {
-                    // Filtered empty state
-                    FilteredEmptyStateView(
+    @ToolbarContentBuilder
+    private var videosToolbar: some ToolbarContent {
+        if isSelectionMode {
+            ToolbarItem(placement: .topBarLeading) {
+                Button("Cancel") {
+                    isSelectionMode = false
+                    selectedVideos.removeAll()
+                    Haptics.light()
+                }
+            }
+
+            ToolbarItem(placement: .principal) {
+                Text("\(selectedVideos.count) selected")
+                    .font(.headline)
+            }
+
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Button { bulkUploadSelected() } label: {
+                        Label("Upload Selected", systemImage: "icloud.and.arrow.up")
+                    }
+                    .disabled(selectedVideos.isEmpty)
+
+                    Button { bulkMarkAsHighlight() } label: {
+                        Label("Mark as Highlights", systemImage: "star.fill")
+                    }
+                    .disabled(selectedVideos.isEmpty)
+
+                    Divider()
+
+                    Button(role: .destructive) { showingBulkDeleteConfirmation = true } label: {
+                        Label("Delete Selected", systemImage: "trash")
+                    }
+                    .disabled(selectedVideos.isEmpty)
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+                .accessibilityLabel("Selection actions")
+            }
+        } else {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    Haptics.light()
+                    showingRecorder = true
+                } label: {
+                    Image(systemName: "video.badge.plus")
+                }
+                .accessibilityLabel("Record video")
+            }
+
+            if !(athlete.videoClips?.isEmpty ?? true) {
+                ToolbarItem(placement: .topBarLeading) {
+                    SeasonFilterMenu(
+                        selectedSeasonID: $selectedSeasonFilter,
+                        availableSeasons: cachedAvailableSeasons,
+                        showNoSeasonOption: (athlete.videoClips ?? []).contains(where: { $0.season == nil })
+                    )
+                }
+            }
+
+            if !(athlete.videoClips?.isEmpty ?? true) {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        Haptics.light()
+                        showingAdvancedSearch = true
+                    } label: {
+                        Image(systemName: "line.3.horizontal.decrease.circle")
+                    }
+                    .accessibilityLabel("Advanced Search")
+                }
+            }
+
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Button {
+                        Haptics.light()
+                        showingUploadPicker = true
+                    } label: {
+                        Label("Upload from Library", systemImage: "square.and.arrow.up")
+                    }
+
+                    if !(athlete.videoClips?.isEmpty ?? true) {
+                        Button {
+                            Haptics.light()
+                            showingStatistics = true
+                        } label: {
+                            Label("Upload Statistics", systemImage: "chart.bar.fill")
+                        }
+
+                        Divider()
+
+                        Button {
+                            isSelectionMode = true
+                            Haptics.light()
+                        } label: {
+                            Label("Select Videos", systemImage: "checkmark.circle")
+                        }
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+                .accessibilityLabel("More options")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var videosContent: some View {
+        if cachedFilteredVideos.isEmpty {
+            if hasActiveFilters && hasAnyVideos {
+                FilteredEmptyStateView(
                         filterDescription: filterDescription,
                         onClearFilters: clearAllFilters
                     )
@@ -182,132 +301,27 @@ struct VideoClipsView: View {
             } else {
                 videoListView
             }
-        }
+    }
+
+    var body: some View {
+        videosContent
         .safeAreaInset(edge: .top, spacing: 0) {
             UploadStatusBanner()
         }
         .navigationTitle("Videos")
         .navigationBarTitleDisplayMode(.large)
         .searchable(text: $searchText, prompt: "Search videos")
-        .toolbar {
-            if isSelectionMode {
-                // Selection mode toolbar
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Cancel") {
-                        isSelectionMode = false
-                        selectedVideos.removeAll()
-                        Haptics.light()
-                    }
-                }
-
-                ToolbarItem(placement: .principal) {
-                    Text("\(selectedVideos.count) selected")
-                        .font(.headline)
-                }
-
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Button {
-                            bulkUploadSelected()
-                        } label: {
-                            Label("Upload Selected", systemImage: "icloud.and.arrow.up")
-                        }
-                        .disabled(selectedVideos.isEmpty)
-
-                        Button {
-                            bulkMarkAsHighlight()
-                        } label: {
-                            Label("Mark as Highlights", systemImage: "star.fill")
-                        }
-                        .disabled(selectedVideos.isEmpty)
-
-                        Divider()
-
-                        Button(role: .destructive) {
-                            showingBulkDeleteConfirmation = true
-                        } label: {
-                            Label("Delete Selected", systemImage: "trash")
-                        }
-                        .disabled(selectedVideos.isEmpty)
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
-                    }
-                }
-            } else {
-                // Normal mode toolbar
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        Haptics.light()
-                        showingRecorder = true
-                    } label: {
-                        Image(systemName: "video.badge.plus")
-                    }
-                    .accessibilityLabel("Record video")
-                }
-
-                // Season filter menu
-                if !(athlete.videoClips?.isEmpty ?? true) {
-                    ToolbarItem(placement: .topBarLeading) {
-                        SeasonFilterMenu(
-                            selectedSeasonID: $selectedSeasonFilter,
-                            availableSeasons: availableSeasons,
-                            showNoSeasonOption: (athlete.videoClips ?? []).contains(where: { $0.season == nil })
-                        )
-                    }
-                }
-
-                // Advanced Search button
-                if !(athlete.videoClips?.isEmpty ?? true) {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button {
-                            Haptics.light()
-                            showingAdvancedSearch = true
-                        } label: {
-                            Image(systemName: "line.3.horizontal.decrease.circle")
-                        }
-                        .accessibilityLabel("Advanced Search")
-                    }
-                }
-
-                // Secondary actions menu
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Button {
-                            Haptics.light()
-                            showingUploadPicker = true
-                        } label: {
-                            Label("Upload from Library", systemImage: "square.and.arrow.up")
-                        }
-
-                        if !(athlete.videoClips?.isEmpty ?? true) {
-                            Button {
-                                Haptics.light()
-                                showingStatistics = true
-                            } label: {
-                                Label("Upload Statistics", systemImage: "chart.bar.fill")
-                            }
-
-                            Divider()
-
-                            Button {
-                                isSelectionMode = true
-                                Haptics.light()
-                            } label: {
-                                Label("Select Videos", systemImage: "checkmark.circle")
-                            }
-                        }
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
-                    }
-                    .accessibilityLabel("More options")
-                }
-            }
-        }
+        .toolbar { videosToolbar }
         .fullScreenCover(isPresented: $showingRecorder) {
             DirectCameraRecorderView(athlete: athlete, game: liveGameContext)
         }
         .sheet(isPresented: $showingUploadPicker) {
             VideoRecorderView_Refactored(athlete: athlete)
+        }
+        .onChange(of: showingUploadPicker) { _, isShowing in
+            if isShowing {
+                isAwaitingImportedClip = true
+            }
         }
         .fullScreenCover(item: $selectedVideo) { video in
             VideoPlayerView(clip: video)
@@ -317,6 +331,19 @@ struct VideoClipsView: View {
         }
         .sheet(isPresented: $showingAdvancedSearch) {
             AdvancedSearchView(athlete: athlete)
+        }
+        .sheet(item: $clipToTag) { clip in
+            ImportTaggingSheet(clip: clip, athlete: athlete)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("VideoRecorded"))) { notification in
+            // Capture the most recently imported clip when it has no game context
+            if isAwaitingImportedClip, let clip = notification.object as? VideoClip, clip.game == nil {
+                // Delay slightly so the upload picker sheet can dismiss first
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                    clipToTag = clip
+                    isAwaitingImportedClip = false
+                }
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .presentVideoRecorder)) { notification in
             liveGameContext = notification.object as? Game
@@ -332,18 +359,31 @@ struct VideoClipsView: View {
         .onAppear {
             // Tell MainTabView that Videos manages its own controls
             NotificationCenter.default.post(name: .videosManageOwnControls, object: true)
+            updateAvailableSeasons()
+            updateFilteredVideos()
         }
         .onDisappear {
             // Reset when leaving Videos tab
             NotificationCenter.default.post(name: .videosManageOwnControls, object: false)
             liveGameContext = nil
         }
-        // SwiftData observation handles re-rendering when videoClips changes;
-        // no manual refreshTrigger needed.
-        .alert("Error", isPresented: $showingError) {
+        .onChange(of: searchText) { _, _ in
+            updateFilteredVideos()
+        }
+        .onChange(of: selectedSeasonFilter) { _, _ in
+            updateFilteredVideos()
+        }
+        .onChange(of: selectedUploadFilter) { _, _ in
+            updateFilteredVideos()
+        }
+        .onChange(of: athlete.videoClips?.count) { _, _ in
+            updateAvailableSeasons()
+            updateFilteredVideos()
+        }
+        .alert("Something Went Wrong", isPresented: $showingError) {
             Button("OK", role: .cancel) { }
         } message: {
-            Text(errorMessage ?? "An unknown error occurred")
+            Text(errorMessage ?? "An unexpected error occurred. Please try again.")
         }
         .confirmationDialog("Delete Video", isPresented: $showingDeleteConfirmation, presenting: videoToDelete) { video in
             Button("Delete", role: .destructive) {
@@ -375,7 +415,7 @@ struct VideoClipsView: View {
                     }
                     .padding(32)
                     .background(Color(.systemBackground))
-                    .cornerRadius(16)
+                    .cornerRadius(.cornerXLarge)
                     .shadow(radius: 20)
                 }
             }
@@ -397,26 +437,39 @@ struct VideoClipsView: View {
     }
 
     private func performDelete(_ video: VideoClip) {
+        guard !isDeleting else { return }
+        isDeleting = true
         Haptics.medium()
 
-        // Capture ID and athlete before deletion — accessing SwiftData object properties after
+        // Capture ID, game, and athlete before deletion — accessing SwiftData object properties after
         // context.delete() is undefined behavior.
         let videoID = video.id.uuidString
+        let videoGame = video.game
         let videoAthlete = video.athlete
 
         video.delete(in: modelContext)
 
-        do {
-            try modelContext.save()
-            AnalyticsService.shared.trackVideoDeleted(videoID: videoID)
+        Task {
+            do {
+                try modelContext.save()
+                AnalyticsService.shared.trackVideoDeleted(videoID: videoID)
 
-            // Recalculate athlete statistics to reflect the removed play result
-            if let athlete = videoAthlete {
-                try StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: modelContext)
+                // Recalculate game statistics first (if clip belonged to a game),
+                // then athlete statistics which aggregate from game stats.
+                if let game = videoGame {
+                    try StatisticsService.shared.recalculateGameStatistics(for: game, context: modelContext)
+                }
+                if let athlete = videoAthlete {
+                    try StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: modelContext)
+                }
+                updateAvailableSeasons()
+                updateFilteredVideos()
+                isDeleting = false
+            } catch {
+                isDeleting = false
+                errorMessage = "Could not delete this video. Please try again or restart the app if the problem continues."
+                showingError = true
             }
-        } catch {
-            errorMessage = "Failed to delete video: \(error.localizedDescription)"
-            showingError = true
         }
     }
 
@@ -434,33 +487,45 @@ struct VideoClipsView: View {
     // MARK: - Bulk Operations
 
     private func performBulkDelete() {
+        guard !isDeleting else { return }
+        isDeleting = true
         Haptics.medium()
 
         let videosToDelete = (athlete.videoClips ?? []).filter { selectedVideos.contains($0.id) }
 
-        // Capture IDs before deletion — accessing SwiftData object properties after
-        // context.delete() is undefined behavior.
+        // Capture IDs and affected games before deletion — accessing SwiftData object properties
+        // after context.delete() is undefined behavior.
         let deletedIDs = videosToDelete.map { $0.id.uuidString }
+        let affectedGames = Set(videosToDelete.compactMap { $0.game })
 
         for video in videosToDelete {
             video.delete(in: modelContext)
         }
 
-        do {
-            try modelContext.save()
-            deletedIDs.forEach { AnalyticsService.shared.trackVideoDeleted(videoID: $0) }
+        Task {
+            do {
+                try modelContext.save()
+                deletedIDs.forEach { AnalyticsService.shared.trackVideoDeleted(videoID: $0) }
 
-            // Recalculate athlete statistics to reflect the removed play results
-            try StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: modelContext)
+                // Recalculate game statistics first for any affected games,
+                // then athlete statistics which aggregate from game stats.
+                for game in affectedGames {
+                    try StatisticsService.shared.recalculateGameStatistics(for: game, context: modelContext)
+                }
+                try StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: modelContext)
 
-            Haptics.success()
-        } catch {
-            errorMessage = "Failed to delete videos: \(error.localizedDescription)"
-            showingError = true
+                updateAvailableSeasons()
+                updateFilteredVideos()
+                Haptics.success()
+            } catch {
+                errorMessage = "Could not delete the selected videos. Please try again or restart the app if the problem continues."
+                showingError = true
+            }
+
+            isDeleting = false
+            isSelectionMode = false
+            selectedVideos.removeAll()
         }
-
-        isSelectionMode = false
-        selectedVideos.removeAll()
     }
 
     private func bulkUploadSelected() {
@@ -492,10 +557,11 @@ struct VideoClipsView: View {
 
         do {
             try modelContext.save()
+            updateFilteredVideos()
             Haptics.success()
             showBulkToast("\(videosToMark.count) video\(videosToMark.count == 1 ? "" : "s") marked as highlights")
         } catch {
-            errorMessage = "Failed to mark videos as highlights: \(error.localizedDescription)"
+            errorMessage = "Could not mark videos as highlights. Your changes may not have been saved."
             showingError = true
         }
 
@@ -590,11 +656,11 @@ struct VideoClipsView: View {
 
                 LazyVGrid(
                     columns: [
-                        GridItem(.adaptive(minimum: 160, maximum: 220), spacing: 16, alignment: .top)
+                        GridItem(.adaptive(minimum: horizontalSizeClass == .regular ? 200 : 160, maximum: horizontalSizeClass == .regular ? 280 : 220), spacing: 16, alignment: .top)
                     ],
                     spacing: 16
                 ) {
-                    ForEach(filteredVideos) { video in
+                    ForEach(cachedFilteredVideos) { video in
                         VideoClipCard(
                             video: video,
                             isSelectionMode: isSelectionMode,
@@ -616,13 +682,14 @@ struct VideoClipsView: View {
                             }
                         )
                         .onAppear {
-                            if let index = filteredVideos.firstIndex(where: { $0.id == video.id }) {
-                                prefetchNearbyThumbnails(for: index, in: filteredVideos)
+                            if let index = cachedFilteredVideos.firstIndex(where: { $0.id == video.id }) {
+                                prefetchNearbyThumbnails(for: index, in: cachedFilteredVideos)
                             }
                         }
                     }
                 }
-                .padding()
+                .padding(.vertical)
+                .padding(.horizontal, horizontalSizeClass == .regular ? 32 : 16)
             }
         }
         .refreshable {
@@ -663,7 +730,7 @@ struct VideoClipCard: View {
     @State private var errorMessage: String?
     @State private var showingError = false
     @State private var showingSaveSuccess = false
-    @State private var uploadManager = UploadQueueManager.shared
+    private let uploadManager = UploadQueueManager.shared
     @State private var isPressed = false
     @State private var isSavingToPhotos = false
 
@@ -681,8 +748,9 @@ struct VideoClipCard: View {
                         cornerRadius: 0,
                         showPlayButton: !isSelectionMode,
                         showPlayResult: true,
-                        showHighlight: false,
+                        showHighlight: true,
                         showSeason: false,
+                        showContext: false,
                         fillsContainer: true
                     )
 
@@ -744,16 +812,26 @@ struct VideoClipCard: View {
                                     .fontWeight(.bold)
                                     .foregroundColor(.primary)
                                     .lineLimit(1)
+                                    .truncationMode(.tail)
+                                Spacer()
                                 if let season = video.season {
                                     SeasonBadge(season: season, fontSize: 8)
                                 }
                             }
                         } else if video.practice != nil {
                             HStack(spacing: 6) {
-                                Text("Practice")
-                                    .font(.subheadline)
-                                    .fontWeight(.bold)
-                                    .foregroundColor(.green)
+                                if let practiceDate = video.practice?.date {
+                                    Text("Practice · \(practiceDate, format: .dateTime.month(.abbreviated).day())")
+                                        .font(.subheadline)
+                                        .fontWeight(.bold)
+                                        .foregroundColor(.green)
+                                } else {
+                                    Text("Practice")
+                                        .font(.subheadline)
+                                        .fontWeight(.bold)
+                                        .foregroundColor(.green)
+                                }
+                                Spacer()
                                 if let season = video.season {
                                     SeasonBadge(season: season, fontSize: 8)
                                 }
@@ -764,6 +842,7 @@ struct VideoClipCard: View {
                                 .fontWeight(.bold)
                                 .foregroundColor(.primary)
                                 .lineLimit(1)
+                                .truncationMode(.tail)
                         } else {
                             Text("Video Clip")
                                 .font(.subheadline)
@@ -804,19 +883,10 @@ struct VideoClipCard: View {
                     .padding(.horizontal, 12)
                     .padding(.vertical, 10)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .overlay(alignment: .topTrailing) {
-                        if video.isHighlight {
-                            Image(systemName: "star.fill")
-                                .font(.system(size: 12))
-                                .foregroundColor(.yellow)
-                                .padding(.top, 10)
-                                .padding(.trailing, 12)
-                        }
-                    }
                     .background(Color(.systemGray6))
                 }
             .background(Color(.systemGray6))
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: .cornerLarge, style: .continuous))
             .shadow(color: .black.opacity(0.08), radius: 12, x: 0, y: 4)
             .shadow(color: .black.opacity(0.04), radius: 2, x: 0, y: 1)
         }
@@ -834,11 +904,13 @@ struct VideoClipCard: View {
                 Haptics.light()
                 video.isHighlight.toggle()
                 video.needsSync = true
-                do {
-                    try modelContext.save()
-                } catch {
-                    errorMessage = "Failed to toggle highlight: \(error.localizedDescription)"
-                    showingError = true
+                Task {
+                    do {
+                        try modelContext.save()
+                    } catch {
+                        errorMessage = "Could not update highlight status. Please try again."
+                        showingError = true
+                    }
                 }
             } label: {
                 Label(
@@ -888,10 +960,10 @@ struct VideoClipCard: View {
                 Label("Delete", systemImage: "trash")
             }
         }
-        .alert("Error", isPresented: $showingError) {
+        .alert("Something Went Wrong", isPresented: $showingError) {
             Button("OK", role: .cancel) { }
         } message: {
-            Text(errorMessage ?? "An unknown error occurred")
+            Text(errorMessage ?? "An unexpected error occurred. Please try again.")
         }
         .alert("Saved to Photos", isPresented: $showingSaveSuccess) {
             Button("OK") { }
@@ -909,7 +981,7 @@ struct VideoClipCard: View {
                             .foregroundColor(.secondary)
                     }
                     .padding()
-                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: .cornerLarge))
                 }
                 .allowsHitTesting(false)
             }
@@ -920,7 +992,7 @@ struct VideoClipCard: View {
 
     private func saveToPhotos() {
         guard FileManager.default.fileExists(atPath: video.resolvedFilePath) else {
-            errorMessage = "Video file not found"
+            errorMessage = "Video file not found. It may have been deleted or moved."
             showingError = true
             return
         }
@@ -932,7 +1004,7 @@ struct VideoClipCard: View {
             guard status == .authorized || status == .limited else {
                 DispatchQueue.main.async {
                     self.isSavingToPhotos = false
-                    self.errorMessage = "Photo library access denied. Please enable in Settings."
+                    self.errorMessage = "Photo library access is required to save videos. Please enable it in Settings > PlayerPath > Photos."
                     self.showingError = true
                 }
                 return
@@ -947,7 +1019,7 @@ struct VideoClipCard: View {
                         Haptics.success()
                         self.showingSaveSuccess = true
                     } else {
-                        self.errorMessage = error?.localizedDescription ?? "Failed to save video"
+                        self.errorMessage = "Could not save video to Photos. \(error?.localizedDescription ?? "Please try again.")"
                         self.showingError = true
                     }
                 }

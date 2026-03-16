@@ -35,10 +35,16 @@ class PlayerPathAppDelegate: NSObject, UIApplicationDelegate {
         
         // Set up push notifications
         setupPushNotifications(application)
-        
+
         // Prepare for future background processing (no-op for now)
         registerBackgroundTasks()
-        
+
+        // Clean up stale temp files from prior sessions (exports, orphaned imports)
+        Task.detached(priority: .utility) {
+            StorageManager.cleanupStaleExports()
+            StorageManager.cleanupOrphanedImports()
+        }
+
         return true
     }
     

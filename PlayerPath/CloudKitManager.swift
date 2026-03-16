@@ -147,7 +147,6 @@ class CloudKitManager: CloudKitManagerProtocol {
         
         isInitialized = true
 
-        print("CloudKit: Initialization complete")
     }
     
     func checkCloudKitAvailability() {
@@ -176,14 +175,12 @@ class CloudKitManager: CloudKitManagerProtocol {
                 isSignedInToiCloud = true
                 cloudKitError = nil
                 cloudKitStatus = .available
-                print("CloudKit: Successfully connected and container registered")
             } else {
                 isSignedInToiCloud = false
                 let reason = getStatusMessage(for: status)
                 cloudKitError = reason
                 cloudKitStatus = .unavailable(reason: reason)
                 isCloudKitAvailable = false
-                print("CloudKit: iCloud status - \(status)")
             }
         } catch {
             isSignedInToiCloud = false
@@ -194,7 +191,6 @@ class CloudKitManager: CloudKitManagerProtocol {
 
             cloudKitError = errorMessage
             cloudKitStatus = .unavailable(reason: errorMessage)
-            print("CloudKit: Error - \(error)")
         }
     }
     
@@ -242,7 +238,6 @@ class CloudKitManager: CloudKitManagerProtocol {
                     case .requestRateLimited:
                         // For rate limiting, wait the specified time if available
                         if let retryAfter = ckError.retryAfterSeconds, attempt < maxRetries {
-                            print("CloudKit: Rate limited, waiting \(retryAfter) seconds before retry \(attempt + 1)")
                             try await Task.sleep(for: .seconds(retryAfter))
                             continue
                         } else {
@@ -264,7 +259,6 @@ class CloudKitManager: CloudKitManagerProtocol {
                 
                 // Exponential backoff: 1s, 2s, 4s
                 let delay = pow(2.0, Double(attempt))
-                print("CloudKit: Retry attempt \(attempt + 1) after \(delay)s delay due to: \(error.localizedDescription)")
                 
                 try await Task.sleep(for: .seconds(delay))
             }
@@ -323,10 +317,8 @@ class CloudKitManager: CloudKitManagerProtocol {
     // MARK: - CloudKit Subscriptions
     
     private func setupSubscriptions() async {
-        print("CloudKit: Setting up subscriptions (requesting remote notification authorization)")
         registerForRemoteNotifications()
         await createUserPreferencesSubscription()
-        print("CloudKit: Subscriptions setup completed")
     }
     
     @MainActor
@@ -337,19 +329,14 @@ class CloudKitManager: CloudKitManagerProtocol {
         // permission is required.
         if !UIApplication.shared.isRegisteredForRemoteNotifications {
             UIApplication.shared.registerForRemoteNotifications()
-            print("CloudKit: Registered for remote notifications (silent push)")
         } else {
-            print("CloudKit: Already registered for remote notifications")
         }
         #else
-        print("CloudKit: Remote notifications not supported on this platform")
         #endif
     }
     
     private func createUserPreferencesSubscription() async {
-        print("CloudKit: Ensuring user preferences subscription exists")
         guard isCloudKitAvailable && isSignedInToiCloud else {
-            print("CloudKit: Skipping subscription creation (available=\(isCloudKitAvailable), signedIn=\(isSignedInToiCloud))")
             return
         }
         
@@ -362,7 +349,6 @@ class CloudKitManager: CloudKitManagerProtocol {
             let subscriptionID = "UserPreferencesSubscription"
             
             if existingSubscriptions.contains(where: { $0.subscriptionID == subscriptionID }) {
-                print("CloudKit: User preferences subscription already exists")
                 return
             }
             
@@ -385,10 +371,8 @@ class CloudKitManager: CloudKitManagerProtocol {
                 try await privateDatabase.save(subscription)
             }
             
-            print("CloudKit: User preferences subscription created successfully")
             
         } catch {
-            print("CloudKit: Failed to create subscription: \(error)")
         }
     }
     
@@ -408,12 +392,9 @@ class CloudKitManager: CloudKitManagerProtocol {
                 _ = try await retryCloudKitOperation {
                     try await privateDatabase.deleteSubscription(withID: subscription.subscriptionID)
                 }
-                print("CloudKit: Deleted subscription: \(subscription.subscriptionID)")
             }
             
-            print("CloudKit: All subscriptions removed")
         } catch {
-            print("CloudKit: Failed to remove subscriptions: \(error)")
             throw categorizeError(error)
         }
     }
@@ -430,9 +411,7 @@ class CloudKitManager: CloudKitManagerProtocol {
             // Recreate the user preferences subscription
             await createUserPreferencesSubscription()
             
-            print("CloudKit: Subscriptions refreshed successfully")
         } catch {
-            print("CloudKit: Failed to refresh subscriptions: \(error)")
             throw error
         }
     }
@@ -446,21 +425,18 @@ class CloudKitManager: CloudKitManagerProtocol {
         switch notification.notificationType {
         case .query:
             if let queryNotification = notification as? CKQueryNotification {
-                print("CloudKit: Received query notification (subscriptionID: \(queryNotification.subscriptionID ?? "nil"))")
                 await handleQueryNotification(queryNotification)
             }
         case .database:
             if let databaseNotification = notification as? CKDatabaseNotification {
-                print("CloudKit: Received database notification (subscriptionID: \(databaseNotification.subscriptionID ?? "nil"))")
                 await handleDatabaseNotification(databaseNotification)
             }
         default:
-            print("CloudKit: Received unknown notification type")
+            break
         }
     }
     
     private func handleQueryNotification(_ notification: CKQueryNotification) async {
-        print("CloudKit: Received query notification for \(notification.recordID?.recordName ?? "unknown")")
         
         // Handle UserPreferences changes
         if notification.subscriptionID == "UserPreferencesSubscription" {
@@ -469,24 +445,20 @@ class CloudKitManager: CloudKitManagerProtocol {
     }
     
     private func handleDatabaseNotification(_ notification: CKDatabaseNotification) async {
-        print("CloudKit: Received database notification")
         // Handle database-wide changes if needed
     }
     
     func registerContainer() {
         Task {
             do {
-                print("CloudKit: Attempting to register container...")
 
                 // Try to perform a simple query to test database access
                 let query = CKQuery(recordType: "TestType", predicate: NSPredicate(value: false))
                 _ = try await privateDatabase.records(matching: query, resultsLimit: 1)
 
                 cloudKitError = nil
-                print("CloudKit: Container registration test completed successfully")
             } catch {
                 cloudKitError = "Container registration failed: \(error.localizedDescription)"
-                print("CloudKit: Registration error - \(error)")
             }
         }
     }
@@ -508,7 +480,6 @@ extension CloudKitManager {
                 try await privateDatabase.record(for: recordID)
             }
             
-            print("CloudKit: Found remote preferences record")
             
             // Convert CKRecord back to UserPreferences
             let preferences = UserPreferences()
@@ -545,11 +516,9 @@ extension CloudKitManager {
         } catch {
             // If record doesn't exist, return nil (not an error)
             if let ckError = error as? CKError, ckError.code == .unknownItem {
-                print("CloudKit: No remote preferences found (first time setup)")
                 return nil
             }
             
-            print("CloudKit: Error fetching preferences: \(error)")
             let categorizedError = categorizeError(error)
             
             // Don't throw recordNotFound errors - they're expected for first-time users
@@ -585,18 +554,15 @@ extension CloudKitManager {
                     let localModified = preferences.lastModified
                     
                     if remoteModified > localModified {
-                        print("CloudKit: Remote data is newer, potential conflict detected")
                         // You could implement merge logic here or throw a specific conflict error
                         // For now, we'll proceed with local changes (last-write-wins)
                     }
                 }
                 
                 record = existingRecord
-                print("CloudKit: Found existing preferences record")
             } catch {
                 // Record doesn't exist, create new one
                 record = CKRecord(recordType: "UserPreferences", recordID: recordID)
-                print("CloudKit: Creating new preferences record")
             }
             
             // Update record with current preferences
@@ -620,14 +586,12 @@ extension CloudKitManager {
                 try await privateDatabase.save(record)
             }
             
-            print("CloudKit: Preferences successfully synced to iCloud")
             
             syncStatus = .success
             cloudKitStatus = .available
 
         } catch {
             let cloudKitError = categorizeError(error)
-            print("CloudKit: Sync failed with error: \(error)")
 
             syncStatus = .failed(cloudKitError)
             cloudKitStatus = .syncFailed(error: cloudKitError)

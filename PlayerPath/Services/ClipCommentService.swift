@@ -13,6 +13,10 @@
 import Foundation
 import FirebaseFirestore
 
+// @MainActor ensures the comment cache dictionary is never accessed
+// from multiple threads — Firestore snapshot listeners run on background
+// threads but @MainActor serializes all property access.
+
 // MARK: - Model
 
 struct ClipComment: Codable, Identifiable {
@@ -28,6 +32,7 @@ struct ClipComment: Codable, Identifiable {
 
 // MARK: - Service
 
+@MainActor
 final class ClipCommentService {
 
     static let shared = ClipCommentService()
@@ -93,6 +98,7 @@ final class ClipCommentService {
             .document(clipId)
             .collection("comments")
             .order(by: "createdAt")
+            .limit(to: 100)
             .getDocuments()
 
         let comments = snapshot.documents.compactMap { doc -> ClipComment? in
@@ -119,10 +125,10 @@ final class ClipCommentService {
             .document(clipId)
             .collection("comments")
             .order(by: "createdAt")
+            .limit(to: 100)
             .addSnapshotListener { snapshot, error in
                 guard let documents = snapshot?.documents else {
-                    if let error = error {
-                        print("❌ ClipCommentService listener error: \(error.localizedDescription)")
+                    if error != nil {
                     }
                     return
                 }

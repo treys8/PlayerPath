@@ -33,6 +33,12 @@ service cloud.firestore {
           && user.coachSubscriptionTier != "free";
     }
 
+    // Checks if the requesting user is the owner of a shared folder.
+    function isFolderOwner(folderID) {
+      let folder = get(/databases/$(database)/documents/sharedFolders/$(folderID)).data;
+      return request.auth.uid == folder.ownerAthleteID;
+    }
+
     function canAccessFolder(folderID) {
       let folder = get(/databases/$(database)/documents/sharedFolders/$(folderID)).data;
       return request.auth.uid == folder.ownerAthleteID
@@ -43,9 +49,9 @@ service cloud.firestore {
       let folder = get(/databases/$(database)/documents/sharedFolders/$(folderID)).data;
       let perms = folder.permissions[request.auth.uid];
       return request.auth.uid == folder.ownerAthleteID
-          || (permission == "upload"   && perms.canUpload  == true)
-          || (permission == "comment"  && perms.canComment == true)
-          || (permission == "delete"   && perms.canDelete  == true);
+          || (perms != null && permission == "upload"   && perms.canUpload  == true)
+          || (perms != null && permission == "comment"  && perms.canComment == true)
+          || (perms != null && permission == "delete"   && perms.canDelete  == true);
     }
 
     function isInvitationNotExpired(expiresAt) {
@@ -65,18 +71,22 @@ service cloud.firestore {
       // Only the profile owner can read their own document
       allow read: if isAuthenticated() && isOwner(userID);
 
-      // Users can create their own profile on signup
-      allow create: if isAuthenticated() && isOwner(userID);
+      // Users can create their own profile on signup.
+      // subscriptionTier must be "free" on creation — upgrades go through
+      // the syncSubscriptionTier Cloud Function after receipt validation.
+      allow create: if isAuthenticated()
+                    && isOwner(userID)
+                    && request.resource.data.subscriptionTier == "free";
 
-      // Users can update their own profile, but cannot change their role.
-      // NOTE: subscriptionTier and coachSubscriptionTier are currently writable by
-      // the client (via syncSubscriptionTiers). Ideally tier writes should go through
-      // a Cloud Function with server-side App Store receipt validation to prevent
-      // direct Firestore writes that bypass StoreKit. See: enforceStorageQuota for
-      // an example of server-side tier enforcement that would also need updating.
+      // Users can update their own profile, but cannot change their role
+      // or subscription tiers. Tier writes are handled exclusively by the
+      // syncSubscriptionTier Cloud Function (admin SDK) after server-side
+      // App Store receipt validation.
       allow update: if isAuthenticated()
                     && isOwner(userID)
-                    && request.resource.data.role == resource.data.role;
+                    && request.resource.data.role == resource.data.role
+                    && request.resource.data.subscriptionTier == resource.data.subscriptionTier
+                    && request.resource.data.coachSubscriptionTier == resource.data.coachSubscriptionTier;
 
       // Profiles are deleted via Firebase Auth / Cloud Functions, not directly
       allow delete: if false;
@@ -87,6 +97,11 @@ service cloud.firestore {
 
       match /athletes/{athleteID} {
         allow read:   if isAuthenticated() && isOwner(userID);
+        // Athlete creation is gated by tier-based limits.
+        // Free: 1, Plus: 3, Pro: 5.  Enforced via Cloud Function
+        // (athleteCountCheck) because Firestore rules cannot count
+        // subcollection documents.  Client-side checks in AddAthleteView
+        // provide the primary UX gate; the function acts as a backstop.
         allow create: if isAuthenticated() && isOwner(userID);
         allow update: if isAuthenticated() && isOwner(userID);
         allow delete: if isAuthenticated() && isOwner(userID);
@@ -188,12 +203,13 @@ service cloud.firestore {
       );
 
       // Create: personal athlete video (no sharedFolderID, uploader is owner)
-      //         OR shared folder video (uploader has folder upload permission)
+      //         OR shared folder video (uploader has permission; coaches must have active subscription)
       allow create: if isAuthenticated() && (
         (request.resource.data.uploadedBy == request.auth.uid &&
          !('sharedFolderID' in request.resource.data)) ||
         (hasPermission(request.resource.data.sharedFolderID, "upload") &&
-         request.resource.data.uploadedBy == request.auth.uid)
+         request.resource.data.uploadedBy == request.auth.uid &&
+         (isFolderOwner(request.resource.data.sharedFolderID) || hasCoachTier()))
       );
 
       // Only the uploader can update their own video.
@@ -222,13 +238,19 @@ service cloud.firestore {
               && canAccessFolder(getVideoData(videoID).sharedFolderID))
         );
 
-        // Create: authenticated user posting as themselves
+        // Create: authenticated user posting as themselves with required fields
         allow create: if isAuthenticated()
-                      && request.resource.data.authorId == request.auth.uid;
+                      && request.resource.data.authorId == request.auth.uid
+                      && request.resource.data.keys().hasAll(['authorId', 'content', 'createdAt']);
 
-        // Update/delete: only the comment author
-        allow update, delete: if isAuthenticated()
-                               && resource.data.authorId == request.auth.uid;
+        // Update: only the comment author, authorId must remain unchanged
+        allow update: if isAuthenticated()
+                      && resource.data.authorId == request.auth.uid
+                      && request.resource.data.authorId == resource.data.authorId;
+
+        // Delete: only the comment author
+        allow delete: if isAuthenticated()
+                      && resource.data.authorId == request.auth.uid;
       }
 
       // ======================================================================
@@ -241,15 +263,20 @@ service cloud.firestore {
                     && 'sharedFolderID' in getVideoData(videoID)
                     && canAccessFolder(getVideoData(videoID).sharedFolderID);
 
-        // Create: user posting as themselves with comment permission
+        // Create: user posting as themselves with comment permission and required fields.
+        // Video owner (athlete) can always annotate; coaches need an active subscription.
         allow create: if isAuthenticated()
                       && request.resource.data.userID == request.auth.uid
+                      && request.resource.data.keys().hasAll(['userID', 'text', 'timestamp'])
                       && 'sharedFolderID' in getVideoData(videoID)
-                      && hasPermission(getVideoData(videoID).sharedFolderID, "comment");
+                      && hasPermission(getVideoData(videoID).sharedFolderID, "comment")
+                      && (isFolderOwner(getVideoData(videoID).sharedFolderID)
+                          || hasCoachTier());
 
-        // Users can edit their own annotations
+        // Users can edit their own annotations, userID must remain unchanged
         allow update: if isAuthenticated()
-                      && resource.data.userID == request.auth.uid;
+                      && resource.data.userID == request.auth.uid
+                      && request.resource.data.userID == resource.data.userID;
 
         // Users can delete their own annotations; folder owner can delete any
         allow delete: if isAuthenticated()
@@ -268,10 +295,11 @@ service cloud.firestore {
       // Only the recipient can read their notifications
       allow read:   if isAuthenticated() && isOwner(userID);
 
-      // Authenticated users can create notifications, but must identify themselves
-      // as the sender to prevent spoofing
+      // Authenticated users can create notifications for a specific recipient,
+      // must identify themselves as sender, and include required fields
       allow create: if isAuthenticated()
-                    && request.resource.data.senderID == request.auth.uid;
+                    && request.resource.data.senderID == request.auth.uid
+                    && request.resource.data.keys().hasAll(['senderID', 'type', 'message', 'createdAt']);
 
       // Only the recipient can mark notifications as read
       allow update: if isAuthenticated() && isOwner(userID);

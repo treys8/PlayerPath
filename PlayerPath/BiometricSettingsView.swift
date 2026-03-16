@@ -15,8 +15,6 @@ struct BiometricSettingsView: View {
     @State private var showingEnableSheet = false
     @State private var showingDisableConfirmation = false
     @State private var tempEmail = ""
-    @State private var tempPassword = ""
-    @State private var showPassword = false
     @State private var errorMessage: String?
 
     var body: some View {
@@ -62,7 +60,7 @@ struct BiometricSettingsView: View {
                 Text("Security")
             } footer: {
                 if biometricManager.isBiometricEnabled {
-                    Text("Your credentials are securely stored in the Keychain and can only be accessed with \(biometricManager.biometricTypeName).")
+                    Text("\(biometricManager.biometricTypeName) is used to verify your identity. Your existing Firebase session handles authentication.")
                 }
             }
 
@@ -72,7 +70,7 @@ struct BiometricSettingsView: View {
                         Image(systemName: "lock.shield.fill")
                             .foregroundColor(.green)
                             .frame(width: 28)
-                        Text("Credentials are encrypted and stored in the system Keychain")
+                        Text("No passwords are stored on this device")
                             .font(.subheadline)
                             .foregroundColor(.secondary)
                     }
@@ -80,7 +78,7 @@ struct BiometricSettingsView: View {
                         Image(systemName: "key.fill")
                             .foregroundColor(.blue)
                             .frame(width: 28)
-                        Text("Only accessible with \(biometricManager.biometricTypeName) or your device passcode")
+                        Text("\(biometricManager.biometricTypeName) verifies your identity using your existing sign-in session")
                             .font(.subheadline)
                             .foregroundColor(.secondary)
                     }
@@ -99,8 +97,6 @@ struct BiometricSettingsView: View {
             EnableBiometricSheet(
                 biometricManager: biometricManager,
                 email: $tempEmail,
-                password: $tempPassword,
-                showPassword: $showPassword,
                 errorMessage: $errorMessage,
                 onEnable: {
                     showingEnableSheet = false
@@ -130,20 +126,14 @@ struct BiometricSettingsView: View {
 private struct EnableBiometricSheet: View {
     @ObservedObject var biometricManager: BiometricAuthenticationManager
     @Binding var email: String
-    @Binding var password: String
-    @Binding var showPassword: Bool
     @Binding var errorMessage: String?
-    
+
     let onEnable: () -> Void
     let onCancel: () -> Void
-    
+
     @State private var isLoading = false
-    @FocusState private var focusedField: EnableBiometricField?
-    
-    private enum EnableBiometricField {
-        case email, password
-    }
-    
+    @FocusState private var emailFieldFocused: Bool
+
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -153,27 +143,27 @@ private struct EnableBiometricSheet: View {
                         Circle()
                             .fill(Color.blue.opacity(0.1))
                             .frame(width: 100, height: 100)
-                        
+
                         Image(systemName: biometricManager.biometricType == .faceID ? "faceid" : "touchid")
                             .font(.system(size: 50))
                             .foregroundColor(.blue)
                     }
                     .padding(.top, 20)
-                    
+
                     // Header
                     VStack(spacing: 8) {
                         Text("Enable \(biometricManager.biometricTypeName)")
                             .font(.title2)
                             .fontWeight(.bold)
-                        
-                        Text("Enter your credentials to securely enable \(biometricManager.biometricTypeName) for future sign-ins.")
+
+                        Text("Enter your email to enable \(biometricManager.biometricTypeName) for quick app access. Your existing sign-in session will be used for authentication.")
                             .font(.subheadline)
                             .foregroundColor(.secondary)
                             .multilineTextAlignment(.center)
                             .padding(.horizontal)
                     }
-                    
-                    // Credentials Form
+
+                    // Email Field
                     VStack(spacing: 16) {
                         TextField("Email", text: $email)
                             .textFieldStyle(RoundedBorderTextFieldStyle())
@@ -181,33 +171,12 @@ private struct EnableBiometricSheet: View {
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
                             .textContentType(.username)
-                            .focused($focusedField, equals: .email)
-                            .submitLabel(.next)
-                            .disabled(isLoading)
-                        
-                        HStack {
-                            Group {
-                                if showPassword {
-                                    TextField("Password", text: $password)
-                                        .textContentType(.password)
-                                } else {
-                                    SecureField("Password", text: $password)
-                                        .textContentType(.password)
-                                }
-                            }
-                            .textFieldStyle(RoundedBorderTextFieldStyle())
-                            .focused($focusedField, equals: .password)
+                            .focused($emailFieldFocused)
                             .submitLabel(.done)
                             .disabled(isLoading)
-                            
-                            Button(action: { showPassword.toggle() }) {
-                                Image(systemName: showPassword ? "eye.slash.fill" : "eye.fill")
-                                    .foregroundColor(.secondary)
-                            }
-                        }
                     }
                     .padding(.horizontal)
-                    
+
                     // Error Message
                     if let errorMessage = errorMessage {
                         HStack {
@@ -219,7 +188,7 @@ private struct EnableBiometricSheet: View {
                         }
                         .padding(.horizontal)
                     }
-                    
+
                     // Enable Button
                     Button(action: enableBiometric) {
                         HStack {
@@ -236,22 +205,22 @@ private struct EnableBiometricSheet: View {
                     .buttonStyle(.borderedProminent)
                     .disabled(!canEnable || isLoading)
                     .padding(.horizontal)
-                    
+
                     // Security Notice
                     VStack(spacing: 12) {
                         HStack(spacing: 12) {
                             Image(systemName: "lock.shield.fill")
                                 .foregroundColor(.green)
-                            Text("Your credentials are securely encrypted and stored in the Keychain")
+                            Text("No passwords are stored on this device")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                             Spacer()
                         }
-                        
+
                         HStack(spacing: 12) {
                             Image(systemName: "key.fill")
                                 .foregroundColor(.blue)
-                            Text("Only accessible with \(biometricManager.biometricTypeName)")
+                            Text("\(biometricManager.biometricTypeName) verifies your identity using your existing sign-in session")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                             Spacer()
@@ -275,41 +244,39 @@ private struct EnableBiometricSheet: View {
                 }
             }
             .onSubmit {
-                if focusedField == .email {
-                    focusedField = .password
-                } else if canEnable {
+                if canEnable {
                     enableBiometric()
                 }
             }
             .onAppear {
-                focusedField = .email
+                emailFieldFocused = true
             }
         }
     }
-    
+
     private var canEnable: Bool {
-        !email.isEmpty && !password.isEmpty && FormValidator.shared.validateEmail(email).isValid
+        !email.isEmpty && FormValidator.shared.validateEmail(email).isValid
     }
-    
+
     private func enableBiometric() {
+        guard !isLoading else { return }
         errorMessage = nil
         isLoading = true
-        
+
         Task {
             let success = await biometricManager.enableSessionBasedBiometric(
                 email: email.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
             )
-            
+
             await MainActor.run {
                 isLoading = false
-                
+
                 if success {
                     HapticManager.shared.success()
                     onEnable()
-                    
-                    // Clear sensitive data
+
+                    // Clear form data
                     email = ""
-                    password = ""
                 } else {
                     errorMessage = "Failed to enable \(biometricManager.biometricTypeName). Please try again."
                     HapticManager.shared.error()

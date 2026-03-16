@@ -69,7 +69,6 @@ class GameService {
                 }
             }
         } catch {
-            print("Error saving context after deleting game: \(error.localizedDescription)")
         }
     }
     
@@ -170,9 +169,7 @@ class GameService {
                 guard let user = userForSync else { return }
                 do {
                     try await SyncCoordinator.shared.syncGames(for: user)
-                    print("✅ Game synced to Firestore successfully")
                 } catch {
-                    print("⚠️ Failed to sync game to Firestore: \(error)")
                 }
             }
 
@@ -202,7 +199,6 @@ class GameService {
     
     func start(_ game: Game) async {
         guard let athlete = game.athlete else {
-            print("Cannot start game: no athlete found.")
             return
         }
         
@@ -231,18 +227,14 @@ class GameService {
                 guard let user = userForSync else { return }
                 do {
                     try await SyncCoordinator.shared.syncGames(for: user)
-                    print("✅ Game start synced to Firestore successfully")
                 } catch {
-                    print("⚠️ Failed to sync game start to Firestore: \(error)")
                 }
             }
 
-            print("Started game for athlete \(athlete.name).")
             NotificationCenter.default.post(name: .gameBecameLive, object: game)
             await GameAlertService.shared.requestPermissionIfNeeded()
             await GameAlertService.shared.scheduleEndGameReminder(for: game)
         } catch {
-            print("Error saving context after starting game: \(error.localizedDescription)")
         }
     }
     
@@ -263,7 +255,6 @@ class GameService {
             do {
                 try StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: modelContext, skipSave: true)
             } catch {
-                print("⚠️ Failed to recalculate athlete statistics after ending game: \(error.localizedDescription)")
             }
         }
 
@@ -285,15 +276,14 @@ class GameService {
                 guard let user = userForSync else { return }
                 do {
                     try await SyncCoordinator.shared.syncGames(for: user)
-                    print("✅ Game end synced to Firestore successfully")
                 } catch {
-                    print("⚠️ Failed to sync game end to Firestore: \(error)")
                 }
             }
 
-            print("Ended game and saved changes.")
+
+            // Track completed game for review prompt eligibility
+            ReviewPromptManager.shared.recordCompletedGame()
         } catch {
-            print("Error saving context after ending game: \(error.localizedDescription)")
         }
     }
     
@@ -315,25 +305,20 @@ class GameService {
                 game.athlete = athlete
             }
             athlete.games = athleteGames
-            print("Re-added \(orphanedGames.count) orphaned games to athlete's games.")
         }
         
         if !gamesWithWrongAthlete.isEmpty {
             for game in gamesWithWrongAthlete {
                 game.athlete = athlete
             }
-            print("Corrected athlete reference in \(gamesWithWrongAthlete.count) games.")
         }
         
         if !orphanedGames.isEmpty || !gamesWithWrongAthlete.isEmpty {
             do {
                 try modelContext.save()
-                print("Data consistency repaired and saved.")
             } catch {
-                print("Error saving context after repairing consistency: \(error.localizedDescription)")
             }
         } else {
-            print("No data consistency issues found.")
         }
     }
 }

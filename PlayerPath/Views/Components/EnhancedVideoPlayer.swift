@@ -26,6 +26,7 @@ struct EnhancedVideoPlayer: View {
     @State private var hideControlsTask: Task<Void, Never>?
     @State private var isAtEnd = false
     @Environment(\.verticalSizeClass) private var vSizeClass
+    @Environment(\.scenePhase) private var scenePhase
     private var isLandscape: Bool { vSizeClass == .compact }
 
     // Zoom
@@ -107,6 +108,25 @@ struct EnhancedVideoPlayer: View {
         .onDisappear {
             cleanup()
         }
+        .onChange(of: scenePhase) { _, newPhase in
+            if newPhase != .active {
+                // Remove time observer to prevent background CPU usage
+                if let observer = timeObserver {
+                    player.removeTimeObserver(observer)
+                    timeObserver = nil
+                }
+            } else {
+                // Re-add time observer on foreground return if not already present
+                if timeObserver == nil {
+                    let interval = CMTime(seconds: 0.5, preferredTimescale: 600)
+                    timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { time in
+                        if !isDragging {
+                            currentTime = CMTimeGetSeconds(time)
+                        }
+                    }
+                }
+            }
+        }
         .onChange(of: preloadedDuration) { _, newDuration in
             // Parent may supply the duration after the view has already appeared
             // (e.g. local-file path loads duration in the background).
@@ -148,6 +168,7 @@ struct EnhancedVideoPlayer: View {
                         .foregroundStyle(.white)
                         .shadow(color: .black.opacity(0.5), radius: 4)
                 }
+                .accessibilityLabel("Close video player")
                 .padding(16)
                 .zIndex(1)
             }
@@ -227,6 +248,8 @@ struct EnhancedVideoPlayer: View {
                 }
             )
             .tint(.white)
+            .accessibilityLabel("Video position")
+            .accessibilityValue("\(formatTime(currentTime)) of \(formatTime(duration))")
 
             HStack {
                 Text(formatTime(currentTime))
@@ -255,6 +278,7 @@ struct EnhancedVideoPlayer: View {
                     .font(isLandscape ? .body : .title2)
                     .foregroundColor(.white)
             }
+            .accessibilityLabel("Step back one frame")
 
             // Skip back 5 seconds
             Button {
@@ -265,6 +289,7 @@ struct EnhancedVideoPlayer: View {
                     .font(isLandscape ? .title3 : .title)
                     .foregroundColor(.white)
             }
+            .accessibilityLabel("Skip back 5 seconds")
 
             // Play/Pause/Replay
             Button {
@@ -276,6 +301,7 @@ struct EnhancedVideoPlayer: View {
                     .foregroundColor(.white)
                     .contentTransition(.symbolEffect(.replace))
             }
+            .accessibilityLabel(isPlaying ? "Pause" : isAtEnd ? "Replay" : "Play")
 
             // Skip forward 5 seconds
             Button {
@@ -286,6 +312,7 @@ struct EnhancedVideoPlayer: View {
                     .font(isLandscape ? .title3 : .title)
                     .foregroundColor(.white)
             }
+            .accessibilityLabel("Skip forward 5 seconds")
 
             // Frame forward
             Button {
@@ -296,6 +323,7 @@ struct EnhancedVideoPlayer: View {
                     .font(isLandscape ? .body : .title2)
                     .foregroundColor(.white)
             }
+            .accessibilityLabel("Step forward one frame")
         }
     }
 
@@ -331,6 +359,8 @@ struct EnhancedVideoPlayer: View {
                         .foregroundColor(.white)
                         .cornerRadius(8)
                 }
+                .accessibilityLabel("Speed \(speed.displayName)")
+                .accessibilityAddTraits(playbackSpeed == speed ? .isSelected : [])
             }
         }
     }
@@ -351,6 +381,8 @@ struct EnhancedVideoPlayer: View {
                 .foregroundColor(.white)
                 .clipShape(Capsule())
         }
+        .accessibilityLabel("Playback speed \(playbackSpeed.displayName)")
+        .accessibilityHint("Double tap to cycle speed")
     }
 
     // MARK: - Player Control Methods
@@ -374,7 +406,7 @@ struct EnhancedVideoPlayer: View {
         }
 
         // Add time observer
-        let interval = CMTime(seconds: 0.1, preferredTimescale: 600)
+        let interval = CMTime(seconds: 0.5, preferredTimescale: 600)
         timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { time in
             if !isDragging {
                 currentTime = CMTimeGetSeconds(time)

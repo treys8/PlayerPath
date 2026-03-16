@@ -15,7 +15,7 @@ struct InvitationDetailView: View {
 
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
-    @StateObject private var folderManager = SharedFolderManager.shared
+    @ObservedObject private var folderManager = SharedFolderManager.shared
 
     @State private var invitation: CoachInvitation?
     @State private var isLoading = true

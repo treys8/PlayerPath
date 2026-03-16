@@ -11,7 +11,7 @@ import Charts
 
 struct StatisticsView: View {
     let athlete: Athlete?
-    @EnvironmentObject private var authManager: ComprehensiveAuthManager
+    let currentTier: SubscriptionTier
 
     enum ActiveSheet: Identifiable {
         case quickEntry(Game)
@@ -83,7 +83,7 @@ struct StatisticsView: View {
                     }
 
                     // Compare seasons button (Plus+)
-                    if authManager.currentTier >= .plus {
+                    if currentTier >= .plus {
                         ToolbarItem(placement: .topBarLeading) {
                             Button {
                                 showingSeasonComparison = true
@@ -124,7 +124,7 @@ struct StatisticsView: View {
                                 Label("Add Past Game Statistics", systemImage: "plus.circle.fill")
                             }
 
-                            if statistics != nil, authManager.currentTier >= .plus {
+                            if statistics != nil, currentTier >= .plus {
                                 Divider()
 
                                 Button {
@@ -186,6 +186,7 @@ struct StatisticsView: View {
     }
 
     private func exportCSV(athlete: Athlete) {
+        guard currentTier >= .plus else { return }
         guard let stats = statistics else { return }
 
         Task {
@@ -204,6 +205,7 @@ struct StatisticsView: View {
     }
 
     private func exportPDF(athlete: Athlete) {
+        guard currentTier >= .plus else { return }
         guard let stats = statistics else { return }
 
         let selectedSeason = selectedSeasonFilter.flatMap { id in
@@ -570,7 +572,7 @@ struct ComparisonStatCard: View {
                         .fontWeight(.medium)
                         .foregroundColor(.secondary)
                     Text(careerValue)
-                        .font(.system(size: 24, weight: .bold, design: .rounded))
+                        .font(.system(.title2, design: .rounded, weight: .bold))
                         .foregroundStyle(
                             LinearGradient(
                                 colors: [color.opacity(0.7), color.opacity(0.5)],
@@ -628,11 +630,11 @@ struct ComparisonStatCard: View {
         .padding(16)
         .background(
             ZStack {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                RoundedRectangle(cornerRadius: .cornerXLarge, style: .continuous)
                     .fill(Color(uiColor: .secondarySystemGroupedBackground))
 
                 // Subtle gradient accent
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                RoundedRectangle(cornerRadius: .cornerXLarge, style: .continuous)
                     .fill(
                         LinearGradient(
                             colors: [color.opacity(0.05), .clear],
@@ -769,6 +771,7 @@ struct StatCard: View {
                     )
                 )
                 .lineLimit(1)
+                .truncationMode(.tail)
                 .minimumScaleFactor(0.7)
                 .scaleEffect(isAnimating ? 1.0 : 0.8)
                 .opacity(isAnimating ? 1.0 : 0)
@@ -785,11 +788,11 @@ struct StatCard: View {
         .background(
             ZStack {
                 // Base background
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                RoundedRectangle(cornerRadius: .cornerXLarge, style: .continuous)
                     .fill(Color(uiColor: .secondarySystemGroupedBackground))
 
                 // Subtle top gradient accent
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                RoundedRectangle(cornerRadius: .cornerXLarge, style: .continuous)
                     .fill(
                         LinearGradient(
                             colors: [color.opacity(0.1), .clear],
@@ -875,7 +878,7 @@ struct BattingChartSection: View {
                 .padding(.vertical, 12)
                 .padding(.horizontal, 16)
                 .background(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    RoundedRectangle(cornerRadius: .cornerXLarge, style: .continuous)
                         .fill(Color(uiColor: .secondarySystemGroupedBackground))
                 )
                 .shadow(color: .black.opacity(0.04), radius: 8, x: 0, y: 2)
@@ -893,7 +896,7 @@ struct BattingChartSection: View {
                 .frame(height: 100)
                 .frame(maxWidth: .infinity)
                 .background(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    RoundedRectangle(cornerRadius: .cornerXLarge, style: .continuous)
                         .fill(Color(uiColor: .secondarySystemGroupedBackground))
                 )
             }
@@ -934,7 +937,7 @@ struct DetailedStatsSection: View {
                 DetailedStatRow(label: "Fly Outs", value: "\(statistics.flyOuts)", isLast: true)
             }
             .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                RoundedRectangle(cornerRadius: .cornerXLarge, style: .continuous)
                     .fill(Color(uiColor: .secondarySystemGroupedBackground))
             )
             .shadow(color: .black.opacity(0.04), radius: 8, x: 0, y: 2)
@@ -1065,6 +1068,7 @@ struct PlayResultCard: View {
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
                 .lineLimit(2)
+                .truncationMode(.tail)
                 .minimumScaleFactor(0.8)
         }
         .frame(height: 70)
@@ -1072,11 +1076,11 @@ struct PlayResultCard: View {
         .padding(8)
         .background(
             ZStack {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                RoundedRectangle(cornerRadius: .cornerLarge, style: .continuous)
                     .fill(Color(uiColor: .secondarySystemGroupedBackground))
 
                 // Subtle color tint at bottom
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                RoundedRectangle(cornerRadius: .cornerLarge, style: .continuous)
                     .fill(
                         LinearGradient(
                             colors: [.clear, data.color.opacity(0.05)],
@@ -1136,7 +1140,7 @@ struct PitchingStatsSection: View {
                 DetailedStatRow(label: "Wild Pitches", value: "\(statistics.wildPitches)", isLast: true)
             }
             .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                RoundedRectangle(cornerRadius: .cornerXLarge, style: .continuous)
                     .fill(Color(uiColor: .secondarySystemGroupedBackground))
             )
             .shadow(color: .black.opacity(0.04), radius: 8, x: 0, y: 2)
@@ -1164,8 +1168,7 @@ struct PitchingStatsSection: View {
         athlete.statistics = stats
         return athlete
     }()
-    return NavigationStack { StatisticsView(athlete: mockAthlete) }
-        .environmentObject(ComprehensiveAuthManager())
+    return NavigationStack { StatisticsView(athlete: mockAthlete, currentTier: .free) }
 }
 
 // MARK: - Quick Statistics Entry View
@@ -1372,7 +1375,6 @@ struct QuickStatisticsEntryView: View {
             alertMessage = "Recorded \(playCount) \(pluralizedPlayType(playResultType, count: playCount)) for \(game.opponent)"
             showingAlert = true
         } catch {
-            print("Failed to save statistics: \(error)")
             alertMessage = "Failed to save statistics. Please try again."
             showingAlert = true
         }
@@ -1477,7 +1479,7 @@ struct GameRowForStats: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
                 } else {
-                    Text("Date TBD")
+                    Text("No date")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
@@ -1547,13 +1549,14 @@ struct GameRowForStats: View {
 
 // MARK: - Helper Functions
 
-/// Formats batting average and slugging percentage without leading zero
+/// Formats a rate stat in baseball style: ".325" for values < 1.0, "1.400" for SLG/OPS >= 1.0
 private func formatBattingAverage(_ value: Double) -> String {
-    let formatted = String(format: "%.3f", value)
-    if formatted.hasPrefix("0.") {
-        return String(formatted.dropFirst()) // Remove the leading "0"
-    }
-    return formatted
+    guard !value.isNaN, !value.isInfinite else { return ".000" }
+    // SLG can exceed 1.0; show full decimal in that case
+    if value >= 1.0 { return String(format: "%.3f", value) }
+    let thousandths = Int((value * 1000).rounded())
+    guard thousandths > 0 else { return ".000" }
+    return String(format: ".%03d", thousandths)
 }
 
 private func formatThreeDecimal(_ value: Double) -> String {
@@ -1565,7 +1568,7 @@ extension View {
         self
             .padding(12)
             .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                RoundedRectangle(cornerRadius: .cornerLarge, style: .continuous)
                     .fill(Color(uiColor: .secondarySystemGroupedBackground))
             )
     }
@@ -1609,7 +1612,7 @@ struct ChartsPromptCard: View {
             }
             .padding()
             .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                RoundedRectangle(cornerRadius: .cornerXLarge, style: .continuous)
                     .fill(
                         LinearGradient(
                             colors: [
@@ -1622,7 +1625,7 @@ struct ChartsPromptCard: View {
                     )
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                RoundedRectangle(cornerRadius: .cornerXLarge, style: .continuous)
                     .strokeBorder(
                         LinearGradient(
                             colors: [.blue.opacity(0.3), .purple.opacity(0.3)],

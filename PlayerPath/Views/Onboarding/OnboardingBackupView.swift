@@ -20,6 +20,9 @@ struct OnboardingBackupView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 24) {
+                    OnboardingStepIndicator(currentStep: 2, totalSteps: 3)
+                        .padding(.top, 8)
+
                     // Header with icon
                     VStack(spacing: 20) {
                         ZStack {
@@ -124,33 +127,35 @@ struct OnboardingBackupView: View {
     }
 
     private func saveAndContinue() {
+        guard !isSaving else { return }
         isSaving = true
 
         // Get or create user preferences
         let prefs = UserPreferences.shared(in: modelContext)
         prefs.autoUploadMode = selectedMode
 
-        do {
-            try modelContext.save()
+        Task {
+            do {
+                try modelContext.save()
 
-            #if DEBUG
-            print("🟢 Onboarding backup preference saved: \(selectedMode.rawValue)")
-            #endif
+                #if DEBUG
+                print("🟢 Onboarding backup preference saved: \(selectedMode.rawValue)")
+                #endif
 
-            // Now reset the new user flag - onboarding is complete
-            authManager.resetNewUserFlag()
+                // Now reset the new user flag - onboarding is complete
+                authManager.resetNewUserFlag()
 
-            #if DEBUG
-            print("🟢 Onboarding complete - new user flag reset")
-            #endif
+                #if DEBUG
+                print("🟢 Onboarding complete - new user flag reset")
+                #endif
 
-            Haptics.success()
-            isSaving = false
-        } catch {
-            isSaving = false
-            print("🔴 Failed to save backup preference: \(error)")
-            // Still complete onboarding even if save fails
-            authManager.resetNewUserFlag()
+                Haptics.success()
+                isSaving = false
+            } catch {
+                isSaving = false
+                // Still complete onboarding even if save fails
+                authManager.resetNewUserFlag()
+            }
         }
     }
 }

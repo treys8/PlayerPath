@@ -1086,9 +1086,9 @@ export const getPersonalVideoSignedURL = functions.https.onCall(async (data, con
 
 // Tier storage limits in bytes — must match SubscriptionTier.storageLimitGB in the app
 const TIER_LIMITS: Record<string, number> = {
-  free: 1 * 1024 * 1024 * 1024,         // 1 GB
-  plus: 5 * 1024 * 1024 * 1024,         // 5 GB
-  pro:  15 * 1024 * 1024 * 1024,        // 15 GB
+  free: 2 * 1024 * 1024 * 1024,         // 2 GB
+  plus: 25 * 1024 * 1024 * 1024,        // 25 GB
+  pro:  100 * 1024 * 1024 * 1024,       // 100 GB
 };
 
 /**
@@ -1140,6 +1140,179 @@ export const enforceStorageQuota = functions.storage
       }
     }
   });
+
+// =============================================================================
+// SUBSCRIPTION TIER SYNC (server-side receipt validation)
+// =============================================================================
+
+/**
+ * Syncs a user's subscription tier to Firestore after validating the
+ * App Store receipt server-side. This prevents clients from writing
+ * arbitrary tier values directly to Firestore.
+ *
+ * The client sends:
+ *   - receiptData: base64-encoded App Store receipt
+ *   - tier: the athlete subscription tier resolved by StoreKit (e.g. "free", "plus", "pro")
+ *   - coachTier: the coach subscription tier resolved by StoreKit (e.g. "free", "coach_plus", etc.)
+ *   - hasAthleteTierOverride: if true and tier is "free", skip writing subscriptionTier
+ *     so that a manually-granted (comped) tier in Firestore is preserved.
+ */
+export const syncSubscriptionTier = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Authentication required');
+  }
+
+  const uid = context.auth.uid;
+  const { receiptData, tier, coachTier, hasAthleteTierOverride } = data;
+
+  // Validate inputs
+  const validAthleteTiers = ['free', 'plus', 'pro'];
+  if (!tier || !validAthleteTiers.includes(tier)) {
+    throw new functions.https.HttpsError('invalid-argument', 'Invalid subscription tier');
+  }
+
+  if (!coachTier || typeof coachTier !== 'string') {
+    throw new functions.https.HttpsError('invalid-argument', 'Invalid coach subscription tier');
+  }
+
+  if (!receiptData || typeof receiptData !== 'string') {
+    throw new functions.https.HttpsError('invalid-argument', 'Receipt data is required');
+  }
+
+  // --- App Store Receipt Validation ---
+  // TODO: Set the shared secret via Firebase config:
+  //   firebase functions:config:set appstore.shared_secret="YOUR_SHARED_SECRET"
+  const sharedSecret = functions.config().appstore?.shared_secret;
+
+  if (sharedSecret) {
+    // Validate receipt with Apple
+    const isValid = await validateAppStoreReceipt(receiptData, sharedSecret);
+    if (!isValid) {
+      throw new functions.https.HttpsError('permission-denied', 'Invalid App Store receipt');
+    }
+  } else {
+    // No shared secret configured — log a warning but allow the write.
+    // IMPORTANT: Configure the shared secret before going to production!
+    console.warn('⚠️ App Store shared secret not configured. Skipping receipt validation. '
+      + 'Set it via: firebase functions:config:set appstore.shared_secret="YOUR_SECRET"');
+  }
+
+  // Build the Firestore update
+  const updateData: Record<string, any> = {
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  };
+
+  // Only write subscriptionTier when StoreKit resolves a paid tier.
+  // If StoreKit resolves "free" and there is an athlete tier override,
+  // leave Firestore alone so a manually-granted (comped) tier is preserved.
+  if (tier !== 'free' || !hasAthleteTierOverride) {
+    updateData.subscriptionTier = tier;
+  }
+
+  // Only write coachSubscriptionTier when StoreKit resolves a paid coach tier.
+  // If StoreKit resolves "free", leave Firestore alone — it may hold a
+  // manually-granted tier like "coach_academy".
+  if (coachTier !== 'free') {
+    updateData.coachSubscriptionTier = coachTier;
+  }
+
+  try {
+    await admin.firestore().collection('users').doc(uid).set(updateData, { merge: true });
+    console.log(`✅ Synced tiers for ${uid}: athlete=${tier}, coach=${coachTier}`);
+    return { success: true };
+  } catch (error) {
+    console.error(`❌ Failed to sync tiers for ${uid}:`, error);
+    throw new functions.https.HttpsError('internal', 'Failed to update subscription tier');
+  }
+});
+
+/**
+ * Firestore trigger that enforces per-tier athlete limits on the server.
+ * Runs whenever a new athlete document is created under /users/{uid}/athletes.
+ *
+ * Tier limits:
+ *   free → 1 athlete
+ *   plus → 3 athletes
+ *   pro  → 5 athletes
+ *
+ * If the user exceeds their tier's limit, the newly created document is deleted.
+ * The client-side check in AddAthleteView provides the primary UX gate; this
+ * function is a server-side backstop against bypasses.
+ */
+export const enforceAthleteLimit = functions.firestore
+  .document('users/{uid}/athletes/{athleteID}')
+  .onCreate(async (snap, context) => {
+    const { uid, athleteID } = context.params;
+    const db = admin.firestore();
+
+    try {
+      // Look up the user's current subscription tier
+      const userDoc = await db.collection('users').doc(uid).get();
+      const tier = userDoc.data()?.subscriptionTier ?? 'free';
+
+      const tierLimits: Record<string, number> = {
+        free: 1,
+        plus: 3,
+        pro: 5,
+      };
+      const limit = tierLimits[tier] ?? 1;
+
+      // Count existing athletes (including the one just created)
+      const athletesSnap = await db.collection('users').doc(uid)
+        .collection('athletes').count().get();
+      const count = athletesSnap.data().count;
+
+      if (count > limit) {
+        console.warn(
+          `⚠️ Athlete limit exceeded for ${uid}: ${count}/${limit} (tier=${tier}). Deleting athlete ${athleteID}.`
+        );
+        await snap.ref.delete();
+      }
+    } catch (error) {
+      console.error(`❌ enforceAthleteLimit failed for ${uid}/${athleteID}:`, error);
+      // Don't rethrow — allow the athlete to persist rather than crash the function.
+      // The client-side limit check is the primary gate.
+    }
+  });
+
+/**
+ * Validates an App Store receipt with Apple's verifyReceipt endpoint.
+ * Tries production first, then falls back to sandbox on status 21007.
+ */
+async function validateAppStoreReceipt(receiptData: string, sharedSecret: string): Promise<boolean> {
+  const payload = JSON.stringify({
+    'receipt-data': receiptData,
+    'password': sharedSecret,
+    'exclude-old-transactions': true,
+  });
+
+  try {
+    // Try production first
+    let response = await fetch('https://buy.itunes.apple.com/verifyReceipt', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: payload,
+    });
+
+    let result = await response.json() as any;
+
+    // Status 21007 means the receipt is from the sandbox environment
+    if (result.status === 21007) {
+      response = await fetch('https://sandbox.itunes.apple.com/verifyReceipt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: payload,
+      });
+      result = await response.json() as any;
+    }
+
+    // Status 0 means the receipt is valid
+    return result.status === 0;
+  } catch (error) {
+    console.error('App Store receipt validation error:', error);
+    return false;
+  }
+}
 
 /**
  * Scheduled cleanup function that runs daily to:

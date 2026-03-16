@@ -257,7 +257,7 @@ struct SeasonFeatureRow: View {
         return (try? ModelContainer(for: Athlete.self, Season.self)) ?? {
             // As a last resort, create an empty container using only Athlete to keep previews running
             // Note: adjust types if needed in your project
-            return try! ModelContainer(for: Athlete.self, Season.self)
+            fatalError("Failed to create ModelContainer for preview")
         }()
     }()
     
@@ -278,18 +278,22 @@ struct SeasonFeatureRow: View {
 
 #Preview("Create First Season") {
     let config = ModelConfiguration(isStoredInMemoryOnly: true)
-    let container: ModelContainer = (try? ModelContainer(for: Athlete.self, Season.self, configurations: config)) ?? (try! ModelContainer(for: Athlete.self, Season.self))
-    
+    guard let container = try? ModelContainer(for: Athlete.self, Season.self, configurations: config) else {
+        return Text("Preview unavailable")
+    }
+
     let athlete = Athlete(name: "Test Player")
     container.mainContext.insert(athlete)
-    
+
     return CreateFirstSeasonPrompt(athlete: athlete)
         .modelContainer(container)
 }
 
 #Preview("Season Recommendation Banner") {
     let config = ModelConfiguration(isStoredInMemoryOnly: true)
-    let container: ModelContainer = (try? ModelContainer(for: Athlete.self, Season.self, configurations: config)) ?? (try! ModelContainer(for: Athlete.self, Season.self))
+    guard let container = try? ModelContainer(for: Athlete.self, Season.self, configurations: config) else {
+        return VStack { Text("Preview unavailable") }
+    }
     
     let athlete = Athlete(name: "Test Player")
     container.mainContext.insert(athlete)

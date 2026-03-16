@@ -36,7 +36,7 @@ struct LoadingOverlay: View {
             }
             .padding(32)
             .background(
-                RoundedRectangle(cornerRadius: 16)
+                RoundedRectangle(cornerRadius: .cornerXLarge)
                     .fill(.ultraThinMaterial)
             )
             .shadow(radius: 10)

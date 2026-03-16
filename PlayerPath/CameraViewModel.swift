@@ -10,6 +10,7 @@ import SwiftUI
 @preconcurrency import AVFoundation
 import Combine
 
+@MainActor
 class CameraViewModel: NSObject, ObservableObject {
 
     // MARK: - Published Properties
@@ -30,14 +31,14 @@ class CameraViewModel: NSObject, ObservableObject {
 
     // MARK: - AVFoundation Properties
 
-    let captureSession = AVCaptureSession()
-    private var videoDevice: AVCaptureDevice?
-    private var audioDevice: AVCaptureDevice?
-    private var videoInput: AVCaptureDeviceInput?
-    private var audioInput: AVCaptureDeviceInput?
-    private var movieFileOutput: AVCaptureMovieFileOutput?
+    nonisolated(unsafe) let captureSession = AVCaptureSession()
+    nonisolated(unsafe) private var videoDevice: AVCaptureDevice?
+    nonisolated(unsafe) private var audioDevice: AVCaptureDevice?
+    nonisolated(unsafe) private var videoInput: AVCaptureDeviceInput?
+    nonisolated(unsafe) private var audioInput: AVCaptureDeviceInput?
+    nonisolated(unsafe) private var movieFileOutput: AVCaptureMovieFileOutput?
 
-    private var currentCameraPosition: AVCaptureDevice.Position = .back
+    nonisolated(unsafe) private var currentCameraPosition: AVCaptureDevice.Position = .back
     private var recordingStartTime: Date?
     private var recordingTimer: Timer?
     private var pulseTimer: Timer?
@@ -53,10 +54,12 @@ class CameraViewModel: NSObject, ObservableObject {
     var maxZoom: CGFloat = 10.0
     private var zoomGestureBase: CGFloat = 1.0  // Zoom captured at gesture start
     private var focusTask: Task<Void, Never>?
+    private var startupTask: Task<Void, Never>?
+    @MainActor private var hasStartedSession = false
 
     // MARK: - Constants
 
-    private enum Constants {
+    private nonisolated enum Constants {
         static let maxRecordingDuration: TimeInterval = 600 // 10 minutes
         static let warningDuration: TimeInterval = 540 // 9 minutes
         static let defaultZoom: CGFloat = 1.0
@@ -70,9 +73,14 @@ class CameraViewModel: NSObject, ObservableObject {
     init(settings: VideoRecordingSettings? = nil) {
         self.settings = settings ?? VideoRecordingSettings.shared
         super.init()
+        // Begin session setup immediately — overlaps with fullScreenCover animation
+        startupTask = Task { [weak self] in
+            await self?.startSession()
+        }
     }
 
     deinit {
+        startupTask?.cancel()
         if let observer = orientationObserver {
             NotificationCenter.default.removeObserver(observer)
         }
@@ -123,7 +131,7 @@ class CameraViewModel: NSObject, ObservableObject {
     }
 
     /// Updates an AVCaptureConnection's orientation to match the given device orientation.
-    private func updateConnectionOrientation(_ connection: AVCaptureConnection, for orientation: UIDeviceOrientation? = nil) {
+    nonisolated private func updateConnectionOrientation(_ connection: AVCaptureConnection, for orientation: UIDeviceOrientation? = nil) {
         let deviceOrientation = orientation ?? .portrait
 
         if #available(iOS 17.0, *) {
@@ -153,6 +161,9 @@ class CameraViewModel: NSObject, ObservableObject {
 
     @MainActor
     func startSession() async {
+        guard !hasStartedSession else { return }
+        hasStartedSession = true
+
         await checkPermissions()
 
         // Reset zoom baseline for fresh session
@@ -195,6 +206,9 @@ class CameraViewModel: NSObject, ObservableObject {
 
     @MainActor
     func stopSession() {
+        startupTask?.cancel()
+        startupTask = nil
+
         if isRecording {
             stopRecording()
         }
@@ -207,6 +221,7 @@ class CameraViewModel: NSObject, ObservableObject {
         }
 
         isSessionReady = false
+        hasStartedSession = false
     }
 
     // MARK: - Session Interruption Handling
@@ -221,11 +236,10 @@ class CameraViewModel: NSObject, ObservableObject {
             queue: .main
         ) { [weak self] notification in
             // Extract value from notification before crossing concurrency boundary
-            let reason = (notification.userInfo?[AVCaptureSessionInterruptionReasonKey] as? Int)
+            _ = (notification.userInfo?[AVCaptureSessionInterruptionReasonKey] as? Int)
                 .flatMap { AVCaptureSession.InterruptionReason(rawValue: $0) }
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                print("⚠️ Camera session interrupted: \(String(describing: reason))")
 
                 // If recording, stop gracefully — the delegate will receive the file
                 if self.isRecording {
@@ -240,7 +254,6 @@ class CameraViewModel: NSObject, ObservableObject {
             object: captureSession,
             queue: .main
         ) { _ in
-            print("✅ Camera session interruption ended")
         }
     }
 
@@ -278,7 +291,7 @@ class CameraViewModel: NSObject, ObservableObject {
 
     // MARK: - Camera Setup
 
-    private func setupCamera(targetFrameRate: Int) {
+    nonisolated private func setupCamera(targetFrameRate: Int) {
         // Remove existing video input
         if let existingInput = videoInput {
             captureSession.removeInput(existingInput)
@@ -356,7 +369,7 @@ class CameraViewModel: NSObject, ObservableObject {
         }
     }
 
-    private func setupAudio(audioEnabled: Bool) {
+    nonisolated private func setupAudio(audioEnabled: Bool) {
         guard audioEnabled else { return }
 
         // Remove existing audio input
@@ -366,7 +379,6 @@ class CameraViewModel: NSObject, ObservableObject {
 
         // Get microphone
         guard let microphone = AVCaptureDevice.default(for: .audio) else {
-            print("⚠️ Microphone not available")
             return
         }
 
@@ -379,11 +391,10 @@ class CameraViewModel: NSObject, ObservableObject {
                 audioInput = input
             }
         } catch {
-            print("⚠️ Failed to setup audio: \(error.localizedDescription)")
         }
     }
 
-    private func setupOutput(stabilizationMode: AVCaptureVideoStabilizationMode) {
+    nonisolated private func setupOutput(stabilizationMode: AVCaptureVideoStabilizationMode) {
         // Remove existing output
         if let existingOutput = movieFileOutput {
             captureSession.removeOutput(existingOutput)
@@ -562,7 +573,6 @@ class CameraViewModel: NSObject, ObservableObject {
                 }
                 device.unlockForConfiguration()
             } catch {
-                print("⚠️ Failed to set torch: \(error.localizedDescription)")
             }
         }
 
@@ -593,7 +603,6 @@ class CameraViewModel: NSObject, ObservableObject {
                 device.videoZoomFactor = zoom
                 device.unlockForConfiguration()
             } catch {
-                print("⚠️ Failed to set zoom: \(error.localizedDescription)")
             }
         }
     }
@@ -651,7 +660,6 @@ class CameraViewModel: NSObject, ObservableObject {
 
                 device.unlockForConfiguration()
             } catch {
-                print("⚠️ Failed to set focus: \(error.localizedDescription)")
             }
         }
     }
@@ -664,7 +672,6 @@ class CameraViewModel: NSObject, ObservableObject {
         self.isFatalError = isFatal
         showingError = true
 
-        print("🔴 Camera Error: \(message)")
 
         if isFatal {
             stopSession()
@@ -680,7 +687,6 @@ extension CameraViewModel: AVCaptureFileOutputRecordingDelegate {
         didStartRecordingTo fileURL: URL,
         from connections: [AVCaptureConnection]
     ) {
-        print("✅ Recording started: \(fileURL)")
         Task { @MainActor in
             // If stop was already requested before delegate fired, don't re-enable recording
             guard !self.stoppingRecording else { return }
@@ -700,7 +706,8 @@ extension CameraViewModel: AVCaptureFileOutputRecordingDelegate {
         error: Error?
     ) {
         if let error = error {
-            print("🔴 Recording error: \(error.localizedDescription)")
+            // Delete the partial temp file so it doesn't accumulate
+            try? FileManager.default.removeItem(at: outputFileURL)
             Task { @MainActor in
                 self.cleanupRecordingState()
                 self.handleError("Recording failed: \(error.localizedDescription)", isFatal: false)
@@ -708,7 +715,6 @@ extension CameraViewModel: AVCaptureFileOutputRecordingDelegate {
             return
         }
 
-        print("✅ Recording completed: \(outputFileURL)")
 
         // Verify file exists
         guard FileManager.default.fileExists(atPath: outputFileURL.path) else {

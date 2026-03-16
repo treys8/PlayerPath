@@ -104,7 +104,6 @@ final class AppleSignInManager: NSObject, ObservableObject {
         let errorCode = SecRandomCopyBytes(kSecRandomDefault, randomBytes.count, &randomBytes)
         if errorCode != errSecSuccess {
             // Fallback to UUID-based nonce if SecRandom fails
-            print("⚠️ SecRandomCopyBytes failed with \(errorCode), using UUID fallback")
             return UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(length).lowercased()
         }
         
@@ -146,7 +145,6 @@ final class AppleSignInManager: NSObject, ObservableObject {
             if retryableErrors.contains(nsError.code) && attempt < maxAttempts {
                 let delay = pow(2.0, Double(attempt)) // Exponential backoff
                 try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-                print("⚠️ Retrying Firebase sign in (attempt \(attempt + 1)/\(maxAttempts))")
                 return try await signInWithRetry(credential: credential, attempt: attempt + 1, maxAttempts: maxAttempts)
             }
             
@@ -202,7 +200,6 @@ extension AppleSignInManager: ASAuthorizationControllerDelegate {
                             currentNonce = nil
                             nonceTimestamp = nil
                         }
-                        print("🔴 Apple Sign In nonce expired after \(elapsed) seconds")
                         return
                     }
                 }
@@ -262,7 +259,6 @@ extension AppleSignInManager: ASAuthorizationControllerDelegate {
                     isLoading = false
                     currentNonce = nil // Clear nonce after successful use
                     nonceTimestamp = nil
-                    print("🟢 Apple Sign In successful for: \(result.user.email ?? "unknown")")
                     HapticManager.shared.authenticationSuccess()
                 }
                 
@@ -272,12 +268,11 @@ extension AppleSignInManager: ASAuthorizationControllerDelegate {
                     nonceTimestamp = nil
                     errorMessage = "Apple Sign In failed: \(error.localizedDescription)"
                     isLoading = false
-                    print("🔴 Apple Sign In error: \(error.localizedDescription)")
                 }
             }
         }
     }
-    
+
     func authorizationController(controller: ASAuthorizationController, didCompleteWithError error: Error) {
         Task { @MainActor in
             if let continuation = reAuthContinuation {
@@ -295,10 +290,9 @@ extension AppleSignInManager: ASAuthorizationControllerDelegate {
 
             // Don't show error if user cancelled
             if authError.code == ASAuthorizationError.canceled.rawValue {
-                print("User cancelled Apple Sign In")
+                // User cancelled - no action needed
             } else {
                 errorMessage = "Apple Sign In failed: \(error.localizedDescription)"
-                print("🔴 Apple Sign In error: \(error.localizedDescription)")
             }
 
             isLoading = false
@@ -349,7 +343,7 @@ struct SignInWithAppleButton: View {
                     .font(.system(size: 18, weight: .medium))
                 
                 Text("Sign \(isSignUp ? "up" : "in") with Apple")
-                    .font(.system(size: 17, weight: .medium))
+                    .font(.system(.body, weight: .medium))
             }
             .frame(maxWidth: .infinity)
             .frame(height: 50)

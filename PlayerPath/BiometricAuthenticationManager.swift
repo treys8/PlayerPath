@@ -54,66 +54,16 @@ final class BiometricAuthenticationManager: ObservableObject {
     
     // MARK: - Enable/Disable Biometric
 
-    /// ⚠️ SECURITY WARNING: This implementation stores passwords in the keychain
-    ///
-    /// **Current Implementation:**
-    /// - Stores email and password with biometric protection (kSecAccessControlBiometry)
-    /// - Passwords are encrypted but still stored locally
-    ///
-    /// **RECOMMENDED Production Approach:**
-    /// 1. Use Firebase Auth's automatic session token management
-    /// 2. Store only the user's email (not password)
-    /// 3. Use biometric auth to unlock app access, not for re-authentication
-    /// 4. Let Firebase SDK handle token refresh automatically
-    /// 5. Implement Apple's ASAuthorizationPasswordProvider for password autofill
-    ///
-    /// **Migration Path:**
-    /// - Phase 1: Current implementation (biometric-protected password storage)
-    /// - Phase 2: Migrate to session-only biometric (unlock app, use existing Firebase session)
-    /// - Phase 3: Full token-based authentication with automatic refresh
-    ///
-    /// Enable biometric authentication by storing credentials with biometric protection
-    @available(*, deprecated, message: "This method stores passwords. Migrate to session-based biometric authentication.")
-    func enableBiometric(email: String, password: String) async -> Bool {
-        do {
-            let success = try await authenticateWithBiometric(reason: "Enable \(biometricTypeName) for quick sign-in")
-            if success {
-                // TEMPORARY: Store credentials for demo purposes with biometric protection
-                // NOTE: While passwords are stored with kSecAccessControlBiometry protection,
-                // this approach should be replaced with session-based authentication
-                keychain.saveBiometricCredentials(email: email, password: password)
-                isBiometricEnabled = true
-
-                #if DEBUG
-                print("⚠️ SECURITY: Biometric enabled with password storage. Migrate to session-based auth for production.")
-                #endif
-
-                return true
-            }
-        } catch {
-            print("Failed to enable biometric: \(error)")
-        }
-        return false
-    }
-    
     func disableBiometric() {
         keychain.removeBiometricCredentials()
         isBiometricEnabled = false
     }
 
-    /// ✅ RECOMMENDED: Session-based biometric authentication
+    /// Session-based biometric authentication
     ///
-    /// This is the secure approach that should replace password storage:
-    /// - Checks if user has an active Firebase session
-    /// - Uses biometric to unlock app access
-    /// - Relies on Firebase's automatic token management
-    /// - No passwords stored locally
-    ///
-    /// **Usage:**
-    /// 1. User signs in normally (email/password or Apple Sign In)
-    /// 2. Enable session-based biometric (stores only email)
-    /// 3. On app launch, check for active session + biometric
-    /// 4. If both valid, user is authenticated without re-entering password
+    /// Checks if user has an active Firebase session, uses biometric to unlock
+    /// app access, and relies on Firebase's automatic token management.
+    /// No passwords are stored locally -- only the user's email for display.
     func enableSessionBasedBiometric(email: String) async -> Bool {
         do {
             let success = try await authenticateWithBiometric(reason: "Enable \(biometricTypeName) for quick app access")
@@ -129,7 +79,6 @@ final class BiometricAuthenticationManager: ObservableObject {
                 return true
             }
         } catch {
-            print("Failed to enable session-based biometric: \(error)")
         }
         return false
     }
@@ -143,7 +92,6 @@ final class BiometricAuthenticationManager: ObservableObject {
                 return keychain.getEmailForBiometric()
             }
         } catch {
-            print("Session-based biometric authentication failed: \(error)")
         }
         return nil
     }
@@ -156,21 +104,7 @@ final class BiometricAuthenticationManager: ObservableObject {
         
         return try await context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: reason)
     }
-    
-    /// Get stored credentials after biometric authentication
-    /// Note: This is a temporary implementation. In production, this should return
-    /// a secure session token, not the actual password.
-    func getBiometricCredentials() async -> (email: String, password: String)? {
-        do {
-            let success = try await authenticateWithBiometric(reason: "Sign in with \(biometricTypeName)")
-            if success {
-                return keychain.getBiometricCredentials()
-            }
-        } catch {
-            print("Biometric authentication failed: \(error)")
-        }
-        return nil
-    }
+
 }
 
 // MARK: - Keychain Manager for Biometric Credentials
@@ -178,56 +112,27 @@ final class BiometricAuthenticationManager: ObservableObject {
 private class KeychainManager {
     private let biometricEnabledKey = AuthConstants.UserDefaultsKeys.biometricEnabled
     private let emailKey = "com.playerpath.biometric.email"
-    private let passwordKey = "com.playerpath.biometric.password"
 
     func isBiometricEnabled() -> Bool {
         return UserDefaults.standard.bool(forKey: biometricEnabledKey)
     }
-    
-    /// SECURITY WARNING: Storing passwords in plaintext is insecure
-    /// This is a temporary implementation for demonstration purposes only.
-    /// 
-    /// Recommended Production Approach:
-    /// 1. After successful authentication, Firebase Auth provides tokens
-    /// 2. Store only the refresh token (which Firebase already handles securely)
-    /// 3. Use biometric auth to unlock access to the app, not to retrieve passwords
-    /// 4. Implement Apple's Keychain with biometric-protected items using kSecAccessControlBiometry
-    /// 5. Consider using Apple's ASAuthorizationPasswordProvider for password autofill
-    func saveBiometricCredentials(email: String, password: String) {
-        // Save biometric enabled flag
-        UserDefaults.standard.set(true, forKey: biometricEnabledKey)
-        
-        // Save email in Keychain with biometric protection
-        saveToKeychain(key: emailKey, value: email, requireBiometric: true)
-        
-        // Save password in Keychain with biometric protection
-        // ⚠️ THIS IS INSECURE - passwords should never be stored
-        saveToKeychain(key: passwordKey, value: password, requireBiometric: true)
-    }
-    
-    func getBiometricCredentials() -> (email: String, password: String)? {
-        guard let email = loadFromKeychain(key: emailKey),
-              let password = loadFromKeychain(key: passwordKey) else {
-            return nil
-        }
-        return (email, password)
-    }
-    
+
     func removeBiometricCredentials() {
         UserDefaults.standard.removeObject(forKey: biometricEnabledKey)
         deleteFromKeychain(key: emailKey)
-        deleteFromKeychain(key: passwordKey)
+        // Clean up any legacy password data that may have been stored previously
+        deleteFromKeychain(key: "com.playerpath.biometric.password")
     }
 
-    // MARK: - Session-Based Biometric (Recommended)
+    // MARK: - Session-Based Biometric
 
-    /// ✅ Secure: Save only email for session-based biometric
+    /// Save only email for session-based biometric
     func saveEmailForBiometric(email: String) {
         UserDefaults.standard.set(true, forKey: biometricEnabledKey)
         saveToKeychain(key: emailKey, value: email, requireBiometric: true)
     }
 
-    /// ✅ Secure: Get email for session-based biometric
+    /// Get email for session-based biometric
     func getEmailForBiometric() -> String? {
         return loadFromKeychain(key: emailKey)
     }
@@ -270,7 +175,6 @@ private class KeychainManager {
         
         let status = SecItemAdd(query as CFDictionary, nil)
         if status != errSecSuccess {
-            print("Error saving to keychain: \(status)")
         }
     }
     

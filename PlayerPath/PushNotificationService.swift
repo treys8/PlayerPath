@@ -380,29 +380,58 @@ final class PushNotificationService: NSObject, ObservableObject {
         }
     }
     
-    /// Schedule weekly performance summary
-    func scheduleWeeklySummary(athleteId: String) async {
+    /// Schedule weekly performance summary with real stats.
+    /// Uses a one-shot trigger for next Sunday 6 PM so stats stay fresh
+    /// when re-scheduled on each app foreground.
+    func scheduleWeeklySummary(
+        athleteId: String,
+        gamesThisWeek: Int = 0,
+        videosThisWeek: Int = 0,
+        battingAverage: Double? = nil
+    ) async {
         guard authorizationStatus == .authorized else { return }
-        
-        // Schedule for every Sunday at 6 PM
+
+        // Cancel any existing weekly summary so we replace it with fresh stats
+        cancelNotifications(withIdentifiers: ["weekly_summary_\(athleteId)"])
+
+        // Find next Sunday at 6 PM
+        let calendar = Calendar.current
         var dateComponents = DateComponents()
         dateComponents.weekday = 1 // Sunday
         dateComponents.hour = 18
         dateComponents.minute = 0
-        
-        let trigger = UNCalendarNotificationTrigger(dateMatching: dateComponents, repeats: true)
-        
+
+        guard let nextSunday = calendar.nextDate(after: Date(), matching: dateComponents, matchingPolicy: .nextTime) else {
+            return
+        }
+
+        let triggerComponents = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: nextSunday)
+        let trigger = UNCalendarNotificationTrigger(dateMatching: triggerComponents, repeats: false)
+
+        // Build a data-aware message
+        let body: String
+        if gamesThisWeek > 0, let avg = battingAverage, avg > 0 {
+            let avgFormatted = String(format: ".%03.0f", avg * 1000)
+            body = "You logged \(gamesThisWeek) game\(gamesThisWeek == 1 ? "" : "s") this week. Batting \(avgFormatted). Keep it up!"
+        } else if gamesThisWeek > 0 {
+            body = "You logged \(gamesThisWeek) game\(gamesThisWeek == 1 ? "" : "s") this week. Open the app to see your stats!"
+        } else if videosThisWeek > 0 {
+            body = "You recorded \(videosThisWeek) video\(videosThisWeek == 1 ? "" : "s") this week. Review your clips and track your progress!"
+        } else {
+            body = "No games logged this week. Record your next game to keep your stats up to date!"
+        }
+
         let success = await scheduleLocalNotification(
             identifier: "weekly_summary_\(athleteId)",
-            title: "Weekly Performance Report 📊",
-            body: "Check out your progress and see how you've improved this week!",
+            title: "Your Week in Review",
+            body: body,
             categoryIdentifier: "WEEKLY_SUMMARY",
             userInfo: ["athleteId": athleteId, "type": "weekly_summary"],
             trigger: trigger
         )
-        
+
         if success {
-            logger.info("Scheduled weekly summary for athlete: \(athleteId)")
+            logger.info("Scheduled weekly summary for athlete: \(athleteId) (next Sunday)")
         }
     }
     
@@ -485,7 +514,7 @@ final class PushNotificationService: NSObject, ObservableObject {
                 "deviceTokenUpdatedAt": FieldValue.serverTimestamp(),
                 "platform": "ios"
             ], merge: true)
-            logger.info("Stored device token in Firestore for user \(userID)")
+            logger.info("Stored device token in Firestore for user \(userID, privacy: .private)")
             return (true, false)
         } catch {
             logger.error("Failed to store device token: \(error.localizedDescription)")
@@ -502,7 +531,7 @@ final class PushNotificationService: NSObject, ObservableObject {
         try? await db.collection("users").document(userID).updateData([
             "deviceTokens": FieldValue.arrayRemove([token])
         ])
-        logger.info("Removed device token from Firestore for user \(userID)")
+        logger.info("Removed device token from Firestore for user \(userID, privacy: .private)")
     }
     
     // MARK: - Notification Settings

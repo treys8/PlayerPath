@@ -9,7 +9,7 @@ import Foundation
 import os
 import SwiftData
 
-private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.app", category: "StorageManager")
+private nonisolated let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "RZR.DT3", category: "StorageManager")
 
 struct StorageInfo {
     let availableBytes: Int64
@@ -249,6 +249,43 @@ struct StorageManager {
         }
 
         return (filesDeleted, bytesFreed)
+    }
+
+    // MARK: - Startup Temp File Cleanup
+
+    /// Removes orphaned `imported_*.mov` files left in the Documents directory
+    /// when a video import succeeded but the subsequent save failed or was cancelled.
+    nonisolated static func cleanupOrphanedImports() {
+        guard let documentsDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
+
+        let fm = FileManager.default
+        guard let contents = try? fm.contentsOfDirectory(at: documentsDir, includingPropertiesForKeys: [.creationDateKey], options: .skipsHiddenFiles) else { return }
+
+        let importedFiles = contents.filter { $0.lastPathComponent.hasPrefix("imported_") }
+        for file in importedFiles {
+            // Only delete files older than 1 hour to avoid racing with an active import
+            if let attrs = try? file.resourceValues(forKeys: [.creationDateKey]),
+               let created = attrs.creationDate,
+               Date().timeIntervalSince(created) > 3600 {
+                try? fm.removeItem(at: file)
+                logger.info("Cleaned up orphaned import: \(file.lastPathComponent)")
+            }
+        }
+    }
+
+    /// Removes stale export files (CSV, PDF, JSON) from the system temp directory.
+    /// Called on app launch to prevent accumulation from prior share sessions.
+    nonisolated static func cleanupStaleExports() {
+        let tempDir = FileManager.default.temporaryDirectory
+        let fm = FileManager.default
+        guard let contents = try? fm.contentsOfDirectory(at: tempDir, includingPropertiesForKeys: [.creationDateKey], options: .skipsHiddenFiles) else { return }
+
+        let exportExtensions: Set<String> = ["csv", "pdf", "json"]
+        let staleFiles = contents.filter { exportExtensions.contains($0.pathExtension.lowercased()) }
+        for file in staleFiles {
+            try? fm.removeItem(at: file)
+            logger.info("Cleaned up stale export: \(file.lastPathComponent)")
+        }
     }
 
     // MARK: - Formatting Helpers

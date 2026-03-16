@@ -260,13 +260,13 @@ final class Season {
         f.dateFormat = "yyyy"
         return f
     }()
-    private static let yearPattern = try! NSRegularExpression(pattern: #"\b\d{4}\b"#)
+    private static let yearPattern: NSRegularExpression? = try? NSRegularExpression(pattern: #"\b\d{4}\b"#)
 
     /// Computed display name with year range
     var displayName: String {
         // If name already contains a year (4 digits), just return it
         let range = NSRange(name.startIndex..., in: name)
-        if Self.yearPattern.firstMatch(in: name, range: range) != nil {
+        if let pattern = Self.yearPattern, pattern.firstMatch(in: name, range: range) != nil {
             return name
         }
 
@@ -645,6 +645,7 @@ final class VideoClip {
     // even if the game/season relationship cannot be re-linked on a new device.
     var gameOpponent: String?
     var gameDate: Date?
+    var practiceDate: Date?
     var seasonName: String?
     var game: Game?
     var practice: Practice?
@@ -757,6 +758,9 @@ final class VideoClip {
         if let practiceId = practice?.id.uuidString {
             data["practiceId"] = practiceId
         }
+        if let practiceDate = practiceDate ?? practice?.date {
+            data["practiceDate"] = practiceDate
+        }
         if let seasonId = season?.id.uuidString {
             data["seasonId"] = seasonId
         }
@@ -776,14 +780,12 @@ final class VideoClip {
         let absolutePath = resolvedFilePath
         if FileManager.default.fileExists(atPath: absolutePath) {
             try? FileManager.default.removeItem(atPath: absolutePath)
-            print("VideoClip: Deleted local video file: \(fileName)")
         }
 
         // Delete thumbnail file and remove from cache
         if let thumbPath = thumbnailPath {
             if FileManager.default.fileExists(atPath: thumbPath) {
                 try? FileManager.default.removeItem(atPath: thumbPath)
-                print("VideoClip: Deleted thumbnail file")
             }
 
             // Remove from cache on main actor
@@ -804,14 +806,12 @@ final class VideoClip {
                 for attempt in 1...3 {
                     do {
                         try await cloudManager.deleteAthleteVideo(fileName: capturedFileName)
-                        print("VideoClip: Deleted video from cloud: \(capturedFileName)")
                         // Only decrement quota after the Storage file is actually deleted
                         if let user = capturedUser {
                             user.cloudStorageUsedBytes = max(0, user.cloudStorageUsedBytes - fileSize)
                         }
                         return
                     } catch {
-                        print("VideoClip: Failed to delete from cloud (attempt \(attempt)/3): \(error.localizedDescription)")
                         if attempt < 3 {
                             try? await Task.sleep(for: .seconds(2))
                         }
@@ -820,8 +820,26 @@ final class VideoClip {
                 // All retries exhausted — record as pending deletion so the server-side
                 // cleanup function can remove the orphaned Storage file later.
                 // Quota is NOT freed — the dailyStorageCleanup function will handle it.
-                print("VideoClip: ❌ All deletion attempts failed for \(capturedFileName). Recording pending deletion.")
                 try? await cloudManager.recordPendingDeletion(clipId: capturedClipId, fileName: capturedFileName)
+            }
+        }
+
+        // Soft-delete Firestore metadata if previously synced
+        if let capturedFirestoreId = firestoreId {
+            Task {
+                for attempt in 1...3 {
+                    do {
+                        try await FirestoreManager.shared.deleteVideoClip(videoClipId: capturedFirestoreId)
+                        return
+                    } catch {
+                        #if DEBUG
+                        print("⚠️ Failed to delete video clip metadata from Firestore (attempt \(attempt)/3): \(error)")
+                        #endif
+                        if attempt < 3 {
+                            try? await Task.sleep(for: .seconds(2))
+                        }
+                    }
+                }
             }
         }
 
@@ -1053,7 +1071,6 @@ final class AthleteStatistics {
     func addCompletedGame() {
         self.totalGames += 1
         self.updatedAt = Date()
-        print("Statistics: Added completed game, total games now: \(self.totalGames)")
     }
     
     func addManualStatistic(singles: Int = 0, doubles: Int = 0, triples: Int = 0, homeRuns: Int = 0,
@@ -1159,7 +1176,6 @@ final class GameStatistics {
             // Pitching stats are not tracked in GameStatistics - only in AthleteStatistics
             break
         }
-        print("GameStatistics: Added play result \(playResult.rawValue). New totals - Hits: \(self.hits), At Bats: \(self.atBats)")
     }
     
     func addManualStatistic(singles: Int = 0, doubles: Int = 0, triples: Int = 0, homeRuns: Int = 0,
@@ -1409,10 +1425,8 @@ final class Photo {
                 for attempt in 1...3 {
                     do {
                         try await VideoCloudManager.shared.deleteAthletePhoto(fileName: capturedFileName)
-                        print("Photo: Deleted from cloud: \(capturedFileName)")
                         return
                     } catch {
-                        print("Photo: Failed to delete from cloud (attempt \(attempt)/3): \(error.localizedDescription)")
                         if attempt < 3 {
                             try? await Task.sleep(for: .seconds(2))
                         }

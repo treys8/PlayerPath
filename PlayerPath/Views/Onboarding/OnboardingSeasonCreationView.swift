@@ -38,6 +38,9 @@ struct OnboardingSeasonCreationView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 24) {
+                    OnboardingStepIndicator(currentStep: 1, totalSteps: 3)
+                        .padding(.top, 8)
+
                     // Header with icon
                     VStack(spacing: 16) {
                         ZStack {
@@ -245,6 +248,7 @@ struct OnboardingSeasonCreationView: View {
     }
 
     private func createSeason() {
+        guard !isCreating else { return }
         let trimmedName = seasonName.trimmingCharacters(in: .whitespaces)
         guard !trimmedName.isEmpty else {
             errorMessage = "Please enter a season name"
@@ -269,46 +273,45 @@ struct OnboardingSeasonCreationView: View {
         // Insert into context
         modelContext.insert(season)
 
-        do {
-            try modelContext.save()
+        Task {
+            do {
+                try modelContext.save()
 
-            // Track analytics
-            AnalyticsService.shared.trackSeasonCreated(
-                seasonID: season.id.uuidString,
-                sport: selectedSport.rawValue,
-                isActive: true
-            )
+                // Track analytics
+                AnalyticsService.shared.trackSeasonCreated(
+                    seasonID: season.id.uuidString,
+                    sport: selectedSport.rawValue,
+                    isActive: true
+                )
 
-            #if DEBUG
-            print("🟢 Onboarding season created: \(trimmedName)")
-            print("🟢 Proceeding to backup preferences step...")
-            #endif
+                #if DEBUG
+                print("🟢 Onboarding season created: \(trimmedName)")
+                print("🟢 Proceeding to backup preferences step...")
+                #endif
 
-            // DON'T reset new user flag here - let OnboardingBackupView do it
-            // This allows the flow to continue to the backup preferences screen
+                // DON'T reset new user flag here - let OnboardingBackupView do it
+                // This allows the flow to continue to the backup preferences screen
 
-            // Trigger sync to Firestore
-            Task {
-                guard let user = athlete.user else { return }
-                do {
-                    try await SyncCoordinator.shared.syncSeasons(for: user)
-                    print("✅ Onboarding season synced to Firestore successfully")
-                } catch {
-                    print("⚠️ Failed to sync onboarding season to Firestore: \(error)")
+                // Trigger sync to Firestore
+                Task {
+                    guard let user = athlete.user else { return }
+                    do {
+                        try await SyncCoordinator.shared.syncSeasons(for: user)
+                    } catch {
+                    }
                 }
+
+                Haptics.medium()
+                isCreating = false
+            } catch {
+                // Rollback on failure
+                modelContext.delete(season)
+                athlete.seasons?.removeAll { $0.id == season.id }
+
+                isCreating = false
+                errorMessage = "Failed to create season: \(error.localizedDescription)"
+                showingError = true
             }
-
-            Haptics.medium()
-            isCreating = false
-        } catch {
-            // Rollback on failure
-            modelContext.delete(season)
-            athlete.seasons?.removeAll { $0.id == season.id }
-
-            isCreating = false
-            errorMessage = "Failed to create season: \(error.localizedDescription)"
-            showingError = true
-            print("🔴 Failed to create onboarding season: \(error)")
         }
     }
 }

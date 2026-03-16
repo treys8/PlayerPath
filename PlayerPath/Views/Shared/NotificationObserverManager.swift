@@ -11,6 +11,7 @@ import Combine
 
 /// Manages NotificationCenter observers with automatic lifecycle handling
 /// This prevents observer duplication during view lifecycle events
+@MainActor
 final class NotificationObserverManager: ObservableObject {
     private var observers: [NSObjectProtocol] = []
 

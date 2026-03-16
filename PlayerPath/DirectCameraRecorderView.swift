@@ -33,6 +33,7 @@ struct DirectCameraRecorderView: View {
     @State private var recordedVideoURL: URL?
     @State private var trimmedVideoURL: URL?
     @State private var showingDiscardConfirmation = false
+    @State private var showingSaveError = false
 
     // Cleanup task
     @State private var saveTask: Task<Void, Never>?
@@ -67,6 +68,11 @@ struct DirectCameraRecorderView: View {
             Button("Keep Recording", role: .cancel) { }
         } message: {
             Text("This video hasn't been saved yet. Are you sure you want to discard it?")
+        }
+        .alert("Unable to Save", isPresented: $showingSaveError) {
+            Button("OK", role: .cancel) { dismiss() }
+        } message: {
+            Text("No athlete profile found. Please create an athlete profile first.")
         }
         .alert("Error", isPresented: errorBinding) {
             Button("OK", role: .cancel) {
@@ -244,9 +250,8 @@ struct DirectCameraRecorderView: View {
 
     private func saveVideoWithResult(videoURL: URL, playResult: PlayResultType?, pitchSpeed: Double? = nil, role: AthleteRole = .batter, note: String? = nil, onComplete: @escaping () -> Void) {
         guard let athlete = athlete else {
-            print("ERROR: No athlete selected for video save")
-            UINotificationFeedbackGenerator().notificationOccurred(.error)
-            onComplete() // Still dismiss UI to avoid stuck state
+            Haptics.error()
+            showingSaveError = true
             return
         }
 

@@ -129,6 +129,8 @@ struct CoachVideoUploadView: View {
                 
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Upload") {
+                        guard !viewModel.isUploading else { return }
+                        viewModel.isUploading = true
                         Task {
                             await uploadVideo()
                         }
@@ -249,7 +251,7 @@ class CoachVideoUploadViewModel: ObservableObject {
 
     func clearSelection() {
         if let url = pickerTempURL {
-            try? FileManager.default.removeItem(at: url)
+            Task.detached { try? FileManager.default.removeItem(at: url) }
             pickerTempURL = nil
         }
         selectedVideoURL = nil
@@ -283,12 +285,29 @@ class CoachVideoUploadViewModel: ObservableObject {
             errorMessage = "Missing video or folder information"
             return
         }
-        
+
         isUploading = true
         uploadComplete = false
         errorMessage = nil
         uploadProgress = 0.0
-        
+
+        // Pre-flight: verify uploader still has folder access before uploading
+        do {
+            let hasAccess = try await FirestoreManager.shared.verifyFolderAccess(
+                folderID: folderID,
+                userID: uploaderID
+            )
+            if !hasAccess {
+                errorMessage = "Your access to this folder has been revoked. You can no longer upload videos."
+                isUploading = false
+                return
+            }
+        } catch {
+            errorMessage = "Unable to verify folder access. Please check your connection and try again."
+            isUploading = false
+            return
+        }
+
         do {
             // Generate file name
             let fileName = generateFileName()
@@ -308,16 +327,13 @@ class CoachVideoUploadViewModel: ObservableObject {
                         videoFileName: fileName,
                         folderID: folderID
                     )
-                    print("✅ Thumbnail uploaded successfully")
                     
                     // Clean up local thumbnail
                     VideoFileManager.cleanup(url: URL(fileURLWithPath: localThumbnailPath))
                 } catch {
-                    print("⚠️ Thumbnail upload failed, continuing with video upload: \(error)")
                     // Continue even if thumbnail fails
                 }
             } else {
-                print("⚠️ Thumbnail generation failed, continuing with video upload")
             }
             
             uploadProgress = 0.2
@@ -364,7 +380,6 @@ class CoachVideoUploadViewModel: ObservableObject {
 
         } catch {
             errorMessage = "Upload failed: \(error.localizedDescription)"
-            print("❌ Video upload error: \(error)")
             Haptics.error()
         }
 

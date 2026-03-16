@@ -124,7 +124,7 @@
           "introductoryOffer" : null,
           "localizations" : [
             {
-              "description" : "Everything in Plus: up to 5 athletes, 15 GB storage, season comparison, and coach sharing.",
+              "description" : "Everything in Plus: up to 5 athletes, 100 GB storage, season comparison, and coach sharing.",
               "displayName" : "PlayerPath Pro (Monthly)",
               "locale" : "en_US"
             }
@@ -145,7 +145,7 @@
           "introductoryOffer" : null,
           "localizations" : [
             {
-              "description" : "Everything in Plus: up to 5 athletes, 15 GB storage, season comparison, and coach sharing. Save ~42%.",
+              "description" : "Everything in Plus: up to 5 athletes, 100 GB storage, season comparison, and coach sharing. Save ~42%.",
               "displayName" : "PlayerPath Pro (Annual)",
               "locale" : "en_US"
             }

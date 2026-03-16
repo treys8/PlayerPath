@@ -27,6 +27,8 @@ struct VideoThumbnailView: View {
 
     private let maxGenerationAttempts = 2
     private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.playerpath", category: "VideoThumbnailView")
+    private static var activeGenerations = 0
+    private static let maxConcurrentGenerations = 4
 
     // MARK: - Initializers
 
@@ -112,12 +114,15 @@ struct VideoThumbnailView: View {
                 }
             }
 
-            // Highlight star (bottom-right — bottom-left reserved for VideoClipCard's duration badge)
-            if showHighlight && clip.isHighlight {
-                VStack {
+            // Bottom-right indicators (highlight star / note icon)
+            VStack {
+                Spacer()
+                HStack(spacing: 4) {
                     Spacer()
-                    HStack {
-                        Spacer()
+                    if let note = clip.note, !note.isEmpty {
+                        noteIndicator
+                    }
+                    if showHighlight && clip.isHighlight {
                         highlightIndicator
                     }
                 }
@@ -269,6 +274,18 @@ struct VideoThumbnailView: View {
             .accessibilityHidden(true)
     }
 
+    private var noteIndicator: some View {
+        Image(systemName: "note.text")
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundColor(.white.opacity(0.9))
+            .padding(5)
+            .background(.ultraThinMaterial, in: Circle())
+            .shadow(color: .black.opacity(0.25), radius: 4, x: 0, y: 2)
+            .padding(.bottom, 8)
+            .padding(.trailing, clip.isHighlight ? 0 : 8)
+            .accessibilityLabel("Has note")
+    }
+
     @ViewBuilder
     private var seasonBadge: some View {
         VStack {
@@ -308,7 +325,12 @@ struct VideoThumbnailView: View {
             }
             return "vs \(opponent)"
         }
-        if clip.practice != nil { return "Practice" }
+        if clip.practice != nil {
+            if let date = clip.practice?.date {
+                return "Practice · \(Self.contextDateFormatter.string(from: date))"
+            }
+            return "Practice"
+        }
         return nil
     }
 
@@ -317,6 +339,7 @@ struct VideoThumbnailView: View {
             .font(.system(size: min(scaledValue(9), 11), weight: .semibold))
             .foregroundColor(.white)
             .lineLimit(1)
+            .truncationMode(.tail)
             .padding(.horizontal, min(scaledSpacing(5), 7))
             .padding(.vertical, min(scaledSpacing(2), 3))
             .background {
@@ -367,6 +390,10 @@ struct VideoThumbnailView: View {
 
     @MainActor
     private func generateMissingThumbnail() async {
+        guard Self.activeGenerations < Self.maxConcurrentGenerations else { return }
+        Self.activeGenerations += 1
+        defer { Self.activeGenerations -= 1 }
+
         generationAttempts += 1
         guard !Task.isCancelled else { return }
         guard generationAttempts <= maxGenerationAttempts else {
@@ -416,11 +443,13 @@ struct VideoThumbnailView: View {
             // Guard save — only write if the path changed to reduce concurrent save races.
             if clip.thumbnailPath != thumbnailPath {
                 clip.thumbnailPath = thumbnailPath
-                do {
-                    try modelContext.save()
-                    Self.logger.debug("Thumbnail path saved for \(self.clip.fileName, privacy: .public)")
-                } catch {
-                    Self.logger.error("Failed to save thumbnail path: \(error.localizedDescription, privacy: .public)")
+                Task {
+                    do {
+                        try modelContext.save()
+                        Self.logger.debug("Thumbnail path saved for \(self.clip.fileName, privacy: .public)")
+                    } catch {
+                        Self.logger.error("Failed to save thumbnail path: \(error.localizedDescription, privacy: .public)")
+                    }
                 }
             }
             do {

@@ -29,6 +29,7 @@ struct VideoPlayerView: View {
     @State private var downloadProgress: Double = 0.0
     @State private var showingSaveSuccess = false
     @State private var saveErrorMessage: String?
+    @State private var isSavingToPhotos = false
     @State private var videoDuration: Double?
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.modelContext) private var modelContext
@@ -78,7 +79,6 @@ struct VideoPlayerView: View {
         EnhancedVideoPlayer(player: player, preloadedDuration: videoDuration, onClose: { dismiss() })
             .accessibilityLabel("Video player")
             .onDisappear {
-                print("VideoPlayerView: VideoPlayer disappeared, pausing playback")
                 player.pause()
             }
     }
@@ -147,6 +147,19 @@ struct VideoPlayerView: View {
                         }
                         .accessibilityLabel(clip.game == nil ? "Link this video to a game" : "Change which game this video is linked to")
 
+                        Button {
+                            clip.isHighlight.toggle()
+                            clip.needsSync = true
+                            Task { try? modelContext.save() }
+                            Haptics.medium()
+                        } label: {
+                            Label(
+                                clip.isHighlight ? "Remove from Highlights" : "Add to Highlights",
+                                systemImage: clip.isHighlight ? "star.slash" : "star"
+                            )
+                        }
+                        .accessibilityLabel(clip.isHighlight ? "Remove this video from highlights" : "Add this video to highlights")
+
                         Divider()
 
                         Button {
@@ -159,8 +172,17 @@ struct VideoPlayerView: View {
                         Button {
                             saveToPhotos()
                         } label: {
-                            Label("Save to Photos", systemImage: "square.and.arrow.down")
+                            if isSavingToPhotos {
+                                Label {
+                                    Text("Saving...")
+                                } icon: {
+                                    ProgressView()
+                                }
+                            } else {
+                                Label("Save to Photos", systemImage: "square.and.arrow.down")
+                            }
                         }
+                        .disabled(isSavingToPhotos)
                         .accessibilityLabel("Save video to Photos library")
                         ShareLink(item: clip.resolvedFileURL) {
                             Label("Share Video", systemImage: "square.and.arrow.up")
@@ -195,12 +217,10 @@ struct VideoPlayerView: View {
         .onAppear {
             if !hasAppeared {
                 hasAppeared = true
-                print("VideoPlayerView: View appeared, setting up player")
                 setupTask = Task { await setupPlayer() }
             }
         }
         .onDisappear {
-            print("VideoPlayerView: View disappeared")
             setupTask?.cancel()
             setupTask = nil
             player?.pause()
@@ -260,8 +280,11 @@ struct VideoPlayerView: View {
     }
 
     private func saveToPhotos() {
+        guard !isSavingToPhotos else { return }
+        isSavingToPhotos = true
         let videoURL = clip.resolvedFileURL
         guard FileManager.default.fileExists(atPath: clip.resolvedFilePath) else {
+            isSavingToPhotos = false
             saveErrorMessage = "Video file not found"
             return
         }
@@ -269,6 +292,7 @@ struct VideoPlayerView: View {
         PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
             guard status == .authorized || status == .limited else {
                 DispatchQueue.main.async {
+                    self.isSavingToPhotos = false
                     self.saveErrorMessage = "Photo library access denied. Please enable in Settings."
                 }
                 return
@@ -278,6 +302,7 @@ struct VideoPlayerView: View {
                 PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: videoURL)
             } completionHandler: { success, error in
                 DispatchQueue.main.async {
+                    self.isSavingToPhotos = false
                     if success {
                         Haptics.success()
                         self.showingSaveSuccess = true
@@ -290,10 +315,8 @@ struct VideoPlayerView: View {
     }
 
     private func setupPlayer() async {
-        print("VideoPlayerView: Starting player setup for clip: \(clip.fileName)")
 
         guard !Task.isCancelled else {
-            print("VideoPlayerView: Setup cancelled before start")
             return
         }
 
@@ -307,15 +330,12 @@ struct VideoPlayerView: View {
         }
 
         guard !Task.isCancelled else {
-            print("VideoPlayerView: Setup cancelled after state reset")
             return
         }
 
-        print("VideoPlayerView: File path: \(clip.resolvedFilePath)")
 
         let result = await findVideoURL()
         guard let url = result.url else {
-            print("VideoPlayerView: No valid video file found")
             await MainActor.run {
                 isLoading = false
                 errorMessage = "Video file not found. It may have been moved or deleted."
@@ -324,7 +344,6 @@ struct VideoPlayerView: View {
         }
 
         guard !Task.isCancelled else {
-            print("VideoPlayerView: Setup cancelled after finding URL")
             return
         }
 
@@ -340,19 +359,15 @@ struct VideoPlayerView: View {
         let primaryURL = clip.resolvedFileURL
 
         if FileManager.default.fileExists(atPath: clip.resolvedFilePath) {
-            print("VideoPlayerView: File exists at primary path")
             return VideoURLResult(url: primaryURL, isLocal: true)
         }
 
-        print("VideoPlayerView: File not found at primary path, trying alternate")
         guard let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
-            print("VideoPlayerView: Could not access documents directory")
             return VideoURLResult(url: nil, isLocal: false)
         }
         let alternateURL = documentsPath.appendingPathComponent(clip.fileName)
 
         if FileManager.default.fileExists(atPath: alternateURL.path) {
-            print("VideoPlayerView: File found at alternate path: \(alternateURL.path)")
             return VideoURLResult(url: alternateURL, isLocal: true)
         }
 
@@ -366,7 +381,6 @@ struct VideoPlayerView: View {
                     fileName: clip.fileName
                 )) ?? cloudURL
             }
-            print("VideoPlayerView: File not found locally, attempting cloud download")
 
             await MainActor.run {
                 isDownloadingFromCloud = true
@@ -388,7 +402,7 @@ struct VideoPlayerView: View {
                     if let progress = cloudManager.downloadProgress[clipId] {
                         downloadProgress = progress
                     }
-                    try? await Task.sleep(nanoseconds: 250_000_000) // 0.25s
+                    try? await Task.sleep(nanoseconds: 1_000_000_000) // 1.0s
                 }
             }
 
@@ -404,12 +418,10 @@ struct VideoPlayerView: View {
                     isDownloadingFromCloud = false
                 }
 
-                print("VideoPlayerView: Successfully downloaded video from cloud to: \(destinationPath)")
                 return VideoURLResult(url: URL(fileURLWithPath: destinationPath), isLocal: true)
 
             } catch {
                 progressTask.cancel()
-                print("VideoPlayerView: Failed to download from cloud: \(error.localizedDescription)")
                 await MainActor.run {
                     isDownloadingFromCloud = false
                     errorMessage = "Failed to download video from cloud: \(error.localizedDescription)"
@@ -418,15 +430,12 @@ struct VideoPlayerView: View {
             }
         }
 
-        print("VideoPlayerView: No cloud URL available for download")
         return VideoURLResult(url: nil, isLocal: false)
     }
     
     private func loadPlayer(from url: URL, isLocal: Bool = false) async {
-        print("VideoPlayerView: Creating AVPlayer with URL: \(url)")
 
         guard !Task.isCancelled else {
-            print("VideoPlayerView: Load cancelled before creating player")
             return
         }
 
@@ -442,7 +451,6 @@ struct VideoPlayerView: View {
                 self.player = newPlayer
                 self.isPlayerReady = true
                 self.isLoading = false
-                print("VideoPlayerView: Local file — player shown immediately")
             }
             // Load duration in the background so EnhancedVideoPlayer's scrubber works.
             if let loadedDuration = try? await asset.load(.duration) {
@@ -456,7 +464,6 @@ struct VideoPlayerView: View {
                 let (isPlayable, loadedDuration) = try await asset.load(.isPlayable, .duration)
 
                 guard !Task.isCancelled else {
-                    print("VideoPlayerView: Load cancelled after loading asset")
                     return
                 }
 
@@ -466,23 +473,19 @@ struct VideoPlayerView: View {
                         self.isPlayerReady = true
                         self.isLoading = false
                         self.videoDuration = CMTimeGetSeconds(loadedDuration)
-                        print("VideoPlayerView: Player setup successful and ready")
                     } else {
                         self.isLoading = false
                         self.errorMessage = "Video file is not playable"
-                        print("VideoPlayerView: Player setup failed: Video is not playable")
                     }
                 }
             } catch {
                 guard !Task.isCancelled else {
-                    print("VideoPlayerView: Load cancelled during error handling")
                     return
                 }
 
                 await MainActor.run {
                     self.isLoading = false
                     self.errorMessage = "Unable to load video: \(error.localizedDescription)"
-                    print("VideoPlayerView: Player setup failed: \(self.errorMessage)")
                 }
             }
         }
@@ -778,7 +781,6 @@ struct PlayResultEditorView: View {
             Haptics.success()
             dismiss()
         } catch {
-            print("Failed to save play result: \(error)")
             Haptics.warning()
         }
     }
@@ -910,7 +912,6 @@ struct VideoTrimmerSheet: View {
                 // Note: If onExported was called, parent is responsible for cleanup
                 if let tempURL = exportedTempURL, FileManager.default.fileExists(atPath: tempURL.path) {
                     try? FileManager.default.removeItem(at: tempURL)
-                    print("VideoTrimmerSheet: Cleaned up temp file on dismiss")
                 }
             }
         }
@@ -1120,7 +1121,6 @@ struct GameLinkerView: View {
             Haptics.success()
             dismiss()
         } catch {
-            print("Failed to save game link: \(error)")
         }
     }
 }

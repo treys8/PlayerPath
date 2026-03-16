@@ -12,6 +12,8 @@ import UIKit
 struct ShareSheet: UIViewControllerRepresentable {
     let items: [Any]
     var excludedActivityTypes: [UIActivity.ActivityType]? = nil
+    /// When true, any file URLs in `items` are deleted after the share sheet is dismissed.
+    var cleanupFilesOnDismiss: Bool = true
 
     func makeUIViewController(context: Context) -> UIActivityViewController {
         let controller = UIActivityViewController(
@@ -19,6 +21,16 @@ struct ShareSheet: UIViewControllerRepresentable {
             applicationActivities: nil
         )
         controller.excludedActivityTypes = excludedActivityTypes
+
+        if cleanupFilesOnDismiss {
+            let fileURLs = items.compactMap { $0 as? URL }.filter { $0.isFileURL }
+            controller.completionWithItemsHandler = { _, _, _, _ in
+                for url in fileURLs {
+                    try? FileManager.default.removeItem(at: url)
+                }
+            }
+        }
+
         return controller
     }
 

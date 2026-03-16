@@ -61,11 +61,9 @@ final class ClipPersistenceService {
 
         // Check if migration already completed
         if UserDefaults.standard.bool(forKey: migrationKey) {
-            print("ClipPersistenceService: Video storage migration already completed")
             return
         }
 
-        print("ClipPersistenceService: Starting video storage migration from Caches to Documents...")
 
         // Get old Caches directory
         let cachesURL = try fileManager.url(
@@ -81,7 +79,6 @@ final class ClipPersistenceService {
 
         // Check if old directory exists
         guard fileManager.fileExists(atPath: oldClipsDirectory.path) else {
-            print("ClipPersistenceService: No old Caches directory found, marking migration complete")
             UserDefaults.standard.set(true, forKey: migrationKey)
             return
         }
@@ -93,7 +90,6 @@ final class ClipPersistenceService {
             options: .skipsHiddenFiles
         ).filter { $0.pathExtension.lowercased() == "mov" || $0.pathExtension.lowercased() == "mp4" }
 
-        print("ClipPersistenceService: Found \(oldVideoFiles.count) video files to migrate")
 
         var migratedCount = 0
         var failedCount = 0
@@ -126,10 +122,8 @@ final class ClipPersistenceService {
                 try context.save()
 
                 migratedCount += 1
-                print("ClipPersistenceService: Migrated \(fileName)")
 
             } catch {
-                print("ClipPersistenceService: Failed to migrate \(oldVideoURL.lastPathComponent): \(error.localizedDescription)")
                 failedCount += 1
             }
         }
@@ -145,7 +139,6 @@ final class ClipPersistenceService {
             UserDefaults.standard.set(true, forKey: migrationKey)
         }
 
-        print("ClipPersistenceService: Migration complete - \(migratedCount) succeeded, \(failedCount) failed")
     }
 
     private func uniqueDestinationURL(basedOn destinationURL: URL) -> URL {
@@ -205,7 +198,6 @@ final class ClipPersistenceService {
             throw NSError(domain: "ClipPersistence", code: -5, userInfo: [NSLocalizedDescriptionKey: "Video duration is invalid (\(durationSeconds) seconds)"])
         }
 
-        print("ClipPersistenceService: ✅ Video verified as playable - \(Int(durationSeconds))s, \(fileSize / 1024 / 1024)MB")
     }
 
     func generateThumbnail(for videoURL: URL, at time: CMTime = CMTime(seconds: 1.0, preferredTimescale: 600)) async throws -> String {
@@ -244,7 +236,6 @@ final class ClipPersistenceService {
         try jpegData.write(to: thumbnailURL)
         #endif
 
-        print("ClipPersistenceService: Generated thumbnail at \(thumbnailURL.path)")
         return thumbnailURL.path
     }
 
@@ -326,7 +317,6 @@ final class ClipPersistenceService {
         do {
             thumbnailPath = try await generateThumbnail(for: destinationURL)
         } catch {
-            print("⚠️ ClipPersistenceService: Failed to generate thumbnail: \(error.localizedDescription)")
             thumbnailPath = nil
             // Continue without thumbnail - not critical
         }
@@ -361,11 +351,9 @@ final class ClipPersistenceService {
                     gameStats.game = game
                     game.gameStats = gameStats
                     context.insert(gameStats)
-                    print("ClipPersistenceService: Created new GameStatistics for game vs \(game.opponent)")
                 }
                 if let gameStats = game.gameStats {
                     gameStats.addPlayResult(playResultType)
-                    print("ClipPersistenceService: Updated game statistics for play result: \(playResultType.rawValue)")
                 }
             } else {
                 // For practice/standalone videos: Update athlete statistics directly
@@ -374,11 +362,9 @@ final class ClipPersistenceService {
                     stats.athlete = athlete
                     athlete.statistics = stats
                     context.insert(stats)
-                    print("ClipPersistenceService: Created new Statistics for athlete \(athlete.name)")
                 }
                 if let statistics = athlete.statistics {
                     statistics.addPlayResult(playResultType)
-                    print("ClipPersistenceService: Updated athlete statistics for play result: \(playResultType.rawValue)")
                 }
             }
         }
@@ -388,16 +374,19 @@ final class ClipPersistenceService {
         if let game = game { videoClip.game = game }
         if let practice = practice { videoClip.practice = practice }
 
-        // Link video to active season BEFORE save
-        if let activeSeason = athlete.activeSeason {
-            videoClip.season = activeSeason
+        // Ensure athlete has an active season (creates default if missing),
+        // then link the video to it so clips are never orphaned without a season.
+        let activeSeason = athlete.activeSeason ?? SeasonManager.ensureActiveSeason(for: athlete, in: context)
+        if let season = activeSeason {
+            videoClip.season = season
         }
 
         // Denormalize game/season display data directly onto the clip so it survives
         // cross-device sync even if game/season relationships cannot be re-linked.
         videoClip.gameOpponent = game?.opponent
         videoClip.gameDate = game?.date
-        videoClip.seasonName = athlete.activeSeason?.displayName
+        videoClip.practiceDate = practice?.date
+        videoClip.seasonName = activeSeason?.displayName
 
         // Insert and save
         context.insert(videoClip)
@@ -441,15 +430,11 @@ final class ClipPersistenceService {
                     // Check if we should only upload highlights
                     if !preferences.syncHighlightsOnly || videoClip.isHighlight {
                         UploadQueueManager.shared.enqueue(videoClip, athlete: athlete, priority: .normal)
-                        print("ClipPersistenceService: Queued video for automatic upload: \(videoClip.fileName)")
                     } else {
-                        print("ClipPersistenceService: Skipping upload (not a highlight, highlights-only mode enabled)")
                     }
                 } else {
-                    print("ClipPersistenceService: Skipping upload (file size \(fileSizeMB)MB exceeds limit of \(preferences.maxVideoFileSize)MB)")
                 }
             } else {
-                print("ClipPersistenceService: Auto-upload disabled in preferences")
             }
         }
 
