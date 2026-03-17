@@ -51,6 +51,7 @@ struct AthleteOnboardingFlow: View {
                         Text("Welcome to PlayerPath!")
                             .font(.largeTitle)
                             .fontWeight(.bold)
+                            .fontDesign(.rounded)
                             .multilineTextAlignment(.center)
                             .minimumScaleFactor(0.8)
                             .accessibilityAddTraits(.isHeader)
@@ -82,14 +83,14 @@ struct AthleteOnboardingFlow: View {
                         icon: "calendar.badge.plus",
                         title: "Set Up Your Season",
                         description: "Organize games and track stats over time",
-                        color: .green
+                        color: .blue
                     )
 
                     FeatureHighlight(
                         icon: "icloud.and.arrow.up",
                         title: "Choose Backup Settings",
                         description: "Keep your videos safe in the cloud",
-                        color: .purple
+                        color: .blue
                     )
                 }
                 .padding(.horizontal)

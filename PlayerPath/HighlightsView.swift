@@ -682,7 +682,6 @@ struct HighlightsView: View {
                         clip.cloudURL = cloudURL
                         clip.isUploaded = true
                         clip.lastSyncDate = Date()
-                        // Update storage counter
                         if let user = athlete.user {
                             let fileSize = (try? FileManager.default.attributesOfItem(atPath: clip.resolvedFilePath)[.size] as? Int64) ?? 0
                             user.cloudStorageUsedBytes += fileSize
@@ -741,101 +740,19 @@ struct HighlightsView: View {
 
 struct EmptyHighlightsView: View {
     @Environment(\.dismiss) private var dismiss
-    @State private var isAnimating = false
-    @State private var floatOffset: CGFloat = 0
 
     var body: some View {
-        ZStack {
-            // Subtle background glow
-            Circle()
-                .fill(
-                    RadialGradient(
-                        colors: [.yellow.opacity(0.1), .clear],
-                        center: .center,
-                        startRadius: 0,
-                        endRadius: 180
-                    )
-                )
-                .frame(width: 360, height: 360)
-                .blur(radius: 50)
-                .offset(y: -40)
-
-            VStack(spacing: 28) {
-                // Floating star with glow
-                ZStack {
-                    Image(systemName: "star.fill")
-                        .font(.system(size: 64))
-                        .foregroundStyle(.yellow.opacity(0.3))
-                        .blur(radius: 15)
-
-                    Image(systemName: "star.fill")
-                        .font(.system(size: 64))
-                        .foregroundStyle(
-                            LinearGradient(
-                                colors: [.yellow, .orange.opacity(0.8)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                }
-                .offset(y: floatOffset)
-                .scaleEffect(isAnimating ? 1.0 : 0.8)
-                .opacity(isAnimating ? 1.0 : 0.0)
-
-                VStack(spacing: 10) {
-                    Text("No Highlights Yet")
-                        .font(.title3)
-                        .fontWeight(.bold)
-                        .foregroundColor(.primary)
-
-                    Text("Star your best plays!\nHits automatically become highlights")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
-                        .lineSpacing(2)
-                }
-                .opacity(isAnimating ? 1.0 : 0.0)
-                .offset(y: isAnimating ? 0 : 10)
-
-                Button {
-                    Haptics.medium()
-                    NotificationCenter.default.post(name: .switchToVideosTab, object: nil)
-                    dismiss()
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: "video.fill")
-                            .font(.body)
-                        Text("Go to Videos")
-                            .font(.subheadline)
-                            .fontWeight(.semibold)
-                    }
-                    .foregroundColor(.white)
-                    .frame(maxWidth: 200)
-                    .padding(.vertical, 14)
-                    .background(
-                        LinearGradient(
-                            colors: [.blue, .blue.opacity(0.85)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .clipShape(Capsule())
-                    .shadow(color: .blue.opacity(0.3), radius: 12, x: 0, y: 6)
-                }
-                .buttonStyle(PremiumButtonStyle())
-                .opacity(isAnimating ? 1.0 : 0.0)
-                .offset(y: isAnimating ? 0 : 20)
+        EmptyStateView(
+            systemImage: "star.fill",
+            title: "No Highlights Yet",
+            message: "Star your best plays!\nHits automatically become highlights",
+            actionTitle: "Go to Videos",
+            buttonIcon: "video.fill",
+            action: {
+                NotificationCenter.default.post(name: .switchToVideosTab, object: nil)
+                dismiss()
             }
-            .padding(.horizontal, 40)
-        }
-        .onAppear {
-            withAnimation(.spring(response: 0.8, dampingFraction: 0.7)) {
-                isAnimating = true
-            }
-            withAnimation(.easeInOut(duration: 2.5).repeatForever(autoreverses: true)) {
-                floatOffset = -8
-            }
-        }
+        )
     }
 }
 
@@ -1064,12 +981,10 @@ struct SimpleCloudProgressView: View {
         do {
             let cloudURL = try await VideoCloudManager.shared.uploadVideo(clip, athlete: athlete)
 
-            // Update clip in model context
             await MainActor.run {
                 clip.cloudURL = cloudURL
                 clip.isUploaded = true
                 clip.lastSyncDate = Date()
-                // Update storage counter
                 if let user = athlete.user {
                     let fileSize = (try? FileManager.default.attributesOfItem(atPath: clip.resolvedFilePath)[.size] as? Int64) ?? 0
                     user.cloudStorageUsedBytes += fileSize
@@ -1263,7 +1178,6 @@ struct SimpleCloudStorageView: View {
                 clip.cloudURL = cloudURL
                 clip.isUploaded = true
                 clip.lastSyncDate = Date()
-                // Update storage counter
                 if let user = athlete.user {
                     let fileSize = (try? FileManager.default.attributesOfItem(atPath: clip.resolvedFilePath)[.size] as? Int64) ?? 0
                     user.cloudStorageUsedBytes += fileSize

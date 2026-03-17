@@ -16,7 +16,7 @@ extension View {
                     .fill(.ultraThinMaterial)
                     .overlay(
                         RoundedRectangle(cornerRadius: cornerRadius)
-                            .fill(Color.white.opacity(overlayOpacity))
+                            .fill(Color(.systemBackground).opacity(overlayOpacity))
                             .blendMode(.overlay)
                     )
             )

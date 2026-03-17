@@ -797,7 +797,6 @@ final class ComprehensiveAuthManager: ObservableObject {
             isNewUser = false
             errorMessage = nil
             userRole = .athlete // Reset to default
-            UserDefaults.standard.removeObject(forKey: "LastSelectedTab")
 
             // Clear user-specific published state immediately (auth listener also does this
             // async, but clearing here eliminates any race window between accounts)

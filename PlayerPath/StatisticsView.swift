@@ -310,21 +310,21 @@ struct EmptyStatisticsView: View {
                         endRadius: 200
                     )
                 )
-                .frame(width: 400, height: 400)
+                .frame(width: 300, height: 300)
                 .blur(radius: 60)
                 .offset(y: -50)
 
-            VStack(spacing: 28) {
+            VStack(spacing: 20) {
                 // Floating icon with glow
                 ZStack {
                     // Glow effect
                     Image(systemName: "chart.bar")
-                        .font(.system(size: 72, weight: .light))
+                        .font(.system(size: 56, weight: .light))
                         .foregroundStyle(.blue.opacity(0.3))
                         .blur(radius: 20)
 
                     Image(systemName: "chart.bar")
-                        .font(.system(size: 72, weight: .light))
+                        .font(.system(size: 56, weight: .light))
                         .foregroundStyle(
                             LinearGradient(
                                 colors: [.blue, .blue.opacity(0.6)],

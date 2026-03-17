@@ -109,6 +109,8 @@ struct AdvancedSearchView: View {
             TextField("Search \(selectedContentType.displayName.lowercased())...", text: $searchText)
                 .textFieldStyle(.plain)
                 .autocorrectionDisabled()
+                .submitLabel(.search)
+                .onSubmit { updateFilteredResults() }
 
             if !searchText.isEmpty {
                 Button {

@@ -9,6 +9,7 @@ import SwiftUI
 import SwiftData
 import UserNotifications
 import Combine
+import LocalAuthentication
 import FirebaseCore
 import FirebaseFirestore
 
@@ -261,12 +262,28 @@ struct ScenePhaseSaveHandler<Content: View>: View {
 
     @Environment(\.modelContext) private var modelContext
     @State private var lastSavedPhase: ScenePhase?
+    @State private var isLocked = false
+    @State private var showLockScreen = false
+
+    private var biometricManager: BiometricAuthenticationManager { .shared }
 
     var body: some View {
-        content()
-            .onChange(of: scenePhase) { oldValue, newValue in
-                handleScenePhaseChange(from: oldValue, to: newValue)
+        ZStack {
+            content()
+
+            if showLockScreen {
+                BiometricLockScreen(onUnlock: {
+                    withAnimation(.easeOut(duration: 0.25)) {
+                        showLockScreen = false
+                        isLocked = false
+                    }
+                })
+                .transition(.opacity)
             }
+        }
+        .onChange(of: scenePhase) { oldValue, newValue in
+            handleScenePhaseChange(from: oldValue, to: newValue)
+        }
     }
 
     private func handleScenePhaseChange(from oldPhase: ScenePhase, to newPhase: ScenePhase) {
@@ -279,6 +296,10 @@ struct ScenePhaseSaveHandler<Content: View>: View {
             #if DEBUG
             print("📱 App became active")
             #endif
+
+            // Biometric unlock is handled by BiometricLockScreen.onAppear
+            // (no duplicate prompt needed here)
+
             // Refresh entitlements each time the app returns to foreground to catch
             // renewals, expirations, or revocations that occurred in the background.
             Task { await StoreKitManager.shared.updateEntitlements() }
@@ -306,6 +327,11 @@ struct ScenePhaseSaveHandler<Content: View>: View {
             print("📱 App moved to background - saving data...")
             #endif
             saveModelContext()
+            // Lock the app if biometric is enabled
+            if biometricManager.isBiometricEnabled {
+                isLocked = true
+                showLockScreen = true
+            }
             lastSavedPhase = .background
 
         @unknown default:
@@ -332,6 +358,95 @@ struct ScenePhaseSaveHandler<Content: View>: View {
             print("❌ Failed to save model context: \(error.localizedDescription)")
             #endif
             // Log the error but don't crash the app
+        }
+    }
+}
+
+// MARK: - Biometric Lock Screen
+
+private struct BiometricLockScreen: View {
+    let onUnlock: () -> Void
+    @State private var authFailed = false
+    @State private var isAuthenticating = false
+    @Environment(\.scenePhase) private var scenePhase
+
+    private var biometricManager: BiometricAuthenticationManager { .shared }
+
+    var body: some View {
+        ZStack {
+            Color(.systemBackground)
+                .ignoresSafeArea()
+
+            VStack(spacing: 24) {
+                Image(systemName: biometricManager.biometricType == .faceID ? "faceid" : "touchid")
+                    .font(.system(size: 64))
+                    .foregroundStyle(.blue)
+
+                Text("PlayerPath is Locked")
+                    .font(.title2)
+                    .fontWeight(.bold)
+
+                Text("Authenticate with \(biometricManager.biometricTypeName) to continue")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+
+                if authFailed {
+                    VStack(spacing: 12) {
+                        Button {
+                            authenticate()
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: biometricManager.biometricType == .faceID ? "faceid" : "touchid")
+                                Text("Try Again")
+                                    .fontWeight(.semibold)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 50)
+                            .background(.blue)
+                            .foregroundColor(.white)
+                            .cornerRadius(12)
+                        }
+
+                        Button {
+                            // Disable biometric and unlock. The user will need to
+                            // re-enable Face ID/Touch ID in settings if they want it again.
+                            biometricManager.disableBiometric()
+                            onUnlock()
+                        } label: {
+                            Text("Disable \(biometricManager.biometricTypeName)")
+                                .font(.subheadline)
+                                .foregroundColor(.red)
+                        }
+                    }
+                    .padding(.horizontal, 40)
+                }
+            }
+            .padding()
+        }
+        .onAppear {
+            authenticate()
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            // Re-trigger biometric when app returns to foreground
+            if newPhase == .active && !isAuthenticating {
+                authenticate()
+            }
+        }
+    }
+
+    private func authenticate() {
+        guard !isAuthenticating else { return }
+        isAuthenticating = true
+        authFailed = false
+        Task {
+            let email = await biometricManager.authenticateWithSessionBiometric()
+            isAuthenticating = false
+            if email != nil {
+                onUnlock()
+            } else {
+                authFailed = true
+            }
         }
     }
 }

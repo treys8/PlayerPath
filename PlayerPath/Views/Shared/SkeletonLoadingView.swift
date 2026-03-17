@@ -34,7 +34,7 @@ struct ShimmerModifier: ViewModifier {
                         LinearGradient(
                             gradient: Gradient(colors: [
                                 .clear,
-                                Color.white.opacity(0.3),
+                                Color.primary.opacity(0.1),
                                 .clear
                             ]),
                             startPoint: .leading,

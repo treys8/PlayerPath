@@ -54,6 +54,22 @@ struct ModernCameraView: View {
                 .ignoresSafeArea()
                 .opacity(viewModel.isSessionReady ? 1 : 0)
                 .animation(.easeInOut(duration: 0.3), value: viewModel.isSessionReady)
+                .contentShape(Rectangle())
+                .gesture(
+                    SpatialTapGesture()
+                        .onEnded { value in
+                            viewModel.handleTapToFocus(at: value.location, viewSize: geometry.size)
+                        }
+                )
+                .simultaneousGesture(
+                    MagnificationGesture()
+                        .onChanged { scale in
+                            viewModel.handleZoom(scale: scale)
+                        }
+                        .onEnded { _ in
+                            viewModel.endZoomGesture()
+                        }
+                )
 
             // Focus Reticle
             if let focusPoint = viewModel.lastFocusPoint {
@@ -76,34 +92,14 @@ struct ModernCameraView: View {
         }
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: isLandscape)
         .statusBar(hidden: true)
-        .gesture(
-            MagnificationGesture()
-                .onChanged { scale in
-                    viewModel.handleZoom(scale: scale)
-                }
-                .onEnded { _ in
-                    viewModel.endZoomGesture()
-                }
-        )
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 0)
-                .onEnded { gesture in
-                    viewModel.handleTapToFocus(at: gesture.location, viewSize: geometry.size)
-                }
-        )
-        .onAppear {
-            Task {
-                await viewModel.startSession()
-            }
-        }
         .onDisappear {
             viewModel.stopSession()
         }
         .onChange(of: scenePhase) { _, newPhase in
-            if newPhase == .active {
-                Task { await viewModel.startSession() }
-            } else {
+            if newPhase == .background {
                 viewModel.stopSession()
+            } else if newPhase == .active {
+                Task { await viewModel.startSession() }
             }
         }
         .alert("Camera Error", isPresented: $viewModel.showingError) {
@@ -117,7 +113,9 @@ struct ModernCameraView: View {
                 Text(error)
             }
         }
-        .sheet(isPresented: $showingSettings) {
+        .sheet(isPresented: $showingSettings, onDismiss: {
+            viewModel.reconfigureSession()
+        }) {
             CameraSettingsView(viewModel: viewModel)
                 .presentationDetents([.medium])
                 .presentationDragIndicator(.visible)
@@ -202,6 +200,7 @@ struct ModernCameraView: View {
                 )
         }
         .disabled(viewModel.isRecording)
+        .opacity(viewModel.isRecording ? 0.5 : 1)
     }
 
     private var flipButton: some View {
@@ -219,6 +218,7 @@ struct ModernCameraView: View {
                 )
         }
         .disabled(viewModel.isRecording)
+        .opacity(viewModel.isRecording ? 0.5 : 1)
     }
 
     private var gridButton: some View {
@@ -254,6 +254,7 @@ struct ModernCameraView: View {
                 )
         }
         .disabled(viewModel.isRecording)
+        .opacity(viewModel.isRecording ? 0.5 : 1)
     }
 
     private var recordButton: some View {
@@ -280,31 +281,28 @@ struct ModernCameraView: View {
         .opacity(viewModel.isSessionReady ? 1 : 0.5)
     }
 
-    @ViewBuilder
-    private func zoomSliderView(landscape: Bool = false) -> some View {
-        if !viewModel.isRecording {
-            ZoomSlider(
-                zoomFactor: viewModel.currentZoom,
-                minZoom: viewModel.minZoom,
-                maxZoom: viewModel.maxZoom,
-                onZoomChange: { newZoom in
-                    viewModel.setZoom(newZoom)
-                    viewModel.endZoomGesture()
-                }
+    private var zoomBadge: some View {
+        Text(String(format: "%.1f×", viewModel.currentZoom))
+            .font(.caption2)
+            .fontWeight(.semibold)
+            .foregroundColor(.white)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(
+                Capsule()
+                    .fill(.ultraThinMaterial)
             )
-            .transition(landscape ? .opacity : .move(edge: .bottom).combined(with: .opacity))
-        }
     }
 
     private var qualityText: some View {
         Text(viewModel.settings.settingsDescription)
-            .font(.caption)
-            .foregroundColor(.white.opacity(0.8))
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
+            .font(.caption2)
+            .foregroundColor(.white.opacity(0.6))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
             .background(
                 Capsule()
-                    .fill(.black.opacity(0.5))
+                    .fill(.black.opacity(0.35))
             )
     }
 
@@ -337,8 +335,7 @@ struct ModernCameraView: View {
 
             // Bottom Controls
             VStack(spacing: 16) {
-                zoomSliderView()
-                    .padding(.horizontal, 40)
+                zoomBadge
 
                 recordButton
                 qualityText
@@ -374,20 +371,18 @@ struct ModernCameraView: View {
 
             Spacer()
 
-            // Right column: zoom above, record button at vertical center, quality below
+            // Right column: quality text top, record button centered, zoom above it
             VStack(spacing: 12) {
-                Spacer()
-
-                zoomSliderView(landscape: true)
-                    .frame(maxWidth: 180)
-
-                recordButton
-
                 qualityText
 
                 Spacer()
+
+                zoomBadge
+                recordButton
+
+                Spacer()
             }
-            .padding(.trailing, 20)
+            .padding(.trailing, 12)
             .padding(.vertical, 16)
         }
         .animation(.spring(response: 0.3), value: viewModel.isRecording)
@@ -472,7 +467,9 @@ struct FocusReticleView: View {
                     scale = 1.0
                 }
 
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                Task {
+                    try? await Task.sleep(nanoseconds: 1_500_000_000)
+                    guard !Task.isCancelled else { return }
                     withAnimation(.easeOut(duration: 0.3)) {
                         opacity = 0
                     }
@@ -504,46 +501,6 @@ struct GridOverlayView: View {
             .stroke(Color.white.opacity(0.5), lineWidth: 1)
         }
         .allowsHitTesting(false)
-    }
-}
-
-// MARK: - Zoom Slider
-
-struct ZoomSlider: View {
-    let zoomFactor: CGFloat
-    let minZoom: CGFloat
-    let maxZoom: CGFloat
-    let onZoomChange: (CGFloat) -> Void
-
-    var body: some View {
-        VStack(spacing: 4) {
-            HStack(spacing: 12) {
-                Text("1×")
-                    .font(.caption)
-                    .foregroundColor(.white.opacity(0.8))
-                    .frame(width: 30)
-
-                Slider(
-                    value: Binding(
-                        get: { zoomFactor },
-                        set: { onZoomChange($0) }
-                    ),
-                    in: minZoom...maxZoom
-                )
-                .tint(.white)
-
-                Text(String(format: "%.1f×", zoomFactor))
-                    .font(.caption)
-                    .foregroundColor(.white)
-                    .frame(width: 40)
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
-        .background(
-            Capsule()
-                .fill(.ultraThinMaterial)
-        )
     }
 }
 
@@ -607,7 +564,7 @@ struct CameraSettingsView: View {
                     }
                 }
 
-                Section("File Size Estimate") {
+                Section("Info") {
                     HStack {
                         Text("Per Minute")
                         Spacer()

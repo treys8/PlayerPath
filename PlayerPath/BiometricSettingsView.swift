@@ -113,7 +113,7 @@ struct BiometricSettingsView: View {
             }
             Button("Disable", role: .destructive) {
                 biometricManager.disableBiometric()
-                HapticManager.shared.success()
+                Haptics.success()
             }
         } message: {
             Text("You'll need to sign in with your email and password next time.")
@@ -272,14 +272,14 @@ private struct EnableBiometricSheet: View {
                 isLoading = false
 
                 if success {
-                    HapticManager.shared.success()
+                    Haptics.success()
                     onEnable()
 
                     // Clear form data
                     email = ""
                 } else {
                     errorMessage = "Failed to enable \(biometricManager.biometricTypeName). Please try again."
-                    HapticManager.shared.error()
+                    Haptics.error()
                 }
             }
         }

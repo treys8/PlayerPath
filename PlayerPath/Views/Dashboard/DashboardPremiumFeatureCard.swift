@@ -13,6 +13,7 @@ struct DashboardPremiumFeatureCard: View {
     let subtitle: String
     let color: Color
     let isPremium: Bool
+    var badgeLabel: String = "PRO"
     let action: () -> Void
 
     var body: some View {
@@ -20,7 +21,7 @@ struct DashboardPremiumFeatureCard: View {
             ZStack(alignment: .topTrailing) {
                 VStack(spacing: 12) {
                     Image(systemName: icon)
-                        .font(.system(size: 32, weight: .medium))
+                        .font(.system(size: 28, weight: .medium))
                         .foregroundColor(color)
                         .symbolRenderingMode(.hierarchical)
                         .frame(maxWidth: .infinity, alignment: .center)
@@ -40,28 +41,22 @@ struct DashboardPremiumFeatureCard: View {
                         .multilineTextAlignment(.center)
                 }
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 20)
+                .padding(.vertical, 14)
                 .padding(.horizontal, 8)
 
                 // Premium badge overlay (only shown for non-premium users)
                 if !isPremium {
-                    HStack(spacing: 3) {
-                        Image(systemName: "crown.fill")
-                            .font(.caption2)
-                            .fontWeight(.bold)
-                        Text("Premium")
-                            .font(.caption2)
-                            .fontWeight(.bold)
-                    }
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(
-                        LinearGradient.premiumAccent
-                    )
-                    .clipShape(Capsule())
-                    .shadow(color: .orange.opacity(0.4), radius: 4, x: 0, y: 2)
-                    .offset(x: -6, y: 6)
+                    Text(badgeLabel)
+                        .font(.caption2)
+                        .fontWeight(.bold)
+                        .foregroundColor(.orange)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                        .background(
+                            Capsule()
+                                .fill(.orange.opacity(0.12))
+                        )
+                        .offset(x: -8, y: 8)
                 }
             }
         }

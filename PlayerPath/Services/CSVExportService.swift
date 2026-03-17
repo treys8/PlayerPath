@@ -8,8 +8,7 @@
 import Foundation
 import SwiftData
 
-@MainActor
-final class CSVExportService {
+final class CSVExportService: Sendable {
     static let shared = CSVExportService()
 
     private init() {}

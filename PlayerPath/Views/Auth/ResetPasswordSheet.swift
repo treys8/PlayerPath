@@ -16,6 +16,7 @@ struct ResetPasswordSheet: View {
     @State private var isLoading = false
     @State private var showingSuccess = false
     @State private var errorMessage: String?
+    @FocusState private var emailFocused: Bool
 
     private var isValidEmail: Bool {
         Validation.isValidEmail(resetEmail)
@@ -74,11 +75,13 @@ struct ResetPasswordSheet: View {
                         textContentType: .emailAddress,
                         autocapitalization: .never,
                         validationState: emailValidationState,
+                        submitLabel: .go,
                         onSubmit: {
                             if isValidEmail && !isLoading {
                                 sendResetEmail()
                             }
-                        }
+                        },
+                        focusedBinding: $emailFocused
                     )
 
                     if let errorMessage {
@@ -150,6 +153,7 @@ struct ResetPasswordSheet: View {
             }
             .onAppear {
                 resetEmail = email
+                emailFocused = true
             }
             .alert("Email Sent", isPresented: $showingSuccess) {
                 Button("OK") {

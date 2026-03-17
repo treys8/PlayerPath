@@ -276,7 +276,6 @@ struct UserMainFlow: View {
 
         notificationManager.observe(name: Notification.Name.showAthleteSelection) { _ in
             MainActor.assumeIsolated {
-                selectedAthlete = nil
                 showingAthleteSelection = true
             }
         }

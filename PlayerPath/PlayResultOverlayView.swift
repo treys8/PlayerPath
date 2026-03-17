@@ -19,7 +19,7 @@ struct PlayResultOverlayView: View {
     
     @State private var selectedResult: PlayResultType?
     @State private var showingConfirmation = false
-    @State private var recordingMode: AthleteRole = .batter
+    @State private var recordingMode: AthleteRole
 
     @State private var thumbnail: UIImage?
     @State private var videoMetadata: VideoMetadata?
@@ -32,6 +32,23 @@ struct PlayResultOverlayView: View {
 
     @Environment(\.verticalSizeClass) private var vSizeClass
     private var isLandscape: Bool { vSizeClass == .compact }
+
+    init(
+        videoURL: URL,
+        athlete: Athlete?,
+        game: Game?,
+        practice: Practice?,
+        onSave: @escaping (PlayResultType?, Double?, AthleteRole) -> Void,
+        onCancel: @escaping () -> Void
+    ) {
+        self.videoURL = videoURL
+        self.athlete = athlete
+        self.game = game
+        self.practice = practice
+        self.onSave = onSave
+        self.onCancel = onCancel
+        self._recordingMode = State(initialValue: athlete?.primaryRole ?? .batter)
+    }
 
     var body: some View {
         ZStack {
@@ -214,8 +231,14 @@ struct PlayResultOverlayView: View {
             Button("Save", role: .none) {
                 guard let result = selectedResult else { return }
                 isSaving = true
+                Haptics.success()
                 onSave(result, parsedPitchSpeed, recordingMode)
                 selectedResult = nil
+                // Reset after a timeout in case the parent doesn't dismiss this overlay
+                Task {
+                    try? await Task.sleep(nanoseconds: 3_000_000_000)
+                    isSaving = false
+                }
             }
             Button("Cancel", role: .cancel) {
                 selectedResult = nil
@@ -277,6 +300,10 @@ struct PlayResultOverlayView: View {
             PlayResultModePicker(selection: $recordingMode)
                 .opacity(showContent ? 1 : 0)
                 .offset(y: showContent ? 0 : 20)
+                .onChange(of: recordingMode) { _, _ in
+                    selectedResult = nil
+                    pitchSpeedFocused = false
+                }
 
             // Pitch Speed Input (pitcher mode only)
             if recordingMode == .pitcher {
@@ -944,15 +971,16 @@ struct MetadataBadge: View {
 extension PlayResultOverlayView {
     private func loadThumbnail() {
         guard thumbnail == nil else { return }
-        thumbnailTask = Task {
+        thumbnailTask = Task.detached(priority: .userInitiated) {
             let asset = AVURLAsset(url: videoURL)
             let generator = AVAssetImageGenerator(asset: asset)
             generator.appliesPreferredTrackTransform = true
-            generator.maximumSize = CGSize(width: 1080, height: 1920)
+            generator.maximumSize = CGSize(width: 360, height: 640)
             if let cgImage = try? await generator.image(at: .zero).image {
                 guard !Task.isCancelled else { return }
+                let image = UIImage(cgImage: cgImage)
                 await MainActor.run {
-                    thumbnail = UIImage(cgImage: cgImage)
+                    thumbnail = image
                 }
             }
         }
@@ -961,7 +989,7 @@ extension PlayResultOverlayView {
     private func loadVideoMetadata() {
         guard videoMetadata == nil else { return }
 
-        metadataTask = Task {
+        metadataTask = Task.detached(priority: .userInitiated) {
             let asset = AVURLAsset(url: videoURL)
 
             // Get duration
@@ -1001,12 +1029,13 @@ extension PlayResultOverlayView {
             }
 
             guard !Task.isCancelled else { return }
+            let metadata = VideoMetadata(
+                duration: durationSeconds,
+                fileSize: fileSize,
+                resolution: resolutionString
+            )
             await MainActor.run {
-                videoMetadata = VideoMetadata(
-                    duration: durationSeconds,
-                    fileSize: fileSize,
-                    resolution: resolutionString
-                )
+                videoMetadata = metadata
             }
         }
     }

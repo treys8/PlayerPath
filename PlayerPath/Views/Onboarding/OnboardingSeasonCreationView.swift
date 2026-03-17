@@ -73,6 +73,7 @@ struct OnboardingSeasonCreationView: View {
                             Text("Set Up Your Season")
                                 .font(.largeTitle)
                                 .fontWeight(.bold)
+                                .fontDesign(.rounded)
                                 .multilineTextAlignment(.center)
 
                             Text("Organize your games and track progress over time")

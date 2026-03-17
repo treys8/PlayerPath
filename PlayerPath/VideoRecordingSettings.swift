@@ -200,7 +200,6 @@ final class VideoRecordingSettings {
     var settingsDescription: String {
         var components: [String] = []
         components.append(quality.displayName)
-        components.append(format.displayName)
         components.append(frameRate.displayName)
         if slowMotionEnabled {
             components.append("Slow-Mo")

@@ -65,7 +65,7 @@ struct DashboardFeatureCard: View {
                 .offset(y: isAnimating ? 0 : 8)
             }
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 18)
+            .padding(.vertical, 14)
             .padding(.horizontal, 8)
             .background(
                 ZStack {

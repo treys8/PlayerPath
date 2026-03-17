@@ -19,6 +19,7 @@ struct ShareToCoachFolderView: View {
     @State private var notes: String = ""
     @State private var isUploading = false
     @State private var errorMessage: String?
+    @FocusState private var notesFocused: Bool
 
     var body: some View {
         NavigationStack {
@@ -37,6 +38,11 @@ struct ShareToCoachFolderView: View {
             .navigationTitle("Share to Coach Folder")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") { notesFocused = false }
+                        .fontWeight(.semibold)
+                }
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                         .disabled(isUploading)
@@ -134,6 +140,7 @@ struct ShareToCoachFolderView: View {
 
             Section {
                 TextField("Add context for your coach…", text: $notes, axis: .vertical)
+                    .focused($notesFocused)
                     .lineLimit(3...6)
             } header: {
                 Text("Notes (Optional)")

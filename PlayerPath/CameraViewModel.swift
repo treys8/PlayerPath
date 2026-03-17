@@ -204,6 +204,33 @@ class CameraViewModel: NSObject, ObservableObject {
         }
     }
 
+    /// Re-applies current settings to the running capture session (e.g. after settings sheet dismisses).
+    @MainActor
+    func reconfigureSession() {
+        guard hasStartedSession, !isRecording else { return }
+
+        let qualityPreset = settings.quality.avPreset
+        let targetFrameRate = settings.frameRate.fps
+        let audioEnabled = settings.audioEnabled
+        let stabilizationMode = settings.stabilizationMode.avMode
+
+        sessionQueue.async { [weak self] in
+            guard let self else { return }
+
+            self.captureSession.beginConfiguration()
+
+            if self.captureSession.canSetSessionPreset(qualityPreset) {
+                self.captureSession.sessionPreset = qualityPreset
+            }
+
+            self.setupCamera(targetFrameRate: targetFrameRate)
+            self.setupAudio(audioEnabled: audioEnabled)
+            self.setupOutput(stabilizationMode: stabilizationMode)
+
+            self.captureSession.commitConfiguration()
+        }
+    }
+
     @MainActor
     func stopSession() {
         startupTask?.cancel()
@@ -355,11 +382,13 @@ class CameraViewModel: NSObject, ObservableObject {
                 captureSession.addInput(input)
                 videoInput = input
 
-                // Update zoom limits
+                // Update zoom limits, clamping to actual device range
+                let deviceMinZoom = camera.minAvailableVideoZoomFactor
+                let deviceMaxZoom = camera.maxAvailableVideoZoomFactor
                 Task { @MainActor in
-                    self.minZoom = camera.minAvailableVideoZoomFactor
-                    self.maxZoom = min(camera.maxAvailableVideoZoomFactor, 10.0)
-                    self.currentZoom = Constants.defaultZoom
+                    self.minZoom = deviceMinZoom
+                    self.maxZoom = min(deviceMaxZoom, 10.0)
+                    self.currentZoom = max(Constants.defaultZoom, deviceMinZoom)
                 }
             }
         } catch {
@@ -370,12 +399,13 @@ class CameraViewModel: NSObject, ObservableObject {
     }
 
     nonisolated private func setupAudio(audioEnabled: Bool) {
-        guard audioEnabled else { return }
-
-        // Remove existing audio input
+        // Always remove existing audio input first so toggling OFF actually takes effect
         if let existingInput = audioInput {
             captureSession.removeInput(existingInput)
+            audioInput = nil
         }
+
+        guard audioEnabled else { return }
 
         // Get microphone
         guard let microphone = AVCaptureDevice.default(for: .audio) else {
@@ -391,6 +421,9 @@ class CameraViewModel: NSObject, ObservableObject {
                 audioInput = input
             }
         } catch {
+            Task { @MainActor in
+                self.handleError("Microphone unavailable — video will record without audio.", isFatal: false)
+            }
         }
     }
 
@@ -484,7 +517,7 @@ class CameraViewModel: NSObject, ObservableObject {
     private func startRecordingTimer() {
         recordingTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
-                guard let self = self, let startTime = self.recordingStartTime else { return }
+                guard let self, let startTime = self.recordingStartTime else { return }
 
                 let elapsed = Date().timeIntervalSince(startTime)
                 let minutes = Int(elapsed) / 60

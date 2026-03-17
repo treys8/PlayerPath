@@ -208,13 +208,9 @@ extension PlayerPathAppDelegate {
         NotificationCenter.default.post(name: .appWillEnterForeground, object: nil)
     }
     
-    func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
-        // Handle URL schemes if needed for deep linking
-        for context in URLContexts {
-            handleURL(context.url)
-        }
-    }
-    
+    // Deep link URLs are handled by SwiftUI's .onOpenURL in PlayerPathApp.swift.
+    // No scene(_:openURLContexts:) override needed — SwiftUI receives the URL directly.
+
     private func handleNotificationLaunch(_ response: UNNotificationResponse) {
         // Fix AG: Delegate all routing to PushNotificationService which has the full switch
         // covering every action identifier and notification type. Previously only VIEW_STATS
@@ -225,13 +221,6 @@ extension PlayerPathAppDelegate {
         }
     }
     
-    private func handleURL(_ url: URL) {
-        // Handle custom URL schemes for deep linking
-        appLog.info("Handling URL: \(url.absoluteString, privacy: .public)")
-        
-        // Example: playerpath://record/game/123  
-        // Example: playerpath://stats/athlete/456
-    }
 }
 
 // MARK: - Background Tasks

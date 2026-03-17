@@ -146,7 +146,10 @@ struct CoachFolderDetailView: View {
         }
         .task {
             if let lastFetch = lastFetchDate, Date().timeIntervalSince(lastFetch) < 60 { return }
-            await loadWithPermissionCheck()
+            // Load videos immediately while verifying permissions in parallel
+            async let videosTask: () = viewModel.loadVideos()
+            async let permissionTask: () = verifyPermissionsInBackground()
+            _ = await (videosTask, permissionTask)
             lastFetchDate = Date()
         }
         .alert("Access Error", isPresented: $showingPermissionError) {
@@ -197,14 +200,11 @@ struct CoachFolderDetailView: View {
         }
     }
 
+    /// Verify folder access in the background — if revoked, show error overlay.
     @MainActor
-    private func loadWithPermissionCheck() async {
+    private func verifyPermissionsInBackground() async {
         guard let coachID = authManager.userID,
-              let folderID = folder.id else {
-            return
-        }
-
-        // Verify permissions from Firestore
+              let folderID = folder.id else { return }
         do {
             let updated = try await SharedFolderManager.shared.verifyFolderAccess(
                 folderID: folderID,
@@ -213,14 +213,9 @@ struct CoachFolderDetailView: View {
             verifiedFolder = updated
             lastRefreshed = Date()
         } catch {
-            // Handle permission errors
             permissionError = error.localizedDescription
             showingPermissionError = true
-            return
         }
-
-        // Load videos after verification
-        await viewModel.loadVideos()
     }
 
     @MainActor
@@ -342,7 +337,7 @@ struct GamesTabView: View {
             }
         }
         .onAppear { updateGroupedVideos() }
-        .onChange(of: videos.count) { _ in updateGroupedVideos() }
+        .onChange(of: videos.count) { updateGroupedVideos() }
     }
 
     private func updateGroupedVideos() {
@@ -458,7 +453,7 @@ struct PracticesTabView: View {
             }
         }
         .onAppear { updateGroupedVideos() }
-        .onChange(of: videos.count) { _ in updateGroupedVideos() }
+        .onChange(of: videos.count) { updateGroupedVideos() }
     }
 
     private func updateGroupedVideos() {
@@ -718,19 +713,32 @@ class CoachFolderViewModel: ObservableObject {
     func loadVideos() async {
         isLoading = true
         defer { isLoading = false }
-        
+
         guard let folderID = folder.id else {
             errorMessage = "Invalid folder"
             return
         }
-        
+
         do {
             let firestoreVideos = try await FirestoreManager.shared.fetchVideos(forSharedFolder: folderID)
-            
+
             // Convert to CoachVideoItem
             videos = firestoreVideos.map { CoachVideoItem(from: $0) }
                 .sorted { ($0.createdAt ?? Date()) > ($1.createdAt ?? Date()) }
             updateFilteredVideos()
+
+            // Pre-fetch signed URLs in background so tapping a video
+            // doesn't block on a Cloud Function round-trip (200-800ms).
+            // The 24-hour expiry makes this safe to do eagerly.
+            let fileNames = videos.map(\.fileName)
+            if !fileNames.isEmpty {
+                Task {
+                    _ = try? await SecureURLManager.shared.getBatchSecureVideoURLs(
+                        fileNames: fileNames,
+                        folderID: folderID
+                    )
+                }
+            }
 
         } catch {
             errorMessage = "Failed to load videos: \(error.localizedDescription)"

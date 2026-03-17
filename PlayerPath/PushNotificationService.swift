@@ -34,6 +34,11 @@ final class PushNotificationService: NSObject, ObservableObject {
     var isPermissionDenied: Bool {
         authorizationStatus == .denied
     }
+
+    /// Whether the user has granted any form of notification permission (full, provisional, or ephemeral).
+    private var canScheduleNotifications: Bool {
+        authorizationStatus == .authorized || authorizationStatus == .provisional || authorizationStatus == .ephemeral
+    }
     
     // MARK: - Notification Categories
     private let notificationCategories: Set<UNNotificationCategory> = [
@@ -174,35 +179,6 @@ final class PushNotificationService: NSObject, ObservableObject {
         return await requestAuthorization()
     }
     
-    /// Presents a pre-permission rationale via a provided closure, then requests authorization and registers.
-    /// - Parameters:
-    ///   - presentRationale: A closure that presents UI explaining why notifications are useful. Call the provided completion with `true` to proceed or `false` to cancel.
-    /// - Returns: true if authorization was granted.
-    func promptWithRationale(presentRationale: @escaping (@escaping (Bool) -> Void) -> Void) async -> Bool {
-        // If we shouldn't prompt (already authorized/limited), just proceed to ensure
-        if !shouldPromptForNotifications {
-            return await ensureAuthorizationAndRegister()
-        }
-        
-        // Bridge async/await with callback-based rationale UI
-        let shouldProceed: Bool = await withCheckedContinuation { continuation in
-            presentRationale { proceed in
-                continuation.resume(returning: proceed)
-            }
-        }
-        
-        guard shouldProceed else {
-            logger.info("User declined notification rationale prompt")
-            return false
-        }
-        
-        let granted = await ensureAuthorizationAndRegister()
-        if !granted && authorizationStatus == .denied {
-            logger.info("Authorization denied; suggesting user to open settings")
-        }
-        return granted
-    }
-    
     /// If notifications are denied, open Settings; otherwise, no-op. Returns true if Settings was opened.
     @discardableResult
     func openSettingsIfDenied() -> Bool {
@@ -222,7 +198,7 @@ final class PushNotificationService: NSObject, ObservableObject {
     
     /// Registers with APNs if authorization allows; updates app state on AppDelegate callbacks.
     private func registerForRemoteNotifications() async {
-        guard authorizationStatus == .authorized || authorizationStatus == .provisional || authorizationStatus == .ephemeral else {
+        guard canScheduleNotifications else {
             logger.warning("Cannot register for remote notifications - not authorized")
             return
         }
@@ -251,11 +227,13 @@ final class PushNotificationService: NSObject, ObservableObject {
         
         // Persist token for later use
         UserDefaults.standard.set(tokenString, forKey: "deviceToken")
-        
+
         // Send token to server (only if changed or first time)
+        // Pass the previous token directly — re-reading from UserDefaults inside the
+        // async function would read the NEW token we just wrote above.
         if tokenChanged {
             Task {
-                await sendTokenToServerWithRetry(tokenString)
+                await sendTokenToServerWithRetry(tokenString, previousToken: previousToken)
             }
         }
     }
@@ -326,7 +304,7 @@ final class PushNotificationService: NSObject, ObservableObject {
         scheduledTime: Date,
         reminderMinutes: Int = 30
     ) async {
-        guard authorizationStatus == .authorized else { return }
+        guard canScheduleNotifications else { return }
         
         let reminderDate = scheduledTime.addingTimeInterval(-TimeInterval(reminderMinutes * 60))
         guard reminderDate > Date() else { return }
@@ -356,7 +334,7 @@ final class PushNotificationService: NSObject, ObservableObject {
         practiceDate: Date,
         reminderMinutes: Int = 15
     ) async {
-        guard authorizationStatus == .authorized else { return }
+        guard canScheduleNotifications else { return }
         
         let reminderDate = practiceDate.addingTimeInterval(-TimeInterval(reminderMinutes * 60))
         guard reminderDate > Date() else { return }
@@ -389,7 +367,7 @@ final class PushNotificationService: NSObject, ObservableObject {
         videosThisWeek: Int = 0,
         battingAverage: Double? = nil
     ) async {
-        guard authorizationStatus == .authorized else { return }
+        guard canScheduleNotifications else { return }
 
         // Cancel any existing weekly summary so we replace it with fresh stats
         cancelNotifications(withIdentifiers: ["weekly_summary_\(athleteId)"])
@@ -437,12 +415,11 @@ final class PushNotificationService: NSObject, ObservableObject {
     
     /// Send immediate upload-complete notification (called after each successful upload)
     func notifyUploadComplete() async {
-        guard authorizationStatus == .authorized else { return }
+        guard canScheduleNotifications else { return }
         // Skip if app is in foreground — the upload UI already provides feedback
-        let isActive = await MainActor.run { UIApplication.shared.applicationState == .active }
-        guard !isActive else { return }
+        guard UIApplication.shared.applicationState != .active else { return }
         _ = await scheduleLocalNotification(
-            identifier: "upload_complete_\(UUID().uuidString)",
+            identifier: "upload_complete",
             title: "Upload Complete ☁️",
             body: "Your video has been successfully backed up to the cloud.",
             categoryIdentifier: "CLOUD_BACKUP",
@@ -453,20 +430,22 @@ final class PushNotificationService: NSObject, ObservableObject {
 
     /// Send immediate cloud backup completion notification
     func notifyCloudBackupComplete(videoCount: Int, totalSize: String) async {
-        guard authorizationStatus == .authorized else { return }
-        
+        guard canScheduleNotifications else { return }
+        // Skip if app is in foreground — the upload UI already provides feedback
+        guard UIApplication.shared.applicationState != .active else { return }
+
         let title = "Cloud Backup Complete ☁️"
         let body = "\(videoCount) video\(videoCount == 1 ? "" : "s") (\(totalSize)) safely backed up to the cloud."
-        
+
         let success = await scheduleLocalNotification(
-            identifier: "cloud_backup_\(UUID().uuidString)",
+            identifier: "cloud_backup_complete",
             title: title,
             body: body,
             categoryIdentifier: "CLOUD_BACKUP",
             userInfo: ["type": "cloud_backup", "videoCount": videoCount],
             trigger: UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
         )
-        
+
         if success {
             logger.info("Sent cloud backup completion notification")
         }
@@ -474,21 +453,21 @@ final class PushNotificationService: NSObject, ObservableObject {
     
     // MARK: - Remote Notifications
     
-    private func sendTokenToServerWithRetry(_ token: String, attempt: Int = 1, maxAttempts: Int = 3) async {
-        let (success, shouldRetry) = await sendTokenToServer(token)
-        
+    private func sendTokenToServerWithRetry(_ token: String, previousToken: String? = nil, attempt: Int = 1, maxAttempts: Int = 3) async {
+        let (success, shouldRetry) = await sendTokenToServer(token, previousToken: previousToken)
+
         if !success && shouldRetry && attempt < maxAttempts {
             // Exponential backoff: 2^attempt seconds
             let delay = pow(2.0, Double(attempt))
             try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-            await sendTokenToServerWithRetry(token, attempt: attempt + 1, maxAttempts: maxAttempts)
+            await sendTokenToServerWithRetry(token, previousToken: previousToken, attempt: attempt + 1, maxAttempts: maxAttempts)
         } else if !success && !shouldRetry {
             logger.error("Permanent failure sending token to server - will not retry")
         }
     }
-    
+
     /// Returns (success, shouldRetry)
-    private func sendTokenToServer(_ token: String) async -> (Bool, Bool) {
+    private func sendTokenToServer(_ token: String, previousToken: String? = nil) async -> (Bool, Bool) {
         // Store the APNs device token in the user's Firestore document so
         // future server-side push infrastructure can target this device.
         // Uses an array (deviceTokens) so multiple devices on the same account
@@ -502,7 +481,6 @@ final class PushNotificationService: NSObject, ObservableObject {
             let db = Firestore.firestore()
 
             // If the token rotated, remove the old one first so stale tokens don't accumulate.
-            let previousToken = UserDefaults.standard.string(forKey: "deviceToken")
             if let old = previousToken, old != token {
                 try? await db.collection("users").document(userID).updateData([
                     "deviceTokens": FieldValue.arrayRemove([old])
@@ -527,11 +505,19 @@ final class PushNotificationService: NSObject, ObservableObject {
     func removeTokenFromServer() async {
         guard let token = UserDefaults.standard.string(forKey: "deviceToken"),
               let userID = Auth.auth().currentUser?.uid else { return }
+
+        // Clear local token immediately so the next sign-in properly re-registers
+        UserDefaults.standard.removeObject(forKey: "deviceToken")
+
         let db = Firestore.firestore()
-        try? await db.collection("users").document(userID).updateData([
-            "deviceTokens": FieldValue.arrayRemove([token])
-        ])
-        logger.info("Removed device token from Firestore for user \(userID, privacy: .private)")
+        do {
+            try await db.collection("users").document(userID).updateData([
+                "deviceTokens": FieldValue.arrayRemove([token])
+            ])
+            logger.info("Removed device token from Firestore for user \(userID, privacy: .private)")
+        } catch {
+            logger.error("Failed to remove device token from Firestore: \(error.localizedDescription)")
+        }
     }
     
     // MARK: - Notification Settings

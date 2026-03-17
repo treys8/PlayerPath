@@ -1,11 +1,13 @@
 import Foundation
 import SwiftUI
 import SwiftData
+import os.log
 
 @MainActor
 class GameService {
 
     private let modelContext: ModelContext
+    private let logger = Logger(subsystem: "PlayerPath", category: "GameService")
 
     init(modelContext: ModelContext) {
         self.modelContext = modelContext
@@ -18,6 +20,13 @@ class GameService {
         let firestoreId = game.firestoreId
         let userId = game.athlete?.user?.firebaseAuthUid
         let gameAthlete = game.athlete
+        let gameIdString = game.id.uuidString
+
+        // Cancel any pending push notification for this game
+        PushNotificationService.shared.cancelNotifications(
+            withIdentifiers: ["game_reminder_\(gameIdString)"]
+        )
+        GameAlertService.shared.cancelEndGameReminder(for: game)
 
         // Delete all video clips — VideoClip.delete handles local files, thumbnails,
         // cloud storage, and play results. SwiftData handles inverse relationship cleanup.
@@ -39,36 +48,40 @@ class GameService {
         modelContext.delete(game)
 
         do {
-            // Recalculate athlete statistics to reflect the removed game and play results,
-            // then save once (skipSave avoids a redundant double-save).
-            if let athlete = gameAthlete {
-                try StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: modelContext, skipSave: true)
-            }
+            // Save the deletion first so recalculation operates on committed state
             try modelContext.save()
+        } catch {
+            logger.error("Failed to save game deletion: \(error.localizedDescription)")
+            return
+        }
 
-            #if DEBUG
-            print("Deleted game and related data successfully.")
-            #endif
+        // Recalculate athlete statistics to reflect the removed game
+        if let athlete = gameAthlete {
+            do {
+                try StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: modelContext, skipSave: true)
+                try modelContext.save()
+            } catch {
+                logger.error("Failed to recalculate statistics after game deletion: \(error.localizedDescription)")
+            }
+        }
 
-            // Soft-delete from Firestore if the game was previously synced
-            if let firestoreId, let userId {
-                Task {
-                    for attempt in 1...3 {
-                        do {
-                            try await FirestoreManager.shared.deleteGame(userId: userId, gameId: firestoreId)
-                            return
-                        } catch {
-                            #if DEBUG
-                            print("⚠️ Failed to delete game from Firestore (attempt \(attempt)/3): \(error)")
-                            #endif
-                            if attempt < 3 {
-                                try? await Task.sleep(for: .seconds(2))
-                            }
+        logger.info("Deleted game and related data successfully")
+
+        // Soft-delete from Firestore if the game was previously synced
+        if let firestoreId, let userId {
+            Task {
+                for attempt in 1...3 {
+                    do {
+                        try await FirestoreManager.shared.deleteGame(userId: userId, gameId: firestoreId)
+                        return
+                    } catch {
+                        self.logger.error("Failed to delete game from Firestore (attempt \(attempt)/3): \(error.localizedDescription)")
+                        if attempt < 3 {
+                            try? await Task.sleep(for: .seconds(2))
                         }
                     }
                 }
             }
-        } catch {
         }
     }
     
@@ -115,8 +128,9 @@ class GameService {
 
         // Check for duplicate game with same opponent on same day
         let calendar = Calendar.current
+        let trimmedOpponent = opponent.trimmingCharacters(in: .whitespaces)
         let isDuplicate = (athlete.games ?? []).contains { existingGame in
-            existingGame.opponent == opponent &&
+            existingGame.opponent.localizedCaseInsensitiveCompare(trimmedOpponent) == .orderedSame &&
             existingGame.date.map { calendar.isDate($0, inSameDayAs: date) } == true
         }
 
@@ -170,6 +184,7 @@ class GameService {
                 do {
                     try await SyncCoordinator.shared.syncGames(for: user)
                 } catch {
+                    self.logger.error("Sync after game creation failed: \(error.localizedDescription)")
                 }
             }
 
@@ -205,6 +220,7 @@ class GameService {
         // End other live games of this athlete
         for otherGame in athlete.games ?? [] where otherGame.isLive && otherGame != game {
             otherGame.isLive = false
+            GameAlertService.shared.cancelEndGameReminder(for: otherGame)
         }
         
         // Start this game
@@ -228,6 +244,7 @@ class GameService {
                 do {
                     try await SyncCoordinator.shared.syncGames(for: user)
                 } catch {
+                    self.logger.error("Sync after game start failed: \(error.localizedDescription)")
                 }
             }
 
@@ -235,9 +252,10 @@ class GameService {
             await GameAlertService.shared.requestPermissionIfNeeded()
             await GameAlertService.shared.scheduleEndGameReminder(for: game)
         } catch {
+            logger.error("Failed to save game start: \(error.localizedDescription)")
         }
     }
-    
+
     func end(_ game: Game) async {
         game.isLive = false
         game.isComplete = true
@@ -255,6 +273,7 @@ class GameService {
             do {
                 try StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: modelContext, skipSave: true)
             } catch {
+                logger.error("Failed to recalculate statistics on game end: \(error.localizedDescription)")
             }
         }
 
@@ -277,13 +296,14 @@ class GameService {
                 do {
                     try await SyncCoordinator.shared.syncGames(for: user)
                 } catch {
+                    self.logger.error("Sync after game end failed: \(error.localizedDescription)")
                 }
             }
-
 
             // Track completed game for review prompt eligibility
             ReviewPromptManager.shared.recordCompletedGame()
         } catch {
+            logger.error("Failed to save game end: \(error.localizedDescription)")
         }
     }
     
@@ -298,27 +318,22 @@ class GameService {
         let orphanedGames = querySet.subtracting(relationshipSet)
         let gamesWithWrongAthlete = (athlete.games ?? []).filter { $0.athlete != athlete }
         
-        if !orphanedGames.isEmpty {
-            var athleteGames = athlete.games ?? []
-            for game in orphanedGames {
-                athleteGames.append(game)
-                game.athlete = athlete
-            }
-            athlete.games = athleteGames
+        // Set the owning side only — SwiftData manages the inverse relationship
+        for game in orphanedGames {
+            game.athlete = athlete
         }
-        
-        if !gamesWithWrongAthlete.isEmpty {
-            for game in gamesWithWrongAthlete {
-                game.athlete = athlete
-            }
+
+        for game in gamesWithWrongAthlete {
+            game.athlete = athlete
         }
-        
+
         if !orphanedGames.isEmpty || !gamesWithWrongAthlete.isEmpty {
             do {
                 try modelContext.save()
+                logger.info("Repaired \(orphanedGames.count) orphaned and \(gamesWithWrongAthlete.count) misassigned games")
             } catch {
+                logger.error("Failed to save consistency repairs: \(error.localizedDescription)")
             }
-        } else {
         }
     }
 }

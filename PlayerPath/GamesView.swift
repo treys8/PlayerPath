@@ -166,6 +166,9 @@ struct GamesView: View {
             let query = searchText.lowercased()
             filtered = filtered.filter { game in
                 game.opponent.lowercased().contains(query) ||
+                (game.location?.lowercased().contains(query) ?? false) ||
+                (game.notes?.lowercased().contains(query) ?? false) ||
+                (game.season?.displayName.lowercased().contains(query) ?? false) ||
                 (game.date.map { Self.searchDateFormatter.string(from: $0).lowercased().contains(query) } ?? false)
             }
         }
@@ -1293,6 +1296,11 @@ struct EditGameSheet: View {
             .navigationTitle("Edit Game")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") { focusedField = nil }
+                        .fontWeight(.semibold)
+                }
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
                         dismiss()
@@ -2016,6 +2024,12 @@ struct ManualStatisticsEntryView: View {
     @State private var flyOuts: String = ""
     @State private var showingValidationAlert = false
     @State private var alertMessage = ""
+
+    enum StatField: Int, Hashable, CaseIterable {
+        case singles, doubles, triples, homeRuns, runs, rbis, strikeouts, groundOuts, flyOuts, walks
+    }
+    @FocusState private var focusedStatField: StatField?
+
     // Use game.gameStats directly — never create a throwaway GameStatistics()
     // which would be an uninserted @Model object with misleading zero values.
     private var existingGameStats: GameStatistics? { game.gameStats }
@@ -2069,22 +2083,22 @@ struct ManualStatisticsEntryView: View {
                 }
                 
                 Section("Batting Statistics") {
-                    StatEntryRow(title: "Singles", value: $singles, icon: "1.circle.fill", color: .green)
-                    StatEntryRow(title: "Doubles", value: $doubles, icon: "2.circle.fill", color: .blue)
-                    StatEntryRow(title: "Triples", value: $triples, icon: "3.circle.fill", color: .orange)
-                    StatEntryRow(title: "Home Runs", value: $homeRuns, icon: "4.circle.fill", color: .gold)
+                    StatEntryRow(title: "Singles", value: $singles, icon: "1.circle.fill", color: .green, field: .singles, focusedField: $focusedStatField)
+                    StatEntryRow(title: "Doubles", value: $doubles, icon: "2.circle.fill", color: .blue, field: .doubles, focusedField: $focusedStatField)
+                    StatEntryRow(title: "Triples", value: $triples, icon: "3.circle.fill", color: .orange, field: .triples, focusedField: $focusedStatField)
+                    StatEntryRow(title: "Home Runs", value: $homeRuns, icon: "4.circle.fill", color: .gold, field: .homeRuns, focusedField: $focusedStatField)
                 }
-                
+
                 Section("Offensive Statistics") {
-                    StatEntryRow(title: "Runs", value: $runs, icon: "figure.run", color: .purple)
-                    StatEntryRow(title: "RBIs", value: $rbis, icon: "arrow.up.right.circle.fill", color: .pink)
+                    StatEntryRow(title: "Runs", value: $runs, icon: "figure.run", color: .purple, field: .runs, focusedField: $focusedStatField)
+                    StatEntryRow(title: "RBIs", value: $rbis, icon: "arrow.up.right.circle.fill", color: .pink, field: .rbis, focusedField: $focusedStatField)
                 }
-                
+
                 Section("Plate Appearance Outcomes") {
-                    StatEntryRow(title: "Strikeouts (K's)", value: $strikeouts, icon: "k.circle.fill", color: .red)
-                    StatEntryRow(title: "Ground Outs", value: $groundOuts, icon: "arrow.down.circle.fill", color: .red)
-                    StatEntryRow(title: "Fly Outs", value: $flyOuts, icon: "arrow.up.circle.fill", color: .red)
-                    StatEntryRow(title: "Walks (BB's)", value: $walks, icon: "figure.walk", color: .cyan)
+                    StatEntryRow(title: "Strikeouts (K's)", value: $strikeouts, icon: "k.circle.fill", color: .red, field: .strikeouts, focusedField: $focusedStatField)
+                    StatEntryRow(title: "Ground Outs", value: $groundOuts, icon: "arrow.down.circle.fill", color: .red, field: .groundOuts, focusedField: $focusedStatField)
+                    StatEntryRow(title: "Fly Outs", value: $flyOuts, icon: "arrow.up.circle.fill", color: .red, field: .flyOuts, focusedField: $focusedStatField)
+                    StatEntryRow(title: "Walks (BB's)", value: $walks, icon: "figure.walk", color: .cyan, field: .walks, focusedField: $focusedStatField)
                 }
                 
                 Section("Current Game Statistics") {
@@ -2137,11 +2151,13 @@ struct ManualStatisticsEntryView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItemGroup(placement: .keyboard) {
-                    Spacer()
-                    Button("Done") {
-                        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                    if let current = focusedStatField,
+                       let nextField = StatField(rawValue: current.rawValue + 1) {
+                        Button("Next") { focusedStatField = nextField }
                     }
-                    .fontWeight(.semibold)
+                    Spacer()
+                    Button("Done") { focusedStatField = nil }
+                        .fontWeight(.semibold)
                 }
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
@@ -2240,6 +2256,8 @@ struct StatEntryRow: View {
     @Binding var value: String
     let icon: String
     let color: Color
+    var field: ManualStatisticsEntryView.StatField? = nil
+    var focusedField: FocusState<ManualStatisticsEntryView.StatField?>.Binding? = nil
 
     var body: some View {
         HStack {
@@ -2251,11 +2269,20 @@ struct StatEntryRow: View {
                 .fontWeight(.medium)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            TextField("0", text: $value)
-                .keyboardType(.numberPad)
-                .textFieldStyle(.roundedBorder)
-                .frame(width: 60)
-                .multilineTextAlignment(.center)
+            if let field, let focusedField {
+                TextField("0", text: $value)
+                    .focused(focusedField, equals: field)
+                    .keyboardType(.numberPad)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 60)
+                    .multilineTextAlignment(.center)
+            } else {
+                TextField("0", text: $value)
+                    .keyboardType(.numberPad)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 60)
+                    .multilineTextAlignment(.center)
+            }
         }
     }
 }

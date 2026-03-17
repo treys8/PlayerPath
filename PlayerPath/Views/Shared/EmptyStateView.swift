@@ -12,17 +12,19 @@ struct EmptyStateView: View {
     let title: String
     let message: String
     let actionTitle: String?
+    let buttonIcon: String
     let action: (() -> Void)?
 
     @State private var isAnimating = false
     @State private var floatOffset: CGFloat = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    init(systemImage: String, title: String, message: String, actionTitle: String? = nil, action: (() -> Void)? = nil) {
+    init(systemImage: String, title: String, message: String, actionTitle: String? = nil, buttonIcon: String = "plus.circle.fill", action: (() -> Void)? = nil) {
         self.systemImage = systemImage
         self.title = title
         self.message = message
         self.actionTitle = actionTitle
+        self.buttonIcon = buttonIcon
         self.action = action
     }
 
@@ -88,7 +90,7 @@ struct EmptyStateView: View {
                         action()
                     } label: {
                         HStack(spacing: 8) {
-                            Image(systemName: "plus.circle.fill")
+                            Image(systemName: buttonIcon)
                                 .font(.body)
                             Text(actionTitle)
                                 .font(.subheadline)

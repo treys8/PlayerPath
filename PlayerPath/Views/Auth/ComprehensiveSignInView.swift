@@ -12,6 +12,7 @@ struct ComprehensiveSignInView: View {
     @Environment(\.dismiss) private var dismiss
 
     let isSignUpMode: Bool
+    var onSwitchToSignIn: (() -> Void)?
 
     @State private var email = ""
     @State private var password = ""
@@ -20,6 +21,8 @@ struct ComprehensiveSignInView: View {
     @State private var selectedRole: UserRole = .athlete
 
     @State private var confirmedAge = false
+    @State private var showingTerms = false
+    @State private var showingPrivacyPolicy = false
 
     @FocusState private var nameFocused: Bool
     @FocusState private var emailFocused: Bool
@@ -28,7 +31,10 @@ struct ComprehensiveSignInView: View {
     // Computed validation states
     private var emailValidationState: FieldValidationState {
         guard !email.isEmpty else { return .idle }
-        return isValidEmail(email) ? .valid : .invalid
+        if isValidEmail(email) { return .valid }
+        // Don't show the error icon while the user is still typing — only flag it
+        // once they've typed something that looks like a complete email attempt.
+        return email.contains("@") && email.contains(".") ? .invalid : .idle
     }
 
     private var passwordValidationState: FieldValidationState {
@@ -46,6 +52,7 @@ struct ComprehensiveSignInView: View {
 
     var body: some View {
         NavigationStack {
+            ScrollViewReader { proxy in
             ScrollView {
                 VStack(spacing: 28) {
                     // Header with icon
@@ -157,7 +164,7 @@ struct ComprehensiveSignInView: View {
                             text: $password,
                             icon: "lock.fill",
                             isSecure: true,
-                            textContentType: isSignUpMode ? .newPassword : .password,
+                            textContentType: .password,
                             autocapitalization: .never,
                             validationState: passwordValidationState,
                             submitLabel: .go,
@@ -209,10 +216,29 @@ struct ComprehensiveSignInView: View {
                         .accessibilityLabel("Age confirmation")
                         .accessibilityValue(confirmedAge ? "Confirmed" : "Not confirmed")
                         .accessibilityHint("Confirm that you are at least 18 years old or a parent creating this account for your child")
+
+                        VStack(spacing: 6) {
+                            Text("By creating an account, you agree to our")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            HStack(spacing: 4) {
+                                Button("Terms of Service") { showingTerms = true }
+                                    .font(.caption)
+                                    .foregroundStyle(.blue)
+                                Text("and")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                Button("Privacy Policy") { showingPrivacyPolicy = true }
+                                    .font(.caption)
+                                    .foregroundStyle(.blue)
+                            }
+                        }
+                        .multilineTextAlignment(.center)
                     }
 
                     // Action Buttons
                     VStack(spacing: 16) {
+                        EmptyView().id("actionButtons")
                         Button(action: { Haptics.medium(); performAuth() }) {
                             HStack(spacing: 10) {
                                 if authManager.isLoading {
@@ -246,7 +272,7 @@ struct ComprehensiveSignInView: View {
                                 y: 4
                             )
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(ScaleButtonStyle())
                         .disabled(!canSubmitForm() || authManager.isLoading)
 
                         if !isSignUpMode {
@@ -269,6 +295,7 @@ struct ComprehensiveSignInView: View {
                                 Button {
                                     Haptics.light()
                                     dismiss()
+                                    onSwitchToSignIn?()
                                 } label: {
                                     Text("Sign in")
                                         .font(.subheadline)
@@ -321,12 +348,21 @@ struct ComprehensiveSignInView: View {
                         .transition(.opacity.combined(with: .move(edge: .top)))
                     }
 
-                    Spacer(minLength: 20)
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 16)
+                .padding(.bottom, 40)
             }
             .scrollDismissesKeyboard(.interactively)
+            .onChange(of: passwordFocused) { _, focused in
+                if focused {
+                    // Scroll so the password field, requirements, and submit button are all visible
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        proxy.scrollTo("actionButtons", anchor: .bottom)
+                    }
+                }
+            }
+            } // ScrollViewReader
             .background(Color(.systemGroupedBackground))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -341,9 +377,26 @@ struct ComprehensiveSignInView: View {
                     }
                 }
             }
+            .onAppear {
+                // Auto-focus the first field after the sheet animation completes
+                Task {
+                    try? await Task.sleep(nanoseconds: 600_000_000)
+                    if isSignUpMode {
+                        nameFocused = true
+                    } else {
+                        emailFocused = true
+                    }
+                }
+            }
         }
         .sheet(isPresented: $showingResetPasswordSheet) {
             ResetPasswordSheet(email: $email)
+        }
+        .sheet(isPresented: $showingTerms) {
+            TermsOfServiceView()
+        }
+        .sheet(isPresented: $showingPrivacyPolicy) {
+            PrivacyPolicyView()
         }
         // Auto-dismiss on successful authentication
         .onChange(of: authManager.isSignedIn) { _, isSignedIn in
@@ -359,6 +412,10 @@ struct ComprehensiveSignInView: View {
 
     private func performAuth() {
         guard !authManager.isLoading else { return }
+        // Dismiss keyboard so the error message (if any) is visible
+        nameFocused = false
+        emailFocused = false
+        passwordFocused = false
         Task {
             let normalizedEmail = email.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
             let trimmedDisplayName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)

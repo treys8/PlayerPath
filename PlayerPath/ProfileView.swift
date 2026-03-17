@@ -194,14 +194,14 @@ struct ProfileView: View {
             ))
 
             items.append(SearchResult(
-                title: "Seasons",
+                title: "Manage Seasons",
                 icon: "calendar",
                 keywords: ["seasons", "manage", "year"],
                 link: AnyView(
                     NavigationLink {
-                        SeasonsView(athlete: selectedAthlete)
+                        SeasonManagementView(athlete: selectedAthlete)
                     } label: {
-                        Label("Seasons", systemImage: "calendar")
+                        Label("Manage Seasons", systemImage: "calendar")
                     }
                 )
             ))
@@ -284,6 +284,30 @@ struct ProfileView: View {
                     } label: {
                         Label("Shared Folders", systemImage: "folder.badge.person.crop")
                     }
+                )
+            ))
+        } else {
+            items.append(SearchResult(
+                title: "Shared Folders",
+                icon: "folder.badge.person.crop",
+                keywords: ["shared", "folders", "coach", "sharing"],
+                link: AnyView(
+                    Button {
+                        showingPaywall = true
+                    } label: {
+                        HStack {
+                            Label("Shared Folders", systemImage: "folder.badge.person.crop")
+                            Spacer()
+                            HStack(spacing: 4) {
+                                Image(systemName: "crown.fill")
+                                    .font(.caption)
+                                Text("Pro")
+                                    .font(.caption)
+                            }
+                            .foregroundColor(.blue)
+                        }
+                    }
+                    .foregroundColor(.primary)
                 )
             ))
         }
@@ -380,6 +404,10 @@ struct ProfileView: View {
                 } label: {
                     Label("Manage Seasons", systemImage: "calendar")
                 }
+            } else {
+                Label("Manage Seasons", systemImage: "calendar")
+                    .foregroundColor(.secondary)
+                    .accessibilityLabel("Manage Seasons — select an athlete first")
             }
 
             ForEach(sortedAthletes) { athlete in
@@ -1005,6 +1033,7 @@ struct EditAccountView: View {
     @State private var saveErrorMessage = ""
     @State private var showEmailVerificationAlert = false
     @State private var isSaving = false
+    @FocusState private var usernameFocused: Bool
     @FocusState private var emailFocused: Bool
 
     init(user: User) {
@@ -1041,6 +1070,7 @@ struct EditAccountView: View {
 
             Section("Account Information") {
                 TextField("Username", text: $username)
+                    .focused($usernameFocused)
                     .submitLabel(.next)
                     .onSubmit { emailFocused = true }
                     .textInputAutocapitalization(.never)
@@ -1049,6 +1079,7 @@ struct EditAccountView: View {
                 TextField("Email", text: $email)
                     .focused($emailFocused)
                     .submitLabel(.done)
+                    .onSubmit { emailFocused = false }
                     .keyboardType(.emailAddress)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled(true)
@@ -1193,6 +1224,7 @@ struct NotificationSettingsView: View {
                     }
                 Toggle("Live Game Updates", isOn: $liveGameUpdates)
             }
+            .disabled(authorizationStatus == .denied)
 
             Section {
                 Toggle("Upload Notifications", isOn: $uploadNotifications)
@@ -1201,6 +1233,7 @@ struct NotificationSettingsView: View {
             } footer: {
                 Text("Get notified when a video finishes uploading to the cloud.")
             }
+            .disabled(authorizationStatus == .denied)
 
             Section {
                 Toggle("Weekly Statistics", isOn: $weeklyStats)
@@ -1221,11 +1254,13 @@ struct NotificationSettingsView: View {
             } footer: {
                 Text("Weekly summary delivers every Sunday at 6 PM.")
             }
+            .disabled(authorizationStatus == .denied)
 
             Section("Achievements") {
                 Toggle("New Achievements", isOn: $achievements)
                 Toggle("Milestone Alerts", isOn: $milestoneAlerts)
             }
+            .disabled(authorizationStatus == .denied)
         }
         .navigationTitle("Notifications")
         .navigationBarTitleDisplayMode(.inline)
@@ -1463,13 +1498,19 @@ struct AthleteManagementView: View {
     let user: User
     @Binding var selectedAthlete: Athlete?
     @Environment(\.modelContext) private var modelContext
+    @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @State private var showingAddAthlete = false
+    @State private var showingPaywall = false
     @State private var athletePendingDelete: Athlete?
     @State private var showingDeleteAthleteAlert = false
     @State private var showDeleteError = false
     @State private var deleteErrorMessage = ""
     @State private var isDeletingAthlete = false
     @State private var sortedAthletes: [Athlete] = []
+
+    private var canAddMoreAthletes: Bool {
+        (user.athletes ?? []).count < authManager.currentTier.athleteLimit
+    }
 
     var body: some View {
         List {
@@ -1491,7 +1532,14 @@ struct AthleteManagementView: View {
             }
 
             Section {
-                Button(action: { showingAddAthlete = true }) {
+                Button(action: {
+                    if canAddMoreAthletes {
+                        showingAddAthlete = true
+                    } else {
+                        Haptics.warning()
+                        showingPaywall = true
+                    }
+                }) {
                     Label("Add Athlete", systemImage: "person.badge.plus")
                 }
                 .tint(.blue)
@@ -1522,6 +1570,9 @@ struct AthleteManagementView: View {
             Button("OK", role: .cancel) { }
         } message: {
             Text(deleteErrorMessage.isEmpty ? "Please try again." : deleteErrorMessage)
+        }
+        .sheet(isPresented: $showingPaywall) {
+            ImprovedPaywallView(user: user)
         }
         .onAppear {
             updateSortedAthletes()
@@ -1571,6 +1622,7 @@ struct AthleteManagementView: View {
 struct SubscriptionView: View {
     let user: User
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
+    @ObservedObject private var storeManager = StoreKitManager.shared
     @Environment(\.openURL) private var openURL
     @State private var showingPaywall = false
 
@@ -1603,22 +1655,36 @@ struct SubscriptionView: View {
                     Text("\(authManager.currentTier.displayName) Plan")
                         .font(.headline)
                         .fontWeight(.bold)
-                    Text("Thank you for your support!")
+                    Text(storeManager.isInBillingRetryPeriod
+                         ? "There's an issue with your payment."
+                         : "Thank you for your support!")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                 }
 
                 Spacer()
 
-                Text("Active")
-                    .font(.caption)
-                    .fontWeight(.bold)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(Color.green)
-                    .foregroundColor(.white)
-                    .cornerRadius(8)
-                    .accessibilityLabel("Subscription Active")
+                if storeManager.isInBillingRetryPeriod {
+                    Text("Payment Issue")
+                        .font(.caption)
+                        .fontWeight(.bold)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(Color.orange)
+                        .foregroundColor(.white)
+                        .cornerRadius(8)
+                        .accessibilityLabel("Payment Issue")
+                } else {
+                    Text("Active")
+                        .font(.caption)
+                        .fontWeight(.bold)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(Color.green)
+                        .foregroundColor(.white)
+                        .cornerRadius(8)
+                        .accessibilityLabel("Subscription Active")
+                }
             }
             .padding(.vertical, 8)
         }

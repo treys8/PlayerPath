@@ -121,31 +121,17 @@ struct PracticesView: View {
     }
     
     private func matchesSearch(_ practice: Practice, query q: String) -> Bool {
-        // Precompute components to help the type-checker and keep the filter closure small
-        let dateValue: Date = practice.date ?? .distantPast
-        let dateString: String = dateValue
+        let dateString: String = (practice.date ?? .distantPast)
             .formatted(date: .abbreviated, time: .omitted)
             .lowercased()
 
-        let videoCount: Int = (practice.videoClips ?? []).count
-        let noteCount: Int = (practice.notes ?? []).count
-
-        let videoCountString: String = String(videoCount)
-        let noteCountString: String = String(noteCount)
-
         let matchesDate: Bool = dateString.contains(q)
-        let matchesVideoCount: Bool = videoCountString.contains(q)
-        let matchesNoteCount: Bool = noteCountString.contains(q)
-
-        // NEW: Search notes content
+        let matchesSeason: Bool = practice.season?.displayName.lowercased().contains(q) ?? false
         let matchesNotes: Bool = (practice.notes ?? []).contains { note in
             note.content.lowercased().contains(q)
         }
 
-        // NEW: Search season name
-        let matchesSeason: Bool = practice.season?.displayName.lowercased().contains(q) ?? false
-
-        return matchesDate || matchesVideoCount || matchesNoteCount || matchesNotes || matchesSeason
+        return matchesDate || matchesSeason || matchesNotes
     }
     
     @ViewBuilder
@@ -283,7 +269,7 @@ struct PracticesView: View {
         .onChange(of: selectedSeasonFilter) { _, _ in updatePracticesCache() }
         .onChange(of: sortOrder) { _, _ in updatePracticesCache() }
         .onChange(of: athlete?.practices?.count) { _, _ in updatePracticesCache() }
-        .navigationTitle("Practices (\(cachedFilteredPractices.count))")
+        .navigationTitle("Practices")
         .navigationBarTitleDisplayMode(.large)
         .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic))
         .toolbar { practicesToolbar }
@@ -547,28 +533,15 @@ struct PracticeListRow: View {
 
 struct EmptyPracticesView: View {
     let onAddPractice: () -> Void
-    
+
     var body: some View {
-        VStack(spacing: 30) {
-            Image(systemName: "figure.baseball")
-                .font(.system(size: 80))
-                .foregroundStyle(.green)
-            
-            Text("No Practice Sessions Yet")
-                .font(.title)
-                .fontWeight(.bold)
-            
-            Text("Create your first practice to track training")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-            
-            Button("Add Practice", action: onAddPractice)
-                .buttonStyle(.borderedProminent)
-                .tint(.green)
-                .accessibilityLabel("Add Practice")
-        }
-        .padding()
+        EmptyStateView(
+            systemImage: "figure.baseball",
+            title: "No Practice Sessions Yet",
+            message: "Create your first practice to track training",
+            actionTitle: "Add Practice",
+            action: onAddPractice
+        )
     }
 }
 

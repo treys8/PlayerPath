@@ -8,8 +8,7 @@
 import UIKit
 import PDFKit
 
-@MainActor
-final class PDFReportGenerator {
+final class PDFReportGenerator: Sendable {
     static let shared = PDFReportGenerator()
 
     private init() {}

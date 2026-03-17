@@ -70,7 +70,7 @@ struct PhotosView: View {
                 photosGrid
             }
         }
-        .searchable(text: $searchText, prompt: "Search photos")
+        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search photos")
         .onAppear { AnalyticsService.shared.trackScreenView(screenName: "Photos", screenClass: "PhotosView") }
         .task { updatePhotosCache() }
         .onChange(of: activeFilter) { _, _ in updatePhotosCache() }
@@ -164,7 +164,7 @@ struct PhotosView: View {
                         .padding(.vertical, 7)
                         .background(
                             Capsule()
-                                .fill(activeFilter == filter ? Color.pink : Color(.systemGray5))
+                                .fill(activeFilter == filter ? Color.blue : Color(.systemGray5))
                         )
                 }
             }
@@ -199,20 +199,13 @@ struct PhotosView: View {
     // MARK: - Empty State
 
     private var emptyState: some View {
-        VStack(spacing: 16) {
-            Spacer()
-            Image(systemName: "photo.on.rectangle.angled")
-                .font(.system(size: 48))
-                .foregroundColor(.secondary)
-            Text("No Photos Yet")
-                .font(.title3)
-                .fontWeight(.semibold)
-            Text("Tap + to take a photo or\nchoose from your library")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-            Spacer()
-        }
+        EmptyStateView(
+            systemImage: "photo.on.rectangle.angled",
+            title: "No Photos Yet",
+            message: "Tap + to take a photo or choose from your library",
+            actionTitle: "Add Photo",
+            action: { showingSourcePicker = true }
+        )
     }
 
     // MARK: - Filter Sheet

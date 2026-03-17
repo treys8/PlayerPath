@@ -402,7 +402,7 @@ struct VideoPlayerView: View {
                     if let progress = cloudManager.downloadProgress[clipId] {
                         downloadProgress = progress
                     }
-                    try? await Task.sleep(nanoseconds: 1_000_000_000) // 1.0s
+                    try? await Task.sleep(nanoseconds: 200_000_000) // 200ms
                 }
             }
 

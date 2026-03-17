@@ -46,6 +46,7 @@ struct VideoClipsView: View {
 
     // Cached computed results — updated explicitly via updateFilteredVideos() / updateAvailableSeasons()
     @State private var cachedFilteredVideos: [VideoClip] = []
+    @State private var cachedFilteredVideoIndex: [UUID: Int] = [:]  // O(1) lookup for prefetch
     @State private var cachedAvailableSeasons: [Season] = []
 
     // Get all unique seasons from videos
@@ -126,6 +127,9 @@ struct VideoClipsView: View {
                 video.fileName.lowercased().contains(query) ||
                 (video.playResult?.type.displayName.lowercased().contains(query) ?? false) ||
                 (video.game?.opponent.lowercased().contains(query) ?? false) ||
+                (video.game?.location?.lowercased().contains(query) ?? false) ||
+                (video.game?.season?.displayName.lowercased().contains(query) ?? false) ||
+                (video.practice?.season?.displayName.lowercased().contains(query) ?? false) ||
                 (video.note?.lowercased().contains(query) ?? false) ||
                 (video.createdAt.map { Self.searchDateFormatter.string(from: $0).lowercased() }?.contains(query) ?? false) ||
                 (video.createdAt.map { Self.searchShortFormatter.string(from: $0).lowercased() }?.contains(query) ?? false)
@@ -133,7 +137,7 @@ struct VideoClipsView: View {
         }
 
         // Sort by creation date
-        cachedFilteredVideos = videos.sorted { (lhs: VideoClip, rhs: VideoClip) in
+        let sorted = videos.sorted { (lhs: VideoClip, rhs: VideoClip) in
             switch (lhs.createdAt, rhs.createdAt) {
             case let (l?, r?):
                 return l > r
@@ -145,6 +149,14 @@ struct VideoClipsView: View {
                 return false
             }
         }
+        cachedFilteredVideos = sorted
+        // Build O(1) index map for prefetch lookups
+        var indexMap: [UUID: Int] = [:]
+        indexMap.reserveCapacity(sorted.count)
+        for (i, clip) in sorted.enumerated() {
+            indexMap[clip.id] = i
+        }
+        cachedFilteredVideoIndex = indexMap
     }
 
     private var filterDescription: String {
@@ -682,7 +694,7 @@ struct VideoClipsView: View {
                             }
                         )
                         .onAppear {
-                            if let index = cachedFilteredVideos.firstIndex(where: { $0.id == video.id }) {
+                            if let index = cachedFilteredVideoIndex[video.id] {
                                 prefetchNearbyThumbnails(for: index, in: cachedFilteredVideos)
                             }
                         }

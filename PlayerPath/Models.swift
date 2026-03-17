@@ -698,11 +698,23 @@ final class VideoClip {
         return !isUploaded && cloudURL == nil
     }
 
+    /// Cached result of path resolution. Stable within a single app launch since the
+    /// Documents directory URL doesn't change. Eliminates repeated `fileExists` syscalls
+    /// that otherwise fire on every cell render in video lists.
+    @Transient private var _cachedResolvedPath: String?
+
     /// Resolves `filePath` to an absolute path, handling both legacy absolute paths
     /// and relative paths (relative to Documents directory). Absolute paths break
     /// when iOS relocates the app sandbox (reinstall, backup restore), so new clips
     /// store relative paths and this property resolves them at read time.
     var resolvedFilePath: String {
+        if let cached = _cachedResolvedPath { return cached }
+        let resolved = _resolveFilePath()
+        _cachedResolvedPath = resolved
+        return resolved
+    }
+
+    private func _resolveFilePath() -> String {
         // Relative path — resolve against Documents
         if !filePath.hasPrefix("/") {
             guard let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
@@ -776,19 +788,20 @@ final class VideoClip {
 
     /// Properly delete video clip with all associated files and data
     func delete(in context: ModelContext) {
-        // Delete local video file — use resolvedFilePath to handle relative paths
+        // Capture paths before context.delete to avoid accessing deleted SwiftData object
         let absolutePath = resolvedFilePath
-        if FileManager.default.fileExists(atPath: absolutePath) {
-            try? FileManager.default.removeItem(atPath: absolutePath)
-        }
+        let capturedThumbPath = thumbnailPath
 
-        // Delete thumbnail file and remove from cache
-        if let thumbPath = thumbnailPath {
-            if FileManager.default.fileExists(atPath: thumbPath) {
+        // Dispatch file I/O to background — removeItem can take 10-50ms for large videos
+        DispatchQueue.global(qos: .utility).async {
+            try? FileManager.default.removeItem(atPath: absolutePath)
+            if let thumbPath = capturedThumbPath {
                 try? FileManager.default.removeItem(atPath: thumbPath)
             }
+        }
 
-            // Remove from cache on main actor
+        // Remove thumbnail from in-memory cache on main actor
+        if let thumbPath = capturedThumbPath {
             Task { @MainActor in
                 ThumbnailCache.shared.removeThumbnail(at: thumbPath)
             }
@@ -1411,11 +1424,16 @@ final class Photo {
 
     /// Delete photo with all associated files
     func delete(in context: ModelContext) {
-        if FileManager.default.fileExists(atPath: filePath) {
-            try? FileManager.default.removeItem(atPath: filePath)
-        }
-        if let thumbPath = thumbnailPath, FileManager.default.fileExists(atPath: thumbPath) {
-            try? FileManager.default.removeItem(atPath: thumbPath)
+        // Capture paths before context.delete to avoid accessing deleted SwiftData object
+        let capturedFilePath = filePath
+        let capturedThumbPath = thumbnailPath
+
+        // Dispatch file I/O to background
+        DispatchQueue.global(qos: .utility).async {
+            try? FileManager.default.removeItem(atPath: capturedFilePath)
+            if let thumbPath = capturedThumbPath {
+                try? FileManager.default.removeItem(atPath: thumbPath)
+            }
         }
         // Delete from cloud storage if uploaded.
         // Capture fileName before context.delete(self) to avoid accessing a deleted SwiftData object.

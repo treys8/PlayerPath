@@ -25,10 +25,10 @@ struct FeatureHighlight: View {
                             endPoint: .bottomTrailing
                         )
                     )
-                    .frame(width: 44, height: 44)
+                    .frame(width: 50, height: 50)
 
                 Image(systemName: icon)
-                    .font(.system(size: 20, weight: .semibold))
+                    .font(.system(size: 24, weight: .semibold))
                     .foregroundStyle(
                         LinearGradient(
                             colors: [color, color.opacity(0.8)],
@@ -40,13 +40,13 @@ struct FeatureHighlight: View {
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
-                    .font(.subheadline)
+                    .font(.body)
                     .fontWeight(.semibold)
                     .foregroundColor(.primary)
                     .fixedSize(horizontal: false, vertical: true)
 
                 Text(description)
-                    .font(.caption)
+                    .font(.subheadline)
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .lineLimit(2)

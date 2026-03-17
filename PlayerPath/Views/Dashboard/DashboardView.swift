@@ -138,6 +138,9 @@ struct DashboardView: View {
         .onChange(of: athlete.statistics?.updatedAt) { _, _ in
             updateCachedStats()
         }
+        .onChange(of: athlete.seasons?.count) { _, _ in
+            updateCachedStats()
+        }
         .sheet(isPresented: $showingPaywall) {
             ImprovedPaywallView(user: user)
         }
@@ -279,7 +282,7 @@ struct DashboardView: View {
 
                 // Quick Actions Section
                 VStack(spacing: 16) {
-                    DashboardSectionHeader(title: "Quick Actions", icon: "bolt.fill", color: .orange)
+                    DashboardSectionHeader(title: "Quick Actions", icon: "bolt.fill", color: .blue)
 
                     HStack(spacing: 12) {
                         QuickActionButton(
@@ -362,7 +365,7 @@ struct DashboardView: View {
                             icon: "video",
                             title: "Video Clips",
                             subtitle: "\(viewModel.totalVideos) Recorded",
-                            color: .purple
+                            color: .blue
                         ) {
                             postSwitchTab(.videos)
                         }
@@ -382,7 +385,7 @@ struct DashboardView: View {
                             icon: "calendar",
                             title: "Seasons",
                             subtitle: "\((athlete.seasons ?? []).count) Total",
-                            color: .teal
+                            color: .blue
                         ) {
                             showingSeasons = true
                         }
@@ -392,7 +395,7 @@ struct DashboardView: View {
                             icon: "figure.run",
                             title: "Practice",
                             subtitle: "\((athlete.practices ?? []).count) Sessions",
-                            color: .green
+                            color: .blue
                         ) {
                             NotificationCenter.default.post(name: .navigateToMorePractice, object: nil)
                         }
@@ -402,7 +405,7 @@ struct DashboardView: View {
                             icon: "photo.on.rectangle.angled",
                             title: "Photos",
                             subtitle: "\((athlete.photos ?? []).count) Photos",
-                            color: .pink
+                            color: .blue
                         ) {
                             showingPhotos = true
                         }
@@ -412,8 +415,9 @@ struct DashboardView: View {
                             icon: "star.fill",
                             title: "Highlights",
                             subtitle: "\(viewModel.totalHighlights) Highlights",
-                            color: .yellow,
-                            isPremium: authManager.currentTier >= .plus
+                            color: .blue,
+                            isPremium: authManager.currentTier >= .plus,
+                            badgeLabel: "PLUS"
                         ) {
                             if authManager.currentTier >= .plus {
                                 NotificationCenter.default.post(name: .navigateToMoreHighlights, object: nil)
@@ -428,7 +432,7 @@ struct DashboardView: View {
                             icon: "person.3.fill",
                             title: "Coaches",
                             subtitle: "\((athlete.coaches ?? []).count) Coaches",
-                            color: .indigo,
+                            color: .blue,
                             isPremium: authManager.currentTier == .pro
                         ) {
                             if authManager.currentTier == .pro {
@@ -447,7 +451,7 @@ struct DashboardView: View {
 
                 // Quick Stats Section
                 VStack(spacing: 16) {
-                    DashboardSectionHeader(title: "Quick Stats", icon: "chart.bar.fill", color: .purple)
+                    DashboardSectionHeader(title: "Quick Stats", icon: "chart.bar.fill", color: .blue)
 
                     HStack(spacing: 12) {
                         DashboardStatCard(
@@ -460,13 +464,13 @@ struct DashboardView: View {
                             title: "SLG",
                             value: cachedSLG,
                             icon: "chart.bar.fill",
-                            color: .purple
+                            color: .blue
                         )
                         DashboardStatCard(
                             title: "Hits",
                             value: cachedHits,
                             icon: "hand.tap.fill",
-                            color: .green
+                            color: .blue
                         )
                     }
                 }
@@ -530,6 +534,7 @@ struct DashboardSectionHeader: View {
             Text(title)
                 .font(.title3)
                 .fontWeight(.bold)
+                .fontDesign(.rounded)
                 .foregroundColor(.primary)
 
             Spacer()

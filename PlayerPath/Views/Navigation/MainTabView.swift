@@ -22,17 +22,23 @@ struct MainTabView: View {
     // More tab programmatic navigation
     @State private var morePath = NavigationPath()
 
-    // Welcome tutorial — shown once after first-time setup is complete
+    // Onboarding milestone tracking
     @ObservedObject private var onboardingManager = OnboardingManager.shared
-    @State private var showingWelcomeTutorial = false
     @State private var hasRunInitialSetup = false
 
     // Swipe gesture tracking
     @GestureState private var dragOffset: CGFloat = 0
     @State private var tabTransition: AnyTransition = .identity
 
+    // Per-tab athlete IDs — only the active tab updates on athlete switch,
+    // inactive tabs defer until selected (avoids rebuilding all 5 tabs at once).
+    @State private var homeAthleteID: UUID?
+    @State private var gamesAthleteID: UUID?
+    @State private var videosAthleteID: UUID?
+    @State private var statsAthleteID: UUID?
+
     enum MoreDestination: Hashable {
-        case practice, highlights
+        case practice, highlights, seasons, photos, coaches
     }
     
     // NotificationCenter observer management using StateObject for lifecycle safety
@@ -99,6 +105,16 @@ struct MainTabView: View {
                 restoreSelectedTab()
                 setupNotificationObservers()
 
+                // Eagerly set per-tab athlete IDs so they hold a non-nil value.
+                // On subsequent athlete switches, only the active tab's ID updates;
+                // inactive tabs keep the old ID until selected.
+                // Uses ?? so each ID is initialized independently — safe even if
+                // .onChange(of: selectedAthlete.id) fires before this .task.
+                homeAthleteID = homeAthleteID ?? selectedAthlete.id
+                gamesAthleteID = gamesAthleteID ?? selectedAthlete.id
+                videosAthleteID = videosAthleteID ?? selectedAthlete.id
+                statsAthleteID = statsAthleteID ?? selectedAthlete.id
+
                 // Run heavy one-time setup only once per app launch
                 guard !hasRunInitialSetup else { return }
                 hasRunInitialSetup = true
@@ -124,17 +140,19 @@ struct MainTabView: View {
                     await scheduleWeeklySummaryWithStats()
                 }
 
-                // Show welcome tutorial once for new users after onboarding is complete
+                // Mark welcome tutorial complete (tutorial removed)
                 if !onboardingManager.hasSeenWelcomeTutorial {
-                    try? await Task.sleep(for: .milliseconds(200))
-                    showingWelcomeTutorial = true
+                    onboardingManager.markMilestoneComplete(.welcomeTutorial)
                 }
             }
-            .sheet(isPresented: $showingWelcomeTutorial) {
-                WelcomeTutorialView()
+            .onChange(of: selectedAthlete.id) { _, _ in
+                // Only rebuild the currently visible tab — inactive tabs defer until selected
+                refreshStaleTab(selectedTab)
             }
             .onChange(of: selectedTab) { _, newValue in
                 saveSelectedTab(newValue)
+                // Rebuild the newly selected tab if its athlete is stale
+                refreshStaleTab(newValue)
                 // Track screen views for feature usage analytics
                 let screenName: String
                 switch newValue {
@@ -302,7 +320,7 @@ struct MainTabView: View {
                 authManager: authManager,
                 modelContext: modelContext
             )
-            .id(selectedAthlete.id) // Force view to recreate when athlete changes
+            .id(homeAthleteID ?? selectedAthlete.id)
         }
         .tabItem {
             Label("Home", systemImage: "house.fill")
@@ -311,11 +329,11 @@ struct MainTabView: View {
         .accessibilityLabel("Home tab")
         .accessibilityHint("View your dashboard and quick actions")
     }
-    
+
     private var gamesTab: some View {
         NavigationStack {
             GamesView(athlete: selectedAthlete)
-                .id(selectedAthlete.id) // Force view to recreate when athlete changes
+                .id(gamesAthleteID ?? selectedAthlete.id)
         }
         .tabItem {
             Label("Games", systemImage: "baseball.fill")
@@ -328,7 +346,7 @@ struct MainTabView: View {
     private var statsTab: some View {
         NavigationStack {
             StatisticsView(athlete: selectedAthlete, currentTier: authManager.currentTier)
-                .id(selectedAthlete.id) // Force view to recreate when athlete changes
+                .id(statsAthleteID ?? selectedAthlete.id)
         }
         .tabItem {
             Label("Stats", systemImage: "chart.bar.fill")
@@ -341,7 +359,7 @@ struct MainTabView: View {
     private var videosTab: some View {
         NavigationStack {
             VideoClipsView(athlete: selectedAthlete)
-                .id(selectedAthlete.id) // Force view to recreate when athlete changes
+                .id(videosAthleteID ?? selectedAthlete.id)
         }
         .modifier(UnreadBadgeModifier())
         .tabItem {
@@ -355,14 +373,7 @@ struct MainTabView: View {
     private var moreTab: some View {
         NavigationStack(path: $morePath) {
             List {
-                Section {
-                    NavigationLink(value: MoreDestination.practice) {
-                        Label("Practice", systemImage: "figure.run")
-                    }
-                    NavigationLink(value: MoreDestination.highlights) {
-                        Label("Highlights", systemImage: "star.fill")
-                    }
-                }
+                // Profile card
                 Section {
                     NavigationLink {
                         ProfileView(user: user, selectedAthlete: Binding(
@@ -370,9 +381,86 @@ struct MainTabView: View {
                             set: { selectedAthlete = $0 ?? selectedAthlete }
                         ))
                     } label: {
-                        Label("Profile & Settings", systemImage: "person.circle.fill")
+                        HStack(spacing: 14) {
+                            ZStack {
+                                Circle()
+                                    .fill(.blue.opacity(0.1))
+                                    .frame(width: 48, height: 48)
+                                Text(String(user.username.prefix(1)).uppercased())
+                                    .font(.title3)
+                                    .fontWeight(.bold)
+                                    .foregroundColor(.blue)
+                            }
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(user.username)
+                                    .font(.body)
+                                    .fontWeight(.semibold)
+                                    .foregroundColor(.primary)
+                                Text(tierDisplayText)
+                                    .font(.caption)
+                                    .fontWeight(.medium)
+                                    .foregroundColor(tierDisplayColor)
+                            }
+                            Spacer()
+                        }
+                        .padding(.vertical, 4)
                     }
                 }
+
+                // Features
+                Section("Features") {
+                    NavigationLink(value: MoreDestination.practice) {
+                        Label("Practice", systemImage: "figure.run")
+                            .foregroundColor(.primary)
+                    }
+                    NavigationLink(value: MoreDestination.highlights) {
+                        Label {
+                            HStack {
+                                Text("Highlights")
+                                if authManager.currentTier < .plus {
+                                    Text("PLUS")
+                                        .font(.caption2)
+                                        .fontWeight(.bold)
+                                        .foregroundColor(.orange)
+                                        .padding(.horizontal, 5)
+                                        .padding(.vertical, 2)
+                                        .background(Capsule().fill(.orange.opacity(0.12)))
+                                }
+                            }
+                        } icon: {
+                            Image(systemName: "star.fill")
+                        }
+                        .foregroundColor(.primary)
+                    }
+                    NavigationLink(value: MoreDestination.photos) {
+                        Label("Photos", systemImage: "photo.on.rectangle.angled")
+                            .foregroundColor(.primary)
+                    }
+                    NavigationLink(value: MoreDestination.seasons) {
+                        Label("Seasons", systemImage: "calendar")
+                            .foregroundColor(.primary)
+                    }
+                    NavigationLink(value: MoreDestination.coaches) {
+                        Label {
+                            HStack {
+                                Text("Coaches")
+                                if authManager.currentTier != .pro {
+                                    Text("PRO")
+                                        .font(.caption2)
+                                        .fontWeight(.bold)
+                                        .foregroundColor(.orange)
+                                        .padding(.horizontal, 5)
+                                        .padding(.vertical, 2)
+                                        .background(Capsule().fill(.orange.opacity(0.12)))
+                                }
+                            }
+                        } icon: {
+                            Image(systemName: "person.3.fill")
+                        }
+                        .foregroundColor(.primary)
+                    }
+                }
+
             }
             .navigationTitle("More")
             .navigationDestination(for: MoreDestination.self) { destination in
@@ -381,6 +469,12 @@ struct MainTabView: View {
                     PracticesView(athlete: selectedAthlete).id(selectedAthlete.id)
                 case .highlights:
                     HighlightsView(athlete: selectedAthlete, currentTier: authManager.currentTier, hasCoachingAccess: authManager.hasCoachingAccess).id(selectedAthlete.id).plusRequired()
+                case .seasons:
+                    SeasonsView(athlete: selectedAthlete).id(selectedAthlete.id)
+                case .photos:
+                    PhotosView(athlete: selectedAthlete).id(selectedAthlete.id)
+                case .coaches:
+                    CoachesView(athlete: selectedAthlete).id(selectedAthlete.id).proRequired()
                 }
             }
         }
@@ -389,17 +483,51 @@ struct MainTabView: View {
         }
         .tag(MainTab.more.rawValue)
         .accessibilityLabel("More tab")
-        .accessibilityHint("Access Practice, Highlights, and Profile & Settings")
+        .accessibilityHint("Access Practice, Highlights, Photos, Seasons, Coaches, and Profile")
+    }
+
+    private var tierDisplayText: String {
+        switch authManager.currentTier {
+        case .pro: return "Pro Member"
+        case .plus: return "Plus Member"
+        default: return "Free Plan"
+        }
+    }
+
+    private var tierDisplayColor: Color {
+        switch authManager.currentTier {
+        case .pro, .plus: return .blue
+        default: return .secondary
+        }
     }
     
+    // MARK: - Deferred Tab Rebuild
+
+    /// Updates the athlete ID for a given tab only if it's stale.
+    /// This triggers .id() to change, rebuilding that tab's content.
+    private func refreshStaleTab(_ tab: Int) {
+        let id = selectedAthlete.id
+        switch tab {
+        case MainTab.home.rawValue where homeAthleteID != id: homeAthleteID = id
+        case MainTab.games.rawValue where gamesAthleteID != id: gamesAthleteID = id
+        case MainTab.videos.rawValue where videosAthleteID != id: videosAthleteID = id
+        case MainTab.stats.rawValue where statsAthleteID != id: statsAthleteID = id
+        default: break
+        }
+    }
+
     // MARK: - State Restoration
-    
-    private func saveSelectedTab(_ tab: Int) {
-        UserDefaults.standard.set(tab, forKey: "LastSelectedTab")
+
+    private var tabDefaultsKey: String {
+        "LastSelectedTab_\(user.id.uuidString)"
     }
-    
+
+    private func saveSelectedTab(_ tab: Int) {
+        UserDefaults.standard.set(tab, forKey: tabDefaultsKey)
+    }
+
     private func restoreSelectedTab() {
-        let savedTab = UserDefaults.standard.integer(forKey: "LastSelectedTab")
+        let savedTab = UserDefaults.standard.integer(forKey: tabDefaultsKey)
         // Only restore if it's a valid tab index
         if (0...MainTab.more.rawValue).contains(savedTab) {
             selectedTab = savedTab
@@ -411,28 +539,22 @@ struct MainTabView: View {
 
     /// Compute this week's stats from the athlete's data and schedule
     /// a one-shot weekly summary notification for next Sunday.
+    /// Pre-extracts lightweight Date values so model objects aren't held across the await.
     private func scheduleWeeklySummaryWithStats() async {
-        let athlete = selectedAthlete
+        let athleteIdString = selectedAthlete.id.uuidString
+        let gameDates = (selectedAthlete.games ?? []).compactMap(\.date)
+        let videoDates = (selectedAthlete.videoClips ?? []).compactMap(\.createdAt)
+        let avg = selectedAthlete.statistics?.battingAverage
+
         let calendar = Calendar.current
         let now = Date()
         let startOfWeek = calendar.date(from: calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: now)) ?? now
 
-        let games = athlete.games ?? []
-        let gamesThisWeek = games.filter { game in
-            guard let date = game.date else { return false }
-            return date >= startOfWeek
-        }.count
-
-        let videos = athlete.videoClips ?? []
-        let videosThisWeek = videos.filter { clip in
-            guard let date = clip.createdAt else { return false }
-            return date >= startOfWeek
-        }.count
-
-        let avg = athlete.statistics?.battingAverage
+        let gamesThisWeek = gameDates.filter { $0 >= startOfWeek }.count
+        let videosThisWeek = videoDates.filter { $0 >= startOfWeek }.count
 
         await PushNotificationService.shared.scheduleWeeklySummary(
-            athleteId: athlete.id.uuidString,
+            athleteId: athleteIdString,
             gamesThisWeek: gamesThisWeek,
             videosThisWeek: videosThisWeek,
             battingAverage: avg

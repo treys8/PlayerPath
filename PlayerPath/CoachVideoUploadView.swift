@@ -18,7 +18,9 @@ struct CoachVideoUploadView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @StateObject private var viewModel: CoachVideoUploadViewModel
-    
+    @FocusState private var focusedField: UploadField?
+    enum UploadField: Hashable { case opponent, notes }
+
     init(folder: SharedFolder, selectedTab: CoachFolderDetailView.FolderTab) {
         self.folder = folder
         self.selectedTab = selectedTab
@@ -65,7 +67,9 @@ struct CoachVideoUploadView: View {
                         
                         if viewModel.videoContext == .game {
                             TextField("Opponent", text: $viewModel.gameOpponent)
+                                .focused($focusedField, equals: .opponent)
                                 .submitLabel(.next)
+                                .onSubmit { focusedField = .notes }
                                 .textInputAutocapitalization(.words)
 
                             DatePicker("Game Date", selection: $viewModel.contextDate, displayedComponents: .date)
@@ -74,7 +78,7 @@ struct CoachVideoUploadView: View {
                         }
 
                         TextField("Notes (optional)", text: $viewModel.notes, axis: .vertical)
-                            .submitLabel(.done)
+                            .focused($focusedField, equals: .notes)
                             .lineLimit(3...6)
                     }
                     
@@ -120,6 +124,11 @@ struct CoachVideoUploadView: View {
             .navigationTitle("Upload Video")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") { focusedField = nil }
+                        .fontWeight(.semibold)
+                }
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
                         dismiss()

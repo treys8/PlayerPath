@@ -20,6 +20,7 @@ struct ImportTaggingSheet: View {
     @State private var selectedPlayResult: PlayResultType?
     @State private var recordingMode: AthleteRole = .batter
     @State private var isSaving = false
+    @State private var saveErrorMessage: String?
 
     // MARK: - Recent Games
 
@@ -73,6 +74,14 @@ struct ImportTaggingSheet: View {
                 }
             }
             .interactiveDismissDisabled(isSaving)
+            .alert("Save Error", isPresented: Binding(
+                get: { saveErrorMessage != nil },
+                set: { if !$0 { saveErrorMessage = nil } }
+            )) {
+                Button("OK") { saveErrorMessage = nil }
+            } message: {
+                Text(saveErrorMessage ?? "")
+            }
             .onAppear {
                 updateRecentGames()
             }
@@ -462,6 +471,7 @@ struct ImportTaggingSheet: View {
                 dismiss()
             } catch {
                 isSaving = false
+                saveErrorMessage = "Failed to save: \(error.localizedDescription)"
                 Haptics.error()
             }
         }

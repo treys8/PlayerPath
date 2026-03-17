@@ -267,27 +267,15 @@ struct SeasonRow: View {
 
 struct EmptySeasonsView: View {
     let onCreate: () -> Void
-    
+
     var body: some View {
-        VStack(spacing: 30) {
-            Image(systemName: "calendar.badge.plus")
-                .font(.system(size: 80))
-                .foregroundStyle(.blue)
-            
-            Text("No Seasons Yet")
-                .font(.title)
-                .fontWeight(.bold)
-            
-            Text("Create your first season to organize games, videos, and practices by year")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-            
-            Button("Create First Season", action: onCreate)
-                .buttonStyle(.borderedProminent)
-        }
-        .padding()
-        .padding(.top, 60)
+        EmptyStateView(
+            systemImage: "calendar.badge.plus",
+            title: "No Seasons Yet",
+            message: "Create your first season to organize games and track progress",
+            actionTitle: "Create Season",
+            action: onCreate
+        )
     }
 }
 

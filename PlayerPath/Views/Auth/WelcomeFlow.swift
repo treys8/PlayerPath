@@ -15,161 +15,184 @@ struct WelcomeFlow: View {
     }
 
     @State private var activeSheet: AuthSheet? = nil
+    @State private var showingTerms = false
+    @State private var showingPrivacyPolicy = false
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 40) {
-                Spacer()
-
-                // App Logo and Branding
-                VStack(spacing: 24) {
-                    ZStack {
-                        // Glow effect behind icon
-                        Circle()
-                            .fill(
-                                RadialGradient(
-                                    colors: [.red.opacity(0.3), .clear],
-                                    center: .center,
-                                    startRadius: 20,
-                                    endRadius: 80
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 28) {
+                    // App Logo and Branding
+                    VStack(spacing: 20) {
+                        ZStack {
+                            // Glow effect behind icon
+                            Circle()
+                                .fill(
+                                    RadialGradient(
+                                        colors: [.red.opacity(0.3), .clear],
+                                        center: .center,
+                                        startRadius: 20,
+                                        endRadius: 80
+                                    )
                                 )
-                            )
-                            .frame(width: 160, height: 160)
-                            .blur(radius: 20)
+                                .frame(width: 130, height: 130)
+                                .blur(radius: 20)
 
-                        Image(systemName: "baseball.fill")
-                            .font(.system(size: 100, weight: .medium))
-                            .foregroundStyle(
+                            Image(systemName: "baseball.fill")
+                                .font(.system(size: 90, weight: .medium))
+                                .foregroundStyle(
+                                    LinearGradient(
+                                        colors: [.red, .red.opacity(0.7), .white],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    )
+                                )
+                                .symbolRenderingMode(.hierarchical)
+                                .shadow(color: .red.opacity(0.4), radius: 15, x: 0, y: 8)
+                        }
+
+                        VStack(spacing: 12) {
+                            Text("PlayerPath")
+                                .font(.largeTitle)
+                                .fontWeight(.bold)
+                                .fontDesign(.rounded)
+                                .foregroundColor(.primary)
+                                .accessibilityAddTraits(.isHeader)
+
+                            Text("Your game film. Your stats.\nAutomatically.")
+                                .font(.title3)
+                                .fontWeight(.semibold)
+                                .fontDesign(.rounded)
+                                .foregroundColor(.primary)
+                                .multilineTextAlignment(.center)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+
+                    // Feature highlights
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Tag each play as it happens. Stats build themselves.")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                            .padding(.bottom, 4)
+
+                        FeatureHighlight(
+                            icon: "video.circle.fill",
+                            title: "Record every at-bat",
+                            description: "Clip by clip, game by game",
+                            color: .red
+                        )
+
+                        FeatureHighlight(
+                            icon: "chart.line.uptrend.xyaxis.circle.fill",
+                            title: "Auto-generated stats",
+                            description: "AVG, OBP, SLG and more",
+                            color: .blue
+                        )
+
+                        FeatureHighlight(
+                            icon: "person.2.circle.fill",
+                            title: "Share with coaches",
+                            description: "Real-time window into your season",
+                            color: .blue
+                        )
+                    }
+                    .padding(.horizontal)
+
+                    // Action buttons
+                    VStack(spacing: 16) {
+                        Button(action: { Haptics.medium(); activeSheet = .signUp }) {
+                            HStack(spacing: 12) {
+                                Image(systemName: "person.crop.circle.badge.plus")
+                                    .font(.title3)
+                                    .fontWeight(.semibold)
+                                Text("Get Started")
+                                    .font(.title3)
+                                    .fontWeight(.bold)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 58)
+                            .background(
                                 LinearGradient(
-                                    colors: [.red, .red.opacity(0.7), .white],
+                                    colors: [.blue, .blue.opacity(0.85)],
                                     startPoint: .topLeading,
                                     endPoint: .bottomTrailing
                                 )
                             )
-                            .symbolRenderingMode(.hierarchical)
-                            .shadow(color: .red.opacity(0.4), radius: 15, x: 0, y: 8)
-                    }
-
-                    VStack(spacing: 12) {
-                        Text("PlayerPath")
-                            .font(.largeTitle)
-                            .fontWeight(.bold)
-                            .foregroundColor(.primary)
-                            .accessibilityAddTraits(.isHeader)
-
-                        Text("Your Baseball Journey Starts Here")
-                            .font(.title3)
-                            .foregroundColor(.secondary)
-                            .multilineTextAlignment(.center)
-                    }
-                }
-
-                // Feature highlights
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Track Your Performance")
-                        .font(.headline)
-                        .fontWeight(.bold)
-                        .padding(.bottom, 4)
-                        .accessibilityAddTraits(.isHeader)
-
-                    FeatureHighlight(
-                        icon: "video.circle.fill",
-                        title: "Record & Analyze",
-                        description: "Capture practice sessions and games with smart analysis",
-                        color: .red
-                    )
-
-                    FeatureHighlight(
-                        icon: "chart.line.uptrend.xyaxis.circle.fill",
-                        title: "Track Statistics",
-                        description: "Monitor batting averages and performance metrics",
-                        color: .blue
-                    )
-
-                    FeatureHighlight(
-                        icon: "arrow.triangle.2.circlepath.circle.fill",
-                        title: "Sync Everywhere",
-                        description: "Your data syncs securely across all devices",
-                        color: .green
-                    )
-                }
-                .padding(.horizontal)
-
-                Spacer()
-
-                // Action buttons
-                VStack(spacing: 16) {
-                    Button(action: { Haptics.medium(); activeSheet = .signUp }) {
-                        HStack(spacing: 12) {
-                            Image(systemName: "person.crop.circle.badge.plus")
-                                .font(.title3)
-                                .fontWeight(.semibold)
-                            Text("Get Started")
-                                .font(.title3)
-                                .fontWeight(.bold)
+                            .foregroundColor(.white)
+                            .cornerRadius(16)
+                            .shadow(color: .blue.opacity(0.4), radius: 12, x: 0, y: 6)
                         }
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 58)
-                        .background(
-                            LinearGradient(
-                                colors: [.blue, .blue.opacity(0.85)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
+                        .buttonStyle(ScaleButtonStyle())
+                        .accessibilityLabel("Sign up to get started")
+                        .accessibilityHint("Creates a new account and begins onboarding")
+                        .accessibilityIdentifier("welcome_get_started")
+                        .accessibilitySortPriority(1)
+
+                        Button(action: { Haptics.light(); activeSheet = .signIn }) {
+                            HStack(spacing: 12) {
+                                Image(systemName: "arrow.right.circle.fill")
+                                    .font(.title3)
+                                Text("Sign In")
+                                    .font(.title3)
+                                    .fontWeight(.semibold)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 58)
+                            .background(.ultraThinMaterial)
+                            .foregroundColor(.blue)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 16)
+                                    .stroke(
+                                        LinearGradient(
+                                            colors: [.blue, .blue.opacity(0.6)],
+                                            startPoint: .topLeading,
+                                            endPoint: .bottomTrailing
+                                        ),
+                                        lineWidth: 2.5
+                                    )
                             )
-                        )
-                        .foregroundColor(.white)
-                        .cornerRadius(16)
-                        .shadow(color: .blue.opacity(0.4), radius: 12, x: 0, y: 6)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Sign up to get started")
-                    .accessibilityHint("Creates a new account and begins onboarding")
-                    .accessibilityIdentifier("welcome_get_started")
-                    .accessibilitySortPriority(1)
-
-                    Button(action: { Haptics.light(); activeSheet = .signIn }) {
-                        HStack(spacing: 12) {
-                            Image(systemName: "arrow.right.circle.fill")
-                                .font(.title3)
-                            Text("Sign In")
-                                .font(.title3)
-                                .fontWeight(.semibold)
+                            .cornerRadius(16)
                         }
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 58)
-                        .background(.ultraThinMaterial)
-                        .foregroundColor(.blue)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 16)
-                                .stroke(
-                                    LinearGradient(
-                                        colors: [.blue, .blue.opacity(0.6)],
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
-                                    ),
-                                    lineWidth: 2.5
-                                )
-                        )
-                        .cornerRadius(16)
+                        .buttonStyle(ScaleButtonStyle())
+                        .accessibilityLabel("Sign in to existing account")
+                        .accessibilityHint("Sign in with your existing credentials")
+                        .accessibilityIdentifier("welcome_sign_in")
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Sign in to existing account")
-                    .accessibilityHint("Sign in with your existing credentials")
-                    .accessibilityIdentifier("welcome_sign_in")
-                }
-                .padding(.horizontal)
+                    .padding(.horizontal)
 
-                Spacer()
+                    HStack(spacing: 16) {
+                        Button("Terms of Service") { showingTerms = true }
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Button("Privacy Policy") { showingPrivacyPolicy = true }
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.bottom, 8)
+                }
+                .padding(.top, 20)
             }
             .padding()
             .toolbar(.hidden, for: .navigationBar)
+        }
+        .sheet(isPresented: $showingTerms) {
+            TermsOfServiceView()
+        }
+        .sheet(isPresented: $showingPrivacyPolicy) {
+            PrivacyPolicyView()
         }
         .sheet(item: $activeSheet) { sheet in
             switch sheet {
             case .signIn:
                 ComprehensiveSignInView(isSignUpMode: false)
             case .signUp:
-                ComprehensiveSignInView(isSignUpMode: true)
+                ComprehensiveSignInView(isSignUpMode: true) {
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(400))
+                        activeSheet = .signIn
+                    }
+                }
             }
         }
     }

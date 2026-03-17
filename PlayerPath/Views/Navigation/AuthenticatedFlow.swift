@@ -252,9 +252,6 @@ struct AuthenticatedFlow: View {
             // Ensure welcome tutorial fires when the new user first reaches MainTabView,
             // even if a previous account on this device had already seen it.
             OnboardingManager.shared.resetWelcomeTutorial()
-            // Always start new users on the Home tab, not whatever tab a previous
-            // account had selected last.
-            UserDefaults.standard.removeObject(forKey: "LastSelectedTab")
             // Athletes skip AthleteOnboardingFlow — WelcomeTutorialView in MainTabView
             // is the welcome. Coaches keep their multi-page onboarding flow.
             if authManager.userRole != .coach {

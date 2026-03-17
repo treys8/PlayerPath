@@ -259,7 +259,7 @@ extension AppleSignInManager: ASAuthorizationControllerDelegate {
                     isLoading = false
                     currentNonce = nil // Clear nonce after successful use
                     nonceTimestamp = nil
-                    HapticManager.shared.authenticationSuccess()
+                    Haptics.success()
                 }
                 
             } catch {
