@@ -745,7 +745,7 @@ final class SyncCoordinator {
 
                 // Link to season if seasonId provided
                 if let seasonId = remoteData.seasonId {
-                    if let season = athlete.seasons?.first(where: { $0.id.uuidString == seasonId }) {
+                    if let season = athlete.seasons?.first(where: { $0.id.uuidString == seasonId || $0.firestoreId == seasonId }) {
                         newPractice.season = season
                     }
                 }
@@ -866,13 +866,18 @@ final class SyncCoordinator {
             let localClips = athlete.videoClips ?? []
             let localClipsByID = Dictionary(uniqueKeysWithValues: localClips.map { ($0.id, $0) })
 
-            // Detect clips deleted on another device — remote set no longer contains them
+            // Detect clips deleted on another device — remote set no longer contains them.
+            // Safety: skip bulk deletion if remote returned empty but local has clips,
+            // which can happen on transient Firestore failures or network timeouts.
             let remoteVideoIds = Set(remoteVideos.map { $0.id })
-            for localClip in localClips {
-                if localClip.firestoreId != nil,
-                   !remoteVideoIds.contains(localClip.id) {
-                    // Clip was deleted on another device — remove locally
-                    localClip.delete(in: context)
+            let syncedLocalClips = localClips.filter { $0.firestoreId != nil }
+            if !syncedLocalClips.isEmpty && remoteVideoIds.isEmpty {
+                syncLog.warning("Remote returned 0 videos but \(syncedLocalClips.count) synced clips exist locally — skipping deletion pass to prevent data loss")
+            } else {
+                for localClip in syncedLocalClips {
+                    if !remoteVideoIds.contains(localClip.id) {
+                        localClip.delete(in: context)
+                    }
                 }
             }
 
@@ -1059,6 +1064,15 @@ final class SyncCoordinator {
 
 
         } catch {
+            syncLog.error("Video download failed for clip \(clip.id): \(error.localizedDescription)")
+            // Delete the ghost record (and its PlayResult) so it gets re-created and
+            // re-downloaded on the next sync cycle. Without this, the clip persists
+            // with an empty filePath and no retry path.
+            if let playResult = clip.playResult {
+                context.delete(playResult)
+            }
+            context.delete(clip)
+            if context.hasChanges { try? context.save() }
         }
     }
 

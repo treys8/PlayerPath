@@ -1011,7 +1011,7 @@ struct GameDetailView: View {
                     Label("Enter Statistics", systemImage: "chart.bar.doc.horizontal")
                 }
                 
-                if !game.isComplete && !game.isLive {
+                if !game.isLive {
                     Button(role: .destructive) {
                         showingDeleteConfirmation = true
                     } label: {
@@ -1019,7 +1019,7 @@ struct GameDetailView: View {
                     }
                 }
             }
-            
+
             // Video Clips Section
             Section("Video Clips (\(videoClips.count))") {
                 if videoClips.isEmpty {
@@ -1153,7 +1153,7 @@ struct GameDetailView: View {
                     Divider()
                     
                     // Destructive Actions
-                    if !game.isComplete && !game.isLive {
+                    if !game.isLive {
                         Button(role: .destructive, action: { showingDeleteConfirmation = true }) {
                             Label("Delete Game", systemImage: "trash")
                         }
@@ -1178,7 +1178,19 @@ struct GameDetailView: View {
                 deleteGame()
             }
         } message: {
-            Text("Are you sure you want to delete this game? This action cannot be undone.")
+            if game.isComplete, !videoClips.isEmpty || game.gameStats != nil {
+                let clipCount = videoClips.count
+                let hasStats = game.gameStats != nil
+                if clipCount > 0 && hasStats {
+                    Text("This game has \(clipCount) video clip\(clipCount == 1 ? "" : "s") and recorded statistics. Deleting it will permanently remove all data and recalculate career stats.")
+                } else if clipCount > 0 {
+                    Text("This game has \(clipCount) video clip\(clipCount == 1 ? "" : "s"). Deleting it will permanently remove all data.")
+                } else {
+                    Text("This game has recorded statistics. Deleting it will permanently remove all data and recalculate career stats.")
+                }
+            } else {
+                Text("Are you sure you want to delete this game? This action cannot be undone.")
+            }
         }
         .fullScreenCover(isPresented: $showingVideoRecorder) {
             DirectCameraRecorderView(athlete: game.athlete, game: game)

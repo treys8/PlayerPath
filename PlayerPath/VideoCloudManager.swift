@@ -1277,6 +1277,35 @@ class VideoCloudManager: ObservableObject {
 
     /// Deletes all videos and thumbnails for a specific user (GDPR compliance)
     /// This deletes all files in the user's athlete_videos folder in Firebase Storage
+    /// Deletes all photo files from Firebase Storage for a user
+    /// - Parameter userID: The user ID whose photos should be deleted
+    func deleteAllUserPhotos(userID: String) async throws {
+        guard ConnectivityMonitor.shared.isConnected else {
+            throw VideoCloudError.networkUnavailable
+        }
+
+        let storage = Storage.storage()
+        let userPhotoRef = storage.reference().child("athlete_photos/\(userID)")
+
+        do {
+            let result = try await userPhotoRef.listAll()
+            for fileRef in result.items {
+                do {
+                    try await fileRef.delete()
+                } catch {
+                    // Continue deleting other files even if one fails
+                }
+            }
+        } catch {
+            let nsError = error as NSError
+            if nsError.domain == "FIRStorageErrorDomain" && nsError.code == StorageErrorCode.objectNotFound.rawValue {
+                return
+            }
+            throw error
+        }
+    }
+
+    /// Deletes all video files from Firebase Storage for a user
     /// - Parameter userID: The user ID whose videos should be deleted
     func deleteAllUserVideos(userID: String) async throws {
         guard ConnectivityMonitor.shared.isConnected else {

@@ -127,13 +127,19 @@ struct ProfileView: View {
             isSigningOut = false
         }
 
+        // Dismiss any open sheets before signing out to prevent
+        // them from lingering over the WelcomeFlow
+        showingAddAthlete = false
+        showingPaywall = false
+        showingSeasons = false
+        showingQuickSearch = false
+
         do {
             try await Task.sleep(nanoseconds: Config.signOutDelay)
             await authManager.signOut()
             Haptics.success()
         } catch {
             Haptics.error()
-            // Handle error if needed
         }
     }
 

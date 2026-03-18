@@ -170,6 +170,11 @@ struct UserMainFlow: View {
             }
             #endif
 
+            // Clear selection if the selected athlete was deleted
+            if let current = selectedAthlete, !newValue.contains(where: { $0.id == current.id }) {
+                selectedAthlete = nil
+            }
+
             // If a new athlete was created and we now have 2+ athletes, the newest one should already be selected
             // If exactly one athlete exists and none is selected, select it.
             if selectedAthlete == nil, newValue.count == 1, let only = newValue.first {
@@ -193,14 +198,10 @@ struct UserMainFlow: View {
                 #endif
             }
         }
-        .task {
-            // Use task modifier for automatic cancellation handling
-
-            // Activity notification listener is now started in AuthenticatedFlow
-            // before this view appears, so navigation is not blocked by Firestore setup.
-
+        .onAppear {
             setupNotificationObservers()
-
+        }
+        .task {
             #if DEBUG
             print("🟡 UserMainFlow task - User: \(user.id), Athletes: \(athletesForUser.count)")
             #endif

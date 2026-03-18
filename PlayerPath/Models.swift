@@ -411,9 +411,12 @@ final class Season {
     
     /// Activate this season (deactivates other seasons for this athlete)
     func activate() {
-        // Deactivate all other seasons for this athlete
+        // Deactivate all other seasons for this athlete and stamp their end date
         if let athlete = self.athlete {
             for season in (athlete.seasons ?? []) where season.id != self.id {
+                if season.isActive && season.endDate == nil {
+                    season.endDate = Date()
+                }
                 season.isActive = false
             }
         }

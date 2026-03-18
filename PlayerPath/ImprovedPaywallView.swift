@@ -24,7 +24,9 @@ struct ImprovedPaywallView: View {
     @State private var showingTerms = false
     @State private var showingPrivacyPolicy = false
     @State private var showingPendingAlert = false
+    @State private var showingNoRestoreAlert = false
     @State private var hasAppeared = false
+    @State private var pendingProductID: String?
 
     var body: some View {
         NavigationStack {
@@ -39,12 +41,14 @@ struct ImprovedPaywallView: View {
                 }
                 .padding(.horizontal, 20)
                 .padding(.bottom, 32)
+                .allowsHitTesting(!isPurchasing)
             }
             .navigationTitle("Choose Your Plan")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Close") { dismiss() }
+                        .disabled(isPurchasing)
                 }
             }
             .sheet(isPresented: $showingTerms) { TermsOfServiceView() }
@@ -61,6 +65,11 @@ struct ImprovedPaywallView: View {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text("Your purchase is awaiting approval. Once approved, your subscription will activate automatically.")
+            }
+            .alert("No Purchase Found", isPresented: $showingNoRestoreAlert) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text("We couldn't find a previous subscription for this Apple ID. If you believe this is an error, contact Apple Support.")
             }
             .overlay {
                 if isPurchasing { LoadingOverlay(message: "Processing purchase...") }
@@ -107,10 +116,23 @@ struct ImprovedPaywallView: View {
     private var billingToggle: some View {
         HStack(spacing: 0) {
             billingPill(title: "Monthly", selected: !isAnnual) { isAnnual = false }
-            billingPill(title: "Annual (Save ~30%)", selected: isAnnual) { isAnnual = true }
+            billingPill(title: annualSavingsLabel, selected: isAnnual) { isAnnual = true }
         }
         .background(Color(.systemGray5))
         .cornerRadius(10)
+    }
+
+    private var annualSavingsLabel: String {
+        guard let monthly = storeManager.product(for: .plusMonthly),
+              let annual = storeManager.product(for: .plusAnnual) else {
+            return "Annual"
+        }
+        let yearlyAtMonthly = monthly.price * 12
+        guard yearlyAtMonthly > 0 else { return "Annual" }
+        let savings = ((yearlyAtMonthly - annual.price) / yearlyAtMonthly * 100) as NSDecimalNumber
+        let percent = savings.intValue
+        guard percent > 0 else { return "Annual" }
+        return "Annual (Save \(percent)%)"
     }
 
     private func billingPill(title: String, selected: Bool, action: @escaping () -> Void) -> some View {
@@ -162,19 +184,19 @@ struct ImprovedPaywallView: View {
             }
 
             tableRow(feature: "Athletes") {
-                Text("1").font(.caption)
+                Text("\(SubscriptionTier.free.athleteLimit)").font(.caption)
             } plus: {
-                Text("3").font(.caption)
+                Text("\(SubscriptionTier.plus.athleteLimit)").font(.caption)
             } pro: {
-                Text("5").font(.caption).foregroundStyle(.blue)
+                Text("\(SubscriptionTier.pro.athleteLimit)").font(.caption).foregroundStyle(.blue)
             }
 
             tableRow(feature: "Storage") {
-                Text("2 GB").font(.caption).foregroundStyle(.secondary)
+                Text("\(SubscriptionTier.free.storageLimitGB) GB").font(.caption).foregroundStyle(.secondary)
             } plus: {
-                Text("25 GB").font(.caption)
+                Text("\(SubscriptionTier.plus.storageLimitGB) GB").font(.caption)
             } pro: {
-                Text("100 GB").font(.caption).foregroundStyle(.blue)
+                Text("\(SubscriptionTier.pro.storageLimitGB) GB").font(.caption).foregroundStyle(.blue)
             }
 
             tableRow(feature: "Advanced Stats") {
@@ -332,13 +354,19 @@ struct ImprovedPaywallView: View {
                     .cornerRadius(14)
                     .shadow(color: Color.blue.opacity(0.3), radius: 8, x: 0, y: 4)
                 }
-                .disabled(isPurchasing || storeManager.products.isEmpty)
+                .disabled(isPurchasing || storeManager.products.isEmpty || storeManager.currentTier >= selectedTier)
                 .buttonStyle(.plain)
             }
         }
     }
 
     private var ctaButtonTitle: String {
+        if selectedTier != .free && storeManager.currentTier == selectedTier {
+            return "Current Plan"
+        }
+        if selectedTier != .free && storeManager.currentTier > selectedTier {
+            return "Included in \(storeManager.currentTier.displayName)"
+        }
         switch selectedTier {
         case .free: return "Keep Free"
         case .plus: return "Get Plus"
@@ -354,6 +382,9 @@ struct ImprovedPaywallView: View {
                 isPurchasing = true
                 await storeManager.restorePurchases()
                 isPurchasing = false
+                if storeManager.currentTier == .free && storeManager.error == nil {
+                    showingNoRestoreAlert = true
+                }
             }
         } label: {
             Text("Restore Purchase")
@@ -400,6 +431,7 @@ struct ImprovedPaywallView: View {
             }()
 
             if let product = tierProduct {
+                pendingProductID = product.id
                 let result = await storeManager.purchase(product)
                 switch result {
                 case .failed:
@@ -428,8 +460,13 @@ struct ImprovedPaywallView: View {
     }
 
     private func onPurchaseSucceeded() {
-        // Look up the product the user actually purchased, not an arbitrary first product
+        // Use the product ID captured at purchase time (not current UI state,
+        // which the user may have toggled while the StoreKit sheet was up)
         let purchasedProduct: Product? = {
+            if let id = pendingProductID {
+                return storeManager.products.first(where: { $0.id == id })
+            }
+            // Fallback: infer from current tier + billing toggle
             switch storeManager.currentTier {
             case .plus:
                 return isAnnual ? storeManager.product(for: .plusAnnual) : storeManager.product(for: .plusMonthly)
@@ -446,6 +483,7 @@ struct ImprovedPaywallView: View {
                 price: product.displayPrice
             )
         }
+        pendingProductID = nil
         // Subscription tier is managed by StoreKit verification + Firestore sync.
         // Do not write tier to local SwiftData — it's the server's source of truth.
         dismiss()

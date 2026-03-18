@@ -114,6 +114,12 @@ struct ModernTextField: View {
                                 try? await Task.sleep(nanoseconds: 100_000_000)
                                 binding.wrappedValue = true
                             }
+                        } else {
+                            internalFocus = false
+                            Task { @MainActor in
+                                try? await Task.sleep(nanoseconds: 100_000_000)
+                                internalFocus = true
+                            }
                         }
                     } label: {
                         Image(systemName: showPassword ? "eye.slash.fill" : "eye.fill")

@@ -152,6 +152,7 @@ struct AthleteInvitationsSheet: View {
 
     private func acceptInvitation(_ invitation: CoachToAthleteInvitation) async {
         guard let invitationID = invitation.id else { return }
+        guard processingInvitationID == nil else { return }
         processingInvitationID = invitationID
 
         do {
@@ -172,7 +173,10 @@ struct AthleteInvitationsSheet: View {
             coach.lastInvitationStatus = "accepted"
 
             // Link coach to the current user's athlete
-            let athleteDescriptor = FetchDescriptor<Athlete>()
+            let currentUID = authManager.userID ?? ""
+            let athleteDescriptor = FetchDescriptor<Athlete>(
+                predicate: #Predicate { $0.user?.firebaseAuthUid == currentUID }
+            )
             if let athletes = try? modelContext.fetch(athleteDescriptor),
                let athlete = athletes.first {
                 coach.athlete = athlete
@@ -197,6 +201,7 @@ struct AthleteInvitationsSheet: View {
 
     private func declineInvitation(_ invitation: CoachToAthleteInvitation) async {
         guard let invitationID = invitation.id else { return }
+        guard processingInvitationID == nil else { return }
         processingInvitationID = invitationID
 
         do {

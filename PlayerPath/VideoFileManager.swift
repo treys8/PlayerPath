@@ -87,9 +87,11 @@ class VideoFileManager {
     
     // MARK: - File Operations
     
-    static func createPermanentVideoURL() throws -> URL {
+    static func createPermanentVideoURL(extension ext: String = "mov") throws -> URL {
         let documentsPath = try documentsDirectory()
-        return documentsPath.appendingPathComponent("\(UUID().uuidString).mov")
+        let clipsDir = documentsPath.appendingPathComponent("Clips", isDirectory: true)
+        try FileManager.default.createDirectory(at: clipsDir, withIntermediateDirectories: true)
+        return clipsDir.appendingPathComponent("\(UUID().uuidString).\(ext)")
     }
     
     static func createThumbnailURL() throws -> URL {
@@ -100,14 +102,16 @@ class VideoFileManager {
     }
     
     static func copyToDocuments(from sourceURL: URL) throws -> URL {
-        let documents = try documentsDirectory() // Don't fall back to temp!
+        let documents = try documentsDirectory()
 
-        // If already in Documents, just return it
-        if sourceURL.standardizedFileURL.deletingLastPathComponent() == documents.standardizedFileURL {
+        // If already within the Documents tree, just return it
+        let documentsPrefix = documents.standardizedFileURL.path.hasSuffix("/") ? documents.standardizedFileURL.path : documents.standardizedFileURL.path + "/"
+        if sourceURL.standardizedFileURL.path.hasPrefix(documentsPrefix) {
             return sourceURL
         }
 
-        var destinationURL = try createPermanentVideoURL()
+        let ext = sourceURL.pathExtension.isEmpty ? "mov" : sourceURL.pathExtension
+        var destinationURL = try createPermanentVideoURL(extension: ext)
         var attempts = 0
         let maxAttempts = 10
 
@@ -121,7 +125,7 @@ class VideoFileManager {
             } catch let error as NSError where error.domain == NSCocoaErrorDomain && error.code == NSFileWriteFileExistsError {
                 // File exists, try again with new UUID
                 logger.warning("File exists at \(destinationURL.path, privacy: .public), retrying with new name")
-                destinationURL = try createPermanentVideoURL()
+                destinationURL = try createPermanentVideoURL(extension: ext)
                 attempts += 1
             } catch {
                 logger.error("Failed to copy video: \(String(describing: error), privacy: .public)")
@@ -186,6 +190,9 @@ class VideoFileManager {
             logger.info("Video validation successful - Duration: \(durationText, privacy: .public)s")
             return .success(())
 
+        } catch is CancellationError {
+            logger.info("Video validation cancelled")
+            return .failure(.cancelled)
         } catch {
             logger.error("Failed to validate video: \(String(describing: error), privacy: .public)")
             return .failure(.invalidFormat)

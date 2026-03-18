@@ -18,7 +18,8 @@ struct EnhancedVideoPlayer: View {
     var onClose: (() -> Void)?
     @State private var isPlaying = false
     @State private var currentTime: Double = 0
-    @State private var duration: Double = 1
+    @State private var duration: Double = 0
+    @State private var durationLoaded = false
     @State private var isDragging = false
     @State private var playbackSpeed: PlaybackSpeed = .normal
     @State private var showControls = true
@@ -132,6 +133,7 @@ struct EnhancedVideoPlayer: View {
             // (e.g. local-file path loads duration in the background).
             if let d = newDuration, d > 0 {
                 duration = d
+                durationLoaded = true
                 durationTask?.cancel()
                 durationTask = nil
             }
@@ -235,7 +237,7 @@ struct EnhancedVideoPlayer: View {
         VStack(spacing: 4) {
             Slider(
                 value: $currentTime,
-                in: 0...duration,
+                in: 0...max(duration, 1),
                 onEditingChanged: { dragging in
                     isDragging = dragging
                     if dragging {
@@ -247,6 +249,7 @@ struct EnhancedVideoPlayer: View {
                     showControlsTemporarily()
                 }
             )
+            .disabled(!durationLoaded)
             .tint(.white)
             .accessibilityLabel("Video position")
             .accessibilityValue("\(formatTime(currentTime)) of \(formatTime(duration))")
@@ -393,28 +396,33 @@ struct EnhancedVideoPlayer: View {
         // Use pre-loaded duration if available; otherwise load asynchronously.
         if let preloaded = preloadedDuration, preloaded > 0 {
             duration = preloaded
+            durationLoaded = true
         } else if let currentItem = player.currentItem {
             durationTask = Task {
                 if let loadedDuration = try? await currentItem.asset.load(.duration) {
                     if !Task.isCancelled {
                         await MainActor.run {
                             self.duration = CMTimeGetSeconds(loadedDuration)
+                            self.durationLoaded = true
                         }
                     }
                 }
             }
         }
 
-        // Add time observer
-        let interval = CMTime(seconds: 0.5, preferredTimescale: 600)
-        timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { time in
-            if !isDragging {
-                currentTime = CMTimeGetSeconds(time)
+        // Add time observer (guard against double-add if onAppear fires twice)
+        if timeObserver == nil {
+            let interval = CMTime(seconds: 0.5, preferredTimescale: 600)
+            timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { time in
+                if !isDragging {
+                    currentTime = CMTimeGetSeconds(time)
+                }
             }
         }
     }
 
     private func cleanup() {
+        player.pause()
         durationTask?.cancel()
         durationTask = nil
         if let observer = timeObserver {
@@ -432,12 +440,20 @@ struct EnhancedVideoPlayer: View {
             if isAtEnd {
                 isAtEnd = false
                 player.seek(to: .zero) { _ in
-                    self.player.play()
+                    Task { @MainActor in
+                        self.player.play()
+                        if self.playbackSpeed != .normal {
+                            self.player.rate = Float(self.playbackSpeed.value)
+                        }
+                    }
                 }
                 Haptics.light()
                 return
             }
             player.play()
+            if playbackSpeed != .normal {
+                player.rate = Float(playbackSpeed.value)
+            }
         }
         Haptics.light()
     }
@@ -514,7 +530,7 @@ struct EnhancedVideoPlayer: View {
 
 // MARK: - Playback Speed Enum
 
-enum PlaybackSpeed: CaseIterable {
+enum PlaybackSpeed: CaseIterable, Equatable {
     case quarter
     case half
     case normal

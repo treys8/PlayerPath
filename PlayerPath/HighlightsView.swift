@@ -22,6 +22,7 @@ struct HighlightsView: View {
     @State private var editMode: EditMode = .inactive
     @State private var showingAutoHighlightSettings = false
 
+    @State private var clipToShareToFolder: VideoClip?
     @State private var searchText: String = ""
     enum Filter: String, CaseIterable, Identifiable { case all, game, practice; var id: String { rawValue } }
     @State private var filter: Filter = .all
@@ -198,6 +199,9 @@ struct HighlightsView: View {
                 VideoPlayerView(clip: clip)
             }
         }
+        .sheet(item: $clipToShareToFolder) { clip in
+            ShareToCoachFolderView(clip: clip)
+        }
         .alert("Delete Highlight", isPresented: $showingDeleteAlert) {
             Button("Cancel", role: .cancel) {
                 clipToDelete = nil
@@ -257,6 +261,9 @@ struct HighlightsView: View {
                 try modelContext.save()
                 hasCompletedMigration = true
             } catch {
+                #if DEBUG
+                print("⚠️ Failed to save highlight migration: \(error.localizedDescription)")
+                #endif
             }
         } else {
             // No videos to migrate, mark as complete anyway
@@ -359,6 +366,13 @@ struct HighlightsView: View {
                             shareClip(clip)
                         } label: {
                             Label("Share", systemImage: "square.and.arrow.up")
+                        }
+                        if hasCoachingAccess {
+                            Button {
+                                clipToShareToFolder = clip
+                            } label: {
+                                Label("Share to Coach Folder", systemImage: "folder.badge.person.fill")
+                            }
                         }
                         Divider()
                         Button {
@@ -766,7 +780,6 @@ struct HighlightCard: View {
     let onTap: () -> Void
     let hasCoachingAccess: Bool
     @Environment(\.modelContext) private var modelContext
-    @State private var showingShareToFolder = false
 
     var body: some View {
         Button(action: {
@@ -878,18 +891,6 @@ struct HighlightCard: View {
         .shadow(color: .black.opacity(0.04), radius: 2, x: 0, y: 1)
         .scaleEffect(editMode == .active ? 0.96 : 1.0)
         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: editMode)
-        .contextMenu {
-            if hasCoachingAccess && editMode == .inactive {
-                Button {
-                    showingShareToFolder = true
-                } label: {
-                    Label("Share to Coach Folder", systemImage: "folder.badge.person.fill")
-                }
-            }
-        }
-        .sheet(isPresented: $showingShareToFolder) {
-            ShareToCoachFolderView(clip: clip)
-        }
     }
 
     private func formatDuration(_ seconds: Double) -> String {
@@ -1277,138 +1278,6 @@ struct GameHighlightGroup: Identifiable {
 }
 
 // MARK: - Game Highlight Section View
-
-struct GameHighlightSection: View {
-    let group: GameHighlightGroup
-    let editMode: EditMode
-    @Binding var selection: Set<UUID>
-    let onToggleExpand: () -> Void
-    let onClipTap: (VideoClip) -> Void
-    let onDeleteClip: (VideoClip) -> Void
-    let onRemoveFromHighlights: (VideoClip) -> Void
-    let onShareClip: (VideoClip) -> Void
-    let hasCoachingAccess: Bool
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            // Section Header (always visible)
-            if group.clips.count > 1 {
-                Button(action: {
-                    Haptics.selection()
-                    withAnimation {
-                        onToggleExpand()
-                    }
-                }) {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(group.displayTitle)
-                                .font(.headline)
-                                .foregroundColor(.primary)
-
-                            HStack(spacing: 12) {
-                                Text(group.displayDate)
-                                    .font(.subheadline)
-                                    .foregroundColor(.secondary)
-
-                                HStack(spacing: 4) {
-                                    Image(systemName: "video.fill")
-                                        .font(.caption2)
-                                    Text("\(group.hitCount) clip\(group.hitCount == 1 ? "" : "s")")
-                                        .font(.caption)
-                                }
-                                .foregroundColor(.blue)
-                            }
-                        }
-
-                        Spacer()
-
-                        Image(systemName: group.isExpanded ? "chevron.up.circle.fill" : "chevron.down.circle.fill")
-                            .font(.title3)
-                            .foregroundColor(.blue)
-                    }
-                    .padding()
-                    .background(Color(.secondarySystemBackground))
-                    .cornerRadius(.cornerLarge)
-                }
-                .buttonStyle(.plain)
-            }
-
-            // Clips Grid (shown when expanded or single clip)
-            if group.isExpanded {
-                LazyVGrid(
-                    columns: [GridItem(.adaptive(minimum: 140), spacing: 15, alignment: .top)],
-                    spacing: 15
-                ) {
-                    ForEach(group.clips) { clip in
-                        highlightItemView(
-                            clip: clip,
-                            editMode: editMode,
-                            isSelected: selection.contains(clip.id),
-                            onTap: { onClipTap(clip) },
-                            onDelete: { onDeleteClip(clip) },
-                            onRemoveFromHighlights: { onRemoveFromHighlights(clip) },
-                            onShare: { onShareClip(clip) }
-                        )
-                    }
-                }
-                .padding(.leading, group.clips.count > 1 ? 12 : 0)
-            }
-        }
-    }
-
-    private func highlightItemView(
-        clip: VideoClip,
-        editMode: EditMode,
-        isSelected: Bool,
-        onTap: @escaping () -> Void,
-        onDelete: @escaping () -> Void,
-        onRemoveFromHighlights: @escaping () -> Void,
-        onShare: @escaping () -> Void
-    ) -> some View {
-        ZStack(alignment: .topLeading) {
-            HighlightCard(
-                clip: clip,
-                editMode: editMode,
-                onTap: onTap,
-                hasCoachingAccess: hasCoachingAccess
-            )
-            .contextMenu {
-                Button {
-                    onTap()
-                } label: {
-                    Label("Play", systemImage: "play.fill")
-                }
-                Button {
-                    onShare()
-                } label: {
-                    Label("Share", systemImage: "square.and.arrow.up")
-                }
-                Divider()
-                Button {
-                    onRemoveFromHighlights()
-                } label: {
-                    Label("Remove from Highlights", systemImage: "star.slash")
-                }
-                Divider()
-                Button(role: .destructive) {
-                    onDelete()
-                } label: {
-                    Label("Delete", systemImage: "trash")
-                }
-            }
-
-            if editMode == .active {
-                Button(action: onTap) {
-                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                        .symbolRenderingMode(.hierarchical)
-                        .font(.title2)
-                        .foregroundStyle(isSelected ? .blue : .secondary)
-                        .padding(8)
-                }
-            }
-        }
-    }
-}
 
 // MARK: - Auto-Highlight Settings View
 

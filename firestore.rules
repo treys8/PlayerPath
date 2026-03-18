@@ -299,7 +299,7 @@ service cloud.firestore {
       // must identify themselves as sender, and include required fields
       allow create: if isAuthenticated()
                     && request.resource.data.senderID == request.auth.uid
-                    && request.resource.data.keys().hasAll(['senderID', 'type', 'message', 'createdAt']);
+                    && request.resource.data.keys().hasAll(['senderID', 'type', 'title', 'body', 'createdAt']);
 
       // Only the recipient can mark notifications as read
       allow update: if isAuthenticated() && isOwner(userID);

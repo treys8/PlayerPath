@@ -9,6 +9,7 @@ import SwiftUI
 
 struct LiveGameCard: View {
     let game: Game
+    var isEnding: Bool = false
     var onEnd: (() -> Void)?
 
     @State private var isPulsing = false
@@ -113,22 +114,30 @@ struct LiveGameCard: View {
                     Haptics.medium()
                     onEnd?()
                 } label: {
-                    Text("End")
-                        .font(.caption)
-                        .fontWeight(.bold)
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 7)
-                        .background(
-                            LinearGradient(
-                                colors: [.red, .red.opacity(0.8)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
+                    Group {
+                        if isEnding {
+                            ProgressView()
+                                .tint(.white)
+                        } else {
+                            Text("End")
+                        }
+                    }
+                    .font(.caption)
+                    .fontWeight(.bold)
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 7)
+                    .background(
+                        LinearGradient(
+                            colors: [.red, .red.opacity(0.8)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
                         )
-                        .clipShape(Capsule())
-                        .shadow(color: .red.opacity(0.3), radius: 4, x: 0, y: 2)
+                    )
+                    .clipShape(Capsule())
+                    .shadow(color: .red.opacity(0.3), radius: 4, x: 0, y: 2)
                 }
+                .disabled(isEnding)
                 .buttonStyle(.borderless)
 
                 Image(systemName: "chevron.right")

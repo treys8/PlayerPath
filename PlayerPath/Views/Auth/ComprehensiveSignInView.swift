@@ -390,7 +390,7 @@ struct ComprehensiveSignInView: View {
             }
         }
         .sheet(isPresented: $showingResetPasswordSheet) {
-            ResetPasswordSheet(email: $email)
+            ResetPasswordSheet(email: email)
         }
         .sheet(isPresented: $showingTerms) {
             TermsOfServiceView()

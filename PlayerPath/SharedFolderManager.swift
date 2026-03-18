@@ -33,10 +33,7 @@ class SharedFolderManager: ObservableObject {
     private var coachFoldersListener: ListenerRegistration?
 
     private init() {
-        // Observe Firestore loading state
-        firestore.$isLoading
-            .assign(to: &$isLoading)
-
+        // Observe Firestore error state
         firestore.$errorMessage
             .assign(to: &$errorMessage)
     }
@@ -169,6 +166,7 @@ class SharedFolderManager: ObservableObject {
         await notifyCoachAccessRevoked(
             coachID: coachID,
             coachEmail: coachEmail,
+            folderID: folderID,
             folderName: folderName,
             athleteID: athleteID
         )
@@ -194,6 +192,7 @@ class SharedFolderManager: ObservableObject {
     private func notifyCoachAccessRevoked(
         coachID: String,
         coachEmail: String,
+        folderID: String,
         folderName: String,
         athleteID: String
     ) async {
@@ -207,6 +206,7 @@ class SharedFolderManager: ObservableObject {
         }
 
         await ActivityNotificationService.shared.postAccessRevokedNotification(
+            folderID: folderID,
             folderName: folderName,
             athleteID: athleteID,
             athleteName: athleteName,
@@ -282,6 +282,7 @@ class SharedFolderManager: ObservableObject {
                     await notifyCoachAccessRevoked(
                         coachID: coachID,
                         coachEmail: "",
+                        folderID: folderID,
                         folderName: folder.name,
                         athleteID: athleteID
                     )

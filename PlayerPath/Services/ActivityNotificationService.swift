@@ -13,6 +13,9 @@
 import Foundation
 import FirebaseFirestore
 import Combine
+import os
+
+private let log = Logger(subsystem: "com.playerpath.app", category: "ActivityNotifications")
 
 // MARK: - Model
 
@@ -140,6 +143,7 @@ final class ActivityNotificationService: ObservableObject {
         do {
             try await batch.commit()
         } catch {
+            log.error("Failed to mark all notifications read: \(error.localizedDescription)")
         }
     }
 
@@ -151,6 +155,7 @@ final class ActivityNotificationService: ObservableObject {
                 .document(notifID)
                 .updateData(["isRead": true])
         } catch {
+            log.error("Failed to mark notification \(notifID) read: \(error.localizedDescription)")
         }
     }
 
@@ -250,6 +255,7 @@ final class ActivityNotificationService: ObservableObject {
 
     /// Athlete revokes coach access → notify coach.
     func postAccessRevokedNotification(
+        folderID: String,
         folderName: String,
         athleteID: String,
         athleteName: String,
@@ -261,6 +267,8 @@ final class ActivityNotificationService: ObservableObject {
             "body": "\(athleteName) has removed your access to \"\(folderName)\"",
             "senderName": athleteName,
             "senderID": athleteID,
+            "targetID": folderID,
+            "targetType": ActivityNotification.TargetType.folder.rawValue,
             "isRead": false,
             "createdAt": FieldValue.serverTimestamp()
         ]
@@ -270,11 +278,14 @@ final class ActivityNotificationService: ObservableObject {
     // MARK: - Internal Write
 
     private func writeNotification(_ data: [String: Any], toUserIDs userIDs: [String]) async {
-        guard !userIDs.isEmpty else { return }
+        // Filter out the sender so users don't notify themselves
+        let senderID = data["senderID"] as? String
+        let recipients = userIDs.filter { $0 != senderID }
+        guard !recipients.isEmpty else { return }
 
         // Batch writes to reduce Firestore operations
         let batch = db.batch()
-        for userID in userIDs {
+        for userID in recipients {
             let ref = db
                 .collection("notifications")
                 .document(userID)
@@ -285,6 +296,7 @@ final class ActivityNotificationService: ObservableObject {
         do {
             try await batch.commit()
         } catch {
+            log.error("Failed to write notification batch: \(error.localizedDescription)")
         }
     }
 

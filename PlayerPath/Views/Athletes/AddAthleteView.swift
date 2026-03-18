@@ -158,6 +158,7 @@ struct AddAthleteView: View {
                 }
                 .padding()
             }
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle(isFirstAthlete ? "Get Started" : "New Athlete")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

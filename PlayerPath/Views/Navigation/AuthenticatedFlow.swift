@@ -154,9 +154,10 @@ struct AuthenticatedFlow: View {
     }
     
     private func loadUser() async {
+        defer { isLoading = false }
+
         guard let authUser = authManager.currentFirebaseUser,
               let rawEmail = authUser.email else {
-            isLoading = false
             return
         }
         
@@ -258,10 +259,8 @@ struct AuthenticatedFlow: View {
                 authManager.markOnboardingComplete()
             }
         }
-
-        isLoading = false
     }
-    
+
     private func createNewUser(authUser: FirebaseAuth.User, email: String) async {
         let normalizedEmail = email.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
         

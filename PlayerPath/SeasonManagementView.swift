@@ -553,6 +553,8 @@ struct SeasonDetailView: View {
     @State private var showingDeleteConfirmation = false
     @State private var showingReactivateConfirmation = false
     @State private var showingEndSeasonConfirmation = false
+    @State private var showingRenameSheet = false
+    @State private var editedSeasonName = ""
     @State private var isProcessing = false
     @State private var showingError = false
     @State private var errorMessage = ""
@@ -664,6 +666,13 @@ struct SeasonDetailView: View {
             
             // Actions
             Section {
+                Button {
+                    editedSeasonName = season.name
+                    showingRenameSheet = true
+                } label: {
+                    Label("Edit Season Name", systemImage: "pencil")
+                }
+
                 if season.isActive {
                     Button {
                         showingEndSeasonConfirmation = true
@@ -732,6 +741,38 @@ struct SeasonDetailView: View {
             Button("OK", role: .cancel) { }
         } message: {
             Text(successMessage)
+        }
+        .sheet(isPresented: $showingRenameSheet) {
+            NavigationStack {
+                Form {
+                    Section {
+                        TextField("Season Name", text: $editedSeasonName)
+                            .autocorrectionDisabled()
+                            .submitLabel(.done)
+                    } header: {
+                        Text("Season Name")
+                    } footer: {
+                        Text("Enter a new name for this season")
+                    }
+                }
+                .navigationTitle("Rename Season")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") {
+                            showingRenameSheet = false
+                        }
+                    }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Save") {
+                            showingRenameSheet = false
+                            renameSeason(to: editedSeasonName)
+                        }
+                        .disabled(editedSeasonName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                }
+            }
+            .presentationDetents([.medium])
         }
         .overlay {
             if isProcessing {
@@ -972,6 +1013,59 @@ struct SeasonDetailView: View {
 
                 isProcessing = false
                 errorMessage = "Failed to end season: \(error.localizedDescription)"
+                showingError = true
+            }
+        }
+    }
+
+    private func renameSeason(to newName: String) {
+        let trimmedName = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else { return }
+        guard trimmedName != season.name else { return }
+
+        isProcessing = true
+
+        // Save state for rollback
+        let oldName = season.name
+        let oldClipSeasonNames: [(VideoClip, String)] = (season.videoClips ?? []).map { ($0, $0.seasonName ?? "") }
+
+        // Update season name
+        season.name = trimmedName
+        season.needsSync = true
+
+        // Batch-update all VideoClips with the new season name
+        for clip in season.videoClips ?? [] {
+            clip.seasonName = season.displayName
+            if clip.firestoreId != nil {
+                clip.needsSync = true
+            }
+        }
+
+        Task {
+            do {
+                try modelContext.save()
+
+                // Trigger sync for both season and video metadata
+                if let user = season.athlete?.user {
+                    try? await SyncCoordinator.shared.syncSeasons(for: user)
+                    try? await SyncCoordinator.shared.syncVideos(for: user)
+                }
+
+                withAnimation {
+                    isProcessing = false
+                }
+                Haptics.medium()
+                successMessage = "Season renamed to \"\(trimmedName)\"."
+                showingSuccess = true
+            } catch {
+                // Rollback season name and clip seasonNames
+                season.name = oldName
+                for (clip, oldSeasonName) in oldClipSeasonNames {
+                    clip.seasonName = oldSeasonName
+                }
+
+                isProcessing = false
+                errorMessage = "Failed to rename season: \(error.localizedDescription)"
                 showingError = true
             }
         }

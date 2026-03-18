@@ -502,6 +502,7 @@ struct PreUploadTrimmerView: View {
     let onSave: (URL) -> Void
     let onSkip: () -> Void
     let onCancel: () -> Void
+    var onDiscard: (() -> Void)? = nil
 
     @State private var player: AVPlayer?
     @State private var startTime: Double = 0
@@ -568,62 +569,22 @@ struct PreUploadTrimmerView: View {
         }
     }
 
-    // MARK: - Play/Pause button
-
-    private var playPauseButtonView: some View {
-        Button {
-            if let player = player {
-                if isPlaying {
-                    player.pause()
-                } else {
-                    player.play()
-                }
-                isPlaying.toggle()
-                Haptics.light()
-            }
-        } label: {
-            Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                .font(.system(size: 16, weight: .bold))
-                .foregroundColor(.white)
-                .padding(10)
-                .background(.ultraThinMaterial)
-                .clipShape(Circle())
-                .shadow(radius: 4)
-        }
-    }
-
     // MARK: - Portrait layout
 
     private var portraitTrimmerLayout: some View {
-        ZStack {
-            // Play/Pause — bottom leading, above safe area
-            VStack {
+        VStack {
+            HStack {
+                backButtonView
                 Spacer()
-                HStack {
-                    playPauseButtonView
-                    Spacer()
-                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 16)
+
+            Spacer()
+
+            trimGlassPanel
                 .padding(.horizontal, 16)
                 .padding(.bottom, 16)
-            }
-
-            // Controls overlay
-            VStack {
-                HStack {
-                    backButtonView
-                    Spacer()
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 16)
-
-                Spacer()
-
-                trimGlassPanel
-                    .padding(.horizontal, 16)
-
-                // Space below panel clears the play/pause button
-                Spacer().frame(height: 60)
-            }
         }
     }
 
@@ -631,7 +592,7 @@ struct PreUploadTrimmerView: View {
 
     private var landscapeTrimmerLayout: some View {
         HStack(spacing: 0) {
-            // Left column: back button (top) + play/pause (bottom)
+            // Left column: back button
             VStack {
                 HStack {
                     backButtonView
@@ -640,12 +601,6 @@ struct PreUploadTrimmerView: View {
                 .padding(.top, 8)
 
                 Spacer()
-
-                HStack {
-                    playPauseButtonView
-                    Spacer()
-                }
-                .padding(.bottom, 8)
             }
             .padding(.leading, 16)
             .frame(maxWidth: 120)
@@ -793,6 +748,32 @@ struct PreUploadTrimmerView: View {
                     )
                 }
                 .disabled(isExporting)
+
+                if let onDiscard {
+                    Button {
+                        Haptics.warning()
+                        onDiscard()
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "trash")
+                                .font(.body.weight(.semibold))
+                            Text("Discard")
+                                .font(.body.weight(.semibold))
+                        }
+                        .foregroundColor(.red)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                        .background(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .fill(Color.red.opacity(0.12))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .strokeBorder(Color.red.opacity(0.3), lineWidth: 1)
+                        )
+                    }
+                    .disabled(isExporting)
+                }
             }
             .opacity(showContent ? 1 : 0)
             .offset(y: showContent ? 0 : 20)

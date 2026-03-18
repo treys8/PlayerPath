@@ -171,7 +171,7 @@ struct PhotosView: View {
             Spacer()
         }
         .padding(.horizontal)
-        .padding(.vertical, 8)
+        .padding(.bottom, 8)
     }
 
     // MARK: - Photos Grid
@@ -206,6 +206,7 @@ struct PhotosView: View {
             actionTitle: "Add Photo",
             action: { showingSourcePicker = true }
         )
+        .frame(maxHeight: .infinity)
     }
 
     // MARK: - Filter Sheet

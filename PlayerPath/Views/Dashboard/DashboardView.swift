@@ -25,6 +25,8 @@ struct DashboardView: View {
     @State private var showingSeasons = false
     @State private var showingPhotos = false
     @State private var isCheckingPermissions = false
+    @State private var isEndingGame: Set<UUID> = []
+    @State private var errorMessage: String?
 
     // Cached computed values to avoid recalculation during body evaluation
     @State private var seasonRecommendation: SeasonManager.SeasonRecommendation = .ok
@@ -165,11 +167,26 @@ struct DashboardView: View {
                 selectedVideoForPlayback = video
             }
         }
+        .alert("Error", isPresented: .init(
+            get: { errorMessage != nil },
+            set: { if !$0 { errorMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(errorMessage ?? "")
+        }
     }
 
     // MARK: - Content
 
     private func endLiveGame(_ game: Game) {
+        guard !isEndingGame.contains(game.id) else { return }
+        isEndingGame.insert(game.id)
+
+        // Capture original state for revert on save failure
+        let prevLiveStartDate = game.liveStartDate
+        let prevNeedsSync = game.needsSync
+
         Haptics.light()
         game.isLive = false
         game.isComplete = true
@@ -178,36 +195,45 @@ struct DashboardView: View {
         GameAlertService.shared.cancelEndGameReminder(for: game)
 
         Task {
+            defer { isEndingGame.remove(game.id) }
+
             // Recalculate from scratch to avoid double-counting
             if let athlete = game.athlete {
                 do {
                     try StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: modelContext)
                 } catch {
+                    // Stats failed but game state can still be saved
                 }
             }
 
             do {
                 try modelContext.save()
-
-                // Track game end analytics
-                let gameStats = game.gameStats
-                AnalyticsService.shared.trackGameEnded(
-                    gameID: game.id.uuidString,
-                    atBats: gameStats?.atBats ?? 0,
-                    hits: gameStats?.hits ?? 0
-                )
-
-                // Trigger Firestore sync
-                let userForSync = game.athlete?.user
-                Task {
-                    guard let user = userForSync else { return }
-                    do {
-                        try await SyncCoordinator.shared.syncGames(for: user)
-                    } catch {
-                    }
-                }
-
             } catch {
+                // Revert in-memory mutations since save failed
+                game.isLive = true
+                game.isComplete = false
+                game.liveStartDate = prevLiveStartDate
+                game.needsSync = prevNeedsSync
+                errorMessage = "Failed to end game: \(error.localizedDescription)"
+                Haptics.error()
+                return
+            }
+
+            // Track game end analytics
+            let gameStats = game.gameStats
+            AnalyticsService.shared.trackGameEnded(
+                gameID: game.id.uuidString,
+                atBats: gameStats?.atBats ?? 0,
+                hits: gameStats?.hits ?? 0
+            )
+
+            // Trigger Firestore sync
+            if let userForSync = game.athlete?.user {
+                do {
+                    try await SyncCoordinator.shared.syncGames(for: userForSync)
+                } catch {
+                    // Game is saved locally with needsSync=true; sync will retry later
+                }
             }
         }
     }
@@ -227,6 +253,10 @@ struct DashboardView: View {
                     SeasonRecommendationBanner(athlete: athlete, recommendation: seasonRecommendation)
                         .padding(.horizontal, dashboardHorizontalPadding)
                 }
+
+                // NEXT STEP CARD - Guides new users through first actions
+                DashboardNextStepCard(athlete: athlete)
+                    .padding(.horizontal, dashboardHorizontalPadding)
 
                 // LIVE GAMES SECTION - Shows when games are live
                 if !liveGames.isEmpty {
@@ -270,7 +300,7 @@ struct DashboardView: View {
                             NavigationLink {
                                 GameDetailView(game: game)
                             } label: {
-                                LiveGameCard(game: game) {
+                                LiveGameCard(game: game, isEnding: isEndingGame.contains(game.id)) {
                                     endLiveGame(game)
                                 }
                             }
@@ -280,33 +310,20 @@ struct DashboardView: View {
                     .padding(.horizontal, dashboardHorizontalPadding)
                 }
 
-                // Quick Actions Section
-                VStack(spacing: 16) {
-                    DashboardSectionHeader(title: "Quick Actions", icon: "bolt.fill", color: .blue)
+                // Quick Actions Section — only shown when a game is live
+                if hasLiveGame {
+                    VStack(spacing: 16) {
+                        DashboardSectionHeader(title: "Quick Actions", icon: "bolt.fill", color: .blue)
 
-                    HStack(spacing: 12) {
-                        QuickActionButton(
-                            icon: "plus.circle.fill",
-                            title: "New Game",
-                            color: .blue
-                        ) {
-                            Task { @MainActor in
-                                // Switch to Games tab
-                                postSwitchTab(.games)
-                                #if DEBUG
-                                print("🎮 New Game quick action - switching to Games tab")
-                                #endif
-
-                                // Removed tournament context usage, always nil
-                                // Ask the Games module to present its Add Game UI
-                                NotificationCenter.default.post(name: Notification.Name.presentAddGame, object: nil)
-                                #if DEBUG
-                                print("📣 Posted .presentAddGame notification with no tournament context")
-                                #endif
-                                Haptics.light()
+                        HStack(spacing: 12) {
+                            QuickActionButton(
+                                icon: "plus.circle.fill",
+                                title: "New Game",
+                                color: .blue
+                            ) {
+                                createNewGame()
                             }
-                        }
-                        if hasLiveGame {
+
                             QuickActionButton(
                                 icon: "record.circle",
                                 title: "Record Live",
@@ -342,12 +359,23 @@ struct DashboardView: View {
                             .disabled(isCheckingPermissions)
                         }
                     }
+                    .padding(.horizontal, dashboardHorizontalPadding)
                 }
-                .padding(.horizontal, dashboardHorizontalPadding)
 
                 // Management Section
                 VStack(spacing: 16) {
-                    DashboardSectionHeader(title: "Management", icon: "square.grid.2x2.fill", color: .blue)
+                    HStack {
+                        DashboardSectionHeader(title: "Management", icon: "square.grid.2x2.fill", color: .blue)
+
+                        Button {
+                            createNewGame()
+                        } label: {
+                            Text("+ New Game")
+                                .font(.subheadline)
+                                .fontWeight(.medium)
+                                .foregroundColor(.blue)
+                        }
+                    }
 
                     LazyVGrid(columns: managementColumns, spacing: 16) {
                         // 1. Games
@@ -433,9 +461,9 @@ struct DashboardView: View {
                             title: "Coaches",
                             subtitle: "\((athlete.coaches ?? []).count) Coaches",
                             color: .blue,
-                            isPremium: authManager.currentTier == .pro
+                            isPremium: authManager.currentTier >= .pro
                         ) {
-                            if authManager.currentTier == .pro {
+                            if authManager.currentTier >= .pro {
                                 postSwitchTab(.home)
                                 Task { @MainActor in
                                     NotificationCenter.default.post(name: Notification.Name.presentCoaches, object: athlete)
@@ -485,6 +513,20 @@ struct DashboardView: View {
     }
 
     // MARK: - Helper Functions
+
+    private func createNewGame() {
+        Task { @MainActor in
+            postSwitchTab(.games)
+            #if DEBUG
+            print("🎮 New Game quick action - switching to Games tab")
+            #endif
+            NotificationCenter.default.post(name: Notification.Name.presentAddGame, object: nil)
+            #if DEBUG
+            print("📣 Posted .presentAddGame notification with no tournament context")
+            #endif
+            Haptics.light()
+        }
+    }
 
     private func updateCachedStats() {
         seasonRecommendation = SeasonManager.checkSeasonStatus(for: athlete)

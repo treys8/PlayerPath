@@ -10,7 +10,7 @@ import SwiftUI
 struct ResetPasswordSheet: View {
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @Environment(\.dismiss) private var dismiss
-    @Binding var email: String
+    let email: String
 
     @State private var resetEmail = ""
     @State private var isLoading = false
@@ -29,6 +29,7 @@ struct ResetPasswordSheet: View {
 
     var body: some View {
         NavigationStack {
+            ScrollView {
             VStack(spacing: 28) {
                 // Icon with background
                 ZStack {
@@ -134,9 +135,11 @@ struct ResetPasswordSheet: View {
                     .disabled(!isValidEmail || isLoading)
                 }
                 .padding(.horizontal, 20)
-
-                Spacer()
             }
+            .padding(.vertical, 16)
+            .padding(.bottom, 40)
+            }
+            .scrollDismissesKeyboard(.interactively)
             .background(Color(.systemGroupedBackground))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

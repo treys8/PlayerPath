@@ -353,6 +353,16 @@ final class UploadQueueManager {
         queueIsDirty = true
     }
 
+    /// Clears all failed uploads and their associated retry tasks
+    func clearFailed() {
+        for upload in failedUploads {
+            retryTasks[upload.clipId]?.cancel()
+            retryTasks.removeValue(forKey: upload.clipId)
+        }
+        failedUploads.removeAll()
+        queueIsDirty = true
+    }
+
     /// Clears all upload queues - call on logout or account switch
     func clearAllQueues() {
         // Stop any active processing

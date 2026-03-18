@@ -13,56 +13,64 @@ struct ActivityNotificationBanner: View {
     let onDismiss: () -> Void
     var onTap: (() -> Void)? = nil
 
-    @State private var isVisible = false
-
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: iconName)
-                .font(.title3)
-                .foregroundColor(iconColor)
-                .frame(width: 36, height: 36)
-                .background(iconColor.opacity(0.15))
-                .clipShape(Circle())
+            // Tappable content area (navigates + dismisses)
+            Button {
+                Haptics.light()
+                onTap?()
+                onDismiss()
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: iconName)
+                        .font(.title3)
+                        .foregroundColor(iconColor)
+                        .frame(width: 36, height: 36)
+                        .background(iconColor.opacity(0.15))
+                        .clipShape(Circle())
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(notification.title)
-                    .font(.subheadline)
-                    .fontWeight(.semibold)
-                    .foregroundColor(.primary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(notification.title)
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                            .foregroundColor(.primary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
 
-                Text(notification.body)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .lineLimit(2)
-                    .truncationMode(.tail)
+                        Text(notification.body)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .lineLimit(2)
+                            .truncationMode(.tail)
+                    }
+                }
             }
+            .buttonStyle(.plain)
 
             Spacer()
 
+            // Dismiss-only button (does NOT navigate)
             Button(action: onDismiss) {
                 Image(systemName: "xmark")
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .frame(width: 24, height: 24)
             }
+            .buttonStyle(.borderless)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: .cornerXLarge))
         .shadow(color: .black.opacity(0.12), radius: 8, x: 0, y: 4)
         .padding(.horizontal, 16)
-        .onAppear {
-            // Auto-dismiss after 5 seconds
-            DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
+        .task {
+            // Auto-dismiss after 5 seconds; cancelled automatically on disappear
+            do {
+                try await Task.sleep(nanoseconds: 5_000_000_000)
                 onDismiss()
+            } catch {
+                // Task was cancelled (view disappeared) — don't dismiss
             }
-        }
-        .onTapGesture {
-            Haptics.light()
-            onTap?()
-            onDismiss()
         }
     }
 

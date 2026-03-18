@@ -56,13 +56,10 @@ struct ClipCommentSection: View {
                 }
             }
         }
-        .task {
-            // Skip if comments already loaded and fetched within the last 30 seconds
-            if !comments.isEmpty,
-               let lastFetch = lastFetchDate,
-               Date().timeIntervalSince(lastFetch) < 30 {
-                return
-            }
+        .task(id: clipId) {
+            // Reset state when clipId changes (e.g. cell reuse in a List)
+            comments = []
+            lastFetchDate = nil
             await loadComments()
             lastFetchDate = Date()
         }

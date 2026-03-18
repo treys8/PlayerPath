@@ -51,12 +51,13 @@ struct SeasonManager {
             .first?.sport ?? .baseball
 
         // Create and activate new season
+        // Set the athlete relationship BEFORE activate() so the deactivation
+        // loop inside activate() can see athlete.seasons and deactivate them.
         let newSeason = Season(name: seasonName, startDate: now, sport: sport)
-        newSeason.activate()
         newSeason.athlete = athlete
-
         athlete.seasons = athlete.seasons ?? []
         athlete.seasons?.append(newSeason)
+        newSeason.activate()
 
         modelContext.insert(newSeason)
 
@@ -75,6 +76,10 @@ struct SeasonManager {
     static func linkGameToActiveSeason(_ game: Game, for athlete: Athlete, in modelContext: ModelContext) {
         // Silently skips games already assigned to a season
         guard game.season == nil else { return }
+        guard game.athlete?.id == athlete.id else {
+            log.error("Game does not belong to athlete — skipping season link")
+            return
+        }
 
         guard let activeSeason = ensureActiveSeason(for: athlete, in: modelContext) else {
             log.error("Failed to ensure active season for game linking")
@@ -88,6 +93,10 @@ struct SeasonManager {
     static func linkPracticeToActiveSeason(_ practice: Practice, for athlete: Athlete, in modelContext: ModelContext) {
         // Silently skips practices already assigned to a season
         guard practice.season == nil else { return }
+        guard practice.athlete?.id == athlete.id else {
+            log.error("Practice does not belong to athlete — skipping season link")
+            return
+        }
 
         guard let activeSeason = ensureActiveSeason(for: athlete, in: modelContext) else {
             log.error("Failed to ensure active season for practice linking")
@@ -101,6 +110,10 @@ struct SeasonManager {
     static func linkVideoToActiveSeason(_ videoClip: VideoClip, for athlete: Athlete, in modelContext: ModelContext) {
         // Silently skips clips already assigned to a season
         guard videoClip.season == nil else { return }
+        guard videoClip.athlete?.id == athlete.id else {
+            log.error("VideoClip does not belong to athlete — skipping season link")
+            return
+        }
 
         guard let activeSeason = ensureActiveSeason(for: athlete, in: modelContext) else {
             log.error("Failed to ensure active season for video linking")
@@ -130,7 +143,8 @@ struct SeasonManager {
         // Baseball stats if available
         if let stats = season.seasonStatistics, stats.atBats > 0 {
             summary += "⚾️ Batting Statistics\n"
-            summary += "• Batting Average: \(String(format: ".%03d", Int(stats.battingAverage * 1000)))\n"
+            let avgDisplay = stats.battingAverage >= 1.0 ? "1.000" : String(format: ".%03d", Int(stats.battingAverage * 1000))
+            summary += "• Batting Average: \(avgDisplay)\n"
             summary += "• At Bats: \(stats.atBats)\n"
             summary += "• Hits: \(stats.hits)\n"
             summary += "• Home Runs: \(stats.homeRuns)\n"

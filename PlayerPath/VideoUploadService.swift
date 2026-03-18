@@ -11,13 +11,11 @@ import SwiftUI
 import Combine
 import CloudKit
 import AVFoundation
-import FirebaseAuth
 import os.log
 
 @MainActor
 class VideoUploadService: ObservableObject {
     @Published var isProcessingVideo = false
-    @Published var uploadProgress: Double = 0.0
 
     func processSelectedVideo(_ item: PhotosPickerItem?) async -> Result<URL, AppError> {
         guard let item = item else {
@@ -52,49 +50,6 @@ class VideoUploadService: ObservableObject {
         } catch {
             let appError = AppError.from(error)
             ErrorHandlerService.shared.handle(appError, context: "Video processing")
-            return .failure(appError)
-        }
-    }
-    
-    func uploadVideo(from localURL: URL, to cloudManager: VideoCloudManager) async -> Result<String, AppError> {
-        uploadProgress = 0.0
-
-        do {
-            // Validate user authentication before upload
-            guard let user = Auth.auth().currentUser else {
-                let error = AppError.authenticationFailed("User must be signed in to upload videos")
-                ErrorHandlerService.shared.handle(error, context: "Video cloud upload")
-                return .failure(error)
-            }
-
-            #if DEBUG
-            print("🔐 VideoUploadService: Authenticated user: \(user.uid)")
-            #endif
-
-            // Generate unique filename for the video
-            let fileName = "\(UUID().uuidString).mov"
-
-            // Use user-specific folder ID for better organization
-            let folderID = "athlete_videos/\(user.uid)"
-
-            // Upload with progress tracking
-            let downloadURL = try await cloudManager.uploadVideo(
-                localURL: localURL,
-                fileName: fileName,
-                folderID: folderID,
-                progressHandler: { [weak self] progress in
-                    self?.uploadProgress = progress
-                }
-            )
-
-            #if DEBUG
-            print("✅ VideoUploadService: Upload completed - \(downloadURL)")
-            #endif
-
-            return .success(downloadURL)
-        } catch {
-            let appError = AppError.videoUploadFailed(error.localizedDescription)
-            ErrorHandlerService.shared.handle(appError, context: "Video cloud upload")
             return .failure(appError)
         }
     }
@@ -149,11 +104,9 @@ struct VideoTransferable: Transferable {
         FileRepresentation(contentType: .movie) { video in
             SentTransferredFile(video.url)
         } importing: { received in
-            guard let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
-                throw AppError.videoUploadFailed("Could not access app documents directory")
-            }
+            let tmpDir = FileManager.default.temporaryDirectory
             let ext = received.file.pathExtension.isEmpty ? "mov" : received.file.pathExtension
-            let copy = documentsPath.appendingPathComponent("imported_\(UUID().uuidString).\(ext)")
+            let copy = tmpDir.appendingPathComponent("imported_\(UUID().uuidString).\(ext)")
             try FileManager.default.copyItem(at: received.file, to: copy)
             return Self.init(url: copy)
         }

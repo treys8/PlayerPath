@@ -35,14 +35,16 @@ struct VideoPicker: UIViewControllerRepresentable {
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(self)
+        Coordinator(self, modelContext: modelContext)
     }
 
     class Coordinator: NSObject, PHPickerViewControllerDelegate {
         let parent: VideoPicker
+        let modelContext: ModelContext
 
-        init(_ parent: VideoPicker) {
+        init(_ parent: VideoPicker, modelContext: ModelContext) {
             self.parent = parent
+            self.modelContext = modelContext
         }
 
         func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
@@ -61,7 +63,9 @@ struct VideoPicker: UIViewControllerRepresentable {
             // Load the video file. The URL provided in the callback is a temporary
             // file that is deleted once the closure returns, so we copy it to a
             // stable location synchronously before escaping into an async Task.
-            result.itemProvider.loadFileRepresentation(forTypeIdentifier: UTType.movie.identifier) { url, error in
+            result.itemProvider.loadFileRepresentation(forTypeIdentifier: UTType.movie.identifier) { [weak self] url, error in
+                guard let self else { return }
+
                 if let error = error {
                     DispatchQueue.main.async {
                         self.parent.onImportComplete()
@@ -78,7 +82,7 @@ struct VideoPicker: UIViewControllerRepresentable {
                     return
                 }
 
-                // Copy synchronously while the temp URL is still alive.
+                // Copy to Clips directory (matching camera recorder pattern)
                 guard let documentsDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
                     DispatchQueue.main.async {
                         self.parent.onImportComplete()
@@ -86,11 +90,15 @@ struct VideoPicker: UIViewControllerRepresentable {
                     }
                     return
                 }
+                let clipsDir = documentsDir.appendingPathComponent("Clips", isDirectory: true)
+                try? FileManager.default.createDirectory(at: clipsDir, withIntermediateDirectories: true)
+
                 let ext = tempURL.pathExtension.isEmpty ? "mov" : tempURL.pathExtension
-                let stableURL = documentsDir.appendingPathComponent("imported_\(UUID().uuidString).\(ext)")
+                let stableURL = clipsDir.appendingPathComponent("\(UUID().uuidString).\(ext)")
                 do {
                     try FileManager.default.copyItem(at: tempURL, to: stableURL)
                 } catch {
+                    try? FileManager.default.removeItem(at: stableURL)
                     DispatchQueue.main.async {
                         self.parent.onImportComplete()
                         self.parent.onError("Failed to copy video: \(error.localizedDescription)")
@@ -98,14 +106,12 @@ struct VideoPicker: UIViewControllerRepresentable {
                     return
                 }
 
-                Task {
-                    await self.importVideo(from: stableURL)
+                Task { [weak self] in
+                    await self?.importVideo(from: stableURL)
                 }
             }
         }
 
-        // stableURL is already a copy in the documents directory made synchronously
-        // in the picker callback — no second copy needed here.
         private func importVideo(from stableURL: URL) async {
             // Validate the stable copy
             let validationResult = await VideoFileManager.validateVideo(at: stableURL)
@@ -143,17 +149,21 @@ struct VideoPicker: UIViewControllerRepresentable {
             // Create VideoClip model
             await MainActor.run {
                 let fileName = destinationURL.lastPathComponent
-                let videoClip = VideoClip(fileName: fileName, filePath: destinationURL.path)
+                let videoClip = VideoClip(fileName: fileName, filePath: VideoClip.toRelativePath(destinationURL.path))
                 videoClip.athlete = parent.athlete
                 videoClip.season = parent.athlete.activeSeason
                 videoClip.thumbnailPath = thumbnailPath
                 videoClip.duration = durationSeconds
                 videoClip.createdAt = Date()
 
-                parent.modelContext.insert(videoClip)
+                modelContext.insert(videoClip)
 
                 do {
-                    try parent.modelContext.save()
+                    try modelContext.save()
+
+                    // Queue for upload (matching camera recorder behavior)
+                    UploadQueueManager.shared.enqueue(videoClip, athlete: parent.athlete, priority: .normal)
+
                     parent.onImportComplete()
                 } catch {
                     // Clean up on save failure

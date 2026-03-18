@@ -22,7 +22,6 @@ class FirestoreManager: ObservableObject {
     private let db = Firestore.firestore()
 
     // Published state for reactive UI
-    @Published var isLoading = false
     @Published var errorMessage: String?
 
     private init() {
@@ -44,9 +43,6 @@ class FirestoreManager: ObservableObject {
         ownerAthleteID: String,
         permissions: [String: FolderPermissions] = [:]
     ) async throws -> String {
-        isLoading = true
-        defer { isLoading = false }
-        
         let folderData: [String: Any] = [
             "name": name,
             "ownerAthleteID": ownerAthleteID,
@@ -68,9 +64,6 @@ class FirestoreManager: ObservableObject {
     
     /// Fetches all shared folders owned by an athlete
     func fetchSharedFolders(forAthlete athleteID: String) async throws -> [SharedFolder] {
-        isLoading = true
-        defer { isLoading = false }
-        
         do {
             let snapshot = try await db.collection("sharedFolders")
                 .whereField("ownerAthleteID", isEqualTo: athleteID)
@@ -100,8 +93,6 @@ class FirestoreManager: ObservableObject {
     
     /// Fetches all shared folders that a coach has access to
     func fetchSharedFolders(forCoach coachID: String) async throws -> [SharedFolder] {
-        isLoading = true
-        defer { isLoading = false }
 
         do {
             let snapshot = try await db.collection("sharedFolders")
@@ -176,8 +167,6 @@ class FirestoreManager: ObservableObject {
         coachEmail: String? = nil,
         athleteID: String? = nil
     ) async throws {
-        isLoading = true
-        defer { isLoading = false }
 
         let folderRef = db.collection("sharedFolders").document(folderID)
 
@@ -249,9 +238,6 @@ class FirestoreManager: ObservableObject {
     
     /// Deletes a shared folder (athlete only)
     func deleteSharedFolder(folderID: String) async throws {
-        isLoading = true
-        defer { isLoading = false }
-        
         do {
             // Delete all videos in the folder (paginated — delete until none remain)
             let videosQuery = db.collection("videos")
@@ -302,9 +288,6 @@ class FirestoreManager: ObservableObject {
         gameContext: GameContext? = nil,
         practiceContext: PracticeContext? = nil
     ) async throws -> String {
-        isLoading = true
-        defer { isLoading = false }
-        
         var videoData: [String: Any] = [
             "fileName": fileName,
             "firebaseStorageURL": storageURL,
@@ -401,9 +384,6 @@ class FirestoreManager: ObservableObject {
     
     /// Fetches all videos in a shared folder
     func fetchVideos(forFolder folderID: String) async throws -> [FirestoreVideoMetadata] {
-        isLoading = true
-        defer { isLoading = false }
-        
         do {
             let snapshot = try await db.collection("videos")
                 .whereField("sharedFolderID", isEqualTo: folderID)
@@ -453,23 +433,19 @@ class FirestoreManager: ObservableObject {
 
     /// Deletes a video and its metadata
     func deleteVideo(videoID: String, folderID: String) async throws {
-        isLoading = true
-        defer { isLoading = false }
-        
         do {
-            // Delete all annotations first
-            let annotationsSnapshot = try await db.collection("videos")
+            // Delete all annotations first (paginated — delete until none remain)
+            let annotationsQuery = db.collection("videos")
                 .document(videoID)
                 .collection("annotations")
-                .limit(to: 500)
-                .getDocuments()
-            
-            let batch = db.batch()
-            for doc in annotationsSnapshot.documents {
-                batch.deleteDocument(doc.reference)
+            while true {
+                let annotationsSnapshot = try await annotationsQuery.limit(to: 400).getDocuments()
+                guard !annotationsSnapshot.documents.isEmpty else { break }
+                let batch = db.batch()
+                annotationsSnapshot.documents.forEach { batch.deleteDocument($0.reference) }
+                try await batch.commit()
             }
-            try await batch.commit()
-            
+
             // Delete video metadata
             try await db.collection("videos").document(videoID).delete()
             
@@ -496,9 +472,6 @@ class FirestoreManager: ObservableObject {
         text: String,
         isCoachComment: Bool
     ) async throws -> String {
-        isLoading = true
-        defer { isLoading = false }
-        
         let annotationData: [String: Any] = [
             "userID": userID,
             "userName": userName,
@@ -519,6 +492,9 @@ class FirestoreManager: ObservableObject {
                 try await db.collection("videos").document(videoID)
                     .updateData(["annotationCount": FieldValue.increment(Int64(1))])
             } catch {
+                #if DEBUG
+                print("⚠️ Failed to increment annotationCount for video \(videoID): \(error.localizedDescription)")
+                #endif
             }
 
             return docRef.documentID
@@ -591,9 +567,6 @@ class FirestoreManager: ObservableObject {
     
     /// Deletes an annotation (user can only delete their own)
     func deleteAnnotation(videoID: String, annotationID: String) async throws {
-        isLoading = true
-        defer { isLoading = false }
-        
         do {
             try await db.collection("videos")
                 .document(videoID)
@@ -615,6 +588,9 @@ class FirestoreManager: ObservableObject {
                     return nil
                 }
             } catch {
+                #if DEBUG
+                print("⚠️ Failed to decrement annotationCount for video \(videoID): \(error.localizedDescription)")
+                #endif
             }
 
         } catch {
@@ -622,7 +598,7 @@ class FirestoreManager: ObservableObject {
             throw error
         }
     }
-    
+
     // MARK: - Invitations
     
     /// Creates an invitation for a coach to join a shared folder
@@ -634,8 +610,6 @@ class FirestoreManager: ObservableObject {
         folderName: String,
         permissions: FolderPermissions = .default
     ) async throws -> String {
-        isLoading = true
-        defer { isLoading = false }
 
         let invitationData: [String: Any] = [
             "athleteID": athleteID,
@@ -695,8 +669,6 @@ class FirestoreManager: ObservableObject {
         coachID: String,
         permissions: FolderPermissions
     ) async throws {
-        isLoading = true
-        defer { isLoading = false }
 
         do {
             let invitationRef = db.collection("invitations").document(invitationID)
@@ -745,8 +717,6 @@ class FirestoreManager: ObservableObject {
     
     /// Declines an invitation
     func declineInvitation(invitationID: String) async throws {
-        isLoading = true
-        defer { isLoading = false }
 
         do {
             try await db.collection("invitations").document(invitationID).updateData([
@@ -771,8 +741,6 @@ class FirestoreManager: ObservableObject {
         athleteName: String,
         message: String?
     ) async throws -> String {
-        isLoading = true
-        defer { isLoading = false }
 
         // Check for existing pending invitation to same athlete from this coach
         let existingSnapshot = try await db.collection("invitations")
@@ -847,8 +815,6 @@ class FirestoreManager: ObservableObject {
 
     /// Accepts a coach-to-athlete invitation
     func acceptCoachToAthleteInvitation(invitationID: String, athleteUserID: String) async throws {
-        isLoading = true
-        defer { isLoading = false }
 
         do {
             try await db.collection("invitations").document(invitationID).updateData([
@@ -864,8 +830,6 @@ class FirestoreManager: ObservableObject {
 
     /// Declines a coach-to-athlete invitation
     func declineCoachToAthleteInvitation(invitationID: String) async throws {
-        isLoading = true
-        defer { isLoading = false }
 
         do {
             try await db.collection("invitations").document(invitationID).updateData([
@@ -906,9 +870,6 @@ class FirestoreManager: ObservableObject {
         role: UserRole,
         profileData: [String: Any]
     ) async throws {
-        isLoading = true
-        defer { isLoading = false }
-        
         var userData: [String: Any] = [
             "email": email.lowercased(),
             "role": role.rawValue,
@@ -962,6 +923,9 @@ class FirestoreManager: ObservableObject {
         do {
             let _ = try await callable.call(payload)
         } catch {
+            #if DEBUG
+            print("⚠️ Failed to sync subscription tier to server: \(error.localizedDescription)")
+            #endif
         }
     }
 
@@ -974,27 +938,22 @@ class FirestoreManager: ObservableObject {
     }
 
     /// Deletes user profile and all associated data (GDPR compliance)
-    /// This includes:
-    /// - User profile document
-    /// - Shared folders owned by the user
-    /// - All videos in those folders
-    /// - All annotations created by the user
+    ///
+    /// Deletion proceeds step-by-step. Each step is wrapped in its own error handler
+    /// so that a failure in one category does not prevent deletion of other categories.
+    /// A partial deletion is better than no deletion for GDPR compliance.
     func deleteUserProfile(userID: String) async throws {
-        isLoading = true
-        defer { isLoading = false }
+        var stepErrors: [String] = []
 
+        // MARK: Step 1 — Delete shared folders owned by this user (+ their videos + annotations)
         do {
-
-            // Step 1: Delete all shared folders owned by this user (paginated)
             let foldersQuery = db.collection("sharedFolders")
                 .whereField("ownerAthleteID", isEqualTo: userID)
-            var folderCount = 0
             while true {
                 let foldersSnapshot = try await foldersQuery.limit(to: 50).getDocuments()
                 guard !foldersSnapshot.documents.isEmpty else { break }
                 for folderDoc in foldersSnapshot.documents {
                     let folderID = folderDoc.documentID
-                    // Delete all videos in this folder (paginated)
                     let videosQuery = db.collection("videos")
                         .whereField("sharedFolderID", isEqualTo: folderID)
                     while true {
@@ -1016,60 +975,253 @@ class FirestoreManager: ObservableObject {
                         }
                     }
                     try await db.collection("sharedFolders").document(folderID).delete()
-                    folderCount += 1
                 }
             }
+        } catch {
+            stepErrors.append("shared folders: \(error.localizedDescription)")
+        }
 
-            // Step 2: Delete all annotations created by this user across all videos (paginated)
+        // MARK: Step 2 — Delete all annotations created by this user across all videos
+        do {
             let userAnnotationsQuery = db.collectionGroup("annotations")
                 .whereField("userID", isEqualTo: userID)
-            var annotationCount = 0
             while true {
                 let snap = try await userAnnotationsQuery.limit(to: 400).getDocuments()
                 guard !snap.documents.isEmpty else { break }
                 let batch = db.batch()
                 snap.documents.forEach { batch.deleteDocument($0.reference) }
                 try await batch.commit()
-                annotationCount += snap.documents.count
             }
+        } catch {
+            stepErrors.append("annotations: \(error.localizedDescription)")
+        }
 
-            // Step 3: Delete all invitations sent by this user (paginated)
-            let invitationsQuery = db.collection("invitations")
+        // MARK: Step 3 — Delete invitations where user is the athlete
+        do {
+            let athleteInvitationsQuery = db.collection("invitations")
                 .whereField("athleteID", isEqualTo: userID)
-            var invitationCount = 0
             while true {
-                let snap = try await invitationsQuery.limit(to: 400).getDocuments()
+                let snap = try await athleteInvitationsQuery.limit(to: 400).getDocuments()
                 guard !snap.documents.isEmpty else { break }
                 let batch = db.batch()
                 snap.documents.forEach { batch.deleteDocument($0.reference) }
                 try await batch.commit()
-                invitationCount += snap.documents.count
             }
+        } catch {
+            stepErrors.append("athlete invitations: \(error.localizedDescription)")
+        }
 
-            // Step 4: Delete all in-app notifications for this user (GDPR, paginated)
+        // MARK: Step 4 — Delete invitations where user is the coach
+        do {
+            let coachInvitationsQuery = db.collection("invitations")
+                .whereField("coachID", isEqualTo: userID)
+            while true {
+                let snap = try await coachInvitationsQuery.limit(to: 400).getDocuments()
+                guard !snap.documents.isEmpty else { break }
+                let batch = db.batch()
+                snap.documents.forEach { batch.deleteDocument($0.reference) }
+                try await batch.commit()
+            }
+        } catch {
+            stepErrors.append("coach invitations: \(error.localizedDescription)")
+        }
+
+        // MARK: Step 5 — Delete notifications
+        do {
             let notificationsQuery = db.collection("notifications")
                 .document(userID)
                 .collection("items")
-            var notificationCount = 0
             while true {
                 let snap = try await notificationsQuery.limit(to: 400).getDocuments()
                 guard !snap.documents.isEmpty else { break }
                 let batch = db.batch()
                 snap.documents.forEach { batch.deleteDocument($0.reference) }
                 try await batch.commit()
-                notificationCount += snap.documents.count
             }
-            do {
-                try await db.collection("notifications").document(userID).delete()
-            } catch {
-            }
-
-            // Step 5: Delete user profile document
-            try await db.collection("users").document(userID).delete()
-
+            try await db.collection("notifications").document(userID).delete()
         } catch {
-            errorMessage = "Failed to delete user data."
+            stepErrors.append("notifications: \(error.localizedDescription)")
+        }
+
+        // MARK: Step 6 — Delete coach_access_revocations referencing this user
+        do {
+            for field in ["athleteID", "coachID"] {
+                let revocationsQuery = db.collection("coach_access_revocations")
+                    .whereField(field, isEqualTo: userID)
+                while true {
+                    let snap = try await revocationsQuery.limit(to: 400).getDocuments()
+                    guard !snap.documents.isEmpty else { break }
+                    let batch = db.batch()
+                    snap.documents.forEach { batch.deleteDocument($0.reference) }
+                    try await batch.commit()
+                }
+            }
+        } catch {
+            stepErrors.append("access revocations: \(error.localizedDescription)")
+        }
+
+        // MARK: Step 7 — Remove user from sharedWithCoachIDs on other users' folders
+        do {
+            let coachFoldersQuery = db.collection("sharedFolders")
+                .whereField("sharedWithCoachIDs", arrayContains: userID)
+            let coachFoldersSnap = try await coachFoldersQuery.getDocuments()
+            for folderDoc in coachFoldersSnap.documents {
+                try await folderDoc.reference.updateData([
+                    "sharedWithCoachIDs": FieldValue.arrayRemove([userID]),
+                    "permissions.\(userID)": FieldValue.delete(),
+                    "updatedAt": FieldValue.serverTimestamp()
+                ])
+            }
+        } catch {
+            stepErrors.append("coach folder cleanup: \(error.localizedDescription)")
+        }
+
+        // MARK: Step 8 — Mark videos uploaded by user to others' folders as orphaned
+        // Single pass (not paginated delete loop) because we're updating, not removing.
+        // updateData is idempotent so re-processing is safe if this runs twice.
+        do {
+            let uploadedVideosQuery = db.collection("videos")
+                .whereField("uploadedBy", isEqualTo: userID)
+            let snap = try await uploadedVideosQuery.getDocuments()
+            // Batch in groups of 400 to stay within Firestore's 500-operation limit
+            let chunks = stride(from: 0, to: snap.documents.count, by: 400)
+            for chunkStart in chunks {
+                let chunkEnd = min(chunkStart + 400, snap.documents.count)
+                let batch = db.batch()
+                for doc in snap.documents[chunkStart..<chunkEnd] {
+                    batch.updateData([
+                        "isOrphaned": true,
+                        "orphanedAt": FieldValue.serverTimestamp()
+                    ], forDocument: doc.reference)
+                }
+                try await batch.commit()
+            }
+        } catch {
+            stepErrors.append("orphan videos: \(error.localizedDescription)")
+        }
+
+        // MARK: Step 9 — Delete photos uploaded by user
+        do {
+            let photosQuery = db.collection("photos")
+                .whereField("uploadedBy", isEqualTo: userID)
+            while true {
+                let snap = try await photosQuery.limit(to: 400).getDocuments()
+                guard !snap.documents.isEmpty else { break }
+                let batch = db.batch()
+                snap.documents.forEach { batch.deleteDocument($0.reference) }
+                try await batch.commit()
+            }
+        } catch {
+            stepErrors.append("photos: \(error.localizedDescription)")
+        }
+
+        // MARK: Step 10 — Delete user subcollections (bottom-up: notes → practices → games → seasons → coaches → athletes)
+        do {
+            // Fetch all athlete documents for this user
+            let athletesQuery = db.collection("users").document(userID).collection("athletes")
+            let athletesSnap = try await athletesQuery.getDocuments()
+
+            for athleteDoc in athletesSnap.documents {
+                let athleteRef = athleteDoc.reference
+
+                // Delete coaches subcollection
+                let coachesQuery = athleteRef.collection("coaches")
+                while true {
+                    let snap = try await coachesQuery.limit(to: 400).getDocuments()
+                    guard !snap.documents.isEmpty else { break }
+                    let batch = db.batch()
+                    snap.documents.forEach { batch.deleteDocument($0.reference) }
+                    try await batch.commit()
+                }
+
+                // Delete athlete document
+                try await athleteRef.delete()
+            }
+
+            // Delete practices (with nested notes)
+            let practicesQuery = db.collection("users").document(userID).collection("practices")
+            while true {
+                let snap = try await practicesQuery.limit(to: 100).getDocuments()
+                guard !snap.documents.isEmpty else { break }
+                for practiceDoc in snap.documents {
+                    // Delete notes subcollection
+                    let notesQuery = practiceDoc.reference.collection("notes")
+                    while true {
+                        let notesSnap = try await notesQuery.limit(to: 400).getDocuments()
+                        guard !notesSnap.documents.isEmpty else { break }
+                        let batch = db.batch()
+                        notesSnap.documents.forEach { batch.deleteDocument($0.reference) }
+                        try await batch.commit()
+                    }
+                    try await practiceDoc.reference.delete()
+                }
+            }
+
+            // Delete games
+            let gamesQuery = db.collection("users").document(userID).collection("games")
+            while true {
+                let snap = try await gamesQuery.limit(to: 400).getDocuments()
+                guard !snap.documents.isEmpty else { break }
+                let batch = db.batch()
+                snap.documents.forEach { batch.deleteDocument($0.reference) }
+                try await batch.commit()
+            }
+
+            // Delete seasons
+            let seasonsQuery = db.collection("users").document(userID).collection("seasons")
+            while true {
+                let snap = try await seasonsQuery.limit(to: 400).getDocuments()
+                guard !snap.documents.isEmpty else { break }
+                let batch = db.batch()
+                snap.documents.forEach { batch.deleteDocument($0.reference) }
+                try await batch.commit()
+            }
+        } catch {
+            stepErrors.append("user subcollections: \(error.localizedDescription)")
+        }
+
+        // MARK: Step 11 — Delete pendingDeletions referencing this user
+        do {
+            let pendingQuery = db.collection("pendingDeletions")
+                .whereField("ownerUID", isEqualTo: userID)
+            while true {
+                let snap = try await pendingQuery.limit(to: 400).getDocuments()
+                guard !snap.documents.isEmpty else { break }
+                let batch = db.batch()
+                snap.documents.forEach { batch.deleteDocument($0.reference) }
+                try await batch.commit()
+            }
+        } catch {
+            stepErrors.append("pending deletions: \(error.localizedDescription)")
+        }
+
+        // MARK: Step 12 — Delete Firebase Storage files (best-effort)
+        do {
+            try await VideoCloudManager.shared.deleteAllUserVideos(userID: userID)
+        } catch {
+            stepErrors.append("storage videos: \(error.localizedDescription)")
+        }
+        do {
+            try await VideoCloudManager.shared.deleteAllUserPhotos(userID: userID)
+        } catch {
+            stepErrors.append("storage photos: \(error.localizedDescription)")
+        }
+
+        // MARK: Step 13 — Delete user profile document
+        do {
+            try await db.collection("users").document(userID).delete()
+        } catch {
+            // Profile deletion is critical — if this fails, throw
+            errorMessage = "Failed to delete user profile."
             throw error
+        }
+
+        // Log any partial failures
+        if !stepErrors.isEmpty {
+            #if DEBUG
+            print("⚠️ GDPR deletion completed with partial failures for user \(userID):")
+            for err in stepErrors { print("  - \(err)") }
+            #endif
         }
     }
 
@@ -1112,8 +1264,6 @@ class FirestoreManager: ObservableObject {
     ///   - data: Athlete data dictionary (from Athlete.toFirestoreData())
     /// - Returns: The Firestore document ID for the created athlete
     func createAthlete(userId: String, data: [String: Any]) async throws -> String {
-        isLoading = true
-        defer { isLoading = false }
 
         var athleteData = data
         athleteData["createdAt"] = FieldValue.serverTimestamp()
@@ -1139,8 +1289,6 @@ class FirestoreManager: ObservableObject {
     ///   - athleteId: The Firestore document ID of the athlete
     ///   - data: Updated athlete data dictionary
     func updateAthlete(userId: String, athleteId: String, data: [String: Any]) async throws {
-        isLoading = true
-        defer { isLoading = false }
 
         var updateData = data
         updateData["updatedAt"] = FieldValue.serverTimestamp()
@@ -1163,8 +1311,6 @@ class FirestoreManager: ObservableObject {
     /// - Parameter userId: The user ID to fetch athletes for
     /// - Returns: Array of FirestoreAthlete objects
     func fetchAthletes(userId: String) async throws -> [FirestoreAthlete] {
-        isLoading = true
-        defer { isLoading = false }
 
         do {
             let snapshot = try await db
@@ -1201,8 +1347,6 @@ class FirestoreManager: ObservableObject {
     ///   - userId: The user ID who owns this athlete
     ///   - athleteId: The Firestore document ID of the athlete
     func deleteAthlete(userId: String, athleteId: String) async throws {
-        isLoading = true
-        defer { isLoading = false }
 
         do {
             try await db
@@ -1230,8 +1374,6 @@ class FirestoreManager: ObservableObject {
     ///   - data: Season data dictionary (from Season.toFirestoreData())
     /// - Returns: The Firestore document ID for the created season
     func createSeason(userId: String, data: [String: Any]) async throws -> String {
-        isLoading = true
-        defer { isLoading = false }
 
         var seasonData = data
         seasonData["createdAt"] = FieldValue.serverTimestamp()
@@ -1257,8 +1399,6 @@ class FirestoreManager: ObservableObject {
     ///   - seasonId: The Firestore document ID of the season
     ///   - data: Updated season data dictionary
     func updateSeason(userId: String, seasonId: String, data: [String: Any]) async throws {
-        isLoading = true
-        defer { isLoading = false }
 
         var updateData = data
         updateData["updatedAt"] = FieldValue.serverTimestamp()
@@ -1281,8 +1421,6 @@ class FirestoreManager: ObservableObject {
     /// - Parameter userId: The user ID to fetch seasons for
     /// - Returns: Array of FirestoreSeason objects
     func fetchSeasons(userId: String) async throws -> [FirestoreSeason] {
-        isLoading = true
-        defer { isLoading = false }
 
         do {
             let snapshot = try await db
@@ -1319,8 +1457,6 @@ class FirestoreManager: ObservableObject {
     ///   - userId: The user ID who owns this season
     ///   - seasonId: The Firestore document ID of the season
     func deleteSeason(userId: String, seasonId: String) async throws {
-        isLoading = true
-        defer { isLoading = false }
 
         do {
             try await db
@@ -1348,8 +1484,6 @@ class FirestoreManager: ObservableObject {
     ///   - data: Game data dictionary (from Game.toFirestoreData())
     /// - Returns: The Firestore document ID for the created game
     func createGame(userId: String, data: [String: Any]) async throws -> String {
-        isLoading = true
-        defer { isLoading = false }
 
         var gameData = data
         gameData["createdAt"] = FieldValue.serverTimestamp()
@@ -1375,8 +1509,6 @@ class FirestoreManager: ObservableObject {
     ///   - gameId: The Firestore document ID of the game
     ///   - data: Updated game data dictionary
     func updateGame(userId: String, gameId: String, data: [String: Any]) async throws {
-        isLoading = true
-        defer { isLoading = false }
 
         var updateData = data
         updateData["updatedAt"] = FieldValue.serverTimestamp()
@@ -1399,8 +1531,6 @@ class FirestoreManager: ObservableObject {
     /// - Parameter userId: The user ID to fetch games for
     /// - Returns: Array of FirestoreGame objects
     func fetchGames(userId: String) async throws -> [FirestoreGame] {
-        isLoading = true
-        defer { isLoading = false }
 
         do {
             let snapshot = try await db
@@ -1437,8 +1567,6 @@ class FirestoreManager: ObservableObject {
     ///   - userId: The user ID who owns this game
     ///   - gameId: The Firestore document ID of the game
     func deleteGame(userId: String, gameId: String) async throws {
-        isLoading = true
-        defer { isLoading = false }
 
         do {
             try await db
@@ -1461,8 +1589,6 @@ class FirestoreManager: ObservableObject {
     /// Soft deletes a video clip's metadata in Firestore
     /// - Parameter videoClipId: The Firestore document ID of the video clip (typically the clip's UUID string)
     func deleteVideoClip(videoClipId: String) async throws {
-        isLoading = true
-        defer { isLoading = false }
 
         do {
             try await db
@@ -1488,8 +1614,6 @@ class FirestoreManager: ObservableObject {
     ///   - data: Practice data dictionary (from Practice.toFirestoreData())
     /// - Returns: The Firestore document ID for the created practice
     func createPractice(userId: String, data: [String: Any]) async throws -> String {
-        isLoading = true
-        defer { isLoading = false }
 
         var practiceData = data
         practiceData["createdAt"] = FieldValue.serverTimestamp()
@@ -1515,8 +1639,6 @@ class FirestoreManager: ObservableObject {
     ///   - practiceId: The Firestore document ID of the practice
     ///   - data: Updated practice data dictionary
     func updatePractice(userId: String, practiceId: String, data: [String: Any]) async throws {
-        isLoading = true
-        defer { isLoading = false }
 
         var updateData = data
         updateData["updatedAt"] = FieldValue.serverTimestamp()
@@ -1539,8 +1661,6 @@ class FirestoreManager: ObservableObject {
     /// - Parameter userId: The user ID to fetch practices for
     /// - Returns: Array of FirestorePractice objects
     func fetchPractices(userId: String) async throws -> [FirestorePractice] {
-        isLoading = true
-        defer { isLoading = false }
 
         do {
             let snapshot = try await db
@@ -1577,8 +1697,6 @@ class FirestoreManager: ObservableObject {
     ///   - userId: The user ID who owns this practice
     ///   - practiceId: The Firestore document ID of the practice
     func deletePractice(userId: String, practiceId: String) async throws {
-        isLoading = true
-        defer { isLoading = false }
 
         do {
             try await db
@@ -1744,9 +1862,6 @@ class FirestoreManager: ObservableObject {
         folderID: String,
         quality: ThumbnailQuality = .standard
     ) async throws -> String {
-        isLoading = true
-        defer { isLoading = false }
-        
         // Use VideoCloudManager for actual upload
         let cloudManager = VideoCloudManager.shared
         
@@ -1785,9 +1900,6 @@ class FirestoreManager: ObservableObject {
         folderID: String,
         timestamp: Double? = nil
     ) async throws -> ThumbnailMetadata {
-        isLoading = true
-        defer { isLoading = false }
-        
         // Upload standard quality thumbnail
         let standardDownloadURL = try await uploadThumbnail(
             localURL: standardURL,
@@ -1824,8 +1936,6 @@ class FirestoreManager: ObservableObject {
         folderID: String,
         metadata: [String: Any]
     ) async throws -> String {
-        isLoading = true
-        defer { isLoading = false }
 
         // Allowlist prevents arbitrary fields from being written to Firestore
         let allowedFields: Set<String> = [

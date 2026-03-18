@@ -63,8 +63,8 @@ struct UploadStatusBanner: View {
             }
 
             // Progress bar
-            if let firstUpload = uploadManager.pendingUploads.first,
-               let progress = uploadManager.activeUploads[firstUpload.clipId] {
+            if let firstActive = uploadManager.activeUploads.first {
+                let progress = firstActive.value
                 GeometryReader { geometry in
                     ZStack(alignment: .leading) {
                         Rectangle()
@@ -228,7 +228,7 @@ struct UploadStatusBanner: View {
     }
 
     private func clearFailedUploads() {
-        uploadManager.failedUploads.removeAll()
+        uploadManager.clearFailed()
         Haptics.light()
     }
 }

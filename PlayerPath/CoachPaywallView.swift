@@ -39,6 +39,7 @@ struct CoachPaywallView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Close") { dismiss() }
+                        .disabled(isPurchasing)
                 }
             }
             .sheet(isPresented: $showingTerms) { TermsOfServiceView() }

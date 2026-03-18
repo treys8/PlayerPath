@@ -18,6 +18,8 @@ struct UploadStatisticsView: View {
     @Query private var allVideos: [VideoClip]
     @Query private var preferences: [UserPreferences]
 
+    @State private var fileSizeCache: [String: Int64] = [:]
+
     var body: some View {
         NavigationStack {
             List {
@@ -34,6 +36,12 @@ struct UploadStatisticsView: View {
                         dismiss()
                     }
                 }
+            }
+            .task {
+                fileSizeCache = computeFileSizes()
+            }
+            .onChange(of: allVideos.count) {
+                fileSizeCache = computeFileSizes()
             }
         }
     }
@@ -261,7 +269,7 @@ struct UploadStatisticsView: View {
                             .foregroundColor(.green)
                             .font(.caption)
 
-                        Text(formatBytes(FileManager.default.fileSize(atPath: video.resolvedFilePath)))
+                        Text(formatBytes(fileSizeCache[video.resolvedFilePath] ?? 0))
                             .font(.caption2)
                             .foregroundColor(.secondary)
                     }
@@ -299,12 +307,12 @@ struct UploadStatisticsView: View {
     }
 
     private var localOnlyCount: Int {
-        allVideos.count - uploadedCount - uploadManager.pendingUploads.count - uploadManager.activeUploads.count
+        max(0, allVideos.count - uploadedCount - uploadManager.pendingUploads.count - uploadManager.activeUploads.count)
     }
 
     private var totalUploadedSize: Int64 {
         uploadedVideos.reduce(0) { sum, video in
-            sum + FileManager.default.fileSize(atPath: video.resolvedFilePath)
+            sum + (fileSizeCache[video.resolvedFilePath] ?? 0)
         }
     }
 
@@ -354,6 +362,15 @@ struct UploadStatisticsView: View {
         return formatter.localizedString(for: date, relativeTo: Date())
     }
 
+
+    private func computeFileSizes() -> [String: Int64] {
+        var cache: [String: Int64] = [:]
+        for video in allVideos {
+            let path = video.resolvedFilePath
+            cache[path] = FileManager.default.fileSize(atPath: path)
+        }
+        return cache
+    }
 
     private func retryAllFailed() {
         for upload in uploadManager.failedUploads {

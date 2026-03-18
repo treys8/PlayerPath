@@ -185,6 +185,9 @@ struct DirectCameraRecorderView: View {
                 },
                 onCancel: {
                     showingDiscardConfirmation = true
+                },
+                onDiscard: {
+                    showingDiscardConfirmation = true
                 }
             )
         }
