@@ -62,7 +62,6 @@ enum SubscriptionTier: String, Comparable, CaseIterable {
 
     // MARK: - Feature Flags
 
-    var hasAdvancedStats: Bool    { self >= .plus }
     var hasAutoHighlights: Bool   { self >= .plus }
     var hasStatsExport: Bool      { self >= .plus }
     var hasSeasonComparison: Bool { self >= .plus }

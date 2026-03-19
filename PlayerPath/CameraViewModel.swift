@@ -177,6 +177,7 @@ class CameraViewModel: NSObject, ObservableObject {
         let targetFrameRate = settings.frameRate.fps
         let audioEnabled = settings.audioEnabled
         let stabilizationMode = settings.stabilizationMode.avMode
+        let videoCodec = settings.format.codec
 
         // Observe session interruptions (phone calls, etc.)
         setupInterruptionObservers()
@@ -193,7 +194,7 @@ class CameraViewModel: NSObject, ObservableObject {
 
             self.setupCamera(targetFrameRate: targetFrameRate)
             self.setupAudio(audioEnabled: audioEnabled)
-            self.setupOutput(stabilizationMode: stabilizationMode)
+            self.setupOutput(stabilizationMode: stabilizationMode, codec: videoCodec)
 
             self.captureSession.commitConfiguration()
             self.captureSession.startRunning()
@@ -213,6 +214,7 @@ class CameraViewModel: NSObject, ObservableObject {
         let targetFrameRate = settings.frameRate.fps
         let audioEnabled = settings.audioEnabled
         let stabilizationMode = settings.stabilizationMode.avMode
+        let videoCodec = settings.format.codec
 
         sessionQueue.async { [weak self] in
             guard let self else { return }
@@ -225,7 +227,7 @@ class CameraViewModel: NSObject, ObservableObject {
 
             self.setupCamera(targetFrameRate: targetFrameRate)
             self.setupAudio(audioEnabled: audioEnabled)
-            self.setupOutput(stabilizationMode: stabilizationMode)
+            self.setupOutput(stabilizationMode: stabilizationMode, codec: videoCodec)
 
             self.captureSession.commitConfiguration()
         }
@@ -427,7 +429,7 @@ class CameraViewModel: NSObject, ObservableObject {
         }
     }
 
-    nonisolated private func setupOutput(stabilizationMode: AVCaptureVideoStabilizationMode) {
+    nonisolated private func setupOutput(stabilizationMode: AVCaptureVideoStabilizationMode, codec: AVVideoCodecType = .hevc) {
         // Remove existing output
         if let existingOutput = movieFileOutput {
             captureSession.removeOutput(existingOutput)
@@ -438,8 +440,18 @@ class CameraViewModel: NSObject, ObservableObject {
         // Set maximum duration
         output.maxRecordedDuration = CMTime(seconds: Constants.maxRecordingDuration, preferredTimescale: 600)
 
-        // Configure video codec
+        if captureSession.canAddOutput(output) {
+            captureSession.addOutput(output)
+            movieFileOutput = output
+        }
+
+        // Configure after adding to session so connections are available
         if let connection = output.connection(with: .video) {
+            // Set video codec (HEVC or H.264)
+            if output.availableVideoCodecTypes.contains(codec) {
+                output.setOutputSettings([AVVideoCodecKey: codec], for: connection)
+            }
+
             // Set stabilization
             if connection.isVideoStabilizationSupported {
                 connection.preferredVideoStabilizationMode = stabilizationMode
@@ -447,11 +459,6 @@ class CameraViewModel: NSObject, ObservableObject {
 
             // Set orientation based on current device orientation
             updateConnectionOrientation(connection)
-        }
-
-        if captureSession.canAddOutput(output) {
-            captureSession.addOutput(output)
-            movieFileOutput = output
         }
     }
 

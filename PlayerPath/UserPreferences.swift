@@ -39,15 +39,14 @@ final class UserPreferences {
 
     // MARK: - Cloud Sync Preferences
     var syncHighlightsOnly: Bool = false { didSet { markAsModified() } }
-    // Clamped in MB to a reasonable range (50MB–10GB)
-    var maxVideoFileSize: Int = 500 { didSet { maxVideoFileSize = max(50, min(maxVideoFileSize, 10_000)); markAsModified() } }
+    // Clamped in MB to a reasonable range (50MB–10GB).
+    // Clamping is done in the UI layer / setter to avoid didSet re-entrancy.
+    var maxVideoFileSize: Int = 500 { didSet { markAsModified() } }
     var autoDeleteAfterUpload: Bool = false { didSet { markAsModified() } }
 
     // MARK: - Analytics Preferences
     var enableAnalytics: Bool = true { didSet { markAsModified() } }
     var shareUsageData: Bool = false { didSet { markAsModified() } }
-    var canSendAnalytics: Bool { enableAnalytics && shareUsageData }
-    var canSendNotifications: Bool { enableUploadNotifications }
 
     // MARK: - Notification Preferences
     var enableUploadNotifications: Bool = true { didSet { markAsModified() } }
@@ -58,27 +57,9 @@ final class UserPreferences {
 
     // MARK: - Init
     init() {
-        self.id = UUID()
-
-        // Defaults
         self.defaultVideoQuality = .high
-        self.autoUploadMode = .wifiOnly  // Default to auto-upload on WiFi
-        self.saveToPhotosLibrary = false
-        self.enableHapticFeedback = true
-
+        self.autoUploadMode = .wifiOnly
         self.preferredTheme = .system
-        self.showOnboardingTips = true
-
-        self.syncHighlightsOnly = false
-        self.maxVideoFileSize = 500 // MB
-        self.autoDeleteAfterUpload = false
-
-        self.enableAnalytics = true
-        self.shareUsageData = false
-
-        self.enableUploadNotifications = true
-        self.enableGameReminders = true
-
         self.lastModified = Date()
     }
 
@@ -87,21 +68,13 @@ final class UserPreferences {
         self.lastModified = Date()
     }
 
-    /// Safely set the maximum video file size in MB with clamping (50MB–10GB)
-    func setMaxVideoFileSize(_ mb: Int) {
-        let clamped = max(50, min(mb, 10_000))
-        if clamped != maxVideoFileSize {
-            maxVideoFileSize = clamped
-            markAsModified()
-        }
-    }
-
-    /// Combine two preference objects by preferring the most recently modified values.
-    /// Returns a new instance with fields chosen from `newer` where appropriate.
-    static func resolveConflict(local: UserPreferences, remote: UserPreferences) -> UserPreferences {
-        // Prefer the more recently modified object wholesale for simplicity.
-        // If you want field-by-field merge, implement it here.
-        return (local.lastModified >= remote.lastModified) ? local : remote
+    /// Resolve a sync conflict by keeping the most recently modified instance
+    /// and deleting the loser from the given context.
+    static func resolveConflict(local: UserPreferences, remote: UserPreferences, in context: ModelContext) -> UserPreferences {
+        let (keep, discard) = (local.lastModified >= remote.lastModified)
+            ? (local, remote) : (remote, local)
+        context.delete(discard)
+        return keep
     }
 
     // Convenience method to get shared preferences (fetch-or-create persisted singleton)
@@ -116,6 +89,7 @@ final class UserPreferences {
                 for extra in sorted.dropFirst() {
                     context.delete(extra)
                 }
+                try? context.save()
                 return keep
             }
             return first

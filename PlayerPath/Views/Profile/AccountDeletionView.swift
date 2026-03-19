@@ -200,6 +200,9 @@ struct AccountDeletionView: View {
             // AuthManager will automatically sign out the user
             // The UI will return to WelcomeFlow
 
+        } catch is DeletionError {
+            errorMessage = "No email address found for your account. If you signed in with Apple, use the Apple Sign-In option to delete your account."
+            showError = true
         } catch let error as NSError {
             if error.code == AuthErrorCode.wrongPassword.rawValue {
                 errorMessage = "Incorrect password. Please try again."

@@ -153,16 +153,21 @@ struct AthleteInvitationsSheet: View {
     private func acceptInvitation(_ invitation: CoachToAthleteInvitation) async {
         guard let invitationID = invitation.id else { return }
         guard processingInvitationID == nil else { return }
+        guard let currentUID = authManager.userID, !currentUID.isEmpty else {
+            errorMessage = "Not signed in. Please sign in and try again."
+            Haptics.error()
+            return
+        }
         processingInvitationID = invitationID
 
         do {
             // Update invitation status in Firestore
             try await FirestoreManager.shared.acceptCoachToAthleteInvitation(
                 invitationID: invitationID,
-                athleteUserID: authManager.userID ?? ""
+                athleteUserID: currentUID
             )
 
-            // Create coach record locally and link to athlete
+            // All SwiftData work must happen on MainActor
             let coach = Coach(
                 name: invitation.coachName,
                 email: invitation.coachEmail
@@ -173,7 +178,6 @@ struct AthleteInvitationsSheet: View {
             coach.lastInvitationStatus = "accepted"
 
             // Link coach to the current user's athlete
-            let currentUID = authManager.userID ?? ""
             let athleteDescriptor = FetchDescriptor<Athlete>(
                 predicate: #Predicate { $0.user?.firebaseAuthUid == currentUID }
             )
@@ -185,17 +189,13 @@ struct AthleteInvitationsSheet: View {
             modelContext.insert(coach)
             try modelContext.save()
 
-            await MainActor.run {
-                processingInvitationID = nil
-                Haptics.success()
-                onInvitationsChanged()
-            }
+            processingInvitationID = nil
+            Haptics.success()
+            onInvitationsChanged()
         } catch {
-            await MainActor.run {
-                processingInvitationID = nil
-                errorMessage = "Failed to accept invitation: \(error.localizedDescription)"
-                Haptics.error()
-            }
+            processingInvitationID = nil
+            errorMessage = "Failed to accept invitation: \(error.localizedDescription)"
+            Haptics.error()
         }
     }
 

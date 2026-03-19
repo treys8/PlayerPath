@@ -700,12 +700,29 @@ final class SyncCoordinator {
             userId: (user.firebaseAuthUid ?? user.id.uuidString)
         )
 
-        guard !remotePractices.isEmpty else {
-            return
+        let athletes = user.athletes ?? []
+        let remotePracticeIds = Set(remotePractices.compactMap { $0.id })
+
+        // Detect practices deleted on another device — remote set no longer contains them.
+        // Safety: skip bulk deletion if remote returned empty but local has synced practices,
+        // which can happen on transient Firestore failures or network timeouts.
+        for athlete in athletes {
+            let syncedLocalPractices = (athlete.practices ?? []).filter { $0.firestoreId != nil }
+            if !syncedLocalPractices.isEmpty && remotePracticeIds.isEmpty {
+                syncLog.warning("Remote returned 0 practices but \(syncedLocalPractices.count) synced practices exist locally — skipping deletion pass to prevent data loss")
+            } else {
+                for localPractice in syncedLocalPractices {
+                    if let firestoreId = localPractice.firestoreId, !remotePracticeIds.contains(firestoreId) {
+                        localPractice.delete(in: context)
+                    }
+                }
+            }
         }
 
-
-        let athletes = user.athletes ?? []
+        guard !remotePractices.isEmpty else {
+            if context.hasChanges { try context.save() }
+            return
+        }
 
         for remoteData in remotePractices {
             // Find athlete by athleteId (matches local UUID or firestoreId).
@@ -728,6 +745,7 @@ final class SyncCoordinator {
 
                 if remoteUpdatedAt > localSyncDate && !local.needsSync {
                     local.date = remoteData.date
+                    local.practiceType = remoteData.practiceType ?? local.practiceType
                     local.lastSyncDate = Date()
                     local.version = remoteData.version
                     local.needsSync = false
@@ -741,6 +759,7 @@ final class SyncCoordinator {
                 newPractice.lastSyncDate = Date()
                 newPractice.needsSync = false
                 newPractice.version = remoteData.version
+                newPractice.practiceType = remoteData.practiceType ?? "general"
                 newPractice.athlete = athlete
 
                 // Link to season if seasonId provided

@@ -394,11 +394,6 @@ Consider tracking:
 - Free users: 3 athletes max
 - Premium: Unlimited
 
-### Advanced Statistics ✅
-- Detailed analytics
-- Performance trends
-- Historical data
-
 ### Coach Sharing ✅
 - Share video folders
 - Coach collaboration

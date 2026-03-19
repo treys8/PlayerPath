@@ -1108,6 +1108,7 @@ struct EditAccountView: View {
                 .disabled(!canSave)
             }
         }
+        .scrollDismissesKeyboard(.interactively)
         .navigationTitle("Edit Account")
         .navigationBarTitleDisplayMode(.inline)
         .alert("Unable to Save", isPresented: $showSaveError) {
@@ -1198,12 +1199,9 @@ struct NotificationSettingsView: View {
     let athleteId: String?
 
     @AppStorage("notif_gameReminders") private var gameReminders = true
-    @AppStorage("notif_liveGame") private var liveGameUpdates = true
     @AppStorage("notif_weeklyStats") private var weeklyStats = true
-    @AppStorage("notif_monthlyReports") private var monthlyReports = true
-    @AppStorage("notif_achievements") private var achievements = true
-    @AppStorage("notif_milestones") private var milestoneAlerts = true
     @AppStorage("notif_uploads") private var uploadNotifications = true
+    @Environment(\.modelContext) private var modelContext
 
     @State private var authorizationStatus: UNAuthorizationStatus = .notDetermined
     @Environment(\.scenePhase) private var scenePhase
@@ -1216,6 +1214,8 @@ struct NotificationSettingsView: View {
             Section("Game Notifications") {
                 Toggle("Game Reminders", isOn: $gameReminders)
                     .onChange(of: gameReminders) { _, enabled in
+                        let prefs = UserPreferences.shared(in: modelContext)
+                        prefs.enableGameReminders = enabled
                         if !enabled {
                             // Cancel any pending game reminder notifications
                             UNUserNotificationCenter.current().getPendingNotificationRequests { requests in
@@ -1228,12 +1228,15 @@ struct NotificationSettingsView: View {
                             }
                         }
                     }
-                Toggle("Live Game Updates", isOn: $liveGameUpdates)
             }
             .disabled(authorizationStatus == .denied)
 
             Section {
                 Toggle("Upload Notifications", isOn: $uploadNotifications)
+                    .onChange(of: uploadNotifications) { _, enabled in
+                        let prefs = UserPreferences.shared(in: modelContext)
+                        prefs.enableUploadNotifications = enabled
+                    }
             } header: {
                 Text("Videos")
             } footer: {
@@ -1254,17 +1257,10 @@ struct NotificationSettingsView: View {
                             }
                         }
                     }
-                Toggle("Monthly Reports", isOn: $monthlyReports)
             } header: {
                 Text("Statistics")
             } footer: {
                 Text("Weekly summary delivers every Sunday at 6 PM.")
-            }
-            .disabled(authorizationStatus == .denied)
-
-            Section("Achievements") {
-                Toggle("New Achievements", isOn: $achievements)
-                Toggle("Milestone Alerts", isOn: $milestoneAlerts)
             }
             .disabled(authorizationStatus == .denied)
         }
@@ -1700,7 +1696,6 @@ struct SubscriptionView: View {
         Section("Your \(authManager.currentTier.displayName) Features") {
             SubscriptionFeatureRow(icon: "person.2.fill", title: "\(authManager.currentTier.athleteLimit) Athlete\(authManager.currentTier.athleteLimit == 1 ? "" : "s")", description: "Track up to \(authManager.currentTier.athleteLimit) athlete\(authManager.currentTier.athleteLimit == 1 ? "" : "s")")
             SubscriptionFeatureRow(icon: "internaldrive.fill", title: "\(authManager.currentTier.storageLimitGB) GB Storage", description: "Cloud backup and sync")
-            SubscriptionFeatureRow(icon: "chart.bar.fill", title: "Advanced Statistics", description: "Detailed performance analytics")
             SubscriptionFeatureRow(icon: "square.and.arrow.up", title: "Export Reports", description: "CSV and PDF statistics export")
             SubscriptionFeatureRow(icon: "star.fill", title: "Auto Highlights", description: "Automatically generated highlight reels")
             if authManager.currentTier == .pro {

@@ -35,6 +35,7 @@ struct ShareToCoachFolderView: View {
                     folderPicker
                 }
             }
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle("Share to Coach Folder")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -246,6 +247,7 @@ struct ShareToCoachFolderView: View {
                 gameContext: gameCtx,
                 practiceContext: practiceCtx
             )
+            isUploading = false
             Haptics.success()
             dismiss()
         } catch {

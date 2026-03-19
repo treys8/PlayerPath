@@ -108,11 +108,11 @@ struct LiveGameCard: View {
 
             Spacer()
 
-            VStack(spacing: 8) {
+            if let onEnd {
                 // End button with gradient
                 Button {
                     Haptics.medium()
-                    onEnd?()
+                    onEnd()
                 } label: {
                     Group {
                         if isEnding {
@@ -139,11 +139,11 @@ struct LiveGameCard: View {
                 }
                 .disabled(isEnding)
                 .buttonStyle(.borderless)
-
-                Image(systemName: "chevron.right")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
             }
+
+            Image(systemName: "chevron.right")
+                .font(.caption)
+                .foregroundColor(.secondary)
         }
         .padding(16)
         .contentShape(Rectangle())

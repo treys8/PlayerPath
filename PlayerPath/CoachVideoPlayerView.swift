@@ -563,6 +563,7 @@ struct AddNoteView: View {
                         .foregroundColor(.secondary)
                 }
             }
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle("Add Note")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

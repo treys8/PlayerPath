@@ -26,7 +26,6 @@
 ### Premium Features
 
 ✅ **Unlimited Athletes** - Track as many players as you need  
-✅ **Advanced Statistics** - Detailed analytics and performance trends  
 ✅ **Coach Sharing** - Share videos with coaches securely  
 ✅ **Cloud Backup** - Never lose your data  
 ✅ **Unlimited Videos** - Record and store unlimited clips  

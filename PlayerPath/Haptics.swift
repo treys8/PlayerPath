@@ -14,22 +14,34 @@ import SwiftUI
 @MainActor
 enum Haptics {
 
+    /// Global enable/disable flag. Reads from UserDefaults so it works
+    /// without needing a ModelContext. UserPreferencesView syncs this key
+    /// whenever the user toggles "Haptic Feedback".
+    static var isEnabled: Bool {
+        // Default to true if the key has never been set
+        if UserDefaults.standard.object(forKey: "hapticFeedbackEnabled") == nil { return true }
+        return UserDefaults.standard.bool(forKey: "hapticFeedbackEnabled")
+    }
+
     // MARK: - Notification Feedback
 
     /// Positive confirmation (e.g., save successful, upload complete)
     static func success() {
+        guard isEnabled else { return }
         let generator = UINotificationFeedbackGenerator()
         generator.notificationOccurred(.success)
     }
 
     /// Warning or important action (e.g., about to delete, premium required)
     static func warning() {
+        guard isEnabled else { return }
         let generator = UINotificationFeedbackGenerator()
         generator.notificationOccurred(.warning)
     }
 
     /// Error occurred (e.g., save failed, network error)
     static func error() {
+        guard isEnabled else { return }
         let generator = UINotificationFeedbackGenerator()
         generator.notificationOccurred(.error)
     }
@@ -38,18 +50,21 @@ enum Haptics {
 
     /// Light tap (e.g., button press, selection change)
     static func light() {
+        guard isEnabled else { return }
         let generator = UIImpactFeedbackGenerator(style: .light)
         generator.impactOccurred()
     }
 
     /// Medium impact (e.g., toggle switch, sheet dismiss)
     static func medium() {
+        guard isEnabled else { return }
         let generator = UIImpactFeedbackGenerator(style: .medium)
         generator.impactOccurred()
     }
 
     /// Heavy impact (e.g., delete action, important confirmation)
     static func heavy() {
+        guard isEnabled else { return }
         let generator = UIImpactFeedbackGenerator(style: .heavy)
         generator.impactOccurred()
     }
@@ -57,6 +72,7 @@ enum Haptics {
     /// Soft impact (iOS 17+, gentle feedback)
     @available(iOS 17.0, *)
     static func soft() {
+        guard isEnabled else { return }
         let generator = UIImpactFeedbackGenerator(style: .soft)
         generator.impactOccurred()
     }
@@ -64,6 +80,7 @@ enum Haptics {
     /// Rigid impact (iOS 17+, precise feedback)
     @available(iOS 17.0, *)
     static func rigid() {
+        guard isEnabled else { return }
         let generator = UIImpactFeedbackGenerator(style: .rigid)
         generator.impactOccurred()
     }
@@ -72,6 +89,7 @@ enum Haptics {
 
     /// Selection changed (e.g., picker scroll, segmented control)
     static func selection() {
+        guard isEnabled else { return }
         let generator = UISelectionFeedbackGenerator()
         generator.selectionChanged()
     }

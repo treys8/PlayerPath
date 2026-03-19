@@ -554,7 +554,7 @@ struct GamesView: View {
                 showError(errorMessage)
             },
             onSuccess: { createdGame in
-                guard UserDefaults.standard.bool(forKey: "notif_gameReminders"),
+                guard (try? modelContext.fetch(FetchDescriptor<UserPreferences>()).first)?.enableGameReminders ?? true,
                       let gameDate = createdGame.date,
                       gameDate > Date().addingTimeInterval(60 * 60) else { return }
                 Task {
@@ -1305,6 +1305,7 @@ struct EditGameSheet: View {
                     }
                 }
             }
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle("Edit Game")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -1357,7 +1358,7 @@ struct EditGameSheet: View {
                 try modelContext.save()
 
                 // Reschedule game reminder if date changed
-                if dateChanged && UserDefaults.standard.bool(forKey: "notif_gameReminders") {
+                if dateChanged && (try? modelContext.fetch(FetchDescriptor<UserPreferences>()).first)?.enableGameReminders ?? true {
                     PushNotificationService.shared.cancelNotifications(withIdentifiers: ["game_reminder_\(gameId)"])
                     if date > Date().addingTimeInterval(60 * 60) {
                         await PushNotificationService.shared.scheduleGameReminder(
@@ -1515,7 +1516,7 @@ struct AddGameView: View {
                     print("   ✅ Game created successfully")
                     #endif
                     // Schedule a reminder if the game is in the future and reminders are enabled
-                    if UserDefaults.standard.bool(forKey: "notif_gameReminders"),
+                    if (try? modelContext.fetch(FetchDescriptor<UserPreferences>()).first)?.enableGameReminders ?? true,
                        let gameDate = createdGame.date,
                        gameDate > Date().addingTimeInterval(60 * 60) {
                         Task {
@@ -1573,7 +1574,7 @@ struct AddGameView: View {
                 case .success(let createdGame):
                     // Success - dismiss
                     // Schedule a reminder if the game is in the future and reminders are enabled
-                    if UserDefaults.standard.bool(forKey: "notif_gameReminders"),
+                    if (try? modelContext.fetch(FetchDescriptor<UserPreferences>()).first)?.enableGameReminders ?? true,
                        let gameDate = createdGame.date,
                        gameDate > Date().addingTimeInterval(60 * 60) {
                         Task {
@@ -2159,6 +2160,7 @@ struct ManualStatisticsEntryView: View {
                     }
                 }
             }
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle("Enter Statistics")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

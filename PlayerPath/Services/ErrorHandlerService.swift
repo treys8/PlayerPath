@@ -125,16 +125,7 @@ final class ErrorHandlerService: ObservableObject {
     // MARK: - Analytics
 
     private func trackErrorAnalytics(_ error: AppError, context: String?) {
-        // TODO: Integrate with Firebase Analytics to track error occurrences
-        // This helps identify common issues in production
-
-        /*
-        Analytics.logEvent("app_error", parameters: [
-            "error_type": String(describing: error),
-            "severity": String(describing: error.severity),
-            "context": context ?? "unknown"
-        ])
-        */
+        AnalyticsService.shared.trackError(error, context: context ?? "unknown")
     }
 
     // MARK: - Error Statistics

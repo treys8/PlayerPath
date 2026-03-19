@@ -148,6 +148,7 @@ final class PhotoPersistenceService {
     }
 
     private nonisolated static func resizedImage(_ image: UIImage, to targetSize: CGSize) -> UIImage {
+        guard image.size.width > 0, image.size.height > 0, targetSize.width > 0, targetSize.height > 0 else { return image }
         let scale = max(targetSize.width / image.size.width, targetSize.height / image.size.height)
         let newSize = CGSize(width: image.size.width * scale, height: image.size.height * scale)
         let format = UIGraphicsImageRendererFormat()

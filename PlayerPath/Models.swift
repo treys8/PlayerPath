@@ -537,6 +537,9 @@ final class Practice {
     @Relationship(inverse: \PracticeNote.practice) var notes: [PracticeNote]?
     @Relationship(inverse: \Photo.practice) var photos: [Photo]?
 
+    /// Practice type — "general", "batting", "fielding", "bullpen", or "team"
+    var practiceType: String = "general"
+
     // MARK: - Firestore Sync Metadata (Phase 3)
 
     /// Firestore document ID (maps to cloud storage)
@@ -574,6 +577,7 @@ final class Practice {
             "id": id.uuidString,
             "athleteId": athleteRef,
             "seasonId": seasonRef as Any,
+            "practiceType": practiceType,
             "date": date ?? Date(),
             "createdAt": createdAt ?? Date(),
             "updatedAt": Date(),
@@ -596,6 +600,38 @@ final class Practice {
 
         // SwiftData handles relationship cleanup automatically
         context.delete(self)
+    }
+}
+
+// MARK: - Practice Type (display helper — not stored directly)
+
+enum PracticeType: String, CaseIterable, Identifiable {
+    case general
+    case batting
+    case fielding
+    case bullpen
+    case team
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .general:  return "General"
+        case .batting:  return "Batting"
+        case .fielding: return "Fielding"
+        case .bullpen:  return "Bullpen"
+        case .team:     return "Team"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .general:  return "figure.baseball"
+        case .batting:  return "baseball.fill"
+        case .fielding: return "hand.raised.fill"
+        case .bullpen:  return "flame.fill"
+        case .team:     return "person.3.fill"
+        }
     }
 }
 

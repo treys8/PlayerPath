@@ -49,15 +49,32 @@ struct PracticeVideoSaveView: View {
             .overlay(Color.black.opacity(0.3))
             .onAppear { loadThumbnail() }
 
-            // Info header
+            // Info header with Discard button
             VStack {
-                HStack {
+                HStack(alignment: .top, spacing: 12) {
+                    Button {
+                        Haptics.warning()
+                        onDiscard()
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "chevron.left")
+                                .font(.body.weight(.semibold))
+                            Text("Discard")
+                                .font(.body)
+                        }
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(Capsule().fill(.ultraThinMaterial))
+                    }
+                    .disabled(isSaving)
+
                     VStack(alignment: .leading, spacing: 6) {
                         HStack(spacing: 8) {
-                            Image(systemName: "figure.baseball")
+                            Image(systemName: practice?.type.icon ?? "figure.baseball")
                                 .font(.caption)
                                 .foregroundStyle(.white.opacity(0.8))
-                            Text("Practice Session")
+                            Text("\(practice?.type.displayName ?? "General") Practice")
                                 .font(.headline)
                                 .fontWeight(.bold)
                                 .foregroundStyle(.white)
@@ -83,10 +100,10 @@ struct PracticeVideoSaveView: View {
                             }
                         }
                     }
+
                     Spacer()
                 }
-                .padding(.leading, 104)
-                .padding(.trailing, 20)
+                .padding(.horizontal, 16)
                 .padding(.top, 16)
                 .padding(.bottom, 20)
                 .background(alignment: .top) {
@@ -112,32 +129,6 @@ struct PracticeVideoSaveView: View {
                         }
                     }
             }
-
-            // Back / Discard button — top-leading
-            VStack {
-                HStack {
-                    Button {
-                        Haptics.warning()
-                        onDiscard()
-                    } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: "chevron.left")
-                                .font(.body.weight(.semibold))
-                            Text("Discard")
-                                .font(.body)
-                        }
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(Capsule().fill(.ultraThinMaterial))
-                    }
-                    .disabled(isSaving)
-                    Spacer()
-                }
-                .padding(.horizontal, 16)
-                Spacer()
-            }
-            .padding(.top, 16)
 
             // Saving overlay
             if isSaving {

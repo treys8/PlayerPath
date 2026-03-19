@@ -123,14 +123,16 @@ final class UploadQueueManager {
     private func processBackgroundBatch() async {
         guard let modelContext = modelContext else { return }
 
-        // Process up to 3 uploads in background
-        let maxBackgroundUploads = 3
-        var processed = 0
+        // Process up to 3 uploads concurrently to maximize limited background time
+        let batch = Array(pendingUploads.prefix(3))
+        guard !batch.isEmpty else { return }
 
-        while processed < maxBackgroundUploads && !pendingUploads.isEmpty && !Task.isCancelled {
-            guard let upload = pendingUploads.first else { break }
-            await processUpload(upload, context: modelContext)
-            processed += 1
+        await withTaskGroup(of: Void.self) { group in
+            for upload in batch {
+                group.addTask { @MainActor in
+                    await self.processUpload(upload, context: modelContext)
+                }
+            }
         }
     }
 
@@ -475,6 +477,7 @@ final class UploadQueueManager {
         // Mark as active
         activeUploads[upload.clipId] = 0.0
 
+        let uploadStartTime = Date()
 
         // Progress monitoring task — declared before do/catch so it can be
         // cancelled on both success and failure paths.
@@ -538,17 +541,48 @@ final class UploadQueueManager {
                 return result
             }
 
-            // Update clip with cloud URL
+            // Save metadata to Firestore BEFORE marking local state as uploaded.
+            // This ensures we never have isUploaded=true without valid Firestore metadata.
+            do {
+                try await cloudManager.saveVideoMetadataToFirestore(clip, athlete: athlete, downloadURL: cloudURL)
+            } catch {
+                // Firestore write failed — rollback the Storage file to prevent orphans
+                try? await cloudManager.deleteAthleteVideo(fileName: upload.fileName)
+
+                // Release reserved storage quota and zero out so the outer catch
+                // block doesn't double-release via reservedBytes
+                if let user = athlete.user {
+                    user.cloudStorageUsedBytes = max(0, user.cloudStorageUsedBytes - reservedBytes)
+                }
+                reservedBytes = 0
+                clip.needsSync = true
+                try? context.save()
+
+                throw error
+            }
+
+            // Both Storage upload and Firestore write succeeded — now persist local state
             clip.cloudURL = cloudURL
             clip.isUploaded = true
             clip.lastSyncDate = Date()
-
-            // Storage bytes already reserved above — no additional increment needed
-
+            reservedBytes = 0 // Quota is now committed, don't release on error
             try context.save()
 
+            // Fetch preferences for post-upload actions
+            let uploadPrefs = try? context.fetch(FetchDescriptor<UserPreferences>()).first
+
+            // Auto-delete local file after successful upload if enabled.
+            // isAvailableOffline is computed from fileExists, so removing the file
+            // automatically makes the clip "cloud-only".
+            if uploadPrefs?.autoDeleteAfterUpload == true {
+                let localPath = clip.resolvedFilePath
+                if FileManager.default.fileExists(atPath: localPath) {
+                    try? FileManager.default.removeItem(atPath: localPath)
+                }
+            }
+
             // Notify user of successful upload if enabled
-            if UserDefaults.standard.bool(forKey: "notif_uploads") {
+            if uploadPrefs?.enableUploadNotifications ?? true {
                 await PushNotificationService.shared.notifyUploadComplete()
             }
 
@@ -557,38 +591,8 @@ final class UploadQueueManager {
             progressTask = nil
             activeUploads.removeValue(forKey: upload.clipId)
 
-            // Save metadata to Firestore for cross-device sync.
-            // If this fails, rollback the Storage file to prevent orphans.
-            do {
-                try await cloudManager.saveVideoMetadataToFirestore(clip, athlete: athlete, downloadURL: cloudURL)
-            } catch {
-
-                // Attempt to rollback the Storage file
-                do {
-                    try await cloudManager.deleteAthleteVideo(fileName: upload.fileName)
-                } catch {
-                }
-
-                // Revert local state so the upload is retried from scratch
-                clip.cloudURL = nil
-                clip.isUploaded = false
-                clip.lastSyncDate = nil
-                if let user = athlete.user {
-                    let fileSize = FileManager.default.fileSize(atPath: upload.filePath)
-                    user.cloudStorageUsedBytes = max(0, user.cloudStorageUsedBytes - fileSize)
-                }
-                clip.needsSync = true
-                try? context.save()
-
-                if let user = athlete.user {
-                    Task {
-                        try? await SyncCoordinator.shared.syncAll(for: user)
-                    }
-                }
-            }
-
-            // Track analytics (estimate upload duration from last attempt)
-            let uploadDuration = upload.lastAttempt.map { Date().timeIntervalSince($0) } ?? 0
+            // Track upload duration from actual start of this attempt
+            let uploadDuration = Date().timeIntervalSince(uploadStartTime)
             AnalyticsService.shared.trackVideoUploaded(
                 fileSize: FileManager.default.fileSize(atPath: upload.filePath),
                 uploadDuration: uploadDuration

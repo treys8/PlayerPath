@@ -139,11 +139,12 @@ class ProfileImageManager {
     
     // Create a resized version of the image for better performance
     func resizeImage(_ image: UIImage, to size: CGSize, mode: ResizeMode = .aspectFill) -> UIImage {
+        guard image.size.width > 0, image.size.height > 0, size.width > 0, size.height > 0 else { return image }
         let scale: CGFloat = (mode == .aspectFill)
             ? max(size.width / image.size.width, size.height / image.size.height)
             : min(size.width / image.size.width, size.height / image.size.height)
         let newSize = CGSize(width: image.size.width * scale, height: image.size.height * scale)
-        
+
         let format = UIGraphicsImageRendererFormat()
         format.scale = image.scale
         let renderer = UIGraphicsImageRenderer(size: size, format: format)

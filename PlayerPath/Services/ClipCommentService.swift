@@ -66,11 +66,14 @@ final class ClipCommentService {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
+        // Limit comment length to prevent abuse and excessive Firestore document size
+        let clampedText = String(trimmed.prefix(2000))
+
         let data: [String: Any] = [
             "authorId": authorId,
             "authorName": authorName,
             "authorRole": authorRole,
-            "text": trimmed,
+            "text": clampedText,
             "createdAt": Timestamp(date: Date())
         ]
 

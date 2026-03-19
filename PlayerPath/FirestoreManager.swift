@@ -2294,6 +2294,7 @@ struct FirestorePractice: Codable, Identifiable {
     let swiftDataId: String   // Original SwiftData UUID
     let athleteId: String
     let seasonId: String?
+    let practiceType: String? // Optional so old docs without the field decode fine
     let date: Date?
     let createdAt: Date?
     let updatedAt: Date?
@@ -2304,6 +2305,7 @@ struct FirestorePractice: Codable, Identifiable {
         case swiftDataId = "id"
         case athleteId
         case seasonId
+        case practiceType
         case date
         case createdAt
         case updatedAt

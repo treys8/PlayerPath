@@ -194,7 +194,7 @@ struct DashboardView: View {
         game.needsSync = true
         GameAlertService.shared.cancelEndGameReminder(for: game)
 
-        Task {
+        Task { @MainActor in
             defer { isEndingGame.remove(game.id) }
 
             // Recalculate from scratch to avoid double-counting
@@ -300,11 +300,33 @@ struct DashboardView: View {
                             NavigationLink {
                                 GameDetailView(game: game)
                             } label: {
-                                LiveGameCard(game: game, isEnding: isEndingGame.contains(game.id)) {
-                                    endLiveGame(game)
-                                }
+                                LiveGameCard(game: game, isEnding: isEndingGame.contains(game.id), onEnd: nil)
                             }
                             .buttonStyle(.plain)
+                            .overlay(alignment: .topTrailing) {
+                                Button {
+                                    endLiveGame(game)
+                                } label: {
+                                    Group {
+                                        if isEndingGame.contains(game.id) {
+                                            ProgressView().tint(.white)
+                                        } else {
+                                            Text("End")
+                                        }
+                                    }
+                                    .font(.caption)
+                                    .fontWeight(.bold)
+                                    .foregroundColor(.white)
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 7)
+                                    .background(
+                                        LinearGradient(colors: [.red, .red.opacity(0.8)], startPoint: .topLeading, endPoint: .bottomTrailing)
+                                    )
+                                    .clipShape(Capsule())
+                                }
+                                .disabled(isEndingGame.contains(game.id))
+                                .padding(12)
+                            }
                         }
                     }
                     .padding(.horizontal, dashboardHorizontalPadding)

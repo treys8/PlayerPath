@@ -2,6 +2,7 @@ import SwiftUI
 import SwiftData
 import Foundation
 import AVFoundation
+import Photos
 
 enum ClipPersistenceError: LocalizedError {
     case fileNotFound(URL)
@@ -391,6 +392,21 @@ final class ClipPersistenceService {
         // Insert and save
         context.insert(videoClip)
         try context.save()
+
+        // Save to Photos Library if enabled in user preferences
+        if let preferences = try? context.fetch(FetchDescriptor<UserPreferences>()).first,
+           preferences.saveToPhotosLibrary {
+            let savedURL = destinationURL
+            Task { @MainActor in
+                do {
+                    try await PHPhotoLibrary.shared().performChanges {
+                        PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: savedURL)
+                    }
+                } catch {
+                    // Non-fatal: video is already saved to app storage
+                }
+            }
+        }
 
         // Delete the source file now that the clip is safely persisted in Documents/Clips/.
         // This cleans up the temporary copy created by VideoTransferable.importing (imported_*.mov).

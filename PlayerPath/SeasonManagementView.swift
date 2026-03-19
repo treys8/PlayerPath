@@ -431,6 +431,7 @@ struct CreateSeasonView: View {
                     }
                 }
             }
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle("New Season")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -772,7 +773,7 @@ struct SeasonDetailView: View {
                     }
                 }
             }
-            .presentationDetents([.medium])
+            .presentationDetents([.medium, .large])
         }
         .overlay {
             if isProcessing {

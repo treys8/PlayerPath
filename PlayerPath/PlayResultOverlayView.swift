@@ -115,10 +115,10 @@ struct PlayResultOverlayView: View {
                                 }
                             } else if let practice = practice {
                                 HStack(spacing: 8) {
-                                    Image(systemName: "figure.baseball")
+                                    Image(systemName: practice.type.icon)
                                         .font(.caption)
                                         .foregroundColor(.white.opacity(0.8))
-                                    Text("Practice Session")
+                                    Text("\(practice.type.displayName) Practice")
                                         .font(.headline)
                                         .fontWeight(.bold)
                                         .foregroundColor(.white)
@@ -251,11 +251,17 @@ struct PlayResultOverlayView: View {
     // MARK: - Portrait panel
 
     private var portraitOverlayPanel: some View {
-        VStack {
-            Spacer()
-            glassPanel
-                .padding(.horizontal, 16)
-                .accessibilitySortPriority(1)
+        GeometryReader { geo in
+            ScrollView {
+                VStack {
+                    Spacer(minLength: 0)
+                    glassPanel
+                        .padding(.horizontal, 16)
+                        .accessibilitySortPriority(1)
+                }
+                .frame(minHeight: geo.size.height)
+            }
+            .scrollDismissesKeyboard(.interactively)
         }
         .safeAreaInset(edge: .bottom) { Color.clear.frame(height: 16) }
     }

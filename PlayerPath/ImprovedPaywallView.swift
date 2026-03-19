@@ -104,7 +104,7 @@ struct ImprovedPaywallView: View {
             Text("Unlock PlayerPath")
                 .font(.title2).fontWeight(.bold)
 
-            Text("Advanced stats, more athletes, and Pro coach sharing")
+            Text("More athletes, export reports, and Pro coach sharing")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -197,14 +197,6 @@ struct ImprovedPaywallView: View {
                 Text("\(SubscriptionTier.plus.storageLimitGB) GB").font(.caption)
             } pro: {
                 Text("\(SubscriptionTier.pro.storageLimitGB) GB").font(.caption).foregroundStyle(.blue)
-            }
-
-            tableRow(feature: "Advanced Stats") {
-                checkIcon(included: false)
-            } plus: {
-                checkIcon(included: true)
-            } pro: {
-                checkIcon(included: true)
             }
 
             tableRow(feature: "Export Reports") {

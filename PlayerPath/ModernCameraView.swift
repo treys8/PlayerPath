@@ -311,21 +311,32 @@ struct ModernCameraView: View {
     private var portraitLayout: some View {
         VStack(spacing: 0) {
             // Top Controls
-            HStack(alignment: .top) {
-                // Left column: cancel + timer (mirrors landscape layout, avoids Dynamic Island)
-                VStack(alignment: .leading, spacing: 8) {
-                    cancelButton
-                    recordingTimerBadge
-                    slowMoBadge
+            ZStack(alignment: .top) {
+                // Center: recording timer
+                HStack {
+                    Spacer()
+                    VStack(spacing: 6) {
+                        recordingTimerBadge
+                        slowMoBadge
+                    }
+                    Spacer()
                 }
 
-                Spacer()
+                // Left: cancel button
+                HStack {
+                    cancelButton
+                    Spacer()
+                }
 
-                VStack(spacing: 12) {
-                    flashButton
-                    flipButton
-                    gridButton
-                    settingsButton
+                // Right: utility buttons
+                HStack {
+                    Spacer()
+                    VStack(spacing: 12) {
+                        flashButton
+                        flipButton
+                        gridButton
+                        settingsButton
+                    }
                 }
             }
             .padding(.horizontal, 20)

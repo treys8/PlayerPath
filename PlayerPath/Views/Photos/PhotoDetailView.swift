@@ -7,6 +7,7 @@
 
 import SwiftUI
 import SwiftData
+import Photos
 
 struct PhotoDetailView: View {
     @Bindable var photo: Photo
@@ -20,6 +21,8 @@ struct PhotoDetailView: View {
     @State private var captionText: String = ""
     @State private var scale: CGFloat = 1.0
     @State private var lastScale: CGFloat = 1.0
+    @State private var showingSavedToast = false
+    @State private var saveError: String?
 
     let onDelete: () -> Void
 
@@ -77,6 +80,12 @@ struct PhotoDetailView: View {
                 Menu {
                     if let fullImage {
                         ShareLink(item: Image(uiImage: fullImage), preview: SharePreview("Photo", image: Image(uiImage: fullImage)))
+
+                        Button {
+                            saveToCameraRoll(fullImage)
+                        } label: {
+                            Label("Save to Camera Roll", systemImage: "square.and.arrow.down")
+                        }
                     }
 
                     Button {
@@ -122,10 +131,35 @@ struct PhotoDetailView: View {
                 photo.caption = captionText.isEmpty ? nil : captionText
                 Task { try? modelContext.save() }
             }
-            .presentationDetents([.height(200)])
+            .presentationDetents([.medium])
         }
         .sheet(isPresented: $showingTagSheet) {
             PhotoTagSheet(photo: photo)
+        }
+        .overlay {
+            if showingSavedToast {
+                VStack {
+                    Spacer()
+                    Label("Saved to Camera Roll", systemImage: "checkmark.circle.fill")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        .background(.ultraThinMaterial, in: Capsule())
+                        .padding(.bottom, 100)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+                .animation(.easeInOut, value: showingSavedToast)
+            }
+        }
+        .alert("Cannot Save Photo", isPresented: Binding(
+            get: { saveError != nil },
+            set: { if !$0 { saveError = nil } }
+        )) {
+            Button("OK") { saveError = nil }
+        } message: {
+            Text(saveError ?? "")
         }
         .task {
             await loadFullImage()
@@ -170,6 +204,31 @@ struct PhotoDetailView: View {
     private func loadFullImage() async {
         if let image = UIImage(contentsOfFile: photo.filePath) {
             fullImage = image
+        }
+    }
+
+    private func saveToCameraRoll(_ image: UIImage) {
+        PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
+            guard status == .authorized || status == .limited else {
+                DispatchQueue.main.async {
+                    saveError = "Please allow photo library access in Settings."
+                }
+                return
+            }
+            PHPhotoLibrary.shared().performChanges {
+                PHAssetChangeRequest.creationRequestForAsset(from: image)
+            } completionHandler: { success, error in
+                DispatchQueue.main.async {
+                    if success {
+                        showingSavedToast = true
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                            showingSavedToast = false
+                        }
+                    } else {
+                        saveError = error?.localizedDescription ?? "Failed to save photo."
+                    }
+                }
+            }
         }
     }
 }

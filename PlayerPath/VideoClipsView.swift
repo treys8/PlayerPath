@@ -832,17 +832,10 @@ struct VideoClipCard: View {
                             }
                         } else if video.practice != nil {
                             HStack(spacing: 6) {
-                                if let practiceDate = video.practice?.date {
-                                    Text("Practice · \(practiceDate, format: .dateTime.month(.abbreviated).day())")
-                                        .font(.subheadline)
-                                        .fontWeight(.bold)
-                                        .foregroundColor(.green)
-                                } else {
-                                    Text("Practice")
-                                        .font(.subheadline)
-                                        .fontWeight(.bold)
-                                        .foregroundColor(.green)
-                                }
+                                Text("Practice")
+                                    .font(.subheadline)
+                                    .fontWeight(.bold)
+                                    .foregroundColor(.primary)
                                 Spacer()
                                 if let season = video.season {
                                     SeasonBadge(season: season, fontSize: 8)

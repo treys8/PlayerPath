@@ -1,7 +1,9 @@
 import SwiftUI
+import SwiftData
 
 struct DashboardNextStepCard: View {
     let athlete: Athlete
+    @Environment(\.modelContext) private var modelContext
     @State private var dismissedTipID: String?
 
     private enum Step {
@@ -58,7 +60,14 @@ struct DashboardNextStepCard: View {
         }
     }
 
+    /// Check user preferences for the onboarding tips toggle
+    private var tipsEnabled: Bool {
+        guard let prefs = try? modelContext.fetch(FetchDescriptor<UserPreferences>()).first else { return true }
+        return prefs.showOnboardingTips
+    }
+
     private var currentStep: Step? {
+        guard tipsEnabled else { return nil }
         if (athlete.games ?? []).isEmpty,
            OnboardingManager.shared.shouldShowTip(Step.createGame.tipID) {
             return .createGame

@@ -121,6 +121,7 @@ struct CoachVideoUploadView: View {
                     }
                 }
             }
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle("Upload Video")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

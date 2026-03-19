@@ -140,6 +140,7 @@ struct ComprehensiveSignInView: View {
                                 onSubmit: { emailFocused = true },
                                 focusedBinding: $nameFocused
                             )
+                            .id("nameField")
                             .accessibilityLabel("Display name")
                             .accessibilityHint("Enter your preferred display name")
                         }
@@ -156,6 +157,7 @@ struct ComprehensiveSignInView: View {
                             onSubmit: { passwordFocused = true },
                             focusedBinding: $emailFocused
                         )
+                        .id("emailField")
                         .accessibilityLabel("Email address")
                         .accessibilityHint("Enter your email address")
 
@@ -354,6 +356,20 @@ struct ComprehensiveSignInView: View {
                 .padding(.bottom, 40)
             }
             .scrollDismissesKeyboard(.interactively)
+            .onChange(of: nameFocused) { _, focused in
+                if focused {
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        proxy.scrollTo("nameField", anchor: .center)
+                    }
+                }
+            }
+            .onChange(of: emailFocused) { _, focused in
+                if focused {
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        proxy.scrollTo("emailField", anchor: .center)
+                    }
+                }
+            }
             .onChange(of: passwordFocused) { _, focused in
                 if focused {
                     // Scroll so the password field, requirements, and submit button are all visible

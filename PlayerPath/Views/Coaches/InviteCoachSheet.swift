@@ -216,7 +216,7 @@ struct InviteCoachSheet: View {
         isSending = true
         errorMessage = nil
 
-        Task {
+        Task { @MainActor in
             do {
                 guard authManager.userID != nil else {
                     throw NSError(domain: "InviteCoach", code: -1, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
@@ -238,17 +238,23 @@ struct InviteCoachSheet: View {
                     hasCoachingAccess: authManager.hasCoachingAccess
                 )
 
-                // Create invitation for the coach
-                _ = try await FirestoreManager.shared.createInvitation(
-                    athleteID: athlete.id.uuidString,
-                    athleteName: athlete.name,
-                    coachEmail: coachEmail.lowercased(),
-                    folderID: folderID,
-                    folderName: folderName,
-                    permissions: selectedPermissions
-                )
+                // Create invitation for the coach; clean up folder on failure
+                do {
+                    _ = try await FirestoreManager.shared.createInvitation(
+                        athleteID: athlete.id.uuidString,
+                        athleteName: athlete.name,
+                        coachEmail: coachEmail.lowercased(),
+                        folderID: folderID,
+                        folderName: folderName,
+                        permissions: selectedPermissions
+                    )
+                } catch {
+                    // Clean up orphaned folder
+                    try? await SharedFolderManager.shared.deleteFolder(folderID: folderID, athleteID: athlete.id.uuidString)
+                    throw error
+                }
 
-                // Save coach locally (pending status)
+                // Save coach locally (pending status) — safe on MainActor
                 let coach = Coach(
                     name: coachName,
                     email: coachEmail.lowercased()
@@ -260,17 +266,13 @@ struct InviteCoachSheet: View {
                 modelContext.insert(coach)
                 try modelContext.save()
 
-                await MainActor.run {
-                    isSending = false
-                    Haptics.success()
-                    showingSuccess = true
-                }
+                isSending = false
+                Haptics.success()
+                showingSuccess = true
             } catch {
-                await MainActor.run {
-                    isSending = false
-                    errorMessage = "Failed to send invitation: \(error.localizedDescription)"
-                    Haptics.error()
-                }
+                isSending = false
+                errorMessage = "Failed to send invitation: \(error.localizedDescription)"
+                Haptics.error()
             }
         }
     }

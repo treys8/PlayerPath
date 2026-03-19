@@ -52,14 +52,14 @@ struct PlayerPathApp: App {
     /// inside each VersionedSchema enum per Apple's WWDC pattern.
     static let sharedModelContainer: ModelContainer = {
         do {
-            return try ModelContainer(for: Schema(SchemaV9.models))
+            return try ModelContainer(for: Schema(SchemaV10.models))
         } catch {
             // Last resort: try an in-memory container so the app can launch and show
             // an error instead of crash-looping. If even that fails, we have no choice
             // but to terminate.
             do {
                 let config = ModelConfiguration(isStoredInMemoryOnly: true)
-                return try ModelContainer(for: Schema(SchemaV9.models), configurations: [config])
+                return try ModelContainer(for: Schema(SchemaV10.models), configurations: [config])
             } catch {
                 fatalError("Could not create even an in-memory ModelContainer: \(error)")
             }

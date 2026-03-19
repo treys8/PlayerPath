@@ -138,9 +138,9 @@ class VideoFileManager {
     }
     
     static func cleanup(url: URL) {
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
         do {
             try FileManager.default.removeItem(at: url)
-            logger.info("Cleaned up file at: \(url.path, privacy: .public)")
         } catch {
             logger.error("Failed to cleanup file at \(url.path, privacy: .public): \(String(describing: error), privacy: .public)")
         }
@@ -288,18 +288,19 @@ class VideoFileManager {
     }
     
     private static func normalizedThumbnail(_ image: UIImage, size: CGSize, preserveAspect: Bool = true) -> UIImage {
+        let safeSize = CGSize(width: max(size.width, 1), height: max(size.height, 1))
         let format = UIGraphicsImageRendererFormat.default()
         // Keep this trait-agnostic; a scale of 1 reduces disk size and is fine for small thumbs
         format.scale = 1
-        let renderer = UIGraphicsImageRenderer(size: size, format: format)
+        let renderer = UIGraphicsImageRenderer(size: safeSize, format: format)
         return renderer.image { _ in
-            if preserveAspect {
-                let aspect = min(size.width / image.size.width, size.height / image.size.height)
+            if preserveAspect, image.size.width > 0, image.size.height > 0 {
+                let aspect = min(safeSize.width / image.size.width, safeSize.height / image.size.height)
                 let drawSize = CGSize(width: image.size.width * aspect, height: image.size.height * aspect)
-                let origin = CGPoint(x: (size.width - drawSize.width) / 2, y: (size.height - drawSize.height) / 2)
+                let origin = CGPoint(x: (safeSize.width - drawSize.width) / 2, y: (safeSize.height - drawSize.height) / 2)
                 image.draw(in: CGRect(origin: origin, size: drawSize))
             } else {
-                image.draw(in: CGRect(origin: .zero, size: size))
+                image.draw(in: CGRect(origin: .zero, size: safeSize))
             }
         }
     }

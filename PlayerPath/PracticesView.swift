@@ -12,13 +12,35 @@ import UIKit
 
 private let log = Logger(subsystem: "com.playerpath.app", category: "Practices")
 
+// MARK: - PracticeType Color Extension (SwiftUI-only, kept out of Models.swift)
+
+extension PracticeType {
+    var color: Color {
+        switch self {
+        case .general:  return .blue
+        case .batting:  return .orange
+        case .fielding: return .green
+        case .bullpen:  return .red
+        case .team:     return .purple
+        }
+    }
+}
+
+// MARK: - Convenience accessor on Practice
+
+extension Practice {
+    var type: PracticeType {
+        get { PracticeType(rawValue: practiceType) ?? .general }
+        set { practiceType = newValue.rawValue }
+    }
+}
+
 struct PracticesView: View {
     let athlete: Athlete?
     @Environment(\.modelContext) private var modelContext
-    @State private var showingAddPractice = false
-    @State private var selectedPractice: Practice?
     @State private var searchText: String = ""
     @State private var selectedSeasonFilter: String? = nil
+    @State private var navigateToPractice: Practice?
 
     enum SortOrder: String, CaseIterable, Identifiable {
         case newestFirst = "Newest First"
@@ -30,9 +52,6 @@ struct PracticesView: View {
     }
 
     @State private var sortOrder: SortOrder = .newestFirst
-    @State private var editMode: EditMode = .inactive
-    @State private var selection = Set<Practice.ID>()
-    @State private var isBatchProcessing = false
 
     // Cached arrays (updated via updatePracticesCache)
     @State private var cachedPractices: [Practice] = []
@@ -119,7 +138,7 @@ struct PracticesView: View {
             searchText = ""
         }
     }
-    
+
     private func matchesSearch(_ practice: Practice, query q: String) -> Bool {
         let dateString: String = (practice.date ?? .distantPast)
             .formatted(date: .abbreviated, time: .omitted)
@@ -130,10 +149,11 @@ struct PracticesView: View {
         let matchesNotes: Bool = (practice.notes ?? []).contains { note in
             note.content.lowercased().contains(q)
         }
+        let matchesType: Bool = practice.type.displayName.lowercased().contains(q)
 
-        return matchesDate || matchesSeason || matchesNotes
+        return matchesDate || matchesSeason || matchesNotes || matchesType
     }
-    
+
     @ViewBuilder
     private var practicesContent: some View {
         if cachedFilteredPractices.isEmpty {
@@ -144,7 +164,7 @@ struct PracticesView: View {
                 )
             } else {
                 EmptyPracticesView {
-                    showingAddPractice = true
+                    quickCreatePractice(type: .general)
                 }
             }
         } else {
@@ -163,8 +183,8 @@ struct PracticesView: View {
                 }
             }
 
-            List(selection: $selection) {
-                if !cachedFilteredPractices.isEmpty && editMode == .inactive {
+            List {
+                if !cachedFilteredPractices.isEmpty {
                     HStack {
                         Image(systemName: "chart.bar.fill")
                             .foregroundStyle(.green)
@@ -179,30 +199,23 @@ struct PracticesView: View {
 
                         Spacer()
                     }
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
                 }
 
                 ForEach(cachedFilteredPractices, id: \.persistentModelID) { practice in
-                    if editMode == .active {
-                        PracticeRow(practice: practice)
-                            .tag(practice.id)
-                    } else {
-                        PracticeListRow(practice: practice) {
+                    NavigationLink(destination: PracticeDetailView(practice: practice)) {
+                        PracticeCard(practice: practice)
+                    }
+                    .swipeActions {
+                        Button(role: .destructive) {
                             deleteSinglePractice(practice)
+                        } label: {
+                            Label("Delete", systemImage: "trash")
                         }
                     }
                 }
-                .onDelete { offsets in deletePracticesFromFiltered(offsets: offsets) }
             }
-            .environment(\.editMode, $editMode)
             .refreshable {
                 await refreshPractices()
-            }
-            .safeAreaInset(edge: .bottom) {
-                if editMode == .active {
-                    bottomToolbar
-                }
             }
         }
     }
@@ -210,8 +223,23 @@ struct PracticesView: View {
     @ToolbarContentBuilder
     private var practicesToolbar: some ToolbarContent {
         ToolbarItem(placement: .primaryAction) {
-            Button(action: { showingAddPractice = true }) {
+            Menu {
+                Button {
+                    quickCreatePractice(type: .general)
+                } label: {
+                    Label("General Practice", systemImage: PracticeType.general.icon)
+                }
+                ForEach(PracticeType.allCases.filter { $0 != .general }) { type in
+                    Button {
+                        quickCreatePractice(type: type)
+                    } label: {
+                        Label(type.displayName, systemImage: type.icon)
+                    }
+                }
+            } label: {
                 Image(systemName: "plus")
+            } primaryAction: {
+                quickCreatePractice(type: .general)
             }
             .accessibilityLabel("Add Practice")
         }
@@ -226,7 +254,7 @@ struct PracticesView: View {
             }
         }
 
-        if !cachedPractices.isEmpty && editMode == .inactive {
+        if !cachedPractices.isEmpty {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     Picker("Sort", selection: $sortOrder) {
@@ -238,23 +266,6 @@ struct PracticesView: View {
                     Image(systemName: "arrow.up.arrow.down.circle")
                 }
                 .accessibilityLabel("Sort practices")
-            }
-        }
-
-        if !cachedPractices.isEmpty {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    withAnimation {
-                        if editMode == .active {
-                            editMode = .inactive
-                            selection.removeAll()
-                        } else {
-                            editMode = .active
-                        }
-                    }
-                } label: {
-                    Text(editMode == .active ? "Done" : "Edit")
-                }
             }
         }
     }
@@ -273,12 +284,76 @@ struct PracticesView: View {
         .navigationBarTitleDisplayMode(.large)
         .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic))
         .toolbar { practicesToolbar }
-        .sheet(isPresented: $showingAddPractice) {
-            AddPracticeView(athlete: athlete)
+        .navigationDestination(item: $navigateToPractice) { practice in
+            PracticeDetailView(practice: practice)
         }
     }
-    
+
+    // MARK: - Quick Create
+
+    private func quickCreatePractice(type: PracticeType) {
+        guard let athlete = athlete else { return }
+
+        let practice = Practice(date: Date())
+        practice.practiceType = type.rawValue
+        practice.athlete = athlete
+        practice.needsSync = true
+
+        if athlete.practices == nil {
+            athlete.practices = []
+        }
+        athlete.practices?.append(practice)
+        modelContext.insert(practice)
+
+        SeasonManager.linkPracticeToActiveSeason(practice, for: athlete, in: modelContext)
+
+        do {
+            try modelContext.save()
+
+            AnalyticsService.shared.trackPracticeCreated(
+                practiceID: practice.id.uuidString,
+                seasonID: practice.season?.id.uuidString
+            )
+
+            Task {
+                if let user = athlete.user {
+                    try? await SyncCoordinator.shared.syncPractices(for: user)
+                }
+            }
+
+            Haptics.success()
+            navigateToPractice = practice
+        } catch {
+            Haptics.error()
+            log.error("Failed to save practice: \(error.localizedDescription)")
+        }
+    }
+
     private func deleteSinglePractice(_ practice: Practice) {
+        // Sync deletion to Firestore if practice was synced
+        if let firestoreId = practice.firestoreId,
+           let athlete = practice.athlete,
+           let user = athlete.user {
+            let userId = user.id.uuidString
+            Task {
+                for attempt in 1...3 {
+                    do {
+                        try await FirestoreManager.shared.deletePractice(
+                            userId: userId,
+                            practiceId: firestoreId
+                        )
+                        log.info("Practice deletion synced to Firestore")
+                        return
+                    } catch {
+                        log.warning("Failed to sync practice deletion (attempt \(attempt)/3): \(error.localizedDescription)")
+                        if attempt < 3 {
+                            try? await Task.sleep(for: .seconds(2))
+                        }
+                    }
+                }
+            }
+        }
+
         let practiceAthlete = practice.athlete
 
         withAnimation {
@@ -293,41 +368,11 @@ struct PracticesView: View {
                         try StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: modelContext)
                     }
 
-                    UINotificationFeedbackGenerator().notificationOccurred(.success)
+                    Haptics.success()
                     log.info("Successfully deleted practice")
                 } catch {
-                    UINotificationFeedbackGenerator().notificationOccurred(.error)
-                    log.error("Failed to delete practice: \(error.localizedDescription)")
-                }
-            }
-        }
-    }
-
-    private func deletePracticesFromFiltered(offsets: IndexSet) {
-        let toDelete = offsets.compactMap { index in
-            index < cachedFilteredPractices.count ? cachedFilteredPractices[index] : nil
-        }
-        let practiceAthlete = toDelete.first?.athlete
-
-        withAnimation {
-            for practice in toDelete {
-                practice.delete(in: modelContext)
-            }
-
-            Task {
-                do {
-                    try modelContext.save()
-
-                    // Recalculate athlete statistics to reflect the removed play results
-                    if let athlete = practiceAthlete {
-                        try StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: modelContext)
-                    }
-
-                    Haptics.success()
-                    log.info("Successfully deleted \(toDelete.count) practices")
-                } catch {
                     Haptics.error()
-                    log.error("Failed to delete practices: \(error.localizedDescription)")
+                    log.error("Failed to delete practice: \(error.localizedDescription)")
                 }
             }
         }
@@ -336,7 +381,7 @@ struct PracticesView: View {
     @MainActor
     private func refreshPractices() async {
         Haptics.light()
-        // Practices automatically refresh via SwiftData
+        updatePracticesCache()
     }
 
     private static let summaryDateFormatter: DateFormatter = {
@@ -374,160 +419,90 @@ struct PracticesView: View {
             return "note.text"
         }
     }
-
-    private var bottomToolbar: some View {
-        HStack(spacing: 20) {
-            Menu {
-                Button(role: .destructive) {
-                    batchDeleteSelected()
-                } label: {
-                    Label("Delete", systemImage: "trash")
-                }
-
-                Button {
-                    batchAssignToActiveSeason()
-                } label: {
-                    Label("Assign to Active Season", systemImage: "calendar.badge.plus")
-                }
-            } label: {
-                Label("Actions", systemImage: "ellipsis.circle")
-            }
-            .disabled(selection.isEmpty || isBatchProcessing)
-
-            Spacer()
-
-            Button {
-                selectAll()
-            } label: {
-                Label("Select All", systemImage: "checkmark.circle")
-            }
-            .disabled(cachedPractices.isEmpty)
-
-            Spacer()
-
-            Button {
-                selection.removeAll()
-            } label: {
-                Label("Deselect All", systemImage: "xmark.circle")
-            }
-            .disabled(selection.isEmpty)
-        }
-        .padding()
-        .background(.regularMaterial)
-    }
-
-    private func selectAll() {
-        Haptics.light()
-        selection = Set(cachedFilteredPractices.map { $0.id })
-    }
-
-    private func batchDeleteSelected() {
-        let toDelete = cachedPractices.filter { selection.contains($0.id) }
-        guard !toDelete.isEmpty else { return }
-        guard !isBatchProcessing else { return }
-        isBatchProcessing = true
-
-        // Sync deletions to Firestore with retry
-        for practice in toDelete {
-            if let firestoreId = practice.firestoreId,
-               let athlete = practice.athlete,
-               let user = athlete.user {
-                let userId = user.id.uuidString
-                Task {
-                    for attempt in 1...3 {
-                        do {
-                            try await FirestoreManager.shared.deletePractice(
-                                userId: userId,
-                                practiceId: firestoreId
-                            )
-                            log.info("Practice deletion synced to Firestore")
-                            return
-                        } catch {
-                            log.warning("Failed to sync practice deletion (attempt \(attempt)/3): \(error.localizedDescription)")
-                            if attempt < 3 {
-                                try? await Task.sleep(for: .seconds(2))
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        let practiceAthlete = toDelete.first?.athlete
-
-        withAnimation {
-            for practice in toDelete {
-                practice.delete(in: modelContext)
-            }
-
-            Task {
-                do {
-                    try modelContext.save()
-
-                    // Recalculate athlete statistics to reflect the removed play results
-                    if let athlete = practiceAthlete {
-                        try StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: modelContext)
-                    }
-
-                    Haptics.success()
-                    log.info("Successfully deleted \(toDelete.count) practices")
-                } catch {
-                    Haptics.error()
-                    log.error("Failed to delete practices: \(error.localizedDescription)")
-                }
-
-                isBatchProcessing = false
-                selection.removeAll()
-                editMode = .inactive
-            }
-        }
-    }
-
-    private func batchAssignToActiveSeason() {
-        guard let athlete = athlete else { return }
-        let toAssign = cachedPractices.filter { selection.contains($0.id) }
-        guard !toAssign.isEmpty else { return }
-        guard !isBatchProcessing else { return }
-        isBatchProcessing = true
-
-        withAnimation {
-            for practice in toAssign {
-                SeasonManager.linkPracticeToActiveSeason(practice, for: athlete, in: modelContext)
-            }
-
-            Task {
-                do {
-                    try modelContext.save()
-                    UINotificationFeedbackGenerator().notificationOccurred(.success)
-                    log.info("Successfully assigned \(toAssign.count) practices to active season")
-                    Haptics.success()
-                } catch {
-                    UINotificationFeedbackGenerator().notificationOccurred(.error)
-                    log.error("Failed to assign practices: \(error.localizedDescription)")
-                    Haptics.error()
-                }
-
-                isBatchProcessing = false
-                selection.removeAll()
-                editMode = .inactive
-            }
-        }
-    }
 }
 
-struct PracticeListRow: View {
+// MARK: - Practice Card (matches GameRow pattern)
+
+struct PracticeCard: View {
     let practice: Practice
-    let onDelete: () -> Void
+
+    private var practiceType: PracticeType {
+        practice.type
+    }
 
     var body: some View {
-        NavigationLink(destination: PracticeDetailView(practice: practice)) {
-            PracticeRow(practice: practice)
-        }
-        .swipeActions {
-            Button(role: .destructive, action: onDelete) {
-                Label("Delete", systemImage: "trash")
+        HStack(spacing: 0) {
+            // Accent bar
+            RoundedRectangle(cornerRadius: 2)
+                .fill(practiceType.color)
+                .frame(width: 4)
+                .padding(.vertical, 4)
+
+            HStack(spacing: 12) {
+                // Type icon
+                Image(systemName: practiceType.icon)
+                    .font(.title3)
+                    .foregroundStyle(practiceType.color)
+                    .frame(width: 28)
+
+                // Info
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 6) {
+                        Text((practice.date ?? .distantPast).formatted(date: .abbreviated, time: .omitted))
+                            .font(.headline)
+                            .fontWeight(.semibold)
+                            .lineLimit(1)
+
+                        if let season = practice.season {
+                            SeasonBadge(season: season, fontSize: 8)
+                        }
+                    }
+
+                    Text(practiceType.displayName)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                // Counts
+                HStack(spacing: 10) {
+                    let videoCount = practice.videoClips?.count ?? 0
+                    if videoCount > 0 {
+                        HStack(spacing: 3) {
+                            Image(systemName: "video")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                            Text("\(videoCount)")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .monospacedDigit()
+                        }
+                    }
+
+                    let noteCount = practice.notes?.count ?? 0
+                    if noteCount > 0 {
+                        HStack(spacing: 3) {
+                            Image(systemName: "note.text")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                            Text("\(noteCount)")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .monospacedDigit()
+                        }
+                    }
+
+                }
             }
+            .padding(.leading, 12)
+            .padding(.trailing, 16)
+            .padding(.vertical, 12)
         }
+        .background(Color(.systemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: .cornerLarge, style: .continuous))
+        .shadow(color: .black.opacity(0.06), radius: 8, x: 0, y: 2)
+        .shadow(color: .black.opacity(0.04), radius: 2, x: 0, y: 1)
     }
 }
 
@@ -545,158 +520,7 @@ struct EmptyPracticesView: View {
     }
 }
 
-struct PracticeRow: View {
-    let practice: Practice
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack {
-                Text((practice.date ?? .distantPast).formatted(date: .abbreviated, time: .omitted))
-                    .font(.headline)
-                    .fontWeight(.semibold)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .minimumScaleFactor(0.8)
-
-                if let season = practice.season {
-                    SeasonBadge(season: season, fontSize: 8)
-                }
-
-                Spacer()
-
-                HStack(spacing: 6) {
-                    Label("\((practice.videoClips ?? []).count)", systemImage: "video")
-                        .labelStyle(.iconOnly)
-                        .foregroundStyle(.blue)
-                    Text("\((practice.videoClips ?? []).count)")
-                        .font(.caption2)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(.thinMaterial)
-                        .clipShape(Capsule())
-                }
-            }
-
-            if !(practice.notes ?? []).isEmpty {
-                HStack(spacing: 6) {
-                    Image(systemName: "note.text")
-                        .foregroundStyle(.secondary)
-                    Text("\((practice.notes ?? []).count)")
-                        .font(.caption2)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(.thinMaterial)
-                        .clipShape(Capsule())
-                }
-            }
-        }
-        .padding(.vertical, 4)
-    }
-}
-
-struct AddPracticeView: View {
-    @Environment(\.modelContext) private var modelContext
-    @Environment(\.dismiss) private var dismiss
-    let athlete: Athlete?
-    
-    @State private var date = Date()
-    @State private var shouldUploadVideo = false
-    @State private var createdPractice: Practice?
-    
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section("Practice Details") {
-                    DatePicker("Practice Date", selection: $date, displayedComponents: [.date])
-                }
-                
-                Section("Video Options") {
-                    Toggle("Upload video after creating practice", isOn: $shouldUploadVideo)
-                        .toggleStyle(SwitchToggleStyle(tint: .green))
-                    
-                    if shouldUploadVideo {
-                        HStack {
-                            Image(systemName: "video.badge.plus")
-                                .foregroundStyle(.green)
-                            Text("Video will be uploaded after practice is created")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-            }
-            .navigationTitle("New Practice")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        dismiss()
-                    }
-                }
-                
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        savePractice()
-                    }
-                }
-            }
-        }
-        .fullScreenCover(item: $createdPractice) { practice in
-            DirectCameraRecorderView(athlete: athlete, practice: practice)
-        }
-    }
-    
-    private func savePractice() {
-        guard let athlete = athlete else { return }
-        
-        let practice = Practice(date: date)
-        practice.athlete = athlete
-
-        // Mark for Firestore sync (Phase 3)
-        practice.needsSync = true
-
-        if athlete.practices == nil {
-            athlete.practices = []
-        }
-        athlete.practices?.append(practice)
-        modelContext.insert(practice)
-
-        // ✅ Link practice to active season
-        SeasonManager.linkPracticeToActiveSeason(practice, for: athlete, in: modelContext)
-
-        do {
-            try modelContext.save()
-
-            // Track practice creation analytics
-            AnalyticsService.shared.trackPracticeCreated(
-                practiceID: practice.id.uuidString,
-                seasonID: practice.season?.id.uuidString
-            )
-
-            // Trigger immediate sync to Firestore
-            Task {
-                if let user = athlete.user {
-                    do {
-                        try await SyncCoordinator.shared.syncPractices(for: user)
-                    } catch {
-                        // Don't block practice creation on sync failure
-                    }
-                }
-            }
-
-            UINotificationFeedbackGenerator().notificationOccurred(.success)
-
-            if shouldUploadVideo {
-                createdPractice = practice
-            } else {
-                dismiss()
-            }
-        } catch {
-            UINotificationFeedbackGenerator().notificationOccurred(.error)
-            log.error("Failed to save practice: \(error.localizedDescription)")
-        }
-    }
-}
+// MARK: - Practice Detail View
 
 struct PracticeDetailView: View {
     let practice: Practice
@@ -705,7 +529,7 @@ struct PracticeDetailView: View {
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @State private var selectedVideo: VideoClip?
     @State private var showingDeleteConfirmation = false
-    
+
     private enum PracticeSheet: Identifiable {
         case uploadVideo
         case addNote
@@ -714,15 +538,19 @@ struct PracticeDetailView: View {
 
     @State private var activeSheet: PracticeSheet?
     @State private var showingRecordCamera = false
-    
+
+    private var practiceType: PracticeType {
+        practice.type
+    }
+
     var videoClips: [VideoClip] {
         (practice.videoClips ?? []).sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
     }
-    
+
     var notes: [PracticeNote] {
         (practice.notes ?? []).sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
     }
-    
+
     var body: some View {
         List {
             // Practice Info Section
@@ -734,8 +562,36 @@ struct PracticeDetailView: View {
                     Text((practice.date ?? .distantPast).formatted(date: .abbreviated, time: .omitted))
                         .foregroundStyle(.secondary)
                 }
+
+                HStack {
+                    Text("Type")
+                        .fontWeight(.semibold)
+                    Spacer()
+                    Menu {
+                        ForEach(PracticeType.allCases) { type in
+                            Button {
+                                practice.practiceType = type.rawValue
+                                practice.needsSync = true
+                                try? modelContext.save()
+                                Haptics.light()
+                            } label: {
+                                Label(type.displayName, systemImage: type.icon)
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: practiceType.icon)
+                                .foregroundStyle(practiceType.color)
+                            Text(practiceType.displayName)
+                                .foregroundStyle(.secondary)
+                            Image(systemName: "chevron.up.chevron.down")
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                }
             }
-            
+
             // Actions Section
             Section("Actions") {
                 Button(action: { showingRecordCamera = true }) {
@@ -749,15 +605,15 @@ struct PracticeDetailView: View {
                 Button(action: { activeSheet = .addNote }) {
                     Label("Add Note", systemImage: "note.text.badge.plus")
                 }
-                
+
                 Button(role: .destructive, action: {
-                    UINotificationFeedbackGenerator().notificationOccurred(.warning)
+                    Haptics.warning()
                     showingDeleteConfirmation = true
                 }) {
                     Label("Delete Practice", systemImage: "trash")
                 }
             }
-            
+
             // Videos Section
             Section("Videos (\(videoClips.count))") {
                 if videoClips.isEmpty {
@@ -767,10 +623,15 @@ struct PracticeDetailView: View {
                 } else {
                     ForEach(videoClips) { clip in
                         PracticeVideoClipRow(clip: clip, hasCoachingAccess: authManager.hasCoachingAccess, onPlay: { selectedVideo = clip })
+                            .swipeActions {
+                                Button(role: .destructive) { deleteVideo(clip) } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                            }
                     }
                 }
             }
-            
+
             // Notes Section
             Section("Notes (\(notes.count))") {
                 if notes.isEmpty {
@@ -790,7 +651,7 @@ struct PracticeDetailView: View {
                 }
             }
         }
-        .navigationTitle("Practice")
+        .navigationTitle("\(practiceType.displayName) Practice")
         .navigationBarTitleDisplayMode(.inline)
         .fullScreenCover(isPresented: $showingRecordCamera) {
             DirectCameraRecorderView(athlete: practice.athlete, practice: practice)
@@ -815,35 +676,57 @@ struct PracticeDetailView: View {
             Text("This will delete all videos and notes.")
         }
     }
-    
+
     private func deleteNotes(offsets: IndexSet) {
         withAnimation {
             for index in offsets {
                 let note = notes[index]
                 modelContext.delete(note)
             }
-            
+
             do {
                 try modelContext.save()
-                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                Haptics.success()
             } catch {
-                UINotificationFeedbackGenerator().notificationOccurred(.error)
+                Haptics.error()
                 log.error("Failed to delete notes: \(error.localizedDescription)")
             }
         }
     }
-    
+
     private func delete(note: PracticeNote) {
         modelContext.delete(note)
         do {
             try modelContext.save()
-            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            Haptics.success()
         } catch {
-            UINotificationFeedbackGenerator().notificationOccurred(.error)
+            Haptics.error()
             log.error("Failed to delete note: \(error.localizedDescription)")
         }
     }
-    
+
+    private func deleteVideo(_ clip: VideoClip) {
+        let practiceAthlete = practice.athlete
+
+        withAnimation {
+            clip.delete(in: modelContext)
+
+            do {
+                try modelContext.save()
+
+                if let athlete = practiceAthlete {
+                    try StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: modelContext)
+                }
+
+                Haptics.success()
+                log.info("Successfully deleted video from practice")
+            } catch {
+                Haptics.error()
+                log.error("Failed to delete video: \(error.localizedDescription)")
+            }
+        }
+    }
+
     private func deletePractice() {
         // Sync deletion to Firestore if practice was synced
         if let firestoreId = practice.firestoreId,
@@ -881,11 +764,11 @@ struct PracticeDetailView: View {
                 try StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: modelContext)
             }
 
-            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            Haptics.success()
             log.info("Successfully deleted practice")
             dismiss()
         } catch {
-            UINotificationFeedbackGenerator().notificationOccurred(.error)
+            Haptics.error()
             log.error("Failed to delete practice: \(error.localizedDescription)")
         }
     }
@@ -893,12 +776,12 @@ struct PracticeDetailView: View {
 
 struct PracticeNoteRow: View {
     let note: PracticeNote
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
             Text(note.content)
                 .font(.subheadline)
-            
+
             if let createdAt = note.createdAt {
                 Text(createdAt, formatter: DateFormatter.shortDateTime)
                     .font(.caption)
@@ -1064,24 +947,25 @@ struct EditClipNoteSheet: View {
 
     var body: some View {
         NavigationStack {
-            VStack(alignment: .leading, spacing: 16) {
-                Text("Your note is visible to your coach if you share this video.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal)
-                    .padding(.top, 4)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("Your note is visible to your coach if you share this video.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal)
+                        .padding(.top, 4)
 
-                TextEditor(text: $noteText)
-                    .focused($isFocused)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .frame(minHeight: 140)
-                    .background(Color(.secondarySystemBackground))
-                    .cornerRadius(10)
-                    .padding(.horizontal)
-
-                Spacer()
+                    TextEditor(text: $noteText)
+                        .focused($isFocused)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .frame(minHeight: 140)
+                        .background(Color(.secondarySystemBackground))
+                        .cornerRadius(10)
+                        .padding(.horizontal)
+                }
             }
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle(clip.note?.isEmpty == false ? "Edit Note" : "Add Note")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -1128,9 +1012,9 @@ struct AddPracticeNoteView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     let practice: Practice
-    
+
     @State private var noteContent = ""
-    
+
     var body: some View {
         NavigationStack {
             Form {
@@ -1139,6 +1023,7 @@ struct AddPracticeNoteView: View {
                         .lineLimit(5...10)
                 }
             }
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle("Add Note")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -1147,7 +1032,7 @@ struct AddPracticeNoteView: View {
                         dismiss()
                     }
                 }
-                
+
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
                         saveNote()
@@ -1157,28 +1042,28 @@ struct AddPracticeNoteView: View {
             }
         }
     }
-    
+
     private func saveNote() {
         let note = PracticeNote(content: noteContent.trimmingCharacters(in: .whitespacesAndNewlines))
         note.needsSync = true
         note.practice = practice
-        
+
         if practice.notes == nil {
             practice.notes = []
         }
         practice.notes?.append(note)
         modelContext.insert(note)
-        
+
         do {
             try modelContext.save()
 
             // Track practice note added analytics
             AnalyticsService.shared.trackPracticeNoteAdded(practiceID: practice.id.uuidString)
 
-            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            Haptics.success()
             dismiss()
         } catch {
-            UINotificationFeedbackGenerator().notificationOccurred(.error)
+            Haptics.error()
             log.error("Failed to save note: \(error.localizedDescription)")
         }
     }
@@ -1191,7 +1076,7 @@ extension DateFormatter {
         formatter.dateStyle = .full
         return formatter
     }()
-    
+
     static let shortDateTime: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateStyle = .short

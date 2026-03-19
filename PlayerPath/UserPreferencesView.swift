@@ -36,18 +36,34 @@ struct UserPreferencesView: View {
                 await viewModel.load()
                 viewModel.startObservingRemoteChanges()
             }
-            .alert(item: $viewModel.alert) { alert in
-                Alert(
-                    title: Text(alert.title),
-                    message: Text(alert.message + (alert.recoverySuggestion.map { "\n\n\($0)" } ?? "")),
-                    dismissButton: .default(Text("OK"))
+            .alert(
+                viewModel.alert?.title ?? "Error",
+                isPresented: Binding(
+                    get: { viewModel.alert != nil },
+                    set: { if !$0 { viewModel.alert = nil } }
                 )
+            ) {
+                Button("OK", role: .cancel) { viewModel.alert = nil }
+            } message: {
+                if let alert = viewModel.alert {
+                    Text(alert.message + (alert.recoverySuggestion.map { "\n\n\($0)" } ?? ""))
+                }
             }
             .toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     if viewModel.hasUnsavedChanges {
                         Button("Save") {
-                            Task { try? await viewModel.save() }
+                            Task {
+                                do {
+                                    try await viewModel.save()
+                                } catch {
+                                    viewModel.alert = UserPreferencesViewModel.SyncAlert(
+                                        title: "Save Failed",
+                                        message: error.localizedDescription,
+                                        recoverySuggestion: "Try again or restart the app."
+                                    )
+                                }
+                            }
                         }
                     }
                     if viewModel.showsSyncButton {
@@ -57,6 +73,12 @@ struct UserPreferencesView: View {
                             Image(systemName: "icloud.and.arrow.up")
                         }
                     }
+                }
+            }
+            .onDisappear {
+                // Auto-save on navigating away to prevent losing changes
+                if viewModel.hasUnsavedChanges {
+                    Task { try? await viewModel.save() }
                 }
             }
         }
@@ -132,14 +154,14 @@ struct UserPreferencesView: View {
                 get: { viewModel.preferences?.defaultVideoQuality ?? VideoQuality.medium },
                 set: { newQuality in
                     viewModel.update(\.defaultVideoQuality, to: newQuality)
-                    // Sync to UserDefaults so VideoRecorderView picks up the change
-                    let qualityType: UIImagePickerController.QualityType
+                    // Sync to the actual recording settings singleton so the camera uses it
+                    let recordingQuality: RecordingQuality
                     switch newQuality {
-                    case .low:    qualityType = .typeLow
-                    case .medium: qualityType = .typeMedium
-                    case .high:   qualityType = .typeHigh
+                    case .low:    recordingQuality = .medium720p
+                    case .medium: recordingQuality = .high1080p
+                    case .high:   recordingQuality = .ultra4K
                     }
-                    UserDefaults.standard.set(qualityType.rawValue, forKey: "selectedVideoQuality")
+                    VideoRecordingSettings.shared.quality = recordingQuality
                 }
             )) {
                 ForEach(VideoQuality.allCases, id: \.self) { quality in
@@ -162,8 +184,11 @@ struct UserPreferencesView: View {
             ))
 
             Toggle("Haptic Feedback", isOn: Binding(
-                get: { viewModel.preferences?.enableHapticFeedback ?? false },
-                set: { viewModel.update(\.enableHapticFeedback, to: $0) }
+                get: { viewModel.preferences?.enableHapticFeedback ?? true },
+                set: {
+                    viewModel.update(\.enableHapticFeedback, to: $0)
+                    UserDefaults.standard.set($0, forKey: "hapticFeedbackEnabled")
+                }
             ))
         } header: {
             Text("Video Recording")
@@ -178,7 +203,11 @@ struct UserPreferencesView: View {
         Section {
             Picker("App Theme", selection: Binding<AppTheme>(
                 get: { viewModel.preferences?.preferredTheme ?? AppTheme.system },
-                set: { viewModel.update(\.preferredTheme, to: $0) }
+                set: {
+                    viewModel.update(\.preferredTheme, to: $0)
+                    UserDefaults.standard.set($0.rawValue, forKey: "appTheme")
+                    ThemeManager.shared.reload()
+                }
             )) {
                 ForEach(AppTheme.allCases, id: \.self) { theme in
                     Text(theme.displayName).tag(theme)
@@ -210,10 +239,10 @@ struct UserPreferencesView: View {
             
             Slider(
                 value: Binding<Double>(
-                    get: { Double(viewModel.preferences?.maxVideoFileSize ?? 100) },
+                    get: { Double(viewModel.preferences?.maxVideoFileSize ?? 500) },
                     set: { viewModel.update(\.maxVideoFileSize, to: Int($0)) }
                 ),
-                in: 100...1000,
+                in: 50...2000,
                 step: 50
             )
             

@@ -89,6 +89,7 @@ struct ContactSupportView: View {
             }
         }
         .navigationTitle("Contact Support")
+        .scrollDismissesKeyboard(.interactively)
         .toolbar {
             ToolbarItemGroup(placement: .keyboard) {
                 Spacer()

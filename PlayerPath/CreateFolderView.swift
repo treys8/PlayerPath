@@ -48,6 +48,7 @@ struct CreateFolderView: View {
                     }
                 }
             }
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle("New Shared Folder")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -292,6 +293,7 @@ struct InviteCoachView: View {
                     }
                 }
             }
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle("Invite Coach")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

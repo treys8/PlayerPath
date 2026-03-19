@@ -254,9 +254,7 @@ struct VideoRecorderView_Refactored: View {
             case .success(let videoURL):
                 recordedVideoURL = videoURL
                 showingTrimmer = true
-                #if canImport(UIKit)
-                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                #endif
+                Haptics.medium()
             case .failure:
                 break
             }
@@ -276,7 +274,7 @@ struct VideoRecorderView_Refactored: View {
 
     private func saveVideoWithResult(videoURL: URL, playResult: PlayResultType?, pitchSpeed: Double? = nil, role: AthleteRole = .batter, note: String? = nil, onComplete: @escaping () -> Void) {
         guard let athlete = athlete else {
-            UINotificationFeedbackGenerator().notificationOccurred(.error)
+            Haptics.error()
             onComplete() // Still dismiss UI to avoid stuck state
             return
         }
@@ -328,7 +326,7 @@ struct VideoRecorderView_Refactored: View {
                     return
                 }
                 await MainActor.run {
-                    UINotificationFeedbackGenerator().notificationOccurred(.error)
+                    Haptics.error()
                     self.saveTask = nil
                 }
             }

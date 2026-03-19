@@ -78,14 +78,12 @@ struct UserMainFlow: View {
                 AthleteSelectionView(
                     user: user,
                     selectedAthlete: $selectedAthlete,
-                    authManager: authManager
-                )
-                .onChange(of: selectedAthlete) { _, newValue in
-                    // Reset the flag when an athlete is selected
-                    if newValue != nil {
+                    authManager: authManager,
+                    onDismiss: {
                         showingAthleteSelection = false
                     }
-                }
+                )
+                .transition(.move(edge: .leading).combined(with: .opacity))
             }
             // After athlete exists but no seasons - show season creation
             else if let athlete = resolvedAthlete,
@@ -114,30 +112,26 @@ struct UserMainFlow: View {
                 )
                 .onAppear {
                 }
-            } else if athletesForUser.count > 1 {
-                AthleteSelectionView(
-                    user: user,
-                    selectedAthlete: $selectedAthlete,
-                    authManager: authManager
-                )
             } else if athletesForUser.isEmpty && isNewUserFlag {
                 // New athletes need to create their first athlete profile
-                // Show AddAthleteView directly (not FirstAthleteCreationView → AthleteSelectionView)
-                // to avoid asking for athlete creation twice
+                AddAthleteView(
+                    user: user,
+                    selectedAthlete: $selectedAthlete,
+                    isFirstAthlete: true
+                )
+            } else if athletesForUser.isEmpty {
+                // Returning user with no athletes (e.g. data was lost) — let them add one
                 AddAthleteView(
                     user: user,
                     selectedAthlete: $selectedAthlete,
                     isFirstAthlete: true
                 )
             } else {
-                // Fallback: show athlete selection
-                AthleteSelectionView(
-                    user: user,
-                    selectedAthlete: $selectedAthlete,
-                    authManager: authManager
-                )
+                // Fallback: @Query hasn't populated yet — show loading briefly
+                ProgressView("Loading athletes...")
             }
         }
+        .animation(.easeInOut(duration: 0.3), value: showingAthleteSelection)
         .overlay(alignment: .top) {
             VStack(spacing: 8) {
                 if showCreationToast {

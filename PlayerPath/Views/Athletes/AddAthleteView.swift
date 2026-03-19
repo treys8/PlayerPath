@@ -26,6 +26,7 @@ struct AddAthleteView: View {
 
     var body: some View {
         NavigationStack {
+            ScrollViewReader { proxy in
             ScrollView {
                 VStack(spacing: 40) {
                     if authManager.userRole == .athlete {
@@ -97,6 +98,7 @@ struct AddAthleteView: View {
                                 .focused($isNameFieldFocused)
                                 .textContentType(.name)
                                 .submitLabel(.done)
+                                .id("athleteNameField")
                                 .onSubmit {
                                     if isValidAthleteName(athleteName) && !isCreatingAthlete {
                                         saveAthlete()
@@ -159,6 +161,14 @@ struct AddAthleteView: View {
                 .padding()
             }
             .scrollDismissesKeyboard(.interactively)
+            .onChange(of: isNameFieldFocused) { _, focused in
+                if focused {
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        proxy.scrollTo("athleteNameField", anchor: .center)
+                    }
+                }
+            }
+            } // ScrollViewReader
             .navigationTitle(isFirstAthlete ? "Get Started" : "New Athlete")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

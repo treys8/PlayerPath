@@ -73,6 +73,7 @@ struct AdvancedSearchView: View {
                 saveSearchSheet
             }
             .onAppear {
+                loadSavedSearches()
                 updateFilteredResults()
             }
             .onChange(of: searchText) { _, _ in
@@ -625,13 +626,25 @@ struct AdvancedSearchView: View {
         savedSearches.append(search)
         showingSaveSearch = false
         newSearchName = ""
-        // TODO: Persist saved searches to UserDefaults or SwiftData
+        persistSavedSearches()
+    }
+
+    private func persistSavedSearches() {
+        if let data = try? JSONEncoder().encode(savedSearches) {
+            UserDefaults.standard.set(data, forKey: "savedSearches")
+        }
+    }
+
+    private func loadSavedSearches() {
+        guard let data = UserDefaults.standard.data(forKey: "savedSearches"),
+              let decoded = try? JSONDecoder().decode([SavedSearch].self, from: data) else { return }
+        savedSearches = decoded
     }
 }
 
 // MARK: - Supporting Types
 
-enum ContentType: String, CaseIterable, Identifiable {
+enum ContentType: String, CaseIterable, Identifiable, Codable {
     case videos = "videos"
     case games = "games"
     case practices = "practices"
@@ -658,7 +671,7 @@ enum ContentType: String, CaseIterable, Identifiable {
     }
 }
 
-enum DateRange: String, CaseIterable, Identifiable {
+enum DateRange: String, CaseIterable, Identifiable, Codable {
     case allTime = "all_time"
     case today = "today"
     case thisWeek = "this_week"
@@ -711,8 +724,8 @@ enum DateRange: String, CaseIterable, Identifiable {
     }
 }
 
-struct SavedSearch: Identifiable {
-    let id = UUID()
+struct SavedSearch: Identifiable, Codable {
+    let id: UUID
     let name: String
     let contentType: ContentType
     let dateRange: DateRange
@@ -720,6 +733,17 @@ struct SavedSearch: Identifiable {
     let gameID: UUID?
     let playResults: Set<PlayResultType>
     let highlightsOnly: Bool
+
+    init(name: String, contentType: ContentType, dateRange: DateRange, seasonID: UUID?, gameID: UUID?, playResults: Set<PlayResultType>, highlightsOnly: Bool) {
+        self.id = UUID()
+        self.name = name
+        self.contentType = contentType
+        self.dateRange = dateRange
+        self.seasonID = seasonID
+        self.gameID = gameID
+        self.playResults = playResults
+        self.highlightsOnly = highlightsOnly
+    }
 }
 
 // MARK: - Supporting Views

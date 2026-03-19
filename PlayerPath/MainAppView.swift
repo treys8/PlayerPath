@@ -17,6 +17,29 @@ import SwiftData
 import FirebaseAuth
 import Combine
 
+// MARK: - Theme Manager
+/// Reads the user's preferred theme from UserDefaults and exposes it
+/// as a published property so the root view can apply .preferredColorScheme().
+@MainActor
+final class ThemeManager: ObservableObject {
+    static let shared = ThemeManager()
+    @Published var colorScheme: ColorScheme?
+
+    private init() { reload() }
+
+    func reload() {
+        guard let raw = UserDefaults.standard.string(forKey: "appTheme") else {
+            colorScheme = nil // system default
+            return
+        }
+        switch raw {
+        case "light": colorScheme = .light
+        case "dark":  colorScheme = .dark
+        default:      colorScheme = nil
+        }
+    }
+}
+
 /// App-wide notifications used for cross-feature coordination.
 /// - switchTab: Pass an Int tab index as object to switch the main TabView.
 /// - presentVideoRecorder: Ask Videos module to present its recorder UI.
@@ -46,7 +69,9 @@ func postSwitchTab(_ tab: MainTab) {
 // MARK: - App Root
 struct PlayerPathMainView: View {
     @StateObject private var authManager = ComprehensiveAuthManager()
-    
+    @StateObject private var themeManager = ThemeManager.shared
+    @Environment(\.modelContext) private var modelContext
+
     var body: some View {
         Group {
             if authManager.isSignedIn {
@@ -57,7 +82,12 @@ struct PlayerPathMainView: View {
         }
         .environmentObject(authManager)
         .tint(.blue)
+        .preferredColorScheme(themeManager.colorScheme)
         .dynamicTypeSize(...DynamicTypeSize.accessibility5)
         .withErrorHandling() // Global error handling
+        .task {
+            // Enforce singleton UserPreferences on every launch (dedup + create if missing)
+            _ = UserPreferences.shared(in: modelContext)
+        }
     }
 }

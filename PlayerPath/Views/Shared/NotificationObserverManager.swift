@@ -13,16 +13,15 @@ import Combine
 /// This prevents observer duplication during view lifecycle events
 @MainActor
 final class NotificationObserverManager: ObservableObject {
-    private var observers: [NSObjectProtocol] = []
+    // nonisolated(unsafe) allows safe access from deinit (which is non-isolated).
+    // All mutations go through @MainActor methods, and deinit only runs after
+    // all references are gone, so there is no concurrent access.
+    nonisolated(unsafe) private var observers: [NSObjectProtocol] = []
 
     deinit {
-        // Cleanup synchronously in deinit - this is safe because
-        // removeObserver is synchronous and doesn't require MainActor
-        // Remove observers directly here since deinit is non-isolated
         for observer in observers {
             NotificationCenter.default.removeObserver(observer)
         }
-        observers.removeAll()
     }
 
     /// Add an observer and track it for cleanup

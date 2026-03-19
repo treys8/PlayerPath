@@ -9,8 +9,8 @@ import SwiftUI
 import SwiftData
 
 struct UploadStatusBanner: View {
-    private let uploadManager = UploadQueueManager.shared
-    private let networkMonitor = ConnectivityMonitor.shared
+    @State private var uploadManager = UploadQueueManager.shared
+    @State private var networkMonitor = ConnectivityMonitor.shared
     @Query private var preferences: [UserPreferences]
 
     var body: some View {
@@ -237,7 +237,7 @@ struct UploadStatusBanner: View {
 
 /// A compact upload badge for showing in tab bars or navigation bars
 struct UploadBadge: View {
-    private let uploadManager = UploadQueueManager.shared
+    @State private var uploadManager = UploadQueueManager.shared
 
     var body: some View {
         if totalUploadCount > 0 {

@@ -55,11 +55,20 @@ final class UserPreferencesViewModel: ObservableObject {
     func load() async {
         guard let context = modelContext else { return }
         
-        let fetchDescriptor = FetchDescriptor<UserPreferences>()
+        let fetchDescriptor = FetchDescriptor<UserPreferences>(
+            sortBy: [SortDescriptor(\UserPreferences.lastModified, order: .reverse)]
+        )
         do {
             let results = try context.fetch(fetchDescriptor)
-            if let existing = results.first {
-                preferences = existing
+            if let newest = results.first {
+                // Clean up duplicates — keep the most recently modified
+                if results.count > 1 {
+                    for extra in results.dropFirst() {
+                        context.delete(extra)
+                    }
+                    try? context.save()
+                }
+                preferences = newest
             } else {
                 let newPreferences = UserPreferences()
                 context.insert(newPreferences)
@@ -91,11 +100,7 @@ final class UserPreferencesViewModel: ObservableObject {
         do {
             try await cloudKitManager.syncUserPreferences(prefs)
             syncStatus = .success
-            alert = SyncAlert(
-                title: "Sync Success",
-                message: "Preferences successfully synced to iCloud",
-                recoverySuggestion: nil
-            )
+            // No alert for success — the green "Synced" indicator is sufficient
         } catch let error as CloudKitManager.CloudKitError {
             syncStatus = .failed(error)
             alert = SyncAlert(
@@ -117,6 +122,9 @@ final class UserPreferencesViewModel: ObservableObject {
     func loadFromCloudKit() async {
         guard cloudKitManager.isCloudKitAvailable,
               cloudKitManager.isSignedInToiCloud else { return }
+        
+        // Don't overwrite local edits the user hasn't saved yet
+        guard !hasUnsavedChanges else { return }
         
         do {
             if let remote = try await cloudKitManager.fetchUserPreferences() {
@@ -159,10 +167,9 @@ final class UserPreferencesViewModel: ObservableObject {
     }
     
     func update<T>(_ keyPath: WritableKeyPath<UserPreferences, T>, to newValue: T) {
-        guard var prefs = preferences else { return }
-        prefs[keyPath: keyPath] = newValue
-        preferences = prefs
+        preferences?[keyPath: keyPath] = newValue
         hasUnsavedChanges = true
+        objectWillChange.send()
     }
     
     deinit {

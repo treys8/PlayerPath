@@ -14,20 +14,25 @@ struct AthleteSelectionView: View {
     let user: User
     @Binding var selectedAthlete: Athlete?
     let authManager: ComprehensiveAuthManager
+    var onDismiss: (() -> Void)? = nil
     @State private var showingAddAthlete = false
+    @State private var showingSignOutConfirmation = false
 
     @State private var searchText: String = ""
 
+    private var athletes: [Athlete] { user.athletes ?? [] }
+    private var hasMultipleAthletes: Bool { athletes.count > 1 }
+
     private var filteredAthletes: [Athlete] {
         let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !q.isEmpty else { return user.athletes ?? [] }
-        return (user.athletes ?? []).filter { $0.name.lowercased().contains(q) }
+        guard !q.isEmpty else { return athletes }
+        return athletes.filter { $0.name.lowercased().contains(q) }
     }
 
     var body: some View {
         NavigationStack {
             VStack {
-                if (user.athletes ?? []).isEmpty {
+                if athletes.isEmpty {
                     // This shouldn't happen with the new flow, but keeping as fallback
                     VStack(spacing: 30) {
                         Image(systemName: "person.crop.circle.badge.plus")
@@ -68,13 +73,15 @@ struct AthleteSelectionView: View {
                     .padding()
                 } else {
                     VStack(spacing: 20) {
-                        // Header for multiple athletes
+                        // Header — adapts copy based on athlete count
                         VStack(spacing: 8) {
-                            Text("Select Athlete")
+                            Text(hasMultipleAthletes ? "Select Athlete" : "Your Athlete")
                                 .font(.title)
                                 .fontWeight(.bold)
 
-                            Text("Choose which athlete's profile to view")
+                            Text(hasMultipleAthletes
+                                 ? "Choose which athlete's profile to view"
+                                 : "Tap to open, or add another athlete")
                                 .font(.subheadline)
                                 .foregroundColor(.secondary)
                         }
@@ -88,26 +95,41 @@ struct AthleteSelectionView: View {
                                     ForEach(filteredAthletes) { athlete in
                                         AthleteCard(athlete: athlete) {
                                             selectedAthlete = athlete
+                                            onDismiss?()
                                         }
                                     }
                                 }
                                 .padding(.horizontal)
                             }
+                            .scrollBounceBehavior(.basedOnSize)
                         }
                     }
                 }
             }
-            .navigationTitle((user.athletes ?? []).count > 1 ? "Choose Athlete" : "Athletes")
-            .navigationBarTitleDisplayMode((user.athletes ?? []).count > 1 ? .inline : .large)
+            .navigationTitle(hasMultipleAthletes ? "Choose Athlete" : "Athletes")
+            .navigationBarTitleDisplayMode(hasMultipleAthletes ? .inline : .large)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Sign Out", role: .destructive) {
-                        Task {
-                            await authManager.signOut()
+                    if onDismiss != nil {
+                        // User navigated here from Dashboard — show Back
+                        Button {
+                            onDismiss?()
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "chevron.left")
+                                Text("Back")
+                            }
                         }
+                        .accessibilityLabel("Go back")
+                        .accessibilityHint("Return to the previous screen")
+                    } else {
+                        // Root view (e.g. first launch) — show Sign Out
+                        Button("Sign Out", role: .destructive) {
+                            showingSignOutConfirmation = true
+                        }
+                        .accessibilityLabel("Sign out")
+                        .accessibilityHint("Sign out of your account")
                     }
-                    .accessibilityLabel("Sign out")
-                    .accessibilityHint("Sign out of your account")
                 }
 
                 ToolbarItem(placement: .navigationBarTrailing) {
@@ -120,10 +142,26 @@ struct AthleteSelectionView: View {
                     }
                 }
             }
-            .searchable(text: $searchText)
+            .if(hasMultipleAthletes) { view in
+                view.searchable(text: $searchText)
+            }
         }
         .sheet(isPresented: $showingAddAthlete) {
-            AddAthleteView(user: user, selectedAthlete: $selectedAthlete, isFirstAthlete: false)
+            AddAthleteView(user: user, selectedAthlete: .constant(nil), isFirstAthlete: false)
+        }
+        .confirmationDialog(
+            "Sign Out",
+            isPresented: $showingSignOutConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Sign Out", role: .destructive) {
+                Task {
+                    await authManager.signOut()
+                }
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("Are you sure you want to sign out? Any unsynced data will be uploaded when you sign back in.")
         }
     }
 }

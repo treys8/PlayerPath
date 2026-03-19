@@ -170,7 +170,7 @@ import UIKit
     /// Downsample an image to reduce memory usage
     /// This is much more memory-efficient than loading full resolution and then scaling
     private nonisolated func downsampleImage(at imageURL: URL, to pointSize: CGSize, scale: CGFloat) -> UIImage? {
-        let pixelSize = CGSize(width: pointSize.width * scale, height: pointSize.height * scale)
+        let pixelSize = CGSize(width: max(pointSize.width * scale, 1), height: max(pointSize.height * scale, 1))
 
         // Create image source
         guard let imageSource = CGImageSourceCreateWithURL(imageURL as CFURL, nil) else {
