@@ -1104,6 +1104,7 @@ struct SeasonDetailView: View {
                 do {
                     try await SyncCoordinator.shared.syncSeasons(for: user)
                 } catch {
+                    ErrorHandlerService.shared.handle(error, context: "SeasonManagement.syncSeasons", showAlert: false)
                 }
             }
 

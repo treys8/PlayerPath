@@ -78,7 +78,7 @@ final class OrphanedClipRecoveryService {
                 }
                 // Single save for all thumbnails
                 if !clipsNeedingThumbnails.isEmpty {
-                    try? context.save()
+                    ErrorHandlerService.shared.saveContext(context, caller: "OrphanedClipRecovery.saveThumbnails")
                 }
             } catch {
                 #if DEBUG

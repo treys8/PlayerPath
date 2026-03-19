@@ -132,7 +132,7 @@ final class PhotoPersistenceService {
 
     func deletePhoto(_ photo: Photo, context: ModelContext) {
         photo.delete(in: context)
-        try? context.save()
+        ErrorHandlerService.shared.saveContext(context, caller: "PhotoPersistence.deletePhoto")
     }
 
     // MARK: - Image Helpers (nonisolated for background processing)

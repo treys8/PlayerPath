@@ -66,7 +66,7 @@ final class UserPreferencesViewModel: ObservableObject {
                     for extra in results.dropFirst() {
                         context.delete(extra)
                     }
-                    try? context.save()
+                    ErrorHandlerService.shared.saveContext(context, caller: "UserPreferencesVM.deduplicatePreferences")
                 }
                 preferences = newest
             } else {

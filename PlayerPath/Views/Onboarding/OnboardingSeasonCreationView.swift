@@ -299,6 +299,7 @@ struct OnboardingSeasonCreationView: View {
                     do {
                         try await SyncCoordinator.shared.syncSeasons(for: user)
                     } catch {
+                        ErrorHandlerService.shared.handle(error, context: "OnboardingSeasonCreation.syncSeasons", showAlert: false)
                     }
                 }
 

@@ -150,7 +150,7 @@ struct VideoPlayerView: View {
                         Button {
                             clip.isHighlight.toggle()
                             clip.needsSync = true
-                            Task { try? modelContext.save() }
+                            ErrorHandlerService.shared.saveContext(modelContext, caller: "VideoPlayerView.toggleHighlight")
                             Haptics.medium()
                         } label: {
                             Label(
@@ -414,7 +414,7 @@ struct VideoPlayerView: View {
                 // Update clip's filePath in database (store relative)
                 await MainActor.run {
                     clip.filePath = VideoClip.toRelativePath(destinationPath)
-                    try? modelContext.save()
+                    ErrorHandlerService.shared.saveContext(modelContext, caller: "VideoPlayerView.downloadComplete")
                     isDownloadingFromCloud = false
                 }
 
@@ -1121,6 +1121,7 @@ struct GameLinkerView: View {
             Haptics.success()
             dismiss()
         } catch {
+            ErrorHandlerService.shared.handle(error, context: "VideoPlayerView.saveClipAssignment", showAlert: false)
         }
     }
 }

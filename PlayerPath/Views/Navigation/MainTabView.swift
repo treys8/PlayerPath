@@ -65,7 +65,7 @@ struct MainTabView: View {
     private func toggleGameLive(_ game: Game) {
         Haptics.light()
         game.isLive.toggle()
-        Task { do { try modelContext.save() } catch { print("Failed to toggle game live: \(error)") } }
+        Task { do { try modelContext.save() } catch { ErrorHandlerService.shared.handle(error, context: "MainTabView.toggleGameLive", showAlert: false) } }
     }
 
     // Removed toggleTournamentActive(_:) as tournaments are removed

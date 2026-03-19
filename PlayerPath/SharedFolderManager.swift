@@ -10,6 +10,9 @@ import Foundation
 import FirebaseAuth
 import FirebaseFirestore
 import Combine
+import os
+
+private let folderLog = Logger(subsystem: "com.playerpath.app", category: "SharedFolder")
 
 /// High-level business logic for managing shared folders
 /// Coordinates between Firestore, Storage, and app state
@@ -234,6 +237,7 @@ class SharedFolderManager: ObservableObject {
                 try await firestore.removeCoachFromFolder(folderID: folderID, coachID: coachID)
                 // TODO: Send push notification to coach about folder deletion
             } catch {
+                folderLog.error("Failed to revoke coach \(coachID) access during folder deletion: \(error.localizedDescription)")
             }
         }
 
@@ -246,6 +250,7 @@ class SharedFolderManager: ObservableObject {
                 do {
                     try await VideoCloudManager.shared.deleteVideo(fileName: video.fileName, folderID: folderID)
                 } catch {
+                    folderLog.warning("Failed to delete video storage file \(video.fileName) during folder cleanup: \(error.localizedDescription)")
                 }
 
                 // Delete metadata from Firestore
@@ -255,6 +260,7 @@ class SharedFolderManager: ObservableObject {
             }
         } catch {
             // Continue with folder deletion even if video deletion fails
+            folderLog.warning("Failed to delete folder videos during cleanup: \(error.localizedDescription)")
         }
 
         // 4. Delete the folder document
@@ -287,6 +293,7 @@ class SharedFolderManager: ObservableObject {
                         athleteID: athleteID
                     )
                 } catch {
+                    folderLog.error("Failed to remove coach \(coachID) from folder \(folderID): \(error.localizedDescription)")
                 }
             }
         }
@@ -530,6 +537,7 @@ class SharedFolderManager: ObservableObject {
             } else {
             }
         } catch {
+            folderLog.warning("Failed to delete video storage for \(videoID): \(error.localizedDescription)")
         }
 
         // Then delete metadata from Firestore

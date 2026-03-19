@@ -991,7 +991,7 @@ struct GameDetailView: View {
                     Button {
                         game.isComplete = false
                         game.isLive = true
-                        try? modelContext.save()
+                        ErrorHandlerService.shared.saveContext(modelContext, caller: "GamesView.restartGame")
                     } label: {
                         Label("Restart Game", systemImage: "arrow.counterclockwise")
                     }
@@ -1128,7 +1128,7 @@ struct GameDetailView: View {
                         Button(action: {
                             game.isComplete = false
                             game.isLive = true
-                            try? modelContext.save()
+                            ErrorHandlerService.shared.saveContext(modelContext, caller: "GamesView.restartGame")
                         }) {
                             Label("Restart Game", systemImage: "arrow.counterclockwise")
                         }
@@ -1373,7 +1373,7 @@ struct EditGameSheet: View {
                 dismiss()
             } catch {
                 showingSaveError = true
-                Haptics.error()
+                ErrorHandlerService.shared.handle(error, context: "GamesView.saveGame", showAlert: false)
             }
         }
     }
@@ -1785,6 +1785,7 @@ struct VideoClipRow: View {
                 do {
                     try modelContext.save()
                 } catch {
+                    ErrorHandlerService.shared.handle(error, context: "GamesView.saveThumbnailPath", showAlert: false)
                 }
                 isLoadingThumbnail = false
             case .failure(_):

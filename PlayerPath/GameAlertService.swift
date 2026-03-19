@@ -8,6 +8,9 @@
 
 import Foundation
 @preconcurrency import UserNotifications
+import os
+
+private let alertLog = Logger(subsystem: "com.playerpath.app", category: "GameAlert")
 
 @MainActor
 final class GameAlertService {
@@ -28,6 +31,7 @@ final class GameAlertService {
         do {
             _ = try await center.requestAuthorization(options: [.alert, .sound])
         } catch {
+            alertLog.warning("Failed to request notification authorization: \(error.localizedDescription)")
         }
     }
 
@@ -72,6 +76,7 @@ final class GameAlertService {
         do {
             try await center.add(request)
         } catch {
+            alertLog.warning("Failed to schedule end-game reminder: \(error.localizedDescription)")
         }
     }
 

@@ -269,6 +269,7 @@ struct VideoRecorderView_Refactored: View {
                 availableStorageGB = Double(capacity) / 1_000_000_000.0
             }
         } catch {
+            ErrorHandlerService.shared.handle(error, context: "VideoRecorder.checkStorage", showAlert: false)
         }
     }
 

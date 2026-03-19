@@ -8,6 +8,9 @@
 import LocalAuthentication
 import Foundation
 import Combine
+import os
+
+private let biometricLog = Logger(subsystem: "com.playerpath.app", category: "Biometric")
 
 @MainActor
 final class BiometricAuthenticationManager: ObservableObject {
@@ -79,6 +82,7 @@ final class BiometricAuthenticationManager: ObservableObject {
                 return true
             }
         } catch {
+            biometricLog.warning("Failed to enable biometric authentication: \(error.localizedDescription)")
         }
         return false
     }
@@ -92,6 +96,7 @@ final class BiometricAuthenticationManager: ObservableObject {
                 return keychain.getEmailForBiometric()
             }
         } catch {
+            biometricLog.warning("Biometric authentication failed: \(error.localizedDescription)")
         }
         return nil
     }

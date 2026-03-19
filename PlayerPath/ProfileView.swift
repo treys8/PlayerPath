@@ -139,7 +139,7 @@ struct ProfileView: View {
             await authManager.signOut()
             Haptics.success()
         } catch {
-            Haptics.error()
+            ErrorHandlerService.shared.handle(error, context: "ProfileView.signOut", showAlert: false)
         }
     }
 
@@ -613,9 +613,7 @@ struct ProfileView: View {
             try performDeleteAthlete(athlete, selectedAthlete: $selectedAthlete, user: user, modelContext: modelContext)
             Haptics.success()
         } catch {
-            deleteErrorMessage = String(format: ProfileStrings.deleteFailed, error.localizedDescription)
-            showDeleteError = true
-            Haptics.error()
+            ErrorHandlerService.shared.reportError(error, context: "ProfileView.deleteAthlete", message: $deleteErrorMessage, isPresented: $showDeleteError, userMessage: String(format: ProfileStrings.deleteFailed, error.localizedDescription))
         }
         isDeletingAthlete = false
     }
@@ -632,6 +630,7 @@ struct UserProfileHeader: View {
                 do {
                     try modelContext.save()
                 } catch {
+                    ErrorHandlerService.shared.handle(error, context: "ProfileView.saveProfileImage", showAlert: false)
                 }
             }
 
@@ -1066,7 +1065,7 @@ struct EditAccountView: View {
                             try modelContext.save()
                             Haptics.light()
                         } catch {
-                            Haptics.error()
+                            ErrorHandlerService.shared.handle(error, context: "ProfileView.saveProfileImage", showAlert: false)
                         }
                     }
                     Spacer()
@@ -1130,17 +1129,13 @@ struct EditAccountView: View {
         // Validate
         let usernameValidation = trimmedUsername.validateUsername()
         guard usernameValidation.isValid else {
-            saveErrorMessage = usernameValidation.message
-            showSaveError = true
-            Haptics.error()
+            ErrorHandlerService.shared.reportWarning(usernameValidation.message, context: "ProfileView.validateUsername", message: $saveErrorMessage, isPresented: $showSaveError)
             return
         }
-        
+
         let emailValidation = trimmedEmail.validateEmail()
         guard emailValidation.isValid else {
-            saveErrorMessage = emailValidation.message
-            showSaveError = true
-            Haptics.error()
+            ErrorHandlerService.shared.reportWarning(emailValidation.message, context: "ProfileView.validateEmail", message: $saveErrorMessage, isPresented: $showSaveError)
             return
         }
         
@@ -1154,19 +1149,13 @@ struct EditAccountView: View {
             do {
                 try await firebaseUser.sendEmailVerification(beforeUpdatingEmail: trimmedEmail)
             } catch AuthErrorCode.requiresRecentLogin {
-                saveErrorMessage = "For security, please sign out and sign back in before changing your email."
-                showSaveError = true
-                Haptics.error()
+                ErrorHandlerService.shared.reportWarning("For security, please sign out and sign back in before changing your email.", context: "ProfileView.updateEmail.recentLogin", message: $saveErrorMessage, isPresented: $showSaveError)
                 return
             } catch AuthErrorCode.emailAlreadyInUse {
-                saveErrorMessage = "That email address is already associated with another account."
-                showSaveError = true
-                Haptics.error()
+                ErrorHandlerService.shared.reportWarning("That email address is already associated with another account.", context: "ProfileView.updateEmail.alreadyInUse", message: $saveErrorMessage, isPresented: $showSaveError)
                 return
             } catch {
-                saveErrorMessage = "Unable to update email: \(error.localizedDescription)"
-                showSaveError = true
-                Haptics.error()
+                ErrorHandlerService.shared.reportError(error, context: "ProfileView.updateEmail", message: $saveErrorMessage, isPresented: $showSaveError, userMessage: "Unable to update email: \(error.localizedDescription)")
                 return
             }
         }
@@ -1188,9 +1177,7 @@ struct EditAccountView: View {
                 dismiss()
             }
         } catch {
-            saveErrorMessage = String(format: ProfileStrings.saveFailed, error.localizedDescription)
-            showSaveError = true
-            Haptics.error()
+            ErrorHandlerService.shared.reportError(error, context: "ProfileView.saveProfile", message: $saveErrorMessage, isPresented: $showSaveError, userMessage: String(format: ProfileStrings.saveFailed, error.localizedDescription))
         }
     }
 }
@@ -1464,9 +1451,7 @@ struct ChangePasswordView: View {
             withAnimation { emailSent = true }
             Haptics.success()
         } catch {
-            errorMessage = error.localizedDescription
-            showError = true
-            Haptics.error()
+            ErrorHandlerService.shared.reportError(error, context: "ProfileView.resetPassword", message: $errorMessage, isPresented: $showError)
         }
     }
 }
@@ -1595,9 +1580,7 @@ struct AthleteManagementView: View {
             try performDeleteAthlete(athlete, selectedAthlete: $selectedAthlete, user: user, modelContext: modelContext)
             Haptics.success()
         } catch {
-            deleteErrorMessage = String(format: ProfileStrings.deleteFailed, error.localizedDescription)
-            showDeleteError = true
-            Haptics.error()
+            ErrorHandlerService.shared.reportError(error, context: "ProfileView.deleteAthlete", message: $deleteErrorMessage, isPresented: $showDeleteError, userMessage: String(format: ProfileStrings.deleteFailed, error.localizedDescription))
         }
         isDeletingAthlete = false
     }

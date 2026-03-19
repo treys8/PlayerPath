@@ -129,7 +129,7 @@ struct PhotoDetailView: View {
         .sheet(isPresented: $isEditingCaption) {
             CaptionEditSheet(captionText: $captionText) {
                 photo.caption = captionText.isEmpty ? nil : captionText
-                Task { try? modelContext.save() }
+                ErrorHandlerService.shared.saveContext(modelContext, caller: "PhotoDetail.saveCaption")
             }
             .presentationDetents([.medium])
         }

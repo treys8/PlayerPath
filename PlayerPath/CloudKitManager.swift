@@ -8,6 +8,9 @@
 import Foundation
 import CloudKit
 import SwiftUI
+import os
+
+private let cloudKitLog = Logger(subsystem: "com.playerpath.app", category: "CloudKit")
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -370,9 +373,10 @@ class CloudKitManager: CloudKitManagerProtocol {
             _ = try await retryCloudKitOperation {
                 try await privateDatabase.save(subscription)
             }
-            
-            
+
+
         } catch {
+            cloudKitLog.error("Failed to save CloudKit subscription: \(error.localizedDescription)")
         }
     }
     

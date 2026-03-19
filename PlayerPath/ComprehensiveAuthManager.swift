@@ -2,6 +2,9 @@ import SwiftUI
 import Combine
 import FirebaseAuth
 import SwiftData
+import os
+
+private let authLog = Logger(subsystem: "com.playerpath.app", category: "Auth")
 
 @MainActor
 final class ComprehensiveAuthManager: ObservableObject {
@@ -332,12 +335,11 @@ final class ComprehensiveAuthManager: ObservableObject {
         } catch {
             errorMessage = friendlyErrorMessage(from: error)
             isLoading = false
-            #if DEBUG
-            print("🔴 Sign in error: \(error.localizedDescription)")
-            #endif
+            authLog.error("Sign in failed: \(error.localizedDescription)")
+            ErrorHandlerService.shared.handle(error, context: "Auth.signIn", showAlert: false)
         }
     }
-    
+
     func signUp(email: String, password: String, displayName: String?) async {
         isLoading = true
         errorMessage = nil
@@ -396,12 +398,11 @@ final class ComprehensiveAuthManager: ObservableObject {
             errorMessage = friendlyErrorMessage(from: error)
             isLoading = false
             isNewUser = false
-            #if DEBUG
-            print("🔴 Sign up error: \(error.localizedDescription)")
-            #endif
+            authLog.error("Sign up failed: \(error.localizedDescription)")
+            ErrorHandlerService.shared.handle(error, context: "Auth.signUp", showAlert: false)
         }
     }
-    
+
     /// Creates a user profile in Firestore
     /// - Parameter loadAfterCreate: When true (default), fetches the profile from Firestore
     ///   after writing it. Pass false when called from within `loadUserProfileWithRetry` to
@@ -543,9 +544,7 @@ final class ComprehensiveAuthManager: ObservableObject {
                 }
             }
         } catch {
-            #if DEBUG
-            print("❌ Failed to load user profile for \(email): \(error)")
-            #endif
+            authLog.error("Failed to load user profile for \(email): \(error.localizedDescription)")
         }
     }
 
@@ -623,24 +622,17 @@ final class ComprehensiveAuthManager: ObservableObject {
                         print("✅ Successfully created fallback Firestore profile")
                         #endif
                     } catch {
-                        #if DEBUG
-                        print("❌ Failed to create fallback profile: \(error)")
-                        #endif
+                        authLog.error("Failed to create fallback profile: \(error.localizedDescription)")
                     }
                     return
                 }
             } catch {
                 if attempt < maxAttempts {
                     let delay = pow(2.0, Double(attempt - 1)) * 0.1
-                    #if DEBUG
-                    print("❌ Error loading profile on attempt \(attempt)/\(maxAttempts): \(error). Retrying in \(delay)s...")
-                    #endif
+                    authLog.warning("Profile load attempt \(attempt)/\(maxAttempts) failed: \(error.localizedDescription). Retrying in \(delay)s...")
                     try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                 } else {
-                    #if DEBUG
-                    print("❌ Failed to load user profile after \(maxAttempts) attempts: \(error)")
-                    print("🔧 Creating fallback Firestore profile with current role: \(self.userRole.rawValue)")
-                    #endif
+                    authLog.error("Failed to load user profile after \(maxAttempts) attempts: \(error.localizedDescription)")
 
                     // Create profile with current role as fallback.
                     // loadAfterCreate: false prevents re-entering this retry loop.
@@ -656,9 +648,7 @@ final class ComprehensiveAuthManager: ObservableObject {
                         print("✅ Successfully created fallback Firestore profile after errors")
                         #endif
                     } catch {
-                        #if DEBUG
-                        print("❌ Failed to create fallback profile: \(error)")
-                        #endif
+                        authLog.error("Failed to create fallback profile: \(error.localizedDescription)")
                     }
                 }
             }
@@ -734,17 +724,13 @@ final class ComprehensiveAuthManager: ObservableObject {
             // keep isNewUser = true so the coach still sees the onboarding flow.
             // Any missing Firestore profile will be re-created on the next loadUserProfile() call.
             if isSignedIn {
-                #if DEBUG
-                print("🟡 Coach sign up: post-auth step failed but account exists — preserving onboarding state")
-                print("🟡 Error: \(error.localizedDescription)")
-                #endif
+                authLog.warning("Coach sign up: post-auth step failed but account exists — preserving onboarding state: \(error.localizedDescription)")
             } else {
                 isNewUser = false
                 userRole = .athlete
                 errorMessage = friendlyErrorMessage(from: error)
-                #if DEBUG
-                print("🔴 Coach sign up error: \(error.localizedDescription)")
-                #endif
+                authLog.error("Coach sign up failed: \(error.localizedDescription)")
+                ErrorHandlerService.shared.handle(error, context: "Auth.coachSignUp", showAlert: false)
             }
         }
     }
@@ -829,9 +815,8 @@ final class ComprehensiveAuthManager: ObservableObject {
             #endif
         } catch {
             errorMessage = "Failed to sign out: \(error.localizedDescription)"
-            #if DEBUG
-            print("🔴 Sign out error: \(error.localizedDescription)")
-            #endif
+            authLog.error("Sign out failed: \(error.localizedDescription)")
+            ErrorHandlerService.shared.handle(error, context: "Auth.signOut", showAlert: false)
         }
     }
     
@@ -845,9 +830,7 @@ final class ComprehensiveAuthManager: ObservableObject {
             print("🟢 Password reset sent to: \(email)")
             #endif
         } catch {
-            #if DEBUG
-            print("🔴 Password reset error: \(error.localizedDescription)")
-            #endif
+            authLog.error("Password reset failed: \(error.localizedDescription)")
             throw AppError.authenticationFailed(friendlyErrorMessage(from: error))
         }
     }
@@ -889,9 +872,7 @@ final class ComprehensiveAuthManager: ObservableObject {
                 print("✅ Deleted all videos from Storage")
                 #endif
             } catch {
-                #if DEBUG
-                print("⚠️ Error deleting videos from Storage: \(error)")
-                #endif
+                authLog.warning("Error deleting videos from Storage during account deletion: \(error.localizedDescription)")
                 // Continue with deletion even if video deletion fails
             }
 
@@ -905,9 +886,7 @@ final class ComprehensiveAuthManager: ObservableObject {
                 print("✅ Deleted user profile from Firestore")
                 #endif
             } catch {
-                #if DEBUG
-                print("⚠️ Error deleting Firestore profile: \(error)")
-                #endif
+                authLog.warning("Error deleting Firestore profile during account deletion: \(error.localizedDescription)")
                 // Continue with deletion even if Firestore deletion fails
             }
 
@@ -922,7 +901,7 @@ final class ComprehensiveAuthManager: ObservableObject {
                     athlete.delete(in: context)
                 }
                 context.delete(localUser)
-                try? context.save()
+                ErrorHandlerService.shared.saveContext(context, caller: "AuthManager.deleteAccount")
             }
 
             // Step 5: Delete Firebase Auth account
@@ -951,9 +930,8 @@ final class ComprehensiveAuthManager: ObservableObject {
         } catch {
             errorMessage = "Failed to delete account: \(error.localizedDescription)"
             isLoading = false
-            #if DEBUG
-            print("🔴 Account deletion error: \(error.localizedDescription)")
-            #endif
+            authLog.error("Account deletion failed: \(error.localizedDescription)")
+            ErrorHandlerService.shared.handle(error, context: "Auth.deleteAccount", showAlert: false)
             throw error
         }
     }

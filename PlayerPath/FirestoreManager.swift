@@ -11,6 +11,9 @@ import FirebaseFirestore
 import FirebaseFunctions
 import Combine
 import StoreKit
+import os
+
+private let firestoreLog = Logger(subsystem: "com.playerpath.app", category: "Firestore")
 
 /// Main service for all Firestore operations
 /// Handles shared folders, video metadata, annotations, and invitations
@@ -19,7 +22,7 @@ class FirestoreManager: ObservableObject {
     
     static let shared = FirestoreManager()
     
-    private let db = Firestore.firestore()
+    let db = Firestore.firestore()
 
     // Published state for reactive UI
     @Published var errorMessage: String?
@@ -77,9 +80,7 @@ class FirestoreManager: ObservableObject {
                     folder.id = doc.documentID
                     return folder
                 } catch {
-                    #if DEBUG
-                    print("⚠️ Failed to decode SharedFolder from doc \(doc.documentID): \(error.localizedDescription)")
-                    #endif
+                    firestoreLog.warning("Failed to decode SharedFolder from doc \(doc.documentID): \(error.localizedDescription)")
                     return nil
                 }
             }
@@ -107,9 +108,7 @@ class FirestoreManager: ObservableObject {
                     folder.id = doc.documentID
                     return folder
                 } catch {
-                    #if DEBUG
-                    print("⚠️ Failed to decode SharedFolder from doc \(doc.documentID): \(error.localizedDescription)")
-                    #endif
+                    firestoreLog.warning("Failed to decode SharedFolder from doc \(doc.documentID): \(error.localizedDescription)")
                     return nil
                 }
             }
@@ -147,9 +146,7 @@ class FirestoreManager: ObservableObject {
                 folder.id = doc.documentID
                 return folder
             } catch {
-                #if DEBUG
-                print("⚠️ Failed to decode SharedFolder from doc \(doc.documentID): \(error.localizedDescription)")
-                #endif
+                firestoreLog.warning("Failed to decode SharedFolder from doc \(doc.documentID): \(error.localizedDescription)")
                 return nil
             }
         } catch {
@@ -397,9 +394,7 @@ class FirestoreManager: ObservableObject {
                     video.id = doc.documentID
                     return video
                 } catch {
-                    #if DEBUG
-                    print("⚠️ Failed to decode FirestoreVideoMetadata from doc \(doc.documentID): \(error.localizedDescription)")
-                    #endif
+                    firestoreLog.warning("Failed to decode FirestoreVideoMetadata from doc \(doc.documentID): \(error.localizedDescription)")
                     return nil
                 }
             }
@@ -421,9 +416,7 @@ class FirestoreManager: ObservableObject {
                 video.id = doc.documentID
                 return video
             } catch {
-                #if DEBUG
-                print("⚠️ Failed to decode FirestoreVideoMetadata from doc \(doc.documentID): \(error.localizedDescription)")
-                #endif
+                firestoreLog.warning("Failed to decode FirestoreVideoMetadata from doc \(doc.documentID): \(error.localizedDescription)")
                 return nil
             }
         } catch {
@@ -492,9 +485,7 @@ class FirestoreManager: ObservableObject {
                 try await db.collection("videos").document(videoID)
                     .updateData(["annotationCount": FieldValue.increment(Int64(1))])
             } catch {
-                #if DEBUG
-                print("⚠️ Failed to increment annotationCount for video \(videoID): \(error.localizedDescription)")
-                #endif
+                firestoreLog.warning("Failed to increment annotationCount for video \(videoID): \(error.localizedDescription)")
             }
 
             return docRef.documentID
@@ -520,9 +511,7 @@ class FirestoreManager: ObservableObject {
                     annotation.id = doc.documentID
                     return annotation
                 } catch {
-                    #if DEBUG
-                    print("⚠️ Failed to decode VideoAnnotation from doc \(doc.documentID): \(error.localizedDescription)")
-                    #endif
+                    firestoreLog.warning("Failed to decode VideoAnnotation from doc \(doc.documentID): \(error.localizedDescription)")
                     return nil
                 }
             }
@@ -588,9 +577,7 @@ class FirestoreManager: ObservableObject {
                     return nil
                 }
             } catch {
-                #if DEBUG
-                print("⚠️ Failed to decrement annotationCount for video \(videoID): \(error.localizedDescription)")
-                #endif
+                firestoreLog.warning("Failed to decrement annotationCount for video \(videoID): \(error.localizedDescription)")
             }
 
         } catch {
@@ -648,9 +635,7 @@ class FirestoreManager: ObservableObject {
                     invitation.id = doc.documentID
                     return invitation
                 } catch {
-                    #if DEBUG
-                    print("⚠️ Failed to decode CoachInvitation from doc \(doc.documentID): \(error.localizedDescription)")
-                    #endif
+                    firestoreLog.warning("Failed to decode CoachInvitation from doc \(doc.documentID): \(error.localizedDescription)")
                     return nil
                 }
             }
@@ -800,9 +785,7 @@ class FirestoreManager: ObservableObject {
                     invitation.id = doc.documentID
                     return invitation
                 } catch {
-                    #if DEBUG
-                    print("⚠️ Failed to decode CoachToAthleteInvitation from doc \(doc.documentID): \(error.localizedDescription)")
-                    #endif
+                    firestoreLog.warning("Failed to decode CoachToAthleteInvitation from doc \(doc.documentID): \(error.localizedDescription)")
                     return nil
                 }
             }
@@ -853,9 +836,7 @@ class FirestoreManager: ObservableObject {
                 profile.id = doc.documentID
                 return profile
             } catch {
-                #if DEBUG
-                print("⚠️ Failed to decode UserProfile from doc \(doc.documentID): \(error.localizedDescription)")
-                #endif
+                firestoreLog.warning("Failed to decode UserProfile from doc \(doc.documentID): \(error.localizedDescription)")
                 return nil
             }
         } catch {
@@ -923,9 +904,7 @@ class FirestoreManager: ObservableObject {
         do {
             let _ = try await callable.call(payload)
         } catch {
-            #if DEBUG
-            print("⚠️ Failed to sync subscription tier to server: \(error.localizedDescription)")
-            #endif
+            firestoreLog.warning("Failed to sync subscription tier to server: \(error.localizedDescription)")
         }
     }
 
@@ -1218,10 +1197,7 @@ class FirestoreManager: ObservableObject {
 
         // Log any partial failures
         if !stepErrors.isEmpty {
-            #if DEBUG
-            print("⚠️ GDPR deletion completed with partial failures for user \(userID):")
-            for err in stepErrors { print("  - \(err)") }
-            #endif
+            firestoreLog.error("GDPR deletion completed with partial failures for user \(userID): \(stepErrors.joined(separator: "; "))")
         }
     }
 
@@ -1249,9 +1225,7 @@ class FirestoreManager: ObservableObject {
 
             return (name: name, email: email)
         } catch {
-            #if DEBUG
-            print("❌ Failed to fetch coach info for \(coachID): \(error)")
-            #endif
+            firestoreLog.error("Failed to fetch coach info for \(coachID): \(error.localizedDescription)")
             throw error
         }
     }
@@ -1328,9 +1302,7 @@ class FirestoreManager: ObservableObject {
                     athlete.id = doc.documentID
                     return athlete
                 } catch {
-                    #if DEBUG
-                    print("⚠️ Failed to decode FirestoreAthlete from doc \(doc.documentID): \(error.localizedDescription)")
-                    #endif
+                    firestoreLog.warning("Failed to decode FirestoreAthlete from doc \(doc.documentID): \(error.localizedDescription)")
                     return nil
                 }
             }
@@ -1438,9 +1410,7 @@ class FirestoreManager: ObservableObject {
                     season.id = doc.documentID
                     return season
                 } catch {
-                    #if DEBUG
-                    print("⚠️ Failed to decode FirestoreSeason from doc \(doc.documentID): \(error.localizedDescription)")
-                    #endif
+                    firestoreLog.warning("Failed to decode FirestoreSeason from doc \(doc.documentID): \(error.localizedDescription)")
                     return nil
                 }
             }
@@ -1548,9 +1518,7 @@ class FirestoreManager: ObservableObject {
                     game.id = doc.documentID
                     return game
                 } catch {
-                    #if DEBUG
-                    print("⚠️ Failed to decode FirestoreGame from doc \(doc.documentID): \(error.localizedDescription)")
-                    #endif
+                    firestoreLog.warning("Failed to decode FirestoreGame from doc \(doc.documentID): \(error.localizedDescription)")
                     return nil
                 }
             }
@@ -1678,9 +1646,7 @@ class FirestoreManager: ObservableObject {
                     practice.id = doc.documentID
                     return practice
                 } catch {
-                    #if DEBUG
-                    print("⚠️ Failed to decode FirestorePractice from doc \(doc.documentID): \(error.localizedDescription)")
-                    #endif
+                    firestoreLog.warning("Failed to decode FirestorePractice from doc \(doc.documentID): \(error.localizedDescription)")
                     return nil
                 }
             }
@@ -1754,9 +1720,7 @@ class FirestoreManager: ObservableObject {
                 note.id = doc.documentID
                 return note
             } catch {
-                #if DEBUG
-                print("⚠️ Failed to decode FirestorePracticeNote from doc \(doc.documentID): \(error.localizedDescription)")
-                #endif
+                firestoreLog.warning("Failed to decode FirestorePracticeNote from doc \(doc.documentID): \(error.localizedDescription)")
                 return nil
             }
         }
@@ -1786,9 +1750,7 @@ class FirestoreManager: ObservableObject {
                 photo.id = doc.documentID
                 return photo
             } catch {
-                #if DEBUG
-                print("⚠️ Failed to decode FirestorePhoto from doc \(doc.documentID): \(error.localizedDescription)")
-                #endif
+                firestoreLog.warning("Failed to decode FirestorePhoto from doc \(doc.documentID): \(error.localizedDescription)")
                 return nil
             }
         }
@@ -1832,9 +1794,7 @@ class FirestoreManager: ObservableObject {
                 coach.id = doc.documentID
                 return coach
             } catch {
-                #if DEBUG
-                print("⚠️ Failed to decode FirestoreCoach from doc \(doc.documentID): \(error.localizedDescription)")
-                #endif
+                firestoreLog.warning("Failed to decode FirestoreCoach from doc \(doc.documentID): \(error.localizedDescription)")
                 return nil
             }
         }
@@ -1991,434 +1951,5 @@ class FirestoreManager: ObservableObject {
             createdAt: Date(),
             isCoachComment: isCoachComment
         )
-    }
-}
-
-// MARK: - Supporting Types
-
-/// User role in the app
-enum UserRole: String, Codable {
-    case athlete
-    case coach
-}
-
-/// Permissions a coach has for a specific folder
-struct FolderPermissions: Codable, Equatable {
-    var canUpload: Bool
-    var canComment: Bool
-    var canDelete: Bool
-    
-    func toDictionary() -> [String: Bool] {
-        return [
-            "canUpload": canUpload,
-            "canComment": canComment,
-            "canDelete": canDelete
-        ]
-    }
-    
-    static nonisolated let `default` = FolderPermissions(canUpload: true, canComment: true, canDelete: false)
-    static nonisolated let viewOnly = FolderPermissions(canUpload: false, canComment: true, canDelete: false)
-}
-
-// MARK: - Firestore Models
-
-/// Shared folder model
-struct SharedFolder: Codable, Identifiable, Hashable {
-    func hash(into hasher: inout Hasher) { hasher.combine(id) }
-    static func == (lhs: SharedFolder, rhs: SharedFolder) -> Bool { lhs.id == rhs.id }
-    var id: String?
-    let name: String
-    let ownerAthleteID: String
-    let ownerAthleteName: String?  // Name of the athlete who owns this folder
-    let sharedWithCoachIDs: [String]
-    let permissions: [String: [String: Bool]]
-    let createdAt: Date?
-    let updatedAt: Date?
-    let videoCount: Int?
-
-    /// Helper to get typed permissions for a coach
-    func getPermissions(for coachID: String) -> FolderPermissions? {
-        guard let permDict = permissions[coachID] else { return nil }
-        return FolderPermissions(
-            canUpload: permDict["canUpload"] ?? false,
-            canComment: permDict["canComment"] ?? true,
-            canDelete: permDict["canDelete"] ?? false
-        )
-    }
-}
-
-/// Thumbnail metadata with support for multiple quality levels
-struct ThumbnailMetadata: Codable, Equatable {
-    let standardURL: String         // Standard quality (160x120)
-    let highQualityURL: String?     // High quality (320x240) - for highlights
-    let timestamp: Double?          // Time in video (seconds) where thumbnail was captured
-    let width: Int?
-    let height: Int?
-    
-    init(standardURL: String, highQualityURL: String? = nil, timestamp: Double? = nil, width: Int? = nil, height: Int? = nil) {
-        self.standardURL = standardURL
-        self.highQualityURL = highQualityURL
-        self.timestamp = timestamp
-        self.width = width
-        self.height = height
-    }
-}
-
-/// Video metadata model
-struct FirestoreVideoMetadata: Codable, Identifiable {
-    var id: String?
-    let fileName: String
-    let firebaseStorageURL: String
-
-    // IMPROVED: Structured thumbnail metadata instead of single URL
-    let thumbnail: ThumbnailMetadata?
-
-    // DEPRECATED: Use thumbnail.standardURL instead
-    @available(*, deprecated, message: "Use thumbnail.standardURL instead")
-    var thumbnailURL: String? {
-        thumbnail?.standardURL
-    }
-
-    let uploadedBy: String
-    let uploadedByName: String
-    let sharedFolderID: String
-    let createdAt: Date?
-    let fileSize: Int64?
-    let duration: Double?
-    let isHighlight: Bool?
-
-    // ENHANCED: Upload source tracking
-    let uploadedByType: UploadedByType? // "athlete" or "coach"
-    let isOrphaned: Bool? // True if uploader deleted their account
-    let orphanedAt: Date? // When uploader account was deleted
-
-    // Annotation count (incremented/decremented atomically via FieldValue.increment)
-    let annotationCount: Int?
-
-    // Game/Practice context
-    let videoType: String? // "game", "practice", or "highlight"
-    let gameOpponent: String?
-    let gameDate: Date?
-    let practiceDate: Date?
-    let notes: String?
-
-    /// Display name for uploader (handles orphaned accounts)
-    var uploaderDisplayName: String {
-        if isOrphaned == true {
-            return "\(uploadedByName) (Former Coach)"
-        }
-        return uploadedByName
-    }
-
-    /// Whether this video was uploaded by a coach
-    var wasUploadedByCoach: Bool {
-        uploadedByType == .coach
-    }
-}
-
-/// Type of user who uploaded a video
-enum UploadedByType: String, Codable {
-    case athlete
-    case coach
-
-    var displayName: String {
-        switch self {
-        case .athlete: return "Athlete"
-        case .coach: return "Coach"
-        }
-    }
-}
-
-/// Video annotation/comment model
-struct VideoAnnotation: Codable, Identifiable {
-    var id: String?
-    let userID: String
-    let userName: String
-    let timestamp: Double // Seconds into video
-    let text: String
-    let createdAt: Date?
-    let isCoachComment: Bool
-}
-
-/// Coach invitation model
-struct CoachInvitation: Codable, Identifiable {
-    var id: String?
-    var folderID: String
-    var folderName: String
-    var athleteID: String
-    var athleteName: String
-    var coachEmail: String
-    var permissions: FolderPermissions?
-    var createdAt: Date?
-    var sentAt: Date?
-    var expiresAt: Date?
-    var status: InvitationStatus
-
-    enum InvitationStatus: String, Codable {
-        case pending
-        case accepted
-        case declined
-    }
-}
-
-/// Coach-to-Athlete invitation (when coach initiates the connection)
-struct CoachToAthleteInvitation: Codable, Identifiable {
-    var id: String?
-    let coachID: String
-    let coachEmail: String
-    let coachName: String
-    let athleteEmail: String
-    let athleteName: String
-    let message: String?
-    let status: CoachInvitation.InvitationStatus
-    let sentAt: Date?
-}
-
-/// User profile model
-struct UserProfile: Codable, Identifiable {
-    var id: String?
-    let email: String
-    let role: String
-    let subscriptionTier: String?
-    let coachSubscriptionTier: String?
-    let createdAt: Date?
-    let updatedAt: Date?
-
-    // Role-specific profiles would be nested objects in Firestore
-
-    var userRole: UserRole {
-        UserRole(rawValue: role) ?? .athlete
-    }
-
-    var tier: SubscriptionTier {
-        SubscriptionTier(rawValue: subscriptionTier ?? "free") ?? .free
-    }
-}
-
-/// Athlete model for Firestore sync
-struct FirestoreAthlete: Codable, Identifiable {
-    var id: String?           // Firestore document ID (auto-generated, not encoded)
-    let swiftDataId: String   // Original SwiftData UUID
-    let name: String
-    let primaryRole: String?
-    let userId: String
-    let createdAt: Date?
-    let updatedAt: Date?
-    let version: Int
-    let isDeleted: Bool
-
-    enum CodingKeys: String, CodingKey {
-        case swiftDataId = "id"  // Maps to "id" field in Firestore document
-        case name
-        case primaryRole
-        case userId
-        case createdAt
-        case updatedAt
-        case version
-        case isDeleted
-    }
-}
-
-/// Season model for Firestore sync
-struct FirestoreSeason: Codable, Identifiable {
-    var id: String?           // Firestore document ID (auto-generated, not encoded)
-    let swiftDataId: String   // Original SwiftData UUID
-    let name: String
-    let athleteId: String
-    let startDate: Date?
-    let endDate: Date?
-    let isActive: Bool
-    let sport: String
-    var notes: String = ""
-    let createdAt: Date?
-    let updatedAt: Date?
-    let version: Int
-    let isDeleted: Bool
-
-    enum CodingKeys: String, CodingKey {
-        case swiftDataId = "id"  // Maps to "id" field in Firestore document
-        case name
-        case athleteId
-        case startDate
-        case endDate
-        case isActive
-        case sport
-        case notes
-        case createdAt
-        case updatedAt
-        case version
-        case isDeleted
-    }
-}
-
-/// Game model for Firestore sync
-struct FirestoreGame: Codable, Identifiable {
-    var id: String?           // Firestore document ID (auto-generated, not encoded)
-    let swiftDataId: String   // Original SwiftData UUID
-    let athleteId: String
-    let seasonId: String?
-    let tournamentId: String?
-    let opponent: String
-    let date: Date?
-    let year: Int
-    let isLive: Bool
-    let isComplete: Bool
-    let location: String?
-    let notes: String?
-    let createdAt: Date?
-    let updatedAt: Date?
-    let version: Int
-    let isDeleted: Bool
-
-    enum CodingKeys: String, CodingKey {
-        case swiftDataId = "id"  // Maps to "id" field in Firestore document
-        case athleteId
-        case seasonId
-        case tournamentId
-        case opponent
-        case date
-        case year
-        case isLive
-        case isComplete
-        case location
-        case notes
-        case createdAt
-        case updatedAt
-        case version
-        case isDeleted
-    }
-}
-
-struct FirestorePractice: Codable, Identifiable {
-    var id: String?           // Firestore document ID (auto-generated, not encoded)
-    let swiftDataId: String   // Original SwiftData UUID
-    let athleteId: String
-    let seasonId: String?
-    let practiceType: String? // Optional so old docs without the field decode fine
-    let date: Date?
-    let createdAt: Date?
-    let updatedAt: Date?
-    let version: Int
-    let isDeleted: Bool
-
-    enum CodingKeys: String, CodingKey {
-        case swiftDataId = "id"
-        case athleteId
-        case seasonId
-        case practiceType
-        case date
-        case createdAt
-        case updatedAt
-        case version
-        case isDeleted
-    }
-}
-
-struct FirestorePracticeNote: Codable, Identifiable {
-    var id: String?
-    var swiftDataId: String?
-    let practiceId: String
-    let content: String
-    let createdAt: Date?
-    let updatedAt: Date?
-    let isDeleted: Bool
-
-    enum CodingKeys: String, CodingKey {
-        case swiftDataId = "id"
-        case practiceId
-        case content
-        case createdAt
-        case updatedAt
-        case isDeleted
-    }
-}
-
-struct FirestorePhoto: Codable, Identifiable {
-    var id: String?
-    let swiftDataId: String
-    let fileName: String
-    let athleteId: String
-    let uploadedBy: String
-    let downloadURL: String?
-    let caption: String?
-    let gameId: String?
-    let practiceId: String?
-    let seasonId: String?
-    let createdAt: Date?
-    let updatedAt: Date?
-    let isDeleted: Bool
-
-    enum CodingKeys: String, CodingKey {
-        case swiftDataId = "id"
-        case fileName
-        case athleteId
-        case uploadedBy
-        case downloadURL
-        case caption
-        case gameId
-        case practiceId
-        case seasonId
-        case createdAt
-        case updatedAt
-        case isDeleted
-    }
-}
-
-struct FirestoreCoach: Codable, Identifiable {
-    var id: String?
-    let swiftDataId: String
-    let athleteId: String
-    let name: String
-    var role: String = "coach"
-    let email: String
-    let phone: String?
-    let notes: String?
-    let firebaseCoachID: String?
-    let invitationStatus: String?
-    let createdAt: Date?
-    let updatedAt: Date?
-    let isDeleted: Bool
-
-    enum CodingKeys: String, CodingKey {
-        case swiftDataId = "id"
-        case athleteId
-        case name
-        case role
-        case email
-        case phone
-        case notes
-        case firebaseCoachID
-        case invitationStatus
-        case createdAt
-        case updatedAt
-        case isDeleted
-    }
-}
-
-// MARK: - Video Context Models
-
-/// Context metadata for game videos
-struct GameContext {
-    let opponent: String
-    let date: Date
-    let notes: String?
-    
-    init(opponent: String, date: Date, notes: String? = nil) {
-        self.opponent = opponent
-        self.date = date
-        self.notes = notes
-    }
-}
-
-/// Context metadata for practice videos
-struct PracticeContext {
-    let date: Date
-    let notes: String?
-    let drillType: String?
-    
-    init(date: Date, notes: String? = nil, drillType: String? = nil) {
-        self.date = date
-        self.notes = notes
-        self.drillType = drillType
     }
 }

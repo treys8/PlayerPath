@@ -790,6 +790,7 @@ class CoachVideoPlayerViewModel: ObservableObject {
                         self.videoDuration = duration.seconds
                     }
                 } catch {
+                    ErrorHandlerService.shared.handle(error, context: "CoachVideoPlayer.loadDuration", showAlert: false)
                 }
             }
         }

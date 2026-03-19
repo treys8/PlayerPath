@@ -273,9 +273,9 @@ struct CoachAthletesListView: View {
                 await invitationManager.checkPendingInvitations(forCoachEmail: coachEmail)
             }
         } catch {
+            ErrorHandlerService.shared.handle(error, context: "CoachDashboard.reloadData", showAlert: false)
             errorMessage = "Failed to reload data: \(error.localizedDescription)"
             showingError = true
-            Haptics.error()
         }
     }
 

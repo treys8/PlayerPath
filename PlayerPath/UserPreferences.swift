@@ -8,6 +8,9 @@
 import SwiftUI
 import SwiftData
 import CloudKit
+import os
+
+private let prefsLog = Logger(subsystem: "com.playerpath.app", category: "UserPreferences")
 
 // MARK: - Model
 @Model
@@ -89,7 +92,7 @@ final class UserPreferences {
                 for extra in sorted.dropFirst() {
                     context.delete(extra)
                 }
-                try? context.save()
+                do { try context.save() } catch { prefsLog.error("Failed to save after deduplicating preferences: \(error.localizedDescription)") }
                 return keep
             }
             return first

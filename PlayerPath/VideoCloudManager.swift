@@ -13,6 +13,8 @@ import FirebaseStorage
 import FirebaseFirestore
 import FirebaseAuth
 
+private let videoCloudLog = Logger(subsystem: "com.playerpath.app", category: "VideoCloud")
+
 @MainActor
 class VideoCloudManager: ObservableObject {
     static let shared = VideoCloudManager()
@@ -394,6 +396,7 @@ class VideoCloudManager: ObservableObject {
                 )
                 data["thumbnailURL"] = cloudThumbnailURL
             } catch {
+                videoCloudLog.warning("Failed to upload thumbnail for \(clipFileName): \(error.localizedDescription)")
             }
         }
 

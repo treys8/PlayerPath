@@ -9,6 +9,9 @@
 import SwiftUI
 @preconcurrency import AVFoundation
 import Combine
+import os
+
+private let cameraLog = Logger(subsystem: "com.playerpath.app", category: "Camera")
 
 @MainActor
 class CameraViewModel: NSObject, ObservableObject {
@@ -613,6 +616,7 @@ class CameraViewModel: NSObject, ObservableObject {
                 }
                 device.unlockForConfiguration()
             } catch {
+                cameraLog.warning("Failed to configure torch: \(error.localizedDescription)")
             }
         }
 
@@ -643,6 +647,7 @@ class CameraViewModel: NSObject, ObservableObject {
                 device.videoZoomFactor = zoom
                 device.unlockForConfiguration()
             } catch {
+                cameraLog.warning("Failed to set zoom factor: \(error.localizedDescription)")
             }
         }
     }
@@ -700,6 +705,7 @@ class CameraViewModel: NSObject, ObservableObject {
 
                 device.unlockForConfiguration()
             } catch {
+                cameraLog.warning("Failed to set focus/exposure point: \(error.localizedDescription)")
             }
         }
     }

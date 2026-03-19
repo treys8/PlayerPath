@@ -7,6 +7,7 @@
 
 import Foundation
 import SwiftUI
+import SwiftData
 import OSLog
 import Combine
 
@@ -54,6 +55,13 @@ final class ErrorHandlerService: ObservableObject {
         // Record in history
         recordError(error, context: context)
 
+        // Haptic feedback based on severity
+        switch error.severity {
+        case .low: break
+        case .medium: Haptics.warning()
+        case .high, .critical: Haptics.error()
+        }
+
         // Show alert if requested
         if showAlert {
             presentError(error)
@@ -61,6 +69,50 @@ final class ErrorHandlerService: ObservableObject {
 
         // Track analytics (optional - can integrate with Firebase Analytics)
         trackErrorAnalytics(error, context: context)
+    }
+
+    /// Save a ModelContext, logging on failure instead of silently dropping the error.
+    /// Use this in place of `try? context.save()` to get visibility into save failures.
+    @discardableResult
+    func saveContext(_ context: ModelContext, caller: String) -> Bool {
+        guard context.hasChanges else { return true }
+        do {
+            try context.save()
+            return true
+        } catch {
+            handle(error, context: caller, showAlert: false)
+            return false
+        }
+    }
+
+    // MARK: - View Error Reporting
+
+    /// Report an error from a view catch block: logs centrally, sets local state for the view's own alert,
+    /// and triggers haptic feedback. Use this instead of manual `errorMessage = ...; showingError = true; Haptics.error()`.
+    func reportError(
+        _ error: Error,
+        context: String,
+        message: Binding<String>,
+        isPresented: Binding<Bool>,
+        userMessage: String? = nil
+    ) {
+        let appError = AppError.from(error)
+        handle(appError, context: context, showAlert: false)
+        message.wrappedValue = userMessage ?? appError.errorDescription ?? error.localizedDescription
+        isPresented.wrappedValue = true
+    }
+
+    /// Report a validation or non-Error failure from a view: logs centrally and sets local state.
+    func reportWarning(
+        _ userMessage: String,
+        context: String,
+        message: Binding<String>,
+        isPresented: Binding<Bool>
+    ) {
+        logger.warning("[\(context)] \(userMessage)")
+        message.wrappedValue = userMessage
+        isPresented.wrappedValue = true
+        Haptics.error()
     }
 
     /// Present an error alert to the user

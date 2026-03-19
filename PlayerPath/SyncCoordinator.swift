@@ -846,6 +846,7 @@ final class SyncCoordinator {
                 clip.firestoreId = clip.id.uuidString
                 clip.needsSync = false
             } catch {
+                syncLog.error("Failed to save video metadata to Firestore: \(error.localizedDescription)")
             }
         }
 
@@ -868,6 +869,7 @@ final class SyncCoordinator {
                 )
                 clip.needsSync = false
             } catch {
+                syncLog.error("Failed to update video metadata in Firestore: \(error.localizedDescription)")
             }
         }
 
@@ -1060,7 +1062,7 @@ final class SyncCoordinator {
         // Skip if already downloaded
         if FileManager.default.fileExists(atPath: localPath) {
             clip.filePath = VideoClip.toRelativePath(localPath)
-            if context.hasChanges { try? context.save() }
+            ErrorHandlerService.shared.saveContext(context, caller: "SyncCoordinator.downloadVideo.alreadyExists")
             return
         }
 
@@ -1079,7 +1081,7 @@ final class SyncCoordinator {
             if let thumbnailPath {
                 clip.thumbnailPath = thumbnailPath
             }
-            if context.hasChanges { try? context.save() }
+            ErrorHandlerService.shared.saveContext(context, caller: "SyncCoordinator.downloadVideo.success")
 
 
         } catch {
@@ -1091,7 +1093,7 @@ final class SyncCoordinator {
                 context.delete(playResult)
             }
             context.delete(clip)
-            if context.hasChanges { try? context.save() }
+            ErrorHandlerService.shared.saveContext(context, caller: "SyncCoordinator.downloadVideo.cleanup")
         }
     }
 
@@ -1128,6 +1130,7 @@ final class SyncCoordinator {
                     }
                     note.needsSync = false
                 } catch {
+                    syncLog.error("Failed to sync practice note to Firestore: \(error.localizedDescription)")
                 }
             }
 
@@ -1186,6 +1189,7 @@ final class SyncCoordinator {
                     let fileSize = (try? FileManager.default.attributesOfItem(atPath: photo.filePath)[.size] as? Int64) ?? 0
                     user.cloudStorageUsedBytes += fileSize
                 } catch {
+                    syncLog.error("Failed to sync photo to Firestore: \(error.localizedDescription)")
                 }
             }
 
@@ -1280,6 +1284,7 @@ final class SyncCoordinator {
                     }
                     coach.needsSync = false
                 } catch {
+                    syncLog.error("Failed to sync coach to Firestore: \(error.localizedDescription)")
                 }
             }
 
@@ -1350,6 +1355,12 @@ final class SyncCoordinator {
         if syncErrors.count > 100 {
             syncErrors.removeFirst(syncErrors.count - 100)
         }
+        // Bridge to centralized error tracking for analytics
+        ErrorHandlerService.shared.handle(
+            AppError.syncFailed(error.message),
+            context: "SyncCoordinator.\(error.type)",
+            showAlert: false
+        )
     }
 
     // MARK: - Background Sync

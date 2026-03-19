@@ -572,7 +572,7 @@ struct PracticeDetailView: View {
                             Button {
                                 practice.practiceType = type.rawValue
                                 practice.needsSync = true
-                                try? modelContext.save()
+                                ErrorHandlerService.shared.saveContext(modelContext, caller: "PracticesView.changePracticeType")
                                 Haptics.light()
                             } label: {
                                 Label(type.displayName, systemImage: type.icon)
@@ -995,7 +995,7 @@ struct EditClipNoteSheet: View {
         let trimmed = noteText.trimmingCharacters(in: .whitespacesAndNewlines)
         clip.note = trimmed.isEmpty ? nil : trimmed
         clip.needsSync = true
-        try? modelContext.save()
+        ErrorHandlerService.shared.saveContext(modelContext, caller: "PracticesView.saveNote")
 
         // Sync to Firestore if the clip has been uploaded
         if let firestoreId = clip.firestoreId {

@@ -206,7 +206,7 @@ struct VideoRecordingSettingsView: View {
             if let prefs = preferences {
                 Toggle(isOn: Binding(
                     get: { prefs.autoUploadToCloud },
-                    set: { prefs.autoUploadToCloud = $0; try? modelContext.save() }
+                    set: { prefs.autoUploadToCloud = $0; ErrorHandlerService.shared.saveContext(modelContext, caller: "RecordingSettings.autoUpload") }
                 )) {
                     HStack {
                         Image(systemName: prefs.autoUploadToCloud ? "icloud.and.arrow.up.fill" : "icloud.slash.fill")
@@ -218,7 +218,7 @@ struct VideoRecordingSettingsView: View {
                 if prefs.autoUploadToCloud {
                     Toggle(isOn: Binding(
                         get: { prefs.syncHighlightsOnly },
-                        set: { prefs.syncHighlightsOnly = $0; try? modelContext.save() }
+                        set: { prefs.syncHighlightsOnly = $0; ErrorHandlerService.shared.saveContext(modelContext, caller: "RecordingSettings.highlightsOnly") }
                     )) {
                         HStack {
                             Image(systemName: "star.fill")
@@ -234,7 +234,7 @@ struct VideoRecordingSettingsView: View {
                         Slider(
                             value: Binding(
                                 get: { Double(prefs.maxVideoFileSize) },
-                                set: { prefs.maxVideoFileSize = Int($0); try? modelContext.save() }
+                                set: { prefs.maxVideoFileSize = Int($0); ErrorHandlerService.shared.saveContext(modelContext, caller: "RecordingSettings.maxFileSize") }
                             ),
                             in: 50...2000,
                             step: 50
@@ -254,7 +254,7 @@ struct VideoRecordingSettingsView: View {
 
                     Toggle(isOn: Binding(
                         get: { prefs.allowCellularUploads },
-                        set: { prefs.allowCellularUploads = $0; try? modelContext.save() }
+                        set: { prefs.allowCellularUploads = $0; ErrorHandlerService.shared.saveContext(modelContext, caller: "RecordingSettings.cellularUploads") }
                     )) {
                         HStack {
                             Image(systemName: prefs.allowCellularUploads ? "antenna.radiowaves.left.and.right" : "wifi")

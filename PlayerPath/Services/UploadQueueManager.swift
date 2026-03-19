@@ -10,6 +10,9 @@ import SwiftData
 import Combine
 import BackgroundTasks
 import UIKit
+import os
+
+private let uploadLog = Logger(subsystem: "com.playerpath.app", category: "UploadQueue")
 
 @MainActor
 @Observable
@@ -89,6 +92,7 @@ final class UploadQueueManager {
         do {
             try BGTaskScheduler.shared.submit(request)
         } catch {
+            uploadLog.error("Failed to schedule background upload task: \(error.localizedDescription)")
         }
     }
 
@@ -233,6 +237,7 @@ final class UploadQueueManager {
             try modelContext.save()
             queueIsDirty = false
         } catch {
+            uploadLog.error("Failed to persist upload queue to SwiftData: \(error.localizedDescription)")
         }
     }
 
@@ -294,6 +299,7 @@ final class UploadQueueManager {
 
             try modelContext.save()
         } catch {
+            uploadLog.error("Failed to restore upload queue from database: \(error.localizedDescription)")
         }
     }
 
@@ -399,6 +405,7 @@ final class UploadQueueManager {
 
             try modelContext.save()
         } catch {
+            uploadLog.error("Failed to clear upload queue from database: \(error.localizedDescription)")
         }
     }
 
@@ -556,7 +563,7 @@ final class UploadQueueManager {
                 }
                 reservedBytes = 0
                 clip.needsSync = true
-                try? context.save()
+                ErrorHandlerService.shared.saveContext(context, caller: "UploadQueue.rollbackReservedStorage")
 
                 throw error
             }

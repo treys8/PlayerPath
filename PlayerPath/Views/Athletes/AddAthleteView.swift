@@ -350,6 +350,7 @@ struct AddAthleteView: View {
                             print("🟢 Saved onboarding completion to SwiftData")
                             #endif
                         } catch {
+                            ErrorHandlerService.shared.handle(error, context: "AddAthleteView.saveOnboardingProgress", showAlert: false)
                         }
 
                         // Mark onboarding complete in auth manager (for session state)

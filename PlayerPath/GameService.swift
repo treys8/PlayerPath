@@ -203,9 +203,7 @@ class GameService {
 
             return .success(game)
         } catch {
-            #if DEBUG
-            print("❌ Game save failed: \(error.localizedDescription)")
-            #endif
+            logger.error("Game save failed: \(error.localizedDescription)")
             return .failure(.saveFailed)
         }
     }

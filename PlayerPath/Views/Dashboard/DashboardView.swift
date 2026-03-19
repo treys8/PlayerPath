@@ -214,8 +214,8 @@ struct DashboardView: View {
                 game.isComplete = false
                 game.liveStartDate = prevLiveStartDate
                 game.needsSync = prevNeedsSync
+                ErrorHandlerService.shared.handle(error, context: "DashboardView.endGame", showAlert: false)
                 errorMessage = "Failed to end game: \(error.localizedDescription)"
-                Haptics.error()
                 return
             }
 

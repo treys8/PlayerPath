@@ -133,7 +133,7 @@ struct PhotoTagSheet: View {
     }
 
     private func save() {
-        try? modelContext.save()
+        ErrorHandlerService.shared.saveContext(modelContext, caller: "PhotoTagSheet.save")
         dismiss()
     }
 }
