@@ -201,11 +201,4 @@ struct SimpleCloudStorageView: View {
     }
 }
 
-extension DateFormatter {
-    static let pp_shortDate: DateFormatter = {
-        let df = DateFormatter()
-        df.dateStyle = .short
-        df.timeStyle = .none
-        return df
-    }()
-}
+// DateFormatter.shortDate is defined in DateFormatters.swift

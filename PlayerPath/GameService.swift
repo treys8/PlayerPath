@@ -70,16 +70,8 @@ class GameService {
         // Soft-delete from Firestore if the game was previously synced
         if let firestoreId, let userId {
             Task {
-                for attempt in 1...3 {
-                    do {
-                        try await FirestoreManager.shared.deleteGame(userId: userId, gameId: firestoreId)
-                        return
-                    } catch {
-                        self.logger.error("Failed to delete game from Firestore (attempt \(attempt)/3): \(error.localizedDescription)")
-                        if attempt < 3 {
-                            try? await Task.sleep(for: .seconds(2))
-                        }
-                    }
+                await retryAsync {
+                    try await FirestoreManager.shared.deleteGame(userId: userId, gameId: firestoreId)
                 }
             }
         }

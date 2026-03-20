@@ -336,20 +336,8 @@ struct PracticesView: View {
            let user = athlete.user {
             let userId = user.id.uuidString
             Task {
-                for attempt in 1...3 {
-                    do {
-                        try await FirestoreManager.shared.deletePractice(
-                            userId: userId,
-                            practiceId: firestoreId
-                        )
-                        log.info("Practice deletion synced to Firestore")
-                        return
-                    } catch {
-                        log.warning("Failed to sync practice deletion (attempt \(attempt)/3): \(error.localizedDescription)")
-                        if attempt < 3 {
-                            try? await Task.sleep(for: .seconds(2))
-                        }
-                    }
+                await retryAsync {
+                    try await FirestoreManager.shared.deletePractice(userId: userId, practiceId: firestoreId)
                 }
             }
         }
@@ -384,11 +372,7 @@ struct PracticesView: View {
         updatePracticesCache()
     }
 
-    private static let summaryDateFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateStyle = .medium
-        return f
-    }()
+    private static let summaryDateFormatter = DateFormatter.mediumDate
 
     private func computePracticesSummary(from practices: [Practice]) -> String {
         let practiceCount = practices.count
@@ -734,18 +718,8 @@ struct PracticeDetailView: View {
            let user = athlete.user {
             let userId = user.id.uuidString
             Task {
-                for attempt in 1...3 {
-                    do {
-                        try await FirestoreManager.shared.deletePractice(
-                            userId: userId,
-                            practiceId: firestoreId
-                        )
-                        return
-                    } catch {
-                        if attempt < 3 {
-                            try? await Task.sleep(for: .seconds(2))
-                        }
-                    }
+                await retryAsync {
+                    try await FirestoreManager.shared.deletePractice(userId: userId, practiceId: firestoreId)
                 }
             }
         }
@@ -916,12 +890,7 @@ struct PracticeVideoClipRow: View {
     }
 
     // "2:45 PM" — readable clip title derived from creation time
-    private static let timeFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.timeStyle = .short
-        f.dateStyle = .none
-        return f
-    }()
+    private static let timeFormatter = DateFormatter.shortTime
 
     // Static duration string — "0:24", "1:03", etc.
     private static func formatDuration(_ seconds: Double) -> String {
@@ -1069,21 +1038,7 @@ struct AddPracticeNoteView: View {
     }
 }
 
-// Helper extension for practice date formatting
-extension DateFormatter {
-    static let practiceDate: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .full
-        return formatter
-    }()
-
-    static let shortDateTime: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .short
-        formatter.timeStyle = .short
-        return formatter
-    }()
-}
+// DateFormatter.fullDate and .shortDateTime are defined in DateFormatters.swift
 
 #Preview {
     PracticesView(athlete: nil)

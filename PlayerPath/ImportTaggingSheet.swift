@@ -37,12 +37,7 @@ struct ImportTaggingSheet: View {
         )
     }
 
-    private static let dateFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateStyle = .medium
-        f.timeStyle = .none
-        return f
-    }()
+    private static let dateFormatter = DateFormatter.mediumDate
 
     // MARK: - Body
 

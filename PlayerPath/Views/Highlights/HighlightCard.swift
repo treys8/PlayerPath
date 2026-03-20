@@ -160,7 +160,7 @@ struct HighlightCard: View {
         if let pr = clip.playResult { parts.append(pr.type.displayName) }
         if let game = clip.game { parts.append("vs \(game.opponent)") }
         else { parts.append("Practice") }
-        let dateText = DateFormatter.pp_shortDate.string(from: (clip.createdAt ?? Date()))
+        let dateText = DateFormatter.shortDate.string(from: (clip.createdAt ?? Date()))
         parts.append(dateText)
         return parts.joined(separator: ", ")
     }

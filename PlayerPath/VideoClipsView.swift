@@ -68,18 +68,8 @@ struct VideoClipsView: View {
         !(athlete.videoClips?.isEmpty ?? true)
     }
 
-    private static let searchDateFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateStyle = .medium
-        f.timeStyle = .none
-        return f
-    }()
-
-    private static let searchShortFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "M/d/yy"
-        return f
-    }()
+    private static let searchDateFormatter = DateFormatter.mediumDate
+    private static let searchShortFormatter = DateFormatter.compactDate
 
     private func updateFilteredVideos() {
         var videos = athlete.videoClips ?? []

@@ -855,42 +855,28 @@ final class VideoClip {
             let fileSize = (try? FileManager.default.attributesOfItem(atPath: resolvedFilePath)[.size] as? Int64) ?? 0
             Task { @MainActor in
                 let cloudManager = VideoCloudManager.shared
-                for attempt in 1...3 {
-                    do {
+                do {
+                    try await withRetry {
                         try await cloudManager.deleteAthleteVideo(fileName: capturedFileName)
-                        // Only decrement quota after the Storage file is actually deleted
-                        if let user = capturedUser {
-                            user.cloudStorageUsedBytes = max(0, user.cloudStorageUsedBytes - fileSize)
-                        }
-                        return
-                    } catch {
-                        if attempt < 3 {
-                            try? await Task.sleep(for: .seconds(2))
-                        }
                     }
+                    // Only decrement quota after the Storage file is actually deleted
+                    if let user = capturedUser {
+                        user.cloudStorageUsedBytes = max(0, user.cloudStorageUsedBytes - fileSize)
+                    }
+                } catch {
+                    // All retries exhausted — record as pending deletion so the server-side
+                    // cleanup function can remove the orphaned Storage file later.
+                    // Quota is NOT freed — the dailyStorageCleanup function will handle it.
+                    try? await cloudManager.recordPendingDeletion(clipId: capturedClipId, fileName: capturedFileName)
                 }
-                // All retries exhausted — record as pending deletion so the server-side
-                // cleanup function can remove the orphaned Storage file later.
-                // Quota is NOT freed — the dailyStorageCleanup function will handle it.
-                try? await cloudManager.recordPendingDeletion(clipId: capturedClipId, fileName: capturedFileName)
             }
         }
 
         // Soft-delete Firestore metadata if previously synced
         if let capturedFirestoreId = firestoreId {
             Task {
-                for attempt in 1...3 {
-                    do {
-                        try await FirestoreManager.shared.deleteVideoClip(videoClipId: capturedFirestoreId)
-                        return
-                    } catch {
-                        #if DEBUG
-                        print("⚠️ Failed to delete video clip metadata from Firestore (attempt \(attempt)/3): \(error)")
-                        #endif
-                        if attempt < 3 {
-                            try? await Task.sleep(for: .seconds(2))
-                        }
-                    }
+                await retryAsync {
+                    try await FirestoreManager.shared.deleteVideoClip(videoClipId: capturedFirestoreId)
                 }
             }
         }
@@ -1041,10 +1027,17 @@ final class AthleteStatistics {
     var wildPitches: Int = 0
     var updatedAt: Date?
 
+    func resetAllCounts() {
+        atBats = 0; hits = 0; singles = 0; doubles = 0; triples = 0
+        homeRuns = 0; runs = 0; rbis = 0; walks = 0; strikeouts = 0
+        groundOuts = 0; flyOuts = 0; totalGames = 0; totalPitches = 0
+        balls = 0; strikes = 0; hitByPitches = 0; wildPitches = 0
+    }
+
     var battingAverage: Double {
         return atBats > 0 ? Double(hits) / Double(atBats) : 0.0
     }
-    
+
     var onBasePercentage: Double {
         // Fix Q: Include HBP in both numerator and denominator per official OBP formula:
         // OBP = (H + BB + HBP) / (AB + BB + HBP)
@@ -1167,6 +1160,12 @@ final class GameStatistics {
     var flyOuts: Int = 0
     var hitByPitches: Int = 0
     var createdAt: Date?
+
+    func resetAllCounts() {
+        atBats = 0; hits = 0; singles = 0; doubles = 0; triples = 0
+        homeRuns = 0; runs = 0; rbis = 0; strikeouts = 0; walks = 0
+        groundOuts = 0; flyOuts = 0; hitByPitches = 0
+    }
 
     // MARK: - Computed Statistics
 
@@ -1479,15 +1478,8 @@ final class Photo {
         if cloudURL != nil {
             let capturedFileName = self.fileName
             Task { @MainActor in
-                for attempt in 1...3 {
-                    do {
-                        try await VideoCloudManager.shared.deleteAthletePhoto(fileName: capturedFileName)
-                        return
-                    } catch {
-                        if attempt < 3 {
-                            try? await Task.sleep(for: .seconds(2))
-                        }
-                    }
+                await retryAsync {
+                    try await VideoCloudManager.shared.deleteAthletePhoto(fileName: capturedFileName)
                 }
             }
         }

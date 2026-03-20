@@ -310,11 +310,7 @@ struct VideoThumbnailView: View {
 
     // MARK: - Context Label
 
-    private static let contextDateFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "MMM d"
-        return f
-    }()
+    private static let contextDateFormatter = DateFormatter.monthDay
 
     private var contextLabel: String? {
         let opponent = clip.gameOpponent ?? clip.game?.opponent

@@ -33,25 +33,7 @@ final class StatisticsService {
 
         guard let stats = athlete.statistics else { return }
 
-        // Reset all counts
-        stats.atBats = 0
-        stats.hits = 0
-        stats.singles = 0
-        stats.doubles = 0
-        stats.triples = 0
-        stats.homeRuns = 0
-        stats.runs = 0
-        stats.rbis = 0
-        stats.walks = 0
-        stats.strikeouts = 0
-        stats.groundOuts = 0
-        stats.flyOuts = 0
-        stats.totalGames = 0
-        stats.totalPitches = 0
-        stats.balls = 0
-        stats.strikes = 0
-        stats.hitByPitches = 0
-        stats.wildPitches = 0
+        stats.resetAllCounts()
 
         // Get all completed games for this athlete
         let games = athlete.games ?? []
@@ -121,25 +103,7 @@ final class StatisticsService {
 
         guard let stats = season.seasonStatistics else { return }
 
-        // Reset all counts
-        stats.atBats = 0
-        stats.hits = 0
-        stats.singles = 0
-        stats.doubles = 0
-        stats.triples = 0
-        stats.homeRuns = 0
-        stats.runs = 0
-        stats.rbis = 0
-        stats.walks = 0
-        stats.strikeouts = 0
-        stats.groundOuts = 0
-        stats.flyOuts = 0
-        stats.totalGames = 0
-        stats.totalPitches = 0
-        stats.balls = 0
-        stats.strikes = 0
-        stats.hitByPitches = 0
-        stats.wildPitches = 0
+        stats.resetAllCounts()
 
         // Get all completed games for this season
         let games = season.games ?? []
@@ -203,20 +167,7 @@ final class StatisticsService {
 
         guard let stats = game.gameStats else { return }
 
-        // Reset all counts
-        stats.atBats = 0
-        stats.hits = 0
-        stats.singles = 0
-        stats.doubles = 0
-        stats.triples = 0
-        stats.homeRuns = 0
-        stats.runs = 0
-        stats.rbis = 0
-        stats.strikeouts = 0
-        stats.walks = 0
-        stats.groundOuts = 0
-        stats.flyOuts = 0
-        stats.hitByPitches = 0
+        stats.resetAllCounts()
 
         // Get all videos for this game and sum up play results
         let videos = game.videoClips ?? []

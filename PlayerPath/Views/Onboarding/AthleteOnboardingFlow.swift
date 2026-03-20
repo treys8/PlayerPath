@@ -152,15 +152,8 @@ struct AthleteOnboardingFlow: View {
             let progress = OnboardingProgress(firebaseAuthUid: authManager.currentFirebaseUser?.uid ?? "")
             progress.markCompleted()
             modelContext.insert(progress)
-            for attempt in 1...3 {
-                do {
-                    try modelContext.save()
-                    return
-                } catch {
-                    if attempt < 3 {
-                        try? await Task.sleep(for: .seconds(1))
-                    }
-                }
+            try? await withRetry(delay: .seconds(1)) {
+                try modelContext.save()
             }
         }
     }

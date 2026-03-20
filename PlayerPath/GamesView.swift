@@ -140,12 +140,7 @@ struct GamesView: View {
         }
     }
 
-    private static let searchDateFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateStyle = .medium
-        f.timeStyle = .none
-        return f
-    }()
+    private static let searchDateFormatter = DateFormatter.mediumDate
 
     private func filterGames(_ games: [Game]) -> [Game] {
         var filtered = games
@@ -309,60 +304,12 @@ struct GamesView: View {
         }
     }
     
-    @ViewBuilder
     private var seasonFilterMenu: some View {
-        Menu {
-            Button {
-                selectedSeasonFilter = nil
-            } label: {
-                HStack {
-                    Text("All Seasons")
-                    if selectedSeasonFilter == nil {
-                        Image(systemName: "checkmark")
-                    }
-                }
-            }
-
-            Divider()
-
-            ForEach(cachedAvailableSeasons) { season in
-                Button {
-                    selectedSeasonFilter = season.id.uuidString
-                } label: {
-                    HStack {
-                        Text(season.displayName)
-                        if selectedSeasonFilter == season.id.uuidString {
-                            Image(systemName: "checkmark")
-                        }
-                    }
-                }
-            }
-
-            // Show "No Season" option if there are games without a season
-            if allGames.contains(where: { $0.season == nil }) {
-                Divider()
-                Button {
-                    selectedSeasonFilter = "no_season"
-                } label: {
-                    HStack {
-                        Text("No Season")
-                        if selectedSeasonFilter == "no_season" {
-                            Image(systemName: "checkmark")
-                        }
-                    }
-                }
-            }
-        } label: {
-            HStack(spacing: 4) {
-                Image(systemName: "line.3.horizontal.decrease.circle")
-                if selectedSeasonFilter != nil {
-                    Image(systemName: "circle.fill")
-                        .font(.system(size: 6))
-                        .foregroundColor(.blue)
-                }
-            }
-        }
-        .accessibilityLabel("Filter by season")
+        SeasonFilterMenu(
+            selectedSeasonID: $selectedSeasonFilter,
+            availableSeasons: cachedAvailableSeasons,
+            showNoSeasonOption: allGames.contains(where: { $0.season == nil })
+        )
     }
 
     @ViewBuilder

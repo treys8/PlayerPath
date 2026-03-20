@@ -922,18 +922,8 @@ struct SeasonDetailView: View {
            let user = season.athlete?.user {
             let userId = user.id.uuidString
             Task {
-                for attempt in 1...3 {
-                    do {
-                        try await FirestoreManager.shared.deleteSeason(
-                            userId: userId,
-                            seasonId: firestoreId
-                        )
-                        return
-                    } catch {
-                        if attempt < 3 {
-                            try? await Task.sleep(for: .seconds(2))
-                        }
-                    }
+                await retryAsync {
+                    try await FirestoreManager.shared.deleteSeason(userId: userId, seasonId: firestoreId)
                 }
             }
         }
