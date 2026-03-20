@@ -12,7 +12,7 @@ This is an Xcode project — there is no SPM Package.swift or Podfile. Open `Pla
 
 ```bash
 # Build from command line
-xcodebuild -project PlayerPath.xcodeproj -scheme PlayerPath -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 16' build
+xcodebuild -project PlayerPath.xcodeproj -scheme PlayerPath -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build
 
 # Increment build number before archive
 ./increment_build_number.sh
@@ -40,7 +40,7 @@ Navigation is managed by `NavigationCoordinator` (Observable class) with deep li
 
 `User → Athlete → Season → Game/Practice → VideoClip → PlayResult`
 
-Models are defined in `Models.swift` (~46KB). Supporting types: `AthleteStatistics`, `GameStatistics`, `Coach`, `Photo`.
+Models are defined in `Models.swift`. Supporting types: `AthleteStatistics`, `GameStatistics`, `Coach`, `Photo`. Firestore data types are in `FirestoreModels.swift`.
 
 ### Key Services (in `PlayerPath/Services/`)
 
@@ -50,10 +50,24 @@ Models are defined in `Models.swift` (~46KB). Supporting types: `AthleteStatisti
 - `ClipPersistenceService` — Local video file management
 - `StoreKitManager` — Singleton (`StoreKitManager.shared`), `@MainActor`. Manages entitlements and subscription tiers
 - `ComprehensiveAuthManager` — Firebase Auth (email/password + Apple Sign In) + biometric auth
-- `ErrorHandlerService` — Centralized error handling with OSLog
+- `ErrorHandlerService` — Centralized error handling with OSLog, error history, analytics, haptic feedback, and view helpers (`reportError`, `reportWarning`, `saveContext`)
 - `AnalyticsService` — Firebase Analytics
 - `StatisticsService` — Batting/pitching stats calculations
 - `ConnectivityMonitor` — Network state observation
+- `RetryHelpers` — `withRetry()` and `retryAsync()` for async retry-with-backoff
+
+### FirestoreManager
+
+`FirestoreManager` is a `@MainActor` singleton split into domain-specific extension files:
+
+- `FirestoreManager.swift` — Shell (singleton, `db`, `errorMessage`, init)
+- `FirestoreManager+SharedFolders.swift` — Folder CRUD + permissions
+- `FirestoreManager+VideoMetadata.swift` — Video CRUD + thumbnails
+- `FirestoreManager+Annotations.swift` — Comments + real-time listener
+- `FirestoreManager+Invitations.swift` — Both invitation flows (athlete→coach, coach→athlete)
+- `FirestoreManager+UserProfile.swift` — Profile CRUD + GDPR deletion + subscription sync
+- `FirestoreManager+EntitySync.swift` — Athletes/Seasons/Games/Practices/Notes/Photos/Coaches CRUD
+- `FirestoreModels.swift` — All Firestore data types (SharedFolder, FirestoreVideoMetadata, CoachInvitation, UserProfile, etc.)
 
 ### Video Pipeline
 
@@ -75,12 +89,46 @@ Product IDs and feature gates are in `SubscriptionModels.swift`. StoreKit config
 - **Cloud Functions:** `firebase/functions/src/index.ts` (Node.js) — email notifications via SendGrid, signed URL generation
 - **Config:** `GoogleService-Info.plist`
 
+## View Organization
+
+Views are organized by feature in `PlayerPath/Views/`:
+
+- `Views/Games/` — GameDetailView, GameRow, AddGameView, EditGameSheet, GameCreationView, VideoClipRow, ManualStatisticsEntryView, EmptyGamesView
+- `Views/Profile/` — SettingsView, StorageSettingsView, EditAccountView, NotificationSettingsView, ChangePasswordView, AthleteManagementView, SubscriptionView, HelpSupportView, AccountDeletionView, DataExportView, StatisticsExportView
+- `Views/Highlights/` — HighlightCard, SimpleCloudProgressView, SimpleCloudStorageView, AutoHighlightSettingsView, GameHighlightGroup
+- `Views/Dashboard/` — DashboardView
+- `Views/Navigation/` — MainTabView, AuthenticatedFlow
+- `Views/Auth/` — ComprehensiveSignInView
+- `Views/Onboarding/` — AthleteOnboardingFlow, CoachOnboardingFlow, OnboardingSeasonCreationView
+- `Views/Components/` — EnhancedVideoPlayer, AthleteInvitationsBanner, UploadStatisticsView
+- `Views/Search/` — AdvancedSearchView
+- `Views/Stats/` — StatisticsChartsView
+- `Views/Photos/` — PhotosView, PhotoDetailView, PhotoTagSheet
+- `Views/Coach/` — InviteAthleteSheet
+- `Views/Coaches/` — InviteCoachSheet
+
+Main tab root views remain at the top level: `GamesView.swift`, `PracticesView.swift`, `ProfileView.swift`, `HighlightsView.swift`, `VideoClipsView.swift`, `StatisticsView.swift`.
+
 ## Key Conventions
 
 - `@MainActor` isolation is used extensively for thread safety on ViewModels and services
 - All ViewModels use `@Observable` (Swift Observation framework)
 - Singletons use `static let shared` pattern (e.g., `StoreKitManager.shared`)
 - Bundle ID: `RZR.DT3`
+
+### Error Handling
+
+- **Services/managers:** Use OSLog `Logger` instances (e.g., `syncLog`, `uploadLog`, `firestoreLog`, `authLog`). Each service has its own logger with subsystem `"com.playerpath.app"`.
+- **Views:** Use `ErrorHandlerService.shared.reportError()` for catch blocks with Error objects, `reportWarning()` for validation failures, or `handle(error, context:, showAlert: false)` for silent logging.
+- **SwiftData saves:** Use `ErrorHandlerService.shared.saveContext(context, caller:)` instead of `try? context.save()`.
+- **Async retry:** Use `retryAsync { }` for fire-and-forget retry or `try await withRetry { }` for retry-with-result (defined in `RetryHelpers.swift`).
+
+### Shared Components
+
+- `SeasonFilterMenu` — Reusable season picker used by GamesView, PracticesView, VideoClipsView, StatisticsView, HighlightsView
+- `DateFormatters.swift` — Centralized `DateFormatter` extension (`.mediumDate`, `.shortDate`, `.shortTime`, `.fullDate`, `.shortDateTime`, `.monthDay`, `.compactDate`)
+- `AppNotifications.swift` — Centralized `Notification.Name` constants
+- `DesignTokens.swift` — Design system constants
 
 ## Documentation
 
