@@ -15,6 +15,14 @@ func performDeleteAthlete(_ athlete: Athlete, selectedAthlete: Binding<Athlete?>
     // Capture values before deletion — accessing SwiftData object properties after
     // delete is undefined behavior.
     let athleteID = athlete.id
+
+    // Capture Firestore IDs before local hard-delete so we can sync deletions
+    let userId = user.firebaseAuthUid ?? user.id.uuidString
+    let athleteFirestoreId = athlete.firestoreId
+    let seasonFirestoreIds = (athlete.seasons ?? []).compactMap { $0.firestoreId }
+    let gameFirestoreIds = (athlete.games ?? []).compactMap { $0.firestoreId }
+    let practiceFirestoreIds = (athlete.practices ?? []).compactMap { $0.firestoreId }
+
     if athleteID == selectedAthlete.wrappedValue?.id {
         let remaining = (user.athletes ?? []).filter { $0.id != athleteID }
         selectedAthlete.wrappedValue = remaining.first
@@ -24,6 +32,23 @@ func performDeleteAthlete(_ athlete: Athlete, selectedAthlete: Binding<Athlete?>
     AnalyticsService.shared.trackAthleteDeleted(athleteID: athleteID.uuidString)
     if (user.athletes ?? []).isEmpty {
         selectedAthlete.wrappedValue = nil
+    }
+
+    // Sync deletions to Firestore (fire-and-forget — local delete is already committed)
+    Task {
+        // Soft-delete child entities first, then the athlete
+        for id in gameFirestoreIds {
+            await retryAsync { try await FirestoreManager.shared.deleteGame(userId: userId, gameId: id) }
+        }
+        for id in practiceFirestoreIds {
+            await retryAsync { try await FirestoreManager.shared.deletePractice(userId: userId, practiceId: id) }
+        }
+        for id in seasonFirestoreIds {
+            await retryAsync { try await FirestoreManager.shared.deleteSeason(userId: userId, seasonId: id) }
+        }
+        if let athleteFirestoreId {
+            await retryAsync { try await FirestoreManager.shared.deleteAthlete(userId: userId, athleteId: athleteFirestoreId) }
+        }
     }
 }
 
