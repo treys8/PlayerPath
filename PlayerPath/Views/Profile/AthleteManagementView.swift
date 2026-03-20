@@ -22,6 +22,17 @@ func performDeleteAthlete(_ athlete: Athlete, selectedAthlete: Binding<Athlete?>
     let seasonFirestoreIds = (athlete.seasons ?? []).compactMap { $0.firestoreId }
     let gameFirestoreIds = (athlete.games ?? []).compactMap { $0.firestoreId }
     let practiceFirestoreIds = (athlete.practices ?? []).compactMap { $0.firestoreId }
+    let coachFirestoreIds = (athlete.coaches ?? []).compactMap { $0.firestoreId }
+    // Practice notes: pair each note's firestoreId with its practice's firestoreId
+    var noteIds: [(noteId: String, practiceId: String)] = []
+    for practice in athlete.practices ?? [] {
+        guard let pId = practice.firestoreId else { continue }
+        for note in practice.notes ?? [] {
+            if let nId = note.firestoreId {
+                noteIds.append((noteId: nId, practiceId: pId))
+            }
+        }
+    }
 
     if athleteID == selectedAthlete.wrappedValue?.id {
         let remaining = (user.athletes ?? []).filter { $0.id != athleteID }
@@ -36,7 +47,10 @@ func performDeleteAthlete(_ athlete: Athlete, selectedAthlete: Binding<Athlete?>
 
     // Sync deletions to Firestore (fire-and-forget — local delete is already committed)
     Task {
-        // Soft-delete child entities first, then the athlete
+        // Soft-delete child entities first, then parents, then the athlete
+        for (noteId, practiceId) in noteIds {
+            await retryAsync { try await FirestoreManager.shared.deletePracticeNote(userId: userId, practiceFirestoreId: practiceId, noteId: noteId) }
+        }
         for id in gameFirestoreIds {
             await retryAsync { try await FirestoreManager.shared.deleteGame(userId: userId, gameId: id) }
         }
@@ -47,6 +61,9 @@ func performDeleteAthlete(_ athlete: Athlete, selectedAthlete: Binding<Athlete?>
             await retryAsync { try await FirestoreManager.shared.deleteSeason(userId: userId, seasonId: id) }
         }
         if let athleteFirestoreId {
+            for id in coachFirestoreIds {
+                await retryAsync { try await FirestoreManager.shared.deleteCoach(userId: userId, athleteFirestoreId: athleteFirestoreId, coachId: id) }
+            }
             await retryAsync { try await FirestoreManager.shared.deleteAthlete(userId: userId, athleteId: athleteFirestoreId) }
         }
     }
