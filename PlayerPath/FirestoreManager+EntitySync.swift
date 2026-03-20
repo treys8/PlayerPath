@@ -465,6 +465,18 @@ extension FirestoreManager {
 
     // MARK: - Practice Notes Sync
 
+    func deletePracticeNote(userId: String, practiceFirestoreId: String, noteId: String) async throws {
+        try await db
+            .collection("users").document(userId)
+            .collection("practices").document(practiceFirestoreId)
+            .collection("notes").document(noteId)
+            .updateData([
+                "isDeleted": true,
+                "deletedAt": FieldValue.serverTimestamp(),
+                "updatedAt": FieldValue.serverTimestamp()
+            ])
+    }
+
     func createPracticeNote(userId: String, practiceFirestoreId: String, data: [String: Any]) async throws -> String {
         var noteData = data
         noteData["createdAt"] = FieldValue.serverTimestamp()
@@ -508,6 +520,15 @@ extension FirestoreManager {
     }
 
     // MARK: - Photos Sync
+
+    func deletePhoto(photoId: String) async throws {
+        try await db.collection("photos").document(photoId)
+            .updateData([
+                "isDeleted": true,
+                "deletedAt": FieldValue.serverTimestamp(),
+                "updatedAt": FieldValue.serverTimestamp()
+            ])
+    }
 
     func createPhoto(data: [String: Any]) async throws -> String {
         var photoData = data
@@ -559,6 +580,18 @@ extension FirestoreManager {
             .collection("athletes").document(athleteFirestoreId)
             .collection("coaches").document(coachId)
             .setData(updateData, merge: true)
+    }
+
+    func deleteCoach(userId: String, athleteFirestoreId: String, coachId: String) async throws {
+        try await db
+            .collection("users").document(userId)
+            .collection("athletes").document(athleteFirestoreId)
+            .collection("coaches").document(coachId)
+            .updateData([
+                "isDeleted": true,
+                "deletedAt": FieldValue.serverTimestamp(),
+                "updatedAt": FieldValue.serverTimestamp()
+            ])
     }
 
     func fetchCoaches(userId: String, athleteFirestoreId: String) async throws -> [FirestoreCoach] {

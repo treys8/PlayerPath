@@ -1483,6 +1483,14 @@ final class Photo {
                 }
             }
         }
+        // Soft-delete Firestore metadata if previously synced
+        if let capturedFirestoreId = firestoreId {
+            Task {
+                await retryAsync {
+                    try await FirestoreManager.shared.deletePhoto(photoId: capturedFirestoreId)
+                }
+            }
+        }
         context.delete(self)
     }
 }

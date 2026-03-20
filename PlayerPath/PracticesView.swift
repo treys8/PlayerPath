@@ -662,9 +662,17 @@ struct PracticeDetailView: View {
     }
 
     private func deleteNotes(offsets: IndexSet) {
+        // Capture Firestore IDs before deletion
+        let userId = practice.athlete?.user?.firebaseAuthUid ?? practice.athlete?.user?.id.uuidString
+        let practiceFirestoreId = practice.firestoreId
+        var deletedNoteIds: [(String, String)] = [] // (noteFirestoreId, practiceFirestoreId)
+
         withAnimation {
             for index in offsets {
                 let note = notes[index]
+                if let noteId = note.firestoreId, let pId = practiceFirestoreId {
+                    deletedNoteIds.append((noteId, pId))
+                }
                 modelContext.delete(note)
             }
 
@@ -676,9 +684,24 @@ struct PracticeDetailView: View {
                 log.error("Failed to delete notes: \(error.localizedDescription)")
             }
         }
+
+        // Sync deletions to Firestore
+        if let userId, !deletedNoteIds.isEmpty {
+            Task {
+                for (noteId, pId) in deletedNoteIds {
+                    await retryAsync {
+                        try await FirestoreManager.shared.deletePracticeNote(userId: userId, practiceFirestoreId: pId, noteId: noteId)
+                    }
+                }
+            }
+        }
     }
 
     private func delete(note: PracticeNote) {
+        let noteFirestoreId = note.firestoreId
+        let userId = practice.athlete?.user?.firebaseAuthUid ?? practice.athlete?.user?.id.uuidString
+        let practiceFirestoreId = practice.firestoreId
+
         modelContext.delete(note)
         do {
             try modelContext.save()
@@ -686,6 +709,15 @@ struct PracticeDetailView: View {
         } catch {
             Haptics.error()
             log.error("Failed to delete note: \(error.localizedDescription)")
+        }
+
+        // Sync deletion to Firestore
+        if let noteFirestoreId, let userId, let practiceFirestoreId {
+            Task {
+                await retryAsync {
+                    try await FirestoreManager.shared.deletePracticeNote(userId: userId, practiceFirestoreId: practiceFirestoreId, noteId: noteFirestoreId)
+                }
+            }
         }
     }
 
