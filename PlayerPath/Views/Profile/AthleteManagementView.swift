@@ -11,7 +11,7 @@ import SwiftData
 // MARK: - Shared Athlete Delete Helper
 
 /// Single source of truth for athlete deletion. Called from both ProfileView and AthleteManagementView.
-private func performDeleteAthlete(_ athlete: Athlete, selectedAthlete: Binding<Athlete?>, user: User, modelContext: ModelContext) throws {
+func performDeleteAthlete(_ athlete: Athlete, selectedAthlete: Binding<Athlete?>, user: User, modelContext: ModelContext) throws {
     // Capture values before deletion — accessing SwiftData object properties after
     // delete is undefined behavior.
     let athleteID = athlete.id

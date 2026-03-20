@@ -702,25 +702,6 @@ struct AthleteProfileRow: View {
     }
 }
 
-// MARK: - Shared Athlete Delete Helper
-
-/// Single source of truth for athlete deletion. Called from both ProfileView and AthleteManagementView.
-private func performDeleteAthlete(_ athlete: Athlete, selectedAthlete: Binding<Athlete?>, user: User, modelContext: ModelContext) throws {
-    // Capture values before deletion — accessing SwiftData object properties after
-    // delete is undefined behavior.
-    let athleteID = athlete.id
-    if athleteID == selectedAthlete.wrappedValue?.id {
-        let remaining = (user.athletes ?? []).filter { $0.id != athleteID }
-        selectedAthlete.wrappedValue = remaining.first
-    }
-    athlete.delete(in: modelContext)
-    try modelContext.save()
-    AnalyticsService.shared.trackAthleteDeleted(athleteID: athleteID.uuidString)
-    if (user.athletes ?? []).isEmpty {
-        selectedAthlete.wrappedValue = nil
-    }
-}
-
 // MARK: - Extracted Sub-Views
 // SettingsView, StorageSettingsView, EditAccountView, NotificationSettingsView,
 // HelpSupportView, AboutView, ChangePasswordView, AthleteManagementView,
