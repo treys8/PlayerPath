@@ -139,7 +139,7 @@ import UIKit
     ///   - paths: Array of thumbnail paths to prefetch
     ///   - targetSize: Optional target size for downsampling
     func prefetchThumbnails(paths: [String], targetSize: CGSize? = nil) {
-        Task.detached(priority: .utility) {
+        Task(priority: .utility) {
             await withTaskGroup(of: Void.self) { group in
                 for path in paths.prefix(10) { // Limit to 10 concurrent prefetches
                     group.addTask {

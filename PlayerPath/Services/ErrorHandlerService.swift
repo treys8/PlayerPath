@@ -126,7 +126,8 @@ final class ErrorHandlerService: ObservableObject {
         showErrorAlert = false
 
         // Clear after animation completes
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+        Task {
+            try? await Task.sleep(for: .milliseconds(300))
             self.currentError = nil
         }
     }
