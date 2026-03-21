@@ -322,10 +322,35 @@ final class ComprehensiveAuthManager: ObservableObject {
         let coachTier = currentCoachTier
         let hasOverride = hasAthleteTierOverride
         Task {
-            await FirestoreManager.shared.syncSubscriptionTiers(
-                userID: userID, tier: tier, coachTier: coachTier,
-                hasAthleteTierOverride: hasOverride
-            )
+            await retryAsync(maxAttempts: 3) {
+                try await FirestoreManager.shared.syncSubscriptionTiersWithThrow(
+                    userID: userID, tier: tier, coachTier: coachTier,
+                    hasAthleteTierOverride: hasOverride
+                )
+            }
+        }
+    }
+
+    /// Refreshes the subscription tier from Firestore to pick up changes
+    /// made on other devices or via Cloud Function. Only upgrades — never
+    /// downgrades from a locally-resolved StoreKit tier.
+    func refreshTierFromFirestore() async {
+        guard let userID = currentFirebaseUser?.uid else { return }
+        do {
+            guard let profile = try await FirestoreManager.shared.fetchUserProfile(userID: userID) else { return }
+            if let tierStr = profile.subscriptionTier,
+               let firestoreTier = SubscriptionTier(rawValue: tierStr),
+               firestoreTier > currentTier {
+                currentTier = firestoreTier
+                hasAthleteTierOverride = true
+            }
+            if let coachTierStr = profile.coachSubscriptionTier,
+               let firestoreCoachTier = CoachSubscriptionTier(rawValue: coachTierStr),
+               firestoreCoachTier > currentCoachTier {
+                currentCoachTier = firestoreCoachTier
+            }
+        } catch {
+            authLog.warning("Failed to refresh tier from Firestore: \(error.localizedDescription)")
         }
     }
 

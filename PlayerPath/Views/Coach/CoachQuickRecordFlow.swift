@@ -250,6 +250,13 @@ struct SaveRecordingSheet: View {
                     progressHandler: { _ in }
                 )
 
+                // Process video: extract duration + generate/upload thumbnail
+                let processed = await CoachVideoProcessingService.shared.process(
+                    videoURL: videoURL,
+                    fileName: fileName,
+                    folderID: folderID
+                )
+
                 if saveMode == .staging {
                     // Save to private staging folder
                     let privateFolder = try await FirestoreManager.shared.getOrCreatePrivateFolder(
@@ -264,8 +271,8 @@ struct SaveRecordingSheet: View {
                         uploadedBy: coachID,
                         uploadedByName: coachName,
                         fileSize: fileSize,
-                        duration: nil,
-                        thumbnailURL: nil,
+                        duration: processed.duration,
+                        thumbnailURL: processed.thumbnailURL,
                         notes: notes.isEmpty ? nil : notes
                     )
                 } else {
@@ -273,14 +280,15 @@ struct SaveRecordingSheet: View {
                     _ = try await FirestoreManager.shared.uploadVideoMetadata(
                         fileName: fileName,
                         storageURL: storageURL,
-                        thumbnail: nil,
+                        thumbnail: processed.thumbnailURL.map { ThumbnailMetadata(standardURL: $0) },
                         folderID: folderID,
                         uploadedBy: coachID,
                         uploadedByName: coachName,
                         fileSize: fileSize,
-                        duration: nil,
+                        duration: processed.duration,
                         videoType: "practice",
-                        practiceContext: notes.isEmpty ? nil : PracticeContext(date: Date(), notes: notes)
+                        practiceContext: notes.isEmpty ? nil : PracticeContext(date: Date(), notes: notes),
+                        uploadedByType: .coach
                     )
                 }
 

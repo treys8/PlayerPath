@@ -1253,7 +1253,8 @@ export const syncSubscriptionTier = functions.https.onCall(async (data, context)
   // --- App Store Receipt Validation ---
   // TODO: Set the shared secret in .env:
   //   APPSTORE_SHARED_SECRET=YOUR_SHARED_SECRET
-  const sharedSecret = process.env.APPSTORE_SHARED_SECRET;
+  const sharedSecret = process.env.APPSTORE_SHARED_SECRET
+      || functions.config()?.appstore?.shared_secret;
 
   if (!sharedSecret) {
     console.error('❌ APPSTORE_SHARED_SECRET is not configured. Rejecting tier sync. '

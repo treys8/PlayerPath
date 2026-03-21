@@ -643,7 +643,7 @@ struct AddCoachView: View {
                             .onSubmit { focusedField = .notes }
                             .keyboardType(.emailAddress)
                             .textContentType(.emailAddress)
-                            .autocapitalization(.none)
+                            .textInputAutocapitalization(.never)
 
                         if let error = emailError {
                             Text(error)

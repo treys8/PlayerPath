@@ -38,7 +38,8 @@ extension FirestoreManager {
         duration: Double?,
         videoType: String = "game",
         gameContext: GameContext? = nil,
-        practiceContext: PracticeContext? = nil
+        practiceContext: PracticeContext? = nil,
+        uploadedByType: UploadedByType? = nil
     ) async throws -> String {
         var videoData: [String: Any] = [
             "fileName": fileName,
@@ -52,6 +53,9 @@ extension FirestoreManager {
             "videoType": videoType,
             "isHighlight": videoType == "highlight"
         ]
+        if let uploadedByType {
+            videoData["uploadedByType"] = uploadedByType.rawValue
+        }
 
         // Add structured thumbnail data
         if let thumbnail = thumbnail {
@@ -313,7 +317,7 @@ extension FirestoreManager {
             "fileName", "firebaseStorageURL", "uploadedBy", "uploadedByName",
             "sharedFolderID", "fileSize", "duration", "videoType", "isHighlight",
             "thumbnail", "thumbnailURL", "gameOpponent", "gameDate", "practiceDate",
-            "notes", "playResult", "athleteName", "seasonID"
+            "notes", "playResult", "athleteName", "seasonID", "uploadedByType"
         ]
         var safeMetadata = metadata.filter { allowedFields.contains($0.key) }
         safeMetadata["sharedFolderID"] = folderID
@@ -335,5 +339,21 @@ extension FirestoreManager {
             errorMessage = "Failed to save video."
             throw error
         }
+    }
+
+    // MARK: - Video Tags
+
+    /// Updates tags and drill type on a video
+    func updateVideoTags(videoID: String, tags: [String], drillType: String?) async throws {
+        var data: [String: Any] = [
+            "tags": tags
+        ]
+        if let drillType {
+            data["drillType"] = drillType
+        } else {
+            data["drillType"] = FieldValue.delete()
+        }
+
+        try await db.collection("videos").document(videoID).updateData(data)
     }
 }

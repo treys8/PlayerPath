@@ -3,26 +3,21 @@
 //  PlayerPath
 //
 //  Created by Assistant on 11/21/25.
-//  Main dashboard for coaches showing all athletes and shared folders
-//  Updated with critical bug fixes and improvements
+//  Dashboard tab for coaches — quick actions, recent activity, and
+//  notification banners. Athletes list has moved to CoachAthletesTab.
 //
 
 import SwiftUI
-import FirebaseAuth
-import FirebaseFirestore
-import Combine
 
-/// Root view for coaches — card-based dashboard with quick actions
+/// Dashboard tab content for coaches — quick actions and recent athletes
 struct CoachDashboardView: View {
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @EnvironmentObject private var sharedFolderManager: SharedFolderManager
+    @Environment(CoachNavigationCoordinator.self) private var coordinator
     @ObservedObject private var invitationManager = CoachInvitationManager.shared
     @ObservedObject private var activityNotifService = ActivityNotificationService.shared
     @State private var showingQuickRecord = false
     @State private var showingInviteAthlete = false
-    @State private var showingProfile = false
-    @State private var showingInvitations = false
-    @State private var navigationPath = NavigationPath()
     @ObservedObject private var archiveManager = CoachFolderArchiveManager.shared
 
     /// Recent folders sorted by updatedAt, excluding archived
@@ -33,124 +28,58 @@ struct CoachDashboardView: View {
     }
 
     var body: some View {
-        NavigationStack(path: $navigationPath) {
-            ZStack(alignment: .top) {
-                ScrollView {
-                    VStack(spacing: 20) {
-                        // Pending invitations banner
-                        PendingInvitationsBanner(showingInvitations: $showingInvitations)
-
-                        // Quick Actions
-                        quickActionsSection
-
-                        // Recent Athletes
-                        if !recentFolders.isEmpty {
-                            recentAthletesSection
-                        }
-
-                        // All Athletes list
-                        CoachAthletesListView(showingInvitations: $showingInvitations)
+        ZStack(alignment: .top) {
+            ScrollView {
+                VStack(spacing: 20) {
+                    // Over-limit banner
+                    if SubscriptionGate.isCoachOverLimit(authManager: authManager) {
+                        CoachOverLimitBanner(
+                            connectedCount: SubscriptionGate.connectedAthleteCount(),
+                            limit: authManager.coachAthleteLimit
+                        )
                     }
-                    .padding()
-                }
-                .refreshable {
-                    await reloadData()
-                }
 
-                // In-app notification banner
-                if let banner = activityNotifService.incomingBanner {
-                    ActivityNotificationBanner(notification: banner, onDismiss: {
-                        activityNotifService.dismissBanner()
-                    }, onTap: {
-                        handleNotificationTap(banner)
-                    })
-                    .padding(.top, 12)
-                    .transition(.move(edge: .top).combined(with: .opacity))
-                    .animation(.spring(response: 0.4, dampingFraction: 0.8), value: banner.id)
-                    .zIndex(100)
-                }
-            }
-            .navigationTitle("Dashboard")
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    HStack(spacing: 12) {
-                        Button {
-                            Haptics.light()
-                            showingInvitations = true
-                        } label: {
-                            Image(systemName: "envelope.badge")
-                                .foregroundColor(.green)
-                        }
-                        .overlay(alignment: .topTrailing) {
-                            if invitationManager.pendingInvitationsCount > 0 {
-                                Text("\(invitationManager.pendingInvitationsCount)")
-                                    .font(.caption2)
-                                    .fontWeight(.bold)
-                                    .foregroundColor(.white)
-                                    .frame(width: 16, height: 16)
-                                    .background(Color.red)
-                                    .clipShape(Circle())
-                                    .offset(x: 6, y: -6)
-                            }
-                        }
+                    // Quick Actions
+                    quickActionsSection
 
-                        Button {
-                            showingProfile = true
-                        } label: {
-                            Image(systemName: "gearshape")
-                                .foregroundColor(.primary)
-                        }
+                    // Recent Athletes
+                    if !recentFolders.isEmpty {
+                        recentAthletesSection
+                    }
+
+                    // Summary stats
+                    if !sharedFolderManager.coachFolders.isEmpty {
+                        summarySection
                     }
                 }
+                .padding()
             }
-            .navigationDestination(for: SharedFolder.self) { folder in
-                CoachFolderDetailView(folder: folder)
+            .refreshable {
+                await reloadData()
             }
-            .sheet(isPresented: $showingInvitations) {
-                CoachInvitationsView()
-            }
-            .sheet(isPresented: $showingProfile) {
-                NavigationStack {
-                    CoachProfileView()
-                        .toolbar {
-                            ToolbarItem(placement: .navigationBarTrailing) {
-                                Button("Done") { showingProfile = false }
-                            }
-                        }
-                }
-            }
-            .sheet(isPresented: $showingInviteAthlete) {
-                InviteAthleteSheet()
-            }
-            .fullScreenCover(isPresented: $showingQuickRecord) {
-                CoachQuickRecordFlow()
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .navigateToCoachFolder)) { note in
-                guard let folderID = note.object as? String,
-                      let folder = sharedFolderManager.coachFolders.first(where: { $0.id == folderID }) else { return }
-                navigationPath.append(folder)
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .openCoachInvitations)) { _ in
-                showingInvitations = true
-            }
-            .onChange(of: invitationManager.pendingInvitationsCount) { _, count in
-                // Auto-open invitations for new coaches with pending invites and no folders
-                guard count > 0, sharedFolderManager.coachFolders.isEmpty else { return }
-                showingInvitations = true
+
+            // In-app notification banner
+            if let banner = activityNotifService.incomingBanner {
+                ActivityNotificationBanner(notification: banner, onDismiss: {
+                    activityNotifService.dismissBanner()
+                }, onTap: {
+                    handleNotificationTap(banner)
+                })
+                .padding(.top, 12)
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .animation(.spring(response: 0.4, dampingFraction: 0.8), value: banner.id)
+                .zIndex(100)
             }
         }
-        .tint(.green)
-        .task {
-            if let coachID = authManager.userID {
-                CoachFolderArchiveManager.shared.configure(coachUID: coachID)
-            }
+        .navigationTitle("Dashboard")
+        .sheet(isPresented: $showingInviteAthlete) {
+            InviteAthleteSheet()
         }
-        .onDisappear {
-            sharedFolderManager.stopCoachFoldersListener()
-            Task { @MainActor in
-                CoachInvitationManager.shared.stopInvitationsListener()
-            }
-            ActivityNotificationService.shared.stopListening()
+        .fullScreenCover(isPresented: $showingQuickRecord) {
+            CoachQuickRecordFlow()
+        }
+        .onAppear {
+            AnalyticsService.shared.trackScreenView(screenName: "Coach Dashboard", screenClass: "CoachDashboardView")
         }
     }
 
@@ -209,7 +138,10 @@ struct CoachDashboardView: View {
                 HStack(spacing: 12) {
                     ForEach(recentFolders.prefix(5)) { folder in
                         Button {
-                            navigationPath.append(folder)
+                            coordinator.navigateToFolder(
+                                folder.id ?? "",
+                                folders: sharedFolderManager.coachFolders
+                            )
                         } label: {
                             VStack(alignment: .leading, spacing: 8) {
                                 Image(systemName: "figure.baseball")
@@ -244,6 +176,43 @@ struct CoachDashboardView: View {
         }
     }
 
+    // MARK: - Summary
+
+    private var summarySection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Overview")
+                .font(.headline)
+
+            HStack(spacing: 12) {
+                CoachSummaryCard(
+                    icon: "figure.baseball",
+                    title: "Athletes",
+                    value: "\(uniqueAthleteCount)"
+                )
+
+                CoachSummaryCard(
+                    icon: "folder.fill",
+                    title: "Folders",
+                    value: "\(sharedFolderManager.coachFolders.count)"
+                )
+
+                CoachSummaryCard(
+                    icon: "video.fill",
+                    title: "Shared Videos",
+                    value: "\(totalVideoCount)"
+                )
+            }
+        }
+    }
+
+    private var uniqueAthleteCount: Int {
+        Set(sharedFolderManager.coachFolders.map(\.ownerAthleteID)).count
+    }
+
+    private var totalVideoCount: Int {
+        sharedFolderManager.coachFolders.reduce(0) { $0 + ($1.videoCount ?? 0) }
+    }
+
     @MainActor private func reloadData() async {
         guard let coachID = authManager.userID else { return }
         do {
@@ -260,18 +229,14 @@ struct CoachDashboardView: View {
         switch notification.type {
         case .newVideo:
             if let folderID = notification.targetID {
-                NotificationCenter.default.post(
-                    name: .navigateToCoachFolder,
-                    object: folderID
-                )
+                coordinator.navigateToFolder(folderID, folders: sharedFolderManager.coachFolders)
             }
         case .invitationReceived, .invitationAccepted:
-            showingInvitations = true
+            coordinator.navigateToInvitations()
         case .coachComment, .accessRevoked:
-            break // Already on the dashboard
+            break
         }
 
-        // Mark the notification as read
         if let notifID = notification.id, let coachID = authManager.userID {
             Task {
                 await ActivityNotificationService.shared.markRead(notifID, forUserID: coachID)
@@ -280,125 +245,41 @@ struct CoachDashboardView: View {
     }
 }
 
-// MARK: - My Athletes List View
+// MARK: - Summary Card
 
-struct CoachAthletesListView: View {
-    @Binding var showingInvitations: Bool
-    @EnvironmentObject private var sharedFolderManager: SharedFolderManager
-    @EnvironmentObject private var authManager: ComprehensiveAuthManager
-    @ObservedObject private var invitationManager = CoachInvitationManager.shared
-    @ObservedObject private var archiveManager = CoachFolderArchiveManager.shared
-    @State private var searchText = ""
-    @State private var showingArchived = false
-    @State private var cachedActiveGroups: [CoachAthleteGroup] = []
-    @State private var cachedArchivedGroups: [CoachAthleteGroup] = []
-    @State private var cachedFilteredGroups: [CoachAthleteGroup] = []
+private struct CoachSummaryCard: View {
+    let icon: String
+    let title: String
+    let value: String
 
     var body: some View {
-        Group {
-            if sharedFolderManager.isLoading && sharedFolderManager.coachFolders.isEmpty {
-                ProgressView("Loading athletes...")
-            } else if sharedFolderManager.coachFolders.isEmpty {
-                CoachEmptyStateView(showingInvitations: $showingInvitations)
-            } else {
-                LazyVStack(spacing: 20) {
-                        ForEach(cachedFilteredGroups, id: \CoachAthleteGroup.athleteID) { group in
-                            AthleteSection(
-                                athleteID: group.athleteID,
-                                athleteName: group.athleteName,
-                                folders: group.folders
-                            )
-                        }
+        VStack(spacing: 8) {
+            Image(systemName: icon)
+                .font(.title3)
+                .foregroundColor(.green)
 
-                        // Archived folders toggle
-                        if !cachedArchivedGroups.isEmpty {
-                            Button {
-                                withAnimation { showingArchived.toggle() }
-                                Haptics.light()
-                            } label: {
-                                HStack {
-                                    Image(systemName: showingArchived ? "archivebox.fill" : "archivebox")
-                                        .foregroundColor(.secondary)
-                                    Text(showingArchived ? "Hide Archived" : "Show Archived (\(cachedArchivedGroups.flatMap(\.folders).count))")
-                                        .font(.subheadline)
-                                        .foregroundColor(.secondary)
-                                    Spacer()
-                                    Image(systemName: showingArchived ? "chevron.up" : "chevron.down")
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                }
-                                .padding()
-                                .background(Color(.secondarySystemBackground))
-                                .cornerRadius(.cornerLarge)
-                            }
-                            .buttonStyle(.plain)
+            Text(value)
+                .font(.title2)
+                .fontWeight(.bold)
 
-                            if showingArchived {
-                                ForEach(cachedArchivedGroups, id: \CoachAthleteGroup.athleteID) { group in
-                                    AthleteSection(
-                                        athleteID: group.athleteID,
-                                        athleteName: group.athleteName,
-                                        folders: group.folders,
-                                        isArchived: true
-                                    )
-                                }
-                                .transition(.opacity.combined(with: .move(edge: .top)))
-                            }
-                        }
-                }
-            }
+            Text(title)
+                .font(.caption)
+                .foregroundColor(.secondary)
         }
-        .onAppear { AnalyticsService.shared.trackScreenView(screenName: "Coach Dashboard", screenClass: "CoachDashboardView") }
-        .task { updateFolderGroups() }
-        .searchable(text: $searchText, prompt: "Search athletes")
-        .onChange(of: searchText) { _, _ in updateFolderGroups() }
-        .onChange(of: sharedFolderManager.coachFolders) { _, _ in updateFolderGroups() }
-        .onChange(of: archiveManager.archivedFolderIDs) { _, _ in updateFolderGroups() }
-    }
-
-    private func updateFolderGroups() {
-        var activeFolders: [String: [SharedFolder]] = [:]
-        var archivedFolders: [String: [SharedFolder]] = [:]
-
-        for folder in sharedFolderManager.coachFolders {
-            if archiveManager.isArchived(folder.id ?? "") {
-                archivedFolders[folder.ownerAthleteID, default: []].append(folder)
-            } else {
-                activeFolders[folder.ownerAthleteID, default: []].append(folder)
-            }
-        }
-
-        func buildGroups(_ dict: [String: [SharedFolder]]) -> [CoachAthleteGroup] {
-            dict.map { athleteID, folders in
-                CoachAthleteGroup(
-                    athleteID: athleteID,
-                    athleteName: folders.first?.ownerAthleteName ?? "Unknown Athlete",
-                    folders: folders
-                )
-            }.sorted { $0.athleteName < $1.athleteName }
-        }
-
-        let activeGroups = buildGroups(activeFolders)
-        cachedArchivedGroups = buildGroups(archivedFolders)
-        cachedActiveGroups = activeGroups
-
-        if searchText.isEmpty {
-            cachedFilteredGroups = activeGroups
-        } else {
-            let q = searchText.lowercased()
-            cachedFilteredGroups = activeGroups.filter {
-                $0.athleteName.lowercased().contains(q) ||
-                $0.folders.contains(where: { $0.name.lowercased().contains(q) })
-            }
-        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 16)
+        .background(Color(.secondarySystemBackground))
+        .cornerRadius(12)
     }
 }
 
 // MARK: - Preview
 
 #Preview {
-    CoachDashboardView()
-        .environmentObject(ComprehensiveAuthManager())
-        .environmentObject(SharedFolderManager.shared)
+    NavigationStack {
+        CoachDashboardView()
+            .environmentObject(ComprehensiveAuthManager())
+            .environmentObject(SharedFolderManager.shared)
+            .environment(CoachNavigationCoordinator())
+    }
 }
-

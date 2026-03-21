@@ -68,7 +68,7 @@ struct UserMainFlow: View {
         Group {
             // IMPORTANT: Check if user is a coach FIRST before any athlete logic
             if authManager.userRole == .coach {
-                CoachDashboardView()
+                CoachTabView()
                     .environmentObject(sharedFolderManager)
                     .onAppear {
                     }

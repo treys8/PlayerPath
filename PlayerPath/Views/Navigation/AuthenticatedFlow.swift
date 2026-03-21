@@ -90,6 +90,8 @@ struct AuthenticatedFlow: View {
                             CoachInvitationManager.shared.startInvitationsListener(forCoachEmail: email)
                         }
                     }
+                    // Refresh tier from Firestore to catch changes from other devices
+                    Task { await authManager.refreshTierFromFirestore() }
                 }
             default:
                 break

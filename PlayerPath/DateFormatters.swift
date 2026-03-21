@@ -61,3 +61,14 @@ extension DateFormatter {
         return f
     }()
 }
+
+// MARK: - Video Timestamp Formatting
+
+extension Double {
+    /// Formats seconds as "M:SS" (e.g., 65.0 → "1:05")
+    var formattedTimestamp: String {
+        let minutes = Int(self) / 60
+        let seconds = Int(self) % 60
+        return String(format: "%d:%02d", minutes, seconds)
+    }
+}

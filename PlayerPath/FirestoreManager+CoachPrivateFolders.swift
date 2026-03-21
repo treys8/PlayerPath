@@ -15,6 +15,7 @@
 //
 
 import Foundation
+import FirebaseAuth
 import FirebaseFirestore
 import os
 
@@ -69,9 +70,18 @@ extension FirestoreManager {
     }
 
     /// Fetches all private videos in a coach's private folder, ordered by creation date.
-    func fetchPrivateVideos(privateFolderID: String) async throws -> [CoachPrivateVideo] {
-        let snapshot = try await db.collection("coachPrivateVideos")
+    /// The `uploadedBy` filter is required to satisfy the Firestore security rule
+    /// which gates reads on `resource.data.uploadedBy == request.auth.uid`.
+    func fetchPrivateVideos(privateFolderID: String, coachID: String? = nil) async throws -> [CoachPrivateVideo] {
+        var query = db.collection("coachPrivateVideos")
             .whereField("privateFolderID", isEqualTo: privateFolderID)
+        // Add uploadedBy filter to satisfy security rules (required for queries)
+        if let coachID {
+            query = query.whereField("uploadedBy", isEqualTo: coachID)
+        } else if let uid = Auth.auth().currentUser?.uid {
+            query = query.whereField("uploadedBy", isEqualTo: uid)
+        }
+        let snapshot = try await query
             .order(by: "createdAt", descending: true)
             .limit(to: 100)
             .getDocuments()
@@ -135,7 +145,9 @@ extension FirestoreManager {
         privateFolderID: String,
         sharedFolderID: String,
         coachID: String,
-        coachName: String
+        coachName: String,
+        tags: [String] = [],
+        drillType: String? = nil
     ) async throws {
         // 1. Read the private video metadata
         let privateDoc = try await db.collection("coachPrivateVideos").document(privateVideoID).getDocument()
@@ -149,6 +161,7 @@ extension FirestoreManager {
         let fileSize = privateData["fileSize"] as? Int64 ?? 0
         let duration = privateData["duration"] as? Double
         let notes = privateData["notes"] as? String
+        let thumbnailURL = privateData["thumbnailURL"] as? String
 
         // 2. Batch: create shared video + increment shared folder count
         //         + delete private video + decrement private folder count
@@ -161,6 +174,7 @@ extension FirestoreManager {
             "firebaseStorageURL": storageURL,
             "uploadedBy": coachID,
             "uploadedByName": coachName,
+            "uploadedByType": "coach",
             "sharedFolderID": sharedFolderID,
             "createdAt": FieldValue.serverTimestamp(),
             "fileSize": fileSize,
@@ -168,6 +182,12 @@ extension FirestoreManager {
         ]
         if let duration { sharedVideoData["duration"] = duration }
         if let notes { sharedVideoData["notes"] = notes }
+        if !tags.isEmpty { sharedVideoData["tags"] = tags }
+        if let drillType { sharedVideoData["drillType"] = drillType }
+        if let thumbnailURL {
+            sharedVideoData["thumbnailURL"] = thumbnailURL
+            sharedVideoData["thumbnail"] = ["standardURL": thumbnailURL]
+        }
         batch.setData(sharedVideoData, forDocument: sharedVideoRef)
 
         // Increment shared folder videoCount

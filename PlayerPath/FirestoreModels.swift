@@ -48,6 +48,7 @@ struct SharedFolder: Codable, Identifiable, Hashable {
     let createdAt: Date?
     let updatedAt: Date?
     let videoCount: Int?
+    var tags: [String]? = nil
 
     /// Helper to get typed permissions for a coach
     func getPermissions(for coachID: String) -> FolderPermissions? {
@@ -115,6 +116,11 @@ struct FirestoreVideoMetadata: Codable, Identifiable {
     let practiceDate: Date?
     let notes: String?
 
+    // Tags and categorization
+    var tags: [String]? = nil
+    var drillType: String? = nil
+    var sessionID: String? = nil
+
     /// Display name for uploader (handles orphaned accounts)
     var uploaderDisplayName: String {
         if isOrphaned == true {
@@ -151,6 +157,14 @@ struct VideoAnnotation: Codable, Identifiable {
     let text: String
     let createdAt: Date?
     let isCoachComment: Bool
+    var category: String? = nil
+    var templateID: String? = nil
+    var type: String? = nil // "note" (default), "drill_card", "drawing"
+
+    var annotationCategory: AnnotationCategory? {
+        guard let category else { return nil }
+        return AnnotationCategory(rawValue: category)
+    }
 }
 
 /// Coach invitation model

@@ -1,0 +1,166 @@
+===============================================================================
+AUDIT: Coach Service Files
+Date: 2026-03-21
+Files: CoachFolderArchiveManager.swift, CoachInvitationManager.swift,
+       CoachTemplateService.swift, CoachVideoProcessingService.swift
+===============================================================================
+
+
+1. CoachFolderArchiveManager.swift (49 lines)
+───────────────────────────────────────────────
+Purpose: Tracks which shared folders a coach has locally archived/hidden,
+         stored in UserDefaults keyed by coach UID.
+
+ISSUES:
+
+[LOW] Unnecessary `import Combine` (line 11)
+  The file uses ObservableObject/@Published (re-exported by SwiftUI/Combine),
+  but does not use any Combine-specific APIs (publishers, subscribers, etc.).
+  Not harmful, but unnecessary.
+
+[LOW] ObservableObject vs @Observable inconsistency
+  CLAUDE.md states "All ViewModels use @Observable (Swift Observation framework)."
+  This class uses the older ObservableObject/@Published pattern.
+  Several other services in the project also use ObservableObject, so this is
+  a codebase-wide inconsistency rather than specific to this file.
+  Consumers use @ObservedObject (CoachMultiAthleteView, CoachAthletesTab,
+  CoachDashboardView, CoachFolderDetailView) which would need to change too.
+
+[INFO] No access control on class (line 14)
+  Class is internal (default). Fine for a single-module app.
+
+VERDICT: Clean. Small, focused, correct. No functional issues.
+
+
+2. CoachInvitationManager.swift (101 lines)
+────────────────────────────────────────────
+Purpose: Real-time Firestore listener for pending coach invitations.
+         Singleton used by dashboard, invitations view, tab view, etc.
+
+ISSUES:
+
+[LOW] Unnecessary `import Combine` (line 10)
+  Same as above — no Combine-specific APIs used beyond ObservableObject.
+
+[LOW] ObservableObject vs @Observable inconsistency
+  Same codebase-wide pattern issue. Consumers use @ObservedObject.
+
+[LOW] Redundant @MainActor on methods (lines 34, 76, 88, 94)
+  The class is already @MainActor (line 16), so individual method annotations
+  are redundant. Not harmful, just noisy.
+
+[MEDIUM] deinit on @MainActor singleton (lines 28-31)
+  A singleton's deinit is effectively dead code — `shared` holds a permanent
+  strong reference, so this will never execute. The listener cleanup belongs
+  in `stopInvitationsListener()` (which already exists and is called correctly
+  from AuthenticatedFlow). The deinit is misleading about resource lifecycle.
+
+[LOW] Snapshot listener error silently swallowed (line 45)
+  The `error` from the snapshot listener callback is checked but not logged
+  via `invitationLog`. Only a generic user-facing string is set. The actual
+  error should be logged for debugging:
+    invitationLog.warning("Invitation listener error: \(error.localizedDescription)")
+
+[LOW] `checkPendingInvitations` silently clears on error (lines 82-83)
+  If the fetch fails, pending invitations are reset to empty with no
+  indication to the user or logs that something went wrong. Should at least
+  log the error.
+
+VERDICT: Functional and correct. The deinit is misleading but harmless.
+         Error logging gaps should be addressed.
+
+
+3. CoachTemplateService.swift (117 lines)
+──────────────────────────────────────────
+Purpose: Firestore CRUD for coach quick cues (short annotation phrases).
+         Seeds default cues for new coaches.
+
+ISSUES:
+
+[LOW] Unnecessary `import Combine` (line 9)
+  Same pattern — no Combine-specific APIs used.
+
+[LOW] ObservableObject vs @Observable inconsistency
+  Same codebase-wide pattern issue.
+
+[LOW] Missing private init (implicit internal init)
+  Unlike the other singletons which have `private init() {}`, this class
+  has no explicit init restriction. Any code can create a second instance of
+  CoachTemplateService, bypassing the singleton. Should add `private init() {}`.
+
+[LOW] `isLoading` not reset on all paths (lines 27, 44)
+  `isLoading` is set to `true` at the start of `loadQuickCues` and set to
+  `false` at the end. This works because there are no early returns between
+  them, but using `defer { isLoading = false }` would be more resilient
+  against future changes adding early returns.
+
+[INFO] `seedDefaultCues` silently drops errors (line 113)
+  Uses `try?` for each cue insertion. If Firestore is unreachable, all seeds
+  fail silently. Acceptable for a best-effort seeding function, but worth
+  noting.
+
+[INFO] `addQuickCue` returns a QuickCue with a local Date() (line 64)
+  The Firestore document uses `FieldValue.serverTimestamp()` for `createdAt`,
+  but the returned QuickCue has `Date()`. Minor discrepancy — the local
+  object's timestamp won't match the server timestamp. Only matters if
+  createdAt is displayed to the user.
+
+VERDICT: Functional. Missing private init is the most actionable item.
+
+
+4. CoachVideoProcessingService.swift (90 lines)
+─────────────────────────────────────────────────
+Purpose: Post-recording processing — extracts video duration and
+         generates/uploads thumbnails via VideoFileManager and
+         VideoCloudManager.
+
+ISSUES:
+
+  None of significance found.
+
+[INFO] Marked `final class` (line 17)
+  Good — prevents subclassing, enables compiler optimizations. The other
+  three services in this audit are not marked `final`. Consider applying
+  `final` to all four for consistency.
+
+[INFO] No `private init()` but also no ObservableObject
+  No published properties, no conformance to ObservableObject. Since it's
+  just a stateless service with a singleton accessor, accidental extra
+  instances are harmless. Still, adding `private init() {}` would be
+  consistent with the pattern used by the other services.
+
+VERDICT: Cleanest of the four files. Well-structured, good error handling,
+         clear separation of concerns.
+
+
+===============================================================================
+SUMMARY
+===============================================================================
+
+  File                            Issues    Severity
+  ──────────────────────────────  ────────  ──────────────
+  CoachFolderArchiveManager       2 Low     Clean
+  CoachInvitationManager          1 Med     Mostly clean
+  CoachTemplateService            3 Low     Mostly clean
+  CoachVideoProcessingService     0         Clean
+
+CROSS-CUTTING THEMES:
+
+1. ObservableObject vs @Observable — Three of four files use the older
+   ObservableObject pattern. The project's CLAUDE.md says ViewModels should
+   use @Observable. Migration would also require changing @ObservedObject
+   to @State or @Environment in all consumers. This is a codebase-wide
+   decision, not specific to these files.
+
+2. Unnecessary `import Combine` — Present in 3 of 4 files. These imports
+   can be removed since ObservableObject/@Published are available through
+   Foundation/SwiftUI without an explicit Combine import on iOS 17+.
+
+3. Missing `private init()` — CoachTemplateService and
+   CoachVideoProcessingService lack the private init that
+   CoachFolderArchiveManager and CoachInvitationManager have.
+
+4. Error logging gaps — CoachInvitationManager has two places where errors
+   are silently handled without logging.
+
+===============================================================================

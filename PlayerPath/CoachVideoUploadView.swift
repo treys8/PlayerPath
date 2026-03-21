@@ -7,9 +7,10 @@
 //
 
 import SwiftUI
+import Combine
 import PhotosUI
 import AVFoundation
-import Combine
+
 
 struct CoachVideoUploadView: View {
     let folder: SharedFolder
@@ -435,6 +436,7 @@ class CoachVideoUploadViewModel: ObservableObject {
             "firebaseStorageURL": storageURL,
             "uploadedBy": uploaderID,
             "uploadedByName": uploaderName,
+            "uploadedByType": "coach",
             "sharedFolderID": folder.id ?? "",
             "isHighlight": isHighlight,
             "createdAt": Date()

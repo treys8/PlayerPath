@@ -75,7 +75,7 @@ struct AthleteSection: View {
             if isExpanded {
                 VStack(spacing: 8) {
                     ForEach(folders) { folder in
-                        NavigationLink(destination: CoachFolderDetailView(folder: folder)) {
+                        NavigationLink(value: folder) {
                             CoachFolderRowView(folder: folder)
                         }
                         .buttonStyle(.plain)

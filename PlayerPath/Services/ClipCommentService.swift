@@ -29,8 +29,14 @@ struct ClipComment: Codable, Identifiable {
     let authorRole: String   // "athlete" | "coach"
     let text: String
     let createdAt: Date?
+    var category: String? = nil
 
     var isCoachComment: Bool { authorRole == "coach" }
+
+    var annotationCategory: AnnotationCategory? {
+        guard let category else { return nil }
+        return AnnotationCategory(rawValue: category)
+    }
 }
 
 // MARK: - Service
@@ -64,7 +70,8 @@ final class ClipCommentService {
         text: String,
         authorId: String,
         authorName: String,
-        authorRole: String
+        authorRole: String,
+        category: String? = nil
     ) async throws {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
@@ -72,13 +79,14 @@ final class ClipCommentService {
         // Limit comment length to prevent abuse and excessive Firestore document size
         let clampedText = String(trimmed.prefix(2000))
 
-        let data: [String: Any] = [
+        var data: [String: Any] = [
             "authorId": authorId,
             "authorName": authorName,
             "authorRole": authorRole,
             "text": clampedText,
             "createdAt": Timestamp(date: Date())
         ]
+        if let category { data["category"] = category }
 
         try await db
             .collection("videos")

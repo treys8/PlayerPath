@@ -21,7 +21,7 @@ struct CoachPrivateVideosTab: View {
     @State private var showingDeleteConfirmation = false
     @State private var videoToDelete: CoachPrivateVideo?
     @State private var videoToMove: CoachPrivateVideo?
-    @State private var showingMoveConfirmation = false
+    @State private var showingMoveAndTag = false
 
     var body: some View {
         Group {
@@ -67,15 +67,19 @@ struct CoachPrivateVideosTab: View {
         } message: {
             Text("This recording will be permanently deleted. It has not been shared with the athlete.")
         }
-        .alert("Move to Shared Folder", isPresented: $showingMoveConfirmation) {
-            Button("Move") {
-                if let video = videoToMove {
-                    Task { await viewModel.moveToSharedFolder(video) }
+        .sheet(isPresented: $showingMoveAndTag) {
+            if let video = videoToMove, let folderID = folder.id {
+                let item = CoachRecordingItem(
+                    video: video,
+                    athleteName: folder.ownerAthleteName ?? "Athlete",
+                    folderName: folder.name,
+                    sharedFolderID: folderID,
+                    privateFolderID: viewModel.privateFolderID ?? ""
+                )
+                MoveAndTagSheet(item: item) { tags, drillType in
+                    Task { await viewModel.moveToSharedFolder(video, tags: tags, drillType: drillType) }
                 }
             }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This video will be moved to \"\(folder.name)\" and visible to the athlete.")
         }
         .alert("Error", isPresented: .init(
             get: { viewModel.errorMessage != nil },
@@ -152,18 +156,24 @@ struct CoachPrivateVideosTab: View {
 
             List {
                 ForEach(viewModel.videos) { video in
-                    PrivateVideoRow(
-                        video: video,
-                        isUploading: viewModel.uploadingVideoID == video.id,
-                        onMove: {
-                            videoToMove = video
-                            showingMoveConfirmation = true
-                        },
-                        onDelete: {
-                            videoToDelete = video
-                            showingDeleteConfirmation = true
-                        }
-                    )
+                    NavigationLink(destination: CoachVideoPlayerView(
+                        folder: folder,
+                        video: CoachVideoItem(from: video, sharedFolderID: folder.id ?? "")
+                    )) {
+                        PrivateVideoRow(
+                            video: video,
+                            isUploading: viewModel.uploadingVideoID == video.id,
+                            onMove: {
+                                videoToMove = video
+                                showingMoveAndTag = true
+                            },
+                            onDelete: {
+                                videoToDelete = video
+                                showingDeleteConfirmation = true
+                            }
+                        )
+                    }
+                    .buttonStyle(.plain)
                 }
             }
             .listStyle(.plain)
@@ -194,18 +204,26 @@ struct PrivateVideoRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            // Thumbnail placeholder
+            // Thumbnail
             ZStack {
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(Color(.systemGray5))
-                    .frame(width: 80, height: 56)
-
-                Image(systemName: "video.fill")
-                    .foregroundColor(.gray)
+                if let urlString = video.thumbnailURL, let url = URL(string: urlString) {
+                    AsyncImage(url: url) { phase in
+                        switch phase {
+                        case .success(let image):
+                            image.resizable().aspectRatio(contentMode: .fill)
+                        default:
+                            thumbnailPlaceholder
+                        }
+                    }
+                } else {
+                    thumbnailPlaceholder
+                }
             }
+            .frame(width: 80, height: 56)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(video.fileName)
+                Text(displayName)
                     .font(.subheadline)
                     .fontWeight(.medium)
                     .lineLimit(1)
@@ -216,10 +234,17 @@ struct PrivateVideoRow: View {
                         .foregroundColor(.secondary)
                 }
 
-                if let fileSize = video.fileSize, fileSize > 0 {
-                    Text(ByteCountFormatter.string(fromByteCount: fileSize, countStyle: .file))
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
+                HStack(spacing: 8) {
+                    if let fileSize = video.fileSize, fileSize > 0 {
+                        Text(ByteCountFormatter.string(fromByteCount: fileSize, countStyle: .file))
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                    if let duration = video.duration {
+                        Text(formatDuration(duration))
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
                 }
             }
 
@@ -227,6 +252,11 @@ struct PrivateVideoRow: View {
 
             if isUploading {
                 ProgressView()
+            } else {
+                // Visual hint that actions are available
+                Image(systemName: "ellipsis")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
             }
         }
         .padding(.vertical, 4)
@@ -261,6 +291,58 @@ struct PrivateVideoRow: View {
             .tint(.green)
         }
     }
+
+    private var thumbnailPlaceholder: some View {
+        ZStack {
+            Color(.systemGray5)
+            Image(systemName: "video.fill")
+                .foregroundColor(.gray)
+        }
+    }
+
+    private var displayName: String {
+        // Show a readable name instead of the raw filename
+        if let notes = video.notes, !notes.isEmpty {
+            return notes
+        }
+        return video.fileName
+            .replacingOccurrences(of: "practice_", with: "Practice ")
+            .replacingOccurrences(of: ".mov", with: "")
+            .replacingOccurrences(of: "_", with: " ")
+    }
+
+    private func formatDuration(_ seconds: Double) -> String {
+        let mins = Int(seconds) / 60
+        let secs = Int(seconds) % 60
+        return String(format: "%d:%02d", mins, secs)
+    }
+}
+
+// MARK: - CoachVideoItem from Private Video
+
+extension CoachVideoItem {
+    init(from privateVideo: CoachPrivateVideo, sharedFolderID: String) {
+        self.id = privateVideo.id ?? UUID().uuidString
+        self.fileName = privateVideo.fileName
+        self.firebaseStorageURL = privateVideo.firebaseStorageURL
+        self.thumbnailURL = privateVideo.thumbnailURL
+        self.uploadedBy = privateVideo.uploadedBy
+        self.uploadedByName = privateVideo.uploadedByName
+        self.sharedFolderID = sharedFolderID
+        self.createdAt = privateVideo.createdAt
+        self.fileSize = privateVideo.fileSize
+        self.duration = privateVideo.duration
+        self.isHighlight = false
+        self.videoType = "practice"
+        self.gameOpponent = nil
+        self.gameDate = nil
+        self.practiceDate = nil
+        self.notes = privateVideo.notes
+        self.annotationCount = nil
+        self.tags = []
+        self.drillType = nil
+        self.isPrivatePreview = true
+    }
 }
 
 // MARK: - View Model
@@ -274,7 +356,8 @@ class CoachPrivateVideosViewModel: ObservableObject {
     @Published var errorMessage: String?
     @Published var uploadingVideoID: String?
 
-    private var privateFolder: CoachPrivateFolder?
+    private(set) var privateFolder: CoachPrivateFolder?
+    var privateFolderID: String? { privateFolder?.id }
     private var coachID: String?
     private var coachName: String?
     private let firestore = FirestoreManager.shared
@@ -333,6 +416,13 @@ class CoachPrivateVideosViewModel: ObservableObject {
                 progressHandler: { _ in }
             )
 
+            // Process video: extract duration + generate/upload thumbnail
+            let processed = await CoachVideoProcessingService.shared.process(
+                videoURL: videoURL,
+                fileName: fileName,
+                folderID: sharedFolderID
+            )
+
             // Create metadata in Firestore
             _ = try await firestore.createPrivateVideo(
                 privateFolderID: folderID,
@@ -341,8 +431,8 @@ class CoachPrivateVideosViewModel: ObservableObject {
                 uploadedBy: coachID,
                 uploadedByName: coachName,
                 fileSize: fileSize,
-                duration: nil,
-                thumbnailURL: nil,
+                duration: processed.duration,
+                thumbnailURL: processed.thumbnailURL,
                 notes: nil
             )
 
@@ -356,12 +446,15 @@ class CoachPrivateVideosViewModel: ObservableObject {
         isUploading = false
     }
 
-    func moveToSharedFolder(_ video: CoachPrivateVideo) async {
+    func moveToSharedFolder(_ video: CoachPrivateVideo, tags: [String] = [], drillType: String? = nil) async {
         guard let videoID = video.id,
               let folderID = privateFolder?.id,
               let sharedFolderID = privateFolder?.sharedFolderID,
               let coachID = coachID,
-              let coachName = coachName else { return }
+              let coachName = coachName else {
+            errorMessage = "Unable to share video. Please try again."
+            return
+        }
 
         isMoving = true
         uploadingVideoID = videoID
@@ -372,7 +465,9 @@ class CoachPrivateVideosViewModel: ObservableObject {
                 privateFolderID: folderID,
                 sharedFolderID: sharedFolderID,
                 coachID: coachID,
-                coachName: coachName
+                coachName: coachName,
+                tags: tags,
+                drillType: drillType
             )
             Haptics.success()
             await loadVideos()

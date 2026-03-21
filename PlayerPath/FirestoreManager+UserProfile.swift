@@ -90,14 +90,47 @@ extension FirestoreManager {
         hasAthleteTierOverride: Bool = false,
         receiptData: String? = nil
     ) async {
-        // Obtain the App Store receipt/transaction token if not provided
+        do {
+            try await syncSubscriptionTiersWithThrow(
+                userID: userID,
+                tier: tier,
+                coachTier: coachTier,
+                hasAthleteTierOverride: hasAthleteTierOverride,
+                receiptData: receiptData
+            )
+        } catch {
+            firestoreLog.warning("Failed to sync subscription tier: \(error.localizedDescription)")
+        }
+    }
+
+    /// Throwing variant for use with retry logic.
+    func syncSubscriptionTiersWithThrow(
+        userID: String,
+        tier: SubscriptionTier,
+        coachTier: CoachSubscriptionTier,
+        hasAthleteTierOverride: Bool = false,
+        receiptData: String? = nil
+    ) async throws {
+        // Obtain the App Store receipt if not provided
         let receipt: String
         if let provided = receiptData {
             receipt = provided
-        } else if let jwsToken = await appTransactionJWS() {
-            receipt = jwsToken
+        } else if let appReceipt = await appStoreReceipt() {
+            receipt = appReceipt
         } else {
+            #if DEBUG
+            // In DEBUG, write tier directly to Firestore to unblock development
+            firestoreLog.info("No App Store receipt (DEBUG). Writing tier directly to Firestore.")
+            try await db.collection("users").document(userID).setData([
+                "subscriptionTier": tier.rawValue,
+                "coachSubscriptionTier": coachTier.rawValue,
+                "updatedAt": FieldValue.serverTimestamp()
+            ], merge: true)
             return
+            #else
+            firestoreLog.warning("No App Store receipt available. Tier sync skipped.")
+            return
+            #endif
         }
 
         let callable = Functions.functions().httpsCallable("syncSubscriptionTier")
@@ -108,19 +141,23 @@ extension FirestoreManager {
             "hasAthleteTierOverride": hasAthleteTierOverride
         ]
 
-        do {
-            let _ = try await callable.call(payload)
-        } catch {
-            firestoreLog.warning("Failed to sync subscription tier to server: \(error.localizedDescription)")
-        }
+        let _ = try await callable.call(payload)
     }
 
-    /// Returns the signed JWS string from AppTransaction, or nil on failure.
-    fileprivate func appTransactionJWS() async -> String? {
-        guard let result = try? await AppTransaction.shared else {
-            return nil
+    /// Returns the App Store receipt for server-side validation.
+    /// Tries the legacy receipt first (needed by verifyReceipt endpoint),
+    /// falls back to the StoreKit 2 JWS App Transaction token.
+    fileprivate func appStoreReceipt() async -> String? {
+        // Legacy receipt (required by Apple's verifyReceipt endpoint)
+        if let receiptURL = Bundle.main.appStoreReceiptURL,
+           let receiptData = try? Data(contentsOf: receiptURL) {
+            return receiptData.base64EncodedString()
         }
-        return result.jwsRepresentation
+        // Fallback: StoreKit 2 JWS token (for future App Store Server API migration)
+        if let result = try? await AppTransaction.shared {
+            return result.jwsRepresentation
+        }
+        return nil
     }
 
     /// Deletes user profile and all associated data (GDPR compliance)

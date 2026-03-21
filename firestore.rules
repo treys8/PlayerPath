@@ -29,8 +29,8 @@ service cloud.firestore {
     // Coach-to-athlete invitations require at least an instructor-level coach plan.
     function hasCoachTier() {
       let user = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
-      return user.coachSubscriptionTier != null
-          && user.coachSubscriptionTier != "free";
+      // Allow any coach with a coachSubscriptionTier set (including coach_free)
+      return user.coachSubscriptionTier != null;
     }
 
     // Checks if the requesting user is the owner of a shared folder.
@@ -374,9 +374,12 @@ service cloud.firestore {
     // ========================================================================
 
     match /coachPrivateFolders/{folderID} {
-      // Only the owning coach can read their private folders
+      // Only the owning coach can read their private folders.
+      // folderID format is "{coachUID}_{sharedFolderID}", so we split on "_"
+      // and check the first segment. This works even when the doc doesn't exist
+      // (getDocument existence check before create).
       allow read:   if isAuthenticated()
-                    && resource.data.coachID == request.auth.uid;
+                    && folderID.split('_')[0] == request.auth.uid;
 
       // Coach creates their own private folder; must reference a shared folder they have access to
       allow create: if isAuthenticated()
@@ -409,6 +412,40 @@ service cloud.firestore {
       // Only the uploader can delete
       allow delete: if isAuthenticated()
                     && resource.data.uploadedBy == request.auth.uid;
+    }
+
+    // ========================================================================
+    // COACH TEMPLATES (Quick Cues)
+    // ========================================================================
+
+    match /coachTemplates/{coachID}/quickCues/{cueID} {
+      // Only the owning coach can read/write their quick cues
+      allow read:   if isAuthenticated() && isOwner(coachID);
+      allow create: if isAuthenticated() && isOwner(coachID);
+      allow update: if isAuthenticated() && isOwner(coachID);
+      allow delete: if isAuthenticated() && isOwner(coachID);
+    }
+
+    // ========================================================================
+    // DRILL CARDS (subcollection of videos)
+    // ========================================================================
+
+    match /videos/{videoID}/drillCards/{cardID} {
+      // Coach who created it OR folder member can read
+      allow read: if isAuthenticated()
+                  && ('sharedFolderID' in getVideoData(videoID)
+                      ? canAccessFolder(getVideoData(videoID).sharedFolderID)
+                      : resource.data.coachID == request.auth.uid);
+
+      // Coach can create drill cards on videos they have access to
+      allow create: if isAuthenticated()
+                    && request.resource.data.coachID == request.auth.uid;
+
+      // Only the creating coach can update/delete
+      allow update: if isAuthenticated()
+                    && resource.data.coachID == request.auth.uid;
+      allow delete: if isAuthenticated()
+                    && resource.data.coachID == request.auth.uid;
     }
 
     // ========================================================================

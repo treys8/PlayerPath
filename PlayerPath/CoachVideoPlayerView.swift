@@ -8,8 +8,6 @@
 
 import SwiftUI
 import AVKit
-import Combine
-import CoreMedia
 
 struct CoachVideoPlayerView: View {
     let folder: SharedFolder
@@ -20,6 +18,10 @@ struct CoachVideoPlayerView: View {
     @State private var showingAddNote = false
     @State private var selectedTab: VideoTab = .notes
     @State private var showingSpeedPicker = false
+    @State private var showingQuickCueManager = false
+    @State private var showingDrillCardEditor = false
+    @State private var drillCards: [DrillCard] = []
+    @ObservedObject private var templateService = CoachTemplateService.shared
     @Environment(\.verticalSizeClass) private var vSizeClass
     @Environment(\.scenePhase) private var scenePhase
     private var isLandscape: Bool { vSizeClass == .compact }
@@ -32,11 +34,13 @@ struct CoachVideoPlayerView: View {
     
     enum VideoTab: String, CaseIterable {
         case notes = "Notes"
+        case drillCard = "Drill Card"
         case info = "Info"
-        
+
         var icon: String {
             switch self {
             case .notes: return "bubble.left.fill"
+            case .drillCard: return "clipboard.fill"
             case .info: return "info.circle.fill"
             }
         }
@@ -83,22 +87,54 @@ struct CoachVideoPlayerView: View {
             Button("Cancel", role: .cancel) {}
         }
         .sheet(isPresented: $showingAddNote) {
-            AddNoteView(
+            EnhancedAddNoteView(
                 currentTime: viewModel.currentPlaybackTime,
-                onSave: { noteText, timestamp in
+                quickCues: templateService.quickCues,
+                onSave: { noteText, timestamp, category in
                     Task {
-                        await addNote(text: noteText, timestamp: timestamp)
+                        await addNote(text: noteText, timestamp: timestamp, category: category)
                     }
                 }
             )
         }
+        .sheet(isPresented: $showingQuickCueManager) {
+            if let coachID = authManager.userID {
+                QuickCueManager(coachID: coachID)
+            }
+        }
+        .sheet(isPresented: $showingDrillCardEditor) {
+            if let coachID = authManager.userID {
+                DrillCardView(
+                    videoID: video.id,
+                    coachID: coachID,
+                    coachName: authManager.userDisplayName ?? "Coach",
+                    onSave: { card in
+                        drillCards.insert(card, at: 0)
+                    }
+                )
+            }
+        }
         .task {
-            // Load video and annotations in parallel — they're independent.
-            // Saves 200-500ms by overlapping the Firestore annotation fetch
-            // with the Cloud Function signed URL + AVPlayer buffering.
-            async let videoLoad: () = viewModel.loadVideo()
+            // Load video first (always needed)
+            await viewModel.loadVideo()
+
+            // Skip annotations/cues/drill cards for private video previews
+            // (private videos don't exist in the videos collection yet)
+            guard !video.isPrivatePreview else { return }
+
+            // Load annotations, cues, and drill cards in parallel
             async let annotationsLoad: () = viewModel.loadAnnotations()
-            _ = await (videoLoad, annotationsLoad)
+            if let coachID = authManager.userID {
+                async let cuesLoad: () = templateService.loadQuickCues(coachID: coachID)
+                _ = await (annotationsLoad, cuesLoad)
+            } else {
+                _ = await annotationsLoad
+            }
+            do {
+                drillCards = try await FirestoreManager.shared.fetchDrillCards(forVideo: video.id)
+            } catch {
+                ErrorHandlerService.shared.handle(error, context: "CoachVideoPlayer.loadDrillCards", showAlert: false)
+            }
         }
         .onChange(of: scenePhase) { oldPhase, newPhase in
             if newPhase != .active {
@@ -119,13 +155,29 @@ struct CoachVideoPlayerView: View {
         VStack(spacing: 0) {
             playerContent
                 .frame(height: 250)
+            if canComment && !templateService.quickCues.isEmpty {
+                QuickCueBar(
+                    cues: templateService.quickCues,
+                    onTap: { cue in quickCueTapped(cue) },
+                    onManage: { showingQuickCueManager = true }
+                )
+            }
             annotationPanel
         }
     }
 
     private var landscapeLayout: some View {
         HStack(spacing: 0) {
-            playerContent
+            VStack(spacing: 0) {
+                playerContent
+                if canComment && !templateService.quickCues.isEmpty {
+                    QuickCueBar(
+                        cues: templateService.quickCues,
+                        onTap: { cue in quickCueTapped(cue) },
+                        onManage: { showingQuickCueManager = true }
+                    )
+                }
+            }
             Divider()
             annotationPanel
                 .frame(width: 320)
@@ -212,6 +264,12 @@ struct CoachVideoPlayerView: View {
                         },
                         canComment: canComment
                     )
+                case .drillCard:
+                    DrillCardTabView(
+                        drillCards: drillCards,
+                        canComment: canComment,
+                        onAdd: { showingDrillCardEditor = true }
+                    )
                 case .info:
                     VideoInfoTabView(video: video)
                 }
@@ -220,26 +278,44 @@ struct CoachVideoPlayerView: View {
     }
 
     private var canComment: Bool {
+        // Private video previews can't have annotations (no parent doc in videos collection)
+        if video.isPrivatePreview { return false }
         guard let userID = authManager.userID else { return false }
         if userID == folder.ownerAthleteID { return true }
         return folder.getPermissions(for: userID)?.canComment ?? false
     }
     
-    private func addNote(text: String, timestamp: Double) async {
+    private func addNote(text: String, timestamp: Double, category: AnnotationCategory? = nil) async {
         guard let userID = authManager.userID,
               let userName = authManager.userDisplayName ?? authManager.userEmail else {
             return
         }
-        
+
         let isCoach = authManager.userRole == .coach
-        
+
         await viewModel.addAnnotation(
             text: text,
             timestamp: timestamp,
             userID: userID,
             userName: userName,
-            isCoachComment: isCoach
+            isCoachComment: isCoach,
+            category: category?.rawValue
         )
+    }
+
+    private func quickCueTapped(_ cue: QuickCue) {
+        guard let coachID = authManager.userID else { return }
+        Haptics.light()
+        Task {
+            await addNote(
+                text: cue.text,
+                timestamp: viewModel.currentPlaybackTime,
+                category: cue.annotationCategory
+            )
+            if let cueID = cue.id {
+                await templateService.incrementUsage(coachID: coachID, cueID: cueID)
+            }
+        }
     }
 }
 
@@ -374,7 +450,7 @@ struct NoteCardView: View {
             HStack {
                 Image(systemName: "clock.fill")
                     .font(.caption2)
-                Text(formatTimestamp(note.timestamp))
+                Text(note.timestamp.formattedTimestamp)
                     .font(.caption)
                     .monospacedDigit()
             }
@@ -397,6 +473,14 @@ struct NoteCardView: View {
             .cornerRadius(10)
         }
         .buttonStyle(.plain)
+        .overlay(alignment: .leading) {
+            if let cat = note.annotationCategory {
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(cat.color)
+                    .frame(width: 4)
+                    .padding(.vertical, 8)
+            }
+        }
         .contextMenu {
             if canDelete {
                 Button(role: .destructive) {
@@ -436,11 +520,6 @@ struct NoteCardView: View {
         }
     }
     
-    private func formatTimestamp(_ seconds: Double) -> String {
-        let minutes = Int(seconds) / 60
-        let remainingSeconds = Int(seconds) % 60
-        return String(format: "%d:%02d", minutes, remainingSeconds)
-    }
 }
 
 // MARK: - Video Info Tab View
@@ -520,366 +599,53 @@ struct InfoRow: View {
     }
 }
 
-// MARK: - Add Note View
+// MARK: - Drill Card Tab View
 
-struct AddNoteView: View {
-    let currentTime: Double
-    let onSave: (String, Double) -> Void
-
-    @Environment(\.dismiss) private var dismiss
-    @State private var noteText = ""
-    @State private var timestamp: Double
-    @State private var isSaving = false
-    @FocusState private var isTextEditorFocused: Bool
-
-    init(currentTime: Double, onSave: @escaping (String, Double) -> Void) {
-        self.currentTime = currentTime
-        self.onSave = onSave
-        _timestamp = State(initialValue: currentTime)
-    }
+struct DrillCardTabView: View {
+    let drillCards: [DrillCard]
+    let canComment: Bool
+    let onAdd: () -> Void
 
     var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    HStack {
-                        Text("Timestamp")
-                        Spacer()
-                        Text(formatTimestamp(timestamp))
-                            .monospacedDigit()
-                            .foregroundColor(.secondary)
-                    }
+        VStack(spacing: 0) {
+            if canComment {
+                Button(action: onAdd) {
+                    Label("New Drill Card", systemImage: "plus.circle.fill")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.green.opacity(0.1))
+                        .foregroundColor(.green)
                 }
+            }
 
-                Section("Note") {
-                    TextEditor(text: $noteText)
-                        .frame(minHeight: 150)
-                        .focused($isTextEditorFocused)
-                }
+            Divider()
 
-                Section {
-                    Text("Add feedback, coaching tips, or observations at this point in the video.")
-                        .font(.caption)
+            if drillCards.isEmpty {
+                VStack(spacing: 16) {
+                    Image(systemName: "clipboard")
+                        .font(.system(size: 50))
+                        .foregroundColor(.gray.opacity(0.5))
+                    Text("No drill cards yet")
+                        .font(.headline)
+                    Text("Create a structured review with ratings for specific skills.")
+                        .font(.subheadline)
                         .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
                 }
-            }
-            .scrollDismissesKeyboard(.interactively)
-            .navigationTitle("Add Note")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        dismiss()
-                    }
-                    .disabled(isSaving)
-                }
-
-                ToolbarItem(placement: .confirmationAction) {
-                    if isSaving {
-                        ProgressView()
-                    } else {
-                        Button("Save") {
-                            isSaving = true
-                            isTextEditorFocused = false
-                            onSave(noteText.trimmingCharacters(in: .whitespacesAndNewlines), timestamp)
-                            dismiss()
+                .frame(maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 12) {
+                        ForEach(drillCards) { card in
+                            DrillCardSummaryView(card: card)
                         }
-                        .disabled(noteText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
-                }
-
-                ToolbarItemGroup(placement: .keyboard) {
-                    Spacer()
-                    Button("Done") {
-                        isTextEditorFocused = false
-                    }
+                    .padding()
                 }
             }
-        }
-    }
-    
-    private func formatTimestamp(_ seconds: Double) -> String {
-        let minutes = Int(seconds) / 60
-        let remainingSeconds = Int(seconds) % 60
-        return String(format: "%d:%02d", minutes, remainingSeconds)
-    }
-}
-
-// MARK: - View Model
-
-@MainActor
-class CoachVideoPlayerViewModel: ObservableObject {
-    let video: CoachVideoItem
-    let folder: SharedFolder
-    
-    @Published var player: AVPlayer?
-    @Published var isLoading = false
-    @Published var isPlayerReady = false
-    @Published var annotations: [VideoAnnotation] = []
-    @Published var isLoadingAnnotations = false
-    @Published var errorMessage: String?
-    @Published var playbackRate: Double = 1.0
-    var shouldResumeOnActive = false
-    private var durationTask: Task<Void, Never>?
-
-    var currentPlaybackTime: Double {
-        player?.currentTime().seconds ?? 0.0
-    }
-    
-    init(video: CoachVideoItem, folder: SharedFolder) {
-        self.video = video
-        self.folder = folder
-    }
-
-    deinit {
-        statusObservation = nil
-    }
-
-    private var statusObservation: NSKeyValueObservation?
-
-    func loadVideo() async {
-        isLoading = true
-        isPlayerReady = false
-
-        // Prefer a short-lived signed URL; fall back to the stored permanent URL
-        let playbackURLString: String
-        do {
-            playbackURLString = try await SecureURLManager.shared.getSecureVideoURL(
-                fileName: video.fileName,
-                folderID: folder.id ?? ""
-            )
-        } catch {
-            ErrorHandlerService.shared.handle(error, context: "CoachVideoPlayer.getSignedURL", showAlert: false)
-            playbackURLString = video.firebaseStorageURL
-        }
-
-        guard let url = URL(string: playbackURLString) else {
-            isLoading = false
-            return
-        }
-
-        let newPlayer = AVPlayer(url: url)
-        player = newPlayer
-
-        // Observe the player item's status so we don't hide the loading
-        // indicator until the player has actually buffered enough to play.
-        statusObservation = nil  // Remove old KVO before setting up new one
-        statusObservation = newPlayer.currentItem?.observe(\.status, options: [.new]) { [weak self] item, _ in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                switch item.status {
-                case .readyToPlay:
-                    self.isPlayerReady = true
-                    self.isLoading = false
-                case .failed:
-                    self.isLoading = false
-                    self.errorMessage = item.error?.localizedDescription ?? "Failed to load video"
-                default:
-                    break
-                }
-            }
-        }
-    }
-    
-    func loadAnnotations() async {
-        isLoadingAnnotations = true
-        
-        do {
-            guard let videoID = video.id as String? else {
-                isLoadingAnnotations = false
-                return
-            }
-            
-            annotations = try await FirestoreManager.shared.fetchAnnotations(forVideo: videoID)
-                .sorted { ($0.timestamp) < ($1.timestamp) }
-            
-        } catch {
-            errorMessage = "Failed to load notes: \(error.localizedDescription)"
-        }
-        
-        isLoadingAnnotations = false
-    }
-    
-    func addAnnotation(
-        text: String,
-        timestamp: Double,
-        userID: String,
-        userName: String,
-        isCoachComment: Bool
-    ) async {
-        do {
-            guard let videoID = video.id as String? else { return }
-
-            let annotation = try await FirestoreManager.shared.createAnnotation(
-                videoID: videoID,
-                text: text,
-                timestamp: timestamp,
-                userID: userID,
-                userName: userName,
-                isCoachComment: isCoachComment
-            )
-
-            annotations.append(annotation)
-            annotations.sort { $0.timestamp < $1.timestamp }
-
-            // Mirror coach feedback to the unified comment thread so the athlete sees it
-            // in their practice/clip view. videoID == VideoClip.id.uuidString (same Firestore doc).
-            if isCoachComment {
-                do {
-                    try await ClipCommentService.shared.postComment(
-                        clipId: videoID,
-                        text: text,
-                        authorId: userID,
-                        authorName: userName,
-                        authorRole: "coach"
-                    )
-                } catch {
-                    ErrorHandlerService.shared.handle(error, context: "CoachVideoPlayer.mirrorComment", showAlert: false)
-                }
-            }
-
-            Haptics.success()
-
-            // Notify the folder owner that a coach left feedback
-            if isCoachComment {
-                let athleteID = folder.ownerAthleteID
-                await ActivityNotificationService.shared.postCoachCommentNotification(
-                    videoFileName: video.fileName,
-                    folderID: folder.id ?? "",
-                    videoID: videoID,
-                    coachID: userID,
-                    coachName: userName,
-                    athleteID: athleteID,
-                    notePreview: text
-                )
-            }
-
-        } catch {
-            errorMessage = "Failed to add note: \(error.localizedDescription)"
-            ErrorHandlerService.shared.handle(error, context: "CoachVideoPlayerViewModel.addAnnotation", showAlert: false)
-        }
-    }
-    
-    func deleteAnnotation(_ annotation: VideoAnnotation) async {
-        do {
-            guard let videoID = video.id as String?,
-                  let annotationID = annotation.id else { return }
-
-            try await FirestoreManager.shared.deleteAnnotation(videoID: videoID, annotationID: annotationID)
-
-            annotations.removeAll { $0.id == annotationID }
-
-            Haptics.success()
-
-        } catch {
-            errorMessage = "Failed to delete note: \(error.localizedDescription)"
-            ErrorHandlerService.shared.handle(error, context: "CoachVideoPlayerViewModel.deleteAnnotation", showAlert: false)
-        }
-    }
-
-    // MARK: - Video Playback Control
-
-    @Published var videoDuration: Double?
-    private var timeObserver: Any?
-
-    func startTimeObserver() {
-        guard let player = player else { return }
-
-        // Observe duration (cancel any previous task to prevent accumulation)
-        durationTask?.cancel()
-        if let currentItem = player.currentItem {
-            durationTask = Task {
-                do {
-                    let duration = try await currentItem.asset.load(.duration)
-                    if !Task.isCancelled {
-                        self.videoDuration = duration.seconds
-                    }
-                } catch {
-                    ErrorHandlerService.shared.handle(error, context: "CoachVideoPlayer.loadDuration", showAlert: false)
-                }
-            }
-        }
-
-        // Observe current time — reapply playback rate whenever the player starts playing,
-        // since VideoPlayer's native controls reset rate to 1.0 on play.
-        let interval = CMTime(seconds: 1.0, preferredTimescale: 600)
-        timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] _ in
-            guard let self else { return }
-            MainActor.assumeIsolated {
-                let currentRate = Float(self.playbackRate)
-                if player.timeControlStatus == .playing, player.rate != currentRate {
-                    player.rate = currentRate
-                }
-            }
-        }
-    }
-
-    func stopTimeObserver() {
-        durationTask?.cancel()
-        durationTask = nil
-        if let observer = timeObserver {
-            player?.removeTimeObserver(observer)
-            timeObserver = nil
-        }
-    }
-
-    func seekToTimestamp(_ timestamp: Double) {
-        let time = CMTime(seconds: timestamp, preferredTimescale: 600)
-        // Use default tolerance — frame-accurate seeking (.zero) is unnecessarily expensive
-        player?.seek(to: time)
-        player?.play()
-    }
-
-    func setPlaybackRate(_ rate: Double) {
-        playbackRate = rate
-        // Only apply if player is active; re-applied automatically on next play
-        if player?.timeControlStatus == .playing {
-            player?.rate = Float(rate)
         }
     }
 }
 
-// MARK: - Preview
-
-#Preview {
-    NavigationStack {
-        CoachVideoPlayerView(
-            folder: SharedFolder(
-                id: "preview",
-                name: "Test Folder",
-                ownerAthleteID: "athlete123",
-                ownerAthleteName: "Test Athlete",
-                sharedWithCoachIDs: ["coach456"],
-                permissions: [:],
-                createdAt: Date(),
-                updatedAt: Date(),
-                videoCount: 0
-            ),
-            video: CoachVideoItem(
-                from: FirestoreVideoMetadata(
-                    id: "video123",
-                    fileName: "practice_2024-11-21.mov",
-                    firebaseStorageURL: "https://example.com/video.mov",
-                    thumbnail: nil,
-                    uploadedBy: "coach456",
-                    uploadedByName: "Coach Smith",
-                    sharedFolderID: "folder123",
-                    createdAt: Date(),
-                    fileSize: 1024000,
-                    duration: 120.0,
-                    isHighlight: false,
-                    uploadedByType: .coach,
-                    isOrphaned: false,
-                    orphanedAt: nil,
-                    annotationCount: nil,
-                    videoType: "practice",
-                    gameOpponent: nil,
-                    gameDate: nil,
-                    practiceDate: Date(),
-                    notes: nil
-                )
-            )
-        )
-    }
-    .environmentObject(ComprehensiveAuthManager())
-}

@@ -7,7 +7,6 @@
 //
 
 import SwiftUI
-import StoreKit
 
 struct CoachProfileView: View {
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
@@ -22,7 +21,6 @@ struct CoachProfileView: View {
     @State private var coachToAthleteConnectedIDs: Set<String> = []
     
     var body: some View {
-        NavigationStack {
             List {
                 // Profile Section
                 Section {
@@ -246,22 +244,22 @@ struct CoachProfileView: View {
                 CoachPaywallView()
                     .environmentObject(authManager)
             }
-            .sheet(isPresented: $showingInvitations, onDismiss: {
-                Task {
-                    guard let coachID = authManager.userID else { return }
-                    if let ids = try? await FirestoreManager.shared.fetchAcceptedCoachToAthleteAthleteIDs(coachID: coachID) {
-                        coachToAthleteConnectedIDs = ids
-                    }
-                }
-            }) {
+            .navigationDestination(isPresented: $showingInvitations) {
                 CoachInvitationsView()
                     .environmentObject(authManager)
+                    .onDisappear {
+                        Task {
+                            guard let coachID = authManager.userID else { return }
+                            if let ids = try? await FirestoreManager.shared.fetchAcceptedCoachToAthleteAthleteIDs(coachID: coachID) {
+                                coachToAthleteConnectedIDs = ids
+                            }
+                        }
+                    }
             }
             .sheet(isPresented: $showingEditProfile) {
                 EditCoachProfileView()
                     .environmentObject(authManager)
             }
-        }
     }
 
     // MARK: - Computed Properties
@@ -278,38 +276,6 @@ struct CoachProfileView: View {
 
     private var appVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "Unknown"
-    }
-}
-
-struct CoachFeatureRow: View {
-    let icon: String
-    let title: String
-    let description: String
-
-    var body: some View {
-        HStack(spacing: 16) {
-            Image(systemName: icon)
-                .font(.system(size: 28))
-                .foregroundColor(.green)
-                .frame(width: 44, height: 44)
-                .background(Color.green.opacity(0.1))
-                .cornerRadius(10)
-                .accessibilityHidden(true)
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(.headline)
-
-                Text(description)
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-            }
-
-            Spacer()
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(title)
-        .accessibilityHint(description)
     }
 }
 

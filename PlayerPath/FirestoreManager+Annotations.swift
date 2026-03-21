@@ -20,9 +20,11 @@ extension FirestoreManager {
         userName: String,
         timestamp: Double,
         text: String,
-        isCoachComment: Bool
+        isCoachComment: Bool,
+        category: String? = nil,
+        templateID: String? = nil
     ) async throws -> String {
-        let annotationData: [String: Any] = [
+        var annotationData: [String: Any] = [
             "userID": userID,
             "userName": userName,
             "timestamp": timestamp,
@@ -30,6 +32,8 @@ extension FirestoreManager {
             "createdAt": FieldValue.serverTimestamp(),
             "isCoachComment": isCoachComment
         ]
+        if let category { annotationData["category"] = category }
+        if let templateID { annotationData["templateID"] = templateID }
 
         do {
             let docRef = try await db.collection("videos")
@@ -148,7 +152,9 @@ extension FirestoreManager {
         timestamp: Double,
         userID: String,
         userName: String,
-        isCoachComment: Bool
+        isCoachComment: Bool,
+        category: String? = nil,
+        templateID: String? = nil
     ) async throws -> VideoAnnotation {
         let annotationID = try await addAnnotation(
             videoID: videoID,
@@ -156,7 +162,9 @@ extension FirestoreManager {
             userName: userName,
             timestamp: timestamp,
             text: text,
-            isCoachComment: isCoachComment
+            isCoachComment: isCoachComment,
+            category: category,
+            templateID: templateID
         )
 
         return VideoAnnotation(
@@ -166,7 +174,9 @@ extension FirestoreManager {
             timestamp: timestamp,
             text: text,
             createdAt: Date(),
-            isCoachComment: isCoachComment
+            isCoachComment: isCoachComment,
+            category: category,
+            templateID: templateID
         )
     }
 }

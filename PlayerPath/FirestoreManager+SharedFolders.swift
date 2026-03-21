@@ -255,4 +255,14 @@ extension FirestoreManager {
             throw error
         }
     }
+
+    // MARK: - Folder Tags
+
+    /// Updates tags on a shared folder
+    func updateFolderTags(folderID: String, tags: [String]) async throws {
+        try await db.collection("sharedFolders").document(folderID).updateData([
+            "tags": tags,
+            "updatedAt": FieldValue.serverTimestamp()
+        ])
+    }
 }

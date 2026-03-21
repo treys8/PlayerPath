@@ -1,0 +1,361 @@
+===============================================================================
+AUDIT: Coach Views & ComprehensiveAuthManager
+Date: 2026-03-21
+Files: CoachDashboardView, CoachesView, CoachFolderDetailView,
+       CoachInvitationsView, CoachPaywallView, CoachProfileView,
+       CoachVideoPlayerView, CoachVideoUploadView, ComprehensiveAuthManager
+===============================================================================
+
+
+1. CoachDashboardView.swift (289 lines)
+─────────────────────────────────────────
+Purpose: Dashboard tab for coaches — quick actions, recent athletes,
+         summary stats, notification banners.
+
+ISSUES:
+
+[LOW] Unnecessary `import Combine` (line 13)
+  No Combine-specific APIs used.
+
+[LOW] Unnecessary `import FirebaseAuth` (line 11)
+  No direct FirebaseAuth usage. Auth access goes through authManager.
+
+[LOW] Unnecessary `import FirebaseFirestore` (line 12)
+  No direct Firestore usage. Firestore access goes through managers.
+
+[INFO] Mixed observation patterns
+  Uses @Environment (CoachNavigationCoordinator via @Observable),
+  @EnvironmentObject (authManager, sharedFolderManager via ObservableObject),
+  and @ObservedObject (invitationManager, archiveManager, activityNotifService).
+  Functional but inconsistent across the codebase.
+
+VERDICT: Clean. Well-structured view with proper error handling and
+         clear separation of concerns. Only import cleanup needed.
+
+
+2. CoachesView.swift (1013 lines)
+──────────────────────────────────
+Purpose: Athlete-side view for managing coach contacts, invitations,
+         and shared folder relationships.
+
+ISSUES:
+
+[MEDIUM] Large file with many embedded views (1013 lines)
+  Contains CoachesView, EmptyCoachesView, CoachRow, AddCoachView,
+  CoachDetailView, and a preview. Consider extracting CoachDetailView
+  and AddCoachView into separate files for maintainability.
+
+[LOW] Unused `athleteID` property (line 31)
+  `athleteID` is stored in init but never referenced. The `coaches`
+  computed property accesses `athlete.coaches` directly.
+
+[LOW] Deprecated `.autocapitalization(.none)` (line 646)
+  Should use `.textInputAutocapitalization(.never)` instead.
+
+[LOW] `deleteCoach` wraps `Task` inside `withAnimation` (line 285-320)
+  The async work inside the Task (Firestore cleanup) runs outside
+  the animation context anyway. The animation block should only wrap
+  the synchronous `modelContext.delete(coach)` call.
+
+[LOW] Duplicate `deleteCoach` logic
+  Both `CoachesView.deleteCoach` (line 277) and `CoachDetailView.deleteCoach`
+  (line 924) contain nearly identical Firestore cleanup logic. Should be
+  extracted to a shared helper or extension on Coach.
+
+[LOW] `reportCoach` does not percent-encode correctly (line 211)
+  The entire mailto URL is percent-encoded including the scheme.
+  `addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)` on
+  the full string may break the URL if subject/body contain certain chars.
+  Better to encode subject and body separately.
+
+[INFO] TODO at line 856
+  "TODO: Implement revoke access" in CoachDetailView — shared folder
+  revoke button is a no-op.
+
+VERDICT: Functional and mostly correct. Main concern is file size and
+         the duplicated delete logic.
+
+
+3. CoachFolderDetailView.swift (921 lines)
+───────────────────────────────────────────
+Purpose: Detail view of a shared folder with tabbed Games/Practices/All
+         Videos/My Recordings. Includes permission verification, tag
+         filtering, archive/leave actions.
+
+ISSUES:
+
+[LOW] Unnecessary `import Combine` (line 10)
+  No Combine-specific APIs used.
+
+[MEDIUM] Large file (921 lines) with many embedded types
+  Contains CoachFolderDetailView, FolderInfoHeader, GamesTabView,
+  GameGroup, GameGroupView, PracticesTabView, PracticeGroup,
+  PracticeGroupView, AllVideosTabView, CoachVideoRow, EmptyFolderView,
+  CoachFolderViewModel, CoachVideoItem, and a preview. Consider
+  splitting tab views and the video row into separate files.
+
+[LOW] `onChange(of: videos.count)` may miss mutations (lines 398, 514)
+  If a video is replaced (same count but different content), the
+  grouped views won't update. Consider using `videos` identity or
+  a version counter instead.
+
+[LOW] `PracticeGroup` identity uses `\.date` (line 504)
+  If two practice sessions fall on the same calendar day, ForEach
+  identity collisions could occur. Should use a composite key or
+  make PracticeGroup conform to Identifiable with a unique ID.
+
+[LOW] Tag editor `onDisappear` uses `try?` (line 177)
+  Tag update errors are silently swallowed. Should log via
+  ErrorHandlerService.
+
+[INFO] Redundant @MainActor annotations (lines 225, 243, 260)
+  The view's methods are already on MainActor by being inside a
+  View struct that's implicitly @MainActor. Harmless but noisy.
+
+VERDICT: Functional. Good parallel loading pattern (.task with
+         async let). Main concern is file size and grouping identity.
+
+
+4. CoachInvitationsView.swift (512 lines)
+──────────────────────────────────────────
+Purpose: Manage received (from athletes) and sent (to athletes)
+         invitations for coaches.
+
+ISSUES:
+
+[LOW] Unnecessary `import Combine` (line 10)
+  No Combine-specific APIs used.
+
+[LOW] Error alert binding uses `.constant()` (line 53)
+  `.constant(viewModel.errorMessage != nil)` creates a new Binding
+  every render. Should use a dedicated @State or a proper Binding
+  that can actually dismiss the alert reliably (the OK button
+  sets errorMessage to nil, which works, but the binding pattern
+  is unconventional).
+
+[LOW] `statusBadge` switch has repetitive code (lines 438-477)
+  Four nearly identical cases differing only in text, color. Could
+  be simplified with a helper function.
+
+VERDICT: Clean and well-organized. Good separation of received/sent
+         invitations with proper state management.
+
+
+5. CoachPaywallView.swift (455 lines)
+──────────────────────────────────────
+Purpose: 4-column paywall for coach subscription tiers.
+
+ISSUES:
+
+[LOW] `purchaseSelected()` sets `isPurchasing = true` twice
+  Line 337 sets it in the button action, and line 406 sets it again
+  inside the function. The button guard `!isPurchasing` prevents the
+  double-entry, but the redundant assignment is confusing.
+
+[LOW] After a `.success` purchase, `isPurchasing` may remain true
+  The `.success` case breaks without setting `isPurchasing = false`.
+  It relies on the `onChange(of: currentCoachTier)` to dismiss the
+  view. If the tier doesn't change (e.g., same tier re-purchase),
+  the spinner stays indefinitely. The final `isPurchasing = false`
+  at line 445 catches this, but it also runs after `.unknown`, which
+  is correct by coincidence.
+
+[INFO] Good accessibility practices
+  Uses .accessibilityLabel on the billing toggle and check icons.
+
+VERDICT: Clean paywall implementation. Purchase flow is correct with
+         the onChange-based dismiss. Minor purchase state redundancy.
+
+
+6. CoachProfileView.swift (390 lines)
+──────────────────────────────────────
+Purpose: Profile and settings screen for coaches — subscription info,
+         activity stats, invitations, help, legal, sign out.
+
+ISSUES:
+
+[LOW] Unnecessary `import StoreKit` (line 10)
+  StoreKit types are accessed indirectly through StoreKitManager.
+  No direct StoreKit API usage.
+
+[LOW] `EditCoachProfileView.saveProfile` uses `await MainActor.run { dismiss() }` (line 375)
+  The view method is already on MainActor (inside a View). The
+  `MainActor.run` wrapper is unnecessary.
+
+[INFO] `CoachFeatureRow` struct (lines 283-313) appears unused
+  Not referenced anywhere in this file or found in search results.
+  Dead code candidate — verify before removing.
+
+VERDICT: Clean, standard settings view. No functional issues.
+
+
+7. CoachVideoPlayerView.swift (652 lines)
+──────────────────────────────────────────
+Purpose: Video player with timestamped annotations, quick cues,
+         drill cards, and landscape/portrait layouts.
+
+ISSUES:
+
+[LOW] Unnecessary `import Combine` (line 11)
+  No Combine-specific APIs used in the view.
+
+[LOW] Unnecessary `import CoreMedia` (line 12)
+  No direct CoreMedia usage (CMTime, etc.) in this file. Duration
+  formatting uses plain Double math.
+
+[MEDIUM] `formatTimestamp` duplicated in NoteCardView (line 518) and
+  VideoInfoTabView (line 574)
+  Both format seconds into "m:ss" format. Should be extracted to a
+  shared utility or DateComponentsFormatter extension.
+
+[LOW] `playerContent` uses `@ViewBuilder` but doesn't need it (line 184)
+  The computed property uses `if/else` chains that produce a single
+  view type path. @ViewBuilder is implicit in `some View` computed
+  properties. Not harmful.
+
+[INFO] Good scene phase handling (lines 136-146)
+  Properly pauses/resumes video on app background/foreground.
+
+VERDICT: Well-structured player view. Good parallel loading (.task
+         with async let). Main issue is the duplicated timestamp
+         formatter.
+
+
+8. CoachVideoUploadView.swift (503 lines)
+──────────────────────────────────────────
+Purpose: Video upload interface — pick from library or record,
+         add game/practice context, upload with progress.
+
+ISSUES:
+
+[LOW] Unnecessary `import Combine` (line 12)
+  No Combine-specific APIs used.
+
+[MEDIUM] ViewModel uses ObservableObject instead of @Observable
+  `CoachVideoUploadViewModel` (line 228) uses the older pattern.
+  Per project conventions, ViewModels should use @Observable.
+
+[LOW] Empty else branch (line 351-352)
+  After checking `thumbnailResult`, the failure case is an empty
+  `else {}`. Should either log the failure or remove the else.
+
+[LOW] `isUploading = true` set in two places
+  Line 143 (button action) and line 299 (uploadVideo function).
+  The button action sets it before calling the function, then
+  the function sets it again.
+
+[LOW] `createdAt` uses local `Date()` instead of `FieldValue.serverTimestamp()` (line 441)
+  The metadata dictionary uses `Date()` for `createdAt`. This means
+  the creation timestamp reflects the client's clock rather than
+  Firestore's server time. Other timestamps in the codebase use
+  server timestamps for consistency.
+
+[INFO] Good pre-flight permission check (lines 304-323)
+  Verifies folder still exists and user has upload permission before
+  starting the upload. Prevents wasted bandwidth.
+
+VERDICT: Functional upload flow with good pre-flight checks. The
+         client-side timestamp and ObservableObject pattern are the
+         main concerns.
+
+
+9. ComprehensiveAuthManager.swift (1074 lines)
+───────────────────────────────────────────────
+Purpose: Central auth manager — Firebase Auth (email/password + Apple
+         Sign In), user profile, role management, subscription tier
+         sync, biometric auth, account deletion.
+
+ISSUES:
+
+[HIGH] Uses `import Combine` and `AnyCancellable` for StoreKit sync (line 86)
+  CLAUDE.md states: "Avoid using the Combine framework and instead prefer
+  to use Swift's async and await versions of APIs instead." The two
+  `.sink` subscribers on StoreKitManager.$currentTier and
+  .$currentCoachTier could be replaced with async `for await` on
+  the respective AsyncSequences, but this requires StoreKitManager
+  to expose AsyncStream properties. This is a significant refactor.
+
+[MEDIUM] Excessive `#if DEBUG print()` statements (~40+ occurrences)
+  The file has extensive debug logging via `print()`. The project
+  convention is to use `Logger` (os.log). While print() is fine for
+  development, the volume makes the file harder to read. Consider
+  consolidating these into `authLog.debug()` calls.
+
+[MEDIUM] Large file (1074 lines) with mixed responsibilities
+  Handles authentication, profile management, subscription sync,
+  local SwiftData sync, and account deletion. Consider extracting:
+  - Subscription tier sync into a dedicated service
+  - Profile loading/retry logic into a helper
+  - Account deletion into a separate service
+
+[LOW] `loadUserProfile` and `loadUserProfileWithRetry` have duplicated
+  profile-processing logic (lines 540-623 vs 646-734)
+  Both methods decode the profile, check roles, apply tier overrides.
+  The retry variant should call the single-shot variant internally
+  rather than duplicating the processing.
+
+[LOW] `deinit` removes auth listener but singleton-like usage means it
+  rarely fires. Class is injected via `.environmentObject()` so it
+  lives as long as the root view. Not harmful.
+
+[LOW] `hasAthleteTierOverride` marked "NOT persisted to UserDefaults
+  (security: tamper-resistant)" (line 63) but `clearPersistedUserDefaults`
+  removes a `hasAthleteTierOverride` key (line 842). The key removal
+  is harmless (no-op if it doesn't exist) but inconsistent with the
+  comment.
+
+[INFO] Well-documented race condition handling
+  Comments throughout explain why operations are ordered the way they
+  are (e.g., loading profile BEFORE setting isSignedIn). This is
+  good defensive documentation.
+
+[INFO] Good GDPR deletion flow (lines 924-1017)
+  Step-by-step deletion with continue-on-failure semantics ensures
+  partial deletion is better than no deletion.
+
+VERDICT: The central nervous system of the app. Functional and well-
+         documented. Main concerns are file size, Combine usage vs
+         project conventions, and duplicated profile-processing logic.
+
+
+===============================================================================
+SUMMARY
+===============================================================================
+
+  File                          Lines  Issues         Severity
+  ────────────────────────────  ─────  ────────────   ──────────────
+  CoachDashboardView              289  3 Low          Clean
+  CoachesView                    1013  5 Low, 1 Med   Needs refactor
+  CoachFolderDetailView           921  4 Low, 1 Med   Needs refactor
+  CoachInvitationsView            512  2 Low          Clean
+  CoachPaywallView                455  2 Low          Clean
+  CoachProfileView                390  2 Low          Clean
+  CoachVideoPlayerView            652  2 Low, 1 Med   Mostly clean
+  CoachVideoUploadView            503  3 Low, 1 Med   Mostly clean
+  ComprehensiveAuthManager       1074  2 Low, 2 Med, 1 High  Needs attention
+
+CROSS-CUTTING THEMES:
+
+1. Unnecessary `import Combine` — Present in 6 of 9 files. None use
+   Combine-specific APIs (publishers, subscribers, operators). Can be
+   safely removed from all view files. ComprehensiveAuthManager is the
+   only file that actually uses Combine (AnyCancellable, .sink).
+
+2. Large files — CoachesView (1013), CoachFolderDetailView (921), and
+   ComprehensiveAuthManager (1074) are all over 900 lines with multiple
+   embedded types. These should be split for maintainability.
+
+3. ObservableObject vs @Observable — CoachVideoUploadViewModel and
+   CoachFolderViewModel use ObservableObject. ComprehensiveAuthManager
+   uses ObservableObject with Combine publishers. Project convention
+   prefers @Observable.
+
+4. Duplicated code:
+   - `deleteCoach` logic in CoachesView and CoachDetailView
+   - `formatTimestamp` in NoteCardView and VideoInfoTabView
+   - Profile-processing logic in loadUserProfile and loadUserProfileWithRetry
+
+5. Import hygiene — Several files import FirebaseAuth or FirebaseFirestore
+   without using them directly (access is through managers/services).
+
+===============================================================================

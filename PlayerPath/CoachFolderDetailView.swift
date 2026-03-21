@@ -26,6 +26,11 @@ struct CoachFolderDetailView: View {
     @State private var showingLeaveConfirmation = false
     @State private var isLeaving = false
     @State private var lastFetchDate: Date?
+    @State private var selectedTagFilter: String?
+    @State private var showingTagEditor = false
+    @State private var editingVideoTags: CoachVideoItem?
+    @State private var editingTags: [String] = []
+    @State private var editingDrillType: String?
     @ObservedObject private var archiveManager = CoachFolderArchiveManager.shared
 
     init(folder: SharedFolder) {
@@ -64,22 +69,38 @@ struct CoachFolderDetailView: View {
             }
             .pickerStyle(.segmented)
             .padding()
-            
+            .onChange(of: selectedTab) { _, _ in
+                selectedTagFilter = nil
+            }
+
+            // Tag filter bar
+            if !availableTags.isEmpty && selectedTab != .myRecordings {
+                VideoTagFilterBar(
+                    tags: availableTags,
+                    selectedTag: $selectedTagFilter
+                )
+            }
+
             // Content based on selected tab
             Group {
                 switch selectedTab {
                 case .games:
-                    GamesTabView(folder: folder, videos: viewModel.cachedGameVideos, isLoading: viewModel.isLoading, errorMessage: viewModel.errorMessage) {
+                    GamesTabView(folder: folder, videos: filterByTag(viewModel.cachedGameVideos), isLoading: viewModel.isLoading, errorMessage: viewModel.errorMessage) {
                         await viewModel.loadVideos()
                     }
                 case .practices:
-                    PracticesTabView(folder: folder, videos: viewModel.cachedPracticeVideos, isLoading: viewModel.isLoading, errorMessage: viewModel.errorMessage) {
+                    PracticesTabView(folder: folder, videos: filterByTag(viewModel.cachedPracticeVideos), isLoading: viewModel.isLoading, errorMessage: viewModel.errorMessage) {
                         await viewModel.loadVideos()
                     }
                 case .all:
-                    AllVideosTabView(folder: folder, videos: viewModel.videos, isLoading: viewModel.isLoading, errorMessage: viewModel.errorMessage) {
+                    AllVideosTabView(folder: folder, videos: filterByTag(viewModel.videos), isLoading: viewModel.isLoading, errorMessage: viewModel.errorMessage, onRefresh: {
                         await viewModel.loadVideos()
-                    }
+                    }, onEditTags: { video in
+                        editingVideoTags = video
+                        editingTags = video.tags
+                        editingDrillType = video.drillType
+                        showingTagEditor = true
+                    })
                 case .myRecordings:
                     CoachPrivateVideosTab(folder: folder, canUpload: canUpload)
                 }
@@ -147,6 +168,24 @@ struct CoachFolderDetailView: View {
             if let verified = verifiedFolder {
                 CoachVideoUploadView(folder: verified, selectedTab: selectedTab)
             }
+        }
+        .sheet(isPresented: $showingTagEditor) {
+            VideoTagEditor(selectedTags: $editingTags, drillType: $editingDrillType)
+                .onDisappear {
+                    guard let video = editingVideoTags else { return }
+                    Task {
+                        do {
+                            try await FirestoreManager.shared.updateVideoTags(
+                                videoID: video.id,
+                                tags: editingTags,
+                                drillType: editingDrillType
+                            )
+                        } catch {
+                            ErrorHandlerService.shared.handle(error, context: "CoachFolderDetail.updateTags", showAlert: false)
+                        }
+                        await viewModel.loadVideos()
+                    }
+                }
         }
         .task {
             if let lastFetch = lastFetchDate, Date().timeIntervalSince(lastFetch) < 60 { return }
@@ -255,6 +294,25 @@ struct CoachFolderDetailView: View {
             return false
         }
         return verified.getPermissions(for: coachID)?.canUpload ?? false
+    }
+
+    /// All unique tags across videos in this folder
+    /// Tags available for filtering, scoped to the active tab's videos
+    private var availableTags: [String] {
+        let visibleVideos: [CoachVideoItem]
+        switch selectedTab {
+        case .games: visibleVideos = viewModel.cachedGameVideos
+        case .practices: visibleVideos = viewModel.cachedPracticeVideos
+        case .all: visibleVideos = viewModel.videos
+        case .myRecordings: visibleVideos = []
+        }
+        return Array(Set(visibleVideos.flatMap(\.tags))).sorted()
+    }
+
+    /// Filters videos by the currently selected tag
+    private func filterByTag(_ videos: [CoachVideoItem]) -> [CoachVideoItem] {
+        guard let tag = selectedTagFilter else { return videos }
+        return videos.filter { $0.tags.contains(tag) }
     }
 }
 
@@ -539,6 +597,7 @@ struct AllVideosTabView: View {
     var isLoading: Bool = false
     var errorMessage: String? = nil
     let onRefresh: () async -> Void
+    var onEditTags: ((CoachVideoItem) -> Void)?
 
     var body: some View {
         Group {
@@ -562,7 +621,7 @@ struct AllVideosTabView: View {
                     LazyVStack(spacing: 8) {
                         ForEach(videos) { video in
                             NavigationLink(destination: CoachVideoPlayerView(folder: folder, video: video)) {
-                                CoachVideoRow(video: video)
+                                CoachVideoRow(video: video, onEditTags: onEditTags != nil ? { onEditTags?(video) } : nil)
                             }
                             .buttonStyle(.plain)
                         }
@@ -579,6 +638,7 @@ struct AllVideosTabView: View {
 
 struct CoachVideoRow: View {
     let video: CoachVideoItem
+    var onEditTags: (() -> Void)?
 
     private var thumbnailPlaceholder: some View {
         ZStack {
@@ -655,13 +715,42 @@ struct CoachVideoRow: View {
                             .cornerRadius(4)
                     }
                 }
+
+                // Tags
+                if !video.tags.isEmpty {
+                    HStack(spacing: 4) {
+                        ForEach(video.tags.prefix(3), id: \.self) { tag in
+                            Text(tag)
+                                .font(.caption2)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color.green.opacity(0.1))
+                                .foregroundColor(.green)
+                                .cornerRadius(4)
+                        }
+                        if video.tags.count > 3 {
+                            Text("+\(video.tags.count - 3)")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
             }
-            
+
             Spacer()
         }
         .padding()
         .background(Color(.tertiarySystemBackground))
         .cornerRadius(10)
+        .contextMenu {
+            if let onEditTags {
+                Button {
+                    onEditTags()
+                } label: {
+                    Label("Edit Tags", systemImage: "tag")
+                }
+            }
+        }
     }
 }
 
@@ -776,7 +865,10 @@ struct CoachVideoItem: Identifiable {
     let practiceDate: Date?
     let notes: String?
     let annotationCount: Int?
-    
+    let tags: [String]
+    let drillType: String?
+    var isPrivatePreview: Bool = false
+
     var contextLabel: String? {
         if let opponent = gameOpponent {
             return "Game vs \(opponent)"
@@ -806,6 +898,8 @@ struct CoachVideoItem: Identifiable {
         self.practiceDate = metadata.practiceDate
         self.notes = metadata.notes
         self.annotationCount = metadata.annotationCount
+        self.tags = metadata.tags ?? []
+        self.drillType = metadata.drillType
     }
 }
 
