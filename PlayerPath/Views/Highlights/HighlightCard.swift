@@ -47,7 +47,7 @@ struct HighlightCard: View {
                 ZStack {
                     VideoThumbnailView(
                         clip: clip,
-                        size: CGSize(width: 200, height: 112),
+                        size: .thumbnailLarge,
                         cornerRadius: 0,
                         showPlayButton: editMode == .inactive,
                         showPlayResult: true,
@@ -104,7 +104,7 @@ struct HighlightCard: View {
                         HStack(spacing: 6) {
                             Text("vs \(game.opponent)")
                                 .font(.caption)
-                                .foregroundColor(.blue)
+                                .foregroundColor(.brandNavy)
                                 .lineLimit(1)
                                 .truncationMode(.tail)
                             Spacer()

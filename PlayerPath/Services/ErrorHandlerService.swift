@@ -337,7 +337,7 @@ struct ErrorBanner: View {
     private var iconColor: Color {
         switch error.severity {
         case .low:
-            return .blue
+            return .brandNavy
         case .medium:
             return .orange
         case .high, .critical:
@@ -348,7 +348,7 @@ struct ErrorBanner: View {
     private var backgroundColor: Color {
         switch error.severity {
         case .low:
-            return Color.blue.opacity(0.1)
+            return Color.brandNavy.opacity(0.1)
         case .medium:
             return Color.orange.opacity(0.1)
         case .high, .critical:
@@ -378,7 +378,7 @@ struct ErrorHistoryView: View {
                         StatRow(label: "Medium Priority", value: "\(stats.mediumErrors)", color: .yellow)
                     }
                     if stats.lowErrors > 0 {
-                        StatRow(label: "Low Priority", value: "\(stats.lowErrors)", color: .blue)
+                        StatRow(label: "Low Priority", value: "\(stats.lowErrors)", color: .brandNavy)
                     }
                 }
                 .padding(.vertical, 8)
@@ -448,7 +448,7 @@ struct ErrorHistoryView: View {
 
     private func severityColor(for severity: AppError.Severity) -> Color {
         switch severity {
-        case .low: return .blue
+        case .low: return .brandNavy
         case .medium: return .yellow
         case .high: return .orange
         case .critical: return .red

@@ -130,9 +130,17 @@ final class ClipPersistenceService {
         }
 
         // Clean up old directory if empty
-        if let remainingFiles = try? fileManager.contentsOfDirectory(atPath: oldClipsDirectory.path),
-           remainingFiles.isEmpty {
-            try? fileManager.removeItem(at: oldClipsDirectory)
+        do {
+            let remainingFiles = try fileManager.contentsOfDirectory(atPath: oldClipsDirectory.path)
+            if remainingFiles.isEmpty {
+                do {
+                    try fileManager.removeItem(at: oldClipsDirectory)
+                } catch {
+                    ErrorHandlerService.shared.handle(error, context: "ClipPersistence.removeMigrationDir", showAlert: false)
+                }
+            }
+        } catch {
+            ErrorHandlerService.shared.handle(error, context: "ClipPersistence.readMigrationDir", showAlert: false)
         }
 
         // Only mark migration complete if all files succeeded
@@ -394,8 +402,14 @@ final class ClipPersistenceService {
         try context.save()
 
         // Save to Photos Library if enabled in user preferences
-        if let preferences = try? context.fetch(FetchDescriptor<UserPreferences>()).first,
-           preferences.saveToPhotosLibrary {
+        let preferences: UserPreferences?
+        do {
+            preferences = try context.fetch(FetchDescriptor<UserPreferences>()).first
+        } catch {
+            ErrorHandlerService.shared.handle(error, context: "ClipPersistence.fetchPreferences", showAlert: false)
+            preferences = nil
+        }
+        if let preferences, preferences.saveToPhotosLibrary {
             let savedURL = destinationURL
             Task { @MainActor in
                 do {
@@ -404,6 +418,7 @@ final class ClipPersistenceService {
                     }
                 } catch {
                     // Non-fatal: video is already saved to app storage
+                    ErrorHandlerService.shared.handle(error, context: "ClipPersistence.saveToPhotosLibrary", showAlert: false)
                 }
             }
         }
@@ -430,17 +445,24 @@ final class ClipPersistenceService {
         }
 
         // Notify dashboard to refresh
-        NotificationCenter.default.post(name: Notification.Name("VideoRecorded"), object: videoClip)
+        NotificationCenter.default.post(name: .videoRecorded, object: videoClip)
 
         // Automatically queue for cloud upload if enabled in preferences
         Task { @MainActor in
             // Check user preferences for auto-upload setting
             let descriptor = FetchDescriptor<UserPreferences>()
-            if let preferences = try? context.fetch(descriptor).first,
+            let autoUploadPrefs: UserPreferences?
+            do {
+                autoUploadPrefs = try context.fetch(descriptor).first
+            } catch {
+                ErrorHandlerService.shared.handle(error, context: "ClipPersistence.fetchAutoUploadPrefs", showAlert: false)
+                autoUploadPrefs = nil
+            }
+            if let preferences = autoUploadPrefs,
                preferences.autoUploadToCloud {
                 // Check file size limit
                 let fileSize = FileManager.default.fileSize(atPath: videoClip.resolvedFilePath)
-                let fileSizeMB = fileSize / 1024 / 1024
+                let fileSizeMB = fileSize / StorageConstants.bytesPerMB
 
                 if fileSizeMB <= preferences.maxVideoFileSize {
                     // Check if we should only upload highlights

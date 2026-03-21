@@ -482,9 +482,13 @@ final class PushNotificationService: NSObject, ObservableObject {
 
             // If the token rotated, remove the old one first so stale tokens don't accumulate.
             if let old = previousToken, old != token {
-                try? await db.collection("users").document(userID).updateData([
-                    "deviceTokens": FieldValue.arrayRemove([old])
-                ])
+                do {
+                    try await db.collection("users").document(userID).updateData([
+                        "deviceTokens": FieldValue.arrayRemove([old])
+                    ])
+                } catch {
+                    logger.warning("Failed to remove old device token: \(error.localizedDescription)")
+                }
             }
 
             try await db.collection("users").document(userID).setData([

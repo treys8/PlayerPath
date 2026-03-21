@@ -39,119 +39,94 @@ struct EnhancedVideoPlayer: View {
     var body: some View {
         GeometryReader { geometry in
             ZStack {
-                // Video layer — scale/offset applied to wrapper so UIKit VC transforms correctly
                 VideoPlayerRepresentable(player: player)
                     .scaleEffect(zoomScale, anchor: .center)
                     .offset(panOffset)
 
-                // Transparent gesture capture layer on top of the UIKit view
-                Color.clear
-                    .contentShape(Rectangle())
-                    .gesture(
-                        SimultaneousGesture(
-                            MagnificationGesture()
-                                .onChanged { value in
-                                    let delta = value / lastZoomScale
-                                    lastZoomScale = value
-                                    zoomScale = min(max(zoomScale * delta, 1.0), 4.0)
-                                }
-                                .onEnded { _ in
-                                    lastZoomScale = 1.0
-                                    if zoomScale <= 1.0 {
-                                        withAnimation(.spring()) {
-                                            zoomScale = 1.0
-                                            panOffset = .zero
-                                            lastPanOffset = .zero
-                                        }
-                                    }
-                                },
-                            DragGesture()
-                                .onChanged { value in
-                                    guard zoomScale > 1.0 else { return }
-                                    let maxX = (zoomScale - 1) * geometry.size.width / 2
-                                    let maxY = (zoomScale - 1) * geometry.size.height / 2
-                                    let newWidth = lastPanOffset.width + value.translation.width
-                                    let newHeight = lastPanOffset.height + value.translation.height
-                                    panOffset = CGSize(
-                                        width: min(max(newWidth, -maxX), maxX),
-                                        height: min(max(newHeight, -maxY), maxY)
-                                    )
-                                    showControlsTemporarily()
-                                }
-                                .onEnded { _ in
-                                    lastPanOffset = panOffset
-                                }
-                        )
-                    )
-                    .onTapGesture(count: 2) {
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                            zoomScale = 1.0
-                            panOffset = .zero
-                            lastPanOffset = .zero
-                        }
-                    }
-                    .onTapGesture {
-                        togglePlayPause()
-                        showControlsTemporarily()
-                    }
+                gestureLayer(geometry: geometry)
 
-                // Custom controls overlay
                 if showControls {
-                    controlsOverlay
-                        .transition(.opacity)
+                    controlsOverlay.transition(.opacity)
                 }
             }
         }
-        .onAppear {
-            setupPlayer()
-            showControlsTemporarily()
-        }
-        .onDisappear {
-            cleanup()
-        }
-        .onChange(of: scenePhase) { _, newPhase in
-            if newPhase != .active {
-                // Remove time observer to prevent background CPU usage
-                if let observer = timeObserver {
-                    player.removeTimeObserver(observer)
-                    timeObserver = nil
-                }
-            } else {
-                // Re-add time observer on foreground return if not already present
-                if timeObserver == nil {
-                    let interval = CMTime(seconds: 0.5, preferredTimescale: 600)
-                    timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { time in
-                        if !isDragging {
-                            currentTime = CMTimeGetSeconds(time)
-                        }
-                    }
-                }
-            }
-        }
+        .onAppear { setupPlayer(); showControlsTemporarily() }
+        .onDisappear { cleanup() }
+        .onChange(of: scenePhase) { _, newPhase in handleScenePhaseChange(newPhase) }
         .onChange(of: preloadedDuration) { _, newDuration in
-            // Parent may supply the duration after the view has already appeared
-            // (e.g. local-file path loads duration in the background).
             if let d = newDuration, d > 0 {
-                duration = d
-                durationLoaded = true
-                durationTask?.cancel()
-                durationTask = nil
+                duration = d; durationLoaded = true
+                durationTask?.cancel(); durationTask = nil
             }
         }
         .onReceive(player.publisher(for: \.timeControlStatus)) { status in
             let nowPlaying = status == .playing
             isPlaying = nowPlaying
-            // When playback starts, kick off the auto-hide timer.
-            // showControlsTemporarily() can't do this itself because isPlaying
-            // updates asynchronously after the tap that triggers play.
-            if nowPlaying && showControls {
-                scheduleControlsHide()
-            }
+            if nowPlaying && showControls { scheduleControlsHide() }
         }
         .onReceive(NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime, object: player.currentItem)) { _ in
             isAtEnd = true
             withAnimation { showControls = true }
             hideControlsTask?.cancel()
+        }
+    }
+
+    // MARK: - Gesture Layer
+
+    private func gestureLayer(geometry: GeometryProxy) -> some View {
+        Color.clear
+            .contentShape(Rectangle())
+            .gesture(
+                SimultaneousGesture(
+                    MagnificationGesture()
+                        .onChanged { value in
+                            let delta = value / lastZoomScale
+                            lastZoomScale = value
+                            zoomScale = min(max(zoomScale * delta, 1.0), 4.0)
+                        }
+                        .onEnded { _ in
+                            lastZoomScale = 1.0
+                            if zoomScale <= 1.0 {
+                                withAnimation(.spring()) {
+                                    zoomScale = 1.0; panOffset = .zero; lastPanOffset = .zero
+                                }
+                            }
+                        },
+                    DragGesture()
+                        .onChanged { value in
+                            guard zoomScale > 1.0 else { return }
+                            let maxX = (zoomScale - 1) * geometry.size.width / 2
+                            let maxY = (zoomScale - 1) * geometry.size.height / 2
+                            let newWidth = lastPanOffset.width + value.translation.width
+                            let newHeight = lastPanOffset.height + value.translation.height
+                            panOffset = CGSize(
+                                width: min(max(newWidth, -maxX), maxX),
+                                height: min(max(newHeight, -maxY), maxY)
+                            )
+                            showControlsTemporarily()
+                        }
+                        .onEnded { _ in lastPanOffset = panOffset }
+                )
+            )
+            .onTapGesture(count: 2) {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                    zoomScale = 1.0; panOffset = .zero; lastPanOffset = .zero
+                }
+            }
+            .onTapGesture { togglePlayPause(); showControlsTemporarily() }
+    }
+
+    private func handleScenePhaseChange(_ newPhase: ScenePhase) {
+        if newPhase != .active {
+            if let observer = timeObserver {
+                player.removeTimeObserver(observer)
+                timeObserver = nil
+            }
+        } else if timeObserver == nil {
+            let interval = CMTime(seconds: 0.5, preferredTimescale: 600)
+            timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { time in
+                if !isDragging { currentTime = CMTimeGetSeconds(time) }
+            }
         }
     }
 
@@ -358,7 +333,7 @@ struct EnhancedVideoPlayer: View {
                         .fontWeight(playbackSpeed == speed ? .bold : .regular)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
-                        .background(playbackSpeed == speed ? Color.blue : Color.white.opacity(0.2))
+                        .background(playbackSpeed == speed ? Color.brandNavy : Color.white.opacity(0.2))
                         .foregroundColor(.white)
                         .cornerRadius(8)
                 }
@@ -380,7 +355,7 @@ struct EnhancedVideoPlayer: View {
                 .monospacedDigit()
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
-                .background(Color.blue)
+                .background(Color.brandNavy)
                 .foregroundColor(.white)
                 .clipShape(Capsule())
         }
@@ -511,7 +486,7 @@ struct EnhancedVideoPlayer: View {
     private func scheduleControlsHide() {
         hideControlsTask?.cancel()
         hideControlsTask = Task {
-            try? await Task.sleep(nanoseconds: 3_000_000_000) // 3 seconds
+            try? await Task.sleep(for: .seconds(3))
             if !Task.isCancelled && !isDragging && isPlaying {
                 withAnimation {
                     showControls = false

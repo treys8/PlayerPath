@@ -27,7 +27,7 @@ struct AthleteCard: View {
                     Circle()
                         .fill(
                             LinearGradient(
-                                colors: [.blue.opacity(0.8), .blue],
+                                colors: [Color.brandNavy.opacity(0.8), Color.brandNavy],
                                 startPoint: .topLeading,
                                 endPoint: .bottomTrailing
                             )

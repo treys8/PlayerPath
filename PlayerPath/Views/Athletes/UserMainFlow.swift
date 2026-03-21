@@ -182,7 +182,7 @@ struct UserMainFlow: View {
                 if hasRestoredSelection {
                     showCreationToast = true
                     Task {
-                        try? await Task.sleep(nanoseconds: 1_200_000_000)
+                        try? await Task.sleep(for: .milliseconds(1200))
                         showCreationToast = false
                     }
                 }

@@ -101,11 +101,11 @@ final class QuickActionsManager: ObservableObject {
             postSwitchTab(.videos)
 
         case .addGame:
-            NotificationCenter.default.post(name: Notification.Name("presentAddGame"), object: nil)
+            NotificationCenter.default.post(name: .presentAddGame, object: nil)
             postSwitchTab(.games)
 
         case .addPractice:
-            NotificationCenter.default.post(name: Notification.Name("presentAddPractice"), object: nil)
+            NotificationCenter.default.post(name: .presentAddPractice, object: nil)
             postSwitchTab(.more)
 
         case .viewStats:

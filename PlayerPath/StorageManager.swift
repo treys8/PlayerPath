@@ -24,12 +24,12 @@ struct StorageInfo {
     
     var isLowStorage: Bool {
         // Less than 500 MB is considered low
-        availableBytes < 500_000_000
+        availableBytes < StorageConstants.minimumFreeStorageBytes
     }
     
     var isCriticallyLowStorage: Bool {
         // Less than 100 MB is critical
-        availableBytes < 100_000_000
+        availableBytes < 100 * StorageConstants.bytesPerMB
     }
     
     var storageLevel: StorageLevel {
@@ -56,7 +56,7 @@ struct StorageManager {
     
     // MARK: - Constants
     
-    private static let minimumStorageBytes: Int64 = 500_000_000 // 500 MB
+    private static let minimumStorageBytes: Int64 = StorageConstants.minimumFreeStorageBytes
     private static let mbPerMinuteVideo: Double = 150 // Average for high quality video
     
     // MARK: - Public Methods
@@ -79,7 +79,7 @@ struct StorageManager {
                 return nil
             }
             
-            let availableGB = Double(available) / 1_073_741_824 // Convert to GB
+            let availableGB = Double(available) / StorageConstants.bytesPerGBDouble
             let percentageAvailable = Double(available) / Double(total)
             
             // Estimate recording time

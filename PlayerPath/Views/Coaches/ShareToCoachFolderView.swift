@@ -132,7 +132,7 @@ struct ShareToCoachFolderView: View {
                             Spacer()
                             if selectedFolder?.id == folder.id {
                                 Image(systemName: "checkmark")
-                                    .foregroundColor(.blue)
+                                    .foregroundColor(.brandNavy)
                             }
                         }
                     }
@@ -184,7 +184,11 @@ struct ShareToCoachFolderView: View {
 
     private func loadFolders() async {
         guard let athleteUID = authManager.userID else { return }
-        try? await SharedFolderManager.shared.loadAthleteFolders(athleteID: athleteUID)
+        do {
+            try await SharedFolderManager.shared.loadAthleteFolders(athleteID: athleteUID)
+        } catch {
+            ErrorHandlerService.shared.handle(error, context: "ShareToCoachFolder.loadFolders", showAlert: false)
+        }
     }
 
     private func share() async {

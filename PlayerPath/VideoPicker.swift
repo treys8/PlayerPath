@@ -91,7 +91,13 @@ struct VideoPicker: UIViewControllerRepresentable {
                     return
                 }
                 let clipsDir = documentsDir.appendingPathComponent("Clips", isDirectory: true)
-                try? FileManager.default.createDirectory(at: clipsDir, withIntermediateDirectories: true)
+                do {
+                    try FileManager.default.createDirectory(at: clipsDir, withIntermediateDirectories: true)
+                } catch {
+                    DispatchQueue.main.async {
+                        ErrorHandlerService.shared.handle(error, context: "VideoPicker.createClipsDir", showAlert: false)
+                    }
+                }
 
                 let ext = tempURL.pathExtension.isEmpty ? "mov" : tempURL.pathExtension
                 let stableURL = clipsDir.appendingPathComponent("\(UUID().uuidString).\(ext)")

@@ -15,7 +15,7 @@ import UIKit
     
     private let cache = NSCache<NSString, UIImage>()
     private let maxCacheSize = 100
-    private let maxMemorySize = 50 * 1024 * 1024 // 50MB
+    private let maxMemorySize = StorageConstants.thumbnailCacheSizeBytes
     private var loadingTasks: [String: Task<UIImage, Error>] = [:]
     private var memoryWarningObserver: NSObjectProtocol?
     

@@ -78,7 +78,10 @@ struct UserPreferencesView: View {
             .onDisappear {
                 // Auto-save on navigating away to prevent losing changes
                 if viewModel.hasUnsavedChanges {
-                    Task { try? await viewModel.save() }
+                    Task {
+                        do { try await viewModel.save() }
+                        catch { ErrorHandlerService.shared.handle(error, context: "UserPreferences.autoSave", showAlert: false) }
+                    }
                 }
             }
         }

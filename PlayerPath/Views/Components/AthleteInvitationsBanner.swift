@@ -7,6 +7,7 @@
 
 import SwiftUI
 import SwiftData
+import FirebaseAuth
 
 struct AthleteInvitationsBanner: View {
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
@@ -82,19 +83,9 @@ struct AthleteInvitationsBanner: View {
 
     private func checkForInvitations() async {
         guard let email = authManager.userEmail else { return }
-
         isLoading = true
-        do {
-            let invitations = try await FirestoreManager.shared.fetchPendingCoachInvitations(forAthleteEmail: email)
-            await MainActor.run {
-                pendingInvitations = invitations
-                isLoading = false
-            }
-        } catch {
-            await MainActor.run {
-                isLoading = false
-            }
-        }
+        pendingInvitations = await AthleteInvitationManager.shared.fetchPendingInvitations(forEmail: email)
+        isLoading = false
     }
 }
 
@@ -110,6 +101,8 @@ struct AthleteInvitationsSheet: View {
 
     @State private var processingInvitationID: String?
     @State private var errorMessage: String?
+    @State private var showingUpgradePrompt = false
+    @State private var acceptedCoachName: String?
 
     var body: some View {
         NavigationStack {
@@ -147,78 +140,63 @@ struct AthleteInvitationsSheet: View {
             } message: {
                 Text(errorMessage ?? "")
             }
+            .alert("Upgrade to Share Videos", isPresented: $showingUpgradePrompt) {
+                Button("View Plans") {
+                    dismiss()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        NotificationCenter.default.post(name: .showSubscriptionPaywall, object: nil)
+                    }
+                }
+                Button("Later", role: .cancel) { }
+            } message: {
+                Text("You're now connected with \(acceptedCoachName ?? "your coach")! Upgrade to Pro to create shared folders and share videos with them.")
+            }
         }
     }
 
     private func acceptInvitation(_ invitation: CoachToAthleteInvitation) async {
-        guard let invitationID = invitation.id else { return }
         guard processingInvitationID == nil else { return }
         guard let currentUID = authManager.userID, !currentUID.isEmpty else {
             errorMessage = "Not signed in. Please sign in and try again."
             Haptics.error()
             return
         }
-        processingInvitationID = invitationID
+        processingInvitationID = invitation.id
 
         do {
-            // Update invitation status in Firestore
-            try await FirestoreManager.shared.acceptCoachToAthleteInvitation(
-                invitationID: invitationID,
-                athleteUserID: currentUID
+            let result = try await AthleteInvitationManager.shared.acceptInvitation(
+                invitation,
+                userID: currentUID,
+                modelContext: modelContext,
+                authManager: authManager
             )
-
-            // All SwiftData work must happen on MainActor
-            let coach = Coach(
-                name: invitation.coachName,
-                email: invitation.coachEmail
-            )
-            coach.needsSync = true
-            coach.invitationAcceptedAt = Date()
-            coach.firebaseCoachID = invitation.coachID
-            coach.lastInvitationStatus = "accepted"
-
-            // Link coach to the current user's athlete
-            let athleteDescriptor = FetchDescriptor<Athlete>(
-                predicate: #Predicate { $0.user?.firebaseAuthUid == currentUID }
-            )
-            if let athletes = try? modelContext.fetch(athleteDescriptor),
-               let athlete = athletes.first {
-                coach.athlete = athlete
-            }
-
-            modelContext.insert(coach)
-            try modelContext.save()
-
-            processingInvitationID = nil
             Haptics.success()
             onInvitationsChanged()
+
+            if case .acceptedWithoutFolder(let coachName) = result {
+                acceptedCoachName = coachName
+                showingUpgradePrompt = true
+            }
         } catch {
-            processingInvitationID = nil
-            errorMessage = "Failed to accept invitation: \(error.localizedDescription)"
+            errorMessage = AthleteInvitationManager.errorMessage(for: error, action: "accept")
             Haptics.error()
         }
+        processingInvitationID = nil
     }
 
     private func declineInvitation(_ invitation: CoachToAthleteInvitation) async {
-        guard let invitationID = invitation.id else { return }
         guard processingInvitationID == nil else { return }
-        processingInvitationID = invitationID
+        processingInvitationID = invitation.id
 
         do {
-            try await FirestoreManager.shared.declineCoachToAthleteInvitation(invitationID: invitationID)
-
-            await MainActor.run {
-                processingInvitationID = nil
-                Haptics.light()
-                onInvitationsChanged()
-            }
+            try await AthleteInvitationManager.shared.declineInvitation(invitation)
+            Haptics.light()
+            onInvitationsChanged()
         } catch {
-            await MainActor.run {
-                processingInvitationID = nil
-                errorMessage = "Failed to decline invitation: \(error.localizedDescription)"
-                Haptics.error()
-            }
+            errorMessage = AthleteInvitationManager.errorMessage(for: error, action: "decline")
+            Haptics.error()
         }
+        processingInvitationID = nil
     }
 }
 

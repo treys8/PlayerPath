@@ -36,6 +36,19 @@ extension CGFloat {
     static let cornerXLarge: CGFloat = 16
 }
 
+// MARK: - Thumbnail Sizes
+
+extension CGSize {
+    /// Small video thumbnail (search results, compact lists)
+    static let thumbnailSmall = CGSize(width: 80, height: 60)
+    /// Standard 16:9 video thumbnail (game clip rows, file manager)
+    static let thumbnailMedium = CGSize(width: 160, height: 90)
+    /// Card-sized video thumbnail (highlights, video clips grid)
+    static let thumbnailLarge = CGSize(width: 200, height: 112)
+    /// Photo/profile image thumbnail
+    static let thumbnailPhoto = CGSize(width: 300, height: 300)
+}
+
 // MARK: - Typography
 
 extension Font {
@@ -62,14 +75,19 @@ extension Font {
 // MARK: - Colors (Semantic)
 
 extension Color {
-    /// Primary brand color
-    static let brandPrimary = Color.blue
+    /// Primary brand colors — derived from the app icon (navy + gold)
+    static let brandNavy = Color(red: 0.0, green: 0.20, blue: 0.45)        // #003373
+    static let brandGold = Color(red: 0.83, green: 0.63, blue: 0.16)       // #D4A029
+    static let brandGoldLight = Color(red: 0.90, green: 0.72, blue: 0.28)  // Brighter for dark mode
+
+    /// Legacy aliases
+    static let brandPrimary = Color.brandNavy
     static let brandSecondary = Color.purple
-    
+
     /// Premium colors
-    static let premium = Color.yellow
-    static let premiumBackground = Color.yellow.opacity(0.1)
-    
+    static let premium = Color.brandGold
+    static let premiumBackground = Color.brandGold.opacity(0.1)
+
     /// Play result colors
     static let gold = Color(red: 1.0, green: 0.75, blue: 0.0)
 
@@ -92,6 +110,18 @@ extension Color {
 // MARK: - Gradients
 
 extension LinearGradient {
+    /// Brand navy gradient
+    static let brandNavy = LinearGradient(
+        colors: [.brandNavy, .brandNavy.opacity(0.85)],
+        startPoint: .topLeading, endPoint: .bottomTrailing
+    )
+
+    /// Brand gold gradient
+    static let brandGold = LinearGradient(
+        colors: [.brandGold, .brandGold.opacity(0.8)],
+        startPoint: .topLeading, endPoint: .bottomTrailing
+    )
+
     /// Primary button gradient (blue CTA buttons)
     static let primaryButton = LinearGradient(
         colors: [.blue, .blue.opacity(0.85)],

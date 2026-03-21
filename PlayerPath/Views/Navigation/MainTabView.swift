@@ -99,7 +99,7 @@ struct MainTabView: View {
     
     var body: some View {
         tabViewContent
-            .tint(.blue)
+            .tint(Color.brandNavy)
             .task {
                 // Always restore tab and observers on appear
                 restoreSelectedTab()
@@ -373,39 +373,7 @@ struct MainTabView: View {
     private var moreTab: some View {
         NavigationStack(path: $morePath) {
             List {
-                // Profile card
-                Section {
-                    NavigationLink {
-                        ProfileView(user: user, selectedAthlete: Binding(
-                            get: { selectedAthlete },
-                            set: { selectedAthlete = $0 ?? selectedAthlete }
-                        ))
-                    } label: {
-                        HStack(spacing: 14) {
-                            ZStack {
-                                Circle()
-                                    .fill(.blue.opacity(0.1))
-                                    .frame(width: 48, height: 48)
-                                Text(String(user.username.prefix(1)).uppercased())
-                                    .font(.title3)
-                                    .fontWeight(.bold)
-                                    .foregroundColor(.blue)
-                            }
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(user.username)
-                                    .font(.body)
-                                    .fontWeight(.semibold)
-                                    .foregroundColor(.primary)
-                                Text(tierDisplayText)
-                                    .font(.caption)
-                                    .fontWeight(.medium)
-                                    .foregroundColor(tierDisplayColor)
-                            }
-                            Spacer()
-                        }
-                        .padding(.vertical, 4)
-                    }
-                }
+                Section { profileCard }
 
                 // Features
                 Section("Features") {
@@ -486,6 +454,31 @@ struct MainTabView: View {
         .accessibilityHint("Access Practice, Highlights, Photos, Seasons, Coaches, and Profile")
     }
 
+    private var profileCard: some View {
+        NavigationLink {
+            ProfileView(user: user, selectedAthlete: Binding(
+                get: { selectedAthlete },
+                set: { selectedAthlete = $0 ?? selectedAthlete }
+            ))
+        } label: {
+            HStack(spacing: 14) {
+                ZStack {
+                    Circle()
+                        .fill(Color.brandNavy.opacity(0.1))
+                        .frame(width: 48, height: 48)
+                    Text(String(user.username.prefix(1)).uppercased())
+                        .font(.title3).fontWeight(.bold).foregroundColor(.brandNavy)
+                }
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(user.username).font(.body).fontWeight(.semibold).foregroundColor(.primary)
+                    Text(tierDisplayText).font(.caption).fontWeight(.medium).foregroundColor(tierDisplayColor)
+                }
+                Spacer()
+            }
+            .padding(.vertical, 4)
+        }
+    }
+
     private var tierDisplayText: String {
         switch authManager.currentTier {
         case .pro: return "Pro Member"
@@ -496,7 +489,7 @@ struct MainTabView: View {
 
     private var tierDisplayColor: Color {
         switch authManager.currentTier {
-        case .pro, .plus: return .blue
+        case .pro, .plus: return .brandNavy
         default: return .secondary
         }
     }

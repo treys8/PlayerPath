@@ -149,7 +149,7 @@ struct EditAccountView: View {
         }
 
         do {
-            try await Task.sleep(nanoseconds: 300_000_000) // Brief delay for UX
+            try await Task.sleep(for: .milliseconds(300))
             try modelContext.save()
             Haptics.success()
             if emailChanged {

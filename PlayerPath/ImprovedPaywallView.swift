@@ -142,7 +142,7 @@ struct ImprovedPaywallView: View {
                 .foregroundStyle(selected ? .white : .secondary)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 10)
-                .background(selected ? Color.blue : Color.clear)
+                .background(selected ? Color.brandNavy : Color.clear)
                 .cornerRadius(9)
         }
         .buttonStyle(.plain)
@@ -188,7 +188,7 @@ struct ImprovedPaywallView: View {
             } plus: {
                 Text("\(SubscriptionTier.plus.athleteLimit)").font(.caption)
             } pro: {
-                Text("\(SubscriptionTier.pro.athleteLimit)").font(.caption).foregroundStyle(.blue)
+                Text("\(SubscriptionTier.pro.athleteLimit)").font(.caption).foregroundColor(.brandNavy)
             }
 
             tableRow(feature: "Storage") {
@@ -196,7 +196,7 @@ struct ImprovedPaywallView: View {
             } plus: {
                 Text("\(SubscriptionTier.plus.storageLimitGB) GB").font(.caption)
             } pro: {
-                Text("\(SubscriptionTier.pro.storageLimitGB) GB").font(.caption).foregroundStyle(.blue)
+                Text("\(SubscriptionTier.pro.storageLimitGB) GB").font(.caption).foregroundColor(.brandNavy)
             }
 
             tableRow(feature: "Export Reports") {
@@ -246,7 +246,7 @@ struct ImprovedPaywallView: View {
                 .foregroundStyle(isSelected ? .white : .primary)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 12)
-                .background(isSelected ? Color.blue : Color.clear)
+                .background(isSelected ? Color.brandNavy : Color.clear)
                 .cornerRadius(tier == .plus ? 0 : (tier == .pro ? 9 : 0), corners: tier == .pro ? [.topRight] : [])
         }
         .buttonStyle(.plain)
@@ -278,11 +278,11 @@ struct ImprovedPaywallView: View {
                 Spacer(minLength: 0)
 
                 cellFrame { free() }
-                    .background(selectedTier == .free ? Color.blue.opacity(0.06) : Color.clear)
+                    .background(selectedTier == .free ? Color.brandNavy.opacity(0.06) : Color.clear)
                 cellFrame { plus() }
-                    .background(selectedTier == .plus ? Color.blue.opacity(0.06) : Color.clear)
+                    .background(selectedTier == .plus ? Color.brandNavy.opacity(0.06) : Color.clear)
                 cellFrame { pro() }
-                    .background(selectedTier == .pro ? Color.blue.opacity(0.06) : Color.clear)
+                    .background(selectedTier == .pro ? Color.brandNavy.opacity(0.06) : Color.clear)
             }
         }
     }
@@ -344,7 +344,7 @@ struct ImprovedPaywallView: View {
                     .background(LinearGradient.primaryButton)
                     .foregroundStyle(.white)
                     .cornerRadius(14)
-                    .shadow(color: Color.blue.opacity(0.3), radius: 8, x: 0, y: 4)
+                    .shadow(color: Color.brandNavy.opacity(0.3), radius: 8, x: 0, y: 4)
                 }
                 .disabled(isPurchasing || storeManager.products.isEmpty || storeManager.currentTier >= selectedTier)
                 .buttonStyle(.plain)
@@ -393,9 +393,9 @@ struct ImprovedPaywallView: View {
                 .foregroundStyle(.secondary)
             HStack(spacing: 16) {
                 Button("Terms of Service") { showingTerms = true }
-                    .font(.caption).foregroundStyle(.blue)
+                    .font(.caption).foregroundColor(.brandNavy)
                 Button("Privacy Policy") { showingPrivacyPolicy = true }
-                    .font(.caption).foregroundStyle(.blue)
+                    .font(.caption).foregroundColor(.brandNavy)
             }
         }
         .multilineTextAlignment(.center)

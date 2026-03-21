@@ -61,7 +61,7 @@ class VideoUploadService: ObservableObject {
             case .fileNotFound:
                 return .videoNotFound
             case .fileTooLarge(let size):
-                let sizeMB = Double(size) / (1024 * 1024)
+                let sizeMB = Double(size) / Double(StorageConstants.bytesPerMB)
                 return .videoUploadFailed("Video file is too large (\(String(format: "%.1f", sizeMB)) MB). Maximum size is 500 MB")
             case .fileTooSmall:
                 return .videoUploadFailed("Video file is too small")

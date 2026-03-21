@@ -49,12 +49,12 @@ struct DashboardPremiumFeatureCard: View {
                     Text(badgeLabel)
                         .font(.caption2)
                         .fontWeight(.bold)
-                        .foregroundColor(.orange)
+                        .foregroundColor(.brandGold)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 3)
                         .background(
                             Capsule()
-                                .fill(.orange.opacity(0.12))
+                                .fill(Color.brandGold.opacity(0.12))
                         )
                         .offset(x: -8, y: 8)
                 }
@@ -66,7 +66,7 @@ struct DashboardPremiumFeatureCard: View {
                 RoundedRectangle(cornerRadius: .cornerXLarge)
                     .stroke(
                         LinearGradient(
-                            colors: [.yellow.opacity(0.5), .orange.opacity(0.5)],
+                            colors: [Color.brandGold.opacity(0.5), Color.brandGold.opacity(0.3)],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         ),

@@ -87,7 +87,7 @@ struct AthleteFoldersListView: View {
         VStack(spacing: 24) {
             Image(systemName: "folder.badge.person.crop")
                 .font(.system(size: 72))
-                .foregroundColor(.blue)
+                .foregroundColor(.brandNavy)
             
             Text("No Shared Folders Yet")
                 .font(.title2)
@@ -184,7 +184,7 @@ struct AthleteFoldersListView: View {
                 } else {
                     errorMessage = errors.joined(separator: "\n")
                     showingError = true
-                    Haptics.error()
+                    ErrorHandlerService.shared.handle(NSError(domain: "PlayerPath", code: -1, userInfo: [NSLocalizedDescriptionKey: errors.joined(separator: "\n")]), context: "AthleteFoldersListView.deleteFolders", showAlert: false)
                 }
             }
         }
@@ -201,9 +201,9 @@ struct FolderRow: View {
             // Folder icon
             Image(systemName: "folder.fill")
                 .font(.title2)
-                .foregroundColor(.blue)
+                .foregroundColor(.brandNavy)
                 .frame(width: 44, height: 44)
-                .background(Color.blue.opacity(0.1))
+                .background(Color.brandNavy.opacity(0.1))
                 .clipShape(RoundedRectangle(cornerRadius: 8))
             
             // Folder info
@@ -224,12 +224,6 @@ struct FolderRow: View {
                             .foregroundColor(.secondary)
                     }
                     
-                    // Last updated
-                    if let updated = folder.updatedAt {
-                        Text(updated, style: .relative)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
                 }
             }
             
@@ -303,7 +297,8 @@ private struct AthleteFolderDetailContent: View {
 
             // Tab picker for Games / Practices / All
             Picker("View", selection: $selectedTab) {
-                ForEach(CoachFolderDetailView.FolderTab.allCases, id: \.self) { tab in
+                // Athletes don't see the "My Recordings" tab (coach-only)
+                ForEach(CoachFolderDetailView.FolderTab.allCases.filter { $0 != .myRecordings }, id: \.self) { tab in
                     Label(tab.rawValue, systemImage: tab.icon)
                         .tag(tab)
                 }
@@ -326,6 +321,8 @@ private struct AthleteFolderDetailContent: View {
                     AllVideosTabView(folder: folder, videos: viewModel.videos) {
                         await viewModel.loadVideos()
                     }
+                case .myRecordings:
+                    EmptyView() // Coach-only tab, not shown for athletes
                 }
             }
         }
@@ -379,7 +376,7 @@ private struct AthleteFolderDetailContent: View {
             HStack(spacing: 16) {
                 Image(systemName: "folder.fill")
                     .font(.title)
-                    .foregroundColor(.blue)
+                    .foregroundColor(.brandNavy)
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(folder.name)
@@ -487,7 +484,7 @@ struct ManageCoachesView: View {
                                     isRemoving = false
                                     errorMessage = error.localizedDescription
                                     showingError = true
-                                    Haptics.error()
+                                    ErrorHandlerService.shared.handle(error, context: "ManageCoachesView.removeCoach", showAlert: false)
                                 }
                             }
                         }
@@ -509,7 +506,13 @@ struct ManageCoachesView: View {
 // MARK: - Coach Permission Row
 
 struct CoachPermissionRow: View {
-    private static var coachDetailsCache: [String: (name: String, email: String)] = [:]
+    private static var coachDetailsCache: [String: (name: String, email: String, fetchedAt: Date)] = [:]
+    private static let cacheTTL: TimeInterval = 300 // 5 minutes
+
+    /// Clears the coach details cache (call on folder refresh)
+    static func clearCache() {
+        coachDetailsCache.removeAll()
+    }
 
     let coachID: String
     let permissions: FolderPermissions
@@ -583,7 +586,8 @@ struct CoachPermissionRow: View {
     private func loadCoachDetails() async {
         guard coachName == nil else { return }
 
-        if let cached = Self.coachDetailsCache[coachID] {
+        if let cached = Self.coachDetailsCache[coachID],
+           Date().timeIntervalSince(cached.fetchedAt) < Self.cacheTTL {
             coachName = cached.name
             coachEmail = cached.email
             isLoadingName = false
@@ -595,7 +599,7 @@ struct CoachPermissionRow: View {
             self.coachName = coachInfo.name
             self.coachEmail = coachInfo.email
             isLoadingName = false
-            Self.coachDetailsCache[coachID] = (name: coachInfo.name, email: coachInfo.email)
+            Self.coachDetailsCache[coachID] = (name: coachInfo.name, email: coachInfo.email, fetchedAt: Date())
         } catch {
             // If fetch fails, show coach ID as fallback
             self.coachName = "Coach \(coachID.prefix(8))"

@@ -66,7 +66,7 @@ struct ActivityNotificationBanner: View {
         .task {
             // Auto-dismiss after 5 seconds; cancelled automatically on disappear
             do {
-                try await Task.sleep(nanoseconds: 5_000_000_000)
+                try await Task.sleep(for: .seconds(5))
                 onDismiss()
             } catch {
                 // Task was cancelled (view disappeared) — don't dismiss
@@ -86,7 +86,7 @@ struct ActivityNotificationBanner: View {
 
     private var iconColor: Color {
         switch notification.type {
-        case .newVideo:           return .blue
+        case .newVideo:           return .brandNavy
         case .coachComment:       return .green
         case .invitationReceived: return .indigo
         case .invitationAccepted: return .green

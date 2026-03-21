@@ -64,7 +64,7 @@ struct VideoRecordingOptionsView: View {
         } label: {
             RecordingOptionButtonContent(
                 icon: "photo.on.rectangle",
-                iconColor: .blue,
+                iconColor: .brandNavy,
                 title: "Upload Video",
                 subtitle: isUploadDisabled ? "Photo library unavailable" : "Choose from library",
                 isLoading: isLoading,

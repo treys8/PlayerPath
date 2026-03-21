@@ -20,7 +20,7 @@ struct SeasonIndicatorView: View {
             HStack(spacing: 8) {
                 Image(systemName: athlete.activeSeason?.sport.icon ?? "calendar")
                     .font(.caption)
-                    .foregroundStyle(.blue)
+                    .foregroundColor(.brandNavy)
                 
                 if let activeSeason = athlete.activeSeason {
                     Text(activeSeason.displayName)
@@ -41,7 +41,7 @@ struct SeasonIndicatorView: View {
             .padding(.vertical, 6)
             .background {
                 Capsule()
-                    .fill(.blue.opacity(0.1))
+                    .fill(Color.brandNavy.opacity(0.1))
             }
         }
         .sheet(isPresented: $showingSeasonManagement) {
@@ -140,7 +140,7 @@ struct SeasonRecommendationBanner: View {
     private var colorForRecommendation: Color {
         switch recommendation {
         case .createFirst, .noActiveSeason:
-            return .blue
+            return .brandNavy
         case .considerEnding:
             return .orange
         case .ok:
@@ -172,7 +172,7 @@ struct CreateFirstSeasonPrompt: View {
         VStack(spacing: 24) {
             Image(systemName: "calendar.badge.plus")
                 .font(.system(size: 80))
-                .foregroundStyle(.blue)
+                .foregroundColor(.brandNavy)
             
             VStack(spacing: 8) {
                 Text("Start Your First Season")
@@ -195,7 +195,7 @@ struct CreateFirstSeasonPrompt: View {
             .padding()
             .background {
                 RoundedRectangle(cornerRadius: 12)
-                    .fill(.blue.opacity(0.1))
+                    .fill(Color.brandNavy.opacity(0.1))
             }
             .padding(.horizontal)
             
@@ -206,7 +206,7 @@ struct CreateFirstSeasonPrompt: View {
                     .font(.headline)
                     .frame(maxWidth: .infinity)
                     .padding()
-                    .background(.blue)
+                    .background(Color.brandNavy)
                     .foregroundStyle(.white)
                     .clipShape(RoundedRectangle(cornerRadius: 12))
             }
@@ -234,7 +234,7 @@ struct SeasonFeatureRow: View {
         HStack(spacing: 12) {
             Image(systemName: icon)
                 .font(.title3)
-                .foregroundStyle(.blue)
+                .foregroundColor(.brandNavy)
                 .frame(width: 30)
             
             Text(text)

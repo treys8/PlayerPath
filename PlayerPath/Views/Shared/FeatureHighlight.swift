@@ -11,7 +11,7 @@ struct FeatureHighlight: View {
     let icon: String
     let title: String
     let description: String
-    var color: Color = .blue
+    var color: Color = .brandNavy
 
     var body: some View {
         HStack(alignment: .center, spacing: 14) {

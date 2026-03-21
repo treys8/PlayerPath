@@ -71,7 +71,7 @@ struct CoachesView: View {
                                 HStack {
                                     Image(systemName: "person.badge.plus")
                                         .font(.title2)
-                                        .foregroundColor(.indigo)
+                                        .foregroundColor(.brandNavy)
 
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text("Invite a Coach")
@@ -119,7 +119,7 @@ struct CoachesView: View {
                                     } label: {
                                         Label("Re-invite", systemImage: "paperplane")
                                     }
-                                    .tint(.indigo)
+                                    .tint(Color.brandNavy)
                                 }
                             }
                         }
@@ -128,6 +128,7 @@ struct CoachesView: View {
             }
         }
         .onAppear { AnalyticsService.shared.trackScreenView(screenName: "Coaches", screenClass: "CoachesView") }
+        .task { await refreshInvitationStatuses() }
         .navigationTitle("Coaches")
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
@@ -230,22 +231,27 @@ struct CoachesView: View {
         isReinviting = true
         Task {
             do {
-                // Re-use existing shared folder if available, otherwise create one
+                guard let userID = authManager.userID else { throw NSError(domain: "CoachesView", code: -1) }
+
+                // Re-use existing shared folder if it still exists, otherwise create one
                 let folderID: String
-                if let existingFolderID = coach.sharedFolderIDs.first {
+                if let existingFolderID = coach.sharedFolderIDs.first,
+                   let _ = try await FirestoreManager.shared.fetchSharedFolder(folderID: existingFolderID) {
                     folderID = existingFolderID
                 } else {
                     let folderName = "\(athlete.name)'s Videos"
                     folderID = try await SharedFolderManager.shared.createFolder(
                         name: folderName,
-                        forAthlete: athlete.id.uuidString,
+                        forAthlete: userID,
+                        athleteName: athlete.name,
                         hasCoachingAccess: authManager.hasCoachingAccess
                     )
+                    coach.sharedFolderIDs = [folderID]
                 }
 
                 // Create a new Firestore invitation document
                 _ = try await FirestoreManager.shared.createInvitation(
-                    athleteID: athlete.id.uuidString,
+                    athleteID: userID,
                     athleteName: athlete.name,
                     coachEmail: coach.email.lowercased(),
                     folderID: folderID,
@@ -291,10 +297,14 @@ struct CoachesView: View {
                 // unauthorized access regardless.
                 if let coachID = firebaseCoachID, !sharedFolderIDs.isEmpty {
                     for folderID in sharedFolderIDs {
-                        try? await FirestoreManager.shared.removeCoachFromFolder(
-                            folderID: folderID,
-                            coachID: coachID
-                        )
+                        do {
+                            try await FirestoreManager.shared.removeCoachFromFolder(
+                                folderID: folderID,
+                                coachID: coachID
+                            )
+                        } catch {
+                            ErrorHandlerService.shared.handle(error, context: "CoachesView.removeCoachFromFolder", showAlert: false)
+                        }
                     }
                 }
 
@@ -307,6 +317,48 @@ struct CoachesView: View {
                     }
                 }
             }
+        }
+    }
+
+    /// Checks Firestore for updated invitation statuses and updates local Coach models.
+    /// Called when CoachesView appears so the athlete sees when a coach accepts/declines.
+    private func refreshInvitationStatuses() async {
+        let pendingCoaches = coaches.filter { $0.lastInvitationStatus == "pending" }
+        guard !pendingCoaches.isEmpty,
+              let athleteUID = authManager.userID else { return }
+
+        do {
+            let invitations = try await FirestoreManager.shared.fetchInvitations(forAthleteID: athleteUID)
+
+            for coach in pendingCoaches {
+                let email = coach.email.lowercased()
+                guard !email.isEmpty else { continue }
+
+                // Find the most recent invitation for this coach email
+                if let invitation = invitations
+                    .filter({ $0.coachEmail.lowercased() == email })
+                    .sorted(by: { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) })
+                    .first {
+
+                    switch invitation.status {
+                    case .accepted:
+                        coach.markInvitationAccepted(
+                            firebaseCoachID: invitation.acceptedByCoachID ?? "",
+                            folderID: invitation.folderID
+                        )
+                    case .declined:
+                        coach.lastInvitationStatus = "declined"
+                    case .pending, .cancelled:
+                        break
+                    }
+                }
+            }
+
+            if modelContext.hasChanges {
+                try modelContext.save()
+            }
+        } catch {
+            ErrorHandlerService.shared.handle(error, context: "CoachesView.syncCoachData", showAlert: false)
         }
     }
 }
@@ -324,14 +376,14 @@ struct EmptyCoachesView: View {
 
             ZStack {
                 Circle()
-                    .fill(Color.indigo.opacity(0.1))
+                    .fill(Color.brandNavy.opacity(0.1))
                     .frame(width: 100, height: 100)
 
                 Image(systemName: "person.2.badge.gearshape")
                     .font(.system(size: 45))
                     .foregroundStyle(
                         LinearGradient(
-                            colors: [.indigo, .purple],
+                            colors: [Color.brandNavy, Color.brandNavy.opacity(0.8)],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         )
@@ -368,7 +420,7 @@ struct EmptyCoachesView: View {
                     }
                     .frame(maxWidth: .infinity)
                     .frame(height: 54)
-                    .background(Color.indigo)
+                    .background(Color.brandNavy)
                     .foregroundColor(.white)
                     .cornerRadius(14)
                 }
@@ -405,7 +457,7 @@ struct CoachRow: View {
         HStack(spacing: 12) {
             Image(systemName: "person.circle.fill")
                 .font(.title2)
-                .foregroundStyle(.purple)
+                .foregroundColor(.brandNavy)
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 8) {
@@ -479,7 +531,7 @@ struct CoachRow: View {
                 VStack(alignment: .trailing, spacing: 4) {
                     Image(systemName: "folder.badge.person.crop")
                         .font(.title3)
-                        .foregroundStyle(.blue)
+                        .foregroundColor(.brandNavy)
                     Text("\(coach.sharedFolderIDs.count) folder\(coach.sharedFolderIDs.count == 1 ? "" : "s")")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
@@ -725,7 +777,7 @@ struct CoachDetailView: View {
                 HStack {
                     Image(systemName: "person.circle.fill")
                         .font(.system(size: 60))
-                        .foregroundStyle(.purple)
+                        .foregroundColor(.brandNavy)
 
                     VStack(alignment: .leading, spacing: 4) {
                         Text(coach.name)
@@ -797,7 +849,7 @@ struct CoachDetailView: View {
                     ForEach(coach.sharedFolderIDs, id: \.self) { folderID in
                         HStack {
                             Image(systemName: "folder.fill")
-                                .foregroundStyle(.blue)
+                                .foregroundColor(.brandNavy)
                             Text("Folder")
                             Spacer()
                             Button("Revoke", role: .destructive) {
@@ -816,7 +868,7 @@ struct CoachDetailView: View {
                         LabeledContent {
                             if let url = createPhoneURL(from: coach.phone) {
                                 Link(coach.phone, destination: url)
-                                    .foregroundStyle(.blue)
+                                    .foregroundColor(.brandNavy)
                             } else {
                                 Text(coach.phone)
                             }
@@ -829,7 +881,7 @@ struct CoachDetailView: View {
                         LabeledContent {
                             if let url = createEmailURL(from: coach.email) {
                                 Link(coach.email, destination: url)
-                                    .foregroundStyle(.blue)
+                                    .foregroundColor(.brandNavy)
                             } else {
                                 Text(coach.email)
                             }

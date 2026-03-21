@@ -87,14 +87,14 @@ struct WelcomeFlow: View {
                             icon: "chart.line.uptrend.xyaxis.circle.fill",
                             title: "Auto-generated stats",
                             description: "AVG, OBP, SLG and more",
-                            color: .blue
+                            color: .brandNavy
                         )
 
                         FeatureHighlight(
                             icon: "person.2.circle.fill",
                             title: "Share with coaches",
                             description: "Real-time window into your season",
-                            color: .blue
+                            color: .brandNavy
                         )
                     }
                     .padding(.horizontal)
@@ -114,14 +114,14 @@ struct WelcomeFlow: View {
                             .frame(height: 58)
                             .background(
                                 LinearGradient(
-                                    colors: [.blue, .blue.opacity(0.85)],
+                                    colors: [Color.brandNavy, Color.brandNavy.opacity(0.85)],
                                     startPoint: .topLeading,
                                     endPoint: .bottomTrailing
                                 )
                             )
                             .foregroundColor(.white)
                             .cornerRadius(16)
-                            .shadow(color: .blue.opacity(0.4), radius: 12, x: 0, y: 6)
+                            .shadow(color: Color.brandNavy.opacity(0.4), radius: 12, x: 0, y: 6)
                         }
                         .buttonStyle(ScaleButtonStyle())
                         .accessibilityLabel("Sign up to get started")
@@ -140,12 +140,12 @@ struct WelcomeFlow: View {
                             .frame(maxWidth: .infinity)
                             .frame(height: 58)
                             .background(.ultraThinMaterial)
-                            .foregroundColor(.blue)
+                            .foregroundColor(.brandNavy)
                             .overlay(
                                 RoundedRectangle(cornerRadius: 16)
                                     .stroke(
                                         LinearGradient(
-                                            colors: [.blue, .blue.opacity(0.6)],
+                                            colors: [Color.brandNavy, Color.brandNavy.opacity(0.6)],
                                             startPoint: .topLeading,
                                             endPoint: .bottomTrailing
                                         ),

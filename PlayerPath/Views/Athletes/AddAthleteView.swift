@@ -43,12 +43,12 @@ struct AddAthleteView: View {
                                 .font(.system(size: 100))
                                 .foregroundStyle(
                                     LinearGradient(
-                                        colors: [.blue, .green],
+                                        colors: [Color.brandNavy, .green],
                                         startPoint: .topLeading,
                                         endPoint: .bottomTrailing
                                     )
                                 )
-                                .shadow(color: .blue.opacity(0.3), radius: 10, x: 0, y: 5)
+                                .shadow(color: Color.brandNavy.opacity(0.3), radius: 10, x: 0, y: 5)
 
                             VStack(spacing: 16) {
                                 Text(isFirstAthlete ? "Ready to Track!" : "New Athlete")
@@ -124,14 +124,14 @@ struct AddAthleteView: View {
                                 .frame(height: 58)
                                 .background(
                                     LinearGradient(
-                                        colors: [.blue, .blue.opacity(0.85)],
+                                        colors: [Color.brandNavy, Color.brandNavy.opacity(0.85)],
                                         startPoint: .topLeading,
                                         endPoint: .bottomTrailing
                                     )
                                 )
                                 .foregroundColor(.white)
                                 .cornerRadius(16)
-                                .shadow(color: .blue.opacity(0.4), radius: 12, x: 0, y: 6)
+                                .shadow(color: Color.brandNavy.opacity(0.4), radius: 12, x: 0, y: 6)
                             }
                             .buttonStyle(.plain)
                             .disabled(!isValidAthleteName(athleteName) || isCreatingAthlete)

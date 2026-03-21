@@ -82,7 +82,7 @@ struct AddGameView: View {
                     dismiss()
                     // Post notification to open seasons view
                     Task { @MainActor in
-                        try? await Task.sleep(nanoseconds: 100_000_000) // 100ms for dismiss animation
+                        try? await Task.sleep(for: .milliseconds(100))
                         NotificationCenter.default.post(name: Notification.Name.presentSeasons, object: athlete)
                     }
                 }

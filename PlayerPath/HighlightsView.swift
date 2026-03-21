@@ -52,7 +52,7 @@ struct HighlightsView: View {
     private func recomputeAll() {
         recomputeTask?.cancel()
         recomputeTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 100_000_000) // 100ms debounce
+            try? await Task.sleep(for: .milliseconds(100))
             guard !Task.isCancelled else { return }
             recomputeHighlights()
             recomputeGroupedHighlights()
@@ -395,7 +395,7 @@ struct HighlightsView: View {
                             } label: {
                                 Image(systemName: selection.contains(clip.id) ? "checkmark.circle.fill" : "circle")
                                     .font(.title2)
-                                    .foregroundColor(selection.contains(clip.id) ? .blue : .white)
+                                    .foregroundColor(selection.contains(clip.id) ? .brandNavy : .white)
                                     .shadow(color: .black.opacity(0.3), radius: 4)
                             }
                             .padding(8)
@@ -624,7 +624,7 @@ struct HighlightsView: View {
 
                 Haptics.success()
             } catch {
-                Haptics.error()
+                ErrorHandlerService.shared.handle(error, context: "HighlightsView.batchDeleteSelected", showAlert: false)
             }
         }
 
@@ -639,7 +639,7 @@ struct HighlightsView: View {
             try modelContext.save()
             Haptics.success()
         } catch {
-            Haptics.error()
+            ErrorHandlerService.shared.handle(error, context: "HighlightsView.removeClipFromHighlights", showAlert: false)
         }
     }
 
@@ -672,7 +672,7 @@ struct HighlightsView: View {
                 try modelContext.save()
                 Haptics.success()
             } catch {
-                Haptics.error()
+                ErrorHandlerService.shared.handle(error, context: "HighlightsView.batchRemoveFromHighlights", showAlert: false)
             }
         }
 
@@ -697,8 +697,11 @@ struct HighlightsView: View {
                         clip.isUploaded = true
                         clip.lastSyncDate = Date()
                         if let user = athlete.user {
-                            let fileSize = (try? FileManager.default.attributesOfItem(atPath: clip.resolvedFilePath)[.size] as? Int64) ?? 0
-                            user.cloudStorageUsedBytes += fileSize
+                            if let fileSize = (try? FileManager.default.attributesOfItem(atPath: clip.resolvedFilePath)[.size] as? Int64) {
+                                user.cloudStorageUsedBytes += fileSize
+                            } else {
+                                ErrorHandlerService.shared.handle(NSError(domain: "PlayerPath", code: -1, userInfo: [NSLocalizedDescriptionKey: "Could not read file size for quota update"]), context: "HighlightsView.uploadQuota", showAlert: false)
+                            }
                         }
                     }
                 } catch {
@@ -715,7 +718,7 @@ struct HighlightsView: View {
                         Haptics.success()
                     }
                 } catch {
-                    Haptics.error()
+                    ErrorHandlerService.shared.handle(error, context: "HighlightsView.batchUploadSelected", showAlert: false)
                 }
 
                 selection.removeAll()

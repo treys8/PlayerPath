@@ -19,7 +19,7 @@ struct AboutView: View {
         VStack(spacing: 30) {
             Image(systemName: "figure.baseball")
                 .font(.system(size: 80))
-                .foregroundColor(.blue)
+                .foregroundColor(.brandNavy)
 
             VStack(spacing: 10) {
                 Text("PlayerPath")

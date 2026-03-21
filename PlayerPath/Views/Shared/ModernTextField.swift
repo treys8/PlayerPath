@@ -75,7 +75,7 @@ struct ModernTextField: View {
             if let icon = icon {
                 Image(systemName: icon)
                     .font(.system(size: 18, weight: .medium))
-                    .foregroundColor(isFocused ? .blue : Color(.systemGray2))
+                    .foregroundColor(isFocused ? .brandNavy : Color(.systemGray2))
                     .frame(width: 24)
                     .animation(.easeInOut(duration: 0.2), value: isFocused)
             }
@@ -111,13 +111,13 @@ struct ModernTextField: View {
                         if let binding = focusedBinding {
                             binding.wrappedValue = false
                             Task { @MainActor in
-                                try? await Task.sleep(nanoseconds: 100_000_000)
+                                try? await Task.sleep(for: .milliseconds(100))
                                 binding.wrappedValue = true
                             }
                         } else {
                             internalFocus = false
                             Task { @MainActor in
-                                try? await Task.sleep(nanoseconds: 100_000_000)
+                                try? await Task.sleep(for: .milliseconds(100))
                                 internalFocus = true
                             }
                         }
@@ -145,7 +145,7 @@ struct ModernTextField: View {
             RoundedRectangle(cornerRadius: .cornerLarge)
                 .fill(Color(.systemBackground))
                 .shadow(
-                    color: isFocused ? .blue.opacity(0.15) : .black.opacity(0.04),
+                    color: isFocused ? .brandNavy.opacity(0.15) : .black.opacity(0.04),
                     radius: isFocused ? 8 : 4,
                     x: 0,
                     y: isFocused ? 4 : 2
@@ -154,7 +154,7 @@ struct ModernTextField: View {
         .overlay(
             RoundedRectangle(cornerRadius: .cornerLarge)
                 .stroke(
-                    isFocused ? Color.blue : validationState.borderColor,
+                    isFocused ? Color.brandNavy : validationState.borderColor,
                     lineWidth: isFocused ? 2 : 1
                 )
         )

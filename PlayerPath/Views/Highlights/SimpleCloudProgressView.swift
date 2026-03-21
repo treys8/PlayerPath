@@ -121,7 +121,7 @@ struct SimpleCloudProgressView: View {
         if clip.isUploaded && clip.isAvailableOffline {
             return .green
         } else if clip.isUploaded {
-            return .blue
+            return .brandNavy
         } else if clip.needsUpload {
             return .orange
         } else {

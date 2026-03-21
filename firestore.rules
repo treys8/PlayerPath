@@ -58,6 +58,38 @@ service cloud.firestore {
       return request.time < expiresAt;
     }
 
+    // Validates expiresAt is between now and 33 days from now (allows ~30 day invitations
+    // with a small buffer for clock skew, but prevents arbitrarily long expiration)
+    function isExpirationInRange(expiresAt) {
+      return expiresAt > request.time
+             && expiresAt < request.time + duration.value(33, 'd');
+    }
+
+    // Checks if the coach is ONLY adding themselves to the folder (not modifying
+    // other fields like ownerAthleteID). Used to allow invitation acceptance.
+    function isCoachJoiningFolder() {
+      // The coach must be in the NEW sharedWithCoachIDs but NOT in the current one
+      return request.auth.uid in request.resource.data.sharedWithCoachIDs
+          && !(request.auth.uid in resource.data.sharedWithCoachIDs)
+          // ownerAthleteID must not change
+          && request.resource.data.ownerAthleteID == resource.data.ownerAthleteID
+          // folder name must not change
+          && request.resource.data.name == resource.data.name
+          // videoCount must not change during join
+          && request.resource.data.videoCount == resource.data.videoCount;
+    }
+
+    // Checks if a coach is ONLY incrementing or decrementing videoCount on a folder
+    // they already have access to. Used to allow batched video create/delete operations.
+    function isCoachUpdatingVideoCount() {
+      return request.auth.uid in resource.data.sharedWithCoachIDs
+          && request.resource.data.ownerAthleteID == resource.data.ownerAthleteID
+          && request.resource.data.name == resource.data.name
+          && request.resource.data.sharedWithCoachIDs == resource.data.sharedWithCoachIDs
+          && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['videoCount', 'updatedAt']);
+    }
+
     // Helper to get the parent video's data (used by comments/annotations subcollections)
     function getVideoData(videoID) {
       return get(/databases/$(database)/documents/videos/$(videoID)).data;
@@ -74,9 +106,12 @@ service cloud.firestore {
       // Users can create their own profile on signup.
       // subscriptionTier must be "free" on creation — upgrades go through
       // the syncSubscriptionTier Cloud Function after receipt validation.
+      // coachSubscriptionTier must be absent (athletes) or "coach_free" (coaches).
       allow create: if isAuthenticated()
                     && isOwner(userID)
-                    && request.resource.data.subscriptionTier == "free";
+                    && request.resource.data.subscriptionTier == "free"
+                    && (!('coachSubscriptionTier' in request.resource.data)
+                        || request.resource.data.coachSubscriptionTier == "coach_free");
 
       // Users can update their own profile, but cannot change their role
       // or subscription tiers. Tier writes are handled exclusively by the
@@ -177,16 +212,21 @@ service cloud.firestore {
     // ========================================================================
 
     match /sharedFolders/{folderID} {
-      allow read:   if isAuthenticated() && canAccessFolder(folderID);
+      allow read:   if isAuthenticated()
+                    && (resource.data.ownerAthleteID == request.auth.uid
+                        || request.auth.uid in resource.data.sharedWithCoachIDs);
 
       // Only athletes with Pro tier can create shared folders
       allow create: if isAuthenticated()
                     && hasProTier()
                     && request.resource.data.ownerAthleteID == request.auth.uid;
 
-      // Only the folder owner can update or delete
+      // Folder owner can update anything. A coach can also update the folder
+      // when accepting an invitation (adding themselves to sharedWithCoachIDs).
       allow update: if isAuthenticated()
-                    && resource.data.ownerAthleteID == request.auth.uid;
+                    && (resource.data.ownerAthleteID == request.auth.uid
+                        || isCoachJoiningFolder()
+                        || isCoachUpdatingVideoCount());
       allow delete: if isAuthenticated()
                     && resource.data.ownerAthleteID == request.auth.uid;
     }
@@ -330,52 +370,112 @@ service cloud.firestore {
     }
 
     // ========================================================================
+    // COACH PRIVATE FOLDERS (staging area for recordings before sharing)
+    // ========================================================================
+
+    match /coachPrivateFolders/{folderID} {
+      // Only the owning coach can read their private folders
+      allow read:   if isAuthenticated()
+                    && resource.data.coachID == request.auth.uid;
+
+      // Coach creates their own private folder; must reference a shared folder they have access to
+      allow create: if isAuthenticated()
+                    && request.resource.data.coachID == request.auth.uid
+                    && hasCoachTier();
+
+      // Only the owning coach can update (videoCount changes)
+      allow update: if isAuthenticated()
+                    && resource.data.coachID == request.auth.uid;
+
+      // Only the owning coach can delete
+      allow delete: if isAuthenticated()
+                    && resource.data.coachID == request.auth.uid;
+    }
+
+    match /coachPrivateVideos/{videoID} {
+      // Only the coach who uploaded can read their private videos
+      allow read:   if isAuthenticated()
+                    && resource.data.uploadedBy == request.auth.uid;
+
+      // Coach creates videos in their own private folder
+      allow create: if isAuthenticated()
+                    && request.resource.data.uploadedBy == request.auth.uid
+                    && hasCoachTier();
+
+      // Only the uploader can update
+      allow update: if isAuthenticated()
+                    && resource.data.uploadedBy == request.auth.uid;
+
+      // Only the uploader can delete
+      allow delete: if isAuthenticated()
+                    && resource.data.uploadedBy == request.auth.uid;
+    }
+
+    // ========================================================================
     // INVITATIONS
     // ========================================================================
 
     match /invitations/{invitationID} {
-      // Athlete-to-coach invitations: athlete reads by athleteID, coach reads by coachEmail
-      // Coach-to-athlete invitations: coach reads by coachID, athlete reads by athleteEmail
-      // Expired invitations are still readable by the sender (for cleanup)
+      // Any party to an invitation can read it (sender or recipient).
+      // Expiration is enforced on updates (accept/decline), not reads —
+      // this also avoids the request.time vs client-timestamp mismatch
+      // that causes "insufficient permissions" on list queries.
       allow read: if isAuthenticated() && (
-        // Athlete-to-coach: sender (athlete) can always read
         resource.data.athleteID == request.auth.uid ||
-        // Athlete-to-coach: recipient (coach) can read if not expired
-        (resource.data.coachEmail == request.auth.token.email
-         && isInvitationNotExpired(resource.data.expiresAt)) ||
-        // Coach-to-athlete: sender (coach) can always read
+        resource.data.coachEmail == request.auth.token.email ||
         resource.data.coachID == request.auth.uid ||
-        // Coach-to-athlete: recipient (athlete) can read if not expired
-        (resource.data.athleteEmail == request.auth.token.email
-         && isInvitationNotExpired(resource.data.expiresAt))
+        resource.data.athleteEmail == request.auth.token.email
       );
 
       // Athlete-to-coach invitation: athlete creates, must have Pro tier
       // Coach-to-athlete invitation: coach creates, must have a coach tier
+      // Email fields are validated to prevent impersonation
       allow create: if isAuthenticated()
-                    && request.resource.data.keys().hasAll(['expiresAt'])
+                    && request.resource.data.keys().hasAll(['expiresAt', 'type', 'status'])
+                    && request.resource.data.status == 'pending'
                     && isInvitationNotExpired(request.resource.data.expiresAt)
+                    && isExpirationInRange(request.resource.data.expiresAt)
                     && (
-                      // Athlete-to-coach: athlete is the sender
-                      (request.resource.data.athleteID == request.auth.uid
+                      // Athlete-to-coach: athlete is the sender, validate sender identity
+                      (request.resource.data.type == "athlete_to_coach"
+                       && request.resource.data.athleteID == request.auth.uid
+                       && request.resource.data.keys().hasAll(['athleteID', 'coachEmail', 'folderID', 'folderName'])
                        && hasProTier())
                       ||
-                      // Coach-to-athlete: coach is the sender
-                      (request.resource.data.coachID == request.auth.uid
-                       && request.resource.data.type == "coach_to_athlete"
+                      // Coach-to-athlete: coach is the sender, validate sender identity
+                      (request.resource.data.type == "coach_to_athlete"
+                       && request.resource.data.coachID == request.auth.uid
+                       && request.resource.data.coachEmail == request.auth.token.email
+                       && request.resource.data.keys().hasAll(['coachID', 'coachEmail', 'athleteEmail', 'athleteName'])
                        && hasCoachTier())
                     );
 
-      // Sender can cancel; recipient can accept/decline — only while not expired
+      // Sender can cancel; recipient can accept/decline — only while not expired.
+      // Field-level restrictions prevent privilege escalation (e.g. swapping folderID).
+      // Role-based: senders can only cancel; recipients can accept/decline.
       allow update: if isAuthenticated()
                     && isInvitationNotExpired(resource.data.expiresAt)
+                    && request.resource.data.diff(resource.data).affectedKeys()
+                       .hasOnly(['status', 'acceptedAt', 'declinedAt', 'cancelledAt',
+                                 'acceptedByCoachID',
+                                 'athleteUserID', 'folderID', 'folderName',
+                                 'emailSentAt', 'emailSent', 'emailError', 'emailResentAt',
+                                 'rejectedReason'])
                     && (
-                      // Athlete-to-coach: athlete (sender) or coach (recipient)
-                      resource.data.athleteID == request.auth.uid ||
-                      resource.data.coachEmail == request.auth.token.email ||
-                      // Coach-to-athlete: coach (sender) or athlete (recipient)
-                      resource.data.coachID == request.auth.uid ||
-                      resource.data.athleteEmail == request.auth.token.email
+                      // Athlete-to-coach flow:
+                      //   Athlete (sender) can cancel
+                      (resource.data.type == "athlete_to_coach"
+                       && resource.data.athleteID == request.auth.uid) ||
+                      //   Coach (recipient) can accept/decline
+                      (resource.data.type == "athlete_to_coach"
+                       && resource.data.coachEmail == request.auth.token.email) ||
+                      // Coach-to-athlete flow:
+                      //   Coach (sender) can cancel
+                      (resource.data.type == "coach_to_athlete"
+                       && resource.data.coachID == request.auth.uid) ||
+                      //   Athlete (recipient) can accept/decline
+                      (resource.data.type == "coach_to_athlete"
+                       && resource.data.athleteEmail == request.auth.token.email)
                     );
 
       // Only the sender can delete

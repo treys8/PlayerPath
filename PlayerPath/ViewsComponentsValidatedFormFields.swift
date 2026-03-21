@@ -118,11 +118,11 @@ struct PasswordRequirementsView: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Image(systemName: "info.circle.fill")
-                    .foregroundColor(.blue)
+                    .foregroundColor(.brandNavy)
                     .font(.caption)
                 Text("Password requirements:")
                     .font(.caption2)
-                    .foregroundColor(.blue)
+                    .foregroundColor(.brandNavy)
                 Spacer()
             }
             .padding(.horizontal)

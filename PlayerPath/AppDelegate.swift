@@ -26,7 +26,7 @@ class PlayerPathAppDelegate: NSObject, UIApplicationDelegate {
             // any code accesses Firestore.firestore() elsewhere.
             let settings = FirestoreSettings()
             settings.cacheSettings = PersistentCacheSettings(
-                sizeBytes: NSNumber(value: 100 * 1024 * 1024)
+                sizeBytes: NSNumber(value: StorageConstants.urlCacheSizeBytes)
             )
             Firestore.firestore().settings = settings
         } else {

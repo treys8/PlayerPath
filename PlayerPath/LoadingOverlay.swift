@@ -85,7 +85,7 @@ struct LoadingButtonContent: View {
 
 #Preview("Loading Overlay") {
     ZStack {
-        Color.blue.ignoresSafeArea()
+        Color.brandNavy.ignoresSafeArea()
         
         LoadingOverlay(message: "Signing out...")
     }

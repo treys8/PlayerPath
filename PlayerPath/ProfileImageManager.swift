@@ -183,18 +183,18 @@ struct ProfileImageView: View {
                     )
             } else {
                 Circle()
-                    .fill(Color.blue.opacity(0.1))
+                    .fill(Color.brandNavy.opacity(0.1))
                     .frame(width: size, height: size)
                     .overlay(
                         Group {
                             if isLoading {
                                 ProgressView()
-                                    .progressViewStyle(CircularProgressViewStyle(tint: .blue))
+                                    .progressViewStyle(CircularProgressViewStyle(tint: .brandNavy))
                                     .scaleEffect(0.8)
                             } else {
                                 Image(systemName: "person.fill")
                                     .font(.system(size: size * 0.4))
-                                    .foregroundColor(.blue)
+                                    .foregroundColor(.brandNavy)
                             }
                         }
                     )
@@ -258,18 +258,18 @@ struct EditableProfileImageView: View {
                             )
                     } else {
                         Circle()
-                            .fill(Color.blue.opacity(0.1))
+                            .fill(Color.brandNavy.opacity(0.1))
                             .frame(width: size, height: size)
                             .overlay(
                                 Group {
                                     if isLoading {
                                         ProgressView()
-                                            .progressViewStyle(CircularProgressViewStyle(tint: .blue))
+                                            .progressViewStyle(CircularProgressViewStyle(tint: .brandNavy))
                                             .scaleEffect(0.8)
                                     } else {
                                         Image(systemName: "person.fill")
                                             .font(.system(size: size * 0.4))
-                                            .foregroundColor(.blue)
+                                            .foregroundColor(.brandNavy)
                                     }
                                 }
                             )
@@ -282,7 +282,7 @@ struct EditableProfileImageView: View {
                 
                 // Edit button overlay
                 Circle()
-                    .fill(Color.blue)
+                    .fill(Color.brandNavy)
                     .frame(width: size * 0.3, height: size * 0.3)
                     .overlay(
                         Image(systemName: "pencil")
@@ -351,7 +351,7 @@ struct EditableProfileImageView: View {
             // Resize image for better performance
             let resizedImage = ProfileImageManager.shared.resizeImage(
                 image,
-                to: CGSize(width: 300, height: 300)
+                to: .thumbnailPhoto
             )
             
             // Save new image

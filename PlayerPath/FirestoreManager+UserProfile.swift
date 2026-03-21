@@ -17,18 +17,30 @@ extension FirestoreManager {
 
     /// Fetches a user profile by ID
     func fetchUserProfile(userID: String) async throws -> UserProfile? {
+        let doc = try await db.collection("users").document(userID).getDocument()
+        guard doc.exists, let data = doc.data() else { return nil }
+
         do {
-            let doc = try await db.collection("users").document(userID).getDocument()
-            do {
-                var profile = try doc.data(as: UserProfile.self)
-                profile.id = doc.documentID
-                return profile
-            } catch {
-                firestoreLog.warning("Failed to decode UserProfile from doc \(doc.documentID): \(error.localizedDescription)")
-                return nil
-            }
+            var profile = try doc.data(as: UserProfile.self)
+            profile.id = doc.documentID
+            return profile
         } catch {
-            throw error
+            // Codable decoding failed — build a profile from raw fields so we
+            // don't lose the user's role (e.g. coach) by falling through to
+            // the default-athlete fallback in loadUserProfile().
+            firestoreLog.warning("Failed to decode UserProfile from doc \(doc.documentID): \(error.localizedDescription). Falling back to manual parsing.")
+            let email = data["email"] as? String ?? ""
+            let role = data["role"] as? String ?? UserRole.athlete.rawValue
+            let profile = UserProfile(
+                id: doc.documentID,
+                email: email,
+                role: role,
+                subscriptionTier: data["subscriptionTier"] as? String,
+                coachSubscriptionTier: data["coachSubscriptionTier"] as? String,
+                createdAt: (data["createdAt"] as? Timestamp)?.dateValue(),
+                updatedAt: (data["updatedAt"] as? Timestamp)?.dateValue()
+            )
+            return profile
         }
     }
 
@@ -45,9 +57,16 @@ extension FirestoreManager {
             "updatedAt": FieldValue.serverTimestamp()
         ]
 
-        // Strip subscription/billing fields from general profile updates — use syncSubscriptionTiers() for tier writes
-        let serverOnlyFields: Set<String> = ["subscriptionTier", "coachSubscriptionTier"]
-        let safeProfileData = profileData.filter { !serverOnlyFields.contains($0.key) }
+        // Strip non-default subscription/billing fields — upgrades go through syncSubscriptionTiers().
+        // Default values ("free", "coach_free") are allowed through so initial profile creation
+        // satisfies the Firestore security rule requiring subscriptionTier == "free" on create.
+        let defaultTierValues: Set<String> = ["free", "coach_free"]
+        let safeProfileData = profileData.filter { key, value in
+            if key == "subscriptionTier" || key == "coachSubscriptionTier" {
+                return defaultTierValues.contains(value as? String ?? "")
+            }
+            return true
+        }
 
         // Merge additional profile data; keep explicitly set fields (email, role) on conflict
         userData.merge(safeProfileData) { current, _ in current }
@@ -111,6 +130,15 @@ extension FirestoreManager {
     /// A partial deletion is better than no deletion for GDPR compliance.
     func deleteUserProfile(userID: String) async throws {
         var stepErrors: [String] = []
+
+        // Fetch user email for email-based invitation cleanup (GDPR)
+        var userEmail: String?
+        do {
+            let userDoc = try await db.collection("users").document(userID).getDocument()
+            userEmail = userDoc.data()?["email"] as? String
+        } catch {
+            stepErrors.append("email lookup: \(error.localizedDescription)")
+        }
 
         // MARK: Step 1 — Delete shared folders owned by this user (+ their videos + annotations)
         do {
@@ -191,6 +219,25 @@ extension FirestoreManager {
             }
         } catch {
             stepErrors.append("coach invitations: \(error.localizedDescription)")
+        }
+
+        // MARK: Step 4b — Delete invitations containing user's email (GDPR right to erasure)
+        if let email = userEmail?.lowercased() {
+            for field in ["coachEmail", "athleteEmail"] {
+                do {
+                    let emailInvQuery = db.collection("invitations")
+                        .whereField(field, isEqualTo: email)
+                    while true {
+                        let snap = try await emailInvQuery.limit(to: 400).getDocuments()
+                        guard !snap.documents.isEmpty else { break }
+                        let batch = db.batch()
+                        snap.documents.forEach { batch.deleteDocument($0.reference) }
+                        try await batch.commit()
+                    }
+                } catch {
+                    stepErrors.append("\(field) invitations: \(error.localizedDescription)")
+                }
+            }
         }
 
         // MARK: Step 5 — Delete notifications
@@ -405,11 +452,9 @@ extension FirestoreManager {
 
             let data = doc.data() ?? [:]
             let email = data["email"] as? String ?? "Unknown"
-            let fullName = data["fullName"] as? String
             let displayName = data["displayName"] as? String
 
-            // Use fullName if available, fallback to displayName, then email
-            let name = fullName ?? displayName ?? email.components(separatedBy: "@").first ?? "Unknown Coach"
+            let name = displayName ?? email.components(separatedBy: "@").first ?? "Unknown Coach"
 
             return (name: name, email: email)
         } catch {

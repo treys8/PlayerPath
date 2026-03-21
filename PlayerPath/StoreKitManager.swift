@@ -180,8 +180,12 @@ class StoreKitManager: ObservableObject {
             billingRetryCheckSucceeded = true
             for product in products {
                 guard let subscription = product.subscription else { continue }
-                guard let statuses = try? await subscription.status else {
+                let statuses: [Product.SubscriptionInfo.Status]
+                do {
+                    statuses = try await subscription.status
+                } catch {
                     // If any status query fails (e.g. offline), mark the check as unreliable
+                    ErrorHandlerService.shared.handle(error, context: "StoreKitManager.subscriptionStatus", showAlert: false)
                     billingRetryCheckSucceeded = false
                     continue
                 }

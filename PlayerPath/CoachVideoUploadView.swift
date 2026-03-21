@@ -115,7 +115,7 @@ struct CoachVideoUploadView: View {
                                         .frame(maxWidth: .infinity)
                                 }
                                 .buttonStyle(.borderedProminent)
-                                .tint(.blue)
+                                .tint(Color.brandNavy)
                             }
                         }
                     }
@@ -301,14 +301,18 @@ class CoachVideoUploadViewModel: ObservableObject {
         errorMessage = nil
         uploadProgress = 0.0
 
-        // Pre-flight: verify uploader still has folder access before uploading
+        // Pre-flight: verify uploader still has folder access and upload permission
         do {
-            let hasAccess = try await FirestoreManager.shared.verifyFolderAccess(
-                folderID: folderID,
-                userID: uploaderID
-            )
-            if !hasAccess {
-                errorMessage = "Your access to this folder has been revoked. You can no longer upload videos."
+            let latestFolder = try await FirestoreManager.shared.fetchSharedFolder(folderID: folderID)
+            guard let latestFolder else {
+                errorMessage = "This folder no longer exists."
+                isUploading = false
+                return
+            }
+            let hasUploadPerm = latestFolder.getPermissions(for: uploaderID)?.canUpload == true
+                || latestFolder.ownerAthleteID == uploaderID
+            if !hasUploadPerm {
+                errorMessage = "You don't have upload permission for this folder."
                 isUploading = false
                 return
             }
@@ -341,7 +345,8 @@ class CoachVideoUploadViewModel: ObservableObject {
                     // Clean up local thumbnail
                     VideoFileManager.cleanup(url: URL(fileURLWithPath: localThumbnailPath))
                 } catch {
-                    // Continue even if thumbnail fails
+                    // Continue even if thumbnail fails — video upload proceeds without thumbnail
+                    ErrorHandlerService.shared.handle(error, context: "CoachVideoUpload.generateThumbnail", showAlert: false)
                 }
             } else {
             }
@@ -390,7 +395,7 @@ class CoachVideoUploadViewModel: ObservableObject {
 
         } catch {
             errorMessage = "Upload failed: \(error.localizedDescription)"
-            Haptics.error()
+            ErrorHandlerService.shared.handle(error, context: "CoachVideoUploadView.uploadVideo", showAlert: false)
         }
 
         // Clean up picker temp file regardless of outcome

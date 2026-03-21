@@ -26,7 +26,7 @@ struct DataExportView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     Image(systemName: "arrow.down.doc.fill")
                         .font(.largeTitle)
-                        .foregroundColor(.blue)
+                        .foregroundColor(.brandNavy)
 
                     Text("Export Your Data")
                         .font(.title2)
@@ -290,7 +290,7 @@ struct ExportDataRow: View {
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: icon)
-                .foregroundColor(.blue)
+                .foregroundColor(.brandNavy)
                 .frame(width: 30)
 
             VStack(alignment: .leading, spacing: 2) {

@@ -24,7 +24,7 @@ struct ChangePasswordView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     Image(systemName: "lock.rotation")
                         .font(.largeTitle)
-                        .foregroundColor(.blue)
+                        .foregroundColor(.brandNavy)
 
                     Text("Change Password")
                         .font(.title2)

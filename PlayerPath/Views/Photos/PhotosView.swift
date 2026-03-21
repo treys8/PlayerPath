@@ -164,7 +164,7 @@ struct PhotosView: View {
                         .padding(.vertical, 7)
                         .background(
                             Capsule()
-                                .fill(activeFilter == filter ? Color.blue : Color(.systemGray5))
+                                .fill(activeFilter == filter ? Color.brandNavy : Color(.systemGray5))
                         )
                 }
             }
@@ -310,7 +310,7 @@ struct PhotosView: View {
                 )
                 Haptics.success()
             } catch {
-                Haptics.error()
+                ErrorHandlerService.shared.handle(error, context: "PhotosView.savePhoto", showAlert: false)
             }
         }
     }

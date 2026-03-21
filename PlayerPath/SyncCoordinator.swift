@@ -1033,9 +1033,17 @@ final class SyncCoordinator {
         // must reconstruct them so stats are correct on a new device or after reinstall.
         for athlete in athletesWithNewClips {
             for game in athlete.games ?? [] {
-                try? StatisticsService.shared.recalculateGameStatistics(for: game, context: context)
+                do {
+                    try StatisticsService.shared.recalculateGameStatistics(for: game, context: context)
+                } catch {
+                    syncLog.error("Failed to recalculate game stats for '\(game.opponent)': \(error.localizedDescription)")
+                }
             }
-            try? StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: context)
+            do {
+                try StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: context)
+            } catch {
+                syncLog.error("Failed to recalculate athlete stats for '\(athlete.name)': \(error.localizedDescription)")
+            }
         }
 
         // Persist the recalculated statistics
@@ -1055,7 +1063,11 @@ final class SyncCoordinator {
         let clipsDirectory = documentsURL.appendingPathComponent("Clips", isDirectory: true)
 
         // Ensure directory exists
-        try? FileManager.default.createDirectory(at: clipsDirectory, withIntermediateDirectories: true)
+        do {
+            try FileManager.default.createDirectory(at: clipsDirectory, withIntermediateDirectories: true)
+        } catch {
+            syncLog.error("Failed to create Clips directory: \(error.localizedDescription)")
+        }
 
         let localPath = clipsDirectory.appendingPathComponent(clip.fileName).path
 
@@ -1075,7 +1087,13 @@ final class SyncCoordinator {
 
             // Generate thumbnail from the now-local video file if one doesn't exist.
             let videoURL = URL(fileURLWithPath: localPath)
-            let thumbnailPath = try? await ClipPersistenceService().generateThumbnail(for: videoURL)
+            let thumbnailPath: String?
+            do {
+                thumbnailPath = try await ClipPersistenceService().generateThumbnail(for: videoURL)
+            } catch {
+                syncLog.warning("Failed to generate thumbnail for synced clip '\(clip.fileName)': \(error.localizedDescription)")
+                thumbnailPath = nil
+            }
 
             clip.filePath = VideoClip.toRelativePath(localPath)
             if let thumbnailPath {
@@ -1168,9 +1186,16 @@ final class SyncCoordinator {
             for photo in photos where photo.cloudURL == nil && photo.needsSync {
                 guard FileManager.default.fileExists(atPath: photo.filePath) else { continue }
                 // Enforce storage limit before uploading (use live StoreKit tier)
-                let fileSize = (try? FileManager.default.attributesOfItem(atPath: photo.filePath)[.size] as? Int64) ?? 0
+                let fileSize: Int64
+                do {
+                    let attrs = try FileManager.default.attributesOfItem(atPath: photo.filePath)
+                    fileSize = (attrs[.size] as? Int64) ?? 0
+                } catch {
+                    syncLog.error("Failed to read photo file size at '\(photo.filePath)': \(error.localizedDescription)")
+                    continue
+                }
                 let tier = StoreKitManager.shared.currentTier
-                let limitBytes = Int64(tier.storageLimitGB) * 1_073_741_824
+                let limitBytes = Int64(tier.storageLimitGB) * StorageConstants.bytesPerGB
                 guard user.cloudStorageUsedBytes + fileSize <= limitBytes else {
                     continue
                 }
@@ -1186,8 +1211,11 @@ final class SyncCoordinator {
                     photo.firestoreId = firestoreId
                     photo.needsSync = false
                     // Update storage counter
-                    let fileSize = (try? FileManager.default.attributesOfItem(atPath: photo.filePath)[.size] as? Int64) ?? 0
-                    user.cloudStorageUsedBytes += fileSize
+                    if let uploadedSize = (try? FileManager.default.attributesOfItem(atPath: photo.filePath)[.size] as? Int64) {
+                        user.cloudStorageUsedBytes += uploadedSize
+                    } else {
+                        syncLog.warning("Could not read uploaded photo file size for storage tracking")
+                    }
                 } catch {
                     syncLog.error("Failed to sync photo to Firestore: \(error.localizedDescription)")
                 }
@@ -1207,7 +1235,12 @@ final class SyncCoordinator {
                 // Build local path
                 guard let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { continue }
                 let photosDir = documentsURL.appendingPathComponent("Photos", isDirectory: true)
-                try? FileManager.default.createDirectory(at: photosDir, withIntermediateDirectories: true)
+                do {
+                    try FileManager.default.createDirectory(at: photosDir, withIntermediateDirectories: true)
+                } catch {
+                    syncLog.error("Failed to create Photos directory: \(error.localizedDescription)")
+                    continue
+                }
                 let localPath = photosDir.appendingPathComponent(remotePhoto.fileName).path
 
                 let newPhoto = Photo(fileName: remotePhoto.fileName, filePath: localPath)

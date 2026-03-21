@@ -11,12 +11,7 @@ final class ComprehensiveAuthManager: ObservableObject {
     @Published private(set) var currentFirebaseUser: FirebaseAuth.User?
     @Published var isLoading: Bool = false
     @Published var errorMessage: String?
-    @Published var isNewUser: Bool = false { // Track if this was a signup vs signin
-        didSet {
-            guard oldValue != isNewUser else { return }
-            UserDefaults.standard.set(isNewUser, forKey: "isNewUser")
-        }
-    }
+    @Published var isNewUser: Bool = false // Session-level flag; NOT persisted across launches
     
     @Published var localUser: User?
     @Published var hasCompletedOnboarding: Bool = false {
@@ -69,6 +64,11 @@ final class ComprehensiveAuthManager: ObservableObject {
     /// Firestore profile on every app launch via loadUserProfile().
     private(set) var hasAthleteTierOverride: Bool = false
 
+    /// True after the first loadUserProfile() completes. Prevents the StoreKit
+    /// publisher from syncing a "free" tier to Firestore before we've had a chance
+    /// to apply any comped tier overrides from the Firestore profile.
+    private var hasLoadedProfile: Bool = false
+
     /// Bridge for legacy call sites — true when user has Plus or Pro
     var isPremiumUser: Bool { currentTier >= .plus }
 
@@ -90,7 +90,12 @@ final class ComprehensiveAuthManager: ObservableObject {
     
     init() {
         currentFirebaseUser = Auth.auth().currentUser
-        isSignedIn = currentFirebaseUser != nil
+
+        // Do NOT set isSignedIn here. Even if a Firebase session exists,
+        // the auth state listener will set isSignedIn = true AFTER loading
+        // the user's profile from Firestore. This prevents the UI from
+        // rendering with a stale or default role (e.g. after a reinstall
+        // where UserDefaults is wiped but the Firebase keychain token survives).
 
         // Restore persisted role from UserDefaults for initial UI routing only.
         // This is a display hint to prevent flicker on launch — it is NOT authoritative.
@@ -107,16 +112,17 @@ final class ComprehensiveAuthManager: ObservableObject {
 
         // Restore persisted onboarding completion from UserDefaults
         hasCompletedOnboarding = UserDefaults.standard.bool(forKey: AuthConstants.UserDefaultsKeys.hasCompletedOnboarding)
-        isNewUser = UserDefaults.standard.bool(forKey: "isNewUser")
+        // isNewUser is NOT restored from UserDefaults. It is a session-level flag
+        // that prevents the auth state listener from racing with signUp() during
+        // the same session. Persisting it is dangerous: if the app is killed during
+        // signup, a stale true value permanently prevents loadUserProfile() from
+        // running on subsequent launches, leaving the user with a default .athlete role.
         // hasAthleteTierOverride is NOT restored from UserDefaults (security).
         // It will be re-derived from Firestore profile in loadUserProfile().
         // On cold launch, StoreKit tier applies until Firestore loads.
         #if DEBUG
         if hasCompletedOnboarding {
             print("💾 Restored hasCompletedOnboarding from UserDefaults: true")
-        }
-        if isNewUser {
-            print("💾 Restored isNewUser from UserDefaults: true")
         }
         // hasAthleteTierOverride is no longer persisted — derived from Firestore on load
         #endif
@@ -140,6 +146,9 @@ final class ComprehensiveAuthManager: ObservableObject {
                     // If StoreKit now meets or exceeds the comped tier, clear the override
                     if hadOverride { self.hasAthleteTierOverride = false }
                 }
+                // Don't sync until profile has loaded — otherwise a "free" StoreKit
+                // tier overwrites a Firestore-comped "pro" before the override is applied.
+                guard self.hasLoadedProfile else { return }
                 self.syncSubscriptionTierToFirestore()
                 // Keep SwiftData User model in sync so user.tier doesn't go stale
                 // (e.g. subscription expires while app is backgrounded)
@@ -152,8 +161,10 @@ final class ComprehensiveAuthManager: ObservableObject {
             .removeDuplicates()
             .receive(on: RunLoop.main)
             .sink { [weak self] tier in
-                self?.currentCoachTier = tier
-                self?.syncSubscriptionTierToFirestore()
+                guard let self else { return }
+                self.currentCoachTier = tier
+                guard self.hasLoadedProfile else { return }
+                self.syncSubscriptionTierToFirestore()
             }
             .store(in: &storeKitCancellables)
 
@@ -161,10 +172,10 @@ final class ComprehensiveAuthManager: ObservableObject {
             // ✅ Consolidated into a single MainActor Task to prevent race conditions
             Task { @MainActor in
                 self?.currentFirebaseUser = user
-                self?.isSignedIn = user != nil
 
                 // Reset new user flag when auth state changes (unless it's a signup)
                 if user == nil {
+                    self?.isSignedIn = false
                     // Clear ALL user-specific data to prevent leakage between accounts
                     self?.isNewUser = false
                     self?.userRole = .athlete
@@ -178,23 +189,46 @@ final class ComprehensiveAuthManager: ObservableObject {
                     #if DEBUG
                     print("🔄 Cleared all user data on sign out")
                     #endif
+                } else if self?.isHandlingSignIn == true {
+                    // signIn() is in progress — it will set isSignedIn after
+                    // loadUserProfile() completes so the UI sees the correct role.
+                    #if DEBUG
+                    print("⏭️ Auth state changed - Skipping (handled by signIn())")
+                    #endif
                 } else {
-                    // User signed in - ensure local user exists
-                    await self?.ensureLocalUser()
+                    // User signed in via Apple Sign In or app relaunch —
+                    // load profile BEFORE setting isSignedIn so the UI
+                    // routes to the correct role (athlete vs coach).
 
-                    // Only load profile if this isn't a brand new signup or an explicit
-                    // signIn() call. signUp/signUpAsCoach handle profile creation themselves,
-                    // and signIn() calls loadUserProfile() directly — loading here too would
-                    // cause a redundant double-fetch.
-                    if self?.isNewUser == false && self?.isHandlingSignIn == false {
+                    // Only load profile if this isn't a brand new signup.
+                    // signUp/signUpAsCoach handle profile creation themselves.
+                    if self?.isNewUser == false {
                         #if DEBUG
                         print("🔍 Auth state changed - Loading profile for existing user")
                         #endif
-                        await self?.loadUserProfile()
+                        // Use retry logic for the listener path (app relaunch, Apple Sign In).
+                        // A single-shot loadUserProfile() silently swallows errors, leaving
+                        // the role as the stale default. Retry with backoff gives Firestore
+                        // time to establish a connection after a cold launch.
+                        await self?.loadUserProfileWithRetry(maxAttempts: 3)
                     } else {
                         #if DEBUG
-                        print("⏭️ Auth state changed - Skipping profile load (handled by signIn/signUp)")
+                        print("⏭️ Auth state changed - Skipping profile load (new user signup)")
                         #endif
+                    }
+
+                    // Sync local SwiftData user AFTER profile load so
+                    // the correct role is written (not the stale default).
+                    await self?.ensureLocalUser()
+
+                    self?.isSignedIn = true
+
+                    // Defensive check: Firestore invitation rules compare
+                    // request.auth.token.email against stored (lowercased) emails.
+                    // If Firebase Auth preserves mixed-case (e.g. Apple Sign In),
+                    // invitation reads will fail with permission denied.
+                    if let email = user?.email, email != email.lowercased() {
+                        authLog.warning("Firebase Auth email is not lowercase: \(email) — invitation queries may fail for this user")
                     }
                 }
             }
@@ -272,7 +306,11 @@ final class ComprehensiveAuthManager: ObservableObject {
     private func syncTierToLocalUser(_ tier: SubscriptionTier) {
         guard let localUser, localUser.subscriptionTier != tier.rawValue else { return }
         localUser.subscriptionTier = tier.rawValue
-        try? modelContext?.save()
+        do {
+            try modelContext?.save()
+        } catch {
+            authLog.error("Failed to sync subscription tier to SwiftData: \(error.localizedDescription)")
+        }
         #if DEBUG
         print("🔄 Synced SwiftData User.subscriptionTier to \(tier.rawValue)")
         #endif
@@ -301,8 +339,8 @@ final class ComprehensiveAuthManager: ObservableObject {
         isLoading = true
         errorMessage = nil
         currentFirebaseUser = user
-        isSignedIn = true
         await loadUserProfile()
+        isSignedIn = true
         isLoading = false
     }
 
@@ -319,10 +357,12 @@ final class ComprehensiveAuthManager: ObservableObject {
         do {
             let result = try await Auth.auth().signIn(withEmail: email, password: password)
             currentFirebaseUser = result.user
-            isSignedIn = true
 
-            // Load user profile from Firestore
+            // Load user profile from Firestore BEFORE setting isSignedIn,
+            // so userRole is resolved before the UI transitions to AuthenticatedFlow.
             await loadUserProfile()
+
+            isSignedIn = true
 
             // Track successful sign in
             AnalyticsService.shared.setUserID(result.user.uid)
@@ -414,13 +454,16 @@ final class ComprehensiveAuthManager: ObservableObject {
         role: UserRole,
         loadAfterCreate: Bool = true
     ) async throws {
-        let profileData: [String: Any] = [
+        var profileData: [String: Any] = [
             "email": email.lowercased(),
             "role": role.rawValue,
             "subscriptionTier": "free",
             "createdAt": Date(),
             "displayName": displayName
         ]
+        if role == .coach {
+            profileData["coachSubscriptionTier"] = "coach_free"
+        }
         
         #if DEBUG
         print("🔵 Creating user profile in Firestore - Role: \(role.rawValue), Email: \(email)")
@@ -476,7 +519,9 @@ final class ComprehensiveAuthManager: ObservableObject {
                 
                 // Update profile and role from Firestore
                 userProfile = profile
-                syncSubscriptionTierToFirestore()
+
+                // Apply Firestore tier overrides BEFORE syncing back to Firestore,
+                // so comped tiers aren't overwritten by lower StoreKit values.
 
                 // Academy coach tier is manually granted via Firestore — override StoreKit resolution
                 if profile.coachSubscriptionTier == CoachSubscriptionTier.academy.rawValue {
@@ -498,6 +543,9 @@ final class ComprehensiveAuthManager: ObservableObject {
                 } else {
                     hasAthleteTierOverride = false
                 }
+
+                hasLoadedProfile = true
+                syncSubscriptionTierToFirestore()
 
                 // Only update userRole if it's different AND this is not a new user
                 // For new users, we want to keep the role we set synchronously at signup
@@ -527,14 +575,20 @@ final class ComprehensiveAuthManager: ObservableObject {
                 // Profile doesn't exist - only create if this is NOT a new user
                 // (new users should have had their profile created in signUp/signUpAsCoach)
                 if !isNewUser {
+                    // Use the current in-memory role (restored from UserDefaults)
+                    // rather than hardcoding .athlete. If the user was a coach,
+                    // the UserDefaults cache preserves that from the last successful
+                    // profile load. This prevents overwriting a coach's Firestore
+                    // doc with "athlete" if the profile transiently isn't found.
+                    let fallbackRole = self.userRole
                     #if DEBUG
-                    print("⚠️ Profile doesn't exist for existing user \(email), creating default athlete profile")
+                    print("⚠️ Profile doesn't exist for existing user \(email), creating profile with role: \(fallbackRole.rawValue)")
                     #endif
                     try await createUserProfile(
                         userID: userID,
                         email: email,
                         displayName: currentFirebaseUser?.displayName ?? email,
-                        role: .athlete
+                        role: fallbackRole
                     )
                     syncSubscriptionTierToFirestore()
                 } else {
@@ -791,6 +845,7 @@ final class ComprehensiveAuthManager: ObservableObject {
             currentTier = .free
             currentCoachTier = .free
             hasAthleteTierOverride = false
+            hasLoadedProfile = false
 
             // Clear persisted role and onboarding completion (both in memory and UserDefaults).
             // Don't wait for the auth listener — it fires asynchronously and leaves a race window.
@@ -945,13 +1000,20 @@ final class ComprehensiveAuthManager: ObservableObject {
         isNewUser = false
     }
 
-    // Method to allow external sign-in managers (like Apple Sign In) to update the user
+    // Method to allow external sign-in managers (like Apple Sign In) to update the user.
+    // For new users the role is known from the sign-up picker, so we set isSignedIn immediately.
+    // For returning users the role must be loaded from Firestore first — the auth state
+    // listener will set isSignedIn after loadUserProfile() completes.
     func updateCurrentUser(_ user: FirebaseAuth.User, isNewUser: Bool = false, role: UserRole? = nil) {
         currentFirebaseUser = user
-        isSignedIn = true
         self.isNewUser = isNewUser
         if let role = role {
             userRole = role
+        }
+        // Only set isSignedIn immediately for new users (role is already known).
+        // Returning users need the auth state listener to load their profile first.
+        if isNewUser {
+            isSignedIn = true
         }
     }
 

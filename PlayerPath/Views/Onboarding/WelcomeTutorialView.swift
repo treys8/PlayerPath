@@ -51,7 +51,7 @@ struct WelcomeTutorialView: View {
             Spacer()
             Image(systemName: step.imageName)
                 .font(.system(size: 72))
-                .foregroundStyle(.blue)
+                .foregroundColor(.brandNavy)
             Text(step.title)
                 .font(.title)
                 .fontWeight(.bold)

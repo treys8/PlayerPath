@@ -29,7 +29,7 @@ struct OnboardingBackupView: View {
                             Circle()
                                 .fill(
                                     RadialGradient(
-                                        colors: [.blue.opacity(0.3), .clear],
+                                        colors: [Color.brandNavy.opacity(0.3), .clear],
                                         center: .center,
                                         startRadius: 15,
                                         endRadius: 60
@@ -42,13 +42,13 @@ struct OnboardingBackupView: View {
                                 .font(.system(size: 60, weight: .medium))
                                 .foregroundStyle(
                                     LinearGradient(
-                                        colors: [.blue, .cyan],
+                                        colors: [Color.brandNavy, .cyan],
                                         startPoint: .topLeading,
                                         endPoint: .bottomTrailing
                                     )
                                 )
                                 .symbolRenderingMode(.hierarchical)
-                                .shadow(color: .blue.opacity(0.4), radius: 15, x: 0, y: 8)
+                                .shadow(color: Color.brandNavy.opacity(0.4), radius: 15, x: 0, y: 8)
                         }
 
                         VStack(spacing: 12) {
@@ -100,14 +100,14 @@ struct OnboardingBackupView: View {
                         .frame(height: 58)
                         .background(
                             LinearGradient(
-                                colors: [.blue, .blue.opacity(0.85)],
+                                colors: [Color.brandNavy, Color.brandNavy.opacity(0.85)],
                                 startPoint: .topLeading,
                                 endPoint: .bottomTrailing
                             )
                         )
                         .foregroundColor(.white)
                         .cornerRadius(16)
-                        .shadow(color: .blue.opacity(0.4), radius: 12, x: 0, y: 6)
+                        .shadow(color: Color.brandNavy.opacity(0.4), radius: 12, x: 0, y: 6)
                     }
                     .buttonStyle(.plain)
                     .disabled(isSaving)
@@ -207,12 +207,12 @@ private struct BackupOptionCard: View {
                 // Selection indicator
                 ZStack {
                     Circle()
-                        .stroke(isSelected ? Color.blue : Color.gray.opacity(0.3), lineWidth: 2)
+                        .stroke(isSelected ? Color.brandNavy : Color.gray.opacity(0.3), lineWidth: 2)
                         .frame(width: 24, height: 24)
 
                     if isSelected {
                         Circle()
-                            .fill(Color.blue)
+                            .fill(Color.brandNavy)
                             .frame(width: 16, height: 16)
                     }
                 }
@@ -220,11 +220,11 @@ private struct BackupOptionCard: View {
             .padding(16)
             .background(
                 RoundedRectangle(cornerRadius: 16)
-                    .fill(isSelected ? Color.blue.opacity(0.08) : Color(.systemGray6))
+                    .fill(isSelected ? Color.brandNavy.opacity(0.08) : Color(.systemGray6))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 16)
-                    .stroke(isSelected ? Color.blue : Color.clear, lineWidth: 2)
+                    .stroke(isSelected ? Color.brandNavy : Color.clear, lineWidth: 2)
             )
         }
         .buttonStyle(.plain)
@@ -233,7 +233,7 @@ private struct BackupOptionCard: View {
     private var iconBackgroundColor: Color {
         switch mode {
         case .off: return .gray.opacity(0.15)
-        case .wifiOnly: return .blue.opacity(0.15)
+        case .wifiOnly: return .brandNavy.opacity(0.15)
         case .always: return .green.opacity(0.15)
         }
     }
@@ -241,7 +241,7 @@ private struct BackupOptionCard: View {
     private var iconColor: Color {
         switch mode {
         case .off: return .gray
-        case .wifiOnly: return .blue
+        case .wifiOnly: return .brandNavy
         case .always: return .green
         }
     }

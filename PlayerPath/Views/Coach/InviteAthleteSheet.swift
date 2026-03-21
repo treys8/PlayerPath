@@ -120,14 +120,14 @@ struct InviteAthleteSheet: View {
                     // Info box
                     HStack(alignment: .top, spacing: 12) {
                         Image(systemName: "info.circle.fill")
-                            .foregroundColor(.blue)
+                            .foregroundColor(.brandNavy)
 
                         Text("The athlete's parent will receive an email invitation. Once they accept, you'll be able to view their shared videos and send practice content.")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
                     .padding()
-                    .background(Color.blue.opacity(0.1))
+                    .background(Color.brandNavy.opacity(0.1))
                     .cornerRadius(12)
                     .padding(.horizontal)
 
@@ -204,6 +204,23 @@ struct InviteAthleteSheet: View {
                     throw InvitationError.missingCoachInfo
                 }
 
+                // Prevent self-invitation
+                if athleteEmail.lowercased() == coachEmail.lowercased() {
+                    throw NSError(domain: "InviteAthleteSheet", code: -4,
+                                  userInfo: [NSLocalizedDescriptionKey: "You cannot send an invitation to yourself."])
+                }
+
+                // Enforce coach athlete limit before sending
+                // Merge athletes from shared folders + accepted coach→athlete invitations
+                var connectedAthleteIDs = Set(SharedFolderManager.shared.coachFolders.map { $0.ownerAthleteID })
+                let acceptedAthleteIDs = try await FirestoreManager.shared.fetchAcceptedCoachToAthleteAthleteIDs(coachID: coachID)
+                connectedAthleteIDs.formUnion(acceptedAthleteIDs)
+                let pendingCount = try await FirestoreManager.shared.countPendingCoachToAthleteInvitations(coachID: coachID)
+                let limit = authManager.coachAthleteLimit
+                if connectedAthleteIDs.count + pendingCount >= limit {
+                    throw InvitationError.athleteLimitReached(limit: limit)
+                }
+
                 // Create invitation in Firestore
                 try await FirestoreManager.shared.createCoachToAthleteInvitation(
                     coachID: coachID,
@@ -223,7 +240,7 @@ struct InviteAthleteSheet: View {
                 await MainActor.run {
                     isSending = false
                     errorMessage = "Failed to send invitation: \(error.localizedDescription)"
-                    Haptics.error()
+                    ErrorHandlerService.shared.handle(error, context: "InviteAthleteSheet.sendInvitation", showAlert: false)
                 }
             }
         }
@@ -232,11 +249,14 @@ struct InviteAthleteSheet: View {
 
 enum InvitationError: LocalizedError {
     case missingCoachInfo
+    case athleteLimitReached(limit: Int)
 
     var errorDescription: String? {
         switch self {
         case .missingCoachInfo:
             return "Could not retrieve your coach information. Please try signing out and back in."
+        case .athleteLimitReached(let limit):
+            return "You've reached your athlete limit (\(limit)). Upgrade your coaching plan to invite more athletes."
         }
     }
 }

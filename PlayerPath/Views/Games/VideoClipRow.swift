@@ -76,7 +76,7 @@ struct VideoClipRow: View {
                             .foregroundColor(.white)
                             .padding(.horizontal, 4)
                             .padding(.vertical, 1)
-                            .background(playResultColor(for: playResult.type))
+                            .background(playResult.type.badgeColor)
                             .cornerRadius(3)
                             .offset(x: 2, y: -2)
                     } else {
@@ -173,7 +173,7 @@ struct VideoClipRow: View {
 
         do {
             // Load thumbnail asynchronously using the same cache system
-            let size = CGSize(width: 160, height: 90)
+            let size: CGSize = .thumbnailMedium
             let image = try await ThumbnailCache.shared.loadThumbnail(at: thumbnailPath, targetSize: size)
             thumbnailImage = image
         } catch {
@@ -205,7 +205,7 @@ struct VideoClipRow: View {
         }
         // Load through the cache (off main thread) after saving the path
         if case .success(let thumbnailPath) = result {
-            let size = CGSize(width: 160, height: 90)
+            let size: CGSize = .thumbnailMedium
             if let image = try? await ThumbnailCache.shared.loadThumbnail(at: thumbnailPath, targetSize: size) {
                 await MainActor.run { thumbnailImage = image }
             }
@@ -230,19 +230,4 @@ struct VideoClipRow: View {
         }
     }
 
-    private func playResultColor(for type: PlayResultType) -> Color {
-        switch type {
-        case .single: return .green
-        case .double: return .blue
-        case .triple: return .orange
-        case .homeRun: return .gold
-        case .walk: return .cyan
-        case .strikeout: return .red
-        case .groundOut, .flyOut: return .red
-        case .ball: return .orange
-        case .strike: return .green
-        case .hitByPitch: return .purple
-        case .wildPitch: return .red
-        }
-    }
 }

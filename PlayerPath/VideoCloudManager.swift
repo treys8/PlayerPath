@@ -121,11 +121,17 @@ class VideoCloudManager: ObservableObject {
         // Enforce per-tier cloud storage limit using live StoreKit tier
         if let user = athlete.user {
             let tier = StoreKitManager.shared.currentTier
-            let limitBytes = Int64(tier.storageLimitGB) * 1_073_741_824
-            let fileAttrs = try? FileManager.default.attributesOfItem(atPath: localURL.path)
-            let fileSize = (fileAttrs?[.size] as? Int64) ?? 0
+            let limitBytes = Int64(tier.storageLimitGB) * StorageConstants.bytesPerGB
+            let fileSize: Int64
+            do {
+                let fileAttrs = try FileManager.default.attributesOfItem(atPath: localURL.path)
+                fileSize = (fileAttrs[.size] as? Int64) ?? 0
+            } catch {
+                videoCloudLog.error("Failed to read file size for quota check: \(error.localizedDescription)")
+                fileSize = 0
+            }
             if user.cloudStorageUsedBytes + fileSize > limitBytes {
-                let usedGB = Double(user.cloudStorageUsedBytes) / 1_073_741_824.0
+                let usedGB = Double(user.cloudStorageUsedBytes) / StorageConstants.bytesPerGBDouble
                 throw VideoCloudError.uploadFailed(
                     String(format: "Storage limit reached (%.1f GB of %d GB used). Upgrade your plan for more storage.", usedGB, tier.storageLimitGB)
                 )
@@ -245,7 +251,11 @@ class VideoCloudManager: ObservableObject {
 
         // Ensure parent directory exists
         let parentDirectory = localURL.deletingLastPathComponent()
-        try? FileManager.default.createDirectory(at: parentDirectory, withIntermediateDirectories: true)
+        do {
+            try FileManager.default.createDirectory(at: parentDirectory, withIntermediateDirectories: true)
+        } catch {
+            videoCloudLog.error("Failed to create download directory: \(error.localizedDescription)")
+        }
 
         // Create storage reference from URL
         let storage = Storage.storage()
@@ -491,10 +501,14 @@ class VideoCloudManager: ObservableObject {
         }
         guard let storageURL = URL(string: cloudURL) else { throw VideoCloudError.invalidURL }
         let localURL = URL(fileURLWithPath: localPath)
-        try? FileManager.default.createDirectory(
-            at: localURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
+        do {
+            try FileManager.default.createDirectory(
+                at: localURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+        } catch {
+            videoCloudLog.error("Failed to create photo download directory: \(error.localizedDescription)")
+        }
         if FileManager.default.fileExists(atPath: localPath) { return }
 
         let storage = Storage.storage()
@@ -1296,7 +1310,7 @@ class VideoCloudManager: ObservableObject {
                 do {
                     try await fileRef.delete()
                 } catch {
-                    // Continue deleting other files even if one fails
+                    videoCloudLog.warning("Failed to delete storage file: \(error.localizedDescription)")
                 }
             }
         } catch {
@@ -1332,7 +1346,7 @@ class VideoCloudManager: ObservableObject {
                 do {
                     try await fileRef.delete()
                 } catch {
-                    // Continue deleting other files even if one fails
+                    videoCloudLog.warning("Failed to delete storage file: \(error.localizedDescription)")
                 }
             }
 
@@ -1344,7 +1358,7 @@ class VideoCloudManager: ObservableObject {
                         try await subFileRef.delete()
                     }
                 } catch {
-                    // Continue with other directories
+                    videoCloudLog.warning("Failed to delete storage subdirectory: \(error.localizedDescription)")
                 }
             }
 

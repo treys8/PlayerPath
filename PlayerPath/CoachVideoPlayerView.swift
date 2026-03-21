@@ -153,7 +153,7 @@ struct CoachVideoPlayerView: View {
                         ZStack(alignment: .bottomLeading) {
                             ForEach(viewModel.annotations) { annotation in
                                 Rectangle()
-                                    .fill(annotation.isCoachComment ? Color.green : Color.blue)
+                                    .fill(annotation.isCoachComment ? Color.green : Color.brandNavy)
                                     .frame(width: 3, height: 20)
                                     .shadow(color: .black.opacity(0.5), radius: 2)
                                     .offset(x: (CGFloat(annotation.timestamp) / CGFloat(duration)) * geometry.size.width)
@@ -349,12 +349,12 @@ struct NoteCardView: View {
             HStack {
                 Image(systemName: note.isCoachComment ? "person.fill.checkmark" : "person.fill")
                     .font(.caption)
-                    .foregroundColor(note.isCoachComment ? .green : .blue)
+                    .foregroundColor(note.isCoachComment ? .green : .brandNavy)
                 
                 Text(note.userName)
                     .font(.caption)
                     .fontWeight(.medium)
-                    .foregroundColor(note.isCoachComment ? .green : .blue)
+                    .foregroundColor(note.isCoachComment ? .green : .brandNavy)
                 
                 if note.isCoachComment {
                     Text("COACH")
@@ -649,6 +649,7 @@ class CoachVideoPlayerViewModel: ObservableObject {
                 folderID: folder.id ?? ""
             )
         } catch {
+            ErrorHandlerService.shared.handle(error, context: "CoachVideoPlayer.getSignedURL", showAlert: false)
             playbackURLString = video.firebaseStorageURL
         }
 
@@ -724,13 +725,17 @@ class CoachVideoPlayerViewModel: ObservableObject {
             // Mirror coach feedback to the unified comment thread so the athlete sees it
             // in their practice/clip view. videoID == VideoClip.id.uuidString (same Firestore doc).
             if isCoachComment {
-                try? await ClipCommentService.shared.postComment(
-                    clipId: videoID,
-                    text: text,
-                    authorId: userID,
-                    authorName: userName,
-                    authorRole: "coach"
-                )
+                do {
+                    try await ClipCommentService.shared.postComment(
+                        clipId: videoID,
+                        text: text,
+                        authorId: userID,
+                        authorName: userName,
+                        authorRole: "coach"
+                    )
+                } catch {
+                    ErrorHandlerService.shared.handle(error, context: "CoachVideoPlayer.mirrorComment", showAlert: false)
+                }
             }
 
             Haptics.success()
@@ -751,7 +756,7 @@ class CoachVideoPlayerViewModel: ObservableObject {
 
         } catch {
             errorMessage = "Failed to add note: \(error.localizedDescription)"
-            Haptics.error()
+            ErrorHandlerService.shared.handle(error, context: "CoachVideoPlayerViewModel.addAnnotation", showAlert: false)
         }
     }
     
@@ -768,7 +773,7 @@ class CoachVideoPlayerViewModel: ObservableObject {
 
         } catch {
             errorMessage = "Failed to delete note: \(error.localizedDescription)"
-            Haptics.error()
+            ErrorHandlerService.shared.handle(error, context: "CoachVideoPlayerViewModel.deleteAnnotation", showAlert: false)
         }
     }
 

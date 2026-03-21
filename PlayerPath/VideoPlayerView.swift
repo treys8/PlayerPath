@@ -105,7 +105,7 @@ struct VideoPlayerView: View {
                     }
                     .padding(.horizontal, 20)
                     .padding(.vertical, 8)
-                    .background(Color.blue)
+                    .background(Color.brandNavy)
                     .foregroundColor(.white)
                     .cornerRadius(8)
                     .padding(.top)
@@ -376,10 +376,15 @@ struct VideoPlayerView: View {
             // Prefer a short-lived signed URL; fall back to the stored permanent URL
             var downloadURL = cloudURL
             if let ownerUID = authManager.userID, !clip.fileName.isEmpty {
-                downloadURL = (try? await SecureURLManager.shared.getPersonalVideoURL(
-                    ownerUID: ownerUID,
-                    fileName: clip.fileName
-                )) ?? cloudURL
+                do {
+                    downloadURL = try await SecureURLManager.shared.getPersonalVideoURL(
+                        ownerUID: ownerUID,
+                        fileName: clip.fileName
+                    )
+                } catch {
+                    ErrorHandlerService.shared.handle(error, context: "VideoPlayerView.getSignedURL", showAlert: false)
+                    // Falls back to stored cloudURL
+                }
             }
 
             await MainActor.run {
@@ -389,7 +394,11 @@ struct VideoPlayerView: View {
 
             // Create destination path in Documents/Clips directory
             let clipsDirectory = documentsPath.appendingPathComponent("Clips", isDirectory: true)
-            try? FileManager.default.createDirectory(at: clipsDirectory, withIntermediateDirectories: true)
+            do {
+                try FileManager.default.createDirectory(at: clipsDirectory, withIntermediateDirectories: true)
+            } catch {
+                ErrorHandlerService.shared.handle(error, context: "VideoPlayerView.createClipsDirectory", showAlert: false)
+            }
             let destinationPath = clipsDirectory.appendingPathComponent(clip.fileName).path
 
             let cloudManager = VideoCloudManager.shared
@@ -402,7 +411,7 @@ struct VideoPlayerView: View {
                     if let progress = cloudManager.downloadProgress[clipId] {
                         downloadProgress = progress
                     }
-                    try? await Task.sleep(nanoseconds: 200_000_000) // 200ms
+                    try? await Task.sleep(for: .milliseconds(200))
                 }
             }
 
@@ -717,7 +726,7 @@ struct PlayResultEditorView: View {
                         .font(.headline)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 16)
-                        .background(Color.blue)
+                        .background(Color.brandNavy)
                         .foregroundColor(.white)
                         .cornerRadius(12)
                 }
@@ -773,9 +782,17 @@ struct PlayResultEditorView: View {
             // Recalculate stats after play result change to keep them consistent
             if let athlete = clip.athlete {
                 if let game = clip.game {
-                    try? StatisticsService.shared.recalculateGameStatistics(for: game, context: modelContext)
+                    do {
+                        try StatisticsService.shared.recalculateGameStatistics(for: game, context: modelContext)
+                    } catch {
+                        ErrorHandlerService.shared.handle(error, context: "VideoPlayerView.recalcGameStats", showAlert: false)
+                    }
                 }
-                try? StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: modelContext)
+                do {
+                    try StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: modelContext)
+                } catch {
+                    ErrorHandlerService.shared.handle(error, context: "VideoPlayerView.recalcAthleteStats", showAlert: false)
+                }
             }
 
             Haptics.success()
@@ -1038,10 +1055,10 @@ struct GameLinkerView: View {
                             Spacer()
                             if selectedGame == nil && clip.game == nil {
                                 Image(systemName: "checkmark")
-                                    .foregroundColor(.blue)
+                                    .foregroundColor(.brandNavy)
                             } else if selectedGame == nil && hasChanges {
                                 Image(systemName: "checkmark")
-                                    .foregroundColor(.blue)
+                                    .foregroundColor(.brandNavy)
                             }
                         }
                     }
@@ -1074,13 +1091,13 @@ struct GameLinkerView: View {
                                         if let season = game.season {
                                             Text(season.displayName)
                                                 .font(.caption2)
-                                                .foregroundColor(.blue)
+                                                .foregroundColor(.brandNavy)
                                         }
                                     }
                                     Spacer()
                                     if (selectedGame?.id == game.id) || (!hasChanges && clip.game?.id == game.id) {
                                         Image(systemName: "checkmark")
-                                            .foregroundColor(.blue)
+                                            .foregroundColor(.brandNavy)
                                     }
                                 }
                             }

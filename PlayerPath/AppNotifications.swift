@@ -39,6 +39,10 @@ extension Notification.Name {
     static let navigateToCoachFolder = Notification.Name("navigateToCoachFolder")
     /// Coach: open the invitations sheet.
     static let openCoachInvitations = Notification.Name("openCoachInvitations")
+    /// Show the subscription paywall (e.g., after accepting a coach invitation without Pro).
+    static let showSubscriptionPaywall = Notification.Name("showSubscriptionPaywall")
+    static let videoRecorded = Notification.Name("VideoRecorded")
+    static let presentAddPractice = Notification.Name("presentAddPractice")
 }
 
 @inline(__always)

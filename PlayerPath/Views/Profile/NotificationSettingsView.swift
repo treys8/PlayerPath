@@ -117,7 +117,7 @@ struct NotificationSettingsView: View {
                         PushNotificationService.shared.openSettingsIfDenied()
                     }
                     .buttonStyle(.bordered)
-                    .tint(.blue)
+                    .tint(Color.brandNavy)
                 }
                 .padding(.vertical, 4)
             }

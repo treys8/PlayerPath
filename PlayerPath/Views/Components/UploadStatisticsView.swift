@@ -61,7 +61,7 @@ struct UploadStatisticsView: View {
                         .trim(from: 0, to: uploadPercentage)
                         .stroke(
                             LinearGradient(
-                                colors: [.blue, .cyan],
+                                colors: [Color.brandNavy, .cyan],
                                 startPoint: .topLeading,
                                 endPoint: .bottomTrailing
                             ),
@@ -87,7 +87,7 @@ struct UploadStatisticsView: View {
                         title: "Total Size",
                         value: formatBytes(totalUploadedSize),
                         icon: "externaldrive.fill",
-                        color: .blue
+                        color: .brandNavy
                     )
 
                     StatColumn(
@@ -128,7 +128,7 @@ struct UploadStatisticsView: View {
                     label: "Uploading",
                     count: uploadManager.activeUploads.count,
                     icon: "arrow.up.circle.fill",
-                    color: .blue,
+                    color: .brandNavy,
                     isAnimated: true
                 )
             }
@@ -199,7 +199,7 @@ struct UploadStatisticsView: View {
             if let prefs = preferences.first {
                 HStack {
                     Image(systemName: prefs.allowCellularUploads ? "antenna.radiowaves.left.and.right" : "wifi")
-                        .foregroundColor(prefs.allowCellularUploads ? .orange : .blue)
+                        .foregroundColor(prefs.allowCellularUploads ? .orange : .brandNavy)
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Upload Policy")

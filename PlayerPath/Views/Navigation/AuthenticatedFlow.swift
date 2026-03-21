@@ -66,6 +66,14 @@ struct AuthenticatedFlow: View {
             SharedFolderManager.shared.stopCoachFoldersListener()
             CoachInvitationManager.shared.stopInvitationsListener()
         }
+        .onChange(of: authManager.isSignedIn) { oldValue, newValue in
+            if oldValue == true && newValue == false {
+                // User signed out — stop all listeners immediately
+                ActivityNotificationService.shared.stopListening()
+                SharedFolderManager.shared.stopCoachFoldersListener()
+                CoachInvitationManager.shared.stopInvitationsListener()
+            }
+        }
         .onChange(of: scenePhase) { _, newPhase in
             switch newPhase {
             case .background:
@@ -100,18 +108,13 @@ struct AuthenticatedFlow: View {
 
             // --- Post-UI setup: none of this blocks the loading screen ---
 
-            // Configure services that need ModelContext
-            SyncCoordinator.shared.configure(modelContext: modelContext)
-            UploadQueueManager.shared.configure(modelContext: modelContext)
-            QuickActionsManager.shared.setupQuickActions()
-
             // Start Firestore listeners for real-time updates
             if let firebaseUID = authManager.currentFirebaseUser?.uid {
                 ActivityNotificationService.shared.startListening(forUserID: firebaseUID)
             }
 
-            // Coach-specific listeners
             if authManager.userRole == .coach {
+                // Coach-specific listeners
                 if let coachID = authManager.currentFirebaseUser?.uid {
                     CoachFolderArchiveManager.shared.configure(coachUID: coachID)
                     SharedFolderManager.shared.startCoachFoldersListener(coachID: coachID)
@@ -119,27 +122,33 @@ struct AuthenticatedFlow: View {
                 if let coachEmail = authManager.currentFirebaseUser?.email?.lowercased() {
                     CoachInvitationManager.shared.startInvitationsListener(forCoachEmail: coachEmail)
                 }
-            }
+            } else {
+                // Athlete-specific services — coaches don't have athletes/videos to sync
+                SyncCoordinator.shared.configure(modelContext: modelContext)
+                UploadQueueManager.shared.configure(modelContext: modelContext)
+                QuickActionsManager.shared.setupQuickActions()
 
-            // Run migration, recovery, and sync in background — don't block the UI
-            Task(priority: .utility) {
-                // Migrate videos from Caches to Documents (one-time operation)
-                do {
-                    try await ClipPersistenceService().migrateVideosToDocuments(context: modelContext)
-                } catch {
-                    // Don't block app launch on migration failure
-                }
+                // Run migration, recovery, and sync in background
+                Task(priority: .utility) {
+                    do {
+                        try await ClipPersistenceService().migrateVideosToDocuments(context: modelContext)
+                    } catch {
+                        // Don't block app launch on migration failure
+                    }
 
-                // Recover any video files orphaned by a SwiftData store reset
-                let athletes = (currentUser?.athletes ?? [])
-                await OrphanedClipRecoveryService.shared.recoverIfNeeded(
-                    context: modelContext,
-                    athletes: athletes
-                )
+                    let athletes = (currentUser?.athletes ?? [])
+                    await OrphanedClipRecoveryService.shared.recoverIfNeeded(
+                        context: modelContext,
+                        athletes: athletes
+                    )
 
-                // Trigger full sync so all data is available on new device
-                if let user = currentUser, user.firebaseAuthUid != nil {
-                    try? await SyncCoordinator.shared.syncAll(for: user)
+                    if let user = currentUser, user.firebaseAuthUid != nil {
+                        do {
+                            try await SyncCoordinator.shared.syncAll(for: user)
+                        } catch {
+                            ErrorHandlerService.shared.handle(error, context: "AuthenticatedFlow.initialSync", showAlert: false)
+                        }
+                    }
                 }
             }
         }

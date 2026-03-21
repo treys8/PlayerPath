@@ -38,12 +38,14 @@ struct CoachFolderDetailView: View {
         case games = "Games"
         case practices = "Practices"
         case all = "All Videos"
-        
+        case myRecordings = "My Recordings"
+
         var icon: String {
             switch self {
             case .games: return "figure.baseball"
             case .practices: return "figure.run"
             case .all: return "video"
+            case .myRecordings: return "video.badge.plus"
             }
         }
     }
@@ -78,6 +80,8 @@ struct CoachFolderDetailView: View {
                     AllVideosTabView(folder: folder, videos: viewModel.videos, isLoading: viewModel.isLoading, errorMessage: viewModel.errorMessage) {
                         await viewModel.loadVideos()
                     }
+                case .myRecordings:
+                    CoachPrivateVideosTab(folder: folder, canUpload: canUpload)
                 }
             }
         }
@@ -94,7 +98,7 @@ struct CoachFolderDetailView: View {
                         ProgressView()
                     } else {
                         Image(systemName: "arrow.clockwise")
-                            .foregroundColor(.blue)
+                            .foregroundColor(.brandNavy)
                     }
                 }
                 .disabled(isRefreshingPermissions)
@@ -195,7 +199,7 @@ struct CoachFolderDetailView: View {
         } catch {
             permissionError = "Failed to leave folder: \(error.localizedDescription)"
             showingPermissionError = true
-            Haptics.error()
+            ErrorHandlerService.shared.handle(error, context: "CoachFolderDetailView.leaveFolder", showAlert: false)
             isLeaving = false
         }
     }
@@ -239,7 +243,7 @@ struct CoachFolderDetailView: View {
         } catch {
             permissionError = "Failed to refresh permissions: \(error.localizedDescription)"
             showingPermissionError = true
-            Haptics.error()
+            ErrorHandlerService.shared.handle(error, context: "CoachFolderDetailView.refreshPermissions", showAlert: false)
         }
 
         isRefreshingPermissions = false
@@ -266,7 +270,7 @@ struct FolderInfoHeader: View {
             HStack(spacing: 12) {
                 Image(systemName: "folder.fill")
                     .font(.title)
-                    .foregroundColor(.blue)
+                    .foregroundColor(.brandNavy)
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(folder.name)
@@ -636,8 +640,8 @@ struct CoachVideoRow: View {
                             .font(.caption2)
                             .padding(.horizontal, 8)
                             .padding(.vertical, 2)
-                            .background(Color.blue.opacity(0.1))
-                            .foregroundColor(.blue)
+                            .background(Color.brandNavy.opacity(0.1))
+                            .foregroundColor(.brandNavy)
                             .cornerRadius(4)
                     }
 
@@ -733,10 +737,14 @@ class CoachFolderViewModel: ObservableObject {
             let fileNames = videos.map(\.fileName)
             if !fileNames.isEmpty {
                 Task {
-                    _ = try? await SecureURLManager.shared.getBatchSecureVideoURLs(
-                        fileNames: fileNames,
-                        folderID: folderID
-                    )
+                    do {
+                        _ = try await SecureURLManager.shared.getBatchSecureVideoURLs(
+                            fileNames: fileNames,
+                            folderID: folderID
+                        )
+                    } catch {
+                        ErrorHandlerService.shared.handle(error, context: "CoachFolderDetail.prefetchURLs", showAlert: false)
+                    }
                 }
             }
 

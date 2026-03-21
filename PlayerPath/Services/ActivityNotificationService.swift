@@ -92,9 +92,14 @@ final class ActivityNotificationService: ObservableObject {
                 guard let docs = snapshot?.documents else { return }
 
                 let notifications = docs.compactMap { doc -> ActivityNotification? in
-                    var n = try? doc.data(as: ActivityNotification.self)
-                    n?.id = doc.documentID
-                    return n
+                    do {
+                        var n = try doc.data(as: ActivityNotification.self)
+                        n.id = doc.documentID
+                        return n
+                    } catch {
+                        log.warning("Failed to decode notification \(doc.documentID): \(error.localizedDescription)")
+                        return nil
+                    }
                 }
 
                 Task { @MainActor in
@@ -251,6 +256,49 @@ final class ActivityNotificationService: ObservableObject {
             "createdAt": FieldValue.serverTimestamp()
         ]
         await writeNotification(data, toUserIDs: [athleteID])
+    }
+
+    /// Athlete accepts coach's invitation → notify coach they now have folder access.
+    func postAthleteAcceptedInvitationNotification(
+        folderName: String,
+        folderID: String,
+        athleteID: String,
+        athleteName: String,
+        coachUserID: String
+    ) async {
+        let data: [String: Any] = [
+            "type": ActivityNotification.NotificationType.invitationAccepted.rawValue,
+            "title": "Athlete Accepted Your Invitation",
+            "body": "\(athleteName) accepted your invitation and shared \"\(folderName)\" with you",
+            "senderName": athleteName,
+            "senderID": athleteID,
+            "targetID": folderID,
+            "targetType": ActivityNotification.TargetType.folder.rawValue,
+            "isRead": false,
+            "createdAt": FieldValue.serverTimestamp()
+        ]
+        await writeNotification(data, toUserIDs: [coachUserID])
+    }
+
+    /// Athlete accepts coach's invitation but doesn't have Pro → notify coach of connection only.
+    func postConnectionAcceptedNotification(
+        invitationID: String,
+        athleteID: String,
+        athleteName: String,
+        coachUserID: String
+    ) async {
+        let data: [String: Any] = [
+            "type": ActivityNotification.NotificationType.invitationAccepted.rawValue,
+            "title": "Athlete Accepted Your Invitation",
+            "body": "\(athleteName) accepted your invitation and is now connected with you",
+            "senderName": athleteName,
+            "senderID": athleteID,
+            "targetID": invitationID,
+            "targetType": ActivityNotification.TargetType.invitation.rawValue,
+            "isRead": false,
+            "createdAt": FieldValue.serverTimestamp()
+        ]
+        await writeNotification(data, toUserIDs: [coachUserID])
     }
 
     /// Athlete revokes coach access → notify coach.

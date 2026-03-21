@@ -233,7 +233,7 @@ struct SampleDataPromptView: View {
                 .font(.system(size: 60))
                 .foregroundStyle(
                     LinearGradient(
-                        colors: [.blue, .purple],
+                        colors: [Color.brandNavy, .purple],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     )
@@ -281,7 +281,7 @@ struct SampleDataPromptView: View {
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 16)
-                .background(Color.blue)
+                .background(Color.brandNavy)
                 .foregroundStyle(.white)
                 .cornerRadius(12)
                 .disabled(isGenerating)
@@ -318,7 +318,7 @@ struct SampleDataPromptView: View {
                 await MainActor.run {
                     error = "Failed to generate sample data: \(generationError.localizedDescription)"
                     isGenerating = false
-                    Haptics.error()
+                    ErrorHandlerService.shared.handle(generationError, context: "SampleDataGenerator.generateData", showAlert: false)
                 }
             }
         }
@@ -333,7 +333,7 @@ private struct FeatureRow: View {
         HStack(spacing: 12) {
             Image(systemName: icon)
                 .font(.body)
-                .foregroundStyle(.blue)
+                .foregroundColor(.brandNavy)
                 .frame(width: 24)
             Text(text)
                 .font(.body)

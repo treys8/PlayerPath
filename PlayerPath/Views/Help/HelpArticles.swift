@@ -512,7 +512,7 @@ struct HelpArticleDetailView: View {
                         .font(.title)
                         .foregroundColor(.white)
                         .frame(width: 60, height: 60)
-                        .background(Color.blue)
+                        .background(Color.brandNavy)
                         .cornerRadius(12)
 
                     Text(article.title)

@@ -96,7 +96,7 @@ struct SeasonsView: View {
                 HStack {
                     Image(systemName: "calendar.circle.fill")
                         .font(.title2)
-                        .foregroundStyle(.blue)
+                        .foregroundColor(.brandNavy)
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Active Season")
@@ -136,11 +136,11 @@ struct SeasonsView: View {
             .padding()
             .background(
                 RoundedRectangle(cornerRadius: .cornerXLarge)
-                    .fill(.blue.opacity(0.1))
+                    .fill(Color.brandNavy.opacity(0.1))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: .cornerXLarge)
-                    .stroke(.blue.opacity(0.3), lineWidth: 1.5)
+                    .stroke(Color.brandNavy.opacity(0.3), lineWidth: 1.5)
             )
             .padding(.horizontal)
             .contentShape(RoundedRectangle(cornerRadius: .cornerXLarge))
@@ -256,7 +256,7 @@ struct SeasonRow: View {
     private var seasonStatusColor: Color {
         switch season.status {
         case .active:
-            return .blue
+            return .brandNavy
         case .ended:
             return .gray
         case .inactive:
@@ -325,7 +325,7 @@ struct SeasonGameRow: View {
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: "baseball.diamond.bases")
-                .foregroundStyle(.blue)
+                .foregroundColor(.brandNavy)
                 .frame(width: 24)
             
             VStack(alignment: .leading, spacing: 2) {

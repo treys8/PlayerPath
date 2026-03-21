@@ -23,7 +23,7 @@ struct ContactSupportView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     Image(systemName: "envelope.fill")
                         .font(.largeTitle)
-                        .foregroundColor(.blue)
+                        .foregroundColor(.brandNavy)
 
                     Text("Get Help")
                         .font(.title2)

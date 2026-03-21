@@ -94,7 +94,11 @@ final class UserPreferencesViewModel: ObservableObject {
     func saveAndSync() async {
         guard let prefs = preferences else { return }
         
-        try? saveLocal()
+        do {
+            try saveLocal()
+        } catch {
+            ErrorHandlerService.shared.handle(error, context: "UserPreferencesVM.saveBeforeSync", showAlert: false)
+        }
         
         syncStatus = .syncing
         do {

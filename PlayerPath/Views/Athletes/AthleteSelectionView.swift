@@ -37,7 +37,7 @@ struct AthleteSelectionView: View {
                     VStack(spacing: 30) {
                         Image(systemName: "person.crop.circle.badge.plus")
                             .font(.system(size: 80))
-                            .foregroundColor(.blue)
+                            .foregroundColor(.brandNavy)
 
                         Text("Add Your First Athlete")
                             .font(.title)
@@ -52,7 +52,7 @@ struct AthleteSelectionView: View {
                             Text("Add Athlete")
                                 .frame(maxWidth: .infinity)
                                 .padding()
-                                .background(Color.blue)
+                                .background(Color.brandNavy)
                                 .foregroundColor(.white)
                                 .cornerRadius(10)
                         }

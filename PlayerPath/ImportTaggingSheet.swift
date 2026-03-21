@@ -462,12 +462,12 @@ struct ImportTaggingSheet: View {
                 try modelContext.save()
                 Haptics.success()
                 // Notify dashboard to refresh
-                NotificationCenter.default.post(name: Notification.Name("VideoRecorded"), object: clip)
+                NotificationCenter.default.post(name: .videoRecorded, object: clip)
                 dismiss()
             } catch {
                 isSaving = false
                 saveErrorMessage = "Failed to save: \(error.localizedDescription)"
-                Haptics.error()
+                ErrorHandlerService.shared.handle(error, context: "ImportTaggingSheet.saveClip", showAlert: false)
             }
         }
     }

@@ -32,7 +32,7 @@ extension View {
             )
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius)
-                    .stroke(Color(.systemGray5), lineWidth: 1)
+                    .stroke(Color(.separator).opacity(0.5), lineWidth: 1)
             )
             .shadow(color: .black.opacity(0.06), radius: 4, x: 0, y: 2)
     }

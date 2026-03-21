@@ -100,7 +100,7 @@ struct SubscriptionView: View {
                     openURL(url)
                 }
             }
-            .foregroundColor(.blue)
+            .foregroundColor(.brandNavy)
         }
     }
 
@@ -138,7 +138,7 @@ struct SubscriptionView: View {
                         .foregroundColor(.white)
                 }
                 .padding()
-                .background(Color.blue)
+                .background(Color.brandNavy)
                 .cornerRadius(12)
             }
             .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
@@ -155,7 +155,7 @@ struct SubscriptionFeatureRow: View {
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: icon)
-                .foregroundColor(.blue)
+                .foregroundColor(.brandNavy)
                 .font(.title3)
                 .frame(width: 24)
 

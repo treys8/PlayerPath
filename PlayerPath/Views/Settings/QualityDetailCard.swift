@@ -15,7 +15,7 @@ struct QualityDetailCard: View {
         case .typeHigh:
             return ("High Quality", "1080p", 60.0, "600MB", "sparkles.tv.fill", .purple, "Best quality for sharing and editing")
         case .typeMedium:
-            return ("Medium Quality", "720p", 25.0, "250MB", "tv.fill", .blue, "Good balance of quality and file size")
+            return ("Medium Quality", "720p", 25.0, "250MB", "tv.fill", .brandNavy, "Good balance of quality and file size")
         case .typeLow:
             return ("Low Quality", "480p", 10.0, "100MB", "tv", .green, "Smaller files, faster uploads")
         case .type640x480:

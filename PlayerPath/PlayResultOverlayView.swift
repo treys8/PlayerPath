@@ -236,7 +236,7 @@ struct PlayResultOverlayView: View {
                 selectedResult = nil
                 // Reset after a timeout in case the parent doesn't dismiss this overlay
                 Task {
-                    try? await Task.sleep(nanoseconds: 3_000_000_000)
+                    try? await Task.sleep(for: .seconds(3))
                     isSaving = false
                 }
             }
@@ -335,7 +335,7 @@ struct PlayResultOverlayView: View {
                             Text("Done")
                                 .font(.subheadline)
                                 .fontWeight(.semibold)
-                                .foregroundColor(.blue)
+                                .foregroundColor(.brandNavy)
                         }
                     }
                 }
@@ -433,7 +433,7 @@ struct PlayResultOverlayView: View {
 
             // Walk Section
             VStack(alignment: .leading, spacing: 10) {
-                PlayResultSectionHeader(icon: "figure.walk", title: "WALK", color: .blue)
+                PlayResultSectionHeader(icon: "figure.walk", title: "WALK", color: .brandNavy)
 
                 PlayResultButton(result: .walk, isSelected: selectedResult == .walk, fullWidth: true) {
                     selectResult(.walk)
@@ -555,7 +555,7 @@ extension PlayResultType {
     var badgeColor: Color {
         switch self {
         case .single: return .green
-        case .double: return .blue
+        case .double: return .brandNavy
         case .triple: return .orange
         case .homeRun: return .gold
         case .walk: return .cyan
@@ -573,7 +573,7 @@ extension PlayResultType {
         switch self {
         case .single, .double, .triple: return .green
         case .homeRun: return .gold
-        case .walk: return .blue
+        case .walk: return .brandNavy
         case .strikeout, .groundOut, .flyOut: return .red
         case .ball: return .orange
         case .strike: return .green
@@ -816,7 +816,7 @@ struct PlayResultModePicker: View {
                         if isSelected {
                             RoundedRectangle(cornerRadius: 10, style: .continuous)
                                 .fill(LinearGradient.primaryButton)
-                                .shadow(color: .blue.opacity(0.4), radius: 8, x: 0, y: 2)
+                                .shadow(color: Color.brandNavy.opacity(0.4), radius: 8, x: 0, y: 2)
                         }
                     }
                 )
@@ -844,7 +844,7 @@ struct PlayResultActionButton: View {
 
     private var shadowColor: Color {
         switch style {
-        case .primary: return .blue.opacity(0.4)
+        case .primary: return .brandNavy.opacity(0.4)
         case .secondary: return .clear
         case .destructive: return .red.opacity(0.4)
         }
@@ -940,7 +940,7 @@ struct VideoMetadataView: View {
     
     var body: some View {
         HStack(spacing: 12) {
-            MetadataBadge(icon: "clock.fill", text: metadata.formattedDuration, color: .blue)
+            MetadataBadge(icon: "clock.fill", text: metadata.formattedDuration, color: .brandNavy)
             MetadataBadge(icon: "doc.fill", text: metadata.formattedFileSize, color: .green)
             if let resolution = metadata.resolution {
                 MetadataBadge(icon: "video", text: resolution, color: .purple)
@@ -1018,19 +1018,7 @@ extension PlayResultOverlayView {
                     let width = Int(size.width)
                     let height = Int(size.height)
 
-                    // Common resolution names
-                    switch (width, height) {
-                    case (3840, 2160), (2160, 3840):
-                        resolutionString = "4K"
-                    case (1920, 1080), (1080, 1920):
-                        resolutionString = "1080p"
-                    case (1280, 720), (720, 1280):
-                        resolutionString = "720p"
-                    case (640, 480), (480, 640):
-                        resolutionString = "480p"
-                    default:
-                        resolutionString = "\(width)×\(height)"
-                    }
+                    resolutionString = RecordingQuality.resolutionName(width: width, height: height)
                 }
             }
 

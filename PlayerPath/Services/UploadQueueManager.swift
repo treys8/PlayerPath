@@ -433,7 +433,7 @@ final class UploadQueueManager {
                 await processNextBatch()
 
                 // Small delay between batches
-                try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+                try? await Task.sleep(for: .milliseconds(500))
             }
 
         }
@@ -449,7 +449,11 @@ final class UploadQueueManager {
         let now = Date()
         if cachedPreferences == nil || preferencesLastFetched.map({ now.timeIntervalSince($0) > 30 }) != false {
             let descriptor = FetchDescriptor<UserPreferences>()
-            cachedPreferences = try? modelContext.fetch(descriptor).first
+            do {
+                cachedPreferences = try modelContext.fetch(descriptor).first
+            } catch {
+                uploadLog.error("Failed to fetch UserPreferences for network policy: \(error.localizedDescription)")
+            }
             preferencesLastFetched = now
         }
         let preferences = cachedPreferences
@@ -507,10 +511,10 @@ final class UploadQueueManager {
             if let user = athlete.user {
                 let fileSize = FileManager.default.fileSize(atPath: upload.filePath)
                 let tier = StoreKitManager.shared.currentTier
-                let limitBytes = Int64(tier.storageLimitGB) * 1_073_741_824 // 1 GB in bytes
+                let limitBytes = Int64(tier.storageLimitGB) * StorageConstants.bytesPerGB
                 let projectedUsage = user.cloudStorageUsedBytes + fileSize
                 if projectedUsage > limitBytes {
-                    let usedGB = Double(user.cloudStorageUsedBytes) / 1_073_741_824.0
+                    let usedGB = Double(user.cloudStorageUsedBytes) / StorageConstants.bytesPerGBDouble
                     throw UploadError.storageLimitExceeded(usedGB: usedGB, limitGB: tier.storageLimitGB)
                 }
                 // Reserve space now; released on failure or kept on success
@@ -528,7 +532,7 @@ final class UploadQueueManager {
                     if let progress = cloudManager.uploadProgress[upload.clipId] {
                         activeUploads[upload.clipId] = progress
                     }
-                    try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
+                    try? await Task.sleep(for: .milliseconds(100))
                 }
             }
 
@@ -538,7 +542,7 @@ final class UploadQueueManager {
                     try await cloudManager.uploadVideo(clip, athlete: athlete)
                 }
                 group.addTask {
-                    try await Task.sleep(nanoseconds: 600_000_000_000) // 10 minutes
+                    try await Task.sleep(for: .seconds(600)) // 10 minutes
                     throw UploadError.uploadFailed("Upload timed out after 10 minutes")
                 }
                 guard let result = try await group.next() else {
@@ -554,7 +558,11 @@ final class UploadQueueManager {
                 try await cloudManager.saveVideoMetadataToFirestore(clip, athlete: athlete, downloadURL: cloudURL)
             } catch {
                 // Firestore write failed — rollback the Storage file to prevent orphans
-                try? await cloudManager.deleteAthleteVideo(fileName: upload.fileName)
+                do {
+                    try await cloudManager.deleteAthleteVideo(fileName: upload.fileName)
+                } catch {
+                    uploadLog.error("Failed to rollback Storage file '\(upload.fileName)' after Firestore failure: \(error.localizedDescription)")
+                }
 
                 // Release reserved storage quota and zero out so the outer catch
                 // block doesn't double-release via reservedBytes
@@ -576,7 +584,13 @@ final class UploadQueueManager {
             try context.save()
 
             // Fetch preferences for post-upload actions
-            let uploadPrefs = try? context.fetch(FetchDescriptor<UserPreferences>()).first
+            let uploadPrefs: UserPreferences?
+            do {
+                uploadPrefs = try context.fetch(FetchDescriptor<UserPreferences>()).first
+            } catch {
+                uploadLog.error("Failed to fetch UserPreferences for post-upload actions: \(error.localizedDescription)")
+                uploadPrefs = nil
+            }
 
             // Auto-delete local file after successful upload if enabled.
             // isAvailableOffline is computed from fileExists, so removing the file
@@ -584,7 +598,11 @@ final class UploadQueueManager {
             if uploadPrefs?.autoDeleteAfterUpload == true {
                 let localPath = clip.resolvedFilePath
                 if FileManager.default.fileExists(atPath: localPath) {
-                    try? FileManager.default.removeItem(atPath: localPath)
+                    do {
+                        try FileManager.default.removeItem(atPath: localPath)
+                    } catch {
+                        uploadLog.error("Failed to auto-delete local file after upload: \(error.localizedDescription)")
+                    }
                 }
             }
 
@@ -741,11 +759,13 @@ enum UploadError: LocalizedError {
 
 extension FileManager {
     func fileSize(atPath path: String) -> Int64 {
-        guard let attributes = try? attributesOfItem(atPath: path),
-              let size = attributes[.size] as? Int64 else {
+        do {
+            let attributes = try attributesOfItem(atPath: path)
+            return (attributes[.size] as? Int64) ?? 0
+        } catch {
+            uploadLog.warning("Failed to read file size at '\(path)': \(error.localizedDescription)")
             return 0
         }
-        return size
     }
 }
 

@@ -70,7 +70,7 @@ struct SimpleCloudStorageView: View {
                                     if let game = clip.game {
                                         Text("vs \(game.opponent)")
                                             .font(.caption)
-                                            .foregroundColor(.blue)
+                                            .foregroundColor(.brandNavy)
                                     } else {
                                         Text("Practice")
                                             .font(.caption)

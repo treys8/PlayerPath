@@ -245,6 +245,18 @@ enum RecordingQuality: String, CaseIterable, Identifiable {
         }
     }
     
+    /// Returns a human-readable resolution name for a given width/height (supports portrait and landscape).
+    nonisolated static func resolutionName(width: Int, height: Int) -> String {
+        let landscape = (max(width, height), min(width, height))
+        switch landscape {
+        case (3840, 2160): return "4K"
+        case (1920, 1080): return "1080p"
+        case (1280, 720): return "720p"
+        case (640, 480): return "480p"
+        default: return "\(width)×\(height)"
+        }
+    }
+
     /// Estimated file size in MB per minute of video
     var estimatedMBPerMinute: Double {
         switch self {

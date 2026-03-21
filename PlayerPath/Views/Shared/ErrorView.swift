@@ -32,7 +32,7 @@ enum ErrorDisplayType {
     var iconColor: Color {
         switch self {
         case .network:
-            return .blue
+            return .brandNavy
         case .permission:
             return .red
         case .empty:

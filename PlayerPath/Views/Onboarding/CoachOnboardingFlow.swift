@@ -66,8 +66,12 @@ struct CoachOnboardingFlow: View {
             let progress = OnboardingProgress(firebaseAuthUid: authManager.currentFirebaseUser?.uid ?? "")
             progress.markCompleted()
             modelContext.insert(progress)
-            try? await withRetry(delay: .seconds(1)) {
-                try modelContext.save()
+            do {
+                try await withRetry(delay: .seconds(1)) {
+                    try modelContext.save()
+                }
+            } catch {
+                ErrorHandlerService.shared.handle(error, context: "CoachOnboarding.saveProgress", showAlert: false)
             }
         }
     }
@@ -236,7 +240,7 @@ private struct CoachHowItWorksPage: View {
     @State private var appeared = false
 
     private let steps: [(icon: String, color: Color, title: String, detail: String)] = [
-        ("envelope.fill",         .blue,   "Athlete Sends an Invite",   "An athlete adds your email address to share their folder with you."),
+        ("envelope.fill",         .brandNavy,   "Athlete Sends an Invite",   "An athlete adds your email address to share their folder with you."),
         ("checkmark.seal.fill",   .green,  "You Accept the Invitation", "Open your Dashboard and tap the invitation to accept. You're in."),
         ("video.fill",            .purple, "Review Their Videos",        "Browse game and practice clips organized by the athlete."),
         ("bubble.left.fill",      .orange, "Leave Coaching Feedback",    "Annotate videos with timestamps and written notes athletes can act on."),

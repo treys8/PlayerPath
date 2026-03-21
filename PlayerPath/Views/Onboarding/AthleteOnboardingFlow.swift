@@ -76,21 +76,21 @@ struct AthleteOnboardingFlow: View {
                         icon: "person.crop.circle.badge.plus",
                         title: "Create an Athlete Profile",
                         description: "Add your player's name to start tracking",
-                        color: .blue
+                        color: .brandNavy
                     )
 
                     FeatureHighlight(
                         icon: "calendar.badge.plus",
                         title: "Set Up Your Season",
                         description: "Organize games and track stats over time",
-                        color: .blue
+                        color: .brandNavy
                     )
 
                     FeatureHighlight(
                         icon: "icloud.and.arrow.up",
                         title: "Choose Backup Settings",
                         description: "Keep your videos safe in the cloud",
-                        color: .blue
+                        color: .brandNavy
                     )
                 }
                 .padding(.horizontal)
@@ -111,14 +111,14 @@ struct AthleteOnboardingFlow: View {
                         .frame(height: 58)
                         .background(
                             LinearGradient(
-                                colors: [.blue, .blue.opacity(0.85)],
+                                colors: [Color.brandNavy, Color.brandNavy.opacity(0.85)],
                                 startPoint: .topLeading,
                                 endPoint: .bottomTrailing
                             )
                         )
                         .foregroundColor(.white)
                         .cornerRadius(16)
-                        .shadow(color: .blue.opacity(0.4), radius: 12, x: 0, y: 6)
+                        .shadow(color: Color.brandNavy.opacity(0.4), radius: 12, x: 0, y: 6)
                     }
                     .buttonStyle(.plain)
                     .disabled(isCompleting)
@@ -152,8 +152,12 @@ struct AthleteOnboardingFlow: View {
             let progress = OnboardingProgress(firebaseAuthUid: authManager.currentFirebaseUser?.uid ?? "")
             progress.markCompleted()
             modelContext.insert(progress)
-            try? await withRetry(delay: .seconds(1)) {
-                try modelContext.save()
+            do {
+                try await withRetry(delay: .seconds(1)) {
+                    try modelContext.save()
+                }
+            } catch {
+                ErrorHandlerService.shared.handle(error, context: "AthleteOnboarding.saveProgress", showAlert: false)
             }
         }
     }

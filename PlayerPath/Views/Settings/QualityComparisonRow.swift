@@ -16,7 +16,7 @@ struct QualityComparisonRow: View {
         case .typeHigh:
             return ("High (1080p)", "~60MB/min", .purple)
         case .typeMedium:
-            return ("Medium (720p)", "~25MB/min", .blue)
+            return ("Medium (720p)", "~25MB/min", .brandNavy)
         case .typeLow:
             return ("Low (480p)", "~10MB/min", .green)
         case .type640x480:

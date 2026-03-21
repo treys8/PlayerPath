@@ -75,7 +75,7 @@ struct PlayerPathApp: App {
             // before any code accesses Firestore.firestore() elsewhere.
             let settings = FirestoreSettings()
             settings.cacheSettings = PersistentCacheSettings(
-                sizeBytes: NSNumber(value: 100 * 1024 * 1024) // 100 MB
+                sizeBytes: NSNumber(value: StorageConstants.urlCacheSizeBytes)
             )
             Firestore.firestore().settings = settings
             #if DEBUG
@@ -310,7 +310,11 @@ struct ScenePhaseSaveHandler<Content: View>: View {
                 let descriptor = FetchDescriptor<User>()
                 if let user = try? modelContext.fetch(descriptor).first,
                    user.firebaseAuthUid != nil {
-                    try? await SyncCoordinator.shared.syncAll(for: user)
+                    do {
+                        try await SyncCoordinator.shared.syncAll(for: user)
+                    } catch {
+                        ErrorHandlerService.shared.handle(error, context: "PlayerPathApp.foregroundSync", showAlert: false)
+                    }
                 }
             }
             lastSavedPhase = .active
@@ -380,7 +384,7 @@ private struct BiometricLockScreen: View {
             VStack(spacing: 24) {
                 Image(systemName: biometricManager.biometricType == .faceID ? "faceid" : "touchid")
                     .font(.system(size: 64))
-                    .foregroundStyle(.blue)
+                    .foregroundColor(.brandNavy)
 
                 Text("PlayerPath is Locked")
                     .font(.title2)
@@ -403,7 +407,7 @@ private struct BiometricLockScreen: View {
                             }
                             .frame(maxWidth: .infinity)
                             .frame(height: 50)
-                            .background(.blue)
+                            .background(Color.brandNavy)
                             .foregroundColor(.white)
                             .cornerRadius(12)
                         }

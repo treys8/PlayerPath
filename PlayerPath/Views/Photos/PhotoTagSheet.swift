@@ -49,7 +49,7 @@ struct PhotoTagSheet: View {
                             Spacer()
                             if photo.game == nil {
                                 Image(systemName: "checkmark")
-                                    .foregroundColor(.blue)
+                                    .foregroundColor(.brandNavy)
                             }
                         }
                     }
@@ -73,7 +73,7 @@ struct PhotoTagSheet: View {
                                 Spacer()
                                 if photo.game?.id == game.id {
                                     Image(systemName: "checkmark")
-                                        .foregroundColor(.blue)
+                                        .foregroundColor(.brandNavy)
                                 }
                             }
                         }
@@ -91,7 +91,7 @@ struct PhotoTagSheet: View {
                             Spacer()
                             if photo.practice == nil {
                                 Image(systemName: "checkmark")
-                                    .foregroundColor(.blue)
+                                    .foregroundColor(.brandNavy)
                             }
                         }
                     }
@@ -115,7 +115,7 @@ struct PhotoTagSheet: View {
                                 Spacer()
                                 if photo.practice?.id == practice.id {
                                     Image(systemName: "checkmark")
-                                        .foregroundColor(.blue)
+                                        .foregroundColor(.brandNavy)
                                 }
                             }
                         }

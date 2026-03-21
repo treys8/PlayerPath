@@ -50,7 +50,7 @@ struct GameRow: View {
         } else if let date = game.date, date < Date() {
             return .orange
         } else {
-            return .blue
+            return .brandNavy
         }
     }
 
@@ -130,7 +130,7 @@ struct GameRow: View {
                             .padding(.vertical, 2)
                             .background(
                                 Capsule()
-                                    .fill(season.isActive ? Color.blue : Color.gray)
+                                    .fill(season.isActive ? Color.brandNavy : Color.gray)
                             )
                     }
                 }

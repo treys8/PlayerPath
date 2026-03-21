@@ -27,7 +27,7 @@ struct GettingStartedView: View {
                     number: 1,
                     title: "Create Your Athlete Profile",
                     icon: "person.fill",
-                    iconColor: .blue,
+                    iconColor: .brandNavy,
                     description: "If you haven't already, create your first athlete profile. This represents you or a player you're tracking.",
                     steps: [
                         "Tap your name at the top of the Dashboard",
@@ -136,7 +136,7 @@ struct GettingStartedView: View {
 
                         NextStepRow(
                             icon: "arrow.triangle.2.circlepath",
-                            color: .blue,
+                            color: .brandNavy,
                             title: "Sync Across Devices",
                             description: "Sign in on other devices to access your data anywhere"
                         )
@@ -156,7 +156,7 @@ struct GettingStartedView: View {
                             HelpResourceRow(
                                 icon: "questionmark.circle.fill",
                                 title: "Frequently Asked Questions",
-                                color: .blue
+                                color: .brandNavy
                             )
                         }
 

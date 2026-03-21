@@ -34,7 +34,7 @@ struct VideoThumbnailView: View {
 
     init(
         clip: VideoClip,
-        size: CGSize = CGSize(width: 80, height: 60),
+        size: CGSize = .thumbnailSmall,
         cornerRadius: CGFloat = 12,
         showPlayButton: Bool = true,
         showPlayResult: Bool = true,
@@ -298,7 +298,7 @@ struct VideoThumbnailView: View {
                         .foregroundColor(.white)
                         .padding(.horizontal, min(scaledSpacing(4), 6))
                         .padding(.vertical, min(scaledSpacing(2), 3))
-                        .background(season.isActive ? Color.blue.opacity(0.9) : Color.gray.opacity(0.9))
+                        .background(season.isActive ? Color.brandNavy.opacity(0.9) : Color.gray.opacity(0.9))
                         .clipShape(RoundedRectangle(cornerRadius: min(scaledValue(3), 5)))
                         .offset(x: min(scaledValue(-4), -6), y: min(scaledValue(4), 6))
                         .accessibilityHidden(true)

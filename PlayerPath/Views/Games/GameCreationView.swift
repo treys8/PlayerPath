@@ -84,7 +84,7 @@ struct GameCreationView: View {
                             } label: {
                                 HStack {
                                     Image(systemName: "clock.arrow.circlepath")
-                                        .foregroundColor(.blue)
+                                        .foregroundColor(.brandNavy)
                                         .font(.caption)
                                     Text(suggestion)
                                         .foregroundColor(.primary)
@@ -104,7 +104,7 @@ struct GameCreationView: View {
                                 .font(.caption)
                         } icon: {
                             Image(systemName: "info.circle")
-                                .foregroundColor(.blue)
+                                .foregroundColor(.brandNavy)
                         }
                     }
                 }

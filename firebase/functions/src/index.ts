@@ -1,14 +1,19 @@
 import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
-import * as sgMail from '@sendgrid/mail';
+import { Resend } from 'resend';
 
 // Initialize Firebase Admin
 admin.initializeApp();
 
-// Initialize SendGrid with API key from environment variable
-const sendgridApiKey = functions.config().sendgrid?.key;
-if (sendgridApiKey) {
-  sgMail.setApiKey(sendgridApiKey);
+// Lazy-initialize Resend so deploy analysis doesn't crash when env var is absent
+let _resend: Resend | null = null;
+function getResend(): Resend {
+  if (!_resend) {
+    const key = process.env.RESEND_KEY;
+    if (!key) throw new Error('RESEND_KEY environment variable is not set');
+    _resend = new Resend(key);
+  }
+  return _resend;
 }
 
 // App Store download link — update with the actual App Store ID once published
@@ -96,20 +101,17 @@ async function sendAthleteToCoachEmail(
   }
 
   const deepLink = `playerpath://invitation/${invitationId}`;
-  const webLink = `https://playerpath.app/invitation/${invitationId}`;
+  const webLink = `https://playerpath.net/invitation/${invitationId}`;
 
   const msg = {
     to: invitation.coachEmail,
-    from: {
-      email: 'noreply@playerpath.app',
-      name: 'PlayerPath'
-    },
+    from: 'PlayerPath <noreply@playerpath.net>',
     subject: `${invitation.athleteName} invited you to collaborate on PlayerPath`,
     text: generatePlainTextEmail(invitation, deepLink, webLink),
     html: generateHtmlEmail(invitation, deepLink, webLink),
   };
 
-  await sgMail.send(msg);
+  await getResend().emails.send(msg);
   console.log(`✅ Invitation email sent to ${invitation.coachEmail} for invitation ${invitationId}`);
 
   await snap.ref.update({
@@ -135,16 +137,13 @@ async function sendCoachToAthleteEmail(
 
   const msg = {
     to: invitation.athleteEmail,
-    from: {
-      email: 'noreply@playerpath.app',
-      name: 'PlayerPath'
-    },
+    from: 'PlayerPath <noreply@playerpath.net>',
     subject: `Coach ${invitation.coachName} wants to connect on PlayerPath`,
     text: generateCoachToAthletePlainTextEmail(invitation, deepLink),
     html: generateCoachToAthleteHtmlEmail(invitation, deepLink),
   };
 
-  await sgMail.send(msg);
+  await getResend().emails.send(msg);
   console.log(`✅ Coach-to-athlete email sent to ${invitation.athleteEmail} for invitation ${invitationId}`);
 
   await snap.ref.update({
@@ -385,9 +384,9 @@ function generateHtmlEmail(
       <p><strong>PlayerPath</strong></p>
       <p>Simplifying baseball video analysis for athletes and coaches</p>
       <p style="margin-top: 16px;">
-        <a href="https://playerpath.app">Website</a> •
-        <a href="https://playerpath.app/support">Support</a> •
-        <a href="https://playerpath.app/privacy">Privacy</a>
+        <a href="https://playerpath.net">Website</a> •
+        <a href="https://playerpath.net/support">Support</a> •
+        <a href="https://playerpath.net/privacy">Privacy</a>
       </p>
     </div>
   </div>
@@ -602,9 +601,9 @@ function generateCoachToAthleteHtmlEmail(
       <p><strong>PlayerPath</strong></p>
       <p>Simplifying baseball video analysis for athletes and coaches</p>
       <p style="margin-top: 16px;">
-        <a href="https://playerpath.app">Website</a> •
-        <a href="https://playerpath.app/support">Support</a> •
-        <a href="https://playerpath.app/privacy">Privacy</a>
+        <a href="https://playerpath.net">Website</a> •
+        <a href="https://playerpath.net/support">Support</a> •
+        <a href="https://playerpath.net/privacy">Privacy</a>
       </p>
     </div>
   </div>
@@ -630,20 +629,15 @@ export const sendCoachAccessRevokedEmail = functions.firestore
         return;
       }
 
-      // Email content
       const msg = {
         to: revocation.coachEmail,
-        from: {
-          email: 'noreply@playerpath.app',
-          name: 'PlayerPath'
-        },
+        from: 'PlayerPath <noreply@playerpath.net>',
         subject: `Access to "${revocation.folderName}" has been revoked`,
         text: generateRevokedAccessPlainTextEmail(revocation),
         html: generateRevokedAccessHtmlEmail(revocation),
       };
 
-      // Send email via SendGrid
-      await sgMail.send(msg);
+      await getResend().emails.send(msg);
 
       console.log(`✅ Access revoked email sent to ${revocation.coachEmail} for revocation ${revocationId}`);
 
@@ -812,9 +806,9 @@ function generateRevokedAccessHtmlEmail(revocation: any): string {
       <p><strong>PlayerPath</strong></p>
       <p>Simplifying baseball video analysis for athletes and coaches</p>
       <p style="margin-top: 16px;">
-        <a href="https://playerpath.app">Website</a> •
-        <a href="https://playerpath.app/support">Support</a> •
-        <a href="https://playerpath.app/privacy">Privacy</a>
+        <a href="https://playerpath.net">Website</a> •
+        <a href="https://playerpath.net/support">Support</a> •
+        <a href="https://playerpath.net/privacy">Privacy</a>
       </p>
     </div>
   </div>
@@ -822,6 +816,83 @@ function generateRevokedAccessHtmlEmail(revocation: any): string {
 </html>
   `.trim();
 }
+
+/**
+ * Secure server-side acceptance of athlete-to-coach invitations.
+ * Reads permissions from the invitation document (not client-supplied)
+ * to prevent privilege escalation.
+ */
+export const acceptAthleteToCoachInvitation = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Must be authenticated');
+  }
+
+  const { invitationID } = data;
+  if (!invitationID || typeof invitationID !== 'string') {
+    throw new functions.https.HttpsError('invalid-argument', 'invitationID is required');
+  }
+
+  const coachID = context.auth.uid;
+  const coachEmail = context.auth.token.email?.toLowerCase();
+  const db = admin.firestore();
+
+  return db.runTransaction(async (transaction) => {
+    const invRef = db.collection('invitations').doc(invitationID);
+    const invSnap = await transaction.get(invRef);
+
+    if (!invSnap.exists) {
+      throw new functions.https.HttpsError('not-found', 'Invitation not found');
+    }
+
+    const inv = invSnap.data()!;
+
+    // Validate invitation type
+    if (inv.type !== 'athlete_to_coach') {
+      throw new functions.https.HttpsError('failed-precondition', 'Wrong invitation type');
+    }
+
+    // Validate status
+    if (inv.status !== 'pending') {
+      throw new functions.https.HttpsError('failed-precondition', 'This invitation has already been processed.');
+    }
+
+    // Validate expiration
+    if (inv.expiresAt && inv.expiresAt.toDate() < new Date()) {
+      throw new functions.https.HttpsError('failed-precondition', 'This invitation has expired.');
+    }
+
+    // Validate the caller is the intended recipient
+    if (inv.coachEmail?.toLowerCase() !== coachEmail) {
+      throw new functions.https.HttpsError('permission-denied', 'You are not the intended recipient of this invitation.');
+    }
+
+    // Validate folder exists
+    const folderRef = db.collection('sharedFolders').doc(inv.folderID);
+    const folderSnap = await transaction.get(folderRef);
+    if (!folderSnap.exists) {
+      throw new functions.https.HttpsError('not-found', 'The shared folder no longer exists.');
+    }
+
+    // Read permissions FROM THE INVITATION (server-side, not client-supplied)
+    const permissions = inv.permissions || { canUpload: false, canComment: true, canDelete: false };
+
+    // Update folder: add coach + permissions
+    transaction.update(folderRef, {
+      sharedWithCoachIDs: admin.firestore.FieldValue.arrayUnion(coachID),
+      [`permissions.${coachID}`]: permissions,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    // Update invitation status
+    transaction.update(invRef, {
+      status: 'accepted',
+      acceptedAt: admin.firestore.FieldValue.serverTimestamp(),
+      acceptedByCoachID: coachID,
+    });
+
+    return { success: true, folderID: inv.folderID };
+  });
+});
 
 /**
  * HTTP endpoint to manually resend an invitation email (for debugging/support)
@@ -865,23 +936,23 @@ export const resendInvitationEmail = functions.https.onCall(async (data, context
     if (invitation?.type === 'coach_to_athlete') {
       msg = {
         to: invitation.athleteEmail,
-        from: { email: 'noreply@playerpath.app', name: 'PlayerPath' },
+        from: 'PlayerPath <noreply@playerpath.net>',
         subject: `Coach ${invitation.coachName} wants to connect on PlayerPath`,
         text: generateCoachToAthletePlainTextEmail(invitation, deepLink),
         html: generateCoachToAthleteHtmlEmail(invitation, deepLink),
       };
     } else {
-      const webLink = `https://playerpath.app/invitation/${invitationId}`;
+      const webLink = `https://playerpath.net/invitation/${invitationId}`;
       msg = {
         to: invitation.coachEmail,
-        from: { email: 'noreply@playerpath.app', name: 'PlayerPath' },
+        from: 'PlayerPath <noreply@playerpath.net>',
         subject: `${invitation.athleteName} invited you to collaborate on PlayerPath`,
         text: generatePlainTextEmail(invitation, deepLink, webLink),
         html: generateHtmlEmail(invitation, deepLink, webLink),
       };
     }
 
-    await sgMail.send(msg);
+    await getResend().emails.send(msg);
 
     // Update timestamp
     await invitationRef.update({
@@ -1180,21 +1251,20 @@ export const syncSubscriptionTier = functions.https.onCall(async (data, context)
   }
 
   // --- App Store Receipt Validation ---
-  // TODO: Set the shared secret via Firebase config:
-  //   firebase functions:config:set appstore.shared_secret="YOUR_SHARED_SECRET"
-  const sharedSecret = functions.config().appstore?.shared_secret;
+  // TODO: Set the shared secret in .env:
+  //   APPSTORE_SHARED_SECRET=YOUR_SHARED_SECRET
+  const sharedSecret = process.env.APPSTORE_SHARED_SECRET;
 
-  if (sharedSecret) {
-    // Validate receipt with Apple
-    const isValid = await validateAppStoreReceipt(receiptData, sharedSecret);
-    if (!isValid) {
-      throw new functions.https.HttpsError('permission-denied', 'Invalid App Store receipt');
-    }
-  } else {
-    // No shared secret configured — log a warning but allow the write.
-    // IMPORTANT: Configure the shared secret before going to production!
-    console.warn('⚠️ App Store shared secret not configured. Skipping receipt validation. '
-      + 'Set it via: firebase functions:config:set appstore.shared_secret="YOUR_SECRET"');
+  if (!sharedSecret) {
+    console.error('❌ APPSTORE_SHARED_SECRET is not configured. Rejecting tier sync. '
+      + 'Set APPSTORE_SHARED_SECRET in your Firebase environment.');
+    throw new functions.https.HttpsError('failed-precondition',
+      'Server configuration error. Please try again later.');
+  }
+
+  const isValid = await validateAppStoreReceipt(receiptData, sharedSecret);
+  if (!isValid) {
+    throw new functions.https.HttpsError('permission-denied', 'Invalid App Store receipt');
   }
 
   // Build the Firestore update
@@ -1210,9 +1280,9 @@ export const syncSubscriptionTier = functions.https.onCall(async (data, context)
   }
 
   // Only write coachSubscriptionTier when StoreKit resolves a paid coach tier.
-  // If StoreKit resolves "free", leave Firestore alone — it may hold a
+  // If StoreKit resolves "coach_free", leave Firestore alone — it may hold a
   // manually-granted tier like "coach_academy".
-  if (coachTier !== 'free') {
+  if (coachTier !== 'coach_free') {
     updateData.coachSubscriptionTier = coachTier;
   }
 
@@ -1259,8 +1329,8 @@ export const enforceAthleteLimit = functions.firestore
 
       // Count existing athletes (including the one just created)
       const athletesSnap = await db.collection('users').doc(uid)
-        .collection('athletes').count().get();
-      const count = athletesSnap.data().count;
+        .collection('athletes').get();
+      const count = athletesSnap.size;
 
       if (count > limit) {
         console.warn(
@@ -1272,6 +1342,157 @@ export const enforceAthleteLimit = functions.firestore
       console.error(`❌ enforceAthleteLimit failed for ${uid}/${athleteID}:`, error);
       // Don't rethrow — allow the athlete to persist rather than crash the function.
       // The client-side limit check is the primary gate.
+    }
+  });
+
+// =============================================================================
+// COACH ATHLETE LIMIT ENFORCEMENT
+// =============================================================================
+
+// Coach tier athlete limits — must match CoachSubscriptionTier.athleteLimit in the app
+function getCoachAthleteLimit(tier: string): number {
+  switch (tier) {
+    case 'coach_instructor': return 10;
+    case 'coach_pro_instructor': return 30;
+    case 'coach_academy': return Number.MAX_SAFE_INTEGER;
+    default: return 2; // coach_free
+  }
+}
+
+/**
+ * Server-side backstop: when a coach-to-athlete invitation is created,
+ * verify the coach hasn't exceeded their tier's athlete limit.
+ * Counts connected athletes (accepted invitations + shared folders)
+ * plus pending outbound invitations.
+ * If over limit, the invitation is deleted immediately.
+ */
+export const enforceCoachAthleteLimit = functions.firestore
+  .document('invitations/{invitationID}')
+  .onCreate(async (snap, context) => {
+    const data = snap.data();
+    if (data.type !== 'coach_to_athlete') return;
+
+    const coachID = data.coachID;
+    const invitationID = context.params.invitationID;
+    const db = admin.firestore();
+
+    try {
+      // Look up the coach's tier
+      const coachDoc = await db.collection('users').doc(coachID).get();
+      const coachTier = coachDoc.data()?.coachSubscriptionTier || 'coach_free';
+      const limit = getCoachAthleteLimit(coachTier);
+
+      // Count unique athletes from shared folders
+      const foldersSnap = await db.collection('sharedFolders')
+        .where('sharedWithCoachIDs', 'array-contains', coachID)
+        .get();
+      const folderAthletes = new Set(foldersSnap.docs.map(d => d.data().ownerAthleteID));
+
+      // Count pending outbound invitations (exclude the one that just triggered)
+      const pendingSnap = await db.collection('invitations')
+        .where('type', '==', 'coach_to_athlete')
+        .where('coachID', '==', coachID)
+        .where('status', '==', 'pending')
+        .get();
+      const pendingCount = pendingSnap.docs.filter(d => d.id !== invitationID).length;
+
+      // Count accepted invitations (athletes not yet in folders)
+      const acceptedSnap = await db.collection('invitations')
+        .where('type', '==', 'coach_to_athlete')
+        .where('coachID', '==', coachID)
+        .where('status', '==', 'accepted')
+        .get();
+      for (const doc of acceptedSnap.docs) {
+        const athleteUID = doc.data().athleteUserID;
+        if (athleteUID) folderAthletes.add(athleteUID);
+      }
+
+      const totalCommitted = folderAthletes.size + pendingCount;
+
+      if (totalCommitted >= limit) {
+        console.warn(
+          `⚠️ Coach athlete limit exceeded for ${coachID}: ${totalCommitted}/${limit} (tier=${coachTier}). Deleting invitation ${invitationID}.`
+        );
+        await snap.ref.delete();
+      }
+    } catch (error) {
+      console.error(`❌ enforceCoachAthleteLimit failed for invitation ${invitationID}:`, error);
+    }
+  });
+
+/**
+ * Server-side backstop: when any invitation is accepted (status changes to
+ * "accepted"), verify the coach is still within their tier's athlete limit.
+ * Handles both invitation types:
+ *   - coach_to_athlete: coachID is on the invitation directly
+ *   - athlete_to_coach: coachID is written as acceptedByCoachID during acceptance
+ * If over limit, reverts the invitation and (for athlete_to_coach) removes the
+ * coach from the shared folder.
+ */
+export const enforceCoachAthleteLimitOnAccept = functions.firestore
+  .document('invitations/{invitationID}')
+  .onUpdate(async (change, context) => {
+    const before = change.before.data();
+    const after = change.after.data();
+
+    // Only act on status transitions to "accepted"
+    if (before.status === 'accepted' || after.status !== 'accepted') return;
+
+    // Determine coachID based on invitation type
+    let coachID: string;
+    if (after.type === 'coach_to_athlete' && after.coachID) {
+      coachID = after.coachID;
+    } else if (after.type === 'athlete_to_coach' && after.acceptedByCoachID) {
+      coachID = after.acceptedByCoachID;
+    } else {
+      return; // Unknown type or missing coachID
+    }
+
+    const invitationID = context.params.invitationID;
+    const db = admin.firestore();
+
+    try {
+      const coachDoc = await db.collection('users').doc(coachID).get();
+      const coachTier = coachDoc.data()?.coachSubscriptionTier || 'coach_free';
+      const limit = getCoachAthleteLimit(coachTier);
+
+      // Count unique connected athletes (shared folders + accepted coach-to-athlete invitations)
+      const foldersSnap = await db.collection('sharedFolders')
+        .where('sharedWithCoachIDs', 'array-contains', coachID)
+        .get();
+      const connectedAthletes = new Set(foldersSnap.docs.map(d => d.data().ownerAthleteID));
+
+      const acceptedSnap = await db.collection('invitations')
+        .where('type', '==', 'coach_to_athlete')
+        .where('coachID', '==', coachID)
+        .where('status', '==', 'accepted')
+        .get();
+      for (const doc of acceptedSnap.docs) {
+        const athleteUID = doc.data().athleteUserID;
+        if (athleteUID) connectedAthletes.add(athleteUID);
+      }
+
+      if (connectedAthletes.size >= limit) {
+        console.warn(
+          `⚠️ Coach athlete limit exceeded on accept for ${coachID}: ${connectedAthletes.size}/${limit} (tier=${coachTier}). Reverting invitation ${invitationID}.`
+        );
+
+        // Revert the invitation status
+        await change.after.ref.update({
+          status: 'rejected_limit',
+          rejectedReason: 'Coach athlete limit reached'
+        });
+
+        // For athlete-to-coach invitations, also remove the coach from the shared folder
+        // since the Firestore transaction already added them
+        if (after.type === 'athlete_to_coach' && after.folderID) {
+          await db.collection('sharedFolders').doc(after.folderID).update({
+            sharedWithCoachIDs: admin.firestore.FieldValue.arrayRemove([coachID])
+          });
+        }
+      }
+    } catch (error) {
+      console.error(`❌ enforceCoachAthleteLimitOnAccept failed for invitation ${invitationID}:`, error);
     }
   });
 
@@ -1318,6 +1539,7 @@ async function validateAppStoreReceipt(receiptData: string, sharedSecret: string
  * Scheduled cleanup function that runs daily to:
  * 1. Purge Storage files for soft-deleted videos older than 30 days
  * 2. Process pending deletions that failed on the client
+ * 3. Delete expired invitations older than 30 days past their expiry
  */
 export const dailyStorageCleanup = functions.pubsub
   .schedule('every 24 hours')
@@ -1393,6 +1615,24 @@ export const dailyStorageCleanup = functions.pubsub
       console.log(`✅ Processed ${pendingCount} pending deletions`);
     } catch (err) {
       console.error('Error processing pending deletions:', err);
+    }
+
+    // --- 3. Delete expired invitations older than 30 days past expiry ---
+    let expiredCount = 0;
+    try {
+      const expiredSnap = await db.collection('invitations')
+        .where('expiresAt', '<=', admin.firestore.Timestamp.fromDate(thirtyDaysAgo))
+        .limit(500)
+        .get();
+
+      for (const doc of expiredSnap.docs) {
+        await doc.ref.delete();
+        expiredCount++;
+      }
+
+      console.log(`✅ Deleted ${expiredCount} expired invitations`);
+    } catch (err) {
+      console.error('Error deleting expired invitations:', err);
     }
 
     return null;

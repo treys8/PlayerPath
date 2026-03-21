@@ -266,7 +266,7 @@ struct GamesView: View {
                         Button("Complete") {
                             completeGame(game)
                         }
-                        .tint(.blue)
+                        .tint(Color.brandNavy)
                     }
                     .swipeActions(edge: .leading) {
                         Button(role: .destructive) {
@@ -464,9 +464,17 @@ struct GamesView: View {
         game.isComplete = true
         Task {
             // Recalculate game stats first (they feed into athlete stats)
-            try? StatisticsService.shared.recalculateGameStatistics(for: game, context: modelContext)
+            do {
+                try StatisticsService.shared.recalculateGameStatistics(for: game, context: modelContext)
+            } catch {
+                ErrorHandlerService.shared.handle(error, context: "GamesView.completeGame.gameStats", showAlert: false)
+            }
             if let athlete = game.athlete {
-                try? StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: modelContext)
+                do {
+                    try StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: modelContext)
+                } catch {
+                    ErrorHandlerService.shared.handle(error, context: "GamesView.completeGame.athleteStats", showAlert: false)
+                }
             }
             do {
                 try modelContext.save()
@@ -501,7 +509,14 @@ struct GamesView: View {
                 showError(errorMessage)
             },
             onSuccess: { createdGame in
-                guard (try? modelContext.fetch(FetchDescriptor<UserPreferences>()).first)?.enableGameReminders ?? true,
+                let remindersEnabled: Bool
+                do {
+                    remindersEnabled = try modelContext.fetch(FetchDescriptor<UserPreferences>()).first?.enableGameReminders ?? true
+                } catch {
+                    ErrorHandlerService.shared.handle(error, context: "GamesView.fetchGameReminderPrefs", showAlert: false)
+                    remindersEnabled = true
+                }
+                guard remindersEnabled,
                       let gameDate = createdGame.date,
                       gameDate > Date().addingTimeInterval(60 * 60) else { return }
                 Task {
@@ -525,7 +540,7 @@ struct GamesView: View {
         Haptics.light()
         viewModelHolder.viewModel?.update(allGames: allGames)
         // Small delay for haptic feedback
-        try? await Task.sleep(nanoseconds: 300_000_000)
+        try? await Task.sleep(for: .milliseconds(300))
     }
 
     private func showError(_ message: String) {

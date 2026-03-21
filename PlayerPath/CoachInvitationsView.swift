@@ -3,7 +3,7 @@
 //  PlayerPath
 //
 //  Created by Assistant on 11/21/25.
-//  Manage pending invitations from athletes
+//  Manage received and sent invitations for coaches
 //
 
 import SwiftUI
@@ -15,56 +15,33 @@ struct CoachInvitationsView: View {
     @StateObject private var viewModel = CoachInvitationsViewModel()
     @State private var showingPaywall = false
     @State private var lastFetchDate: Date?
+    @State private var selectedTab: InvitationTab = .received
+
+    enum InvitationTab: String, CaseIterable {
+        case received = "Received"
+        case sent = "Sent"
+    }
 
     var body: some View {
         NavigationStack {
-            Group {
-                if viewModel.isLoading {
-                    ProgressView("Loading invitations...")
-                } else if viewModel.invitations.isEmpty {
-                    EmptyInvitationsView()
-                } else {
-                    List {
-                        Section {
-                            ForEach(viewModel.pendingInvitations) { invitation in
-                                InvitationRow(
-                                    invitation: invitation,
-                                    isAtLimit: viewModel.isAtAthleteLimit,
-                                    onAccept: {
-                                        await viewModel.acceptInvitation(invitation, authManager: authManager)
-                                        if viewModel.limitReached {
-                                            showingPaywall = true
-                                            viewModel.limitReached = false
-                                        }
-                                    },
-                                    onDecline: {
-                                        await viewModel.declineInvitation(invitation)
-                                    }
-                                )
-                            }
-                        } header: {
-                            Text("Pending Invitations")
-                        }
-                        
-                        if !viewModel.acceptedInvitations.isEmpty {
-                            Section {
-                                ForEach(viewModel.acceptedInvitations) { invitation in
-                                    AcceptedInvitationRow(invitation: invitation)
-                                }
-                            } header: {
-                                Text("Accepted")
-                            }
-                        }
-                        
-                        if !viewModel.declinedInvitations.isEmpty {
-                            Section {
-                                ForEach(viewModel.declinedInvitations) { invitation in
-                                    DeclinedInvitationRow(invitation: invitation)
-                                }
-                            } header: {
-                                Text("Declined")
-                            }
-                        }
+            VStack(spacing: 0) {
+                Picker("Invitations", selection: $selectedTab) {
+                    ForEach(InvitationTab.allCases, id: \.self) { tab in
+                        Text(tab.rawValue).tag(tab)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .padding()
+
+                Group {
+                    if viewModel.isLoading {
+                        Spacer()
+                        ProgressView("Loading invitations...")
+                        Spacer()
+                    } else if selectedTab == .received {
+                        receivedInvitationsView
+                    } else {
+                        sentInvitationsView
                     }
                 }
             }
@@ -97,15 +74,121 @@ struct CoachInvitationsView: View {
             }
         }
     }
-    
+
+    // MARK: - Received Invitations (from athletes)
+
+    @ViewBuilder
+    private var receivedInvitationsView: some View {
+        if viewModel.invitations.isEmpty {
+            EmptyInvitationsView(
+                icon: "envelope.open",
+                title: "No Received Invitations",
+                message: "When athletes invite you to view their content, the invitations will appear here."
+            )
+        } else {
+            List {
+                if !viewModel.pendingInvitations.isEmpty {
+                    Section {
+                        ForEach(viewModel.pendingInvitations) { invitation in
+                            InvitationRow(
+                                invitation: invitation,
+                                isAtLimit: viewModel.isAtAthleteLimit,
+                                onAccept: {
+                                    await viewModel.acceptInvitation(invitation, authManager: authManager)
+                                    if viewModel.limitReached {
+                                        showingPaywall = true
+                                        viewModel.limitReached = false
+                                    }
+                                },
+                                onDecline: {
+                                    await viewModel.declineInvitation(invitation)
+                                }
+                            )
+                        }
+                    } header: {
+                        Text("Pending")
+                    }
+                }
+
+                if !viewModel.acceptedInvitations.isEmpty {
+                    Section {
+                        ForEach(viewModel.acceptedInvitations) { invitation in
+                            AcceptedInvitationRow(invitation: invitation)
+                        }
+                    } header: {
+                        Text("Accepted")
+                    }
+                }
+
+                if !viewModel.declinedInvitations.isEmpty {
+                    Section {
+                        ForEach(viewModel.declinedInvitations) { invitation in
+                            DeclinedInvitationRow(invitation: invitation)
+                        }
+                    } header: {
+                        Text("Declined")
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Sent Invitations (to athletes)
+
+    @ViewBuilder
+    private var sentInvitationsView: some View {
+        if viewModel.sentInvitations.isEmpty {
+            EmptyInvitationsView(
+                icon: "paperplane",
+                title: "No Sent Invitations",
+                message: "Invitations you send to athletes will appear here so you can track their status."
+            )
+        } else {
+            List {
+                if !viewModel.pendingSentInvitations.isEmpty {
+                    Section {
+                        ForEach(viewModel.pendingSentInvitations) { invitation in
+                            SentInvitationRow(invitation: invitation) {
+                                await viewModel.cancelInvitation(invitation)
+                            }
+                        }
+                    } header: {
+                        Text("Awaiting Response")
+                    }
+                }
+
+                if !viewModel.acceptedSentInvitations.isEmpty {
+                    Section {
+                        ForEach(viewModel.acceptedSentInvitations) { invitation in
+                            SentInvitationRow(invitation: invitation)
+                        }
+                    } header: {
+                        Text("Accepted")
+                    }
+                }
+
+                if !viewModel.declinedSentInvitations.isEmpty {
+                    Section {
+                        ForEach(viewModel.declinedSentInvitations) { invitation in
+                            SentInvitationRow(invitation: invitation)
+                        }
+                    } header: {
+                        Text("Declined")
+                    }
+                }
+            }
+        }
+    }
+
     private func loadInvitations() async {
-        guard let email = authManager.userEmail else { return }
-        await viewModel.loadInvitations(forCoachEmail: email)
+        guard let email = authManager.userEmail,
+              let coachID = authManager.userID else { return }
+        await viewModel.loadInvitations(forCoachEmail: email, coachID: coachID)
         viewModel.updateAthleteLimit(authManager: authManager)
     }
 }
 
-// MARK: - Invitation Row
+// MARK: - Received Invitation Row
 
 struct InvitationRow: View {
     let invitation: CoachInvitation
@@ -121,7 +204,7 @@ struct InvitationRow: View {
             HStack {
                 Image(systemName: "person.crop.circle.badge.plus")
                     .font(.title2)
-                    .foregroundColor(.blue)
+                    .foregroundColor(.brandNavy)
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(invitation.athleteName)
@@ -170,6 +253,7 @@ struct InvitationRow: View {
                             .foregroundColor(.primary)
                             .cornerRadius(8)
                     }
+                    .buttonStyle(.borderless)
                     .disabled(isProcessing)
 
                     VStack(spacing: 4) {
@@ -186,6 +270,7 @@ struct InvitationRow: View {
                                 .foregroundColor(.white)
                                 .cornerRadius(8)
                         }
+                        .buttonStyle(.borderless)
                         .disabled(isProcessing || isAtLimit)
 
                         if isAtLimit {
@@ -220,12 +305,12 @@ struct InvitationRow: View {
 
 struct AcceptedInvitationRow: View {
     let invitation: CoachInvitation
-    
+
     var body: some View {
         HStack {
             Image(systemName: "checkmark.circle.fill")
                 .foregroundColor(.green)
-            
+
             VStack(alignment: .leading, spacing: 4) {
                 Text(invitation.athleteName)
                     .font(.subheadline)
@@ -233,9 +318,9 @@ struct AcceptedInvitationRow: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
-            
+
             Spacer()
-            
+
             Text("Accepted")
                 .font(.caption2)
                 .foregroundColor(.green)
@@ -247,12 +332,12 @@ struct AcceptedInvitationRow: View {
 
 struct DeclinedInvitationRow: View {
     let invitation: CoachInvitation
-    
+
     var body: some View {
         HStack {
             Image(systemName: "xmark.circle.fill")
                 .foregroundColor(.gray)
-            
+
             VStack(alignment: .leading, spacing: 4) {
                 Text(invitation.athleteName)
                     .font(.subheadline)
@@ -261,9 +346,9 @@ struct DeclinedInvitationRow: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
-            
+
             Spacer()
-            
+
             Text("Declined")
                 .font(.caption2)
                 .foregroundColor(.gray)
@@ -271,24 +356,164 @@ struct DeclinedInvitationRow: View {
     }
 }
 
+// MARK: - Sent Invitation Row
+
+struct SentInvitationRow: View {
+    let invitation: CoachToAthleteInvitation
+    var onCancel: (() async -> Void)?
+
+    /// Whether this pending invitation has expired
+    private var isExpired: Bool {
+        guard invitation.status == .pending,
+              let expiresAt = invitation.expiresAt else { return false }
+        return expiresAt < Date()
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            statusIcon
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(invitation.athleteName)
+                    .font(.subheadline)
+
+                Text(invitation.athleteEmail)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                if let sentAt = invitation.sentAt {
+                    Text("Sent \(sentAt.formatted(.relative(presentation: .named)))")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+
+                if isExpired {
+                    Text("Expired")
+                        .font(.caption2)
+                        .fontWeight(.medium)
+                        .foregroundColor(.red)
+                }
+
+                if let folderName = invitation.folderName {
+                    HStack(spacing: 4) {
+                        Image(systemName: "folder.fill")
+                            .font(.caption2)
+                        Text(folderName)
+                            .font(.caption)
+                    }
+                    .foregroundColor(.green)
+                }
+            }
+
+            Spacer()
+
+            if invitation.status == .pending && !isExpired, let onCancel {
+                Button {
+                    Task { await onCancel() }
+                } label: {
+                    Text("Cancel")
+                        .font(.caption2)
+                        .fontWeight(.medium)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color.red.opacity(0.1))
+                        .foregroundColor(.red)
+                        .cornerRadius(6)
+                }
+                .buttonStyle(.borderless)
+            } else {
+                statusBadge
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var statusIcon: some View {
+        switch invitation.status {
+        case .pending:
+            Image(systemName: "clock.fill")
+                .foregroundColor(.orange)
+        case .accepted:
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundColor(.green)
+        case .declined:
+            Image(systemName: "xmark.circle.fill")
+                .foregroundColor(.gray)
+        case .cancelled:
+            Image(systemName: "minus.circle.fill")
+                .foregroundColor(.gray)
+        }
+    }
+
+    @ViewBuilder
+    private var statusBadge: some View {
+        switch invitation.status {
+        case .pending:
+            Text("Pending")
+                .font(.caption2)
+                .fontWeight(.medium)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(Color.orange.opacity(0.15))
+                .foregroundColor(.orange)
+                .cornerRadius(6)
+        case .accepted:
+            Text("Connected")
+                .font(.caption2)
+                .fontWeight(.medium)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(Color.green.opacity(0.15))
+                .foregroundColor(.green)
+                .cornerRadius(6)
+        case .declined:
+            Text("Declined")
+                .font(.caption2)
+                .fontWeight(.medium)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(Color.gray.opacity(0.15))
+                .foregroundColor(.gray)
+                .cornerRadius(6)
+        case .cancelled:
+            Text("Cancelled")
+                .font(.caption2)
+                .fontWeight(.medium)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(Color.gray.opacity(0.15))
+                .foregroundColor(.gray)
+                .cornerRadius(6)
+        }
+    }
+}
+
 // MARK: - Empty State
 
 struct EmptyInvitationsView: View {
+    var icon: String = "envelope.open"
+    var title: String = "No Invitations"
+    var message: String = "When athletes invite you to view their content, the invitations will appear here."
+
     var body: some View {
         VStack(spacing: 20) {
-            Image(systemName: "envelope.open")
+            Spacer()
+
+            Image(systemName: icon)
                 .font(.system(size: 70))
                 .foregroundColor(.gray.opacity(0.5))
-            
-            Text("No Invitations")
+
+            Text(title)
                 .font(.title2)
                 .fontWeight(.semibold)
-            
-            Text("When athletes invite you to view their content, the invitations will appear here.")
+
+            Text(message)
                 .font(.subheadline)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal)
+
+            Spacer()
         }
         .padding()
     }
@@ -299,10 +524,17 @@ struct EmptyInvitationsView: View {
 @MainActor
 class CoachInvitationsViewModel: ObservableObject {
     @Published var invitations: [CoachInvitation] = []
+    @Published var sentInvitations: [CoachToAthleteInvitation] = []
     @Published var isLoading = false
     @Published var errorMessage: String?
     @Published var limitReached = false
+    @Published var isAtAthleteLimit: Bool = false
 
+    /// Stored for reloading after mutations
+    private var lastCoachEmail: String?
+    private var lastCoachID: String?
+
+    // Received invitation filters
     var pendingInvitations: [CoachInvitation] {
         invitations.filter { $0.status == .pending }
     }
@@ -315,21 +547,61 @@ class CoachInvitationsViewModel: ObservableObject {
         invitations.filter { $0.status == .declined }
     }
 
-    @Published var isAtAthleteLimit: Bool = false
-
-    func updateAthleteLimit(authManager: ComprehensiveAuthManager) {
-        let currentCount = Set(SharedFolderManager.shared.coachFolders.map { $0.ownerAthleteID }).count
-        isAtAthleteLimit = currentCount >= authManager.coachAthleteLimit
+    // Sent invitation filters
+    var pendingSentInvitations: [CoachToAthleteInvitation] {
+        sentInvitations.filter { $0.status == .pending }
     }
 
-    func loadInvitations(forCoachEmail email: String) async {
+    var acceptedSentInvitations: [CoachToAthleteInvitation] {
+        sentInvitations.filter { $0.status == .accepted }
+    }
+
+    var declinedSentInvitations: [CoachToAthleteInvitation] {
+        sentInvitations.filter { $0.status == .declined }
+    }
+
+    func updateAthleteLimit(authManager: ComprehensiveAuthManager) {
+        // Merge athletes from shared folders + accepted coach→athlete invitations
+        var connectedAthleteIDs = Set(SharedFolderManager.shared.coachFolders.map { $0.ownerAthleteID })
+        for invitation in acceptedSentInvitations {
+            if let athleteUID = invitation.athleteUserID, !athleteUID.isEmpty {
+                connectedAthleteIDs.insert(athleteUID)
+            }
+        }
+        let pendingCoachToAthleteCount = pendingSentInvitations.count
+        isAtAthleteLimit = connectedAthleteIDs.count + pendingCoachToAthleteCount >= authManager.coachAthleteLimit
+    }
+
+    func loadInvitations(forCoachEmail email: String, coachID: String) async {
+        lastCoachEmail = email
+        lastCoachID = coachID
         isLoading = true
         errorMessage = nil
 
-        do {
-            invitations = try await SharedFolderManager.shared.checkPendingInvitations(forEmail: email)
-        } catch {
-            errorMessage = "Failed to load invitations: \(error.localizedDescription)"
+        // Fetch received and sent invitations independently so one failure doesn't block the other
+        async let receivedTask: Result<[CoachInvitation], Error> = {
+            do { return .success(try await SharedFolderManager.shared.checkPendingInvitations(forEmail: email)) }
+            catch { return .failure(error) }
+        }()
+        async let sentTask: Result<[CoachToAthleteInvitation], Error> = {
+            do { return .success(try await FirestoreManager.shared.fetchSentCoachInvitations(forCoachID: coachID)) }
+            catch { return .failure(error) }
+        }()
+
+        let (receivedResult, sentResult) = await (receivedTask, sentTask)
+
+        var errors: [String] = []
+        switch receivedResult {
+        case .success(let received): invitations = received
+        case .failure(let error): errors.append("received: \(error.localizedDescription)")
+        }
+        switch sentResult {
+        case .success(let sent): sentInvitations = sent
+        case .failure(let error): errors.append("sent: \(error.localizedDescription)")
+        }
+
+        if !errors.isEmpty {
+            errorMessage = "Failed to load some invitations (\(errors.joined(separator: ", ")))"
         }
 
         isLoading = false
@@ -337,92 +609,64 @@ class CoachInvitationsViewModel: ObservableObject {
 
     func acceptInvitation(_ invitation: CoachInvitation, authManager: ComprehensiveAuthManager? = nil) async {
         do {
-            // Step 1: Accept invitation in Firestore (limit check happens inside)
             try await SharedFolderManager.shared.acceptInvitation(invitation, authManager: authManager)
 
-            // Step 2: Verify the operation completed by checking invitations list exists
-            guard let index = invitations.firstIndex(where: { $0.id == invitation.id }) else {
-                throw NSError(
-                    domain: "CoachInvitationsView",
-                    code: -1,
-                    userInfo: [NSLocalizedDescriptionKey: "Invitation was accepted but local state is out of sync. Please refresh."]
-                )
+            // Reload from server for consistent state
+            if let email = lastCoachEmail, let coachID = lastCoachID {
+                await loadInvitations(forCoachEmail: email, coachID: coachID)
             }
-
-            // Step 3: Update local state
-            invitations[index] = CoachInvitation(
-                id: invitation.id,
-                folderID: invitation.folderID,
-                folderName: invitation.folderName,
-                athleteID: invitation.athleteID,
-                athleteName: invitation.athleteName,
-                coachEmail: invitation.coachEmail,
-                permissions: invitation.permissions,
-                createdAt: invitation.createdAt,
-                status: .accepted
-            )
-
-            // Step 4: Only show success if everything completed
             Haptics.success()
 
         } catch SharedFolderError.coachAthleteLimitReached {
             limitReached = true
-            Haptics.error()
+            ErrorHandlerService.shared.handle(SharedFolderError.coachAthleteLimitReached, context: "CoachInvitationsViewModel.acceptInvitation.limitReached", showAlert: false)
         } catch {
-            // Show user-friendly error message
-            if error.localizedDescription.contains("Network") {
-                errorMessage = "Network error. Please check your connection and try again."
-            } else if error.localizedDescription.contains("sync") {
-                errorMessage = "Invitation accepted, but please refresh to see updates."
-            } else {
-                errorMessage = "Failed to accept invitation: \(error.localizedDescription)"
-            }
-
-            Haptics.error()
+            errorMessage = invitationErrorMessage(error, action: "accept")
+            ErrorHandlerService.shared.handle(error, context: "CoachInvitationsViewModel.acceptInvitation", showAlert: false)
         }
     }
-    
+
     func declineInvitation(_ invitation: CoachInvitation) async {
         do {
-            // Step 1: Decline invitation in Firestore
             try await SharedFolderManager.shared.declineInvitation(invitation)
 
-            // Step 2: Verify the operation completed
-            guard let index = invitations.firstIndex(where: { $0.id == invitation.id }) else {
-                throw NSError(
-                    domain: "CoachInvitationsView",
-                    code: -1,
-                    userInfo: [NSLocalizedDescriptionKey: "Invitation was declined but local state is out of sync. Please refresh."]
-                )
+            // Reload from server for consistent state
+            if let email = lastCoachEmail, let coachID = lastCoachID {
+                await loadInvitations(forCoachEmail: email, coachID: coachID)
             }
-
-            // Step 3: Update local state
-            invitations[index] = CoachInvitation(
-                id: invitation.id,
-                folderID: invitation.folderID,
-                folderName: invitation.folderName,
-                athleteID: invitation.athleteID,
-                athleteName: invitation.athleteName,
-                coachEmail: invitation.coachEmail,
-                permissions: invitation.permissions,
-                createdAt: invitation.createdAt,
-                status: .declined
-            )
-
-            // Step 4: Only show success if everything completed
             Haptics.success()
 
         } catch {
-            // Show user-friendly error message
-            if error.localizedDescription.contains("Network") {
-                errorMessage = "Network error. Please check your connection and try again."
-            } else if error.localizedDescription.contains("sync") {
-                errorMessage = "Invitation declined, but please refresh to see updates."
-            } else {
-                errorMessage = "Failed to decline invitation: \(error.localizedDescription)"
-            }
+            errorMessage = invitationErrorMessage(error, action: "decline")
+            ErrorHandlerService.shared.handle(error, context: "CoachInvitationsViewModel.declineInvitation", showAlert: false)
+        }
+    }
 
-            Haptics.error()
+    func cancelInvitation(_ invitation: CoachToAthleteInvitation) async {
+        guard let invitationID = invitation.id else { return }
+        do {
+            try await FirestoreManager.shared.cancelInvitation(invitationID: invitationID)
+            sentInvitations.removeAll { $0.id == invitationID }
+            Haptics.success()
+        } catch {
+            errorMessage = invitationErrorMessage(error, action: "cancel")
+            ErrorHandlerService.shared.handle(error, context: "CoachInvitationsViewModel.cancelInvitation", showAlert: false)
+        }
+    }
+
+    /// Maps invitation error codes to user-friendly messages
+    private func invitationErrorMessage(_ error: Error, action: String) -> String {
+        let nsError = error as NSError
+        switch nsError.code {
+        case InvitationErrorCode.expired.rawValue:
+            return "This invitation has expired."
+        case InvitationErrorCode.alreadyProcessed.rawValue:
+            return "This invitation has already been processed."
+        default:
+            if nsError.localizedDescription.contains("Network") {
+                return "Network error. Please check your connection and try again."
+            }
+            return "Failed to \(action) invitation: \(error.localizedDescription)"
         }
     }
 }

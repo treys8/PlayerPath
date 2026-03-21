@@ -60,7 +60,7 @@ struct OnboardingSeasonCreationView: View {
                                 .font(.system(size: 60, weight: .medium))
                                 .foregroundStyle(
                                     LinearGradient(
-                                        colors: [.green, .blue],
+                                        colors: [.green, Color.brandNavy],
                                         startPoint: .topLeading,
                                         endPoint: .bottomTrailing
                                     )
@@ -148,8 +148,8 @@ struct OnboardingSeasonCreationView: View {
                                                     .font(.subheadline)
                                                     .padding(.horizontal, 12)
                                                     .padding(.vertical, 6)
-                                                    .background(.blue.opacity(0.1))
-                                                    .foregroundStyle(.blue)
+                                                    .background(Color.brandNavy.opacity(0.1))
+                                                    .foregroundColor(.brandNavy)
                                                     .clipShape(Capsule())
                                             }
                                         }
@@ -207,14 +207,14 @@ struct OnboardingSeasonCreationView: View {
                         .frame(height: 58)
                         .background(
                             LinearGradient(
-                                colors: [.blue, .blue.opacity(0.85)],
+                                colors: [Color.brandNavy, Color.brandNavy.opacity(0.85)],
                                 startPoint: .topLeading,
                                 endPoint: .bottomTrailing
                             )
                         )
                         .foregroundColor(.white)
                         .cornerRadius(16)
-                        .shadow(color: .blue.opacity(0.4), radius: 12, x: 0, y: 6)
+                        .shadow(color: Color.brandNavy.opacity(0.4), radius: 12, x: 0, y: 6)
                     }
                     .buttonStyle(.plain)
                     .disabled(seasonName.trimmingCharacters(in: .whitespaces).isEmpty || isCreating)

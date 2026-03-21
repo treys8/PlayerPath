@@ -56,7 +56,7 @@ struct AccountDeletionView: View {
             Section("What Happens to Videos") {
                 HStack(alignment: .top, spacing: 12) {
                     Image(systemName: "info.circle.fill")
-                        .foregroundColor(.blue)
+                        .foregroundColor(.brandNavy)
 
                     VStack(alignment: .leading, spacing: 4) {
                         Text("All videos stored in PlayerPath's cloud will be permanently deleted.")

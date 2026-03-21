@@ -58,11 +58,11 @@ struct SeasonFilterMenu: View {
             }
         } label: {
             HStack(spacing: 4) {
-                Image(systemName: "line.3.horizontal.decrease.circle")
+                Image(systemName: "calendar")
                 if selectedSeasonID != nil {
                     Image(systemName: "circle.fill")
                         .font(.system(size: 6))
-                        .foregroundStyle(.blue)
+                        .foregroundColor(.brandNavy)
                 }
             }
         }
@@ -101,7 +101,7 @@ struct SeasonBadge: View {
             .foregroundStyle(.white)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
-            .background(season.isActive ? Color.blue : Color.gray)
+            .background(season.isActive ? Color.brandNavy : Color.gray)
             .cornerRadius(4)
             .accessibilityLabel("\(season.displayName), \(season.isActive ? "Active" : "Archived") season")
     }

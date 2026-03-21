@@ -168,6 +168,7 @@ struct CreateFolderView: View {
             let folderID = try await folderManager.createFolder(
                 name: name,
                 forAthlete: athleteID,
+                athleteName: athleteName,
                 hasCoachingAccess: authManager.hasCoachingAccess
             )
 
@@ -187,7 +188,7 @@ struct CreateFolderView: View {
         } catch {
             errorMessage = "Failed to create folder. Please check your connection and try again."
             showingError = true
-            Haptics.error()
+            ErrorHandlerService.shared.handle(error, context: "CreateFolderView.createFolder", showAlert: false)
         }
 
         isCreating = false
@@ -355,7 +356,7 @@ struct InviteCoachView: View {
         } catch {
             errorMessage = "Failed to send invitation. Please check your connection and try again."
             showingError = true
-            Haptics.error()
+            ErrorHandlerService.shared.handle(error, context: "CreateFolderView.sendInvitation", showAlert: false)
         }
 
         isSending = false

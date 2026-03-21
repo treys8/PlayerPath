@@ -32,7 +32,7 @@ struct BiometricSettingsView: View {
                             }
                         } icon: {
                             Image(systemName: biometricManager.biometricType == .faceID ? "faceid" : "touchid")
-                                .foregroundColor(.blue)
+                                .foregroundColor(.brandNavy)
                         }
                     }
                     .onChange(of: biometricManager.isBiometricEnabled) { oldValue, newValue in
@@ -76,7 +76,7 @@ struct BiometricSettingsView: View {
                     }
                     HStack(spacing: 12) {
                         Image(systemName: "key.fill")
-                            .foregroundColor(.blue)
+                            .foregroundColor(.brandNavy)
                             .frame(width: 28)
                         Text("\(biometricManager.biometricTypeName) verifies your identity using your existing sign-in session")
                             .font(.subheadline)
@@ -141,12 +141,12 @@ private struct EnableBiometricSheet: View {
                     // Icon
                     ZStack {
                         Circle()
-                            .fill(Color.blue.opacity(0.1))
+                            .fill(Color.brandNavy.opacity(0.1))
                             .frame(width: 100, height: 100)
 
                         Image(systemName: biometricManager.biometricType == .faceID ? "faceid" : "touchid")
                             .font(.system(size: 50))
-                            .foregroundColor(.blue)
+                            .foregroundColor(.brandNavy)
                     }
                     .padding(.top, 20)
 
@@ -219,7 +219,7 @@ private struct EnableBiometricSheet: View {
 
                         HStack(spacing: 12) {
                             Image(systemName: "key.fill")
-                                .foregroundColor(.blue)
+                                .foregroundColor(.brandNavy)
                             Text("\(biometricManager.biometricTypeName) verifies your identity using your existing sign-in session")
                                 .font(.caption)
                                 .foregroundColor(.secondary)

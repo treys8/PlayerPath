@@ -86,7 +86,7 @@ struct GameDetailView: View {
                                     .foregroundColor(.white)
                                     .padding(.horizontal, 8)
                                     .padding(.vertical, 4)
-                                    .background(Color.blue)
+                                    .background(Color.brandNavy)
                                     .cornerRadius(4)
                             }
                         }
@@ -235,7 +235,7 @@ struct GameDetailView: View {
                             Spacer()
                             Text(String(format: "%.3f", Double(stats.hits) / Double(stats.atBats)))
                                 .fontWeight(.semibold)
-                                .foregroundColor(.blue)
+                                .foregroundColor(.brandNavy)
                         }
                     }
                 }

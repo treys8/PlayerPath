@@ -19,6 +19,7 @@ struct CoachProfileView: View {
     @State private var showingPaywall = false
     @State private var showingInvitations = false
     @State private var showingEditProfile = false
+    @State private var coachToAthleteConnectedIDs: Set<String> = []
     
     var body: some View {
         NavigationStack {
@@ -73,7 +74,18 @@ struct CoachProfileView: View {
                                 .foregroundColor(.secondary)
                         } else {
                             Text("\(uniqueAthleteCount) / \(limit)")
-                                .foregroundColor(uniqueAthleteCount >= limit ? .orange : .secondary)
+                                .foregroundColor(uniqueAthleteCount > limit ? .red : uniqueAthleteCount >= limit ? .orange : .secondary)
+                        }
+                    }
+
+                    if uniqueAthleteCount > authManager.coachAthleteLimit && authManager.coachAthleteLimit != Int.max {
+                        HStack(spacing: 8) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundColor(.orange)
+                                .font(.caption)
+                            Text("You're over your plan's athlete limit. Upgrade to continue adding athletes.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
                         }
                     }
 
@@ -200,6 +212,14 @@ struct CoachProfileView: View {
                 }
             }
             .navigationTitle("Profile")
+            .task {
+                guard let coachID = authManager.userID else { return }
+                do {
+                    coachToAthleteConnectedIDs = try await FirestoreManager.shared.fetchAcceptedCoachToAthleteAthleteIDs(coachID: coachID)
+                } catch {
+                    ErrorHandlerService.shared.handle(error, context: "CoachProfile.fetchAthleteIDs", showAlert: false)
+                }
+            }
             // Listener is pre-started in AuthenticatedFlow; no need to start here.
             .disabled(isSigningOut)
             .overlay {
@@ -226,7 +246,14 @@ struct CoachProfileView: View {
                 CoachPaywallView()
                     .environmentObject(authManager)
             }
-            .sheet(isPresented: $showingInvitations) {
+            .sheet(isPresented: $showingInvitations, onDismiss: {
+                Task {
+                    guard let coachID = authManager.userID else { return }
+                    if let ids = try? await FirestoreManager.shared.fetchAcceptedCoachToAthleteAthleteIDs(coachID: coachID) {
+                        coachToAthleteConnectedIDs = ids
+                    }
+                }
+            }) {
                 CoachInvitationsView()
                     .environmentObject(authManager)
             }
@@ -240,7 +267,9 @@ struct CoachProfileView: View {
     // MARK: - Computed Properties
 
     private var uniqueAthleteCount: Int {
-        Set(sharedFolderManager.coachFolders.map { $0.ownerAthleteID }).count
+        var ids = Set(sharedFolderManager.coachFolders.map { $0.ownerAthleteID })
+        ids.formUnion(coachToAthleteConnectedIDs)
+        return ids.count
     }
 
     private var totalVideoCount: Int {

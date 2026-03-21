@@ -21,7 +21,7 @@ struct AthleteStatBadge: View {
                     .font(.caption)
                     .fontWeight(.medium)
             }
-            .foregroundColor(.blue)
+            .foregroundColor(.brandNavy)
 
             Text(label)
                 .font(.caption2)

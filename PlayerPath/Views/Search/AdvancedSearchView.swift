@@ -484,123 +484,68 @@ struct AdvancedSearchView: View {
     // MARK: - Filtering Logic
 
     private func updateFilteredResults() {
-        // --- Videos ---
+        cachedFilteredVideos = filteredVideos()
+        cachedFilteredGames = filteredGames()
+        cachedFilteredPractices = filteredPractices()
+        cachedFilteredPhotos = filteredPhotos()
+    }
+
+    // MARK: - Filtering Helpers
+
+    private func matchesDateRange(_ date: Date?) -> Bool {
+        guard selectedDateRange != .allTime, let date else { return selectedDateRange == .allTime }
+        let range = selectedDateRange.dateRange
+        return date >= range.start && date <= range.end
+    }
+
+    private func matchesSeason(_ seasonId: UUID?) -> Bool {
+        guard let selected = selectedSeason else { return true }
+        return seasonId == selected.id
+    }
+
+    private func filteredVideos() -> [VideoClip] {
         var videos = athlete.videoClips ?? []
-
-        // Text search
         if !searchText.isEmpty {
-            videos = videos.filter { video in
-                video.fileName.localizedCaseInsensitiveContains(searchText) ||
-                video.playResult?.type.displayName.localizedCaseInsensitiveContains(searchText) == true ||
-                video.game?.opponent.localizedCaseInsensitiveContains(searchText) == true
+            videos = videos.filter {
+                $0.fileName.localizedCaseInsensitiveContains(searchText) ||
+                $0.playResult?.type.displayName.localizedCaseInsensitiveContains(searchText) == true ||
+                $0.game?.opponent.localizedCaseInsensitiveContains(searchText) == true
             }
         }
+        if selectedDateRange != .allTime { videos = videos.filter { matchesDateRange($0.createdAt) } }
+        if selectedSeason != nil { videos = videos.filter { matchesSeason($0.season?.id) } }
+        if let game = selectedGame { videos = videos.filter { $0.game?.id == game.id } }
+        if !selectedPlayResults.isEmpty { videos = videos.filter { $0.playResult.map { selectedPlayResults.contains($0.type) } ?? false } }
+        if highlightsOnly { videos = videos.filter { $0.isHighlight } }
+        return videos.sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
+    }
 
-        // Date range filter
-        if selectedDateRange != .allTime {
-            let dateRange = selectedDateRange.dateRange
-            videos = videos.filter { video in
-                guard let createdAt = video.createdAt else { return false }
-                return createdAt >= dateRange.start && createdAt <= dateRange.end
-            }
-        }
-
-        // Season filter
-        if let season = selectedSeason {
-            videos = videos.filter { $0.season?.id == season.id }
-        }
-
-        // Game filter
-        if let game = selectedGame {
-            videos = videos.filter { $0.game?.id == game.id }
-        }
-
-        // Play result filter
-        if !selectedPlayResults.isEmpty {
-            videos = videos.filter { video in
-                guard let result = video.playResult else { return false }
-                return selectedPlayResults.contains(result.type)
-            }
-        }
-
-        // Highlights only filter
-        if highlightsOnly {
-            videos = videos.filter { $0.isHighlight }
-        }
-
-        cachedFilteredVideos = videos.sorted { ($0.createdAt ?? Date.distantPast) > ($1.createdAt ?? Date.distantPast) }
-
-        // --- Games ---
+    private func filteredGames() -> [Game] {
         var games = athlete.games ?? []
+        if !searchText.isEmpty { games = games.filter { $0.opponent.localizedCaseInsensitiveContains(searchText) } }
+        if selectedDateRange != .allTime { games = games.filter { matchesDateRange($0.date) } }
+        if selectedSeason != nil { games = games.filter { matchesSeason($0.season?.id) } }
+        return games.sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
+    }
 
-        // Text search
-        if !searchText.isEmpty {
-            games = games.filter { game in
-                game.opponent.localizedCaseInsensitiveContains(searchText)
-            }
-        }
-
-        // Date range filter
-        if selectedDateRange != .allTime {
-            let dateRange = selectedDateRange.dateRange
-            games = games.filter { game in
-                guard let date = game.date else { return false }
-                return date >= dateRange.start && date <= dateRange.end
-            }
-        }
-
-        // Season filter
-        if let season = selectedSeason {
-            games = games.filter { $0.season?.id == season.id }
-        }
-
-        cachedFilteredGames = games.sorted { ($0.date ?? Date.distantPast) > ($1.date ?? Date.distantPast) }
-
-        // --- Practices ---
+    private func filteredPractices() -> [Practice] {
         var practices = athlete.practices ?? []
+        if selectedDateRange != .allTime { practices = practices.filter { matchesDateRange($0.date) } }
+        if selectedSeason != nil { practices = practices.filter { matchesSeason($0.season?.id) } }
+        return practices.sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
+    }
 
-        // Date range filter
-        if selectedDateRange != .allTime {
-            let dateRange = selectedDateRange.dateRange
-            practices = practices.filter { practice in
-                guard let date = practice.date else { return false }
-                return date >= dateRange.start && date <= dateRange.end
-            }
-        }
-
-        // Season filter
-        if let season = selectedSeason {
-            practices = practices.filter { $0.season?.id == season.id }
-        }
-
-        cachedFilteredPractices = practices.sorted { ($0.date ?? Date.distantPast) > ($1.date ?? Date.distantPast) }
-
-        // --- Photos ---
+    private func filteredPhotos() -> [Photo] {
         var photos = athlete.photos ?? []
-
-        // Text search
         if !searchText.isEmpty {
-            photos = photos.filter { photo in
-                (photo.game?.opponent.localizedCaseInsensitiveContains(searchText) ?? false) ||
-                (photo.caption?.localizedCaseInsensitiveContains(searchText) ?? false)
+            photos = photos.filter {
+                ($0.game?.opponent.localizedCaseInsensitiveContains(searchText) ?? false) ||
+                ($0.caption?.localizedCaseInsensitiveContains(searchText) ?? false)
             }
         }
-
-        // Date range filter
-        if selectedDateRange != .allTime {
-            let dateRange = selectedDateRange.dateRange
-            photos = photos.filter { photo in
-                guard let createdAt = photo.createdAt else { return false }
-                return createdAt >= dateRange.start && createdAt <= dateRange.end
-            }
-        }
-
-        // Season filter
-        if let season = selectedSeason {
-            photos = photos.filter { $0.season?.id == season.id }
-        }
-
-        cachedFilteredPhotos = photos.sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
+        if selectedDateRange != .allTime { photos = photos.filter { matchesDateRange($0.createdAt) } }
+        if selectedSeason != nil { photos = photos.filter { matchesSeason($0.season?.id) } }
+        return photos.sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
     }
 
     // MARK: - Actions
@@ -763,61 +708,39 @@ struct FilterChip: View {
                     .font(.caption)
             }
         }
-        .foregroundColor(.blue)
+        .foregroundColor(.brandNavy)
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
-        .background(Color.blue.opacity(0.1))
+        .background(Color.brandNavy.opacity(0.1))
         .cornerRadius(16)
     }
 }
 
-struct VideoSearchResultCard: View {
-    let video: VideoClip
+/// Shared card layout for search results with a thumbnail and detail content.
+private struct SearchResultCard<Content: View>: View {
+    let thumbnailPath: String?
+    let placeholderIcon: String
+    @ViewBuilder let content: Content
 
     var body: some View {
         HStack(spacing: 12) {
-            // Thumbnail
-            if let thumbnailPath = video.thumbnailPath {
-                AsyncThumbnailView(path: thumbnailPath, size: CGSize(width: 80, height: 60))
-                    .frame(width: 80, height: 60)
+            if let thumbnailPath {
+                AsyncThumbnailView(path: thumbnailPath, size: .thumbnailSmall)
+                    .frame(width: CGSize.thumbnailSmall.width, height: CGSize.thumbnailSmall.height)
                     .cornerRadius(8)
             } else {
                 Rectangle()
                     .fill(Color.gray.opacity(0.3))
-                    .frame(width: 80, height: 60)
+                    .frame(width: CGSize.thumbnailSmall.width, height: CGSize.thumbnailSmall.height)
                     .cornerRadius(8)
                     .overlay(
-                        Image(systemName: "video.fill")
+                        Image(systemName: placeholderIcon)
                             .foregroundColor(.white)
                     )
             }
 
             VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    if let result = video.playResult {
-                        Text(result.type.displayName)
-                            .font(.subheadline)
-                            .fontWeight(.semibold)
-                    }
-
-                    if video.isHighlight {
-                        Image(systemName: "star.fill")
-                            .font(.caption)
-                            .foregroundColor(.yellow)
-                    }
-                }
-
-                if let game = video.game {
-                    Text("vs \(game.opponent)")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-
-                if let createdAt = video.createdAt {
-                    Text(createdAt.formatted(date: .abbreviated, time: .shortened))
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                }
+                content
             }
 
             Spacer()
@@ -826,6 +749,37 @@ struct VideoSearchResultCard: View {
         .background(Color(.systemBackground))
         .cornerRadius(12)
         .shadow(color: Color.black.opacity(0.05), radius: 3, x: 0, y: 1)
+    }
+}
+
+struct VideoSearchResultCard: View {
+    let video: VideoClip
+
+    var body: some View {
+        SearchResultCard(thumbnailPath: video.thumbnailPath, placeholderIcon: "video.fill") {
+            HStack {
+                if let result = video.playResult {
+                    Text(result.type.displayName)
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                }
+                if video.isHighlight {
+                    Image(systemName: "star.fill")
+                        .font(.caption)
+                        .foregroundColor(.yellow)
+                }
+            }
+            if let game = video.game {
+                Text("vs \(game.opponent)")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            if let createdAt = video.createdAt {
+                Text(createdAt.formatted(date: .abbreviated, time: .shortened))
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+        }
     }
 }
 
@@ -900,54 +854,29 @@ struct PhotoSearchResultCard: View {
     let photo: Photo
 
     var body: some View {
-        HStack(spacing: 12) {
-            if let thumbnailPath = photo.thumbnailPath {
-                AsyncThumbnailView(path: thumbnailPath, size: CGSize(width: 80, height: 60))
-                    .frame(width: 80, height: 60)
-                    .cornerRadius(8)
-            } else {
-                Rectangle()
-                    .fill(Color.gray.opacity(0.3))
-                    .frame(width: 80, height: 60)
-                    .cornerRadius(8)
-                    .overlay(
-                        Image(systemName: "photo")
-                            .foregroundColor(.white)
-                    )
+        SearchResultCard(thumbnailPath: photo.thumbnailPath, placeholderIcon: "photo") {
+            if let caption = photo.caption, !caption.isEmpty {
+                Text(caption)
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
             }
-
-            VStack(alignment: .leading, spacing: 4) {
-                if let caption = photo.caption, !caption.isEmpty {
-                    Text(caption)
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
-
-                if let game = photo.game {
-                    Text("vs \(game.opponent)")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                } else if photo.practice != nil {
-                    Text("Practice")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-
-                if let createdAt = photo.createdAt {
-                    Text(createdAt.formatted(date: .abbreviated, time: .shortened))
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                }
+            if let game = photo.game {
+                Text("vs \(game.opponent)")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            } else if photo.practice != nil {
+                Text("Practice")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
             }
-
-            Spacer()
+            if let createdAt = photo.createdAt {
+                Text(createdAt.formatted(date: .abbreviated, time: .shortened))
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
         }
-        .padding()
-        .background(Color(.systemBackground))
-        .cornerRadius(12)
-        .shadow(color: Color.black.opacity(0.05), radius: 3, x: 0, y: 1)
     }
 }
 

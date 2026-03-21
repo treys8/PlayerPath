@@ -559,7 +559,7 @@ class CameraViewModel: NSObject, ObservableObject {
             return true // Assume enough if we can't check
         }
 
-        let minimumRequired: Int64 = 1_000_000_000 // 1GB minimum
+        let minimumRequired: Int64 = StorageConstants.bytesPerGB
         return freeSize > minimumRequired
     }
 
@@ -680,7 +680,7 @@ class CameraViewModel: NSObject, ObservableObject {
         lastFocusPoint = point
         focusTask?.cancel()
         focusTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            try? await Task.sleep(for: .seconds(2))
             if !Task.isCancelled {
                 self.lastFocusPoint = nil
             }

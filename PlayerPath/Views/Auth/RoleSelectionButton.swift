@@ -25,7 +25,7 @@ struct RoleSelectionButton: View {
                             LinearGradient(
                                 colors: isSelected
                                     ? [Color.white.opacity(0.2), Color.white.opacity(0.1)]
-                                    : [.blue.opacity(0.12), .blue.opacity(0.06)],
+                                    : [Color.brandNavy.opacity(0.12), Color.brandNavy.opacity(0.06)],
                                 startPoint: .topLeading,
                                 endPoint: .bottomTrailing
                             )
@@ -39,7 +39,7 @@ struct RoleSelectionButton: View {
                                 ? AnyShapeStyle(Color.white)
                                 : AnyShapeStyle(
                                     LinearGradient(
-                                        colors: [.blue, .blue.opacity(0.8)],
+                                        colors: [Color.brandNavy, Color.brandNavy.opacity(0.8)],
                                         startPoint: .topLeading,
                                         endPoint: .bottomTrailing
                                     )
@@ -66,7 +66,7 @@ struct RoleSelectionButton: View {
                     .fill(
                         isSelected
                             ? LinearGradient(
-                                colors: [.blue, .blue.opacity(0.85)],
+                                colors: [Color.brandNavy, Color.brandNavy.opacity(0.85)],
                                 startPoint: .topLeading,
                                 endPoint: .bottomTrailing
                             )
@@ -77,7 +77,7 @@ struct RoleSelectionButton: View {
                             )
                     )
                     .shadow(
-                        color: isSelected ? .blue.opacity(0.3) : .black.opacity(0.06),
+                        color: isSelected ? .brandNavy.opacity(0.3) : .black.opacity(0.06),
                         radius: isSelected ? 10 : 4,
                         x: 0,
                         y: isSelected ? 5 : 2

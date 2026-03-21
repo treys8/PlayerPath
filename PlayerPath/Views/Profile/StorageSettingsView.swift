@@ -115,7 +115,7 @@ struct StorageSettingsView: View {
                         ProgressView()
                     } else {
                         Text(StorageManager.formatBytes(appVideosSize + appThumbnailsSize))
-                            .foregroundColor(.blue)
+                            .foregroundColor(.brandNavy)
                             .fontWeight(.semibold)
                     }
                 }
@@ -231,7 +231,7 @@ struct StorageSettingsView: View {
     private func storageColor(for level: StorageInfo.StorageLevel) -> Color {
         switch level {
         case .good: return .green
-        case .moderate: return .blue
+        case .moderate: return .brandNavy
         case .low: return .orange
         case .critical: return .red
         }

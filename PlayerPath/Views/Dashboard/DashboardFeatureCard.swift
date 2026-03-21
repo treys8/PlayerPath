@@ -21,24 +21,10 @@ struct DashboardFeatureCard: View {
         Button(action: action) {
             VStack(spacing: 10) {
                 // Icon with glow effect
-                ZStack {
-                    // Glow behind icon
-                    Image(systemName: icon)
-                        .font(.system(size: 28, weight: .semibold))
-                        .foregroundColor(color.opacity(0.3))
-                        .blur(radius: 10)
-
-                    Image(systemName: icon)
-                        .font(.system(size: 28, weight: .semibold))
-                        .foregroundStyle(
-                            LinearGradient(
-                                colors: [color, color.opacity(0.7)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                        .symbolRenderingMode(.hierarchical)
-                }
+                Image(systemName: icon)
+                    .font(.system(size: 28, weight: .semibold))
+                    .foregroundColor(color)
+                    .symbolRenderingMode(.hierarchical)
                 .frame(height: 36)
                 .scaleEffect(isAnimating ? 1.0 : 0.8)
                 .opacity(isAnimating ? 1.0 : 0)
@@ -92,13 +78,7 @@ struct DashboardFeatureCard: View {
                     VStack {
                         HStack {
                             RoundedRectangle(cornerRadius: 2)
-                                .fill(
-                                    LinearGradient(
-                                        colors: [color, color.opacity(0.3)],
-                                        startPoint: .leading,
-                                        endPoint: .trailing
-                                    )
-                                )
+                                .fill(color)
                                 .frame(width: 40, height: 3)
                             Spacer()
                         }

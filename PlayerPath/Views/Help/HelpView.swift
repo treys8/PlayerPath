@@ -14,7 +14,7 @@ struct HelpView: View {
             Section {
                 HelpCard(
                     icon: "graduationcap.fill",
-                    iconColor: .blue,
+                    iconColor: .brandNavy,
                     title: "Getting Started Guide",
                     description: "New to PlayerPath? Start here!"
                 ) {
@@ -263,7 +263,7 @@ struct HelpRowLabel: View {
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: icon)
-                .foregroundColor(.blue)
+                .foregroundColor(.brandNavy)
                 .frame(width: 30)
 
             VStack(alignment: .leading, spacing: 2) {

@@ -8,6 +8,9 @@
 import SwiftUI
 import SwiftData
 import AVFoundation
+import os
+
+private let recorderLog = Logger(subsystem: "com.playerpath.app", category: "VideoRecorder")
 import AVKit
 import PhotosUI
 import CoreMedia
@@ -266,7 +269,7 @@ struct VideoRecorderView_Refactored: View {
             let fileURL = URL(fileURLWithPath: NSHomeDirectory() as String)
             let values = try fileURL.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
             if let capacity = values.volumeAvailableCapacityForImportantUsage {
-                availableStorageGB = Double(capacity) / 1_000_000_000.0
+                availableStorageGB = Double(capacity) / StorageConstants.bytesPerGBDouble
             }
         } catch {
             ErrorHandlerService.shared.handle(error, context: "VideoRecorder.checkStorage", showAlert: false)
@@ -327,7 +330,7 @@ struct VideoRecorderView_Refactored: View {
                     return
                 }
                 await MainActor.run {
-                    Haptics.error()
+                    ErrorHandlerService.shared.handle(error, context: "VideoRecorderView.saveVideoWithResult", showAlert: false)
                     self.saveTask = nil
                 }
             }
@@ -639,7 +642,7 @@ struct PreUploadTrimmerView: View {
             HStack {
                 TrimTimeBadge(label: "START", time: formatTime(startTime), color: .green)
                 Spacer()
-                TrimTimeBadge(label: "DURATION", time: formatTime(endTime - startTime), color: .blue)
+                TrimTimeBadge(label: "DURATION", time: formatTime(endTime - startTime), color: .brandNavy)
                 Spacer()
                 TrimTimeBadge(label: "END", time: formatTime(endTime), color: .red)
             }
@@ -719,7 +722,7 @@ struct PreUploadTrimmerView: View {
                         RoundedRectangle(cornerRadius: 14, style: .continuous)
                             .strokeBorder(LinearGradient.glassBorder, lineWidth: 1)
                     )
-                    .shadow(color: .blue.opacity(0.4), radius: 8, x: 0, y: 4)
+                    .shadow(color: Color.brandNavy.opacity(0.4), radius: 8, x: 0, y: 4)
                 }
                 .disabled(isExporting || endTime - startTime < 0.5)
                 .opacity(isExporting || endTime - startTime < 0.5 ? 0.6 : 1)
@@ -892,10 +895,18 @@ struct PreUploadTrimmerView: View {
         // composition entirely so AVFoundation can preserve slow-motion time mappings
         // and other track-level metadata automatically.
         if let videoTrack = try? await asset.loadTracks(withMediaType: .video).first {
-            let transform = try? await videoTrack.load(.preferredTransform)
-            let naturalSize = try? await videoTrack.load(.naturalSize)
-            let nominalFrameRate = try? await videoTrack.load(.nominalFrameRate)
-            let assetDuration = try? await asset.load(.duration)
+            var transform: CGAffineTransform?
+            var naturalSize: CGSize?
+            var nominalFrameRate: Float?
+            var assetDuration: CMTime?
+            do {
+                transform = try await videoTrack.load(.preferredTransform)
+                naturalSize = try await videoTrack.load(.naturalSize)
+                nominalFrameRate = try await videoTrack.load(.nominalFrameRate)
+                assetDuration = try await asset.load(.duration)
+            } catch {
+                recorderLog.warning("Failed to load video track properties for export: \(error.localizedDescription)")
+            }
 
             if let transform, let naturalSize, let assetDuration {
                 // Only apply a video composition when the track has a rotation transform.

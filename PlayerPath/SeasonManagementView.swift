@@ -165,7 +165,11 @@ struct SeasonManagementView: View {
 
                 // Trigger immediate sync to Firestore
                 if let user = season.athlete?.user {
-                    try? await SyncCoordinator.shared.syncSeasons(for: user)
+                    do {
+                        try await SyncCoordinator.shared.syncSeasons(for: user)
+                    } catch {
+                        ErrorHandlerService.shared.handle(error, context: "SeasonManagement.syncSeasons", showAlert: false)
+                    }
                 }
 
                 // Success - animate the change
@@ -212,7 +216,7 @@ struct ActiveSeasonCard: View {
             HStack {
                 Image(systemName: season.sport.icon)
                     .font(.title2)
-                    .foregroundStyle(.blue)
+                    .foregroundColor(.brandNavy)
                 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(season.displayName)
@@ -242,7 +246,7 @@ struct ActiveSeasonCard: View {
         .padding()
         .background {
             RoundedRectangle(cornerRadius: 12)
-                .fill(.blue.opacity(0.1))
+                .fill(Color.brandNavy.opacity(0.1))
         }
         .task {
             updateStats()
@@ -390,8 +394,8 @@ struct CreateSeasonView: View {
                                                 .font(.subheadline)
                                                 .padding(.horizontal, 12)
                                                 .padding(.vertical, 6)
-                                                .background(.blue.opacity(0.1))
-                                                .foregroundStyle(.blue)
+                                                .background(Color.brandNavy.opacity(0.1))
+                                                .foregroundColor(.brandNavy)
                                                 .clipShape(Capsule())
                                         }
                                     }
@@ -512,7 +516,11 @@ struct CreateSeasonView: View {
 
                 // Trigger immediate sync to Firestore
                 if let user = athlete.user {
-                    try? await SyncCoordinator.shared.syncSeasons(for: user)
+                    do {
+                        try await SyncCoordinator.shared.syncSeasons(for: user)
+                    } catch {
+                        ErrorHandlerService.shared.handle(error, context: "SeasonManagement.syncSeasons", showAlert: false)
+                    }
                 }
 
                 // Success - provide feedback and dismiss
@@ -582,7 +590,7 @@ struct SeasonDetailView: View {
                 HStack {
                     Image(systemName: season.sport.icon)
                         .font(.title)
-                        .foregroundStyle(.blue)
+                        .foregroundColor(.brandNavy)
                     
                     VStack(alignment: .leading, spacing: 4) {
                         Text(season.displayName)
@@ -617,7 +625,7 @@ struct SeasonDetailView: View {
                             .foregroundStyle(.secondary)
                         Spacer()
                         Text("In Progress")
-                            .foregroundStyle(.blue)
+                            .foregroundColor(.brandNavy)
                     }
                 }
             }
@@ -823,7 +831,7 @@ struct SeasonDetailView: View {
                     if selectedFilter == .all && totalGames > 5 {
                         Button("See All \(totalGames) Games") { selectedFilter = .games }
                             .font(.subheadline)
-                            .foregroundStyle(.blue)
+                            .foregroundColor(.brandNavy)
                     }
                 }
             }
@@ -837,7 +845,7 @@ struct SeasonDetailView: View {
                     if selectedFilter == .all && filteredVideos.count > 5 {
                         Button("See All \(filteredVideos.count) Videos") { selectedFilter = .videos }
                             .font(.subheadline)
-                            .foregroundStyle(.blue)
+                            .foregroundColor(.brandNavy)
                     }
                 }
             }
@@ -851,7 +859,7 @@ struct SeasonDetailView: View {
                     if selectedFilter == .all && filteredHighlights.count > 5 {
                         Button("See All \(filteredHighlights.count) Highlights") { selectedFilter = .highlights }
                             .font(.subheadline)
-                            .foregroundStyle(.blue)
+                            .foregroundColor(.brandNavy)
                     }
                 }
             }
@@ -887,7 +895,7 @@ struct SeasonDetailView: View {
                     if selectedFilter == .all && filteredPractices.count > 5 {
                         Button("See All \(filteredPractices.count) Practices") { selectedFilter = .practices }
                             .font(.subheadline)
-                            .foregroundStyle(.blue)
+                            .foregroundColor(.brandNavy)
                     }
                 }
             }
@@ -986,7 +994,11 @@ struct SeasonDetailView: View {
 
                 // Trigger immediate sync to Firestore
                 if let user = season.athlete?.user {
-                    try? await SyncCoordinator.shared.syncSeasons(for: user)
+                    do {
+                        try await SyncCoordinator.shared.syncSeasons(for: user)
+                    } catch {
+                        ErrorHandlerService.shared.handle(error, context: "SeasonManagement.syncSeasons", showAlert: false)
+                    }
                 }
 
                 withAnimation {
@@ -1038,8 +1050,16 @@ struct SeasonDetailView: View {
 
                 // Trigger sync for both season and video metadata
                 if let user = season.athlete?.user {
-                    try? await SyncCoordinator.shared.syncSeasons(for: user)
-                    try? await SyncCoordinator.shared.syncVideos(for: user)
+                    do {
+                        try await SyncCoordinator.shared.syncSeasons(for: user)
+                    } catch {
+                        ErrorHandlerService.shared.handle(error, context: "SeasonManagement.syncSeasons", showAlert: false)
+                    }
+                    do {
+                        try await SyncCoordinator.shared.syncVideos(for: user)
+                    } catch {
+                        ErrorHandlerService.shared.handle(error, context: "SeasonManagement.syncVideos", showAlert: false)
+                    }
                 }
 
                 withAnimation {

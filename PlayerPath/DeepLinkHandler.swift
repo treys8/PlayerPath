@@ -55,7 +55,7 @@ struct InvitationDetailView: View {
                     VStack(spacing: 16) {
                         Image(systemName: "envelope.badge.fill")
                             .font(.system(size: 60))
-                            .foregroundColor(.blue)
+                            .foregroundColor(.brandNavy)
 
                         Text("Invitation Not Found")
                             .font(.title2)
@@ -98,7 +98,7 @@ struct InvitationDetailView: View {
                 VStack(spacing: 12) {
                     Image(systemName: "envelope.open.fill")
                         .font(.system(size: 60))
-                        .foregroundColor(.blue)
+                        .foregroundColor(.brandNavy)
 
                     Text("You're Invited!")
                         .font(.title)
@@ -119,7 +119,7 @@ struct InvitationDetailView: View {
 
                     HStack {
                         Image(systemName: "folder.fill")
-                            .foregroundColor(.blue)
+                            .foregroundColor(.brandNavy)
                         Text(invitation.folderName)
                             .font(.headline)
                     }
@@ -182,7 +182,12 @@ struct InvitationDetailView: View {
 
             // Find the matching invitation
             if let foundInvitation = invitations.first(where: { $0.id == invitationId }) {
-                invitation = foundInvitation
+                // Check if expired client-side
+                if let expiresAt = foundInvitation.expiresAt, expiresAt < Date() {
+                    errorMessage = "This invitation has expired. Ask the athlete to send a new one."
+                } else {
+                    invitation = foundInvitation
+                }
             } else {
                 errorMessage = "Invitation not found or already accepted"
             }
@@ -197,6 +202,12 @@ struct InvitationDetailView: View {
     private func acceptInvitation() async {
         guard let invitation = invitation else { return }
 
+        // Client-side expiration check
+        if let expiresAt = invitation.expiresAt, expiresAt < Date() {
+            errorMessage = "This invitation has expired. Ask the athlete to send a new one."
+            return
+        }
+
         isAccepting = true
 
         do {
@@ -205,15 +216,23 @@ struct InvitationDetailView: View {
             Haptics.success()
 
             // Show success briefly then dismiss
-            try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+            try? await Task.sleep(for: .milliseconds(500))
             dismiss()
 
         } catch SharedFolderError.coachAthleteLimitReached {
             errorMessage = "You've reached your athlete limit. Upgrade your plan in your Profile to add more athletes."
-            Haptics.error()
+            ErrorHandlerService.shared.handle(SharedFolderError.coachAthleteLimitReached, context: "InvitationDetailView.acceptInvitation.limitReached", showAlert: false)
         } catch {
-            errorMessage = "Failed to accept invitation: \(error.localizedDescription)"
-            Haptics.error()
+            let nsError = error as NSError
+            switch nsError.code {
+            case InvitationErrorCode.expired.rawValue:
+                errorMessage = "This invitation has expired. Ask the athlete to send a new one."
+            case InvitationErrorCode.alreadyProcessed.rawValue:
+                errorMessage = "This invitation has already been processed."
+            default:
+                errorMessage = "Failed to accept invitation: \(error.localizedDescription)"
+            }
+            ErrorHandlerService.shared.handle(error, context: "InvitationDetailView.acceptInvitation", showAlert: false)
         }
 
         isAccepting = false

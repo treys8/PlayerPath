@@ -218,13 +218,20 @@ struct InviteCoachSheet: View {
 
         Task { @MainActor in
             do {
-                guard authManager.userID != nil else {
+                guard let userID = authManager.userID else {
                     throw NSError(domain: "InviteCoach", code: -1, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
                 }
 
+                // Prevent self-invitation
+                if let userEmail = authManager.userEmail,
+                   coachEmail.lowercased() == userEmail.lowercased() {
+                    throw NSError(domain: "InviteCoach", code: -3, userInfo: [
+                        NSLocalizedDescriptionKey: "You cannot send an invitation to yourself."
+                    ])
+                }
+
                 // Check for existing pending invitation to this coach from this athlete
-                let existingInvitations = try await FirestoreManager.shared.fetchPendingInvitations(forEmail: coachEmail.lowercased())
-                if existingInvitations.contains(where: { $0.athleteID == athlete.id.uuidString }) {
+                if try await FirestoreManager.shared.hasPendingInvitation(athleteID: userID, coachEmail: coachEmail) {
                     throw NSError(domain: "InviteCoach", code: -2, userInfo: [
                         NSLocalizedDescriptionKey: "An invitation has already been sent to this coach."
                     ])
@@ -234,14 +241,15 @@ struct InviteCoachSheet: View {
                 let folderName = "\(athlete.name)'s Videos"
                 let folderID = try await SharedFolderManager.shared.createFolder(
                     name: folderName,
-                    forAthlete: athlete.id.uuidString,
+                    forAthlete: userID,
+                    athleteName: athlete.name,
                     hasCoachingAccess: authManager.hasCoachingAccess
                 )
 
                 // Create invitation for the coach; clean up folder on failure
                 do {
                     _ = try await FirestoreManager.shared.createInvitation(
-                        athleteID: athlete.id.uuidString,
+                        athleteID: userID,
                         athleteName: athlete.name,
                         coachEmail: coachEmail.lowercased(),
                         folderID: folderID,
@@ -249,8 +257,12 @@ struct InviteCoachSheet: View {
                         permissions: selectedPermissions
                     )
                 } catch {
-                    // Clean up orphaned folder
-                    try? await SharedFolderManager.shared.deleteFolder(folderID: folderID, athleteID: athlete.id.uuidString)
+                    // Clean up orphaned folder — log failure so it can be investigated
+                    do {
+                        try await SharedFolderManager.shared.deleteFolder(folderID: folderID, athleteID: userID)
+                    } catch {
+                        ErrorHandlerService.shared.handle(error, context: "Cleaning up orphaned folder \(folderID) after invitation failure", showAlert: false)
+                    }
                     throw error
                 }
 
@@ -272,7 +284,7 @@ struct InviteCoachSheet: View {
             } catch {
                 isSending = false
                 errorMessage = "Failed to send invitation: \(error.localizedDescription)"
-                Haptics.error()
+                ErrorHandlerService.shared.handle(error, context: "InviteCoachSheet.sendInvitation", showAlert: false)
             }
         }
     }

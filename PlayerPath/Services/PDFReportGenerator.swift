@@ -216,40 +216,33 @@ final class PDFReportGenerator: Sendable {
 
     // MARK: - Drawing Helpers
 
-    private func drawTitle(_ text: String, at yPosition: CGFloat, in pageRect: CGRect) -> CGFloat {
-        let font = UIFont.boldSystemFont(ofSize: 20)
+    private func drawHeading(_ text: String, fontSize: CGFloat, height: CGFloat, underline: Bool = false, underlineWidth: CGFloat = 1.0, spacing: CGFloat, at yPosition: CGFloat, in pageRect: CGRect) -> CGFloat {
+        let font = UIFont.boldSystemFont(ofSize: fontSize)
         let attributes: [NSAttributedString.Key: Any] = [
             .font: font,
             .foregroundColor: UIColor.black
         ]
+        let textRect = CGRect(x: margin, y: yPosition, width: pageRect.width - (margin * 2), height: height)
+        NSAttributedString(string: text, attributes: attributes).draw(in: textRect)
 
-        let attributedString = NSAttributedString(string: text, attributes: attributes)
-        let textRect = CGRect(x: margin, y: yPosition, width: pageRect.width - (margin * 2), height: 30)
-        attributedString.draw(in: textRect)
+        if underline {
+            let linePath = UIBezierPath()
+            linePath.move(to: CGPoint(x: margin, y: yPosition + height + 2))
+            linePath.addLine(to: CGPoint(x: pageRect.width - margin, y: yPosition + height + 2))
+            UIColor.gray.setStroke()
+            linePath.lineWidth = underlineWidth
+            linePath.stroke()
+        }
 
-        return yPosition + 35
+        return yPosition + spacing
+    }
+
+    private func drawTitle(_ text: String, at yPosition: CGFloat, in pageRect: CGRect) -> CGFloat {
+        drawHeading(text, fontSize: 20, height: 30, spacing: 35, at: yPosition, in: pageRect)
     }
 
     private func drawSectionHeader(_ text: String, at yPosition: CGFloat, in pageRect: CGRect) -> CGFloat {
-        let font = UIFont.boldSystemFont(ofSize: 16)
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: font,
-            .foregroundColor: UIColor.black
-        ]
-
-        let attributedString = NSAttributedString(string: text, attributes: attributes)
-        let textRect = CGRect(x: margin, y: yPosition, width: pageRect.width - (margin * 2), height: 20)
-        attributedString.draw(in: textRect)
-
-        // Draw underline
-        let underlinePath = UIBezierPath()
-        underlinePath.move(to: CGPoint(x: margin, y: yPosition + 22))
-        underlinePath.addLine(to: CGPoint(x: pageRect.width - margin, y: yPosition + 22))
-        UIColor.gray.setStroke()
-        underlinePath.lineWidth = 1.0
-        underlinePath.stroke()
-
-        return yPosition + 30
+        drawHeading(text, fontSize: 16, height: 20, underline: true, spacing: 30, at: yPosition, in: pageRect)
     }
 
     private func drawText(_ text: String, at yPosition: CGFloat, in pageRect: CGRect, fontSize: CGFloat = 12, bold: Bool = false) -> CGFloat {
@@ -321,24 +314,22 @@ final class PDFReportGenerator: Sendable {
         return currentY
     }
 
-    private func drawGameLogHeader(at yPosition: CGFloat, in pageRect: CGRect) -> CGFloat {
+    private func drawTableHeader(headers: [String], columnWidths: [CGFloat]? = nil, at yPosition: CGFloat, in pageRect: CGRect) -> CGFloat {
         let headerFont = UIFont.boldSystemFont(ofSize: 10)
         let attributes: [NSAttributedString.Key: Any] = [
             .font: headerFont,
             .foregroundColor: UIColor.black
         ]
 
-        let headers = ["Date", "Opponent", "AB", "H", "2B", "3B", "HR", "R", "RBI", "BB", "K", "AVG"]
-        let columnWidth = (pageRect.width - (margin * 2)) / CGFloat(headers.count)
-
+        let equalWidth = (pageRect.width - (margin * 2)) / CGFloat(headers.count)
+        var x = margin
         for (index, header) in headers.enumerated() {
-            let x = margin + (CGFloat(index) * columnWidth)
-            let textRect = CGRect(x: x, y: yPosition, width: columnWidth, height: 15)
-            let attributedString = NSAttributedString(string: header, attributes: attributes)
-            attributedString.draw(in: textRect)
+            let width = columnWidths?[index] ?? equalWidth
+            let textRect = CGRect(x: x, y: yPosition, width: width, height: 15)
+            NSAttributedString(string: header, attributes: attributes).draw(in: textRect)
+            x += width
         }
 
-        // Draw line under header
         let linePath = UIBezierPath()
         linePath.move(to: CGPoint(x: margin, y: yPosition + 17))
         linePath.addLine(to: CGPoint(x: pageRect.width - margin, y: yPosition + 17))
@@ -347,6 +338,13 @@ final class PDFReportGenerator: Sendable {
         linePath.stroke()
 
         return yPosition + 22
+    }
+
+    private func drawGameLogHeader(at yPosition: CGFloat, in pageRect: CGRect) -> CGFloat {
+        drawTableHeader(
+            headers: ["Date", "Opponent", "AB", "H", "2B", "3B", "HR", "R", "RBI", "BB", "K", "AVG"],
+            at: yPosition, in: pageRect
+        )
     }
 
     private func drawGameLogRow(game: Game, stats: GameStatistics, at yPosition: CGFloat, in pageRect: CGRect) -> CGFloat {
@@ -387,32 +385,11 @@ final class PDFReportGenerator: Sendable {
     }
 
     private func drawSeasonGamesHeader(at yPosition: CGFloat, in pageRect: CGRect) -> CGFloat {
-        let headerFont = UIFont.boldSystemFont(ofSize: 10)
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: headerFont,
-            .foregroundColor: UIColor.black
-        ]
-
-        let headers = ["Date", "Opponent", "Status", "AB", "H", "AVG"]
-        let columnWidths: [CGFloat] = [80, 150, 80, 50, 50, 60]
-        var x = margin
-
-        for (index, header) in headers.enumerated() {
-            let textRect = CGRect(x: x, y: yPosition, width: columnWidths[index], height: 15)
-            let attributedString = NSAttributedString(string: header, attributes: attributes)
-            attributedString.draw(in: textRect)
-            x += columnWidths[index]
-        }
-
-        // Draw line under header
-        let linePath = UIBezierPath()
-        linePath.move(to: CGPoint(x: margin, y: yPosition + 17))
-        linePath.addLine(to: CGPoint(x: pageRect.width - margin, y: yPosition + 17))
-        UIColor.gray.setStroke()
-        linePath.lineWidth = 0.5
-        linePath.stroke()
-
-        return yPosition + 22
+        drawTableHeader(
+            headers: ["Date", "Opponent", "Status", "AB", "H", "AVG"],
+            columnWidths: [80, 150, 80, 50, 50, 60],
+            at: yPosition, in: pageRect
+        )
     }
 
     private func drawSeasonGameRow(game: Game, at yPosition: CGFloat, in pageRect: CGRect) -> CGFloat {

@@ -166,11 +166,13 @@ struct CoachInvitation: Codable, Identifiable {
     var sentAt: Date?
     var expiresAt: Date?
     var status: InvitationStatus
+    var acceptedByCoachID: String?
 
     enum InvitationStatus: String, Codable {
         case pending
         case accepted
         case declined
+        case cancelled
     }
 }
 
@@ -185,6 +187,36 @@ struct CoachToAthleteInvitation: Codable, Identifiable {
     let message: String?
     let status: CoachInvitation.InvitationStatus
     let sentAt: Date?
+    let expiresAt: Date?
+    let folderID: String?
+    let folderName: String?
+    let athleteUserID: String?
+}
+
+/// Coach's private staging folder for recordings before sharing
+struct CoachPrivateFolder: Codable, Identifiable {
+    var id: String?
+    let coachID: String
+    let athleteID: String
+    let sharedFolderID: String
+    let videoCount: Int?
+    let createdAt: Date?
+    let updatedAt: Date?
+}
+
+/// Video in a coach's private staging folder
+struct CoachPrivateVideo: Codable, Identifiable {
+    var id: String?
+    let privateFolderID: String
+    let fileName: String
+    let firebaseStorageURL: String
+    let uploadedBy: String
+    let uploadedByName: String
+    let createdAt: Date?
+    let fileSize: Int64?
+    let duration: Double?
+    let thumbnailURL: String?
+    let notes: String?
 }
 
 /// User profile model

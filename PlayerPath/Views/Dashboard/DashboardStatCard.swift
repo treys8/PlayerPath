@@ -17,27 +17,13 @@ struct DashboardStatCard: View {
 
     var body: some View {
         VStack(spacing: 6) {
-            // Icon with subtle glow
-            ZStack {
-                Image(systemName: icon)
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundColor(color.opacity(0.3))
-                    .blur(radius: 6)
-
-                Image(systemName: icon)
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(
-                        LinearGradient(
-                            colors: [color, color.opacity(0.6)],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-                    .symbolRenderingMode(.hierarchical)
-            }
+            Image(systemName: icon)
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundColor(color)
+                .symbolRenderingMode(.hierarchical)
 
             Text(value)
-                .font(.system(size: 22, weight: .bold, design: .rounded))
+                .font(.system(size: 32, weight: .heavy, design: .rounded))
                 .foregroundStyle(
                     LinearGradient(
                         colors: [.primary, .primary.opacity(0.8)],
@@ -65,35 +51,18 @@ struct DashboardStatCard: View {
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .fill(Color(uiColor: .secondarySystemGroupedBackground))
 
-                // Subtle gradient from bottom
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [.clear, color.opacity(0.06)],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-
                 // Bottom accent line
                 VStack {
                     Spacer()
                     RoundedRectangle(cornerRadius: 2)
-                        .fill(
-                            LinearGradient(
-                                colors: [color.opacity(0.5), color],
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            )
-                        )
+                        .fill(color)
                         .frame(height: 3)
                         .padding(.horizontal, 20)
                         .padding(.bottom, 8)
                 }
             }
         )
-        .shadow(color: color.opacity(0.12), radius: 8, x: 0, y: 4)
-        .shadow(color: .black.opacity(0.04), radius: 2, x: 0, y: 1)
+        .shadow(color: .black.opacity(0.08), radius: 6, x: 0, y: 3)
         .accessibilityElement(children: .combine)
         .onAppear {
             withAnimation(.spring(response: 0.5, dampingFraction: 0.7).delay(0.1)) {

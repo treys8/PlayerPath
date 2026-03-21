@@ -45,7 +45,8 @@ extension FirestoreManager {
     ///   - data: Updated athlete data dictionary
     func updateAthlete(userId: String, athleteId: String, data: [String: Any]) async throws {
 
-        var updateData = data
+        let allowedFields: Set<String> = ["id", "name", "primaryRole", "userId", "version"]
+        var updateData = data.filter { allowedFields.contains($0.key) }
         updateData["updatedAt"] = FieldValue.serverTimestamp()
 
         do {
@@ -153,7 +154,8 @@ extension FirestoreManager {
     ///   - data: Updated season data dictionary
     func updateSeason(userId: String, seasonId: String, data: [String: Any]) async throws {
 
-        var updateData = data
+        let allowedFields: Set<String> = ["id", "name", "athleteId", "startDate", "endDate", "isActive", "sport", "notes", "version"]
+        var updateData = data.filter { allowedFields.contains($0.key) }
         updateData["updatedAt"] = FieldValue.serverTimestamp()
 
         do {
@@ -261,7 +263,8 @@ extension FirestoreManager {
     ///   - data: Updated game data dictionary
     func updateGame(userId: String, gameId: String, data: [String: Any]) async throws {
 
-        var updateData = data
+        let allowedFields: Set<String> = ["id", "athleteId", "seasonId", "tournamentId", "opponent", "date", "year", "isLive", "isComplete", "location", "notes", "version"]
+        var updateData = data.filter { allowedFields.contains($0.key) }
         updateData["updatedAt"] = FieldValue.serverTimestamp()
 
         do {
@@ -389,7 +392,8 @@ extension FirestoreManager {
     ///   - data: Updated practice data dictionary
     func updatePractice(userId: String, practiceId: String, data: [String: Any]) async throws {
 
-        var updateData = data
+        let allowedFields: Set<String> = ["id", "athleteId", "seasonId", "practiceType", "date", "version"]
+        var updateData = data.filter { allowedFields.contains($0.key) }
         updateData["updatedAt"] = FieldValue.serverTimestamp()
 
         do {
@@ -490,7 +494,8 @@ extension FirestoreManager {
     }
 
     func updatePracticeNote(userId: String, practiceFirestoreId: String, noteId: String, data: [String: Any]) async throws {
-        var updateData = data
+        let allowedFields: Set<String> = ["id", "practiceId", "content"]
+        var updateData = data.filter { allowedFields.contains($0.key) }
         updateData["updatedAt"] = FieldValue.serverTimestamp()
         try await db
             .collection("users").document(userId)
@@ -573,7 +578,8 @@ extension FirestoreManager {
     }
 
     func updateCoach(userId: String, athleteFirestoreId: String, coachId: String, data: [String: Any]) async throws {
-        var updateData = data
+        let allowedFields: Set<String> = ["id", "athleteId", "name", "role", "email", "phone", "notes", "firebaseCoachID", "invitationStatus"]
+        var updateData = data.filter { allowedFields.contains($0.key) }
         updateData["updatedAt"] = FieldValue.serverTimestamp()
         try await db
             .collection("users").document(userId)

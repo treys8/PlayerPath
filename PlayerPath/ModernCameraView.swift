@@ -479,7 +479,7 @@ struct FocusReticleView: View {
                 }
 
                 Task {
-                    try? await Task.sleep(nanoseconds: 1_500_000_000)
+                    try? await Task.sleep(for: .milliseconds(1500))
                     guard !Task.isCancelled else { return }
                     withAnimation(.easeOut(duration: 0.3)) {
                         opacity = 0

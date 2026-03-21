@@ -73,7 +73,7 @@ struct UploadStatusBanner: View {
                             .cornerRadius(2)
 
                         Rectangle()
-                            .fill(Color.blue)
+                            .fill(Color.brandNavy)
                             .frame(width: geometry.size.width * progress, height: 4)
                             .cornerRadius(2)
                             .animation(.linear(duration: 0.3), value: progress)
@@ -120,7 +120,7 @@ struct UploadStatusBanner: View {
     private var pendingUploadsView: some View {
         HStack {
             Image(systemName: "icloud.and.arrow.up")
-                .foregroundColor(.blue)
+                .foregroundColor(.brandNavy)
 
             Text("\(uploadManager.totalPendingCount) video\(uploadManager.totalPendingCount == 1 ? "" : "s") queued for upload")
                 .font(.subheadline)
@@ -130,7 +130,7 @@ struct UploadStatusBanner: View {
 
             Text("Uploading...")
                 .font(.caption)
-                .foregroundColor(.blue)
+                .foregroundColor(.brandNavy)
         }
         .padding()
     }
@@ -267,7 +267,7 @@ struct UploadBadge: View {
         if !uploadManager.failedUploads.isEmpty {
             return .orange
         } else if uploadManager.isProcessing {
-            return .blue
+            return .brandNavy
         } else {
             return .gray
         }

@@ -17,14 +17,16 @@ extension FirestoreManager {
     /// - Parameters:
     ///   - name: Display name for the folder (e.g., "Coach Smith")
     ///   - ownerAthleteID: User ID of the athlete creating the folder
+    ///   - ownerAthleteName: Display name of the athlete (shown to coaches)
     ///   - permissions: Dictionary of coach IDs to their permissions
     /// - Returns: The created folder ID
     func createSharedFolder(
         name: String,
         ownerAthleteID: String,
+        ownerAthleteName: String? = nil,
         permissions: [String: FolderPermissions] = [:]
     ) async throws -> String {
-        let folderData: [String: Any] = [
+        var folderData: [String: Any] = [
             "name": name,
             "ownerAthleteID": ownerAthleteID,
             "sharedWithCoachIDs": Array(permissions.keys),
@@ -33,6 +35,9 @@ extension FirestoreManager {
             "updatedAt": FieldValue.serverTimestamp(),
             "videoCount": 0
         ]
+        if let ownerAthleteName {
+            folderData["ownerAthleteName"] = ownerAthleteName
+        }
 
         do {
             let docRef = try await db.collection("sharedFolders").addDocument(data: folderData)
@@ -180,7 +185,7 @@ extension FirestoreManager {
 
             // Athlete display name still requires a fetch — not available from any call site
             let athleteSnapshot = try await db.collection("users").document(resolvedAthleteID).getDocument()
-            let athleteName = athleteSnapshot.data()?["fullName"] as? String ?? "An athlete"
+            let athleteName = athleteSnapshot.data()?["displayName"] as? String ?? "An athlete"
 
             // Batch: remove coach from folder + create revocation doc atomically
             let batch = db.batch()
@@ -214,6 +219,23 @@ extension FirestoreManager {
     /// Deletes a shared folder (athlete only)
     func deleteSharedFolder(folderID: String) async throws {
         do {
+            // Cancel pending invitations referencing this folder
+            let invitationsQuery = db.collection("invitations")
+                .whereField("folderID", isEqualTo: folderID)
+                .whereField("status", isEqualTo: "pending")
+            while true {
+                let invSnap = try await invitationsQuery.limit(to: 400).getDocuments()
+                guard !invSnap.documents.isEmpty else { break }
+                let batch = db.batch()
+                for doc in invSnap.documents {
+                    batch.updateData([
+                        "status": "cancelled",
+                        "cancelledAt": FieldValue.serverTimestamp()
+                    ], forDocument: doc.reference)
+                }
+                try await batch.commit()
+            }
+
             // Delete all videos in the folder (paginated — delete until none remain)
             let videosQuery = db.collection("videos")
                 .whereField("sharedFolderID", isEqualTo: folderID)

@@ -15,7 +15,7 @@ import FirebaseAuth
 struct ProfileView: View {
     // MARK: - Configuration Constants
     private enum Config {
-        static let signOutDelay: UInt64 = 500_000_000 // 0.5 seconds
+        static let signOutDelay: Duration = .milliseconds(500)
     }
 
     let user: User
@@ -135,7 +135,7 @@ struct ProfileView: View {
         showingQuickSearch = false
 
         do {
-            try await Task.sleep(nanoseconds: Config.signOutDelay)
+            try await Task.sleep(for: Config.signOutDelay)
             await authManager.signOut()
             Haptics.success()
         } catch {
@@ -279,7 +279,7 @@ struct ProfileView: View {
             )
         ))
 
-        if authManager.currentTier == .pro {
+        if authManager.hasCoachingAccess {
             items.append(SearchResult(
                 title: "Shared Folders",
                 icon: "folder.badge.person.crop",
@@ -310,7 +310,7 @@ struct ProfileView: View {
                                 Text("Pro")
                                     .font(.caption)
                             }
-                            .foregroundColor(.blue)
+                            .foregroundColor(.brandNavy)
                         }
                     }
                     .foregroundColor(.primary)
@@ -446,7 +446,7 @@ struct ProfileView: View {
             }) {
                 Label("Add Athlete", systemImage: "person.badge.plus")
             }
-            .tint(.blue)
+            .tint(Color.brandNavy)
             
             if (user.athletes ?? []).count >= authManager.currentTier.athleteLimit {
                 HStack {
@@ -470,7 +470,7 @@ struct ProfileView: View {
     private var settingsSection: some View {
         Section("Settings") {
             // Coach Sharing Feature (requires Pro tier)
-            if authManager.currentTier == .pro {
+            if authManager.hasCoachingAccess {
                 NavigationLink {
                     AthleteFoldersListView(userID: authManager.userID)
                 } label: {
@@ -490,7 +490,7 @@ struct ProfileView: View {
                             Text("Pro")
                                 .font(.caption)
                         }
-                        .foregroundColor(.blue)
+                        .foregroundColor(.brandNavy)
                     }
                 }
                 .foregroundColor(.primary)
@@ -666,7 +666,7 @@ struct AthleteProfileRow: View {
             HStack {
                 Image(systemName: "figure.baseball")
                     .font(.title2)
-                    .foregroundColor(.blue)
+                    .foregroundColor(.brandNavy)
                     .frame(width: 30)
 
                 VStack(alignment: .leading, spacing: 4) {
@@ -689,7 +689,7 @@ struct AthleteProfileRow: View {
 
                 if isSelected {
                     Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(.blue)
+                        .foregroundColor(.brandNavy)
                         .accessibilityLabel("Selected")
                         .accessibilityHidden(true)
                 }

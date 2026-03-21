@@ -94,15 +94,17 @@ extension FirestoreManager {
         }
 
         do {
-            let docRef = try await db.collection("videos").addDocument(data: videoData)
-
-            // Increment video count in folder
-            try await db.collection("sharedFolders").document(folderID).updateData([
+            // Batch: create video doc + increment folder count atomically
+            let batch = db.batch()
+            let videoRef = db.collection("videos").document()
+            batch.setData(videoData, forDocument: videoRef)
+            batch.updateData([
                 "videoCount": FieldValue.increment(Int64(1)),
                 "updatedAt": FieldValue.serverTimestamp()
-            ])
+            ], forDocument: db.collection("sharedFolders").document(folderID))
+            try await batch.commit()
 
-            return docRef.documentID
+            return videoRef.documentID
         } catch {
             errorMessage = "Failed to save video."
             throw error
@@ -194,14 +196,14 @@ extension FirestoreManager {
                 try await batch.commit()
             }
 
-            // Delete video metadata
-            try await db.collection("videos").document(videoID).delete()
-
-            // Decrement folder video count
-            try await db.collection("sharedFolders").document(folderID).updateData([
+            // Batch: delete video metadata + decrement folder count atomically
+            let batch = db.batch()
+            batch.deleteDocument(db.collection("videos").document(videoID))
+            batch.updateData([
                 "videoCount": FieldValue.increment(Int64(-1)),
                 "updatedAt": FieldValue.serverTimestamp()
-            ])
+            ], forDocument: db.collection("sharedFolders").document(folderID))
+            try await batch.commit()
 
         } catch {
             errorMessage = "Failed to delete video."
@@ -318,15 +320,17 @@ extension FirestoreManager {
         safeMetadata["createdAt"] = FieldValue.serverTimestamp()
 
         do {
-            let docRef = try await db.collection("videos").addDocument(data: safeMetadata)
-
-            // Increment video count in folder
-            try await db.collection("sharedFolders").document(folderID).updateData([
+            // Batch: create video doc + increment folder count atomically
+            let batch = db.batch()
+            let videoRef = db.collection("videos").document()
+            batch.setData(safeMetadata, forDocument: videoRef)
+            batch.updateData([
                 "videoCount": FieldValue.increment(Int64(1)),
                 "updatedAt": FieldValue.serverTimestamp()
-            ])
+            ], forDocument: db.collection("sharedFolders").document(folderID))
+            try await batch.commit()
 
-            return docRef.documentID
+            return videoRef.documentID
         } catch {
             errorMessage = "Failed to save video."
             throw error

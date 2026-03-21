@@ -12,6 +12,9 @@
 
 import Foundation
 import FirebaseFirestore
+import os
+
+private let commentLog = Logger(subsystem: "com.playerpath.app", category: "ClipComments")
 
 // @MainActor ensures the comment cache dictionary is never accessed
 // from multiple threads — Firestore snapshot listeners run on background
@@ -105,9 +108,14 @@ final class ClipCommentService {
             .getDocuments()
 
         let comments = snapshot.documents.compactMap { doc -> ClipComment? in
-            var comment = try? doc.data(as: ClipComment.self)
-            comment?.id = doc.documentID
-            return comment
+            do {
+                var comment = try doc.data(as: ClipComment.self)
+                comment.id = doc.documentID
+                return comment
+            } catch {
+                commentLog.warning("Failed to decode comment \(doc.documentID): \(error.localizedDescription)")
+                return nil
+            }
         }
 
         cache[clipId] = comments
@@ -136,9 +144,14 @@ final class ClipCommentService {
                     return
                 }
                 let comments = documents.compactMap { doc -> ClipComment? in
-                    var comment = try? doc.data(as: ClipComment.self)
-                    comment?.id = doc.documentID
-                    return comment
+                    do {
+                        var comment = try doc.data(as: ClipComment.self)
+                        comment.id = doc.documentID
+                        return comment
+                    } catch {
+                        commentLog.warning("Failed to decode comment \(doc.documentID): \(error.localizedDescription)")
+                        return nil
+                    }
                 }
                 onUpdate(comments)
             }

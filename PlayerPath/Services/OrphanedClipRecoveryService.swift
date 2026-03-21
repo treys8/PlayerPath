@@ -10,6 +10,9 @@
 
 import Foundation
 import SwiftData
+import os
+
+private let recoveryLog = Logger(subsystem: "com.playerpath.app", category: "OrphanedClipRecovery")
 import AVFoundation
 
 @MainActor
@@ -134,14 +137,24 @@ final class OrphanedClipRecoveryService {
     /// Returns the clip on success, nil on failure.
     private func recoverClip(at fileURL: URL, athlete: Athlete, context: ModelContext) async -> VideoClip? {
         // Basic file sanity check
-        let attributes = (try? fileManager.attributesOfItem(atPath: fileURL.path)) ?? [:]
+        let attributes: [FileAttributeKey: Any]
+        do {
+            attributes = try fileManager.attributesOfItem(atPath: fileURL.path)
+        } catch {
+            recoveryLog.warning("Cannot read attributes for orphaned file '\(fileURL.lastPathComponent)': \(error.localizedDescription)")
+            return nil
+        }
         let fileSize = (attributes[.size] as? Int64) ?? 0
         guard fileSize > 10_000 else {
             // Delete tiny/corrupt files so they don't get re-scanned every launch
             #if DEBUG
             print("⚠️ OrphanedClipRecovery: Deleting tiny/corrupt file: \(fileURL.lastPathComponent) (\(fileSize) bytes)")
             #endif
-            try? fileManager.removeItem(at: fileURL)
+            do {
+                try fileManager.removeItem(at: fileURL)
+            } catch {
+                recoveryLog.warning("Failed to delete tiny/corrupt file '\(fileURL.lastPathComponent)': \(error.localizedDescription)")
+            }
             return nil
         }
 
