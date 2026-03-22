@@ -62,20 +62,20 @@ class CoachPrivateVideosViewModel: ObservableObject {
             let attributes = try FileManager.default.attributesOfItem(atPath: videoURL.path)
             let fileSize = attributes[.size] as? Int64 ?? 0
 
-            // Upload video to Storage
-            let storageURL = try await VideoCloudManager.shared.uploadVideo(
+            // Upload video AND process (duration + thumbnail) in PARALLEL
+            async let uploadTask = VideoCloudManager.shared.uploadVideo(
                 localURL: videoURL,
                 fileName: fileName,
                 folderID: sharedFolderID,
                 progressHandler: { _ in }
             )
-
-            // Process: extract duration + generate/upload thumbnail
-            let processed = await CoachVideoProcessingService.shared.process(
+            async let processTask = CoachVideoProcessingService.shared.process(
                 videoURL: videoURL,
                 fileName: fileName,
                 folderID: sharedFolderID
             )
+
+            let (storageURL, processed) = try await (uploadTask, processTask)
 
             // Save metadata to unified videos collection with visibility: "private"
             _ = try await firestore.uploadVideoMetadata(

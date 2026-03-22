@@ -242,20 +242,20 @@ struct SaveRecordingSheet: View {
                 let attributes = try FileManager.default.attributesOfItem(atPath: videoURL.path)
                 let fileSize = attributes[.size] as? Int64 ?? 0
 
-                // Upload to Storage (always under shared_folders path)
-                let storageURL = try await VideoCloudManager.shared.uploadVideo(
+                // Upload video AND process (duration + thumbnail) in PARALLEL
+                async let uploadTask = VideoCloudManager.shared.uploadVideo(
                     localURL: videoURL,
                     fileName: fileName,
                     folderID: folderID,
                     progressHandler: { _ in }
                 )
-
-                // Process video: extract duration + generate/upload thumbnail
-                let processed = await CoachVideoProcessingService.shared.process(
+                async let processTask = CoachVideoProcessingService.shared.process(
                     videoURL: videoURL,
                     fileName: fileName,
                     folderID: folderID
                 )
+
+                let (storageURL, processed) = try await (uploadTask, processTask)
 
                 // Save to unified videos collection — visibility determines private vs shared
                 _ = try await FirestoreManager.shared.uploadVideoMetadata(
