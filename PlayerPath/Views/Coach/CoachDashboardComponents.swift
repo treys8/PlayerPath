@@ -37,9 +37,9 @@ struct AthleteSection: View {
                 HStack {
                     Image(systemName: "figure.baseball")
                         .font(.title3)
-                        .foregroundColor(.green)
+                        .foregroundColor(.brandNavy)
                         .frame(width: 40, height: 40)
-                        .background(Color.green.opacity(0.1))
+                        .background(Color.brandNavy.opacity(0.1))
                         .clipShape(Circle())
 
                     VStack(alignment: .leading, spacing: 4) {
@@ -115,7 +115,7 @@ struct CoachFolderRowView: View {
                         if permissions.canUpload {
                             Image(systemName: "arrow.up.circle.fill")
                                 .font(.caption)
-                                .foregroundColor(.green)
+                                .foregroundColor(.brandNavy)
                         }
                         if permissions.canComment {
                             Image(systemName: "bubble.left.fill")
@@ -152,14 +152,14 @@ struct CoachEmptyStateView: View {
 
             ZStack {
                 Circle()
-                    .fill(Color.green.opacity(0.1))
+                    .fill(Color.brandNavy.opacity(0.1))
                     .frame(width: 120, height: 120)
 
                 Image(systemName: "person.3.sequence")
                     .font(.system(size: 50))
                     .foregroundStyle(
                         LinearGradient(
-                            colors: [.green, .green.opacity(0.6)],
+                            colors: [.brandNavy, .brandNavy.opacity(0.6)],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         )
@@ -193,7 +193,7 @@ struct CoachEmptyStateView: View {
                     }
                     .frame(maxWidth: .infinity)
                     .frame(height: 54)
-                    .background(Color.green)
+                    .background(Color.brandNavy)
                     .foregroundColor(.white)
                     .cornerRadius(14)
                 }
@@ -230,7 +230,7 @@ struct CoachEmptyStateView: View {
 
 struct PendingInvitationsBanner: View {
     @Binding var showingInvitations: Bool
-    @ObservedObject private var invitationManager = CoachInvitationManager.shared
+    private var invitationManager: CoachInvitationManager { .shared }
 
     var body: some View {
         if invitationManager.pendingInvitationsCount > 0 {
@@ -240,7 +240,7 @@ struct PendingInvitationsBanner: View {
             }) {
                 HStack {
                     Image(systemName: "envelope.badge.fill")
-                        .foregroundColor(.green)
+                        .foregroundColor(.brandNavy)
 
                     Text("You have \(invitationManager.pendingInvitationsCount) pending invitation\(invitationManager.pendingInvitationsCount == 1 ? "" : "s")")
                         .font(.subheadline)
@@ -254,7 +254,7 @@ struct PendingInvitationsBanner: View {
                 .padding()
                 .background(
                     LinearGradient(
-                        colors: [Color.green.opacity(0.1), Color.green.opacity(0.05)],
+                        colors: [Color.brandNavy.opacity(0.1), Color.brandNavy.opacity(0.05)],
                         startPoint: .leading,
                         endPoint: .trailing
                     )

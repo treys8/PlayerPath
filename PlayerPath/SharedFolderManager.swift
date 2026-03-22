@@ -9,7 +9,6 @@
 import Foundation
 import FirebaseAuth
 import FirebaseFirestore
-import Combine
 import os
 
 private let folderLog = Logger(subsystem: "com.playerpath.app", category: "SharedFolder")
@@ -17,33 +16,24 @@ private let folderLog = Logger(subsystem: "com.playerpath.app", category: "Share
 /// High-level business logic for managing shared folders
 /// Coordinates between Firestore, Storage, and app state
 @MainActor
-class SharedFolderManager: ObservableObject {
-    
+@Observable
+class SharedFolderManager {
+
     static let shared = SharedFolderManager()
-    
+
     private let firestore = FirestoreManager.shared
-    
-    // Published state for UI
-    @Published var athleteFolders: [SharedFolder] = []
-    @Published var coachFolders: [SharedFolder] = []
-    @Published var isLoading = false
-    @Published var errorMessage: String?
+
+    var athleteFolders: [SharedFolder] = []
+    var coachFolders: [SharedFolder] = []
+    var isLoading = false
+    var errorMessage: String?
     /// Set when a real-time listener encounters an error (e.g. offline, permissions).
     /// Views can display a "data may be stale" indicator when this is non-nil.
-    @Published var listenerError: String?
-    
-    private var cancellables = Set<AnyCancellable>()
+    var listenerError: String?
+
     private var coachFoldersListener: ListenerRegistration?
 
-    private init() {
-        // Observe Firestore error state
-        firestore.$errorMessage
-            .assign(to: &$errorMessage)
-    }
-
-    deinit {
-        coachFoldersListener?.remove()
-    }
+    private init() {}
     
     // MARK: - Athlete Functions
     
@@ -68,9 +58,7 @@ class SharedFolderManager: ObservableObject {
             throw SharedFolderError.invalidName
         }
 
-        #if DEBUG
-        print("🔍 createFolder: ownerAthleteID=\(athleteID), authUID=\(Auth.auth().currentUser?.uid ?? "nil")")
-        #endif
+        folderLog.debug("createFolder: ownerAthleteID=\(athleteID), authUID=\(Auth.auth().currentUser?.uid ?? "nil")")
         let folderID = try await firestore.createSharedFolder(
             name: name.trimmingCharacters(in: .whitespacesAndNewlines),
             ownerAthleteID: athleteID,
@@ -112,9 +100,7 @@ class SharedFolderManager: ObservableObject {
         
         let cleanEmail = coachEmail.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
 
-        // Fix P: Validate email format
-        let emailRegex = "[A-Za-z0-9._%+\\-]+@[A-Za-z0-9.\\-]+\\.[A-Za-z]{2,}"
-        guard NSPredicate(format: "SELF MATCHES %@", emailRegex).evaluate(with: cleanEmail) else {
+        guard cleanEmail.isValidEmail else {
             throw SharedFolderError.invalidEmail
         }
 
@@ -337,7 +323,7 @@ class SharedFolderManager: ObservableObject {
         isLoading = true
 
         let db = firestore.db
-        coachFoldersListener = db.collection("sharedFolders")
+        coachFoldersListener = db.collection(FC.sharedFolders)
             .whereField("sharedWithCoachIDs", arrayContains: coachID)
             .order(by: "updatedAt", descending: true)
             .limit(to: 100)
@@ -434,19 +420,15 @@ class SharedFolderManager: ObservableObject {
                           userInfo: [NSLocalizedDescriptionKey: "This invitation has expired."])
         }
 
-        // Enforce coach athlete limit before accepting
-        // Merge athletes from shared folders + accepted coach→athlete invitations
-        var connectedAthleteIDs = Set(coachFolders.map { $0.ownerAthleteID })
-        // Best-effort: include coach→athlete connections if the query succeeds.
-        // Falls back to folder-only count on network failure to avoid blocking acceptance.
-        if let acceptedCoachToAthleteIDs = try? await firestore.fetchAcceptedCoachToAthleteAthleteIDs(coachID: coachID) {
-            connectedAthleteIDs.formUnion(acceptedCoachToAthleteIDs)
+        // Enforce coach athlete limit before accepting (centralized check)
+        // Fail closed: if authManager is unavailable, treat as at-limit
+        guard let authManager else {
+            folderLog.warning("acceptInvitation: authManager unavailable, failing closed")
+            throw SharedFolderError.coachAthleteLimitReached
         }
-        // Fail closed: if authManager is unavailable, treat limit as 0 rather than bypassing the check
-        let limit = authManager?.coachAthleteLimit ?? 0
-        folderLog.debug("acceptInvitation: athleteCount=\(connectedAthleteIDs.count), limit=\(limit), coachTier=\(authManager?.currentCoachTier.displayName ?? "unknown")")
-        if connectedAthleteIDs.count >= limit {
-            folderLog.warning("acceptInvitation: at athlete limit (\(connectedAthleteIDs.count) >= \(limit))")
+        let atLimit = await SubscriptionGate.isAtAthleteLimit(coachID: coachID, authManager: authManager)
+        if atLimit {
+            folderLog.warning("acceptInvitation: at athlete limit for coach \(coachID)")
             throw SharedFolderError.coachAthleteLimitReached
         }
 

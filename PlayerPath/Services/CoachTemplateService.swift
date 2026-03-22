@@ -6,18 +6,18 @@
 //
 
 import Foundation
-import Combine
 import FirebaseFirestore
 import os
 
 private let templateLog = Logger(subsystem: "com.playerpath.app", category: "CoachTemplates")
 
 @MainActor
-class CoachTemplateService: ObservableObject {
+@Observable
+class CoachTemplateService {
     static let shared = CoachTemplateService()
 
-    @Published var quickCues: [QuickCue] = []
-    @Published var isLoading = false
+    var quickCues: [QuickCue] = []
+    var isLoading = false
 
     private let db = Firestore.firestore()
 
@@ -26,9 +26,9 @@ class CoachTemplateService: ObservableObject {
     func loadQuickCues(coachID: String) async {
         isLoading = true
         do {
-            let snapshot = try await db.collection("coachTemplates")
+            let snapshot = try await db.collection(FC.coachTemplates)
                 .document(coachID)
-                .collection("quickCues")
+                .collection(FC.quickCues)
                 .order(by: "usageCount", descending: true)
                 .limit(to: 50)
                 .getDocuments()
@@ -52,9 +52,9 @@ class CoachTemplateService: ObservableObject {
             "createdAt": FieldValue.serverTimestamp()
         ]
 
-        let docRef = try await db.collection("coachTemplates")
+        let docRef = try await db.collection(FC.coachTemplates)
             .document(coachID)
-            .collection("quickCues")
+            .collection(FC.quickCues)
             .addDocument(data: data)
 
         var cue = QuickCue(
@@ -69,9 +69,9 @@ class CoachTemplateService: ObservableObject {
     }
 
     func deleteQuickCue(coachID: String, cueID: String) async throws {
-        try await db.collection("coachTemplates")
+        try await db.collection(FC.coachTemplates)
             .document(coachID)
-            .collection("quickCues")
+            .collection(FC.quickCues)
             .document(cueID)
             .delete()
 
@@ -80,9 +80,9 @@ class CoachTemplateService: ObservableObject {
 
     func incrementUsage(coachID: String, cueID: String) async {
         do {
-            try await db.collection("coachTemplates")
+            try await db.collection(FC.coachTemplates)
                 .document(coachID)
-                .collection("quickCues")
+                .collection(FC.quickCues)
                 .document(cueID)
                 .updateData(["usageCount": FieldValue.increment(Int64(1))])
 

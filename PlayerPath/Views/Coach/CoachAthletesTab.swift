@@ -9,17 +9,19 @@
 import SwiftUI
 
 struct CoachAthletesTab: View {
-    @EnvironmentObject private var sharedFolderManager: SharedFolderManager
+    private var sharedFolderManager: SharedFolderManager { .shared }
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
-    @ObservedObject private var invitationManager = CoachInvitationManager.shared
-    @ObservedObject private var archiveManager = CoachFolderArchiveManager.shared
+    private var invitationManager: CoachInvitationManager { .shared }
+    private var archiveManager: CoachFolderArchiveManager { .shared }
     @State private var searchText = ""
     @State private var showingArchived = false
     @State private var showingInviteAthlete = false
     @State private var showingInvitations = false
+    @State private var showingStartSession = false
     @State private var cachedActiveGroups: [CoachAthleteGroup] = []
     @State private var cachedArchivedGroups: [CoachAthleteGroup] = []
     @State private var cachedFilteredGroups: [CoachAthleteGroup] = []
+    @State private var searchDebounceTask: Task<Void, Never>?
 
     var body: some View {
         Group {
@@ -41,7 +43,7 @@ struct CoachAthletesTab: View {
                             showingInvitations = true
                         } label: {
                             Image(systemName: "envelope.badge")
-                                .foregroundColor(.green)
+                                .foregroundColor(.brandNavy)
                         }
                         .overlay(alignment: .topTrailing) {
                             Text("\(invitationManager.pendingInvitationsCount)")
@@ -55,9 +57,17 @@ struct CoachAthletesTab: View {
                         }
                     }
 
+                    Button {
+                        Haptics.medium()
+                        showingStartSession = true
+                    } label: {
+                        Image(systemName: "record.circle")
+                            .foregroundColor(.brandNavy)
+                    }
+
                     NavigationLink(destination: CoachMultiAthleteView()) {
                         Image(systemName: "chart.bar.xaxis")
-                            .foregroundColor(.green)
+                            .foregroundColor(.brandNavy)
                     }
 
                     Button {
@@ -65,7 +75,7 @@ struct CoachAthletesTab: View {
                         showingInviteAthlete = true
                     } label: {
                         Image(systemName: "person.badge.plus")
-                            .foregroundColor(.green)
+                            .foregroundColor(.brandNavy)
                     }
                 }
             }
@@ -75,13 +85,22 @@ struct CoachAthletesTab: View {
             await reloadData()
         }
         .task { updateFolderGroups() }
-        .onChange(of: searchText) { _, _ in updateFolderGroups() }
-        .onChange(of: sharedFolderManager.coachFolders) { _, _ in updateFolderGroups() }
-        .onChange(of: archiveManager.archivedFolderIDs) { _, _ in updateFolderGroups() }
+        .onChange(of: searchText) { _, _ in
+            debouncedFolderGroupUpdate()
+        }
+        .onChange(of: sharedFolderManager.coachFolders) { _, _ in
+            debouncedFolderGroupUpdate()
+        }
+        .onChange(of: archiveManager.archivedFolderIDs) { _, _ in
+            debouncedFolderGroupUpdate()
+        }
         .onChange(of: invitationManager.pendingInvitationsCount) { _, count in
             if count > 0 && sharedFolderManager.coachFolders.isEmpty {
                 showingInvitations = true
             }
+        }
+        .sheet(isPresented: $showingStartSession) {
+            StartSessionSheet { _ in }
         }
         .sheet(isPresented: $showingInviteAthlete) {
             InviteAthleteSheet()
@@ -154,6 +173,15 @@ struct CoachAthletesTab: View {
     }
 
     // MARK: - Data
+
+    private func debouncedFolderGroupUpdate() {
+        searchDebounceTask?.cancel()
+        searchDebounceTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(200))
+            guard !Task.isCancelled else { return }
+            updateFolderGroups()
+        }
+    }
 
     private func updateFolderGroups() {
         var activeFolders: [String: [SharedFolder]] = [:]

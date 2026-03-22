@@ -40,7 +40,7 @@ extension FirestoreManager {
         }
 
         do {
-            let docRef = try await db.collection("sharedFolders").addDocument(data: folderData)
+            let docRef = try await db.collection(FC.sharedFolders).addDocument(data: folderData)
             return docRef.documentID
         } catch {
             errorMessage = "Failed to create folder."
@@ -51,7 +51,7 @@ extension FirestoreManager {
     /// Fetches all shared folders owned by an athlete
     func fetchSharedFolders(forAthlete athleteID: String) async throws -> [SharedFolder] {
         do {
-            let snapshot = try await db.collection("sharedFolders")
+            let snapshot = try await db.collection(FC.sharedFolders)
                 .whereField("ownerAthleteID", isEqualTo: athleteID)
                 .order(by: "createdAt", descending: true)
                 .limit(to: 50)
@@ -79,7 +79,7 @@ extension FirestoreManager {
     func fetchSharedFolders(forCoach coachID: String) async throws -> [SharedFolder] {
 
         do {
-            let snapshot = try await db.collection("sharedFolders")
+            let snapshot = try await db.collection(FC.sharedFolders)
                 .whereField("sharedWithCoachIDs", arrayContains: coachID)
                 .order(by: "updatedAt", descending: true)
                 .limit(to: 50)
@@ -107,7 +107,7 @@ extension FirestoreManager {
     /// Returns `true` if `sharedWithCoachIDs` contains `userID`, `false` otherwise.
     /// Throws if the folder document cannot be fetched.
     func verifyFolderAccess(folderID: String, userID: String) async throws -> Bool {
-        let doc = try await db.collection("sharedFolders").document(folderID).getDocument()
+        let doc = try await db.collection(FC.sharedFolders).document(folderID).getDocument()
         guard let data = doc.data(),
               let coachIDs = data["sharedWithCoachIDs"] as? [String] else {
             return false
@@ -118,7 +118,7 @@ extension FirestoreManager {
     /// Fetches a single shared folder by ID with latest permissions
     func fetchSharedFolder(folderID: String) async throws -> SharedFolder? {
         do {
-            let doc = try await db.collection("sharedFolders").document(folderID).getDocument()
+            let doc = try await db.collection(FC.sharedFolders).document(folderID).getDocument()
 
             guard doc.exists else {
                 return nil
@@ -148,7 +148,7 @@ extension FirestoreManager {
         athleteID: String? = nil
     ) async throws {
 
-        let folderRef = db.collection("sharedFolders").document(folderID)
+        let folderRef = db.collection(FC.sharedFolders).document(folderID)
 
         do {
             // Resolve folderName + athleteID — skip fetch if caller supplied them
@@ -174,7 +174,7 @@ extension FirestoreManager {
             if let ce = coachEmail {
                 resolvedCoachEmail = ce
             } else {
-                let coachSnapshot = try await db.collection("users").document(coachID).getDocument()
+                let coachSnapshot = try await db.collection(FC.users).document(coachID).getDocument()
                 guard let coachData = coachSnapshot.data(),
                       let ce = coachData["email"] as? String else {
                     throw NSError(domain: "FirestoreManager", code: -1,
@@ -184,7 +184,7 @@ extension FirestoreManager {
             }
 
             // Athlete display name still requires a fetch — not available from any call site
-            let athleteSnapshot = try await db.collection("users").document(resolvedAthleteID).getDocument()
+            let athleteSnapshot = try await db.collection(FC.users).document(resolvedAthleteID).getDocument()
             let athleteName = athleteSnapshot.data()?["displayName"] as? String ?? "An athlete"
 
             // Batch: remove coach from folder + create revocation doc atomically
@@ -196,7 +196,7 @@ extension FirestoreManager {
                 "updatedAt": FieldValue.serverTimestamp()
             ], forDocument: folderRef)
 
-            let revocationRef = db.collection("coach_access_revocations").document()
+            let revocationRef = db.collection(FC.coachAccessRevocations).document()
             batch.setData([
                 "folderID": folderID,
                 "folderName": resolvedFolderName,
@@ -220,7 +220,7 @@ extension FirestoreManager {
     func deleteSharedFolder(folderID: String) async throws {
         do {
             // Cancel pending invitations referencing this folder
-            let invitationsQuery = db.collection("invitations")
+            let invitationsQuery = db.collection(FC.invitations)
                 .whereField("folderID", isEqualTo: folderID)
                 .whereField("status", isEqualTo: "pending")
             while true {
@@ -236,19 +236,39 @@ extension FirestoreManager {
                 try await batch.commit()
             }
 
-            // Delete all videos in the folder (paginated — delete until none remain)
-            let videosQuery = db.collection("videos")
+            // Delete all videos in the folder: Storage files first, then Firestore docs
+            let videosQuery = db.collection(FC.videos)
                 .whereField("sharedFolderID", isEqualTo: folderID)
             while true {
                 let videosSnapshot = try await videosQuery.limit(to: 400).getDocuments()
                 guard !videosSnapshot.documents.isEmpty else { break }
+
+                // Delete Storage files for each video (best-effort — don't block on failure)
+                for doc in videosSnapshot.documents {
+                    let data = doc.data()
+                    if let fileName = data["fileName"] as? String {
+                        do {
+                            try await VideoCloudManager.shared.deleteVideo(fileName: fileName, folderID: folderID)
+                        } catch {
+                            firestoreLog.warning("Failed to delete Storage file \(fileName) in folder \(folderID): \(error.localizedDescription)")
+                        }
+                        // Also try to delete the thumbnail
+                        do {
+                            try await VideoCloudManager.shared.deleteThumbnail(videoFileName: fileName, folderID: folderID)
+                        } catch {
+                            // Thumbnail may not exist — ignore
+                        }
+                    }
+                }
+
+                // Now delete the Firestore docs
                 let batch = db.batch()
                 videosSnapshot.documents.forEach { batch.deleteDocument($0.reference) }
                 try await batch.commit()
             }
 
             // Then delete the folder
-            try await db.collection("sharedFolders").document(folderID).delete()
+            try await db.collection(FC.sharedFolders).document(folderID).delete()
 
         } catch {
             errorMessage = "Failed to delete folder."
@@ -260,7 +280,7 @@ extension FirestoreManager {
 
     /// Updates tags on a shared folder
     func updateFolderTags(folderID: String, tags: [String]) async throws {
-        try await db.collection("sharedFolders").document(folderID).updateData([
+        try await db.collection(FC.sharedFolders).document(folderID).updateData([
             "tags": tags,
             "updatedAt": FieldValue.serverTimestamp()
         ])

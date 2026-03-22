@@ -9,13 +9,21 @@
 import Foundation
 import SwiftData
 import FirebaseAuth
+import FirebaseFirestore
 import os
 
 private let invitationLog = Logger(subsystem: "com.playerpath.app", category: "AthleteInvitations")
 
 @MainActor
+@Observable
 class AthleteInvitationManager {
     static let shared = AthleteInvitationManager()
+
+    var pendingInvitations: [CoachToAthleteInvitation] = []
+    var pendingCount: Int { pendingInvitations.count }
+    var listenerError: String?
+
+    private var invitationsListener: ListenerRegistration?
 
     private init() {}
 
@@ -26,11 +34,55 @@ class AthleteInvitationManager {
         case acceptedWithoutFolder(coachName: String)
     }
 
-    // MARK: - Fetch
+    // MARK: - Real-Time Listener
+
+    func startInvitationsListener(forAthleteEmail email: String) {
+        guard invitationsListener == nil else { return }
+        let db = FirestoreManager.shared.db
+        invitationsListener = db.collection(FC.invitations)
+            .whereField("type", isEqualTo: "coach_to_athlete")
+            .whereField("athleteEmail", isEqualTo: email.lowercased())
+            .whereField("status", isEqualTo: "pending")
+            .whereField("expiresAt", isGreaterThan: Timestamp(date: Date()))
+            .limit(to: 50)
+            .addSnapshotListener { [weak self] snapshot, error in
+                guard let self else { return }
+                if error != nil {
+                    Task { @MainActor in
+                        self.listenerError = "Unable to refresh invitations."
+                    }
+                    return
+                }
+                let invitations = snapshot?.documents.compactMap { doc -> CoachToAthleteInvitation? in
+                    do {
+                        var inv = try doc.data(as: CoachToAthleteInvitation.self)
+                        inv.id = doc.documentID
+                        return inv
+                    } catch {
+                        invitationLog.warning("Failed to decode invitation \(doc.documentID): \(error.localizedDescription)")
+                        return nil
+                    }
+                } ?? []
+                Task { @MainActor in
+                    self.listenerError = nil
+                    self.pendingInvitations = invitations
+                }
+            }
+    }
+
+    func stopInvitationsListener() {
+        invitationsListener?.remove()
+        invitationsListener = nil
+        listenerError = nil
+    }
+
+    // MARK: - Fetch (one-shot fallback)
 
     func fetchPendingInvitations(forEmail email: String) async -> [CoachToAthleteInvitation] {
         do {
-            return try await FirestoreManager.shared.fetchPendingCoachInvitations(forAthleteEmail: email)
+            let invitations = try await FirestoreManager.shared.fetchPendingCoachInvitations(forAthleteEmail: email)
+            pendingInvitations = invitations
+            return invitations
         } catch {
             invitationLog.error("Failed to fetch pending invitations: \(error.localizedDescription)")
             return []
@@ -54,22 +106,14 @@ class AthleteInvitationManager {
             throw NSError(domain: "PlayerPath", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid invitation"])
         }
 
-        // 1. Update invitation status in Firestore (idempotent, point of no return)
-        // Note: Coach athlete limit enforcement is handled server-side by the
-        // enforceCoachAthleteLimitOnAccept Cloud Function.
-        try await FirestoreManager.shared.acceptCoachToAthleteInvitation(
-            invitationID: invitationID,
-            athleteUserID: userID
-        )
-
-        // 2. Find the local athlete for this user
+        // 1. Find the local athlete for this user
         let athleteDescriptor = FetchDescriptor<Athlete>(
             predicate: #Predicate { $0.user?.firebaseAuthUid == userID }
         )
         let athlete = (try? modelContext.fetch(athleteDescriptor))?.first
         let athleteName = athlete?.name ?? authManager.currentFirebaseUser?.displayName ?? "Athlete"
 
-        // 3. Auto-create shared folder if athlete has Pro tier
+        // 2. Create shared folder BEFORE accepting (avoids stuck "accepted but no folder" state)
         var folderID: String?
         var folderName: String?
         if authManager.hasCoachingAccess {
@@ -85,16 +129,39 @@ class AthleteInvitationManager {
                 )
                 folderID = id
                 folderName = name
-
-                try await FirestoreManager.shared.updateCoachToAthleteInvitationWithFolder(
-                    invitationID: invitationID,
-                    folderID: id,
-                    folderName: name
-                )
             } catch {
                 // Folder creation failed — continue without folder. Coach still gets notified.
                 ErrorHandlerService.shared.handle(error, context: "AthleteInvitationManager.createSharedFolder", showAlert: false)
             }
+        }
+
+        // 3. Accept invitation in Firestore, including folder info if created
+        // Note: Coach athlete limit enforcement is handled server-side by the
+        // enforceCoachAthleteLimitOnAccept Cloud Function.
+        do {
+            try await FirestoreManager.shared.acceptCoachToAthleteInvitation(
+                invitationID: invitationID,
+                athleteUserID: userID
+            )
+
+            // Update invitation with folder info if folder was created
+            if let folderID, let folderName {
+                try await FirestoreManager.shared.updateCoachToAthleteInvitationWithFolder(
+                    invitationID: invitationID,
+                    folderID: folderID,
+                    folderName: folderName
+                )
+            }
+        } catch {
+            // Acceptance failed — clean up folder if we created one
+            if let folderID {
+                do {
+                    try await FirestoreManager.shared.deleteSharedFolder(folderID: folderID)
+                } catch {
+                    ErrorHandlerService.shared.handle(error, context: "AthleteInvitationManager.cleanupOrphanedFolder", showAlert: false)
+                }
+            }
+            throw error
         }
 
         // 4. Create or update Coach record in SwiftData
@@ -134,11 +201,7 @@ class AthleteInvitationManager {
         }
 
         // 5. Save SwiftData context
-        do {
-            try modelContext.save()
-        } catch {
-            ErrorHandlerService.shared.handle(error, context: "AthleteInvitationManager.saveCoachRecord", showAlert: false)
-        }
+        ErrorHandlerService.shared.saveContext(modelContext, caller: "AthleteInvitationManager.acceptInvitation")
 
         // 6. Notify the coach
         if let folderName, let folderID {

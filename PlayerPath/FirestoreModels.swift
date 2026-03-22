@@ -211,6 +211,23 @@ struct CoachToAthleteInvitation: Codable, Identifiable {
     let athleteUserID: String?
 }
 
+/// Live instruction session for coaches
+struct CoachSession: Codable, Identifiable, Hashable {
+    static func == (lhs: CoachSession, rhs: CoachSession) -> Bool { lhs.id == rhs.id }
+    func hash(into hasher: inout Hasher) { hasher.combine(id) }
+    var id: String?
+    let coachID: String
+    let coachName: String
+    let athleteIDs: [String]
+    let athleteNames: [String: String]
+    let folderIDs: [String: String]
+    var status: SessionStatus
+    let startedAt: Date?
+    var endedAt: Date?
+    var clipCount: Int
+    var title: String?
+}
+
 /// User profile model
 struct UserProfile: Codable, Identifiable {
     var id: String?

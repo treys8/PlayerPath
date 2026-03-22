@@ -11,14 +11,12 @@ import FirebaseAuth
 
 struct AthleteInvitationsBanner: View {
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
-    @State private var pendingInvitations: [CoachToAthleteInvitation] = []
-    @State private var isLoading = false
+    private var invitationManager: AthleteInvitationManager { .shared }
     @State private var showingInvitations = false
-    @State private var lastFetchDate: Date?
 
     var body: some View {
         Group {
-            if !pendingInvitations.isEmpty {
+            if !invitationManager.pendingInvitations.isEmpty {
                 Button {
                     Haptics.light()
                     showingInvitations = true
@@ -35,7 +33,7 @@ struct AthleteInvitationsBanner: View {
                         }
 
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("\(pendingInvitations.count) Coach Invitation\(pendingInvitations.count == 1 ? "" : "s")")
+                            Text("\(invitationManager.pendingCount) Coach Invitation\(invitationManager.pendingCount == 1 ? "" : "s")")
                                 .font(.headline)
                                 .foregroundColor(.primary)
 
@@ -64,28 +62,15 @@ struct AthleteInvitationsBanner: View {
             }
         }
         .task {
-            // Only re-fetch if stale (more than 60 seconds since last check)
-            if let lastFetch = lastFetchDate, Date().timeIntervalSince(lastFetch) < 60 {
-                return
-            }
-            await checkForInvitations()
-            lastFetchDate = Date()
+            guard let email = authManager.userEmail else { return }
+            invitationManager.startInvitationsListener(forAthleteEmail: email)
         }
         .sheet(isPresented: $showingInvitations) {
             AthleteInvitationsSheet(
-                invitations: pendingInvitations,
-                onInvitationsChanged: {
-                    Task { await checkForInvitations() }
-                }
+                invitations: invitationManager.pendingInvitations,
+                onInvitationsChanged: { }  // Real-time listener handles updates
             )
         }
-    }
-
-    private func checkForInvitations() async {
-        guard let email = authManager.userEmail else { return }
-        isLoading = true
-        pendingInvitations = await AthleteInvitationManager.shared.fetchPendingInvitations(forEmail: email)
-        isLoading = false
     }
 }
 

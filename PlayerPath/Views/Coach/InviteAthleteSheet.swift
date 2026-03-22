@@ -23,8 +23,7 @@ struct InviteAthleteSheet: View {
     @FocusState private var focusedField: Field?
 
     private var isValidEmail: Bool {
-        let emailRegex = #"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$"#
-        return athleteEmail.range(of: emailRegex, options: .regularExpression) != nil
+        athleteEmail.isValidEmail
     }
 
     private var canSend: Bool {
@@ -39,12 +38,12 @@ struct InviteAthleteSheet: View {
                     VStack(spacing: 12) {
                         ZStack {
                             Circle()
-                                .fill(Color.green.opacity(0.1))
+                                .fill(Color.brandNavy.opacity(0.1))
                                 .frame(width: 80, height: 80)
 
                             Image(systemName: "person.badge.plus")
                                 .font(.system(size: 36))
-                                .foregroundColor(.green)
+                                .foregroundColor(.brandNavy)
                         }
 
                         Text("Invite an Athlete")
@@ -87,7 +86,7 @@ struct InviteAthleteSheet: View {
                                 .textFieldStyle(.roundedBorder)
                                 .textContentType(.emailAddress)
                                 .keyboardType(.emailAddress)
-                                .autocapitalization(.none)
+                                .textInputAutocapitalization(.never)
                                 .autocorrectionDisabled()
                                 .focused($focusedField, equals: .email)
                                 .submitLabel(.next)
@@ -162,7 +161,7 @@ struct InviteAthleteSheet: View {
                         }
                         .frame(maxWidth: .infinity)
                         .frame(height: 54)
-                        .background(canSend ? Color.green : Color.gray)
+                        .background(canSend ? Color.brandNavy : Color.gray)
                         .foregroundColor(.white)
                         .cornerRadius(14)
                     }
@@ -210,15 +209,14 @@ struct InviteAthleteSheet: View {
                                   userInfo: [NSLocalizedDescriptionKey: "You cannot send an invitation to yourself."])
                 }
 
-                // Enforce coach athlete limit before sending
-                // Merge athletes from shared folders + accepted coach→athlete invitations
-                var connectedAthleteIDs = Set(SharedFolderManager.shared.coachFolders.map { $0.ownerAthleteID })
-                let acceptedAthleteIDs = try await FirestoreManager.shared.fetchAcceptedCoachToAthleteAthleteIDs(coachID: coachID)
-                connectedAthleteIDs.formUnion(acceptedAthleteIDs)
-                let pendingCount = try await FirestoreManager.shared.countPendingCoachToAthleteInvitations(coachID: coachID)
-                let limit = authManager.coachAthleteLimit
-                if connectedAthleteIDs.count + pendingCount >= limit {
-                    throw InvitationError.athleteLimitReached(limit: limit)
+                // Enforce coach athlete limit before sending (centralized check)
+                let atLimit = await SubscriptionGate.isAtAthleteLimit(
+                    coachID: coachID,
+                    authManager: authManager,
+                    includingPending: true
+                )
+                if atLimit {
+                    throw InvitationError.athleteLimitReached(limit: authManager.coachAthleteLimit)
                 }
 
                 // Create invitation in Firestore

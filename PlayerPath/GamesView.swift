@@ -45,6 +45,7 @@ struct GamesView: View {
 
     // Season filter
     @State private var selectedSeasonFilter: String? = nil // nil = All Seasons
+    @State private var searchDebounceTask: Task<Void, Never>?
 
     final class ViewModelHolder: ObservableObject {
         @Published var viewModel: GamesViewModel?
@@ -363,7 +364,7 @@ struct GamesView: View {
                     }
                 }
             }
-            .onAppear {
+            .task {
                 if viewModelHolder.viewModel == nil {
                     viewModelHolder.viewModel = GamesViewModel(modelContext: modelContext, athlete: athlete, allGames: allGames)
                     #if DEBUG
@@ -396,7 +397,12 @@ struct GamesView: View {
                 updateFilteredGames()
             }
             .onChange(of: searchText) { _, _ in
-                updateFilteredGames()
+                searchDebounceTask?.cancel()
+                searchDebounceTask = Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(250))
+                    guard !Task.isCancelled else { return }
+                    updateFilteredGames()
+                }
             }
             .onChange(of: selectedSeasonFilter) { _, _ in
                 updateFilteredGames()

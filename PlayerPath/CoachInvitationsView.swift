@@ -10,7 +10,7 @@ import SwiftUI
 
 struct CoachInvitationsView: View {
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
-    @StateObject private var viewModel = CoachInvitationsViewModel()
+    @State private var viewModel = CoachInvitationsViewModel()
     @State private var showingPaywall = false
     @State private var lastFetchDate: Date?
     @State private var selectedTab: InvitationTab = .received
@@ -173,7 +173,7 @@ struct CoachInvitationsView: View {
         guard let email = authManager.userEmail,
               let coachID = authManager.userID else { return }
         await viewModel.loadInvitations(forCoachEmail: email, coachID: coachID)
-        viewModel.updateAthleteLimit(authManager: authManager)
+        await viewModel.updateAthleteLimit(coachID: coachID, authManager: authManager)
     }
 }
 
@@ -255,7 +255,7 @@ struct InvitationRow: View {
                                 .fontWeight(.medium)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 8)
-                                .background(isAtLimit ? Color.gray : Color.green)
+                                .background(isAtLimit ? Color.gray : Color.brandNavy)
                                 .foregroundColor(.white)
                                 .cornerRadius(8)
                         }
@@ -298,7 +298,7 @@ struct AcceptedInvitationRow: View {
     var body: some View {
         HStack {
             Image(systemName: "checkmark.circle.fill")
-                .foregroundColor(.green)
+                .foregroundColor(.brandNavy)
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(invitation.athleteName)
@@ -312,7 +312,7 @@ struct AcceptedInvitationRow: View {
 
             Text("Accepted")
                 .font(.caption2)
-                .foregroundColor(.green)
+                .foregroundColor(.brandNavy)
         }
     }
 }
@@ -390,7 +390,7 @@ struct SentInvitationRow: View {
                         Text(folderName)
                             .font(.caption)
                     }
-                    .foregroundColor(.green)
+                    .foregroundColor(.brandNavy)
                 }
             }
 
@@ -424,7 +424,7 @@ struct SentInvitationRow: View {
                 .foregroundColor(.orange)
         case .accepted:
             Image(systemName: "checkmark.circle.fill")
-                .foregroundColor(.green)
+                .foregroundColor(.brandNavy)
         case .declined:
             Image(systemName: "xmark.circle.fill")
                 .foregroundColor(.gray)
@@ -452,8 +452,8 @@ struct SentInvitationRow: View {
                 .fontWeight(.medium)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 3)
-                .background(Color.green.opacity(0.15))
-                .foregroundColor(.green)
+                .background(Color.brandNavy.opacity(0.15))
+                .foregroundColor(.brandNavy)
                 .cornerRadius(6)
         case .declined:
             Text("Declined")

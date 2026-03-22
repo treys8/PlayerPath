@@ -172,9 +172,13 @@ struct PracticeDetailView: View {
         let practiceFirestoreId = practice.firestoreId
         var deletedNoteIds: [(String, String)] = [] // (noteFirestoreId, practiceFirestoreId)
 
+        // Snapshot the sorted array so indices match what ForEach rendered
+        let currentNotes = notes
+
         withAnimation {
             for index in offsets {
-                let note = notes[index]
+                guard index < currentNotes.count else { continue }
+                let note = currentNotes[index]
                 if let noteId = note.firestoreId, let pId = practiceFirestoreId {
                     deletedNoteIds.append((noteId, pId))
                 }

@@ -9,9 +9,16 @@
 import SwiftUI
 import SwiftData
 import AVFoundation
+import FirebaseAuth
+
+/// Context for coach session recording mode
+struct CoachSessionContext {
+    let sessionID: String
+    let session: CoachSession
+}
 
 /// Streamlined video recorder that opens camera immediately
-/// Used for Quick Record from Dashboard and live game recording
+/// Used for Quick Record from Dashboard, live game recording, and coach instruction sessions
 @MainActor
 struct DirectCameraRecorderView: View {
     @Environment(\.modelContext) private var modelContext
@@ -20,6 +27,9 @@ struct DirectCameraRecorderView: View {
     let athlete: Athlete?
     let game: Game?
     let practice: Practice?
+    let coachContext: CoachSessionContext?
+
+    private var isCoachMode: Bool { coachContext != nil }
 
     /// Phases of the Quick Record flow, rendered inline within a single fullScreenCover
     private enum RecordingPhase: Equatable {
@@ -35,6 +45,9 @@ struct DirectCameraRecorderView: View {
     @State private var showingDiscardConfirmation = false
     @State private var showingSaveError = false
 
+    // Coach mode state
+    @State private var lastSelectedAthleteID: String?
+
     // Cleanup task
     @State private var saveTask: Task<Void, Never>?
 
@@ -42,6 +55,14 @@ struct DirectCameraRecorderView: View {
         self.athlete = athlete
         self.game = game
         self.practice = practice
+        self.coachContext = nil
+    }
+
+    init(coachContext: CoachSessionContext) {
+        self.athlete = nil
+        self.game = nil
+        self.practice = nil
+        self.coachContext = coachContext
     }
 
     var body: some View {
@@ -127,13 +148,19 @@ struct DirectCameraRecorderView: View {
                 }
             )
 
-            // Live game context overlay on top of camera
-            if let game = game, game.isLive {
+            // Context badge overlay — below the top controls to avoid overlapping the timer
+            if isCoachMode {
                 VStack {
-                    liveGameBadge(for: game)
+                    liveSessionBadge
+                        .padding(.top, 70)
                     Spacer()
                 }
-                .padding(.top, 16)
+            } else if let game = game, game.isLive {
+                VStack {
+                    liveGameBadge(for: game)
+                        .padding(.top, 70)
+                    Spacer()
+                }
             }
         }
     }
@@ -161,6 +188,24 @@ struct DirectCameraRecorderView: View {
             Capsule()
                 .fill(.ultraThinMaterial)
         )
+        .allowsHitTesting(false)
+    }
+
+    // MARK: - Live Session Badge
+
+    private var liveSessionBadge: some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(Color.red)
+                .frame(width: 8, height: 8)
+            Text("LIVE SESSION")
+                .font(.caption)
+                .fontWeight(.bold)
+                .foregroundColor(.white)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .background(Capsule().fill(.ultraThinMaterial))
         .allowsHitTesting(false)
     }
 
@@ -193,14 +238,17 @@ struct DirectCameraRecorderView: View {
         }
     }
 
-    // MARK: - Play Result Phase
+    // MARK: - Tagging Phase
 
     @ViewBuilder
     private var playResultPhaseView: some View {
         if let videoURL = recordedVideoURL {
             let finalVideoURL = trimmedVideoURL ?? videoURL
 
-            if practice != nil {
+            if let ctx = coachContext {
+                // Coach mode: pick which athlete this clip belongs to
+                coachTaggingView(videoURL: finalVideoURL, context: ctx)
+            } else if practice != nil {
                 PracticeVideoSaveView(
                     videoURL: finalVideoURL,
                     athlete: athlete,
@@ -229,6 +277,31 @@ struct DirectCameraRecorderView: View {
                     }
                 )
             }
+        }
+    }
+
+    // MARK: - Coach Tagging
+
+    @ViewBuilder
+    private func coachTaggingView(videoURL: URL, context: CoachSessionContext) -> some View {
+        let athletes: [(id: String, name: String)] = context.session.athleteIDs.compactMap { id in
+            guard let name = context.session.athleteNames[id] else { return nil }
+            return (id: id, name: name)
+        }
+
+        ZStack {
+            Color.black.opacity(0.4).ignoresSafeArea()
+
+            SessionAthletePickerOverlay(
+                athletes: athletes,
+                lastSelectedID: lastSelectedAthleteID,
+                onSelect: { athleteID in
+                    saveCoachClip(videoURL: videoURL, athleteID: athleteID, context: context)
+                },
+                onCancel: {
+                    showingDiscardConfirmation = true
+                }
+            )
         }
     }
 
@@ -301,6 +374,34 @@ struct DirectCameraRecorderView: View {
                     context: "Saving Video"
                 )
             }
+        }
+    }
+
+    private func saveCoachClip(videoURL: URL, athleteID: String, context: CoachSessionContext) {
+        guard let folderID = context.session.folderIDs[athleteID],
+              let currentUser = Auth.auth().currentUser else { return }
+
+        let coachID = currentUser.uid
+        let coachName = currentUser.displayName ?? currentUser.email ?? "Coach"
+
+        // If trimmed, the upload manager handles the trimmed file — clean up the original
+        if trimmedVideoURL != nil, let original = recordedVideoURL {
+            VideoFileManager.cleanup(url: original)
+        }
+
+        lastSelectedAthleteID = athleteID
+        Haptics.success()
+        dismiss()
+
+        // Fire-and-forget upload in background (manager cleans up the uploaded file)
+        Task {
+            await CoachSessionManager.shared.uploadClip(
+                videoURL: videoURL,
+                folderID: folderID,
+                sessionID: context.sessionID,
+                coachID: coachID,
+                coachName: coachName
+            )
         }
     }
 

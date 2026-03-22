@@ -26,9 +26,9 @@ extension FirestoreManager {
 
         do {
             let docRef = try await db
-                .collection("users")
+                .collection(FC.users)
                 .document(userId)
-                .collection("athletes")
+                .collection(FC.athletes)
                 .addDocument(data: athleteData)
 
             return docRef.documentID
@@ -51,9 +51,9 @@ extension FirestoreManager {
 
         do {
             try await db
-                .collection("users")
+                .collection(FC.users)
                 .document(userId)
-                .collection("athletes")
+                .collection(FC.athletes)
                 .document(athleteId)
                 .setData(updateData, merge: true)
 
@@ -70,9 +70,9 @@ extension FirestoreManager {
 
         do {
             let snapshot = try await db
-                .collection("users")
+                .collection(FC.users)
                 .document(userId)
-                .collection("athletes")
+                .collection(FC.athletes)
                 .whereField("isDeleted", isEqualTo: false)
                 .order(by: "createdAt", descending: false)
                 .limit(to: 100)
@@ -104,9 +104,9 @@ extension FirestoreManager {
 
         do {
             try await db
-                .collection("users")
+                .collection(FC.users)
                 .document(userId)
-                .collection("athletes")
+                .collection(FC.athletes)
                 .document(athleteId)
                 .updateData([
                     "isDeleted": true,
@@ -135,9 +135,9 @@ extension FirestoreManager {
 
         do {
             let docRef = try await db
-                .collection("users")
+                .collection(FC.users)
                 .document(userId)
-                .collection("seasons")
+                .collection(FC.seasons)
                 .addDocument(data: seasonData)
 
             return docRef.documentID
@@ -160,9 +160,9 @@ extension FirestoreManager {
 
         do {
             try await db
-                .collection("users")
+                .collection(FC.users)
                 .document(userId)
-                .collection("seasons")
+                .collection(FC.seasons)
                 .document(seasonId)
                 .setData(updateData, merge: true)
 
@@ -179,9 +179,9 @@ extension FirestoreManager {
 
         do {
             let snapshot = try await db
-                .collection("users")
+                .collection(FC.users)
                 .document(userId)
-                .collection("seasons")
+                .collection(FC.seasons)
                 .whereField("isDeleted", isEqualTo: false)
                 .order(by: "createdAt", descending: true)
                 .limit(to: 100)
@@ -213,9 +213,9 @@ extension FirestoreManager {
 
         do {
             try await db
-                .collection("users")
+                .collection(FC.users)
                 .document(userId)
-                .collection("seasons")
+                .collection(FC.seasons)
                 .document(seasonId)
                 .updateData([
                     "isDeleted": true,
@@ -244,9 +244,9 @@ extension FirestoreManager {
 
         do {
             let docRef = try await db
-                .collection("users")
+                .collection(FC.users)
                 .document(userId)
-                .collection("games")
+                .collection(FC.games)
                 .addDocument(data: gameData)
 
             return docRef.documentID
@@ -269,9 +269,9 @@ extension FirestoreManager {
 
         do {
             try await db
-                .collection("users")
+                .collection(FC.users)
                 .document(userId)
-                .collection("games")
+                .collection(FC.games)
                 .document(gameId)
                 .setData(updateData, merge: true)
 
@@ -288,9 +288,9 @@ extension FirestoreManager {
 
         do {
             let snapshot = try await db
-                .collection("users")
+                .collection(FC.users)
                 .document(userId)
-                .collection("games")
+                .collection(FC.games)
                 .whereField("isDeleted", isEqualTo: false)
                 .order(by: "date", descending: true)
                 .limit(to: 200)
@@ -322,9 +322,9 @@ extension FirestoreManager {
 
         do {
             try await db
-                .collection("users")
+                .collection(FC.users)
                 .document(userId)
-                .collection("games")
+                .collection(FC.games)
                 .document(gameId)
                 .updateData([
                     "isDeleted": true,
@@ -344,7 +344,7 @@ extension FirestoreManager {
 
         do {
             try await db
-                .collection("videos")
+                .collection(FC.videos)
                 .document(videoClipId)
                 .updateData([
                     "isDeleted": true,
@@ -373,9 +373,9 @@ extension FirestoreManager {
 
         do {
             let docRef = try await db
-                .collection("users")
+                .collection(FC.users)
                 .document(userId)
-                .collection("practices")
+                .collection(FC.practices)
                 .addDocument(data: practiceData)
 
             return docRef.documentID
@@ -398,9 +398,9 @@ extension FirestoreManager {
 
         do {
             try await db
-                .collection("users")
+                .collection(FC.users)
                 .document(userId)
-                .collection("practices")
+                .collection(FC.practices)
                 .document(practiceId)
                 .setData(updateData, merge: true)
 
@@ -417,9 +417,9 @@ extension FirestoreManager {
 
         do {
             let snapshot = try await db
-                .collection("users")
+                .collection(FC.users)
                 .document(userId)
-                .collection("practices")
+                .collection(FC.practices)
                 .whereField("isDeleted", isEqualTo: false)
                 .order(by: "date", descending: true)
                 .limit(to: 200)
@@ -451,9 +451,9 @@ extension FirestoreManager {
 
         do {
             try await db
-                .collection("users")
+                .collection(FC.users)
                 .document(userId)
-                .collection("practices")
+                .collection(FC.practices)
                 .document(practiceId)
                 .updateData([
                     "isDeleted": true,
@@ -471,9 +471,9 @@ extension FirestoreManager {
 
     func deletePracticeNote(userId: String, practiceFirestoreId: String, noteId: String) async throws {
         try await db
-            .collection("users").document(userId)
-            .collection("practices").document(practiceFirestoreId)
-            .collection("notes").document(noteId)
+            .collection(FC.users).document(userId)
+            .collection(FC.practices).document(practiceFirestoreId)
+            .collection(FC.notes).document(noteId)
             .updateData([
                 "isDeleted": true,
                 "deletedAt": FieldValue.serverTimestamp(),
@@ -486,9 +486,9 @@ extension FirestoreManager {
         noteData["createdAt"] = FieldValue.serverTimestamp()
         noteData["updatedAt"] = FieldValue.serverTimestamp()
         let docRef = try await db
-            .collection("users").document(userId)
-            .collection("practices").document(practiceFirestoreId)
-            .collection("notes")
+            .collection(FC.users).document(userId)
+            .collection(FC.practices).document(practiceFirestoreId)
+            .collection(FC.notes)
             .addDocument(data: noteData)
         return docRef.documentID
     }
@@ -498,17 +498,17 @@ extension FirestoreManager {
         var updateData = data.filter { allowedFields.contains($0.key) }
         updateData["updatedAt"] = FieldValue.serverTimestamp()
         try await db
-            .collection("users").document(userId)
-            .collection("practices").document(practiceFirestoreId)
-            .collection("notes").document(noteId)
+            .collection(FC.users).document(userId)
+            .collection(FC.practices).document(practiceFirestoreId)
+            .collection(FC.notes).document(noteId)
             .setData(updateData, merge: true)
     }
 
     func fetchPracticeNotes(userId: String, practiceFirestoreId: String) async throws -> [FirestorePracticeNote] {
         let snapshot = try await db
-            .collection("users").document(userId)
-            .collection("practices").document(practiceFirestoreId)
-            .collection("notes")
+            .collection(FC.users).document(userId)
+            .collection(FC.practices).document(practiceFirestoreId)
+            .collection(FC.notes)
             .whereField("isDeleted", isEqualTo: false)
             .limit(to: 100)
             .getDocuments()
@@ -527,7 +527,7 @@ extension FirestoreManager {
     // MARK: - Photos Sync
 
     func deletePhoto(photoId: String) async throws {
-        try await db.collection("photos").document(photoId)
+        try await db.collection(FC.photos).document(photoId)
             .updateData([
                 "isDeleted": true,
                 "deletedAt": FieldValue.serverTimestamp(),
@@ -539,13 +539,13 @@ extension FirestoreManager {
         var photoData = data
         photoData["createdAt"] = FieldValue.serverTimestamp()
         photoData["updatedAt"] = FieldValue.serverTimestamp()
-        let docRef = try await db.collection("photos").addDocument(data: photoData)
+        let docRef = try await db.collection(FC.photos).addDocument(data: photoData)
         return docRef.documentID
     }
 
     func fetchPhotos(uploadedBy ownerUID: String, athleteId: String) async throws -> [FirestorePhoto] {
         let snapshot = try await db
-            .collection("photos")
+            .collection(FC.photos)
             .whereField("uploadedBy", isEqualTo: ownerUID)
             .whereField("athleteId", isEqualTo: athleteId)
             .whereField("isDeleted", isEqualTo: false)
@@ -570,9 +570,9 @@ extension FirestoreManager {
         coachData["createdAt"] = FieldValue.serverTimestamp()
         coachData["updatedAt"] = FieldValue.serverTimestamp()
         let docRef = try await db
-            .collection("users").document(userId)
-            .collection("athletes").document(athleteFirestoreId)
-            .collection("coaches")
+            .collection(FC.users).document(userId)
+            .collection(FC.athletes).document(athleteFirestoreId)
+            .collection(FC.coaches)
             .addDocument(data: coachData)
         return docRef.documentID
     }
@@ -582,17 +582,17 @@ extension FirestoreManager {
         var updateData = data.filter { allowedFields.contains($0.key) }
         updateData["updatedAt"] = FieldValue.serverTimestamp()
         try await db
-            .collection("users").document(userId)
-            .collection("athletes").document(athleteFirestoreId)
-            .collection("coaches").document(coachId)
+            .collection(FC.users).document(userId)
+            .collection(FC.athletes).document(athleteFirestoreId)
+            .collection(FC.coaches).document(coachId)
             .setData(updateData, merge: true)
     }
 
     func deleteCoach(userId: String, athleteFirestoreId: String, coachId: String) async throws {
         try await db
-            .collection("users").document(userId)
-            .collection("athletes").document(athleteFirestoreId)
-            .collection("coaches").document(coachId)
+            .collection(FC.users).document(userId)
+            .collection(FC.athletes).document(athleteFirestoreId)
+            .collection(FC.coaches).document(coachId)
             .updateData([
                 "isDeleted": true,
                 "deletedAt": FieldValue.serverTimestamp(),
@@ -602,9 +602,9 @@ extension FirestoreManager {
 
     func fetchCoaches(userId: String, athleteFirestoreId: String) async throws -> [FirestoreCoach] {
         let snapshot = try await db
-            .collection("users").document(userId)
-            .collection("athletes").document(athleteFirestoreId)
-            .collection("coaches")
+            .collection(FC.users).document(userId)
+            .collection(FC.athletes).document(athleteFirestoreId)
+            .collection(FC.coaches)
             .whereField("isDeleted", isEqualTo: false)
             .limit(to: 50)
             .getDocuments()

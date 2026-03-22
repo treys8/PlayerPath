@@ -7,6 +7,7 @@
 
 import Foundation
 import FirebaseFirestore
+import FirebaseAuth
 import FirebaseStorage
 import os
 
@@ -41,7 +42,8 @@ extension FirestoreManager {
         gameContext: GameContext? = nil,
         practiceContext: PracticeContext? = nil,
         uploadedByType: UploadedByType? = nil,
-        visibility: String = "shared"
+        visibility: String = "shared",
+        sessionID: String? = nil
     ) async throws -> String {
         var videoData: [String: Any] = [
             "fileName": fileName,
@@ -51,14 +53,19 @@ extension FirestoreManager {
             "sharedFolderID": folderID,
             "createdAt": FieldValue.serverTimestamp(),
             "fileSize": fileSize,
-            "duration": duration as Any,
             "videoType": videoType,
             "isHighlight": videoType == "highlight"
         ]
+        if let duration {
+            videoData["duration"] = duration
+        }
         if let uploadedByType {
             videoData["uploadedByType"] = uploadedByType.rawValue
         }
         videoData["visibility"] = visibility
+        if let sessionID {
+            videoData["sessionID"] = sessionID
+        }
 
         // Add structured thumbnail data
         if let thumbnail = thumbnail {
@@ -101,7 +108,7 @@ extension FirestoreManager {
         }
 
         do {
-            let videoRef = db.collection("videos").document()
+            let videoRef = db.collection(FC.videos).document()
 
             if visibility == "private" {
                 // Private video: create doc only, don't touch folder count
@@ -113,7 +120,7 @@ extension FirestoreManager {
                 batch.updateData([
                     "videoCount": FieldValue.increment(Int64(1)),
                     "updatedAt": FieldValue.serverTimestamp()
-                ], forDocument: db.collection("sharedFolders").document(folderID))
+                ], forDocument: db.collection(FC.sharedFolders).document(folderID))
                 try await batch.commit()
             }
 
@@ -152,7 +159,7 @@ extension FirestoreManager {
     /// Fetches all videos in a shared folder
     func fetchVideos(forFolder folderID: String) async throws -> [FirestoreVideoMetadata] {
         do {
-            let snapshot = try await db.collection("videos")
+            let snapshot = try await db.collection(FC.videos)
                 .whereField("sharedFolderID", isEqualTo: folderID)
                 .order(by: "createdAt", descending: true)
                 .limit(to: 100)
@@ -179,7 +186,7 @@ extension FirestoreManager {
     /// Fetches a single video's metadata by document ID (point-read — 1 read regardless of folder size)
     func fetchVideo(videoID: String) async throws -> FirestoreVideoMetadata? {
         do {
-            let doc = try await db.collection("videos").document(videoID).getDocument()
+            let doc = try await db.collection(FC.videos).document(videoID).getDocument()
             guard doc.exists else { return nil }
             do {
                 var video = try doc.data(as: FirestoreVideoMetadata.self)
@@ -198,9 +205,9 @@ extension FirestoreManager {
     func deleteVideo(videoID: String, folderID: String) async throws {
         do {
             // Delete all annotations first (paginated — delete until none remain)
-            let annotationsQuery = db.collection("videos")
+            let annotationsQuery = db.collection(FC.videos)
                 .document(videoID)
-                .collection("annotations")
+                .collection(FC.annotations)
             while true {
                 let annotationsSnapshot = try await annotationsQuery.limit(to: 400).getDocuments()
                 guard !annotationsSnapshot.documents.isEmpty else { break }
@@ -211,11 +218,11 @@ extension FirestoreManager {
 
             // Batch: delete video metadata + decrement folder count atomically
             let batch = db.batch()
-            batch.deleteDocument(db.collection("videos").document(videoID))
+            batch.deleteDocument(db.collection(FC.videos).document(videoID))
             batch.updateData([
                 "videoCount": FieldValue.increment(Int64(-1)),
                 "updatedAt": FieldValue.serverTimestamp()
-            ], forDocument: db.collection("sharedFolders").document(folderID))
+            ], forDocument: db.collection(FC.sharedFolders).document(folderID))
             try await batch.commit()
 
         } catch {
@@ -336,12 +343,12 @@ extension FirestoreManager {
         do {
             // Batch: create video doc + increment folder count atomically
             let batch = db.batch()
-            let videoRef = db.collection("videos").document()
+            let videoRef = db.collection(FC.videos).document()
             batch.setData(safeMetadata, forDocument: videoRef)
             batch.updateData([
                 "videoCount": FieldValue.increment(Int64(1)),
                 "updatedAt": FieldValue.serverTimestamp()
-            ], forDocument: db.collection("sharedFolders").document(folderID))
+            ], forDocument: db.collection(FC.sharedFolders).document(folderID))
             try await batch.commit()
 
             return videoRef.documentID
@@ -351,11 +358,34 @@ extension FirestoreManager {
         }
     }
 
+    // MARK: - Session Videos
+
+    /// Fetches all videos for a given session, ordered by creation time.
+    /// Includes `uploadedBy` filter so the query satisfies Firestore security rules
+    /// (which require `uploadedBy == auth.uid` for video reads).
+    func fetchVideosBySession(sessionID: String) async throws -> [FirestoreVideoMetadata] {
+        guard let uid = Auth.auth().currentUser?.uid else {
+            throw NSError(domain: "PlayerPath", code: 401, userInfo: [NSLocalizedDescriptionKey: "Not authenticated"])
+        }
+        let snapshot = try await db.collection(FC.videos)
+            .whereField("sessionID", isEqualTo: sessionID)
+            .whereField("uploadedBy", isEqualTo: uid)
+            .order(by: "createdAt", descending: false)
+            .limit(to: 200)
+            .getDocuments()
+
+        return snapshot.documents.compactMap { doc in
+            var video = try? doc.data(as: FirestoreVideoMetadata.self)
+            video?.id = doc.documentID
+            return video
+        }
+    }
+
     // MARK: - Coach Private Videos
 
     /// Fetches private coach videos, optionally filtered by shared folder.
     func fetchCoachPrivateVideos(coachID: String, sharedFolderID: String? = nil) async throws -> [FirestoreVideoMetadata] {
-        var query = db.collection("videos")
+        var query = db.collection(FC.videos)
             .whereField("uploadedBy", isEqualTo: coachID)
             .whereField("visibility", isEqualTo: "private")
 
@@ -393,11 +423,11 @@ extension FirestoreManager {
         if let tags, !tags.isEmpty { updateData["tags"] = tags }
         if let drillType { updateData["drillType"] = drillType }
 
-        batch.updateData(updateData, forDocument: db.collection("videos").document(videoID))
+        batch.updateData(updateData, forDocument: db.collection(FC.videos).document(videoID))
         batch.updateData([
             "videoCount": FieldValue.increment(Int64(1)),
             "updatedAt": FieldValue.serverTimestamp()
-        ], forDocument: db.collection("sharedFolders").document(sharedFolderID))
+        ], forDocument: db.collection(FC.sharedFolders).document(sharedFolderID))
 
         try await batch.commit()
     }
@@ -421,7 +451,7 @@ extension FirestoreManager {
         }
 
         // Delete Firestore doc (no folder count decrement — private videos aren't counted)
-        try await db.collection("videos").document(videoID).delete()
+        try await db.collection(FC.videos).document(videoID).delete()
     }
 
     // MARK: - Video Tags
@@ -437,6 +467,6 @@ extension FirestoreManager {
             data["drillType"] = FieldValue.delete()
         }
 
-        try await db.collection("videos").document(videoID).updateData(data)
+        try await db.collection(FC.videos).document(videoID).updateData(data)
     }
 }

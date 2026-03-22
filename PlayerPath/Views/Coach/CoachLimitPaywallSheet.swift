@@ -24,7 +24,7 @@ struct CoachLimitPaywallSheet: View {
                 // Icon
                 Image(systemName: "person.3.fill")
                     .font(.system(size: 60))
-                    .foregroundColor(.green)
+                    .foregroundColor(.brandNavy)
 
                 // Title
                 Text("Athlete Limit Reached")
@@ -77,7 +77,7 @@ struct CoachLimitPaywallSheet: View {
                         .font(.headline)
                         .frame(maxWidth: .infinity)
                         .frame(height: 50)
-                        .background(Color.green)
+                        .background(Color.brandNavy)
                         .foregroundColor(.white)
                         .cornerRadius(12)
                 }
@@ -125,8 +125,8 @@ private struct PlanOptionRow: View {
                     .fontWeight(.bold)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
-                    .background(Color.green.opacity(0.15))
-                    .foregroundColor(.green)
+                    .background(Color.brandNavy.opacity(0.15))
+                    .foregroundColor(.brandNavy)
                     .cornerRadius(6)
             }
         }

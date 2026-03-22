@@ -13,7 +13,7 @@ struct ShareToCoachFolderView: View {
 
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
-    @ObservedObject private var folderManager = SharedFolderManager.shared
+    private var folderManager: SharedFolderManager { .shared }
 
     @State private var selectedFolder: SharedFolder?
     @State private var notes: String = ""
@@ -75,22 +75,64 @@ struct ShareToCoachFolderView: View {
     // MARK: - Sub-views
 
     private var unauthorizedState: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: 24) {
             Spacer()
-            Image(systemName: "lock.shield")
+
+            Image(systemName: "person.2.badge.gearshape")
                 .font(.system(size: 56))
-                .foregroundColor(.secondary)
-            Text("Pro Required")
+                .foregroundColor(.brandNavy)
+
+            Text("Share Videos with Your Coach")
                 .font(.title2)
-                .fontWeight(.semibold)
-            Text("Coach sharing is a Pro feature. Upgrade to Pro to share videos with your coaches.")
+                .fontWeight(.bold)
+
+            Text("Get personalized feedback on your game and practice clips.")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 32)
-            Button("Dismiss") { dismiss() }
-                .padding(.top, 8)
+
+            VStack(alignment: .leading, spacing: 12) {
+                featureRow(icon: "message.badge.circle", text: "Timestamped coach feedback on every clip")
+                featureRow(icon: "list.clipboard", text: "Drill cards for structured skill reviews")
+                featureRow(icon: "folder.badge.person.crop", text: "Organized shared folders per coach")
+            }
+            .padding(.horizontal, 32)
+
             Spacer()
+
+            Button {
+                dismiss()
+                NotificationCenter.default.post(name: .showSubscriptionPaywall, object: nil)
+            } label: {
+                Text("View Plans")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 50)
+                    .background(Color.brandNavy)
+                    .foregroundColor(.white)
+                    .cornerRadius(12)
+            }
+            .padding(.horizontal, 24)
+
+            Button("Restore Purchases") {
+                Task { await StoreKitManager.shared.restorePurchases() }
+            }
+            .font(.caption)
+            .foregroundColor(.secondary)
+            .padding(.bottom, 16)
+        }
+    }
+
+    private func featureRow(icon: String, text: String) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.body)
+                .foregroundColor(.brandNavy)
+                .frame(width: 24)
+            Text(text)
+                .font(.subheadline)
+                .foregroundColor(.primary)
         }
     }
 

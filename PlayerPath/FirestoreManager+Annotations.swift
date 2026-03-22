@@ -36,14 +36,14 @@ extension FirestoreManager {
         if let templateID { annotationData["templateID"] = templateID }
 
         do {
-            let docRef = try await db.collection("videos")
+            let docRef = try await db.collection(FC.videos)
                 .document(videoID)
-                .collection("annotations")
+                .collection(FC.annotations)
                 .addDocument(data: annotationData)
 
             // Increment annotationCount on the video document
             do {
-                try await db.collection("videos").document(videoID)
+                try await db.collection(FC.videos).document(videoID)
                     .updateData(["annotationCount": FieldValue.increment(Int64(1))])
             } catch {
                 firestoreLog.warning("Failed to increment annotationCount for video \(videoID): \(error.localizedDescription)")
@@ -59,9 +59,9 @@ extension FirestoreManager {
     /// Fetches all annotations for a video
     func fetchAnnotations(forVideo videoID: String) async throws -> [VideoAnnotation] {
         do {
-            let snapshot = try await db.collection("videos")
+            let snapshot = try await db.collection(FC.videos)
                 .document(videoID)
-                .collection("annotations")
+                .collection(FC.annotations)
                 .order(by: "timestamp")
                 .limit(to: 200)
                 .getDocuments()
@@ -88,9 +88,9 @@ extension FirestoreManager {
         videoID: String,
         completion: @escaping ([VideoAnnotation]) -> Void
     ) -> ListenerRegistration {
-        return db.collection("videos")
+        return db.collection(FC.videos)
             .document(videoID)
-            .collection("annotations")
+            .collection(FC.annotations)
             .order(by: "timestamp")
             .limit(to: 200)
             .addSnapshotListener { snapshot, error in
@@ -116,14 +116,14 @@ extension FirestoreManager {
     /// Deletes an annotation (user can only delete their own)
     func deleteAnnotation(videoID: String, annotationID: String) async throws {
         do {
-            try await db.collection("videos")
+            try await db.collection(FC.videos)
                 .document(videoID)
-                .collection("annotations")
+                .collection(FC.annotations)
                 .document(annotationID)
                 .delete()
 
             // Decrement annotationCount, floored at 0 via transaction
-            let videoRef = db.collection("videos").document(videoID)
+            let videoRef = db.collection(FC.videos).document(videoID)
             do {
                 _ = try await db.runTransaction { transaction, errorPointer in
                     do {

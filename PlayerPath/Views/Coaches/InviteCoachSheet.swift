@@ -26,8 +26,7 @@ struct InviteCoachSheet: View {
     @FocusState private var focusedField: Field?
 
     private var isValidEmail: Bool {
-        let emailRegex = #"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$"#
-        return coachEmail.range(of: emailRegex, options: .regularExpression) != nil
+        coachEmail.isValidEmail
     }
 
     private var canSend: Bool {
@@ -42,12 +41,12 @@ struct InviteCoachSheet: View {
                     VStack(spacing: 12) {
                         ZStack {
                             Circle()
-                                .fill(Color.indigo.opacity(0.1))
+                                .fill(Color.brandNavy.opacity(0.1))
                                 .frame(width: 80, height: 80)
 
                             Image(systemName: "person.badge.plus")
                                 .font(.system(size: 36))
-                                .foregroundColor(.indigo)
+                                .foregroundColor(.brandNavy)
                         }
 
                         Text("Invite a Coach")
@@ -90,7 +89,7 @@ struct InviteCoachSheet: View {
                                 .textFieldStyle(.roundedBorder)
                                 .textContentType(.emailAddress)
                                 .keyboardType(.emailAddress)
-                                .autocapitalization(.none)
+                                .textInputAutocapitalization(.never)
                                 .autocorrectionDisabled()
                                 .focused($focusedField, equals: .email)
                                 .submitLabel(.done)
@@ -140,14 +139,14 @@ struct InviteCoachSheet: View {
                     // Info box
                     HStack(alignment: .top, spacing: 12) {
                         Image(systemName: "info.circle.fill")
-                            .foregroundColor(.indigo)
+                            .foregroundColor(.brandNavy)
 
                         Text("Your coach will receive an email invitation. Once they accept, they'll be able to view your shared videos and send you practice content.")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
                     .padding()
-                    .background(Color.indigo.opacity(0.1))
+                    .background(Color.brandNavy.opacity(0.1))
                     .cornerRadius(12)
                     .padding(.horizontal)
 
@@ -182,7 +181,7 @@ struct InviteCoachSheet: View {
                         }
                         .frame(maxWidth: .infinity)
                         .frame(height: 54)
-                        .background(canSend ? Color.indigo : Color.gray)
+                        .background(canSend ? Color.brandNavy : Color.gray)
                         .foregroundColor(.white)
                         .cornerRadius(14)
                     }
@@ -237,31 +236,37 @@ struct InviteCoachSheet: View {
                     ])
                 }
 
-                // Create a shared folder for the coach
                 let folderName = "\(athlete.name)'s Videos"
+
+                // Create folder first, then invitation. If invitation fails, clean up folder.
+                // If folder creation fails entirely, we throw before creating an invitation.
+                guard authManager.hasCoachingAccess else {
+                    throw SharedFolderError.coachingRequired
+                }
+
                 let folderID = try await SharedFolderManager.shared.createFolder(
                     name: folderName,
                     forAthlete: userID,
                     athleteName: athlete.name,
-                    hasCoachingAccess: authManager.hasCoachingAccess
+                    hasCoachingAccess: true
                 )
 
-                // Create invitation for the coach; clean up folder on failure
+                // Create invitation — clean up folder on failure
                 do {
-                    _ = try await FirestoreManager.shared.createInvitation(
-                        athleteID: userID,
-                        athleteName: athlete.name,
+                    try await SharedFolderManager.shared.inviteCoachToFolder(
                         coachEmail: coachEmail.lowercased(),
                         folderID: folderID,
+                        athleteID: userID,
+                        athleteName: athlete.name,
                         folderName: folderName,
                         permissions: selectedPermissions
                     )
                 } catch {
-                    // Clean up orphaned folder — log failure so it can be investigated
+                    // Best-effort folder cleanup — if this also fails, log it
                     do {
                         try await SharedFolderManager.shared.deleteFolder(folderID: folderID, athleteID: userID)
-                    } catch {
-                        ErrorHandlerService.shared.handle(error, context: "Cleaning up orphaned folder \(folderID) after invitation failure", showAlert: false)
+                    } catch let cleanupError {
+                        ErrorHandlerService.shared.handle(cleanupError, context: "Cleaning up orphaned folder \(folderID)", showAlert: false)
                     }
                     throw error
                 }
@@ -276,7 +281,7 @@ struct InviteCoachSheet: View {
                 coach.invitationSentAt = Date()
                 coach.lastInvitationStatus = "pending"
                 modelContext.insert(coach)
-                try modelContext.save()
+                ErrorHandlerService.shared.saveContext(modelContext, caller: "InviteCoachSheet.sendInvitation")
 
                 isSending = false
                 Haptics.success()
@@ -301,7 +306,7 @@ private struct PermissionToggle: View {
     var body: some View {
         HStack {
             Image(systemName: icon)
-                .foregroundColor(isOn ? .indigo : .gray)
+                .foregroundColor(isOn ? .brandNavy : .gray)
                 .frame(width: 24)
 
             Text(title)

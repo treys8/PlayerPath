@@ -11,6 +11,7 @@ import SwiftUI
 struct VideoTagEditor: View {
     @Binding var selectedTags: [String]
     @Binding var drillType: String?
+    var onSave: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
     @State private var customTag = ""
 
@@ -30,7 +31,7 @@ struct VideoTagEditor: View {
                                 Spacer()
                                 if drillType == drill.rawValue {
                                     Image(systemName: "checkmark")
-                                        .foregroundColor(.green)
+                                        .foregroundColor(.brandNavy)
                                 }
                             }
                         }
@@ -65,7 +66,7 @@ struct VideoTagEditor: View {
                                 addCustomTag()
                             } label: {
                                 Image(systemName: "plus.circle.fill")
-                                    .foregroundColor(.green)
+                                    .foregroundColor(.brandNavy)
                             }
                         }
                     }
@@ -92,8 +93,14 @@ struct VideoTagEditor: View {
             .navigationTitle("Tags")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
+                    Button("Done") {
+                        onSave?()
+                        dismiss()
+                    }
                 }
             }
         }
@@ -131,12 +138,12 @@ struct TagChip: View {
                 .fontWeight(.medium)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
-                .background(isSelected ? Color.green.opacity(0.2) : Color(.systemGray5))
-                .foregroundColor(isSelected ? .green : .primary)
+                .background(isSelected ? Color.brandNavy.opacity(0.2) : Color(.systemGray5))
+                .foregroundColor(isSelected ? .brandNavy : .primary)
                 .cornerRadius(16)
                 .overlay(
                     RoundedRectangle(cornerRadius: 16)
-                        .stroke(isSelected ? Color.green : Color.clear, lineWidth: 1)
+                        .stroke(isSelected ? Color.brandNavy : Color.clear, lineWidth: 1)
                 )
         }
         .buttonStyle(.plain)

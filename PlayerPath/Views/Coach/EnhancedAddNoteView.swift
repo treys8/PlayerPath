@@ -75,8 +75,8 @@ struct EnhancedAddNoteView: View {
                                         .font(.caption)
                                         .padding(.horizontal, 10)
                                         .padding(.vertical, 6)
-                                        .background(noteText == cue.text ? Color.green.opacity(0.2) : Color(.systemGray5))
-                                        .foregroundColor(noteText == cue.text ? .green : .primary)
+                                        .background(noteText == cue.text ? Color.brandNavy.opacity(0.2) : Color(.systemGray5))
+                                        .foregroundColor(noteText == cue.text ? .brandNavy : .primary)
                                         .cornerRadius(16)
                                 }
                                 .buttonStyle(.plain)

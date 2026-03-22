@@ -12,25 +12,33 @@ import SwiftUI
 /// Dashboard tab content for coaches — quick actions and recent athletes
 struct CoachDashboardView: View {
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
-    @EnvironmentObject private var sharedFolderManager: SharedFolderManager
+    private var sharedFolderManager: SharedFolderManager { .shared }
     @Environment(CoachNavigationCoordinator.self) private var coordinator
-    @ObservedObject private var invitationManager = CoachInvitationManager.shared
+    private var invitationManager: CoachInvitationManager { .shared }
     @ObservedObject private var activityNotifService = ActivityNotificationService.shared
-    @State private var showingQuickRecord = false
+    private var sessionManager: CoachSessionManager { .shared }
+    @State private var showingStartSession = false
     @State private var showingInviteAthlete = false
-    @ObservedObject private var archiveManager = CoachFolderArchiveManager.shared
+    @State private var showingCamera = false
+    @State private var isEndingSession = false
+    @State private var isCompletingSession = false
+    private var archiveManager: CoachFolderArchiveManager { .shared }
 
-    /// Recent folders sorted by updatedAt, excluding archived
-    private var recentFolders: [SharedFolder] {
-        sharedFolderManager.coachFolders
-            .filter { !archiveManager.isArchived($0.id ?? "") }
-            .sorted { ($0.updatedAt ?? .distantPast) > ($1.updatedAt ?? .distantPast) }
-    }
+    @State private var cachedRecentFolders: [SharedFolder] = []
+    @State private var cachedThisWeekSessionCount = 0
+    @State private var cachedThisWeekClipCount = 0
+    @State private var cachedThisWeekAthleteCount = 0
 
     var body: some View {
         ZStack(alignment: .top) {
+            if sharedFolderManager.isLoading && sharedFolderManager.coachFolders.isEmpty {
+                DashboardSkeletonView()
+            } else {
             ScrollView {
                 VStack(spacing: 20) {
+                    // Live session card (top priority)
+                    liveSessionSection
+
                     // Over-limit banner
                     if SubscriptionGate.isCoachOverLimit(authManager: authManager) {
                         CoachOverLimitBanner(
@@ -43,9 +51,12 @@ struct CoachDashboardView: View {
                     quickActionsSection
 
                     // Recent Athletes
-                    if !recentFolders.isEmpty {
+                    if !cachedRecentFolders.isEmpty {
                         recentAthletesSection
                     }
+
+                    // This week activity
+                    thisWeekSection
 
                     // Summary stats
                     if !sharedFolderManager.coachFolders.isEmpty {
@@ -57,6 +68,8 @@ struct CoachDashboardView: View {
             .refreshable {
                 await reloadData()
             }
+
+            } // end else (loading check)
 
             // In-app notification banner
             if let banner = activityNotifService.incomingBanner {
@@ -71,58 +84,161 @@ struct CoachDashboardView: View {
                 .zIndex(100)
             }
         }
-        .navigationTitle("Dashboard")
+        .navigationTitle(authManager.userDisplayName ?? "Dashboard")
         .sheet(isPresented: $showingInviteAthlete) {
             InviteAthleteSheet()
         }
-        .fullScreenCover(isPresented: $showingQuickRecord) {
-            CoachQuickRecordFlow()
+        .sheet(isPresented: $showingStartSession) {
+            StartSessionSheet { _ in
+                // Session created — LiveSessionCard will appear on dashboard
+            }
+        }
+        .fullScreenCover(isPresented: $showingCamera) {
+            if let session = sessionManager.activeSession {
+                DirectCameraRecorderView(
+                    coachContext: CoachSessionContext(sessionID: session.id ?? "", session: session)
+                )
+            }
+        }
+        .onChange(of: showingCamera) { _, showing in
+            if !showing {
+                Task {
+                    guard let coachID = authManager.userID else { return }
+                    await sessionManager.fetchSessions(coachID: coachID)
+                }
+            }
+        }
+        .onChange(of: sessionManager.activeSession) { _, newValue in
+            // Dismiss camera if session was ended/completed externally
+            if newValue == nil && showingCamera {
+                showingCamera = false
+            }
+        }
+        .task {
+            updateCachedValues()
+            guard let coachID = authManager.userID else { return }
+            if sessionManager.sessions.isEmpty {
+                await sessionManager.fetchSessions(coachID: coachID)
+            }
         }
         .onAppear {
             AnalyticsService.shared.trackScreenView(screenName: "Coach Dashboard", screenClass: "CoachDashboardView")
+        }
+        .onChange(of: sharedFolderManager.coachFolders) { _, _ in updateCachedValues() }
+        .onChange(of: archiveManager.archivedFolderIDs) { _, _ in updateCachedValues() }
+        .onChange(of: sessionManager.sessions) { _, _ in updateCachedValues() }
+    }
+
+    // MARK: - Live Session
+
+    @State private var headerPulse = false
+
+    @ViewBuilder
+    private var liveSessionSection: some View {
+        if let session = sessionManager.activeSession {
+            let isLive = session.status == .live
+            let headerColor: Color = isLive ? .red : .orange
+
+            VStack(spacing: 12) {
+                HStack {
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(headerColor)
+                            .frame(width: 8, height: 8)
+                            .opacity(headerPulse ? 0.4 : 1.0)
+                            .shadow(color: headerColor.opacity(0.8), radius: headerPulse ? 4 : 2)
+                            .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: headerPulse)
+                            .onAppear { headerPulse = true }
+
+                        Text(isLive ? "Live Now" : "In Review")
+                            .font(.title3)
+                            .fontWeight(.bold)
+                            .foregroundStyle(
+                                LinearGradient(
+                                    colors: [headerColor, headerColor.opacity(0.8)],
+                                    startPoint: .leading, endPoint: .trailing
+                                )
+                            )
+                    }
+                    Spacer()
+                }
+
+                LiveSessionCard(
+                    session: session,
+                    isEnding: isEndingSession,
+                    onEnd: { endActiveSession(session) }
+                )
+                .contentShape(Rectangle())
+                .onTapGesture { resumeSession(session) }
+
+                if session.status == .reviewing {
+                    HStack(spacing: 12) {
+                        Button {
+                            resumeSession(session)
+                        } label: {
+                            Label("Review Clips", systemImage: "eye")
+                                .font(.subheadline)
+                                .fontWeight(.semibold)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 10)
+                                .background(Color.brandNavy)
+                                .foregroundColor(.white)
+                                .cornerRadius(10)
+                        }
+
+                        Button {
+                            completeActiveSession(session)
+                        } label: {
+                            Label("Complete", systemImage: "checkmark")
+                                .font(.subheadline)
+                                .fontWeight(.semibold)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 10)
+                                .background(Color(.secondarySystemBackground))
+                                .foregroundColor(.primary)
+                                .cornerRadius(10)
+                        }
+                        .disabled(isCompletingSession)
+                    }
+                }
+            }
         }
     }
 
     // MARK: - Quick Actions
 
     private var quickActionsSection: some View {
-        HStack(spacing: 12) {
-            // Record Practice button
-            Button {
-                Haptics.medium()
-                showingQuickRecord = true
-            } label: {
-                VStack(spacing: 8) {
-                    Image(systemName: "video.fill.badge.plus")
-                        .font(.title2)
-                    Text("Record Instruction")
-                        .font(.caption)
-                        .fontWeight(.semibold)
-                }
-                .frame(maxWidth: .infinity)
-                .frame(height: 80)
-                .background(Color.green)
-                .foregroundColor(.white)
-                .cornerRadius(14)
-            }
+        VStack(spacing: 16) {
+            DashboardSectionHeader(title: "Quick Actions", icon: "bolt.fill", color: .brandNavy)
 
-            // Invite Athlete button
-            Button {
-                Haptics.light()
-                showingInviteAthlete = true
-            } label: {
-                VStack(spacing: 8) {
-                    Image(systemName: "person.badge.plus")
-                        .font(.title2)
-                    Text("Invite Athlete")
-                        .font(.caption)
-                        .fontWeight(.semibold)
+            HStack(spacing: 12) {
+                if sessionManager.activeSession != nil {
+                    QuickActionButton(
+                        icon: "play.circle.fill",
+                        title: "Resume Session",
+                        color: .red
+                    ) {
+                        if let session = sessionManager.activeSession {
+                            resumeSession(session)
+                        }
+                    }
+                } else {
+                    QuickActionButton(
+                        icon: "record.circle",
+                        title: "Start Session",
+                        color: .brandNavy
+                    ) {
+                        showingStartSession = true
+                    }
                 }
-                .frame(maxWidth: .infinity)
-                .frame(height: 80)
-                .background(Color(.secondarySystemBackground))
-                .foregroundColor(.primary)
-                .cornerRadius(14)
+
+                QuickActionButton(
+                    icon: "person.badge.plus",
+                    title: "Invite Athlete",
+                    color: .brandNavy.opacity(0.7)
+                ) {
+                    showingInviteAthlete = true
+                }
             }
         }
     }
@@ -131,12 +247,11 @@ struct CoachDashboardView: View {
 
     private var recentAthletesSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Recent")
-                .font(.headline)
+            DashboardSectionHeader(title: "Recent Athletes", icon: "clock.fill", color: .brandNavy)
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 12) {
-                    ForEach(recentFolders.prefix(5)) { folder in
+                    ForEach(cachedRecentFolders.prefix(5)) { folder in
                         Button {
                             coordinator.navigateToFolder(
                                 folder.id ?? "",
@@ -146,9 +261,9 @@ struct CoachDashboardView: View {
                             VStack(alignment: .leading, spacing: 8) {
                                 Image(systemName: "figure.baseball")
                                     .font(.title2)
-                                    .foregroundColor(.green)
+                                    .foregroundColor(.brandNavy)
                                     .frame(width: 40, height: 40)
-                                    .background(Color.green.opacity(0.1))
+                                    .background(Color.brandNavy.opacity(0.1))
                                     .clipShape(Circle())
 
                                 Text(folder.ownerAthleteName ?? folder.name)
@@ -180,8 +295,7 @@ struct CoachDashboardView: View {
 
     private var summarySection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Overview")
-                .font(.headline)
+            DashboardSectionHeader(title: "Overview", icon: "chart.bar.fill", color: .brandNavy)
 
             HStack(spacing: 12) {
                 CoachSummaryCard(
@@ -205,6 +319,102 @@ struct CoachDashboardView: View {
         }
     }
 
+    // MARK: - This Week
+
+    @ViewBuilder
+    private var thisWeekSection: some View {
+        if !sessionManager.sessions.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                DashboardSectionHeader(title: "This Week", icon: "calendar", color: .brandNavy)
+
+                HStack(spacing: 12) {
+                    CoachSummaryCard(
+                        icon: "video.badge.checkmark",
+                        title: "Sessions",
+                        value: "\(cachedThisWeekSessionCount)"
+                    )
+
+                    CoachSummaryCard(
+                        icon: "film.stack",
+                        title: "Clips",
+                        value: "\(cachedThisWeekClipCount)"
+                    )
+
+                    CoachSummaryCard(
+                        icon: "figure.baseball",
+                        title: "Athletes",
+                        value: "\(cachedThisWeekAthleteCount)"
+                    )
+                }
+            }
+        }
+    }
+
+    private func updateCachedValues() {
+        cachedRecentFolders = sharedFolderManager.coachFolders
+            .filter { !archiveManager.isArchived($0.id ?? "") }
+            .sorted { ($0.updatedAt ?? .distantPast) > ($1.updatedAt ?? .distantPast) }
+
+        let weekAgo = Calendar.current.date(byAdding: .day, value: -7, to: Date()) ?? Date()
+        cachedThisWeekSessionCount = sessionManager.sessions.filter {
+            $0.status == .completed && ($0.startedAt ?? .distantPast) >= weekAgo
+        }.count
+        cachedThisWeekClipCount = sessionManager.sessions
+            .filter { ($0.startedAt ?? .distantPast) >= weekAgo }
+            .reduce(0) { $0 + $1.clipCount }
+        cachedThisWeekAthleteCount = Set(sessionManager.sessions
+            .filter { ($0.startedAt ?? .distantPast) >= weekAgo }
+            .flatMap(\.athleteIDs)
+        ).count
+    }
+
+    // MARK: - Session Actions
+
+    private func resumeSession(_ session: CoachSession) {
+        if session.status == .live {
+            showingCamera = true
+        } else if session.athleteIDs.count == 1,
+                  let athleteID = session.athleteIDs.first,
+                  let folderID = session.folderIDs[athleteID] {
+            // Single athlete — go directly to their folder's Needs Review tab
+            coordinator.navigateToFolder(
+                folderID,
+                folders: sharedFolderManager.coachFolders,
+                initialTab: .needsReview
+            )
+        } else {
+            // Multi-athlete — go to Athletes tab so coach can pick which folder
+            coordinator.selectedTab = .athletes
+        }
+    }
+
+    private func endActiveSession(_ session: CoachSession) {
+        guard !isEndingSession, let sessionID = session.id else { return }
+        isEndingSession = true
+        Task {
+            do {
+                try await sessionManager.endSession(sessionID: sessionID)
+            } catch {
+                ErrorHandlerService.shared.handle(error, context: "CoachDashboard.endSession", showAlert: false)
+            }
+            isEndingSession = false
+        }
+    }
+
+    private func completeActiveSession(_ session: CoachSession) {
+        guard !isCompletingSession, let sessionID = session.id else { return }
+        isCompletingSession = true
+        Task {
+            do {
+                try await sessionManager.completeSession(sessionID: sessionID)
+                Haptics.success()
+            } catch {
+                ErrorHandlerService.shared.handle(error, context: "CoachDashboard.completeSession", showAlert: false)
+            }
+            isCompletingSession = false
+        }
+    }
+
     private var uniqueAthleteCount: Int {
         Set(sharedFolderManager.coachFolders.map(\.ownerAthleteID)).count
     }
@@ -217,6 +427,7 @@ struct CoachDashboardView: View {
         guard let coachID = authManager.userID else { return }
         do {
             try await sharedFolderManager.loadCoachFolders(coachID: coachID)
+            await sessionManager.fetchSessions(coachID: coachID)
             if let coachEmail = authManager.userEmail {
                 await invitationManager.checkPendingInvitations(forCoachEmail: coachEmail)
             }
@@ -256,7 +467,7 @@ private struct CoachSummaryCard: View {
         VStack(spacing: 8) {
             Image(systemName: icon)
                 .font(.title3)
-                .foregroundColor(.green)
+                .foregroundColor(.brandNavy)
 
             Text(value)
                 .font(.title2)
@@ -270,6 +481,7 @@ private struct CoachSummaryCard: View {
         .padding(.vertical, 16)
         .background(Color(.secondarySystemBackground))
         .cornerRadius(12)
+        .shadow(color: .black.opacity(0.06), radius: 4, x: 0, y: 2)
     }
 }
 
@@ -279,7 +491,6 @@ private struct CoachSummaryCard: View {
     NavigationStack {
         CoachDashboardView()
             .environmentObject(ComprehensiveAuthManager())
-            .environmentObject(SharedFolderManager.shared)
             .environment(CoachNavigationCoordinator())
     }
 }

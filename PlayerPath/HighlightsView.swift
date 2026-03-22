@@ -220,18 +220,27 @@ struct HighlightsView: View {
                 AutoHighlightSettingsView(athlete: athlete)
             }
         }
-        .onAppear {
-            AnalyticsService.shared.trackScreenView(screenName: "Highlights", screenClass: "HighlightsView")
-            Task { @MainActor in
-                migrateHitVideosToHighlights()
-            }
+        .task {
+            migrateHitVideosToHighlights()
             recomputeHighlights()
             recomputeGroupedHighlights()
+        }
+        .onAppear {
+            AnalyticsService.shared.trackScreenView(screenName: "Highlights", screenClass: "HighlightsView")
         }
         .onChange(of: athlete?.videoClips?.count) { _, _ in recomputeAll() }
         .onChange(of: selectedSeasonFilter) { _, _ in recomputeAll() }
         .onChange(of: filter) { _, _ in recomputeAll() }
-        .onChange(of: searchText) { _, _ in recomputeAll() }
+        .onChange(of: searchText) { _, _ in
+            // Search uses longer debounce since it fires on every keystroke
+            recomputeTask?.cancel()
+            recomputeTask = Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(250))
+                guard !Task.isCancelled else { return }
+                recomputeHighlights()
+                recomputeGroupedHighlights()
+            }
+        }
         .onChange(of: sortOrder) { _, _ in recomputeAll() }
         .onChange(of: expandedGroups) { _, _ in recomputeGroupedHighlights() }
     }
@@ -367,12 +376,10 @@ struct HighlightsView: View {
                         } label: {
                             Label("Share", systemImage: "square.and.arrow.up")
                         }
-                        if hasCoachingAccess {
-                            Button {
-                                clipToShareToFolder = clip
-                            } label: {
-                                Label("Share to Coach Folder", systemImage: "folder.badge.person.fill")
-                            }
+                        Button {
+                            clipToShareToFolder = clip
+                        } label: {
+                            Label("Share to Coach Folder", systemImage: hasCoachingAccess ? "folder.badge.person.fill" : "lock.fill")
                         }
                         Divider()
                         Button {

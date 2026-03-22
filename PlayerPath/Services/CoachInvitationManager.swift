@@ -7,35 +7,29 @@
 //
 
 import Foundation
-import Combine
 import FirebaseFirestore
 import os
 
 private let invitationLog = Logger(subsystem: "com.playerpath.app", category: "CoachInvitations")
 
 @MainActor
-class CoachInvitationManager: ObservableObject {
+@Observable
+class CoachInvitationManager {
     static let shared = CoachInvitationManager()
 
-    @Published var pendingInvitationsCount: Int = 0
-    @Published var pendingInvitations: [CoachInvitation] = []
-    @Published var listenerError: String?
+    var pendingInvitationsCount: Int = 0
+    var pendingInvitations: [CoachInvitation] = []
+    var listenerError: String?
 
     private var invitationsListener: ListenerRegistration?
 
     private init() {}
 
-    deinit {
-        invitationsListener?.remove()
-        invitationsListener = nil
-    }
-
     /// Starts a real-time listener for pending invitations.
-    @MainActor
     func startInvitationsListener(forCoachEmail email: String) {
         guard invitationsListener == nil else { return }
-        let db = Firestore.firestore()
-        invitationsListener = db.collection("invitations")
+        let db = FirestoreManager.shared.db
+        invitationsListener = db.collection(FC.invitations)
             .whereField("coachEmail", isEqualTo: email.lowercased())
             .whereField("status", isEqualTo: "pending")
             .whereField("expiresAt", isGreaterThan: Timestamp(date: Date()))
@@ -72,26 +66,24 @@ class CoachInvitationManager: ObservableObject {
         listenerError = nil
     }
 
-    @MainActor
     func checkPendingInvitations(forCoachEmail email: String) async {
         do {
             let invitations = try await FirestoreManager.shared.fetchPendingInvitations(forEmail: email)
             pendingInvitations = invitations
             pendingInvitationsCount = invitations.count
         } catch {
+            invitationLog.error("Failed to check pending invitations: \(error.localizedDescription)")
             pendingInvitationsCount = 0
             pendingInvitations = []
         }
     }
 
-    @MainActor
     func acceptInvitation(_ invitation: CoachInvitation, authManager: ComprehensiveAuthManager? = nil) async throws {
         try await SharedFolderManager.shared.acceptInvitation(invitation, authManager: authManager)
         await checkPendingInvitations(forCoachEmail: invitation.coachEmail)
         Haptics.success()
     }
 
-    @MainActor
     func declineInvitation(_ invitation: CoachInvitation) async throws {
         try await SharedFolderManager.shared.declineInvitation(invitation)
         await checkPendingInvitations(forCoachEmail: invitation.coachEmail)

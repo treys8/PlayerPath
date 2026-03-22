@@ -33,16 +33,16 @@ extension FirestoreManager {
                 "rating": $0.rating,
                 "notes": $0.notes as Any
             ] },
-            "isVisibleToAthlete": false,
+            "isVisibleToAthlete": true,
             "createdAt": FieldValue.serverTimestamp(),
             "updatedAt": FieldValue.serverTimestamp()
         ]
         if let overallRating { data["overallRating"] = overallRating }
         if let summary, !summary.isEmpty { data["summary"] = summary }
 
-        let docRef = try await db.collection("videos")
+        let docRef = try await db.collection(FC.videos)
             .document(videoID)
-            .collection("drillCards")
+            .collection(FC.drillCards)
             .addDocument(data: data)
 
         drillCardLog.info("Created drill card \(docRef.documentID) for video \(videoID)")
@@ -55,8 +55,7 @@ extension FirestoreManager {
             overallRating: overallRating,
             summary: summary,
             createdAt: Date(),
-            updatedAt: Date(),
-            isVisibleToAthlete: false
+            updatedAt: Date()
         )
         card.id = docRef.documentID
         return card
@@ -67,8 +66,7 @@ extension FirestoreManager {
         cardID: String,
         categories: [DrillCardCategory],
         overallRating: Int?,
-        summary: String?,
-        isVisibleToAthlete: Bool
+        summary: String?
     ) async throws {
         var data: [String: Any] = [
             "categories": categories.map { [
@@ -76,7 +74,7 @@ extension FirestoreManager {
                 "rating": $0.rating,
                 "notes": $0.notes as Any
             ] },
-            "isVisibleToAthlete": isVisibleToAthlete,
+            "isVisibleToAthlete": true,
             "updatedAt": FieldValue.serverTimestamp()
         ]
         if let overallRating { data["overallRating"] = overallRating }
@@ -84,17 +82,17 @@ extension FirestoreManager {
         if let summary, !summary.isEmpty { data["summary"] = summary }
         else { data["summary"] = FieldValue.delete() }
 
-        try await db.collection("videos")
+        try await db.collection(FC.videos)
             .document(videoID)
-            .collection("drillCards")
+            .collection(FC.drillCards)
             .document(cardID)
             .updateData(data)
     }
 
     func fetchDrillCards(forVideo videoID: String) async throws -> [DrillCard] {
-        let snapshot = try await db.collection("videos")
+        let snapshot = try await db.collection(FC.videos)
             .document(videoID)
-            .collection("drillCards")
+            .collection(FC.drillCards)
             .order(by: "createdAt", descending: true)
             .limit(to: 10)
             .getDocuments()
@@ -107,9 +105,9 @@ extension FirestoreManager {
     }
 
     func deleteDrillCard(videoID: String, cardID: String) async throws {
-        try await db.collection("videos")
+        try await db.collection(FC.videos)
             .document(videoID)
-            .collection("drillCards")
+            .collection(FC.drillCards)
             .document(cardID)
             .delete()
 

@@ -1,0 +1,318 @@
+================================================================================
+COACHES VIEWS AUDIT — PlayerPath/Views/Coaches/ + Supporting Files
+================================================================================
+Date: 2025-03-22
+Scope: AddCoachView, CoachDetailView, CoachRow, InviteCoachSheet,
+       ShareToCoachFolderView, CoachesView (parent), Coach.swift (model)
+================================================================================
+
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  CRITICAL — Security / Data Loss Risks                                     ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+C1 · DELETE-BEFORE-REVOKE: CoachesView.deleteCoach() and CoachDetailView
+────────────────────────────────────────────────────────────────────────────────
+Files: CoachesView.swift:277-321, CoachDetailView.swift (delete flow)
+Both views delete the local Coach SwiftData object and call modelContext.save()
+BEFORE revoking Firestore folder access. If the Firestore revocation fails
+(network error, timeout), the coach retains server-side read/write access to
+every folder in `sharedFolderIDs` indefinitely. The local record is already
+gone, so there is no retry path.
+
+Fix: Revoke Firestore access first. Only delete the local record after all
+folder removals succeed (or at minimum, queue a durable background task).
+Alternatively, set a `pendingDeletion` flag on the local record, revoke
+remotely, then delete locally.
+
+
+C2 · REINVITE CREATES UNBOUNDED FOLDERS: CoachesView.reinviteCoach()
+────────────────────────────────────────────────────────────────────────────────
+File: CoachesView.swift:219-275
+If the existing folder fetch throws (network error), the catch at line 241
+falls through to the `else` branch which creates a brand-new folder. A flaky
+connection can cause duplicate folders for the same athlete-coach pair.
+Additionally, `sharedFolderIDs` is overwritten with `[folderID]` (line 249),
+silently dropping references to any other folders the coach had access to.
+
+Fix: Only create a new folder when the fetch explicitly returns nil (folder
+deleted), not when the fetch throws. Append the new folder ID instead of
+replacing the entire array.
+
+
+C3 · NO NOTIFICATION ON FOLDER ACCESS REVOCATION
+────────────────────────────────────────────────────────────────────────────────
+Files: CoachesView.swift:301, CoachDetailView.swift (delete flow)
+Both delete paths call `removeCoachFromFolder(folderID:coachID:)` which only
+removes the coach UID from the folder's `coachIDs` array. There is no
+corresponding notification sent to the coach. The coach will only discover
+they lost access the next time they try to open the folder and get a
+permission error.
+
+Fix: After folder access revocation, create a notification document in
+`notifications/` with type "access_revoked" (or similar) so the coach is
+informed via their notification feed.
+
+
+C4 · REINVITE SKIPS FIRESTORE INVITATION DUPLICATE CHECK
+────────────────────────────────────────────────────────────────────────────────
+File: CoachesView.swift:253
+`createInvitation()` is called without first checking whether an active
+pending invitation already exists for this coach email + folder. If the user
+taps "Re-invite" multiple times (or if the local status is stale), duplicate
+invitation documents accumulate in Firestore.
+
+Fix: Either expire/cancel the previous invitation before creating a new one,
+or deduplicate by querying existing pending invitations for this email+folder
+pair first.
+
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  HIGH — Bugs / Incorrect Behavior                                          ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+H1 · STALE INVITATION STATUS ON COACH ROW
+────────────────────────────────────────────────────────────────────────────────
+File: CoachesView.swift:325-363
+`refreshInvitationStatuses()` only runs in `.task` (view appear). If the user
+stays on the screen for an extended period, coach statuses never refresh.
+There is no pull-to-refresh or periodic polling. A coach who accepts while
+the athlete is viewing the list will still show "Invitation Pending" until
+the athlete navigates away and returns.
+
+Fix: Add `.refreshable { await refreshInvitationStatuses() }` to enable
+pull-to-refresh, or set up a Firestore real-time listener for invitations.
+
+
+H2 · connectionStatusColor RETURNS STRING, NOT COLOR
+────────────────────────────────────────────────────────────────────────────────
+File: Coach.swift:72-84
+`connectionStatusColor` returns a raw String ("green", "red", "orange",
+"gray"). CoachRow.swift has a separate `coachStatusColor(for:)` global
+function that converts these strings back to SwiftUI `Color` values. This is
+fragile — any typo or new status in Coach.swift that isn't handled in the
+mapping function will silently fall through to `.gray`.
+
+Fix: Return `Color` directly from the model (Coach already imports SwiftUI),
+or use an enum with a `color` property. Remove the redundant global function.
+
+
+H3 · coachStatusColor(for:) IS A GLOBAL FUNCTION
+────────────────────────────────────────────────────────────────────────────────
+File: CoachRow.swift (bottom of file)
+`func coachStatusColor(for status: String) -> Color` is defined at the global
+module scope rather than as a static method on Coach or a private helper.
+This pollutes the module namespace and risks naming collisions.
+
+Fix: Move to `static func statusColor(for:) -> Color` on Coach, or convert
+to a computed `Color` property (see H2).
+
+
+H4 · EmptyCoachesView DEFINED INSIDE CoachRow.swift
+────────────────────────────────────────────────────────────────────────────────
+File: CoachRow.swift
+`EmptyCoachesView` is defined inside the CoachRow.swift file but is used by
+CoachesView.swift for the empty state. This is misleading — developers
+looking for the empty state won't find it in CoachRow without searching.
+
+Fix: Move EmptyCoachesView to its own file or into CoachesView.swift where
+it is actually used.
+
+
+H5 · REFRESH DOES NOT HANDLE ACCEPTED COACH WITHOUT firebaseCoachID
+────────────────────────────────────────────────────────────────────────────────
+File: CoachesView.swift:345-348
+When an invitation is accepted, `markInvitationAccepted` is called with
+`invitation.acceptedByCoachID ?? ""`. If `acceptedByCoachID` is nil (e.g.,
+a bug in the acceptance flow), the coach gets `firebaseCoachID = ""`, which
+is truthy for `hasFirebaseAccount` (non-nil), but useless for any Firestore
+operations. The coach will appear "Connected" in the UI but folder access
+checks using this empty ID will fail.
+
+Fix: Guard against nil/empty `acceptedByCoachID` — skip the update or log a
+warning instead of storing an empty string.
+
+
+H6 · REPORT COACH ONLY OPENS MAILTO — NO IN-APP TRACKING
+────────────────────────────────────────────────────────────────────────────────
+File: CoachesView.swift:208-217
+The "Report" action only opens a mailto: link. If the user doesn't have a
+mail client configured, nothing happens (URL opening fails silently). There
+is no in-app record of the report.
+
+Fix: Create a Firestore document in a `reports/` collection as a primary
+action, with the mailto as a fallback/supplementary action. At minimum, check
+`UIApplication.shared.canOpenURL` before attempting.
+
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  MEDIUM — Code Quality / Convention Violations                             ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+M1 · DIRECT modelContext.save() INSTEAD OF ErrorHandlerService.saveContext()
+────────────────────────────────────────────────────────────────────────────────
+Files: AddCoachView.swift, CoachesView.swift:265,289,358, CoachDetailView.swift
+All files use `try modelContext.save()` directly instead of the project
+convention `ErrorHandlerService.shared.saveContext(context, caller:)`. Some
+catch blocks only trigger haptics with no error logging.
+
+Fix: Replace all `try modelContext.save()` calls with the centralized
+`ErrorHandlerService.shared.saveContext(modelContext, caller: "ClassName")`.
+
+
+M2 · @EnvironmentObject FOR authManager (LEGACY PATTERN)
+────────────────────────────────────────────────────────────────────────────────
+Files: CoachesView.swift:17, ShareToCoachFolderView.swift
+Uses `@EnvironmentObject private var authManager: ComprehensiveAuthManager`.
+If ComprehensiveAuthManager conforms to `@Observable` (project convention),
+this should be `@Environment(ComprehensiveAuthManager.self)`. If it still
+uses `ObservableObject`, this is consistent but marks a migration debt.
+
+Fix: Verify which protocol authManager uses. If `@Observable`, migrate to
+`@Environment`. If `ObservableObject`, note as tech debt for future migration.
+
+
+M3 · CoachDetailView ACCESSES SharedFolderManager VIA COMPUTED PROPERTY
+────────────────────────────────────────────────────────────────────────────────
+File: CoachDetailView.swift
+`private var folderManager: SharedFolderManager { .shared }` — this is a
+computed property that returns the singleton each time. If SharedFolderManager
+is an ObservableObject, changes to its published properties (like
+`athleteFolders`) won't trigger view updates because the view has no
+observation relationship.
+
+Fix: Use `@ObservedObject private var folderManager = SharedFolderManager.shared`
+or `@State` if migrated to `@Observable`. This ensures the view re-renders
+when the folder list changes.
+
+
+M4 · DUPLICATE DELETE LOGIC ACROSS THREE VIEWS
+────────────────────────────────────────────────────────────────────────────────
+Files: CoachesView.swift:277-321, CoachDetailView.swift (delete flow)
+Coach deletion logic (capture IDs → delete local → revoke folders → delete
+Firestore) is duplicated in CoachesView and CoachDetailView with slight
+variations. This increases the risk of divergent behavior over time.
+
+Fix: Extract into a shared `CoachDeletionService` or a method on a
+ViewModel/Manager so both views call the same deletion pipeline.
+
+
+M5 · UNUSED athleteID PROPERTY
+────────────────────────────────────────────────────────────────────────────────
+File: CoachesView.swift:31
+`private var athleteID: UUID` is assigned in init but never referenced
+elsewhere in the file. The `coaches` computed property uses `athlete.coaches`
+directly.
+
+Fix: Remove the unused property.
+
+
+M6 · Coach.toFirestoreData() OMITS sharedFolderIDs
+────────────────────────────────────────────────────────────────────────────────
+File: Coach.swift:100-116
+`toFirestoreData()` does not include `sharedFolderIDs` or `invitationSentAt`
+or `invitationAcceptedAt` in the serialized dictionary. If this method is
+used for syncing coach records to Firestore, these fields will be lost.
+
+Fix: Add `sharedFolderIDs`, `invitationSentAt`, and `invitationAcceptedAt`
+to the output dictionary if they have values.
+
+
+M7 · INVITATION EXPIRY USES HARDCODED 30 DAYS
+────────────────────────────────────────────────────────────────────────────────
+File: Coach.swift:50-53
+`isInvitationExpired` uses `30 * 24 * 60 * 60` (30 days) as a magic number.
+If the Firestore invitation TTL changes (e.g., in security rules or Cloud
+Functions), this client-side check will become out of sync.
+
+Fix: Extract to a shared constant (e.g., `AppConstants.invitationExpiryDays`)
+used by both the model and any server-side logic.
+
+
+M8 · Task INSIDE withAnimation BLOCK
+────────────────────────────────────────────────────────────────────────────────
+File: CoachesView.swift:285-320
+A `Task { }` block is launched inside `withAnimation { }`. The animation
+only applies to the synchronous `modelContext.delete(coach)` call. The async
+work inside the Task runs outside the animation transaction anyway, so this
+is misleading.
+
+Fix: Move the Task outside the withAnimation block, or restructure to only
+wrap the delete+save in withAnimation.
+
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  LOW — Minor Improvements                                                  ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+L1 · AddCoachView PHONE VALIDATION REGEX ALLOWS PARTIAL NUMBERS
+────────────────────────────────────────────────────────────────────────────────
+File: AddCoachView.swift
+Phone validation regex allows any string with 7+ digits. This would accept
+things like "1234567abc" depending on the regex used. Consider using a more
+targeted phone number validation or at minimum documenting the expected
+format.
+
+
+L2 · ShareToCoachFolderView — NO UPLOAD PROGRESS INDICATOR
+────────────────────────────────────────────────────────────────────────────────
+File: ShareToCoachFolderView.swift
+After the upload starts, there's no progress indicator shown to the user.
+The sheet dismisses and the upload happens in the background. Consider
+showing a brief confirmation or linking to the upload queue status.
+
+
+L3 · CoachRow SHOWS FOLDER COUNT BUT NOT FOLDER NAMES
+────────────────────────────────────────────────────────────────────────────────
+File: CoachRow.swift
+The folder count badge shows how many folders the coach has access to, but
+not which ones. For athletes with multiple coaches and folders, this provides
+limited context.
+
+
+L4 · Coach MODEL HAS NO VALIDATION
+────────────────────────────────────────────────────────────────────────────────
+File: Coach.swift:90-98
+The Coach initializer accepts any string for name, email, etc. with no
+validation. While AddCoachView validates before saving, any other code path
+that creates a Coach (e.g., sync from Firestore, InviteCoachSheet) could
+insert invalid data.
+
+Fix: Add a `validate()` method on Coach that views can call, or add
+`willSave()` validation if SwiftData supports it.
+
+
+L5 · PREVIEW GUARD USES CONDITIONAL RETURN
+────────────────────────────────────────────────────────────────────────────────
+File: CoachesView.swift:370-372
+The `#Preview` block uses `guard let container = try? ... else { return ... }`
+which is fine but returns a fallback "Preview unavailable" text. Consider
+using `try!` in previews since preview crashes are acceptable and provide
+better diagnostics.
+
+
+================================================================================
+SUMMARY
+================================================================================
+
+  Critical:  4  (C1-C4)
+  High:      6  (H1-H6)
+  Medium:    8  (M1-M8)
+  Low:       5  (L1-L5)
+  Total:    23  findings
+
+TOP 3 PRIORITIES:
+1. C1 — Fix delete-before-revoke ordering in both CoachesView and
+   CoachDetailView to prevent orphaned Firestore access.
+2. C2 — Fix reinviteCoach() to distinguish fetch errors from "folder deleted"
+   to prevent duplicate folder creation and data loss.
+3. C3/C4 — Add notification on access revocation and deduplicate re-invites.
+
+CROSS-CUTTING THEMES:
+- Delete-before-revoke anti-pattern appears in CoachesView AND CoachDetailView
+  (also flagged in coach_folder_audit.txt for CoachDetailView)
+- Inconsistent save() usage — should use ErrorHandlerService.saveContext()
+- Coach status mapping is split between Coach.swift (returns String) and
+  CoachRow.swift (converts to Color) — fragile coupling
+- No real-time listeners for invitation status — relies on view appear tasks
+================================================================================

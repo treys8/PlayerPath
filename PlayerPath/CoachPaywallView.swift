@@ -76,7 +76,7 @@ struct CoachPaywallView: View {
             Image(systemName: "whistle.fill")
                 .font(.system(size: 52))
                 .foregroundStyle(
-                    LinearGradient(colors: [.green, .teal],
+                    LinearGradient(colors: [.brandNavy, .brandNavy.opacity(0.7)],
                                    startPoint: .topLeading, endPoint: .bottomTrailing)
                 )
                 .padding(.top, 8)
@@ -109,7 +109,7 @@ struct CoachPaywallView: View {
                 .foregroundStyle(selected ? .white : .secondary)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 10)
-                .background(selected ? Color.green : Color.clear)
+                .background(selected ? Color.brandNavy : Color.clear)
                 .cornerRadius(9)
         }
         .buttonStyle(.plain)
@@ -161,7 +161,7 @@ struct CoachPaywallView: View {
             } instructor: {
                 Text("10").font(.caption)
             } proInstructor: {
-                Text("30").font(.caption).foregroundStyle(.green)
+                Text("30").font(.caption).foregroundStyle(Color.brandNavy)
             } academy: {
                 Text("∞").font(.caption).foregroundStyle(.purple)
             }
@@ -214,7 +214,7 @@ struct CoachPaywallView: View {
                 .foregroundStyle(isSelected ? .white : .primary)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 12)
-                .background(isSelected ? Color.green : Color.clear)
+                .background(isSelected ? Color.brandNavy : Color.clear)
         }
         .buttonStyle(.plain)
         .animation(.easeInOut(duration: 0.2), value: isSelected)
@@ -261,11 +261,11 @@ struct CoachPaywallView: View {
                 Spacer(minLength: 0)
 
                 coachCellFrame { free() }
-                    .background(selectedTier == .free ? Color.green.opacity(0.06) : Color.clear)
+                    .background(selectedTier == .free ? Color.brandNavy.opacity(0.06) : Color.clear)
                 coachCellFrame { instructor() }
-                    .background(selectedTier == .instructor ? Color.green.opacity(0.06) : Color.clear)
+                    .background(selectedTier == .instructor ? Color.brandNavy.opacity(0.06) : Color.clear)
                 coachCellFrame { proInstructor() }
-                    .background(selectedTier == .proInstructor ? Color.green.opacity(0.06) : Color.clear)
+                    .background(selectedTier == .proInstructor ? Color.brandNavy.opacity(0.06) : Color.clear)
                 coachCellFrame { academy() }
                     .background(selectedTier == .academy ? Color.purple.opacity(0.06) : Color.clear)
             }
@@ -275,7 +275,7 @@ struct CoachPaywallView: View {
     private func coachCheckIcon(included: Bool) -> some View {
         Image(systemName: included ? "checkmark" : "xmark")
             .font(.caption)
-            .foregroundStyle(included ? .green : .secondary)
+            .foregroundStyle(included ? Color.brandNavy : Color.secondary)
             .accessibilityLabel(included ? "Included" : "Not included")
     }
 
@@ -348,7 +348,7 @@ struct CoachPaywallView: View {
                     .background(LinearGradient.coachButton)
                     .foregroundStyle(.white)
                     .cornerRadius(14)
-                    .shadow(color: Color.green.opacity(0.3), radius: 8, x: 0, y: 4)
+                    .shadow(color: Color.brandNavy.opacity(0.3), radius: 8, x: 0, y: 4)
                 }
                 .disabled(isPurchasing || storeManager.coachProducts.isEmpty)
                 .buttonStyle(.plain)
@@ -390,9 +390,9 @@ struct CoachPaywallView: View {
                 .foregroundStyle(.secondary)
             HStack(spacing: 16) {
                 Button("Terms of Service") { showingTerms = true }
-                    .font(.caption).foregroundStyle(.green)
+                    .font(.caption).foregroundStyle(Color.brandNavy)
                 Button("Privacy Policy") { showingPrivacyPolicy = true }
-                    .font(.caption).foregroundStyle(.green)
+                    .font(.caption).foregroundStyle(Color.brandNavy)
             }
         }
         .multilineTextAlignment(.center)

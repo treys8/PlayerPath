@@ -73,7 +73,7 @@ struct DrillCard: Codable, Identifiable {
     var summary: String?
     let createdAt: Date?
     var updatedAt: Date?
-    var isVisibleToAthlete: Bool
+    var isVisibleToAthlete: Bool = true
 
     var template: DrillCardTemplate? {
         DrillCardTemplate(rawValue: templateType)

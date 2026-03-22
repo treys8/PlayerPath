@@ -11,7 +11,7 @@ import SwiftUI
 struct CreateFolderView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
-    @ObservedObject private var folderManager = SharedFolderManager.shared
+    private var folderManager: SharedFolderManager { .shared }
     
     @State private var coachEmail = ""
     @State private var permissions = FolderPermissions.default
@@ -210,7 +210,7 @@ struct InviteCoachView: View {
     
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
-    @ObservedObject private var folderManager = SharedFolderManager.shared
+    private var folderManager: SharedFolderManager { .shared }
     
     @State private var coachEmail = ""
     @State private var permissions = FolderPermissions.default

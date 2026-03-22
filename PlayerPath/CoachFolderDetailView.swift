@@ -3,21 +3,20 @@
 //  PlayerPath
 //
 //  Created by Assistant on 11/21/25.
-//  Detailed view of a shared folder with Games and Practices organization
+//  Detailed view of a shared folder with From Athlete / Needs Review / From Me tabs
 //
 
 import SwiftUI
-import Combine
-import FirebaseAuth
 
-/// Shows the contents of a shared folder with Games and Practices sections
+/// Shows the contents of a shared folder with From Athlete / Needs Review / From Me tabs
 struct CoachFolderDetailView: View {
     let folder: SharedFolder
 
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @Environment(\.dismiss) private var dismiss
-    @StateObject private var viewModel: CoachFolderViewModel
-    @State private var selectedTab: FolderTab = .fromAthlete
+    @Environment(CoachNavigationCoordinator.self) private var coordinator
+    @State private var viewModel: CoachFolderViewModel
+    @State private var selectedTab: FolderTab
     @State private var showingUploadSheet = false
     @State private var verifiedFolder: SharedFolder?
     @State private var permissionError: String?
@@ -32,34 +31,176 @@ struct CoachFolderDetailView: View {
     @State private var editingVideoTags: CoachVideoItem?
     @State private var editingTags: [String] = []
     @State private var editingDrillType: String?
-    @ObservedObject private var archiveManager = CoachFolderArchiveManager.shared
+    @State private var tagEditorDidSave = false
+    @State private var cachedAvailableTags: [String] = []
+    @State private var reviewingClip: CoachVideoItem?
+    @State private var isSharingAll = false
+    private var archiveManager: CoachFolderArchiveManager { .shared }
 
-    init(folder: SharedFolder) {
+    init(folder: SharedFolder, initialTab: FolderTab = .fromAthlete) {
         self.folder = folder
-        _viewModel = StateObject(wrappedValue: CoachFolderViewModel(folder: folder))
+        _viewModel = State(initialValue: CoachFolderViewModel(folder: folder))
         _verifiedFolder = State(initialValue: folder)
+        _selectedTab = State(initialValue: initialTab)
     }
-    
+
     enum FolderTab: String, CaseIterable {
         case fromAthlete = "From Athlete"
+        case needsReview = "Review"
         case fromMe = "From Me"
-        case myRecordings = "My Recordings"
 
         var icon: String {
             switch self {
             case .fromAthlete: return "figure.baseball"
+            case .needsReview: return "exclamationmark.circle"
             case .fromMe: return "arrow.up.circle"
-            case .myRecordings: return "video.badge.plus"
             }
         }
     }
-    
+
     var body: some View {
+        navigationWrappedContent
+            .modifier(FolderSheetsModifier(
+                showingUploadSheet: $showingUploadSheet,
+                showingTagEditor: $showingTagEditor,
+                editingTags: $editingTags,
+                editingDrillType: $editingDrillType,
+                tagEditorDidSave: $tagEditorDidSave,
+                verifiedFolder: verifiedFolder,
+                editingVideoTags: editingVideoTags,
+                viewModel: viewModel
+            ))
+            .modifier(FolderDialogsModifier(
+                showingPermissionError: $showingPermissionError,
+                showingLeaveConfirmation: $showingLeaveConfirmation,
+                permissionError: permissionError,
+                folderName: folder.name,
+                onLeave: { Task { await leaveFolder() } }
+            ))
+            .sheet(item: $reviewingClip) { clip in
+                ClipReviewSheet(
+                    video: clip,
+                    folder: folder,
+                    onShared: { Task { await viewModel.loadVideos() } },
+                    onDiscarded: { Task { await viewModel.loadVideos() } }
+                )
+            }
+            .task { await initialLoad() }
+            .onChange(of: viewModel.cachedFromAthleteVideos) { _, _ in refreshAvailableTags() }
+            .onChange(of: viewModel.cachedFromMeVideos) { _, _ in refreshAvailableTags() }
+            .onChange(of: viewModel.cachedNeedsReviewVideos) { _, _ in refreshAvailableTags() }
+            .disabled(isLeaving)
+            .overlay { leavingOverlay }
+    }
+
+    private var navigationWrappedContent: some View {
+        folderContent
+            .navigationTitle(folder.name)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { toolbarContent }
+    }
+
+    // MARK: - Toolbar
+
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .navigationBarLeading) {
+            Button {
+                Task { await refreshPermissions() }
+            } label: {
+                if isRefreshingPermissions {
+                    ProgressView()
+                } else {
+                    Image(systemName: "arrow.clockwise")
+                        .foregroundColor(.brandNavy)
+                }
+            }
+            .disabled(isRefreshingPermissions)
+            .help("Refresh permissions")
+        }
+
+        ToolbarItem(placement: .navigationBarTrailing) {
+            trailingMenu
+        }
+    }
+
+    private var trailingMenu: some View {
+        Menu {
+            if canUpload {
+                Button {
+                    showingUploadSheet = true
+                } label: {
+                    Label("Upload Video", systemImage: "plus.circle")
+                }
+            }
+
+            let folderID = folder.id ?? ""
+            let archived = archiveManager.isArchived(folderID)
+            Button {
+                if archived {
+                    archiveManager.unarchive(folderID: folderID)
+                } else {
+                    archiveManager.archive(folderID: folderID)
+                    dismiss()
+                }
+                Haptics.light()
+            } label: {
+                Label(
+                    archived ? "Unarchive Folder" : "Archive Folder",
+                    systemImage: archived ? "archivebox" : "archivebox.fill"
+                )
+            }
+
+            Button(role: .destructive) {
+                showingLeaveConfirmation = true
+            } label: {
+                Label("Leave Folder", systemImage: "rectangle.portrait.and.arrow.right")
+            }
+        } label: {
+            Image(systemName: "ellipsis.circle")
+                .foregroundColor(.primary)
+        }
+    }
+
+    // MARK: - Overlays
+
+    @ViewBuilder
+    private var leavingOverlay: some View {
+        if isLeaving {
+            ZStack {
+                Color(.systemBackground).opacity(0.8).ignoresSafeArea()
+                VStack(spacing: 12) {
+                    ProgressView()
+                    Text("Leaving folder...")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+    }
+
+    // MARK: - Initial Load
+
+    private func initialLoad() async {
+        // Check if coordinator requested a specific tab for THIS folder (e.g., from dashboard "Review Clips")
+        if let pending = coordinator.pendingFolderTab, pending.folderID == folder.id {
+            selectedTab = pending.tab
+            coordinator.pendingFolderTab = nil
+        }
+
+        if let lastFetch = lastFetchDate, Date().timeIntervalSince(lastFetch) < 60 { return }
+        async let videosTask: () = viewModel.loadVideos()
+        async let permissionTask: () = verifyPermissionsInBackground()
+        _ = await (videosTask, permissionTask)
+        lastFetchDate = Date()
+    }
+
+    // MARK: - Folder Content
+
+    private var folderContent: some View {
         VStack(spacing: 0) {
-            // Folder info header
             FolderInfoHeader(folder: folder, videoCount: viewModel.videos.count, lastRefreshed: lastRefreshed)
-            
-            // Tab picker
+
             Picker("View", selection: $selectedTab) {
                 ForEach(FolderTab.allCases, id: \.self) { tab in
                     Label(tab.rawValue, systemImage: tab.icon)
@@ -70,23 +211,24 @@ struct CoachFolderDetailView: View {
             .padding()
             .onChange(of: selectedTab) { _, _ in
                 selectedTagFilter = nil
+                refreshAvailableTags()
             }
 
-            // Tag filter bar
-            if !availableTags.isEmpty && selectedTab != .myRecordings {
+            if !cachedAvailableTags.isEmpty {
                 VideoTagFilterBar(
-                    tags: availableTags,
+                    tags: cachedAvailableTags,
                     selectedTag: $selectedTagFilter
                 )
             }
 
-            // Content based on selected tab
             Group {
                 switch selectedTab {
                 case .fromAthlete:
                     AllVideosTabView(folder: folder, videos: filterByTag(viewModel.cachedFromAthleteVideos), isLoading: viewModel.isLoading, errorMessage: viewModel.errorMessage, onRefresh: {
                         await viewModel.loadVideos()
                     }, onEditTags: nil)
+                case .needsReview:
+                    needsReviewContent
                 case .fromMe:
                     AllVideosTabView(folder: folder, videos: filterByTag(viewModel.cachedFromMeVideos), isLoading: viewModel.isLoading, errorMessage: viewModel.errorMessage, onRefresh: {
                         await viewModel.loadVideos()
@@ -96,128 +238,109 @@ struct CoachFolderDetailView: View {
                         editingDrillType = video.drillType
                         showingTagEditor = true
                     })
-                case .myRecordings:
-                    CoachPrivateVideosTab(folder: folder, canUpload: canUpload)
                 }
             }
         }
-        .navigationTitle(folder.name)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .navigationBarLeading) {
-                Button {
-                    Task {
-                        await refreshPermissions()
-                    }
-                } label: {
-                    if isRefreshingPermissions {
-                        ProgressView()
-                    } else {
-                        Image(systemName: "arrow.clockwise")
-                            .foregroundColor(.brandNavy)
-                    }
-                }
-                .disabled(isRefreshingPermissions)
-                .help("Refresh permissions")
-            }
+    }
 
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Menu {
-                    if canUpload {
+    // MARK: - Needs Review
+
+    @ViewBuilder
+    private var needsReviewContent: some View {
+        let clips = viewModel.cachedNeedsReviewVideos
+        if viewModel.isLoading && clips.isEmpty {
+            VStack { Spacer(); ProgressView("Loading clips..."); Spacer() }
+        } else if clips.isEmpty {
+            EmptyFolderView(
+                icon: "checkmark.circle",
+                title: "All Caught Up",
+                message: "No clips to review. Start a session to record clips for this athlete."
+            )
+        } else {
+            VStack(spacing: 0) {
+                if !isSharingAll {
+                    HStack {
+                        Text("\(clips.count) clip\(clips.count == 1 ? "" : "s") to review")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                        Spacer()
                         Button {
-                            showingUploadSheet = true
+                            shareAllReviewClips()
                         } label: {
-                            Label("Upload Video", systemImage: "plus.circle")
+                            Label("Share All", systemImage: "paperplane.fill")
+                                .font(.subheadline)
+                                .fontWeight(.semibold)
                         }
                     }
-
-                    let folderID = folder.id ?? ""
-                    let archived = archiveManager.isArchived(folderID)
-                    Button {
-                        if archived {
-                            archiveManager.unarchive(folderID: folderID)
-                        } else {
-                            archiveManager.archive(folderID: folderID)
-                            dismiss()
-                        }
-                        Haptics.light()
-                    } label: {
-                        Label(
-                            archived ? "Unarchive Folder" : "Archive Folder",
-                            systemImage: archived ? "archivebox" : "archivebox.fill"
-                        )
-                    }
-
-                    Button(role: .destructive) {
-                        showingLeaveConfirmation = true
-                    } label: {
-                        Label("Leave Folder", systemImage: "rectangle.portrait.and.arrow.right")
-                    }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
-                        .foregroundColor(.primary)
-                }
-            }
-        }
-        .sheet(isPresented: $showingUploadSheet) {
-            if let verified = verifiedFolder {
-                CoachVideoUploadView(folder: verified)
-            }
-        }
-        .sheet(isPresented: $showingTagEditor) {
-            VideoTagEditor(selectedTags: $editingTags, drillType: $editingDrillType)
-                .onDisappear {
-                    guard let video = editingVideoTags else { return }
-                    Task {
-                        do {
-                            try await FirestoreManager.shared.updateVideoTags(
-                                videoID: video.id,
-                                tags: editingTags,
-                                drillType: editingDrillType
-                            )
-                        } catch {
-                            ErrorHandlerService.shared.handle(error, context: "CoachFolderDetail.updateTags", showAlert: false)
-                        }
-                        await viewModel.loadVideos()
-                    }
-                }
-        }
-        .task {
-            if let lastFetch = lastFetchDate, Date().timeIntervalSince(lastFetch) < 60 { return }
-            // Load videos immediately while verifying permissions in parallel
-            async let videosTask: () = viewModel.loadVideos()
-            async let permissionTask: () = verifyPermissionsInBackground()
-            _ = await (videosTask, permissionTask)
-            lastFetchDate = Date()
-        }
-        .alert("Access Error", isPresented: $showingPermissionError) {
-            Button("OK") { }
-        } message: {
-            if let error = permissionError {
-                Text(error)
-            }
-        }
-        .confirmationDialog("Leave \"\(folder.name)\"?", isPresented: $showingLeaveConfirmation, titleVisibility: .visible) {
-            Button("Leave Folder", role: .destructive) {
-                Task { await leaveFolder() }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("You'll lose access to all videos in this folder. The athlete can re-invite you later.")
-        }
-        .disabled(isLeaving)
-        .overlay {
-            if isLeaving {
-                ZStack {
-                    Color(.systemBackground).opacity(0.8).ignoresSafeArea()
-                    VStack(spacing: 12) {
+                    .padding(.horizontal)
+                    .padding(.vertical, 8)
+                } else {
+                    HStack {
                         ProgressView()
-                        Text("Leaving folder...")
+                            .controlSize(.small)
+                        Text("Sharing clips...")
                             .font(.subheadline)
                             .foregroundColor(.secondary)
                     }
+                    .padding(.vertical, 8)
+                }
+
+                ScrollView {
+                    LazyVStack(spacing: 12) {
+                        ForEach(clips) { clip in
+                            Button {
+                                reviewingClip = clip
+                            } label: {
+                                CoachVideoRow(video: clip)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding()
+                }
+                .refreshable {
+                    await viewModel.loadVideos()
                 }
             }
+        }
+    }
+
+    private func shareAllReviewClips() {
+        let clips = viewModel.cachedNeedsReviewVideos
+        guard !clips.isEmpty, let folderID = folder.id else { return }
+        isSharingAll = true
+
+        Task {
+            var sharedCount = 0
+            for clip in clips {
+                let videoID = clip.id
+                do {
+                    try await FirestoreManager.shared.publishPrivateVideo(
+                        videoID: videoID,
+                        sharedFolderID: folderID
+                    )
+                    sharedCount += 1
+                } catch {
+                    ErrorHandlerService.shared.handle(error, context: "CoachFolderDetail.shareAll", showAlert: false)
+                }
+            }
+
+            // Notify athlete once (not per-clip)
+            if sharedCount > 0, let coachID = authManager.userID {
+                let coachName = authManager.userDisplayName ?? "Coach"
+                await ActivityNotificationService.shared.postNewVideoNotification(
+                    folderID: folderID,
+                    folderName: folder.name,
+                    uploaderID: coachID,
+                    uploaderName: coachName,
+                    coachIDs: [folder.ownerAthleteID],
+                    videoFileName: "\(sharedCount) clip\(sharedCount == 1 ? "" : "s")"
+                )
+            }
+
+            await viewModel.loadVideos()
+            isSharingAll = false
+            Haptics.success()
         }
     }
 
@@ -291,16 +414,14 @@ struct CoachFolderDetailView: View {
         return verified.getPermissions(for: coachID)?.canUpload ?? false
     }
 
-    /// All unique tags across videos in this folder
-    /// Tags available for filtering, scoped to the active tab's videos
-    private var availableTags: [String] {
+    private func refreshAvailableTags() {
         let visibleVideos: [CoachVideoItem]
         switch selectedTab {
         case .fromAthlete: visibleVideos = viewModel.cachedFromAthleteVideos
+        case .needsReview: visibleVideos = viewModel.cachedNeedsReviewVideos
         case .fromMe: visibleVideos = viewModel.cachedFromMeVideos
-        case .myRecordings: visibleVideos = []
         }
-        return Array(Set(visibleVideos.flatMap(\.tags))).sorted()
+        cachedAvailableTags = Array(Set(visibleVideos.flatMap(\.tags))).sorted()
     }
 
     /// Filters videos by the currently selected tag
@@ -310,611 +431,76 @@ struct CoachFolderDetailView: View {
     }
 }
 
-// MARK: - Folder Info Header
+// MARK: - Folder Sheets Modifier
 
-struct FolderInfoHeader: View {
-    let folder: SharedFolder
-    let videoCount: Int
-    let lastRefreshed: Date?
+private struct FolderSheetsModifier: ViewModifier {
+    @Binding var showingUploadSheet: Bool
+    @Binding var showingTagEditor: Bool
+    @Binding var editingTags: [String]
+    @Binding var editingDrillType: String?
+    @Binding var tagEditorDidSave: Bool
+    let verifiedFolder: SharedFolder?
+    let editingVideoTags: CoachVideoItem?
+    let viewModel: CoachFolderViewModel
 
-    var body: some View {
-        VStack(spacing: 8) {
-            HStack(spacing: 12) {
-                Image(systemName: "folder.fill")
-                    .font(.title)
-                    .foregroundColor(.brandNavy)
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(folder.name)
-                        .font(.headline)
-
-                    Text("\(videoCount) video\(videoCount == 1 ? "" : "s")")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-
-                    if let refreshed = lastRefreshed {
-                        HStack(spacing: 4) {
-                            Image(systemName: "checkmark.circle.fill")
-                                .font(.caption2)
-                                .foregroundColor(.green)
-                            Text("Updated \(refreshed.formatted(.relative(presentation: .named)))")
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                }
-
-                Spacer()
-            }
-            .padding()
-        }
-        .background(Color(.secondarySystemBackground))
-    }
-}
-
-// MARK: - Games Tab View
-
-struct GamesTabView: View {
-    let folder: SharedFolder
-    let videos: [CoachVideoItem]
-    var isLoading: Bool = false
-    var errorMessage: String? = nil
-    let onRefresh: () async -> Void
-
-    @State private var cachedGameGroups: [GameGroup] = []
-
-    var body: some View {
-        Group {
-            if isLoading && videos.isEmpty {
-                ProgressView("Loading game videos...")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let error = errorMessage, videos.isEmpty {
-                EmptyFolderView(
-                    icon: "exclamationmark.triangle",
-                    title: "Failed to Load",
-                    message: error
-                )
-            } else if videos.isEmpty {
-                EmptyFolderView(
-                    icon: "figure.baseball",
-                    title: "No Game Videos",
-                    message: "Game videos will appear here once they're uploaded."
-                )
-            } else {
-                ScrollView {
-                    LazyVStack(spacing: 12) {
-                        ForEach(cachedGameGroups, id: \.opponent) { group in
-                            GameGroupView(folder: folder, gameGroup: group)
-                        }
-                    }
-                    .padding()
-                }
-                .refreshable { await onRefresh() }
-            }
-        }
-        .onAppear { updateGroupedVideos() }
-        .onChange(of: videos.count) { updateGroupedVideos() }
-    }
-
-    private func updateGroupedVideos() {
-        let grouped = Dictionary(grouping: videos) { video -> String in
-            video.gameOpponent ?? "Unknown Game"
-        }
-
-        cachedGameGroups = grouped.map { opponent, videos in
-            GameGroup(
-                opponent: opponent,
-                date: videos.first?.createdAt ?? Date(),
-                videos: videos.sorted { ($0.createdAt ?? Date()) > ($1.createdAt ?? Date()) }
-            )
-        }.sorted { $0.date > $1.date }
-    }
-}
-
-struct GameGroup {
-    let opponent: String
-    let date: Date
-    let videos: [CoachVideoItem]
-}
-
-struct GameGroupView: View {
-    let folder: SharedFolder
-    let gameGroup: GameGroup
-    
-    @State private var isExpanded = true
-    
-    var body: some View {
-        VStack(spacing: 8) {
-            // Game header
-            Button(action: { withAnimation { isExpanded.toggle() } }) {
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(gameGroup.opponent)
-                            .font(.headline)
-                            .foregroundColor(.primary)
-                        
-                        Text(gameGroup.date.formatted(date: .abbreviated, time: .omitted))
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    
-                    Spacer()
-                    
-                    HStack(spacing: 12) {
-                        Text("\(gameGroup.videos.count) video\(gameGroup.videos.count == 1 ? "" : "s")")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        
-                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                            .foregroundColor(.gray)
-                    }
-                }
-                .padding()
-                .background(Color(.secondarySystemBackground))
-                .cornerRadius(10)
-            }
-            .buttonStyle(.plain)
-            
-            // Videos list
-            if isExpanded {
-                ForEach(gameGroup.videos) { video in
-                    NavigationLink(destination: CoachVideoPlayerView(folder: folder, video: video)) {
-                        CoachVideoRow(video: video)
-                    }
-                    .buttonStyle(.plain)
+    func body(content: Content) -> some View {
+        content
+            .sheet(isPresented: $showingUploadSheet) {
+                if let verified = verifiedFolder {
+                    CoachVideoUploadView(folder: verified)
                 }
             }
-        }
-    }
-}
-
-// MARK: - Practices Tab View
-
-struct InstructionTabView: View {
-    let folder: SharedFolder
-    let videos: [CoachVideoItem]
-    var isLoading: Bool = false
-    var errorMessage: String? = nil
-    let onRefresh: () async -> Void
-
-    @State private var cachedPracticeGroups: [PracticeGroup] = []
-
-    var body: some View {
-        Group {
-            if isLoading && videos.isEmpty {
-                ProgressView("Loading practice videos...")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let error = errorMessage, videos.isEmpty {
-                EmptyFolderView(
-                    icon: "exclamationmark.triangle",
-                    title: "Failed to Load",
-                    message: error
-                )
-            } else if videos.isEmpty {
-                EmptyFolderView(
-                    icon: "figure.run",
-                    title: "No Practice Videos",
-                    message: "Practice videos will appear here once they're uploaded."
-                )
-            } else {
-                ScrollView {
-                    LazyVStack(spacing: 12) {
-                        ForEach(cachedPracticeGroups, id: \.date) { group in
-                            PracticeGroupView(folder: folder, practiceGroup: group)
-                        }
-                    }
-                    .padding()
+            .sheet(isPresented: $showingTagEditor, onDismiss: {
+                // Only save tags if the user explicitly tapped Done in the editor
+                guard tagEditorDidSave, let video = editingVideoTags else {
+                    tagEditorDidSave = false
+                    return
                 }
-                .refreshable { await onRefresh() }
-            }
-        }
-        .onAppear { updateGroupedVideos() }
-        .onChange(of: videos.count) { updateGroupedVideos() }
-    }
-
-    private func updateGroupedVideos() {
-        let grouped = Dictionary(grouping: videos) { video -> Date in
-            let calendar = Calendar.current
-            return calendar.startOfDay(for: video.practiceDate ?? video.createdAt ?? Date())
-        }
-
-        cachedPracticeGroups = grouped.map { date, videos in
-            PracticeGroup(
-                date: date,
-                videos: videos.sorted { ($0.createdAt ?? Date()) > ($1.createdAt ?? Date()) }
-            )
-        }.sorted { $0.date > $1.date }
-    }
-}
-
-struct PracticeGroup {
-    let date: Date
-    let videos: [CoachVideoItem]
-}
-
-struct PracticeGroupView: View {
-    let folder: SharedFolder
-    let practiceGroup: PracticeGroup
-    
-    @State private var isExpanded = true
-    
-    var body: some View {
-        VStack(spacing: 8) {
-            // Practice header
-            Button(action: { withAnimation { isExpanded.toggle() } }) {
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Instruction")
-                            .font(.headline)
-                            .foregroundColor(.primary)
-                        
-                        Text(practiceGroup.date.formatted(date: .abbreviated, time: .omitted))
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    
-                    Spacer()
-                    
-                    HStack(spacing: 12) {
-                        Text("\(practiceGroup.videos.count) video\(practiceGroup.videos.count == 1 ? "" : "s")")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        
-                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                            .foregroundColor(.gray)
-                    }
-                }
-                .padding()
-                .background(Color(.secondarySystemBackground))
-                .cornerRadius(10)
-            }
-            .buttonStyle(.plain)
-            
-            // Videos list
-            if isExpanded {
-                ForEach(practiceGroup.videos) { video in
-                    NavigationLink(destination: CoachVideoPlayerView(folder: folder, video: video)) {
-                        CoachVideoRow(video: video)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-        }
-    }
-}
-
-// MARK: - All Videos Tab View
-
-struct AllVideosTabView: View {
-    let folder: SharedFolder
-    let videos: [CoachVideoItem]
-    var isLoading: Bool = false
-    var errorMessage: String? = nil
-    let onRefresh: () async -> Void
-    var onEditTags: ((CoachVideoItem) -> Void)?
-
-    var body: some View {
-        Group {
-            if isLoading && videos.isEmpty {
-                ProgressView("Loading videos...")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let error = errorMessage, videos.isEmpty {
-                EmptyFolderView(
-                    icon: "exclamationmark.triangle",
-                    title: "Failed to Load",
-                    message: error
-                )
-            } else if videos.isEmpty {
-                EmptyFolderView(
-                    icon: "video.slash",
-                    title: "No Videos Yet",
-                    message: "Videos will appear here once you or the athlete uploads them."
-                )
-            } else {
-                ScrollView {
-                    LazyVStack(spacing: 8) {
-                        ForEach(videos) { video in
-                            NavigationLink(destination: CoachVideoPlayerView(folder: folder, video: video)) {
-                                CoachVideoRow(video: video, onEditTags: onEditTags != nil ? { onEditTags?(video) } : nil)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    .padding()
-                }
-                .refreshable { await onRefresh() }
-            }
-        }
-    }
-}
-
-// MARK: - Video Row Component
-
-struct CoachVideoRow: View {
-    let video: CoachVideoItem
-    var onEditTags: (() -> Void)?
-
-    private var thumbnailPlaceholder: some View {
-        ZStack {
-            Rectangle().fill(Color.gray.opacity(0.3))
-            Image(systemName: "play.circle.fill")
-                .font(.title)
-                .foregroundColor(.white)
-        }
-    }
-    
-    var body: some View {
-        HStack(spacing: 12) {
-            // Thumbnail
-            ZStack {
-                if let urlString = video.thumbnailURL, let url = URL(string: urlString) {
-                    AsyncImage(url: url) { phase in
-                        switch phase {
-                        case .success(let image):
-                            image
-                                .resizable()
-                                .aspectRatio(16/9, contentMode: .fill)
-                        case .failure, .empty:
-                            thumbnailPlaceholder
-                        @unknown default:
-                            thumbnailPlaceholder
-                        }
-                    }
-                } else {
-                    thumbnailPlaceholder
-                }
-            }
-            .frame(width: 120, height: 68)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-            
-            VStack(alignment: .leading, spacing: 6) {
-                Text(video.fileName)
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-                    .lineLimit(2)
-                    .truncationMode(.tail)
-
-                HStack(spacing: 8) {
-                    Label(video.uploadedByName, systemImage: "person.fill")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    
-                    if let date = video.createdAt {
-                        Text("•")
-                            .foregroundColor(.secondary)
-                        Text(date.formatted(date: .abbreviated, time: .omitted))
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                }
-                
-                HStack(spacing: 8) {
-                    if let context = video.contextLabel {
-                        Text(context)
-                            .font(.caption2)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 2)
-                            .background(Color.brandNavy.opacity(0.1))
-                            .foregroundColor(.brandNavy)
-                            .cornerRadius(4)
-                    }
-
-                    if let count = video.annotationCount, count > 0 {
-                        Label("\(count)", systemImage: "bubble.left.fill")
-                            .font(.caption2)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 2)
-                            .background(Color.green.opacity(0.12))
-                            .foregroundColor(.green)
-                            .cornerRadius(4)
-                    }
-                }
-
-                // Tags
-                if !video.tags.isEmpty {
-                    HStack(spacing: 4) {
-                        ForEach(video.tags.prefix(3), id: \.self) { tag in
-                            Text(tag)
-                                .font(.caption2)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(Color.green.opacity(0.1))
-                                .foregroundColor(.green)
-                                .cornerRadius(4)
-                        }
-                        if video.tags.count > 3 {
-                            Text("+\(video.tags.count - 3)")
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                }
-            }
-
-            Spacer()
-        }
-        .padding()
-        .background(Color(.tertiarySystemBackground))
-        .cornerRadius(10)
-        .contextMenu {
-            if let onEditTags {
-                Button {
-                    onEditTags()
-                } label: {
-                    Label("Edit Tags", systemImage: "tag")
-                }
-            }
-        }
-    }
-}
-
-// MARK: - Empty State View
-
-struct EmptyFolderView: View {
-    let icon: String
-    let title: String
-    let message: String
-    
-    var body: some View {
-        VStack(spacing: 16) {
-            Image(systemName: icon)
-                .font(.system(size: 60))
-                .foregroundColor(.gray.opacity(0.5))
-            
-            Text(title)
-                .font(.headline)
-            
-            Text(message)
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-}
-
-// MARK: - View Model
-
-@MainActor
-class CoachFolderViewModel: ObservableObject {
-    let folder: SharedFolder
-    
-    @Published var videos: [CoachVideoItem] = []
-    @Published var isLoading = false
-    @Published var errorMessage: String?
-    
-    init(folder: SharedFolder) {
-        self.folder = folder
-    }
-    
-    /// Cached filtered arrays — updated whenever `videos` changes
-    // Coach tabs
-    @Published var cachedFromAthleteVideos: [CoachVideoItem] = []
-    @Published var cachedFromMeVideos: [CoachVideoItem] = []
-    // Athlete tabs (used by AthleteFoldersListView)
-    @Published var cachedGameVideos: [CoachVideoItem] = []
-    @Published var cachedInstructionVideos: [CoachVideoItem] = []
-
-    private var currentUserID: String? { Auth.auth().currentUser?.uid }
-
-    private func updateFilteredVideos() {
-        let myUID = currentUserID ?? ""
-        let sharedVideos = videos.filter { $0.visibility != "private" }
-
-        // Coach: From Athlete / From Me
-        cachedFromAthleteVideos = sharedVideos.filter { $0.uploadedBy != myUID }
-        cachedFromMeVideos = sharedVideos.filter { $0.uploadedBy == myUID }
-
-        // Athlete: Games / Instruction
-        cachedGameVideos = sharedVideos.filter { $0.videoType == "game" || $0.gameOpponent != nil }
-        cachedInstructionVideos = sharedVideos.filter { $0.videoType == "instruction" || $0.videoType == "practice" || ($0.practiceDate != nil && $0.gameOpponent == nil) }
-    }
-    
-    func loadVideos() async {
-        isLoading = true
-        defer { isLoading = false }
-
-        guard let folderID = folder.id else {
-            errorMessage = "Invalid folder"
-            return
-        }
-
-        do {
-            let firestoreVideos = try await FirestoreManager.shared.fetchVideos(forSharedFolder: folderID)
-
-            // Convert to CoachVideoItem, filtering out other coaches' private videos
-            let currentUserID = Auth.auth().currentUser?.uid
-            videos = firestoreVideos
-                .filter { video in
-                    // Show: shared videos, own private videos, legacy videos (no visibility)
-                    video.visibility != "private" || video.uploadedBy == currentUserID
-                }
-                .map { CoachVideoItem(from: $0) }
-                .sorted { ($0.createdAt ?? Date()) > ($1.createdAt ?? Date()) }
-            updateFilteredVideos()
-
-            // Pre-fetch signed URLs in background so tapping a video
-            // doesn't block on a Cloud Function round-trip (200-800ms).
-            // The 24-hour expiry makes this safe to do eagerly.
-            let fileNames = videos.map(\.fileName)
-            if !fileNames.isEmpty {
+                tagEditorDidSave = false
                 Task {
                     do {
-                        _ = try await SecureURLManager.shared.getBatchSecureVideoURLs(
-                            fileNames: fileNames,
-                            folderID: folderID
+                        try await FirestoreManager.shared.updateVideoTags(
+                            videoID: video.id,
+                            tags: editingTags,
+                            drillType: editingDrillType
                         )
                     } catch {
-                        ErrorHandlerService.shared.handle(error, context: "CoachFolderDetail.prefetchURLs", showAlert: false)
+                        ErrorHandlerService.shared.handle(error, context: "CoachFolderDetail.updateTags", showAlert: false)
                     }
+                    await viewModel.loadVideos()
                 }
+            }) {
+                VideoTagEditor(selectedTags: $editingTags, drillType: $editingDrillType, onSave: {
+                    tagEditorDidSave = true
+                })
             }
-
-        } catch {
-            errorMessage = "Failed to load videos: \(error.localizedDescription)"
-        }
     }
 }
 
-// MARK: - Video Item Model
+// MARK: - Folder Dialogs Modifier
 
-struct CoachVideoItem: Identifiable {
-    let id: String
-    let fileName: String
-    let firebaseStorageURL: String
-    let thumbnailURL: String?
-    let uploadedBy: String
-    let uploadedByName: String
-    let sharedFolderID: String
-    let createdAt: Date?
-    let fileSize: Int64?
-    let duration: Double?
-    let isHighlight: Bool
-    
-    // Context info
-    let videoType: String?
-    let gameOpponent: String?
-    let gameDate: Date?
-    let practiceDate: Date?
-    let notes: String?
-    let annotationCount: Int?
-    let tags: [String]
-    let drillType: String?
-    var visibility: String? = nil
+private struct FolderDialogsModifier: ViewModifier {
+    @Binding var showingPermissionError: Bool
+    @Binding var showingLeaveConfirmation: Bool
+    let permissionError: String?
+    let folderName: String
+    let onLeave: () -> Void
 
-    var contextLabel: String? {
-        if let opponent = gameOpponent {
-            return "Game vs \(opponent)"
-        } else if let _ = practiceDate {
-            return "Instruction"
-        }
-        return nil
-    }
-    
-    init(from metadata: FirestoreVideoMetadata) {
-        self.id = metadata.id ?? UUID().uuidString
-        self.fileName = metadata.fileName
-        self.firebaseStorageURL = metadata.firebaseStorageURL
-        self.thumbnailURL = metadata.thumbnail?.standardURL
-        self.uploadedBy = metadata.uploadedBy
-        self.uploadedByName = metadata.uploadedByName
-        self.sharedFolderID = metadata.sharedFolderID
-        self.createdAt = metadata.createdAt
-        self.fileSize = metadata.fileSize
-        self.duration = metadata.duration
-        self.isHighlight = metadata.isHighlight ?? false
-        
-        // Extract context info from metadata
-        self.videoType = metadata.videoType
-        self.gameOpponent = metadata.gameOpponent
-        self.gameDate = metadata.gameDate
-        self.practiceDate = metadata.practiceDate
-        self.notes = metadata.notes
-        self.annotationCount = metadata.annotationCount
-        self.tags = metadata.tags ?? []
-        self.drillType = metadata.drillType
-        self.visibility = metadata.visibility
+    func body(content: Content) -> some View {
+        content
+            .alert("Access Error", isPresented: $showingPermissionError) {
+                Button("OK") { }
+            } message: {
+                if let error = permissionError {
+                    Text(error)
+                }
+            }
+            .confirmationDialog("Leave \"\(folderName)\"?", isPresented: $showingLeaveConfirmation, titleVisibility: .visible) {
+                Button("Leave Folder", role: .destructive) { onLeave() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("You'll lose access to all videos in this folder. The athlete can re-invite you later.")
+            }
     }
 }
 
@@ -937,4 +523,5 @@ struct CoachVideoItem: Identifiable {
         )
     }
     .environmentObject(ComprehensiveAuthManager())
+    .environment(CoachNavigationCoordinator())
 }

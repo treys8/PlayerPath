@@ -26,13 +26,22 @@ There are **no automated tests** — no test targets exist in the project.
 
 ### App Entry & Navigation
 
-`PlayerPathApp.swift` → `ContentView.swift` → `PlayerPathMainView.swift` → `MainAppView.swift` (tab bar)
+`PlayerPathApp.swift` → `PlayerPathMainView` (defined in `MainAppView.swift`)
 
-Navigation is managed by `NavigationCoordinator` (Observable class) with deep linking via `DeepLinkIntent`. The app routes to different UIs based on user role (athlete vs coach).
+- **Unauthenticated:** → `WelcomeFlow` (in `Views/Auth/WelcomeFlow.swift`)
+- **Authenticated:** → `AuthenticatedFlow` → `UserMainFlow` (in `Views/Athletes/UserMainFlow.swift`)
+
+Two parallel tab bars based on user role:
+- **Athletes:** `MainTabView` — Home, Games, Videos, Stats, More
+- **Coaches:** `CoachTabView` — Dashboard, Athletes, Profile (managed by `CoachNavigationCoordinator`)
+
+Athlete navigation uses `NavigationCoordinator` (Observable class) with deep linking via `DeepLinkIntent`. Coach navigation uses `CoachNavigationCoordinator` (Observable class, in `Views/Coach/CoachNavigationCoordinator.swift`).
+
+Note: `ContentView.swift` exists but is dead code — `PlayerPathApp` goes directly to `PlayerPathMainView`.
 
 ### Data Layer
 
-- **SwiftData** for local persistence. Schema is versioned (V1–V9) in `PlayerPathSchema.swift` with lightweight migrations only.
+- **SwiftData** for local persistence. Schema is versioned (V1–V10) in `PlayerPathSchema.swift` with lightweight migrations only.
 - **Firebase Firestore** for cloud sync and shared data (coach folders, invitations, clip metadata).
 - **Local-first architecture**: `SyncCoordinator` handles bidirectional sync between SwiftData and Firestore using dirty flags and version numbers for conflict resolution.
 
@@ -40,21 +49,40 @@ Navigation is managed by `NavigationCoordinator` (Observable class) with deep li
 
 `User → Athlete → Season → Game/Practice → VideoClip → PlayResult`
 
-Models are defined in `Models.swift`. Supporting types: `AthleteStatistics`, `GameStatistics`, `Coach`, `Photo`. Firestore data types are in `FirestoreModels.swift`.
+Core models are defined in `Models.swift` with additional model files in `PlayerPath/Models/` (`Athlete.swift`, `Season.swift`, `VideoClip.swift`, `Coach.swift`, `Photo.swift`, `AthleteStatistics.swift`, `PlayResultType.swift`, `AnnotationModels.swift`). Firestore data types are in `FirestoreModels.swift`.
 
-### Key Services (in `PlayerPath/Services/`)
+### Key Services
 
+Some services live in `PlayerPath/Services/`, others at the `PlayerPath/` top level:
+
+**Top-level:**
 - `SyncCoordinator` — SwiftData ↔ Firestore bidirectional sync
 - `VideoCloudManager` — Firebase Storage uploads with progress tracking
-- `UploadQueueManager` — Background upload queue with exponential backoff retry (up to 10 retries)
 - `ClipPersistenceService` — Local video file management
 - `StoreKitManager` — Singleton (`StoreKitManager.shared`), `@MainActor`. Manages entitlements and subscription tiers
 - `ComprehensiveAuthManager` — Firebase Auth (email/password + Apple Sign In) + biometric auth
+- `SharedFolderManager` — Coach shared folder management with real-time Firestore listeners
+- `BiometricAuthenticationManager` — Face ID/Touch ID session locking
+- `PushNotificationService` — Push notification authorization and scheduling
+
+**In `PlayerPath/Services/`:**
+- `UploadQueueManager` — Background upload queue with exponential backoff retry (up to 10 retries)
 - `ErrorHandlerService` — Centralized error handling with OSLog, error history, analytics, haptic feedback, and view helpers (`reportError`, `reportWarning`, `saveContext`)
 - `AnalyticsService` — Firebase Analytics
 - `StatisticsService` — Batting/pitching stats calculations
 - `ConnectivityMonitor` — Network state observation
 - `RetryHelpers` — `withRetry()` and `retryAsync()` for async retry-with-backoff
+- `CoachSessionManager` — Live instruction session lifecycle and clip capture
+- `CoachVideoProcessingService` — Coach-side video processing pipeline
+- `CoachFolderArchiveManager` — Archiving/unarchiving coach folders
+- `CoachInvitationManager` — Coach-initiated invitation flow
+- `AthleteInvitationManager` — Athlete-initiated invitation flow
+- `SubscriptionGateService` — Centralized subscription tier gate checks
+- `CoachTemplateService` — Quick cue templates for coaches
+- `ClipCommentService` — Video comment CRUD
+- `ActivityNotificationService` — In-app activity notifications
+- `OnboardingManager` — Onboarding flow state management
+- `ReviewPromptManager` — App Store review prompt logic
 
 ### FirestoreManager
 
@@ -67,11 +95,13 @@ Models are defined in `Models.swift`. Supporting types: `AthleteStatistics`, `Ga
 - `FirestoreManager+Invitations.swift` — Both invitation flows (athlete→coach, coach→athlete)
 - `FirestoreManager+UserProfile.swift` — Profile CRUD + GDPR deletion + subscription sync
 - `FirestoreManager+EntitySync.swift` — Athletes/Seasons/Games/Practices/Notes/Photos/Coaches CRUD
-- `FirestoreModels.swift` — All Firestore data types (SharedFolder, FirestoreVideoMetadata, CoachInvitation, UserProfile, etc.)
+- `FirestoreManager+DrillCards.swift` — Drill card CRUD for videos
+- `FirestoreModels.swift` — All Firestore data types (SharedFolder, FirestoreVideoMetadata, CoachInvitation, UserProfile, CoachSession, etc.)
 
 ### Video Pipeline
 
-Recording: `VideoRecorderView_Refactored.swift` → `CameraViewModel.swift` → `ModernCameraView.swift` (AVFoundation)
+Recording (athlete): `VideoRecorderView_Refactored.swift` → `CameraViewModel.swift` → `ModernCameraView.swift` (AVFoundation)
+Recording (coach): `DirectCameraRecorderView.swift` — Standalone camera for session clip capture
 Upload: `ClipPersistenceService` → `UploadQueueManager` → `VideoCloudManager` → Firebase Storage
 Playback: `VideoPlayerView.swift` with `PlayResultOverlayView` for tagging and coach annotations
 
@@ -84,8 +114,9 @@ Product IDs and feature gates are in `SubscriptionModels.swift`. StoreKit config
 
 ### Firebase Backend
 
-- **Firestore collections:** `users/`, `sharedFolders/`, `invitations/`, `clips/`
-- **Security rules:** `firestore.rules` (~650 lines) with helper functions for auth/tier/permission checks
+- **Firestore collections:** `users/`, `sharedFolders/`, `videos/`, `invitations/`, `photos/`, `notifications/`, `coach_access_revocations/`, `coachTemplates/`, `coachSessions/`
+- **Subcollections:** `videos/{id}/comments/`, `videos/{id}/annotations/`, `videos/{id}/drillCards/`, `users/{id}/athletes/`, `users/{id}/seasons/`, `users/{id}/games/`, `users/{id}/practices/`
+- **Security rules:** `firestore.rules` (~500 lines) with helper functions for auth/tier/permission checks
 - **Cloud Functions:** `firebase/functions/src/index.ts` (Node.js) — email notifications via SendGrid, signed URL generation
 - **Config:** `GoogleService-Info.plist`
 
@@ -93,21 +124,24 @@ Product IDs and feature gates are in `SubscriptionModels.swift`. StoreKit config
 
 Views are organized by feature in `PlayerPath/Views/`:
 
+- `Views/Athletes/` — UserMainFlow, AthleteSelectionView, AthleteCard, AddAthleteView, AthleteStatBadge
 - `Views/Games/` — GameDetailView, GameRow, AddGameView, EditGameSheet, GameCreationView, VideoClipRow, ManualStatisticsEntryView, EmptyGamesView
 - `Views/Profile/` — SettingsView, StorageSettingsView, EditAccountView, NotificationSettingsView, ChangePasswordView, AthleteManagementView, SubscriptionView, HelpSupportView, AccountDeletionView, DataExportView, StatisticsExportView
 - `Views/Highlights/` — HighlightCard, SimpleCloudProgressView, SimpleCloudStorageView, AutoHighlightSettingsView, GameHighlightGroup
-- `Views/Dashboard/` — DashboardView
-- `Views/Navigation/` — MainTabView, AuthenticatedFlow
-- `Views/Auth/` — ComprehensiveSignInView
-- `Views/Onboarding/` — AthleteOnboardingFlow, CoachOnboardingFlow, OnboardingSeasonCreationView
-- `Views/Components/` — EnhancedVideoPlayer, AthleteInvitationsBanner, UploadStatisticsView
+- `Views/Dashboard/` — DashboardView, DashboardStatCard, DashboardFeatureCard, DashboardNextStepCard, DashboardPremiumFeatureCard, DashboardVideoThumbnail, LiveGameCard, QuickActionButton
+- `Views/Navigation/` — MainTabView, AuthenticatedFlow, KeyboardShortcuts
+- `Views/Auth/` — ComprehensiveSignInView, WelcomeFlow, ResetPasswordSheet, RoleSelectionButton
+- `Views/Onboarding/` — OnboardingFlow, AthleteOnboardingFlow, CoachOnboardingFlow, OnboardingSeasonCreationView, OnboardingStepIndicator, WelcomeTutorialView
+- `Views/Components/` — EnhancedVideoPlayer, AthleteInvitationsBanner, UploadStatisticsView, ClipCommentSection, VideoClipCard, UploadStatusBanner
 - `Views/Search/` — AdvancedSearchView
-- `Views/Stats/` — StatisticsChartsView
-- `Views/Photos/` — PhotosView, PhotoDetailView, PhotoTagSheet
-- `Views/Coach/` — InviteAthleteSheet
-- `Views/Coaches/` — InviteCoachSheet
+- `Views/Stats/` — StatisticsChartsView, BattingChartSection, PitchingStatsSection, DetailedStatsSection, KeyStatsSection, CareerSeasonComparisonSection, PlayResultsSection, EmptyStatisticsView, QuickStatisticsEntryView, ChartsPromptCard, GameSelectionForStatsView
+- `Views/Photos/` — PhotosView, PhotoDetailView, PhotoTagSheet, PhotoThumbnailCell
+- `Views/Coach/` — CoachTabView, CoachNavigationCoordinator, CoachAthletesTab, CoachDashboardComponents, CoachMultiAthleteView, StartSessionSheet, SessionAthletePickerOverlay, LiveSessionCard, ClipReviewSheet, DrillCardSummaryView, EnhancedAddNoteView, QuickCueManager, InviteAthleteSheet, CoachLimitPaywallSheet, CoachOverLimitBanner, VideoTagEditor, VideoTagFilterBar, QuickCueBar
+- `Views/Coaches/` — InviteCoachSheet, ShareToCoachFolderView, CoachRow, AddCoachView, CoachDetailView
 
 Main tab root views remain at the top level: `GamesView.swift`, `PracticesView.swift`, `ProfileView.swift`, `HighlightsView.swift`, `VideoClipsView.swift`, `StatisticsView.swift`.
+
+Top-level coach views: `CoachDashboardView.swift`, `CoachFolderDetailView.swift`, `CoachInvitationsView.swift`, `CoachPaywallView.swift`, `CoachProfileView.swift`, `CoachVideoPlayerView.swift`, `CoachVideoUploadView.swift`, `CoachesView.swift`, `DirectCameraRecorderView.swift`.
 
 ## Key Conventions
 

@@ -89,9 +89,9 @@ final class ClipCommentService {
         if let category { data["category"] = category }
 
         try await db
-            .collection("videos")
+            .collection(FC.videos)
             .document(clipId)
-            .collection("comments")
+            .collection(FC.comments)
             .addDocument(data: data)
 
         // Invalidate cache so next fetch picks up the new comment
@@ -108,9 +108,9 @@ final class ClipCommentService {
         }
 
         let snapshot = try await db
-            .collection("videos")
+            .collection(FC.videos)
             .document(clipId)
-            .collection("comments")
+            .collection(FC.comments)
             .order(by: "createdAt")
             .limit(to: 100)
             .getDocuments()
@@ -140,9 +140,9 @@ final class ClipCommentService {
         onUpdate: @escaping ([ClipComment]) -> Void
     ) -> ListenerRegistration {
         return db
-            .collection("videos")
+            .collection(FC.videos)
             .document(clipId)
-            .collection("comments")
+            .collection(FC.comments)
             .order(by: "createdAt")
             .limit(to: 100)
             .addSnapshotListener { snapshot, error in

@@ -8,22 +8,22 @@
 
 import SwiftUI
 import AVKit
-import Combine
 import CoreMedia
 
 @MainActor
-class CoachVideoPlayerViewModel: ObservableObject {
+@Observable
+class CoachVideoPlayerViewModel {
     let video: CoachVideoItem
     let folder: SharedFolder
 
-    @Published var player: AVPlayer?
-    @Published var isLoading = false
-    @Published var isPlayerReady = false
-    @Published var annotations: [VideoAnnotation] = []
-    @Published var isLoadingAnnotations = false
-    @Published var errorMessage: String?
-    @Published var playbackRate: Double = 1.0
-    @Published var videoDuration: Double?
+    var player: AVPlayer?
+    var isLoading = false
+    var isPlayerReady = false
+    var annotations: [VideoAnnotation] = []
+    var isLoadingAnnotations = false
+    var errorMessage: String?
+    var playbackRate: Double = 1.0
+    var videoDuration: Double?
     var shouldResumeOnActive = false
     private var durationTask: Task<Void, Never>?
     private var statusObservation: NSKeyValueObservation?
@@ -38,17 +38,12 @@ class CoachVideoPlayerViewModel: ObservableObject {
         self.folder = folder
     }
 
-    deinit {
-        statusObservation = nil
-    }
-
     // MARK: - Video Loading
 
     func loadVideo() async {
         isLoading = true
         isPlayerReady = false
 
-        // All videos use signed URLs; fallback to direct Storage URL on failure
         let playbackURLString: String
         do {
             playbackURLString = try await SecureURLManager.shared.getSecureVideoURL(
@@ -57,7 +52,9 @@ class CoachVideoPlayerViewModel: ObservableObject {
             )
         } catch {
             ErrorHandlerService.shared.handle(error, context: "CoachVideoPlayer.getSignedURL", showAlert: false)
-            playbackURLString = video.firebaseStorageURL
+            errorMessage = "Unable to load video. Please check your connection and try again."
+            isLoading = false
+            return
         }
 
         guard let url = URL(string: playbackURLString) else {
@@ -92,7 +89,8 @@ class CoachVideoPlayerViewModel: ObservableObject {
         isLoadingAnnotations = true
 
         do {
-            guard let videoID = video.id as String? else {
+            let videoID = video.id
+            guard !videoID.isEmpty else {
                 isLoadingAnnotations = false
                 return
             }
@@ -122,7 +120,8 @@ class CoachVideoPlayerViewModel: ObservableObject {
         category: String? = nil
     ) async {
         do {
-            guard let videoID = video.id as String? else { return }
+            let videoID = video.id
+            guard !videoID.isEmpty else { return }
 
             let annotation = try await FirestoreManager.shared.createAnnotation(
                 videoID: videoID,
@@ -177,7 +176,8 @@ class CoachVideoPlayerViewModel: ObservableObject {
 
     func deleteAnnotation(_ annotation: VideoAnnotation) async {
         do {
-            guard let videoID = video.id as String?,
+            let videoID = video.id
+            guard !videoID.isEmpty,
                   let annotationID = annotation.id else { return }
 
             try await FirestoreManager.shared.deleteAnnotation(videoID: videoID, annotationID: annotationID)

@@ -7,9 +7,9 @@
 //
 
 import SwiftUI
-import Combine
 import PhotosUI
 import AVFoundation
+import AVKit
 
 
 struct CoachVideoUploadView: View {
@@ -17,13 +17,13 @@ struct CoachVideoUploadView: View {
 
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
-    @StateObject private var viewModel: CoachVideoUploadViewModel
+    @State private var viewModel: CoachVideoUploadViewModel
     @FocusState private var focusedField: UploadField?
     enum UploadField: Hashable { case opponent, notes }
 
     init(folder: SharedFolder, defaultContext: VideoContext = .instruction) {
         self.folder = folder
-        _viewModel = StateObject(wrappedValue: CoachVideoUploadViewModel(folder: folder, defaultContext: defaultContext))
+        _viewModel = State(initialValue: CoachVideoUploadViewModel(folder: folder, defaultContext: defaultContext))
     }
     
     var body: some View {
@@ -47,7 +47,7 @@ struct CoachVideoUploadView: View {
                     Section("Selected Video") {
                         HStack {
                             Image(systemName: "checkmark.circle.fill")
-                                .foregroundColor(.green)
+                                .foregroundColor(.brandNavy)
                             Text("Video selected")
                             Spacer()
                             Button("Change") {
@@ -139,7 +139,6 @@ struct CoachVideoUploadView: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Upload") {
                         guard !viewModel.isUploading else { return }
-                        viewModel.isUploading = true
                         Task {
                             await uploadVideo()
                         }
@@ -171,7 +170,7 @@ struct CoachVideoUploadView: View {
                         VStack(spacing: 20) {
                             Image(systemName: "checkmark.circle.fill")
                                 .font(.system(size: 72))
-                                .foregroundColor(.green)
+                                .foregroundColor(.brandNavy)
                             Text("Upload Complete!")
                                 .font(.title2)
                                 .fontWeight(.bold)
@@ -224,24 +223,25 @@ enum VideoContext {
 // MARK: - View Model
 
 @MainActor
-class CoachVideoUploadViewModel: ObservableObject {
+@Observable
+class CoachVideoUploadViewModel {
     let folder: SharedFolder
-    
-    @Published var showingPhotoPicker = false
-    @Published var showingCamera = false
-    @Published var selectedPhotoItem: PhotosPickerItem?
-    @Published var selectedVideoURL: URL?
-    
-    @Published var videoContext: VideoContext = .instruction
-    @Published var gameOpponent: String = ""
-    @Published var contextDate: Date = Date()
-    @Published var notes: String = ""
-    @Published var isHighlight: Bool = false
-    
-    @Published var isUploading = false
-    @Published var uploadProgress: Double = 0.0
-    @Published var uploadComplete = false
-    @Published var errorMessage: String?
+
+    var showingPhotoPicker = false
+    var showingCamera = false
+    var selectedPhotoItem: PhotosPickerItem?
+    var selectedVideoURL: URL?
+
+    var videoContext: VideoContext = .instruction
+    var gameOpponent: String = ""
+    var contextDate: Date = Date()
+    var notes: String = ""
+    var isHighlight: Bool = false
+
+    var isUploading = false
+    var uploadProgress: Double = 0.0
+    var uploadComplete = false
+    var errorMessage: String?
     
     private var pickerTempURL: URL?
 
@@ -348,8 +348,13 @@ class CoachVideoUploadViewModel: ObservableObject {
                     ErrorHandlerService.shared.handle(error, context: "CoachVideoUpload.generateThumbnail", showAlert: false)
                 }
             } else {
+                ErrorHandlerService.shared.handle(
+                    NSError(domain: "CoachVideoUpload", code: -1, userInfo: [NSLocalizedDescriptionKey: "Thumbnail generation failed"]),
+                    context: "CoachVideoUpload.thumbnailGeneration",
+                    showAlert: false
+                )
             }
-            
+
             uploadProgress = 0.2
             
             // Step 3: Upload video (20% - 100% of progress)
@@ -365,13 +370,33 @@ class CoachVideoUploadViewModel: ObservableObject {
                 }
             )
             
+            // Extract file size and duration before creating metadata
+            let fileSize: Int64
+            do {
+                let attrs = try FileManager.default.attributesOfItem(atPath: videoURL.path)
+                fileSize = attrs[.size] as? Int64 ?? 0
+            } catch {
+                fileSize = 0
+            }
+
+            let duration: Double?
+            do {
+                let asset = AVURLAsset(url: videoURL)
+                let cmDuration = try await asset.load(.duration)
+                duration = cmDuration.seconds.isFinite ? cmDuration.seconds : nil
+            } catch {
+                duration = nil
+            }
+
             // Step 4: Create metadata in Firestore
             let metadata = createMetadata(
                 fileName: fileName,
                 storageURL: storageURL,
                 thumbnailURL: thumbnailURL,
                 uploaderID: uploaderID,
-                uploaderName: uploaderName
+                uploaderName: uploaderName,
+                fileSize: fileSize,
+                duration: duration
             )
             
             _ = try await FirestoreManager.shared.createVideoMetadata(
@@ -380,6 +405,7 @@ class CoachVideoUploadViewModel: ObservableObject {
             )
 
             // Notify the athlete (folder owner) that the coach added a video
+            // Note: coachIDs param is used as generic recipientIDs by the notification service
             await ActivityNotificationService.shared.postNewVideoNotification(
                 folderID: folderID,
                 folderName: folder.name,
@@ -407,7 +433,9 @@ class CoachVideoUploadViewModel: ObservableObject {
     }
     
     private func generateFileName() -> String {
-        let timestamp = Date().formatted(date: .numeric, time: .omitted).replacingOccurrences(of: "/", with: "-")
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withFullDate]
+        let timestamp = formatter.string(from: Date())
         let uid = UUID().uuidString.prefix(8)
 
         switch videoContext {
@@ -427,7 +455,9 @@ class CoachVideoUploadViewModel: ObservableObject {
         storageURL: String,
         thumbnailURL: String?,
         uploaderID: String,
-        uploaderName: String
+        uploaderName: String,
+        fileSize: Int64 = 0,
+        duration: Double? = nil
     ) -> [String: Any] {
         var metadata: [String: Any] = [
             "fileName": fileName,
@@ -439,6 +469,13 @@ class CoachVideoUploadViewModel: ObservableObject {
             "isHighlight": isHighlight,
             "createdAt": Date()
         ]
+
+        if fileSize > 0 {
+            metadata["fileSize"] = fileSize
+        }
+        if let duration {
+            metadata["duration"] = duration
+        }
         
         // Add thumbnail URL if available
         if let thumbnailURL = thumbnailURL {

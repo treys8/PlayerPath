@@ -8,13 +8,13 @@
 //
 
 import Foundation
-import Combine
 
 @MainActor
-class CoachFolderArchiveManager: ObservableObject {
+@Observable
+class CoachFolderArchiveManager {
     static let shared = CoachFolderArchiveManager()
 
-    @Published private(set) var archivedFolderIDs: Set<String> = []
+    private(set) var archivedFolderIDs: Set<String> = []
 
     private var coachUID: String = ""
     private var defaultsKey: String { "archivedCoachFolders_\(coachUID)" }

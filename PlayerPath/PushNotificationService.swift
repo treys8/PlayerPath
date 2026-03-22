@@ -483,7 +483,7 @@ final class PushNotificationService: NSObject, ObservableObject {
             // If the token rotated, remove the old one first so stale tokens don't accumulate.
             if let old = previousToken, old != token {
                 do {
-                    try await db.collection("users").document(userID).updateData([
+                    try await db.collection(FC.users).document(userID).updateData([
                         "deviceTokens": FieldValue.arrayRemove([old])
                     ])
                 } catch {
@@ -491,7 +491,7 @@ final class PushNotificationService: NSObject, ObservableObject {
                 }
             }
 
-            try await db.collection("users").document(userID).setData([
+            try await db.collection(FC.users).document(userID).setData([
                 "deviceTokens": FieldValue.arrayUnion([token]),
                 "deviceTokenUpdatedAt": FieldValue.serverTimestamp(),
                 "platform": "ios"
@@ -515,7 +515,7 @@ final class PushNotificationService: NSObject, ObservableObject {
 
         let db = Firestore.firestore()
         do {
-            try await db.collection("users").document(userID).updateData([
+            try await db.collection(FC.users).document(userID).updateData([
                 "deviceTokens": FieldValue.arrayRemove([token])
             ])
             logger.info("Removed device token from Firestore for user \(userID, privacy: .private)")

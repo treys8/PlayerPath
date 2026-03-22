@@ -1,6 +1,9 @@
 import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
 import { Resend } from 'resend';
+import { SignedDataVerifier, Environment, AppTransaction } from '@apple/app-store-server-library';
+import * as fs from 'fs';
+import * as path from 'path';
 
 // Initialize Firebase Admin
 admin.initializeApp();
@@ -1250,23 +1253,25 @@ export const syncSubscriptionTier = functions.https.onCall(async (data, context)
     throw new functions.https.HttpsError('invalid-argument', 'Receipt data is required');
   }
 
-  // --- App Store Receipt Validation ---
-  // TODO: Set the shared secret in .env:
-  //   APPSTORE_SHARED_SECRET=YOUR_SHARED_SECRET
-  const sharedSecret = process.env.APPSTORE_SHARED_SECRET
-      || functions.config()?.appstore?.shared_secret;
-
-  if (!sharedSecret) {
-    console.error('❌ APPSTORE_SHARED_SECRET is not configured. Rejecting tier sync. '
-      + 'Set APPSTORE_SHARED_SECRET in your Firebase environment.');
-    throw new functions.https.HttpsError('failed-precondition',
-      'Server configuration error. Please try again later.');
+  // --- StoreKit 2 JWS Token Verification ---
+  // The client sends AppTransaction.shared.jwsRepresentation (a signed JWT from Apple).
+  // We verify the signature chain against Apple's root certificates to ensure it's genuine.
+  let appTransaction: AppTransaction;
+  try {
+    appTransaction = await verifyAppTransaction(receiptData);
+  } catch (error) {
+    console.error(`❌ App Store verification failed for ${uid}:`, error);
+    throw new functions.https.HttpsError(
+      error instanceof Error && error.message.includes('APP_APPLE_ID')
+        ? 'failed-precondition'
+        : 'permission-denied',
+      error instanceof Error && error.message.includes('APP_APPLE_ID')
+        ? 'Server configuration error. Please try again later.'
+        : 'Invalid App Store transaction token'
+    );
   }
 
-  const isValid = await validateAppStoreReceipt(receiptData, sharedSecret);
-  if (!isValid) {
-    throw new functions.https.HttpsError('permission-denied', 'Invalid App Store receipt');
-  }
+  console.log(`✅ Verified AppTransaction for ${uid}: bundleId=${appTransaction.bundleId}`);
 
   // Build the Firestore update
   const updateData: Record<string, any> = {
@@ -1328,9 +1333,9 @@ export const enforceAthleteLimit = functions.firestore
       };
       const limit = tierLimits[tier] ?? 1;
 
-      // Count existing athletes (including the one just created)
+      // Count existing athletes (excluding soft-deleted ones)
       const athletesSnap = await db.collection('users').doc(uid)
-        .collection('athletes').get();
+        .collection('athletes').where('isDeleted', '!=', true).get();
       const count = athletesSnap.size;
 
       if (count > limit) {
@@ -1497,43 +1502,63 @@ export const enforceCoachAthleteLimitOnAccept = functions.firestore
     }
   });
 
+// App bundle ID — must match the client app's bundle identifier
+const APP_BUNDLE_ID = 'RZR.DT3';
+
+// Apple App ID (numeric) — required for production verification.
+// Find this in App Store Connect → General → App Information → Apple ID.
+// Set via environment variable; optional in sandbox mode.
+const APP_APPLE_ID = process.env.APP_APPLE_ID
+    ? parseInt(process.env.APP_APPLE_ID, 10)
+    : undefined;
+
 /**
- * Validates an App Store receipt with Apple's verifyReceipt endpoint.
- * Tries production first, then falls back to sandbox on status 21007.
+ * Loads Apple root certificates from the certs/ directory.
+ * These are used to verify that JWS tokens were signed by Apple.
  */
-async function validateAppStoreReceipt(receiptData: string, sharedSecret: string): Promise<boolean> {
-  const payload = JSON.stringify({
-    'receipt-data': receiptData,
-    'password': sharedSecret,
-    'exclude-old-transactions': true,
-  });
+function loadAppleRootCAs(): Buffer[] {
+  const certsDir = path.join(__dirname, '..', 'certs');
+  const certFiles = ['AppleIncRootCertificate.cer', 'AppleRootCA-G2.cer', 'AppleRootCA-G3.cer'];
+  return certFiles.map(file => fs.readFileSync(path.join(certsDir, file)));
+}
 
-  try {
-    // Try production first
-    let response = await fetch('https://buy.itunes.apple.com/verifyReceipt', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: payload,
-    });
+/**
+ * Creates a SignedDataVerifier for validating Apple JWS tokens.
+ * Determines environment from the FUNCTIONS_EMULATOR env var and APP_APPLE_ID presence.
+ *
+ * IMPORTANT: In production, APP_APPLE_ID must be set or verification will fail.
+ * Set it via: firebase functions:secrets:set APP_APPLE_ID
+ * Find it in App Store Connect → General → App Information → Apple ID (numeric).
+ */
+function createVerifier(): SignedDataVerifier {
+  const rootCAs = loadAppleRootCAs();
+  const isEmulator = !!process.env.FUNCTIONS_EMULATOR;
 
-    let result = await response.json() as any;
-
-    // Status 21007 means the receipt is from the sandbox environment
-    if (result.status === 21007) {
-      response = await fetch('https://sandbox.itunes.apple.com/verifyReceipt', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: payload,
-      });
-      result = await response.json() as any;
-    }
-
-    // Status 0 means the receipt is valid
-    return result.status === 0;
-  } catch (error) {
-    console.error('App Store receipt validation error:', error);
-    return false;
+  if (!isEmulator && APP_APPLE_ID === undefined) {
+    // Fail loudly in production — sandbox verification would reject all real tokens
+    throw new Error(
+      'APP_APPLE_ID environment variable is required in production. '
+      + 'Set it to your numeric Apple ID from App Store Connect.'
+    );
   }
+
+  const environment = isEmulator ? Environment.SANDBOX : Environment.PRODUCTION;
+  return new SignedDataVerifier(rootCAs, true, environment, APP_BUNDLE_ID, APP_APPLE_ID);
+}
+
+/**
+ * Verifies and decodes a StoreKit 2 AppTransaction JWS token.
+ * Returns the decoded AppTransaction if valid, null if invalid.
+ */
+async function verifyAppTransaction(jwsToken: string): Promise<AppTransaction> {
+  // createVerifier() throws if APP_APPLE_ID is missing in production — let it propagate
+  const verifier = createVerifier();
+  const decoded = await verifier.verifyAndDecodeAppTransaction(jwsToken);
+  // Verify bundle ID matches (bundleId is optional in the type but always present in practice)
+  if (!decoded.bundleId || decoded.bundleId !== APP_BUNDLE_ID) {
+    throw new Error(`Bundle ID mismatch: expected ${APP_BUNDLE_ID}, got ${decoded.bundleId ?? 'undefined'}`);
+  }
+  return decoded;
 }
 
 /**

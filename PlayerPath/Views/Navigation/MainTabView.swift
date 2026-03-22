@@ -38,7 +38,7 @@ struct MainTabView: View {
     @State private var statsAthleteID: UUID?
 
     enum MoreDestination: Hashable {
-        case practice, highlights, seasons, photos, coaches
+        case practice, highlights, seasons, photos, coaches, sharedFolders
     }
     
     // NotificationCenter observer management using StateObject for lifecycle safety
@@ -427,6 +427,25 @@ struct MainTabView: View {
                         }
                         .foregroundColor(.primary)
                     }
+                    NavigationLink(value: MoreDestination.sharedFolders) {
+                        Label {
+                            HStack {
+                                Text("Shared Folders")
+                                if authManager.currentTier != .pro {
+                                    Text("PRO")
+                                        .font(.caption2)
+                                        .fontWeight(.bold)
+                                        .foregroundColor(.orange)
+                                        .padding(.horizontal, 5)
+                                        .padding(.vertical, 2)
+                                        .background(Capsule().fill(.orange.opacity(0.12)))
+                                }
+                            }
+                        } icon: {
+                            Image(systemName: "folder.badge.person.crop")
+                        }
+                        .foregroundColor(.primary)
+                    }
                 }
 
             }
@@ -443,6 +462,8 @@ struct MainTabView: View {
                     PhotosView(athlete: selectedAthlete).id(selectedAthlete.id)
                 case .coaches:
                     CoachesView(athlete: selectedAthlete).id(selectedAthlete.id).proRequired()
+                case .sharedFolders:
+                    AthleteFoldersListView(userID: authManager.userID).proRequired()
                 }
             }
         }

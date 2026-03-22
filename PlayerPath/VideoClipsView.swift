@@ -41,6 +41,9 @@ struct VideoClipsView: View {
     // Delete guard
     @State private var isDeleting = false
 
+    // Debounce for search-driven filtering
+    @State private var filterDebounceTask: Task<Void, Never>?
+
     // Post-import tagging
     @State private var clipToTag: VideoClip?
     @State private var isAwaitingImportedClip = false
@@ -170,6 +173,16 @@ struct VideoClipsView: View {
         }
 
         return parts.isEmpty ? "your filters" : parts.joined(separator: ", ")
+    }
+
+    /// Debounce search-driven filter updates so typing doesn't block the main thread on every keystroke.
+    private func debouncedFilterUpdate() {
+        filterDebounceTask?.cancel()
+        filterDebounceTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(250))
+            guard !Task.isCancelled else { return }
+            updateFilteredVideos()
+        }
     }
 
     private func clearAllFilters() {
@@ -359,11 +372,13 @@ struct VideoClipsView: View {
                 Haptics.light()
             }
         }
+        .task {
+            updateAvailableSeasons()
+            updateFilteredVideos()
+        }
         .onAppear {
             // Tell MainTabView that Videos manages its own controls
             NotificationCenter.default.post(name: .videosManageOwnControls, object: true)
-            updateAvailableSeasons()
-            updateFilteredVideos()
         }
         .onDisappear {
             // Reset when leaving Videos tab
@@ -371,7 +386,7 @@ struct VideoClipsView: View {
             liveGameContext = nil
         }
         .onChange(of: searchText) { _, _ in
-            updateFilteredVideos()
+            debouncedFilterUpdate()
         }
         .onChange(of: selectedSeasonFilter) { _, _ in
             updateFilteredVideos()

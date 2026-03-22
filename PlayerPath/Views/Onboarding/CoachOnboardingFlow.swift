@@ -45,7 +45,7 @@ struct CoachOnboardingFlow: View {
             HStack(spacing: 8) {
                 ForEach(0..<totalPages, id: \.self) { index in
                     Capsule()
-                        .fill(index == currentPage ? Color.green : Color.green.opacity(0.3))
+                        .fill(index == currentPage ? Color.brandNavy : Color.brandNavy.opacity(0.3))
                         .frame(width: index == currentPage ? 24 : 8, height: 8)
                         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: currentPage)
                 }
@@ -104,7 +104,7 @@ private struct CoachWelcomePage: View {
                 // Icon
                 ZStack {
                     Circle()
-                        .fill(Color.green.opacity(0.15))
+                        .fill(Color.brandNavy.opacity(0.15))
                         .frame(width: 180, height: 180)
                         .blur(radius: 30)
 
@@ -112,7 +112,7 @@ private struct CoachWelcomePage: View {
                         Circle()
                             .fill(
                                 LinearGradient(
-                                    colors: [Color.green.opacity(0.25), Color.teal.opacity(0.15)],
+                                    colors: [Color.brandNavy.opacity(0.25), Color.brandNavy.opacity(0.15)],
                                     startPoint: .topLeading,
                                     endPoint: .bottomTrailing
                                 )
@@ -120,14 +120,14 @@ private struct CoachWelcomePage: View {
                             .frame(width: 130, height: 130)
                             .overlay(
                                 Circle()
-                                    .stroke(Color.green.opacity(0.4), lineWidth: 1)
+                                    .stroke(Color.brandNavy.opacity(0.4), lineWidth: 1)
                             )
 
                         Image(systemName: "megaphone.fill")
                             .font(.system(size: 58))
                             .foregroundStyle(
                                 LinearGradient(
-                                    colors: [.green, .teal],
+                                    colors: [.brandNavy, .brandNavy.opacity(0.7)],
                                     startPoint: .topLeading,
                                     endPoint: .bottomTrailing
                                 )
@@ -165,9 +165,9 @@ private struct CoachWelcomePage: View {
                 HStack(spacing: 14) {
                     Image(systemName: "person.fill.checkmark")
                         .font(.title3)
-                        .foregroundColor(.green)
+                        .foregroundColor(.brandNavy)
                         .frame(width: 40, height: 40)
-                        .background(Color.green.opacity(0.15))
+                        .background(Color.brandNavy.opacity(0.15))
                         .clipShape(Circle())
 
                     VStack(alignment: .leading, spacing: 2) {
@@ -212,13 +212,13 @@ private struct CoachWelcomePage: View {
                     .frame(height: 56)
                     .background(
                         LinearGradient(
-                            colors: [.green, Color(red: 0.2, green: 0.85, blue: 0.55)],
+                            colors: [.brandNavy, Color(red: 0.2, green: 0.85, blue: 0.55)],
                             startPoint: .leading,
                             endPoint: .trailing
                         )
                     )
                     .clipShape(RoundedRectangle(cornerRadius: 16))
-                    .shadow(color: .green.opacity(0.5), radius: 16, x: 0, y: 8)
+                    .shadow(color: .brandNavy.opacity(0.5), radius: 16, x: 0, y: 8)
                 }
                 .buttonStyle(.plain)
                 .padding(.horizontal, 24)
@@ -241,7 +241,7 @@ private struct CoachHowItWorksPage: View {
 
     private let steps: [(icon: String, color: Color, title: String, detail: String)] = [
         ("envelope.fill",         .brandNavy,   "Athlete Sends an Invite",   "An athlete adds your email address to share their folder with you."),
-        ("checkmark.seal.fill",   .green,  "You Accept the Invitation", "Open your Dashboard and tap the invitation to accept. You're in."),
+        ("checkmark.seal.fill",   .brandNavy,  "You Accept the Invitation", "Open your Dashboard and tap the invitation to accept. You're in."),
         ("video.fill",            .purple, "Review Their Videos",        "Browse game and practice clips organized by the athlete."),
         ("bubble.left.fill",      .orange, "Leave Coaching Feedback",    "Annotate videos with timestamps and written notes athletes can act on."),
     ]
@@ -366,13 +366,13 @@ private struct CoachHowItWorksPage: View {
                     .frame(height: 56)
                     .background(
                         LinearGradient(
-                            colors: [.green, Color(red: 0.2, green: 0.85, blue: 0.55)],
+                            colors: [.brandNavy, Color(red: 0.2, green: 0.85, blue: 0.55)],
                             startPoint: .leading,
                             endPoint: .trailing
                         )
                     )
                     .clipShape(RoundedRectangle(cornerRadius: 16))
-                    .shadow(color: .green.opacity(0.5), radius: 16, x: 0, y: 8)
+                    .shadow(color: .brandNavy.opacity(0.5), radius: 16, x: 0, y: 8)
                 }
                 .buttonStyle(.plain)
                 .padding(.horizontal, 24)
@@ -419,24 +419,24 @@ private struct CoachReadyPage: View {
                 VStack(spacing: 20) {
                     ZStack {
                         Circle()
-                            .fill(Color.green.opacity(0.15))
+                            .fill(Color.brandNavy.opacity(0.15))
                             .frame(width: 120, height: 120)
                             .blur(radius: 20)
 
                         ZStack {
                             Circle()
-                                .fill(Color.green.opacity(0.2))
+                                .fill(Color.brandNavy.opacity(0.2))
                                 .frame(width: 90, height: 90)
                                 .overlay(
                                     Circle()
-                                        .stroke(Color.green.opacity(0.4), lineWidth: 1)
+                                        .stroke(Color.brandNavy.opacity(0.4), lineWidth: 1)
                                 )
 
                             Image(systemName: "checkmark.seal.fill")
                                 .font(.system(size: 44))
                                 .foregroundStyle(
                                     LinearGradient(
-                                        colors: [.green, .teal],
+                                        colors: [.brandNavy, .brandNavy.opacity(0.7)],
                                         startPoint: .topLeading,
                                         endPoint: .bottomTrailing
                                     )
@@ -472,9 +472,9 @@ private struct CoachReadyPage: View {
                         HStack(spacing: 14) {
                             Image(systemName: item.icon)
                                 .font(.system(size: 15, weight: .semibold))
-                                .foregroundColor(.green)
+                                .foregroundColor(.brandNavy)
                                 .frame(width: 32, height: 32)
-                                .background(Color.green.opacity(0.12))
+                                .background(Color.brandNavy.opacity(0.12))
                                 .clipShape(RoundedRectangle(cornerRadius: 8))
 
                             Text(item.text)
@@ -517,13 +517,13 @@ private struct CoachReadyPage: View {
                     .frame(height: 56)
                     .background(
                         LinearGradient(
-                            colors: [.green, Color(red: 0.2, green: 0.85, blue: 0.55)],
+                            colors: [.brandNavy, Color(red: 0.2, green: 0.85, blue: 0.55)],
                             startPoint: .leading,
                             endPoint: .trailing
                         )
                     )
                     .clipShape(RoundedRectangle(cornerRadius: 16))
-                    .shadow(color: .green.opacity(0.5), radius: 16, x: 0, y: 8)
+                    .shadow(color: .brandNavy.opacity(0.5), radius: 16, x: 0, y: 8)
                 }
                 .buttonStyle(.plain)
                 .padding(.horizontal, 24)

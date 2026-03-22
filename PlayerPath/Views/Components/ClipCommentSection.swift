@@ -4,8 +4,6 @@
 //
 //  Reusable view that displays coach comments on a VideoClip.
 //  Loads from ClipCommentService on appear.
-//  Silent empty state — nothing shown when there are no comments,
-//  so Free/Plus users with no coach see nothing.
 //
 
 import SwiftUI
@@ -48,7 +46,18 @@ struct ClipCommentSection: View {
                 .onTapGesture {
                     Task { await loadComments() }
                 }
-            } else if !coachComments.isEmpty {
+            } else if coachComments.isEmpty {
+                HStack(spacing: 6) {
+                    Image(systemName: "text.bubble")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text("No coach feedback yet")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+            } else {
                 VStack(alignment: .leading, spacing: 6) {
                     ForEach(coachComments) { comment in
                         CoachCommentRow(comment: comment)

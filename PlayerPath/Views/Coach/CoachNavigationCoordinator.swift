@@ -11,15 +11,13 @@ import SwiftUI
 enum CoachTab: Int, CaseIterable {
     case dashboard = 0
     case athletes = 1
-    case recordings = 2
-    case profile = 3
+    case profile = 2
 
     var title: String {
         switch self {
         case .dashboard: return "Dashboard"
         case .athletes: return "Athletes"
-        case .recordings: return "Recordings"
-        case .profile: return "Profile"
+        case .profile: return "More"
         }
     }
 
@@ -27,8 +25,7 @@ enum CoachTab: Int, CaseIterable {
         switch self {
         case .dashboard: return "house.fill"
         case .athletes: return "figure.baseball"
-        case .recordings: return "video.fill"
-        case .profile: return "gearshape"
+        case .profile: return "ellipsis.circle.fill"
         }
     }
 }
@@ -43,7 +40,11 @@ class CoachNavigationCoordinator {
     // Pending navigation actions (resolved after folder data loads)
     var pendingFolderID: String?
 
-    func navigateToFolder(_ folderID: String, folders: [SharedFolder]) {
+    /// When set, the next CoachFolderDetailView for this folder should open on this tab.
+    var pendingFolderTab: (folderID: String, tab: CoachFolderDetailView.FolderTab)?
+
+    func navigateToFolder(_ folderID: String, folders: [SharedFolder], initialTab: CoachFolderDetailView.FolderTab? = nil) {
+        pendingFolderTab = initialTab.map { (folderID: folderID, tab: $0) }
         if let folder = folders.first(where: { $0.id == folderID }) {
             selectedTab = .athletes
             // Reset path then push folder on next tick so tab switch completes first
@@ -60,10 +61,6 @@ class CoachNavigationCoordinator {
 
     func navigateToInvitations() {
         selectedTab = .profile
-    }
-
-    func navigateToRecordings() {
-        selectedTab = .recordings
     }
 
     /// Called when coach folders finish loading to resolve any pending navigation.

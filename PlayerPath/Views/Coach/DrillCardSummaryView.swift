@@ -15,7 +15,7 @@ struct DrillCardSummaryView: View {
             // Header
             HStack {
                 Image(systemName: "clipboard.fill")
-                    .foregroundColor(.green)
+                    .foregroundColor(.brandNavy)
                 Text(card.template?.displayName ?? "Drill Card")
                     .font(.headline)
                 Spacer()

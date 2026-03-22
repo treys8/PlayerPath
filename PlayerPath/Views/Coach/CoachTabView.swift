@@ -3,31 +3,24 @@
 //  PlayerPath
 //
 //  Root tab bar view for coaches. Mirrors MainTabView for athletes
-//  with four tabs: Dashboard, Athletes, Recordings, Profile.
+//  with three tabs: Dashboard, Athletes, Profile.
 //
 
 import SwiftUI
 
 struct CoachTabView: View {
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
-    @EnvironmentObject private var sharedFolderManager: SharedFolderManager
+    private var sharedFolderManager: SharedFolderManager { .shared }
     @State private var coordinator = CoachNavigationCoordinator()
-    @ObservedObject private var invitationManager = CoachInvitationManager.shared
+    private var invitationManager: CoachInvitationManager { .shared }
     @ObservedObject private var activityNotifService = ActivityNotificationService.shared
     @StateObject private var notificationManager = NotificationObserverManager()
     @State private var hasRunInitialSetup = false
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     var body: some View {
-        TabView(selection: Binding(
-            get: { coordinator.selectedTab.rawValue },
-            set: { if let tab = CoachTab(rawValue: $0) { coordinator.selectedTab = tab } }
-        )) {
-            dashboardTab
-            athletesTab
-            recordingsTab
-            profileTab
-        }
-        .tint(.green)
+        tabViewContent
+        .tint(.brandNavy)
         .task {
             coordinator.restoreSelectedTab()
             setupNotificationObservers()
@@ -56,6 +49,33 @@ struct CoachTabView: View {
             coordinator.resolvePendingNavigation(folders: folders)
         }
         .environment(coordinator)
+        .addKeyboardShortcuts()
+    }
+
+    // MARK: - Tab View Content
+
+    @ViewBuilder
+    private var tabViewContent: some View {
+        if horizontalSizeClass == .regular {
+            TabView(selection: Binding(
+                get: { coordinator.selectedTab.rawValue },
+                set: { if let tab = CoachTab(rawValue: $0) { coordinator.selectedTab = tab } }
+            )) {
+                dashboardTab
+                athletesTab
+                profileTab
+            }
+            .tabViewStyle(.sidebarAdaptable)
+        } else {
+            TabView(selection: Binding(
+                get: { coordinator.selectedTab.rawValue },
+                set: { if let tab = CoachTab(rawValue: $0) { coordinator.selectedTab = tab } }
+            )) {
+                dashboardTab
+                athletesTab
+                profileTab
+            }
+        }
     }
 
     // MARK: - Tabs
@@ -69,6 +89,8 @@ struct CoachTabView: View {
         }
         .tag(CoachTab.dashboard.rawValue)
         .badge(activityNotifService.unreadCount > 0 ? activityNotifService.unreadCount : 0)
+        .accessibilityLabel("Home tab")
+        .accessibilityHint("View your dashboard and quick actions")
     }
 
     private var athletesTab: some View {
@@ -83,16 +105,8 @@ struct CoachTabView: View {
         }
         .tag(CoachTab.athletes.rawValue)
         .badge(invitationManager.pendingInvitationsCount > 0 ? invitationManager.pendingInvitationsCount : 0)
-    }
-
-    private var recordingsTab: some View {
-        NavigationStack {
-            CoachRecordingsTab()
-        }
-        .tabItem {
-            Label(CoachTab.recordings.title, systemImage: CoachTab.recordings.icon)
-        }
-        .tag(CoachTab.recordings.rawValue)
+        .accessibilityLabel("Athletes tab")
+        .accessibilityHint("View and manage connected athletes")
     }
 
     private var profileTab: some View {
@@ -103,6 +117,8 @@ struct CoachTabView: View {
             Label(CoachTab.profile.title, systemImage: CoachTab.profile.icon)
         }
         .tag(CoachTab.profile.rawValue)
+        .accessibilityLabel("More tab")
+        .accessibilityHint("Access settings, invitations, and account")
     }
 
     // MARK: - Notification Observers
@@ -134,11 +150,5 @@ struct CoachTabView: View {
             }
         }
 
-        notificationManager.observe(name: .navigateToCoachRecordings) { _ in
-            MainActor.assumeIsolated {
-                coordinator.navigateToRecordings()
-                Haptics.light()
-            }
-        }
     }
 }

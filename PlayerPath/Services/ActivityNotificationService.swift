@@ -76,9 +76,9 @@ final class ActivityNotificationService: ObservableObject {
         stopListening()
 
         listener = db
-            .collection("notifications")
+            .collection(FC.notifications)
             .document(userID)
-            .collection("items")
+            .collection(FC.items)
             .order(by: "createdAt", descending: true)
             .limit(to: 50)
             .addSnapshotListener { [weak self] snapshot, error in
@@ -142,7 +142,7 @@ final class ActivityNotificationService: ObservableObject {
         let batch = db.batch()
         for n in unread {
             guard let id = n.id else { continue }
-            let ref = db.collection("notifications").document(userID).collection("items").document(id)
+            let ref = db.collection(FC.notifications).document(userID).collection(FC.items).document(id)
             batch.updateData(["isRead": true], forDocument: ref)
         }
         do {
@@ -154,9 +154,9 @@ final class ActivityNotificationService: ObservableObject {
 
     func markRead(_ notifID: String, forUserID userID: String) async {
         do {
-            try await db.collection("notifications")
+            try await db.collection(FC.notifications)
                 .document(userID)
-                .collection("items")
+                .collection(FC.items)
                 .document(notifID)
                 .updateData(["isRead": true])
         } catch {
@@ -301,6 +301,30 @@ final class ActivityNotificationService: ObservableObject {
         await writeNotification(data, toUserIDs: [coachUserID])
     }
 
+    /// Coach creates a drill card on a video → notify the athlete who owns the folder.
+    func postDrillCardNotification(
+        videoFileName: String,
+        folderID: String,
+        videoID: String,
+        coachID: String,
+        coachName: String,
+        athleteID: String,
+        templateName: String
+    ) async {
+        let data: [String: Any] = [
+            "type": ActivityNotification.NotificationType.coachComment.rawValue,
+            "title": "New Drill Card",
+            "body": "\(coachName) added a \(templateName) to \(videoFileName)",
+            "senderName": coachName,
+            "senderID": coachID,
+            "targetID": videoID,
+            "targetType": ActivityNotification.TargetType.video.rawValue,
+            "isRead": false,
+            "createdAt": FieldValue.serverTimestamp()
+        ]
+        await writeNotification(data, toUserIDs: [athleteID])
+    }
+
     /// Athlete revokes coach access → notify coach.
     func postAccessRevokedNotification(
         folderID: String,
@@ -335,9 +359,9 @@ final class ActivityNotificationService: ObservableObject {
         let batch = db.batch()
         for userID in recipients {
             let ref = db
-                .collection("notifications")
+                .collection(FC.notifications)
                 .document(userID)
-                .collection("items")
+                .collection(FC.items)
                 .document()
             batch.setData(data, forDocument: ref)
         }
@@ -354,7 +378,7 @@ final class ActivityNotificationService: ObservableObject {
     /// Returns nil if the coach hasn't signed up yet.
     func lookupUserID(byEmail email: String) async -> String? {
         do {
-            let snapshot = try await db.collection("users")
+            let snapshot = try await db.collection(FC.users)
                 .whereField("email", isEqualTo: email.lowercased())
                 .limit(to: 1)
                 .getDocuments()

@@ -19,7 +19,6 @@ struct DrillCardView: View {
     @State private var categories: [DrillCardCategory] = []
     @State private var overallRating: Int?
     @State private var summary = ""
-    @State private var isVisibleToAthlete = false
     @State private var isSaving = false
 
     var body: some View {
@@ -77,12 +76,6 @@ struct DrillCardView: View {
                         .lineLimit(3...6)
                 }
 
-                // Visibility
-                Section {
-                    Toggle("Visible to Athlete", isOn: $isVisibleToAthlete)
-                } footer: {
-                    Text("When enabled, the athlete can see this drill card.")
-                }
             }
             .navigationTitle(existingCard != nil ? "Edit Drill Card" : "New Drill Card")
             .navigationBarTitleDisplayMode(.inline)
@@ -103,7 +96,6 @@ struct DrillCardView: View {
                     categories = card.categories
                     overallRating = card.overallRating
                     summary = card.summary ?? ""
-                    isVisibleToAthlete = card.isVisibleToAthlete
                 } else {
                     categories = selectedTemplate.defaultCategories.map {
                         DrillCardCategory(name: $0, rating: 3)
@@ -123,16 +115,14 @@ struct DrillCardView: View {
                         cardID: cardID,
                         categories: categories,
                         overallRating: overallRating,
-                        summary: summary.isEmpty ? nil : summary,
-                        isVisibleToAthlete: isVisibleToAthlete
+                        summary: summary.isEmpty ? nil : summary
                     )
                     card.categories = categories
                     card.overallRating = overallRating
                     card.summary = summary.isEmpty ? nil : summary
-                    card.isVisibleToAthlete = isVisibleToAthlete
                     onSave(card)
                 } else {
-                    var card = try await FirestoreManager.shared.createDrillCard(
+                    let card = try await FirestoreManager.shared.createDrillCard(
                         videoID: videoID,
                         coachID: coachID,
                         coachName: coachName,
@@ -141,18 +131,6 @@ struct DrillCardView: View {
                         overallRating: overallRating,
                         summary: summary.isEmpty ? nil : summary
                     )
-                    // Update visibility if coach toggled it on during creation
-                    if isVisibleToAthlete, let cardID = card.id {
-                        try await FirestoreManager.shared.updateDrillCard(
-                            videoID: videoID,
-                            cardID: cardID,
-                            categories: categories,
-                            overallRating: overallRating,
-                            summary: summary.isEmpty ? nil : summary,
-                            isVisibleToAthlete: true
-                        )
-                        card.isVisibleToAthlete = true
-                    }
                     onSave(card)
                 }
                 await MainActor.run { dismiss() }

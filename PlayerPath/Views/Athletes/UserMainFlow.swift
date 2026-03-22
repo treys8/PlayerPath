@@ -14,7 +14,7 @@ struct UserMainFlow: View {
     let hasCompletedOnboarding: Bool
     @Query(sort: \Athlete.createdAt) private var allAthletes: [Athlete]
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
-    @ObservedObject private var sharedFolderManager = SharedFolderManager.shared
+    private var sharedFolderManager: SharedFolderManager { .shared }
     @State private var selectedAthlete: Athlete?
     @State private var showCreationToast = false
     @State private var showingAthleteSelection = false
@@ -69,7 +69,6 @@ struct UserMainFlow: View {
             // IMPORTANT: Check if user is a coach FIRST before any athlete logic
             if authManager.userRole == .coach {
                 CoachTabView()
-                    .environmentObject(sharedFolderManager)
                     .onAppear {
                     }
             }

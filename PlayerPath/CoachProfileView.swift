@@ -10,9 +10,9 @@ import SwiftUI
 
 struct CoachProfileView: View {
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
-    @ObservedObject private var sharedFolderManager = SharedFolderManager.shared
+    private var sharedFolderManager: SharedFolderManager { .shared }
     @ObservedObject private var storeManager = StoreKitManager.shared
-    @ObservedObject private var invitationManager = CoachInvitationManager.shared
+    private var invitationManager: CoachInvitationManager { .shared }
     @State private var showingSignOutAlert = false
     @State private var isSigningOut = false
     @State private var showingPaywall = false
@@ -25,9 +25,15 @@ struct CoachProfileView: View {
                 // Profile Section
                 Section {
                     HStack(spacing: 16) {
-                        Image(systemName: "person.circle.fill")
-                            .font(.system(size: 60))
-                            .foregroundColor(.green)
+                        ZStack {
+                            Circle()
+                                .fill(Color.brandNavy.opacity(0.1))
+                                .frame(width: 60, height: 60)
+                            Text(coachInitials)
+                                .font(.title2)
+                                .fontWeight(.bold)
+                                .foregroundColor(.brandNavy)
+                        }
 
                         VStack(alignment: .leading, spacing: 4) {
                             Text(authManager.userDisplayName ?? "Coach")
@@ -44,7 +50,7 @@ struct CoachProfileView: View {
                                 Text("Coach Account")
                                     .font(.caption)
                             }
-                            .foregroundColor(.green)
+                            .foregroundColor(.brandNavy)
                         }
                     }
                     .padding(.vertical, 8)
@@ -92,7 +98,7 @@ struct CoachProfileView: View {
                     } label: {
                         Label(authManager.currentCoachTier == .free ? "Upgrade Plan" : "Manage Plan",
                               systemImage: "arrow.up.circle")
-                            .foregroundColor(.green)
+                            .foregroundColor(.brandNavy)
                     }
                 }
 
@@ -154,13 +160,23 @@ struct CoachProfileView: View {
                                     .font(.caption)
                                     .padding(.horizontal, 8)
                                     .padding(.vertical, 3)
-                                    .background(Color.green)
+                                    .background(Color.brandNavy)
                                     .foregroundStyle(.white)
                                     .clipShape(Capsule())
                             }
                         }
                     }
                     .foregroundStyle(.primary)
+                }
+
+                // Settings Section
+                Section("Settings") {
+                    NavigationLink(destination: NotificationSettingsView(athleteId: nil)) {
+                        Label("Notifications", systemImage: "bell")
+                    }
+                    NavigationLink(destination: ChangePasswordView(email: authManager.userEmail ?? "")) {
+                        Label("Change Password", systemImage: "lock")
+                    }
                 }
 
                 // Help & Support Section
@@ -185,6 +201,10 @@ struct CoachProfileView: View {
 
                 // Account Section
                 Section("Account") {
+                    NavigationLink(destination: DataExportView().environmentObject(authManager)) {
+                        Label("Export Data", systemImage: "square.and.arrow.up")
+                    }
+
                     NavigationLink(destination: AccountDeletionView().environmentObject(authManager)) {
                         Label("Delete Account", systemImage: "trash")
                             .foregroundColor(.red)
@@ -209,7 +229,7 @@ struct CoachProfileView: View {
                     }
                 }
             }
-            .navigationTitle("Profile")
+            .navigationTitle("More")
             .task {
                 guard let coachID = authManager.userID else { return }
                 do {
@@ -263,6 +283,11 @@ struct CoachProfileView: View {
     }
 
     // MARK: - Computed Properties
+
+    private var coachInitials: String {
+        let name = authManager.userDisplayName ?? "C"
+        return name.split(separator: " ").compactMap({ $0.first.map(String.init) }).prefix(2).joined().uppercased()
+    }
 
     private var uniqueAthleteCount: Int {
         var ids = Set(sharedFolderManager.coachFolders.map { $0.ownerAthleteID })

@@ -22,7 +22,7 @@ service cloud.firestore {
     // Used to gate shared folder and invitation creation.
     function hasProTier() {
       let user = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
-      return user.subscriptionTier == "pro";
+      return user != null && user.subscriptionTier == "pro";
     }
 
     // Checks if the requesting user has any coach subscription tier.
@@ -30,7 +30,7 @@ service cloud.firestore {
     function hasCoachTier() {
       let user = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
       // Allow any coach with a coachSubscriptionTier set (including coach_free)
-      return user.coachSubscriptionTier != null;
+      return user != null && user.coachSubscriptionTier != null;
     }
 
     // Checks if the requesting user is the owner of a shared folder.
@@ -279,9 +279,13 @@ service cloud.firestore {
         );
 
         // Create: authenticated user posting as themselves with required fields
+        // Must have access to the video (uploader or folder member)
         allow create: if isAuthenticated()
                       && request.resource.data.authorId == request.auth.uid
-                      && request.resource.data.keys().hasAll(['authorId', 'content', 'createdAt']);
+                      && request.resource.data.keys().hasAll(['authorId', 'content', 'createdAt'])
+                      && (getVideoData(videoID).uploadedBy == request.auth.uid
+                          || ('sharedFolderID' in getVideoData(videoID)
+                              && canAccessFolder(getVideoData(videoID).sharedFolderID)));
 
         // Update: only the comment author, authorId must remain unchanged
         allow update: if isAuthenticated()
@@ -331,15 +335,30 @@ service cloud.firestore {
     // NOTIFICATIONS
     // ========================================================================
 
+    // Parent notification document — only the owner can delete (GDPR cleanup)
+    match /notifications/{userID} {
+      allow read:   if isAuthenticated() && isOwner(userID);
+      allow create: if false;
+      allow update: if false;
+      allow delete: if isAuthenticated() && isOwner(userID);
+    }
+
     match /notifications/{userID}/items/{itemID} {
       // Only the recipient can read their notifications
       allow read:   if isAuthenticated() && isOwner(userID);
 
-      // Authenticated users can create notifications for a specific recipient,
-      // must identify themselves as sender, and include required fields
+      // Authenticated users can create notifications for a specific recipient.
+      // Must identify themselves as sender, include required fields, and use
+      // a valid notification type. The type allowlist prevents abuse — only
+      // app-defined event types are permitted.
       allow create: if isAuthenticated()
                     && request.resource.data.senderID == request.auth.uid
-                    && request.resource.data.keys().hasAll(['senderID', 'type', 'title', 'body', 'createdAt']);
+                    && request.resource.data.keys().hasAll(['senderID', 'type', 'title', 'body', 'createdAt', 'isRead'])
+                    && request.resource.data.isRead == false
+                    && request.resource.data.type in [
+                         'new_video', 'coach_comment', 'invitation_received',
+                         'invitation_accepted', 'access_revoked'
+                       ];
 
       // Only the recipient can mark notifications as read
       allow update: if isAuthenticated() && isOwner(userID);
@@ -394,10 +413,29 @@ service cloud.firestore {
                       : resource.data.coachID == request.auth.uid);
 
       // Coach can create drill cards on videos they have access to
+      // Must have folder access to the video's shared folder
       allow create: if isAuthenticated()
-                    && request.resource.data.coachID == request.auth.uid;
+                    && request.resource.data.coachID == request.auth.uid
+                    && ('sharedFolderID' in getVideoData(videoID)
+                        && canAccessFolder(getVideoData(videoID).sharedFolderID));
 
       // Only the creating coach can update/delete
+      allow update: if isAuthenticated()
+                    && resource.data.coachID == request.auth.uid;
+      allow delete: if isAuthenticated()
+                    && resource.data.coachID == request.auth.uid;
+    }
+
+    // ========================================================================
+    // COACH SESSIONS
+    // ========================================================================
+
+    match /coachSessions/{sessionID} {
+      allow read: if isAuthenticated()
+                  && resource.data.coachID == request.auth.uid;
+      allow create: if isAuthenticated()
+                    && request.resource.data.coachID == request.auth.uid
+                    && hasCoachTier();
       allow update: if isAuthenticated()
                     && resource.data.coachID == request.auth.uid;
       allow delete: if isAuthenticated()
@@ -448,11 +486,13 @@ service cloud.firestore {
       // Role-based: senders can only cancel; recipients can accept/decline.
       allow update: if isAuthenticated()
                     && isInvitationNotExpired(resource.data.expiresAt)
+                    // Email-tracking fields (emailSent, emailSentAt, emailError,
+                    // emailResentAt) are omitted — those are written by Cloud Functions
+                    // via the admin SDK, which bypasses security rules.
                     && request.resource.data.diff(resource.data).affectedKeys()
                        .hasOnly(['status', 'acceptedAt', 'declinedAt', 'cancelledAt',
                                  'acceptedByCoachID',
                                  'athleteUserID', 'folderID', 'folderName',
-                                 'emailSentAt', 'emailSent', 'emailError', 'emailResentAt',
                                  'rejectedReason'])
                     && (
                       // Athlete-to-coach flow:

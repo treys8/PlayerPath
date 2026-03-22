@@ -7,16 +7,16 @@
 //
 
 import Foundation
-import Combine
 
 @MainActor
-class CoachInvitationsViewModel: ObservableObject {
-    @Published var invitations: [CoachInvitation] = []
-    @Published var sentInvitations: [CoachToAthleteInvitation] = []
-    @Published var isLoading = false
-    @Published var errorMessage: String?
-    @Published var limitReached = false
-    @Published var isAtAthleteLimit: Bool = false
+@Observable
+class CoachInvitationsViewModel {
+    var invitations: [CoachInvitation] = []
+    var sentInvitations: [CoachToAthleteInvitation] = []
+    var isLoading = false
+    var errorMessage: String?
+    var limitReached = false
+    var isAtAthleteLimit: Bool = false
 
     private var lastCoachEmail: String?
     private var lastCoachID: String?
@@ -47,15 +47,12 @@ class CoachInvitationsViewModel: ObservableObject {
         sentInvitations.filter { $0.status == .declined }
     }
 
-    func updateAthleteLimit(authManager: ComprehensiveAuthManager) {
-        var connectedAthleteIDs = Set(SharedFolderManager.shared.coachFolders.map { $0.ownerAthleteID })
-        for invitation in acceptedSentInvitations {
-            if let athleteUID = invitation.athleteUserID, !athleteUID.isEmpty {
-                connectedAthleteIDs.insert(athleteUID)
-            }
-        }
-        let pendingCoachToAthleteCount = pendingSentInvitations.count
-        isAtAthleteLimit = connectedAthleteIDs.count + pendingCoachToAthleteCount >= authManager.coachAthleteLimit
+    func updateAthleteLimit(coachID: String, authManager: ComprehensiveAuthManager) async {
+        isAtAthleteLimit = await SubscriptionGate.isAtAthleteLimit(
+            coachID: coachID,
+            authManager: authManager,
+            includingPending: true
+        )
     }
 
     func loadInvitations(forCoachEmail email: String, coachID: String) async {
@@ -117,7 +114,7 @@ class CoachInvitationsViewModel: ObservableObject {
             if let email = lastCoachEmail, let coachID = lastCoachID {
                 await loadInvitations(forCoachEmail: email, coachID: coachID)
             }
-            Haptics.success()
+            Haptics.light()
 
         } catch {
             errorMessage = invitationErrorMessage(error, action: "decline")

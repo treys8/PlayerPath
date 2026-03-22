@@ -52,7 +52,7 @@ extension FirestoreManager {
         ]
 
         do {
-            let docRef = try await db.collection("invitations").addDocument(data: invitationData)
+            let docRef = try await db.collection(FC.invitations).addDocument(data: invitationData)
             invitationLog.info("Created athlete-to-coach invitation \(docRef.documentID) for coach \(coachEmail)")
             return docRef.documentID
         } catch {
@@ -64,7 +64,7 @@ extension FirestoreManager {
 
     /// Checks if the current athlete already has a pending invitation to a specific coach email
     func hasPendingInvitation(athleteID: String, coachEmail: String) async throws -> Bool {
-        let snapshot = try await db.collection("invitations")
+        let snapshot = try await db.collection(FC.invitations)
             .whereField("athleteID", isEqualTo: athleteID)
             .whereField("coachEmail", isEqualTo: coachEmail.lowercased())
             .whereField("status", isEqualTo: "pending")
@@ -76,7 +76,7 @@ extension FirestoreManager {
     /// Fetches pending invitations for a coach (by email)
     func fetchPendingInvitations(forEmail email: String) async throws -> [CoachInvitation] {
         do {
-            let snapshot = try await db.collection("invitations")
+            let snapshot = try await db.collection(FC.invitations)
                 .whereField("coachEmail", isEqualTo: email.lowercased())
                 .whereField("status", isEqualTo: "pending")
                 .whereField("expiresAt", isGreaterThan: Timestamp(date: Date()))
@@ -103,7 +103,7 @@ extension FirestoreManager {
     /// Fetches invitations sent by a specific athlete to check their current status.
     /// Used by the athlete's CoachesView to detect when a coach has accepted/declined.
     func fetchInvitations(forAthleteID athleteID: String) async throws -> [CoachInvitation] {
-        let snapshot = try await db.collection("invitations")
+        let snapshot = try await db.collection(FC.invitations)
             .whereField("athleteID", isEqualTo: athleteID)
             .limit(to: 100)
             .getDocuments()
@@ -170,7 +170,7 @@ extension FirestoreManager {
     /// Declines an invitation (only if still pending).
     /// Uses a Firestore transaction so the status check and update are atomic.
     func declineInvitation(invitationID: String) async throws {
-        let invitationRef = db.collection("invitations").document(invitationID)
+        let invitationRef = db.collection(FC.invitations).document(invitationID)
 
         do {
             _ = try await db.runTransaction({ (transaction, errorPointer) -> Any? in
@@ -228,7 +228,7 @@ extension FirestoreManager {
     ) async throws -> String {
 
         // Check for existing pending invitation to same athlete from this coach
-        let existingSnapshot = try await db.collection("invitations")
+        let existingSnapshot = try await db.collection(FC.invitations)
             .whereField("type", isEqualTo: "coach_to_athlete")
             .whereField("coachID", isEqualTo: coachID)
             .whereField("athleteEmail", isEqualTo: athleteEmail.lowercased())
@@ -259,7 +259,7 @@ extension FirestoreManager {
         }
 
         do {
-            let docRef = try await db.collection("invitations").addDocument(data: invitationData)
+            let docRef = try await db.collection(FC.invitations).addDocument(data: invitationData)
             invitationLog.info("Created coach-to-athlete invitation \(docRef.documentID) for athlete \(athleteEmail)")
             return docRef.documentID
         } catch {
@@ -272,7 +272,7 @@ extension FirestoreManager {
     /// Fetches pending invitations from coaches for an athlete (by email)
     func fetchPendingCoachInvitations(forAthleteEmail email: String) async throws -> [CoachToAthleteInvitation] {
         do {
-            let snapshot = try await db.collection("invitations")
+            let snapshot = try await db.collection(FC.invitations)
                 .whereField("type", isEqualTo: "coach_to_athlete")
                 .whereField("athleteEmail", isEqualTo: email.lowercased())
                 .whereField("status", isEqualTo: "pending")
@@ -300,7 +300,7 @@ extension FirestoreManager {
     /// Accepts a coach-to-athlete invitation (only if still pending).
     /// Uses a Firestore transaction so the status check and update are atomic.
     func acceptCoachToAthleteInvitation(invitationID: String, athleteUserID: String) async throws {
-        let invitationRef = db.collection("invitations").document(invitationID)
+        let invitationRef = db.collection(FC.invitations).document(invitationID)
 
         _ = try await db.runTransaction({ (transaction, errorPointer) -> Any? in
             let snapshot: DocumentSnapshot
@@ -342,7 +342,7 @@ extension FirestoreManager {
     /// Declines a coach-to-athlete invitation (only if still pending).
     /// Uses a Firestore transaction so the status check and update are atomic.
     func declineCoachToAthleteInvitation(invitationID: String) async throws {
-        let invitationRef = db.collection("invitations").document(invitationID)
+        let invitationRef = db.collection(FC.invitations).document(invitationID)
 
         _ = try await db.runTransaction({ (transaction, errorPointer) -> Any? in
             let snapshot: DocumentSnapshot
@@ -383,7 +383,7 @@ extension FirestoreManager {
     /// Cancels a pending invitation (sender only).
     /// Uses a Firestore transaction so the status check and update are atomic.
     func cancelInvitation(invitationID: String) async throws {
-        let invitationRef = db.collection("invitations").document(invitationID)
+        let invitationRef = db.collection(FC.invitations).document(invitationID)
 
         _ = try await db.runTransaction({ (transaction, errorPointer) -> Any? in
             let snapshot: DocumentSnapshot
@@ -413,7 +413,7 @@ extension FirestoreManager {
 
     /// Fetches invitations sent by a coach to athletes (coach-initiated)
     func fetchSentCoachInvitations(forCoachID coachID: String) async throws -> [CoachToAthleteInvitation] {
-        let snapshot = try await db.collection("invitations")
+        let snapshot = try await db.collection(FC.invitations)
             .whereField("type", isEqualTo: "coach_to_athlete")
             .whereField("coachID", isEqualTo: coachID)
             .order(by: "sentAt", descending: true)
@@ -438,7 +438,7 @@ extension FirestoreManager {
         folderID: String,
         folderName: String
     ) async throws {
-        try await db.collection("invitations").document(invitationID).updateData([
+        try await db.collection(FC.invitations).document(invitationID).updateData([
             "folderID": folderID,
             "folderName": folderName
         ])
@@ -447,7 +447,7 @@ extension FirestoreManager {
     /// Returns athlete user IDs from accepted coach-to-athlete invitations for a given coach.
     /// Used to count connected athletes for limit enforcement.
     func fetchAcceptedCoachToAthleteAthleteIDs(coachID: String) async throws -> Set<String> {
-        let snapshot = try await db.collection("invitations")
+        let snapshot = try await db.collection(FC.invitations)
             .whereField("type", isEqualTo: "coach_to_athlete")
             .whereField("coachID", isEqualTo: coachID)
             .whereField("status", isEqualTo: "accepted")
@@ -463,7 +463,7 @@ extension FirestoreManager {
 
     /// Counts pending outbound coach-to-athlete invitations for a given coach.
     func countPendingCoachToAthleteInvitations(coachID: String) async throws -> Int {
-        let snapshot = try await db.collection("invitations")
+        let snapshot = try await db.collection(FC.invitations)
             .whereField("type", isEqualTo: "coach_to_athlete")
             .whereField("coachID", isEqualTo: coachID)
             .whereField("status", isEqualTo: "pending")

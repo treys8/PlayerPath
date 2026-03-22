@@ -17,7 +17,7 @@ extension FirestoreManager {
 
     /// Fetches a user profile by ID
     func fetchUserProfile(userID: String) async throws -> UserProfile? {
-        let doc = try await db.collection("users").document(userID).getDocument()
+        let doc = try await db.collection(FC.users).document(userID).getDocument()
         guard doc.exists, let data = doc.data() else { return nil }
 
         do {
@@ -72,7 +72,7 @@ extension FirestoreManager {
         userData.merge(safeProfileData) { current, _ in current }
 
         do {
-            try await db.collection("users").document(userID).setData(userData, merge: true)
+            try await db.collection(FC.users).document(userID).setData(userData, merge: true)
         } catch {
             errorMessage = "Failed to update profile."
             throw error
@@ -121,7 +121,7 @@ extension FirestoreManager {
             #if DEBUG
             // In DEBUG, write tier directly to Firestore to unblock development
             firestoreLog.info("No App Store receipt (DEBUG). Writing tier directly to Firestore.")
-            try await db.collection("users").document(userID).setData([
+            try await db.collection(FC.users).document(userID).setData([
                 "subscriptionTier": tier.rawValue,
                 "coachSubscriptionTier": coachTier.rawValue,
                 "updatedAt": FieldValue.serverTimestamp()
@@ -144,16 +144,10 @@ extension FirestoreManager {
         let _ = try await callable.call(payload)
     }
 
-    /// Returns the App Store receipt for server-side validation.
-    /// Tries the legacy receipt first (needed by verifyReceipt endpoint),
-    /// falls back to the StoreKit 2 JWS App Transaction token.
+    /// Returns the StoreKit 2 JWS app transaction token for server-side validation.
+    /// The server verifies the token's signature against Apple's root certificates.
     fileprivate func appStoreReceipt() async -> String? {
-        // Legacy receipt (required by Apple's verifyReceipt endpoint)
-        if let receiptURL = Bundle.main.appStoreReceiptURL,
-           let receiptData = try? Data(contentsOf: receiptURL) {
-            return receiptData.base64EncodedString()
-        }
-        // Fallback: StoreKit 2 JWS token (for future App Store Server API migration)
+        // StoreKit 2 JWS token (preferred)
         if let result = try? await AppTransaction.shared {
             return result.jwsRepresentation
         }
@@ -171,7 +165,7 @@ extension FirestoreManager {
         // Fetch user email for email-based invitation cleanup (GDPR)
         var userEmail: String?
         do {
-            let userDoc = try await db.collection("users").document(userID).getDocument()
+            let userDoc = try await db.collection(FC.users).document(userID).getDocument()
             userEmail = userDoc.data()?["email"] as? String
         } catch {
             stepErrors.append("email lookup: \(error.localizedDescription)")
@@ -179,23 +173,23 @@ extension FirestoreManager {
 
         // MARK: Step 1 — Delete shared folders owned by this user (+ their videos + annotations)
         do {
-            let foldersQuery = db.collection("sharedFolders")
+            let foldersQuery = db.collection(FC.sharedFolders)
                 .whereField("ownerAthleteID", isEqualTo: userID)
             while true {
                 let foldersSnapshot = try await foldersQuery.limit(to: 50).getDocuments()
                 guard !foldersSnapshot.documents.isEmpty else { break }
                 for folderDoc in foldersSnapshot.documents {
                     let folderID = folderDoc.documentID
-                    let videosQuery = db.collection("videos")
+                    let videosQuery = db.collection(FC.videos)
                         .whereField("sharedFolderID", isEqualTo: folderID)
                     while true {
                         let videosSnapshot = try await videosQuery.limit(to: 100).getDocuments()
                         guard !videosSnapshot.documents.isEmpty else { break }
                         for videoDoc in videosSnapshot.documents {
                             // Delete annotations for this video (paginated)
-                            let annotationsQuery = db.collection("videos")
+                            let annotationsQuery = db.collection(FC.videos)
                                 .document(videoDoc.documentID)
-                                .collection("annotations")
+                                .collection(FC.annotations)
                             while true {
                                 let annSnap = try await annotationsQuery.limit(to: 400).getDocuments()
                                 guard !annSnap.documents.isEmpty else { break }
@@ -206,7 +200,7 @@ extension FirestoreManager {
                             try await videoDoc.reference.delete()
                         }
                     }
-                    try await db.collection("sharedFolders").document(folderID).delete()
+                    try await db.collection(FC.sharedFolders).document(folderID).delete()
                 }
             }
         } catch {
@@ -228,9 +222,72 @@ extension FirestoreManager {
             stepErrors.append("annotations: \(error.localizedDescription)")
         }
 
+        // MARK: Step 2b — Delete all comments authored by this user across all videos
+        do {
+            let userCommentsQuery = db.collectionGroup(FC.comments)
+                .whereField("authorId", isEqualTo: userID)
+            while true {
+                let snap = try await userCommentsQuery.limit(to: 400).getDocuments()
+                guard !snap.documents.isEmpty else { break }
+                let batch = db.batch()
+                snap.documents.forEach { batch.deleteDocument($0.reference) }
+                try await batch.commit()
+            }
+        } catch {
+            stepErrors.append("comments: \(error.localizedDescription)")
+        }
+
+        // MARK: Step 2c — Delete all drill cards created by this user across all videos
+        do {
+            let userDrillCardsQuery = db.collectionGroup(FC.drillCards)
+                .whereField("coachID", isEqualTo: userID)
+            while true {
+                let snap = try await userDrillCardsQuery.limit(to: 400).getDocuments()
+                guard !snap.documents.isEmpty else { break }
+                let batch = db.batch()
+                snap.documents.forEach { batch.deleteDocument($0.reference) }
+                try await batch.commit()
+            }
+        } catch {
+            stepErrors.append("drill cards: \(error.localizedDescription)")
+        }
+
+        // MARK: Step 2d — Delete coach sessions created by this user
+        do {
+            let coachSessionsQuery = db.collection(FC.coachSessions)
+                .whereField("coachID", isEqualTo: userID)
+            while true {
+                let snap = try await coachSessionsQuery.limit(to: 400).getDocuments()
+                guard !snap.documents.isEmpty else { break }
+                let batch = db.batch()
+                snap.documents.forEach { batch.deleteDocument($0.reference) }
+                try await batch.commit()
+            }
+        } catch {
+            stepErrors.append("coach sessions: \(error.localizedDescription)")
+        }
+
+        // MARK: Step 2e — Delete coach templates (quick cues)
+        do {
+            let quickCuesQuery = db.collection(FC.coachTemplates)
+                .document(userID)
+                .collection(FC.quickCues)
+            while true {
+                let snap = try await quickCuesQuery.limit(to: 400).getDocuments()
+                guard !snap.documents.isEmpty else { break }
+                let batch = db.batch()
+                snap.documents.forEach { batch.deleteDocument($0.reference) }
+                try await batch.commit()
+            }
+            // Delete the parent coachTemplates document
+            try await db.collection(FC.coachTemplates).document(userID).delete()
+        } catch {
+            stepErrors.append("coach templates: \(error.localizedDescription)")
+        }
+
         // MARK: Step 3 — Delete invitations where user is the athlete
         do {
-            let athleteInvitationsQuery = db.collection("invitations")
+            let athleteInvitationsQuery = db.collection(FC.invitations)
                 .whereField("athleteID", isEqualTo: userID)
             while true {
                 let snap = try await athleteInvitationsQuery.limit(to: 400).getDocuments()
@@ -245,7 +302,7 @@ extension FirestoreManager {
 
         // MARK: Step 4 — Delete invitations where user is the coach
         do {
-            let coachInvitationsQuery = db.collection("invitations")
+            let coachInvitationsQuery = db.collection(FC.invitations)
                 .whereField("coachID", isEqualTo: userID)
             while true {
                 let snap = try await coachInvitationsQuery.limit(to: 400).getDocuments()
@@ -262,7 +319,7 @@ extension FirestoreManager {
         if let email = userEmail?.lowercased() {
             for field in ["coachEmail", "athleteEmail"] {
                 do {
-                    let emailInvQuery = db.collection("invitations")
+                    let emailInvQuery = db.collection(FC.invitations)
                         .whereField(field, isEqualTo: email)
                     while true {
                         let snap = try await emailInvQuery.limit(to: 400).getDocuments()
@@ -279,9 +336,9 @@ extension FirestoreManager {
 
         // MARK: Step 5 — Delete notifications
         do {
-            let notificationsQuery = db.collection("notifications")
+            let notificationsQuery = db.collection(FC.notifications)
                 .document(userID)
-                .collection("items")
+                .collection(FC.items)
             while true {
                 let snap = try await notificationsQuery.limit(to: 400).getDocuments()
                 guard !snap.documents.isEmpty else { break }
@@ -289,7 +346,7 @@ extension FirestoreManager {
                 snap.documents.forEach { batch.deleteDocument($0.reference) }
                 try await batch.commit()
             }
-            try await db.collection("notifications").document(userID).delete()
+            try await db.collection(FC.notifications).document(userID).delete()
         } catch {
             stepErrors.append("notifications: \(error.localizedDescription)")
         }
@@ -297,7 +354,7 @@ extension FirestoreManager {
         // MARK: Step 6 — Delete coach_access_revocations referencing this user
         do {
             for field in ["athleteID", "coachID"] {
-                let revocationsQuery = db.collection("coach_access_revocations")
+                let revocationsQuery = db.collection(FC.coachAccessRevocations)
                     .whereField(field, isEqualTo: userID)
                 while true {
                     let snap = try await revocationsQuery.limit(to: 400).getDocuments()
@@ -313,7 +370,7 @@ extension FirestoreManager {
 
         // MARK: Step 7 — Remove user from sharedWithCoachIDs on other users' folders
         do {
-            let coachFoldersQuery = db.collection("sharedFolders")
+            let coachFoldersQuery = db.collection(FC.sharedFolders)
                 .whereField("sharedWithCoachIDs", arrayContains: userID)
             let coachFoldersSnap = try await coachFoldersQuery.getDocuments()
             for folderDoc in coachFoldersSnap.documents {
@@ -331,7 +388,7 @@ extension FirestoreManager {
         // Single pass (not paginated delete loop) because we're updating, not removing.
         // updateData is idempotent so re-processing is safe if this runs twice.
         do {
-            let uploadedVideosQuery = db.collection("videos")
+            let uploadedVideosQuery = db.collection(FC.videos)
                 .whereField("uploadedBy", isEqualTo: userID)
             let snap = try await uploadedVideosQuery.getDocuments()
             // Batch in groups of 400 to stay within Firestore's 500-operation limit
@@ -353,7 +410,7 @@ extension FirestoreManager {
 
         // MARK: Step 9 — Delete photos uploaded by user
         do {
-            let photosQuery = db.collection("photos")
+            let photosQuery = db.collection(FC.photos)
                 .whereField("uploadedBy", isEqualTo: userID)
             while true {
                 let snap = try await photosQuery.limit(to: 400).getDocuments()
@@ -369,14 +426,14 @@ extension FirestoreManager {
         // MARK: Step 10 — Delete user subcollections (bottom-up: notes → practices → games → seasons → coaches → athletes)
         do {
             // Fetch all athlete documents for this user
-            let athletesQuery = db.collection("users").document(userID).collection("athletes")
+            let athletesQuery = db.collection(FC.users).document(userID).collection(FC.athletes)
             let athletesSnap = try await athletesQuery.getDocuments()
 
             for athleteDoc in athletesSnap.documents {
                 let athleteRef = athleteDoc.reference
 
                 // Delete coaches subcollection
-                let coachesQuery = athleteRef.collection("coaches")
+                let coachesQuery = athleteRef.collection(FC.coaches)
                 while true {
                     let snap = try await coachesQuery.limit(to: 400).getDocuments()
                     guard !snap.documents.isEmpty else { break }
@@ -390,13 +447,13 @@ extension FirestoreManager {
             }
 
             // Delete practices (with nested notes)
-            let practicesQuery = db.collection("users").document(userID).collection("practices")
+            let practicesQuery = db.collection(FC.users).document(userID).collection(FC.practices)
             while true {
                 let snap = try await practicesQuery.limit(to: 100).getDocuments()
                 guard !snap.documents.isEmpty else { break }
                 for practiceDoc in snap.documents {
                     // Delete notes subcollection
-                    let notesQuery = practiceDoc.reference.collection("notes")
+                    let notesQuery = practiceDoc.reference.collection(FC.notes)
                     while true {
                         let notesSnap = try await notesQuery.limit(to: 400).getDocuments()
                         guard !notesSnap.documents.isEmpty else { break }
@@ -409,7 +466,7 @@ extension FirestoreManager {
             }
 
             // Delete games
-            let gamesQuery = db.collection("users").document(userID).collection("games")
+            let gamesQuery = db.collection(FC.users).document(userID).collection(FC.games)
             while true {
                 let snap = try await gamesQuery.limit(to: 400).getDocuments()
                 guard !snap.documents.isEmpty else { break }
@@ -419,7 +476,7 @@ extension FirestoreManager {
             }
 
             // Delete seasons
-            let seasonsQuery = db.collection("users").document(userID).collection("seasons")
+            let seasonsQuery = db.collection(FC.users).document(userID).collection(FC.seasons)
             while true {
                 let snap = try await seasonsQuery.limit(to: 400).getDocuments()
                 guard !snap.documents.isEmpty else { break }
@@ -433,7 +490,7 @@ extension FirestoreManager {
 
         // MARK: Step 11 — Delete pendingDeletions referencing this user
         do {
-            let pendingQuery = db.collection("pendingDeletions")
+            let pendingQuery = db.collection(FC.pendingDeletions)
                 .whereField("ownerUID", isEqualTo: userID)
             while true {
                 let snap = try await pendingQuery.limit(to: 400).getDocuments()
@@ -460,7 +517,7 @@ extension FirestoreManager {
 
         // MARK: Step 13 — Delete user profile document
         do {
-            try await db.collection("users").document(userID).delete()
+            try await db.collection(FC.users).document(userID).delete()
         } catch {
             // Profile deletion is critical — if this fails, throw
             errorMessage = "Failed to delete user profile."
@@ -477,7 +534,7 @@ extension FirestoreManager {
     /// Returns a tuple with name and email for display purposes
     func fetchCoachInfo(coachID: String) async throws -> (name: String, email: String) {
         do {
-            let doc = try await db.collection("users").document(coachID).getDocument()
+            let doc = try await db.collection(FC.users).document(coachID).getDocument()
 
             guard doc.exists else {
                 throw NSError(

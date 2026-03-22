@@ -9,10 +9,12 @@ import SwiftUI
 
 struct QuickCueManager: View {
     let coachID: String
-    @ObservedObject private var templateService = CoachTemplateService.shared
+    private var templateService: CoachTemplateService { .shared }
     @Environment(\.dismiss) private var dismiss
     @State private var newCueText = ""
     @State private var newCueCategory: AnnotationCategory = .positive
+    @State private var errorMessage: String?
+    @State private var showingError = false
 
     var body: some View {
         NavigationStack {
@@ -34,7 +36,7 @@ struct QuickCueManager: View {
                         addCue()
                     } label: {
                         Label("Add Cue", systemImage: "plus.circle.fill")
-                            .foregroundColor(.green)
+                            .foregroundColor(.brandNavy)
                     }
                     .disabled(newCueText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
@@ -62,7 +64,13 @@ struct QuickCueManager: View {
                                 for index in indexSet {
                                     let cue = templateService.quickCues[index]
                                     guard let cueID = cue.id else { continue }
-                                    try? await templateService.deleteQuickCue(coachID: coachID, cueID: cueID)
+                                    do {
+                                        try await templateService.deleteQuickCue(coachID: coachID, cueID: cueID)
+                                    } catch {
+                                        errorMessage = "Could not delete cue. Please try again."
+                                        showingError = true
+                                        ErrorHandlerService.shared.handle(error, context: "QuickCueManager.deleteCue", showAlert: false)
+                                    }
                                 }
                             }
                         }
@@ -76,7 +84,7 @@ struct QuickCueManager: View {
                             Task { await templateService.seedDefaultCues(coachID: coachID) }
                         } label: {
                             Label("Load Default Cues", systemImage: "wand.and.stars")
-                                .foregroundColor(.green)
+                                .foregroundColor(.brandNavy)
                         }
                     }
                 }
@@ -88,6 +96,11 @@ struct QuickCueManager: View {
                     Button("Done") { dismiss() }
                 }
             }
+            .alert("Error", isPresented: $showingError) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text(errorMessage ?? "An unexpected error occurred.")
+            }
         }
     }
 
@@ -95,9 +108,15 @@ struct QuickCueManager: View {
         let text = newCueText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         Task {
-            _ = try? await templateService.addQuickCue(coachID: coachID, text: text, category: newCueCategory)
-            newCueText = ""
-            Haptics.success()
+            do {
+                _ = try await templateService.addQuickCue(coachID: coachID, text: text, category: newCueCategory)
+                newCueText = ""
+                Haptics.success()
+            } catch {
+                errorMessage = "Could not add cue. Please try again."
+                showingError = true
+                ErrorHandlerService.shared.handle(error, context: "QuickCueManager.addCue", showAlert: false)
+            }
         }
     }
 }

@@ -11,7 +11,7 @@ import SwiftUI
 /// Athlete's view of all their shared folders
 struct AthleteFoldersListView: View {
     let userID: String?
-    @ObservedObject private var folderManager = SharedFolderManager.shared
+    private var folderManager: SharedFolderManager { .shared }
     
     enum SheetType: Identifiable {
         case createFolder
@@ -264,8 +264,8 @@ private struct AthleteFolderDetailContent: View {
     let folder: SharedFolder
     let athleteID: String
 
-    @StateObject private var viewModel: CoachFolderViewModel
-    @ObservedObject private var folderManager = SharedFolderManager.shared
+    @State private var viewModel: CoachFolderViewModel
+    private var folderManager: SharedFolderManager { .shared }
 
     enum SheetType: Identifiable {
         case inviteCoach
@@ -297,11 +297,12 @@ private struct AthleteFolderDetailContent: View {
 
     @State private var activeSheet: SheetType?
     @State private var selectedTab: AthleteVideoTab = .all
+    @State private var lastFetchDate: Date?
 
     init(folder: SharedFolder, athleteID: String) {
         self.folder = folder
         self.athleteID = athleteID
-        _viewModel = StateObject(wrappedValue: CoachFolderViewModel(folder: folder))
+        _viewModel = State(initialValue: CoachFolderViewModel(folder: folder))
     }
 
     var body: some View {
@@ -375,7 +376,9 @@ private struct AthleteFolderDetailContent: View {
             }
         }
         .task {
+            if let lastFetch = lastFetchDate, Date().timeIntervalSince(lastFetch) < 60 { return }
             await viewModel.loadVideos()
+            lastFetchDate = Date()
         }
         .refreshable {
             await viewModel.loadVideos()
@@ -418,7 +421,7 @@ struct ManageCoachesView: View {
     let folder: SharedFolder
     
     @Environment(\.dismiss) private var dismiss
-    @ObservedObject private var folderManager = SharedFolderManager.shared
+    private var folderManager: SharedFolderManager { .shared }
 
     @State private var showingRemoveConfirmation = false
     @State private var coachToRemove: String?
@@ -482,9 +485,12 @@ struct ManageCoachesView: View {
                         Task {
                             isRemoving = true
                             do {
-                                try await folderManager.removeCoach(
+                                try await folderManager.removeCoachAccess(
                                     coachID: coachID,
-                                    fromFolder: folderID
+                                    coachEmail: "",
+                                    fromFolder: folderID,
+                                    folderName: folder.name,
+                                    athleteID: folder.ownerAthleteID
                                 )
                                 await MainActor.run {
                                     isRemoving = false

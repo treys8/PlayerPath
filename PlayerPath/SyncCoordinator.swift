@@ -888,12 +888,15 @@ final class SyncCoordinator {
             let localClipsByID = Dictionary(uniqueKeysWithValues: localClips.map { ($0.id, $0) })
 
             // Detect clips deleted on another device — remote set no longer contains them.
-            // Safety: skip bulk deletion if remote returned empty but local has clips,
-            // which can happen on transient Firestore failures or network timeouts.
+            // Safety: skip deletion pass if the remote count is suspiciously low compared
+            // to local, which can happen on transient Firestore failures, network timeouts,
+            // or partial query results (e.g., query returned 50 of 150 clips).
             let remoteVideoIds = Set(remoteVideos.map { $0.id })
             let syncedLocalClips = localClips.filter { $0.firestoreId != nil }
-            if !syncedLocalClips.isEmpty && remoteVideoIds.isEmpty {
-                syncLog.warning("Remote returned 0 videos but \(syncedLocalClips.count) synced clips exist locally — skipping deletion pass to prevent data loss")
+            let remoteReturnedTooFew = !syncedLocalClips.isEmpty
+                && remoteVideoIds.count < syncedLocalClips.count / 2
+            if remoteReturnedTooFew {
+                syncLog.warning("Remote returned \(remoteVideoIds.count) videos but \(syncedLocalClips.count) synced clips exist locally — skipping deletion pass to prevent data loss from partial fetch")
             } else {
                 for localClip in syncedLocalClips {
                     if !remoteVideoIds.contains(localClip.id) {
@@ -1104,6 +1107,12 @@ final class SyncCoordinator {
 
         } catch {
             syncLog.error("Video download failed for clip \(clip.id): \(error.localizedDescription)")
+
+            // Clean up any partial file left on disk to prevent orphaned storage
+            if FileManager.default.fileExists(atPath: localPath) {
+                try? FileManager.default.removeItem(atPath: localPath)
+            }
+
             // Delete the ghost record (and its PlayResult) so it gets re-created and
             // re-downloaded on the next sync cycle. Without this, the clip persists
             // with an empty filePath and no retry path.
@@ -1420,7 +1429,12 @@ final class SyncCoordinator {
             // Sync all entities in dependency order
             try await syncAll(for: user)
         } catch {
-            // Don't throw - background sync failures shouldn't crash the app
+            syncLog.error("Background sync failed: \(error.localizedDescription)")
+            syncErrors.append(SyncError(
+                type: .syncFailed,
+                entityId: "background-sync",
+                message: error.localizedDescription
+            ))
         }
     }
 
@@ -1442,6 +1456,7 @@ final class SyncCoordinator {
         do {
             return try context.fetch(descriptor).first
         } catch {
+            syncLog.error("Failed to fetch current user: \(error.localizedDescription)")
             return nil
         }
     }

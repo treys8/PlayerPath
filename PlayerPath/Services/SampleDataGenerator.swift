@@ -55,7 +55,7 @@ struct SampleDataGenerator {
 
         let season = Season(
             name: "Spring \(currentYear)",
-            startDate: calendar.date(from: DateComponents(year: currentYear, month: 3, day: 1))!,
+            startDate: calendar.date(from: DateComponents(year: currentYear, month: 3, day: 1)) ?? Date(),
             sport: .baseball
         )
         season.endDate = calendar.date(from: DateComponents(year: currentYear, month: 6, day: 30))

@@ -14,14 +14,14 @@ struct CoachVideoPlayerView: View {
     let video: CoachVideoItem
     
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
-    @StateObject private var viewModel: CoachVideoPlayerViewModel
+    @State private var viewModel: CoachVideoPlayerViewModel
     @State private var showingAddNote = false
     @State private var selectedTab: VideoTab = .notes
     @State private var showingSpeedPicker = false
     @State private var showingQuickCueManager = false
     @State private var showingDrillCardEditor = false
     @State private var drillCards: [DrillCard] = []
-    @ObservedObject private var templateService = CoachTemplateService.shared
+    private var templateService: CoachTemplateService { .shared }
     @Environment(\.verticalSizeClass) private var vSizeClass
     @Environment(\.scenePhase) private var scenePhase
     private var isLandscape: Bool { vSizeClass == .compact }
@@ -29,7 +29,7 @@ struct CoachVideoPlayerView: View {
     init(folder: SharedFolder, video: CoachVideoItem) {
         self.folder = folder
         self.video = video
-        _viewModel = StateObject(wrappedValue: CoachVideoPlayerViewModel(video: video, folder: folder))
+        _viewModel = State(initialValue: CoachVideoPlayerViewModel(video: video, folder: folder))
     }
     
     enum VideoTab: String, CaseIterable {
@@ -69,10 +69,10 @@ struct CoachVideoPlayerView: View {
                         .font(.subheadline)
                         .fontWeight(.semibold)
                         .monospacedDigit()
-                        .foregroundColor(.green)
+                        .foregroundColor(.brandNavy)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
-                        .background(Color.green.opacity(0.12))
+                        .background(Color.brandNavy.opacity(0.12))
                         .clipShape(Capsule())
                 }
                 .accessibilityLabel("Playback speed: \(viewModel.playbackRate)x")
@@ -110,6 +110,17 @@ struct CoachVideoPlayerView: View {
                     coachName: authManager.userDisplayName ?? "Coach",
                     onSave: { card in
                         drillCards.insert(card, at: 0)
+                        Task {
+                            await ActivityNotificationService.shared.postDrillCardNotification(
+                                videoFileName: video.fileName,
+                                folderID: folder.id ?? "",
+                                videoID: video.id,
+                                coachID: coachID,
+                                coachName: authManager.userDisplayName ?? "Coach",
+                                athleteID: folder.ownerAthleteID,
+                                templateName: card.template?.displayName ?? "Drill Card"
+                            )
+                        }
                     }
                 )
             }
@@ -202,7 +213,7 @@ struct CoachVideoPlayerView: View {
                         ZStack(alignment: .bottomLeading) {
                             ForEach(viewModel.annotations) { annotation in
                                 Rectangle()
-                                    .fill(annotation.isCoachComment ? Color.green : Color.brandNavy)
+                                    .fill(annotation.isCoachComment ? Color.brandNavy : Color.orange)
                                     .frame(width: 3, height: 20)
                                     .shadow(color: .black.opacity(0.5), radius: 2)
                                     .offset(x: (CGFloat(annotation.timestamp) / CGFloat(duration)) * geometry.size.width)
@@ -283,7 +294,7 @@ struct CoachVideoPlayerView: View {
                 HStack {
                     Image(systemName: "person.fill.checkmark")
                         .font(.caption)
-                        .foregroundColor(.green)
+                        .foregroundColor(.brandNavy)
                     Text(video.uploadedByName)
                         .font(.subheadline)
                         .fontWeight(.medium)
@@ -299,7 +310,7 @@ struct CoachVideoPlayerView: View {
                     .foregroundColor(.primary)
             }
             .padding()
-            .background(Color.green.opacity(0.08))
+            .background(Color.brandNavy.opacity(0.08))
             .cornerRadius(10)
             .padding(.horizontal)
             .padding(.vertical, 6)
@@ -316,6 +327,20 @@ struct CoachVideoPlayerView: View {
         guard let userID = authManager.userID,
               let userName = authManager.userDisplayName ?? authManager.userEmail else {
             return
+        }
+
+        // Re-verify comment permission before submitting (folder permissions may have changed)
+        if userID != folder.ownerAthleteID, let folderID = folder.id {
+            do {
+                let latest = try await SharedFolderManager.shared.verifyFolderAccess(folderID: folderID, coachID: userID)
+                guard latest.getPermissions(for: userID)?.canComment ?? false else {
+                    viewModel.errorMessage = "You no longer have permission to comment on this folder."
+                    return
+                }
+            } catch {
+                viewModel.errorMessage = "Unable to verify permissions. Please try again."
+                return
+            }
         }
 
         let isCoach = authManager.userRole == .coach
@@ -368,8 +393,8 @@ struct NotesTabView: View {
                         .font(.headline)
                         .frame(maxWidth: .infinity)
                         .padding()
-                        .background(Color.green.opacity(0.1))
-                        .foregroundColor(.green)
+                        .background(Color.brandNavy.opacity(0.1))
+                        .foregroundColor(.brandNavy)
                 }
             }
             
@@ -447,32 +472,31 @@ struct NoteCardView: View {
     @State private var showingReportAlert = false
 
     var body: some View {
-        Button(action: onSeek) {
-            VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Image(systemName: note.isCoachComment ? "person.fill.checkmark" : "person.fill")
                     .font(.caption)
-                    .foregroundColor(note.isCoachComment ? .green : .brandNavy)
-                
+                    .foregroundColor(note.isCoachComment ? .brandNavy : .secondary)
+
                 Text(note.userName)
                     .font(.caption)
                     .fontWeight(.medium)
-                    .foregroundColor(note.isCoachComment ? .green : .brandNavy)
-                
+                    .foregroundColor(note.isCoachComment ? .brandNavy : .secondary)
+
                 if note.isCoachComment {
                     Text("COACH")
                         .font(.caption2)
                         .fontWeight(.bold)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
-                        .background(Color.green.opacity(0.2))
-                        .foregroundColor(.green)
+                        .background(Color.brandNavy.opacity(0.2))
+                        .foregroundColor(.brandNavy)
                         .cornerRadius(4)
                 }
-                
+
                 Spacer()
             }
-            
+
             // Timestamp marker
             HStack {
                 Image(systemName: "clock.fill")
@@ -482,24 +506,26 @@ struct NoteCardView: View {
                     .monospacedDigit()
             }
             .foregroundColor(.secondary)
-            
+
             // Note text
             Text(note.text)
                 .font(.subheadline)
                 .fixedSize(horizontal: false, vertical: true)
-            
+
             // Timestamp
             if let createdAt = note.createdAt {
                 Text(createdAt.formatted(date: .abbreviated, time: .shortened))
                     .font(.caption2)
                     .foregroundColor(.secondary)
             }
-            }
-            .padding()
-            .background(Color(.tertiarySystemBackground))
-            .cornerRadius(10)
         }
-        .buttonStyle(.plain)
+        .padding()
+        .background(Color(.tertiarySystemBackground))
+        .cornerRadius(10)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            onSeek()
+        }
         .overlay(alignment: .leading) {
             if let cat = note.annotationCategory {
                 RoundedRectangle(cornerRadius: 2)
@@ -641,8 +667,8 @@ struct DrillCardTabView: View {
                         .font(.headline)
                         .frame(maxWidth: .infinity)
                         .padding()
-                        .background(Color.green.opacity(0.1))
-                        .foregroundColor(.green)
+                        .background(Color.brandNavy.opacity(0.1))
+                        .foregroundColor(.brandNavy)
                 }
             }
 

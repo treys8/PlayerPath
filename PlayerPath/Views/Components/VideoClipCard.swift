@@ -237,14 +237,12 @@ struct VideoClipCard: View {
                 }
             }
 
-            if hasCoachingAccess {
-                Divider()
+            Divider()
 
-                Button {
-                    showingShareToFolder = true
-                } label: {
-                    Label("Share to Coach Folder", systemImage: "folder.badge.person.fill")
-                }
+            Button {
+                showingShareToFolder = true
+            } label: {
+                Label("Share to Coach Folder", systemImage: hasCoachingAccess ? "folder.badge.person.fill" : "lock.fill")
             }
 
             Divider()

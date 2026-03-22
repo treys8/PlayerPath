@@ -9,8 +9,8 @@
 import SwiftUI
 
 struct CoachMultiAthleteView: View {
-    @EnvironmentObject private var sharedFolderManager: SharedFolderManager
-    @ObservedObject private var archiveManager = CoachFolderArchiveManager.shared
+    private var sharedFolderManager: SharedFolderManager { .shared }
+    private var archiveManager: CoachFolderArchiveManager { .shared }
     @Environment(\.dismiss) private var dismiss
 
     private var athleteGroups: [AthleteComparisonData] {
@@ -65,9 +65,9 @@ private struct AthleteComparisonRow: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Image(systemName: "figure.baseball")
-                    .foregroundColor(.green)
+                    .foregroundColor(.brandNavy)
                     .frame(width: 32, height: 32)
-                    .background(Color.green.opacity(0.1))
+                    .background(Color.brandNavy.opacity(0.1))
                     .clipShape(Circle())
 
                 Text(data.athleteName)
@@ -101,7 +101,7 @@ private struct StatPill: View {
         HStack(spacing: 4) {
             Image(systemName: icon)
                 .font(.caption2)
-                .foregroundColor(.green)
+                .foregroundColor(.brandNavy)
             Text(value)
                 .font(.caption)
                 .fontWeight(.semibold)
