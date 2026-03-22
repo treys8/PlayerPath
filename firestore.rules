@@ -370,50 +370,6 @@ service cloud.firestore {
     }
 
     // ========================================================================
-    // COACH PRIVATE FOLDERS (staging area for recordings before sharing)
-    // ========================================================================
-
-    match /coachPrivateFolders/{folderID} {
-      // Only the owning coach can read their private folders.
-      // folderID format is "{coachUID}_{sharedFolderID}", so we split on "_"
-      // and check the first segment. This works even when the doc doesn't exist
-      // (getDocument existence check before create).
-      allow read:   if isAuthenticated()
-                    && folderID.split('_')[0] == request.auth.uid;
-
-      // Coach creates their own private folder; must reference a shared folder they have access to
-      allow create: if isAuthenticated()
-                    && request.resource.data.coachID == request.auth.uid
-                    && hasCoachTier();
-
-      // Only the owning coach can update (videoCount changes)
-      allow update: if isAuthenticated()
-                    && resource.data.coachID == request.auth.uid;
-
-      // Only the owning coach can delete
-      allow delete: if isAuthenticated()
-                    && resource.data.coachID == request.auth.uid;
-    }
-
-    match /coachPrivateVideos/{videoID} {
-      // Only the coach who uploaded can read their private videos
-      allow read:   if isAuthenticated()
-                    && resource.data.uploadedBy == request.auth.uid;
-
-      // Coach creates videos in their own private folder
-      allow create: if isAuthenticated()
-                    && request.resource.data.uploadedBy == request.auth.uid
-                    && hasCoachTier();
-
-      // Only the uploader can update
-      allow update: if isAuthenticated()
-                    && resource.data.uploadedBy == request.auth.uid;
-
-      // Only the uploader can delete
-      allow delete: if isAuthenticated()
-                    && resource.data.uploadedBy == request.auth.uid;
-    }
-
     // ========================================================================
     // COACH TEMPLATES (Quick Cues)
     // ========================================================================

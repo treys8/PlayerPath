@@ -237,7 +237,7 @@ struct SaveRecordingSheet: View {
         Task {
             do {
                 let dateStr = Date().formatted(.iso8601.year().month().day())
-                let fileName = "practice_\(dateStr)_\(UUID().uuidString.prefix(8)).mov"
+                let fileName = "instruction_\(dateStr)_\(UUID().uuidString.prefix(8)).mov"
 
                 let attributes = try FileManager.default.attributesOfItem(atPath: videoURL.path)
                 let fileSize = attributes[.size] as? Int64 ?? 0
@@ -257,40 +257,21 @@ struct SaveRecordingSheet: View {
                     folderID: folderID
                 )
 
-                if saveMode == .staging {
-                    // Save to private staging folder
-                    let privateFolder = try await FirestoreManager.shared.getOrCreatePrivateFolder(
-                        coachID: coachID,
-                        athleteID: folder.ownerAthleteID,
-                        sharedFolderID: folderID
-                    )
-                    _ = try await FirestoreManager.shared.createPrivateVideo(
-                        privateFolderID: privateFolder.id ?? "",
-                        fileName: fileName,
-                        storageURL: storageURL,
-                        uploadedBy: coachID,
-                        uploadedByName: coachName,
-                        fileSize: fileSize,
-                        duration: processed.duration,
-                        thumbnailURL: processed.thumbnailURL,
-                        notes: notes.isEmpty ? nil : notes
-                    )
-                } else {
-                    // Save directly to shared folder
-                    _ = try await FirestoreManager.shared.uploadVideoMetadata(
-                        fileName: fileName,
-                        storageURL: storageURL,
-                        thumbnail: processed.thumbnailURL.map { ThumbnailMetadata(standardURL: $0) },
-                        folderID: folderID,
-                        uploadedBy: coachID,
-                        uploadedByName: coachName,
-                        fileSize: fileSize,
-                        duration: processed.duration,
-                        videoType: "practice",
-                        practiceContext: notes.isEmpty ? nil : PracticeContext(date: Date(), notes: notes),
-                        uploadedByType: .coach
-                    )
-                }
+                // Save to unified videos collection — visibility determines private vs shared
+                _ = try await FirestoreManager.shared.uploadVideoMetadata(
+                    fileName: fileName,
+                    storageURL: storageURL,
+                    thumbnail: processed.thumbnailURL.map { ThumbnailMetadata(standardURL: $0) },
+                    folderID: folderID,
+                    uploadedBy: coachID,
+                    uploadedByName: coachName,
+                    fileSize: fileSize,
+                    duration: processed.duration,
+                    videoType: "instruction",
+                    practiceContext: notes.isEmpty ? nil : PracticeContext(date: Date(), notes: notes),
+                    uploadedByType: .coach,
+                    visibility: saveMode == .staging ? "private" : "shared"
+                )
 
                 // Clean up local file
                 try? FileManager.default.removeItem(at: videoURL)

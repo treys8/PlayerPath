@@ -2,8 +2,9 @@
 //  CoachRecordingsViewModel.swift
 //  PlayerPath
 //
-//  ViewModel and models for the coach Recordings tab.
-//  Fetches all private recordings across athletes, grouped by date.
+//  ViewModel for the coach Recordings tab.
+//  Fetches all private instruction videos across all athletes
+//  from the unified `videos` collection.
 //
 
 import SwiftUI
@@ -13,12 +14,11 @@ import FirebaseAuth
 // MARK: - Models
 
 struct CoachRecordingItem: Identifiable {
-    var id: String { video.id ?? UUID().uuidString }
-    let video: CoachPrivateVideo
+    var id: String { metadata.id ?? UUID().uuidString }
+    let metadata: FirestoreVideoMetadata
     let athleteName: String
     let folderName: String
     let sharedFolderID: String
-    let privateFolderID: String
 }
 
 struct CoachRecordingGroup {
@@ -38,51 +38,54 @@ class CoachRecordingsViewModel: ObservableObject {
 
     func loadAllRecordings(coachID: String, folders: [SharedFolder]) async {
         isLoading = true
-        var allItems: [CoachRecordingItem] = []
 
-        for folder in folders {
-            guard let folderID = folder.id else { continue }
-            let privateFolderID = "\(coachID)_\(folderID)"
+        do {
+            // Single query: all private videos for this coach across all folders
+            let allVideos = try await firestore.fetchCoachPrivateVideos(coachID: coachID)
 
-            do {
-                let videos = try await firestore.fetchPrivateVideos(privateFolderID: privateFolderID)
-                let items = videos.map { video in
-                    CoachRecordingItem(
-                        video: video,
-                        athleteName: folder.ownerAthleteName ?? "Unknown Athlete",
-                        folderName: folder.name,
-                        sharedFolderID: folderID,
-                        privateFolderID: privateFolderID
-                    )
+            // Build items by matching each video's sharedFolderID to a folder
+            let folderMap = Dictionary(uniqueKeysWithValues: folders.compactMap { folder in
+                folder.id.map { ($0, folder) }
+            })
+
+            let items: [CoachRecordingItem] = allVideos.compactMap { video in
+                let folderID = video.sharedFolderID
+                guard let folder = folderMap[folderID] else {
+                    return nil
                 }
-                allItems.append(contentsOf: items)
-            } catch {
-                continue
+                return CoachRecordingItem(
+                    metadata: video,
+                    athleteName: folder.ownerAthleteName ?? "Unknown Athlete",
+                    folderName: folder.name,
+                    sharedFolderID: folderID
+                )
             }
+
+            // Group by day
+            let calendar = Calendar.current
+            let grouped = Dictionary(grouping: items) { item -> Date in
+                calendar.startOfDay(for: item.metadata.createdAt ?? Date())
+            }
+
+            groupedRecordings = grouped
+                .sorted { $0.key > $1.key }
+                .map { CoachRecordingGroup(date: $0.key, recordings: $0.value) }
+
+        } catch {
+            errorMessage = "Failed to load recordings: \(error.localizedDescription)"
+            ErrorHandlerService.shared.handle(error, context: "CoachRecordingsViewModel.loadAllRecordings", showAlert: false)
         }
-
-        allItems.sort { ($0.video.createdAt ?? .distantPast) > ($1.video.createdAt ?? .distantPast) }
-
-        let calendar = Calendar.current
-        let grouped = Dictionary(grouping: allItems) { item -> Date in
-            calendar.startOfDay(for: item.video.createdAt ?? Date())
-        }
-
-        groupedRecordings = grouped
-            .sorted { $0.key > $1.key }
-            .map { CoachRecordingGroup(date: $0.key, recordings: $0.value) }
 
         isLoading = false
     }
 
     func deleteVideo(_ item: CoachRecordingItem) async {
-        guard let videoID = item.video.id else { return }
+        guard let videoID = item.metadata.id else { return }
         do {
-            try await firestore.deletePrivateVideo(
+            try await firestore.deleteCoachPrivateVideo(
                 videoID: videoID,
-                privateFolderID: item.privateFolderID,
                 sharedFolderID: item.sharedFolderID,
-                fileName: item.video.fileName
+                fileName: item.metadata.fileName
             )
             Haptics.success()
             removeFromLocalState(videoID: videoID)
@@ -92,31 +95,21 @@ class CoachRecordingsViewModel: ObservableObject {
         }
     }
 
-    func moveToSharedFolder(_ item: CoachRecordingItem, tags: [String] = [], drillType: String? = nil) async {
-        guard let videoID = item.video.id,
-              let coachID = Auth.auth().currentUser?.uid else {
-            errorMessage = "Not authenticated. Please sign in again."
-            return
-        }
-        let coachName = Auth.auth().currentUser?.displayName
-            ?? Auth.auth().currentUser?.email
-            ?? "Coach"
-
+    func publishVideo(_ item: CoachRecordingItem, notes: String? = nil, tags: [String] = [], drillType: String? = nil) async {
+        guard let videoID = item.metadata.id else { return }
         do {
-            try await firestore.moveVideoToSharedFolder(
-                privateVideoID: videoID,
-                privateFolderID: item.privateFolderID,
+            try await firestore.publishPrivateVideo(
+                videoID: videoID,
                 sharedFolderID: item.sharedFolderID,
-                coachID: coachID,
-                coachName: coachName,
-                tags: tags,
+                notes: notes,
+                tags: tags.isEmpty ? nil : tags,
                 drillType: drillType
             )
             Haptics.success()
             removeFromLocalState(videoID: videoID)
         } catch {
             errorMessage = "Failed to share video: \(error.localizedDescription)"
-            ErrorHandlerService.shared.handle(error, context: "CoachRecordingsViewModel.moveToSharedFolder", showAlert: false)
+            ErrorHandlerService.shared.handle(error, context: "CoachRecordingsViewModel.publishVideo", showAlert: false)
         }
     }
 

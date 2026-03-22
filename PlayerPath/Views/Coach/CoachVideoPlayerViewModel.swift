@@ -48,20 +48,16 @@ class CoachVideoPlayerViewModel: ObservableObject {
         isLoading = true
         isPlayerReady = false
 
+        // All videos use signed URLs; fallback to direct Storage URL on failure
         let playbackURLString: String
-        if video.isPrivatePreview {
-            // Private videos already have a direct Storage download URL — no signed URL needed
+        do {
+            playbackURLString = try await SecureURLManager.shared.getSecureVideoURL(
+                fileName: video.fileName,
+                folderID: folder.id ?? ""
+            )
+        } catch {
+            ErrorHandlerService.shared.handle(error, context: "CoachVideoPlayer.getSignedURL", showAlert: false)
             playbackURLString = video.firebaseStorageURL
-        } else {
-            do {
-                playbackURLString = try await SecureURLManager.shared.getSecureVideoURL(
-                    fileName: video.fileName,
-                    folderID: folder.id ?? ""
-                )
-            } catch {
-                ErrorHandlerService.shared.handle(error, context: "CoachVideoPlayer.getSignedURL", showAlert: false)
-                playbackURLString = video.firebaseStorageURL
-            }
         }
 
         guard let url = URL(string: playbackURLString) else {

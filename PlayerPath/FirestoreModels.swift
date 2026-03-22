@@ -121,6 +121,10 @@ struct FirestoreVideoMetadata: Codable, Identifiable {
     var drillType: String? = nil
     var sessionID: String? = nil
 
+    // Visibility (coach private vs shared)
+    var visibility: String? = nil
+    var instructionDate: Date? = nil
+
     /// Display name for uploader (handles orphaned accounts)
     var uploaderDisplayName: String {
         if isOrphaned == true {
@@ -205,32 +209,6 @@ struct CoachToAthleteInvitation: Codable, Identifiable {
     let folderID: String?
     let folderName: String?
     let athleteUserID: String?
-}
-
-/// Coach's private staging folder for recordings before sharing
-struct CoachPrivateFolder: Codable, Identifiable {
-    var id: String?
-    let coachID: String
-    let athleteID: String
-    let sharedFolderID: String
-    let videoCount: Int?
-    let createdAt: Date?
-    let updatedAt: Date?
-}
-
-/// Video in a coach's private staging folder
-struct CoachPrivateVideo: Codable, Identifiable {
-    var id: String?
-    let privateFolderID: String
-    let fileName: String
-    let firebaseStorageURL: String
-    let uploadedBy: String
-    let uploadedByName: String
-    let createdAt: Date?
-    let fileSize: Int64?
-    let duration: Double?
-    let thumbnailURL: String?
-    let notes: String?
 }
 
 /// User profile model

@@ -73,8 +73,8 @@ struct CoachRecordingsTab: View {
         }
         .sheet(isPresented: $showingMoveAndTag) {
             if let item = videoToMove {
-                MoveAndTagSheet(item: item) { tags, drillType in
-                    Task { await viewModel.moveToSharedFolder(item, tags: tags, drillType: drillType) }
+                MoveAndTagSheet(item: item) { notes, tags, drillType in
+                    Task { await viewModel.publishVideo(item, notes: notes, tags: tags, drillType: drillType) }
                 }
             }
         }
@@ -140,33 +140,13 @@ struct CoachRecordingsTab: View {
                         if let folder = sharedFolderManager.coachFolders.first(where: { $0.id == item.sharedFolderID }) {
                             NavigationLink(destination: CoachVideoPlayerView(
                                 folder: folder,
-                                video: CoachVideoItem(from: item.video, sharedFolderID: item.sharedFolderID)
+                                video: CoachVideoItem(from: item.metadata)
                             )) {
-                                CoachRecordingRow(
-                                    item: item,
-                                    onMove: {
-                                        videoToMove = item
-                                        showingMoveAndTag = true
-                                    },
-                                    onDelete: {
-                                        videoToDelete = item
-                                        showingDeleteConfirmation = true
-                                    }
-                                )
+                                recordingRow(item: item)
                             }
                             .buttonStyle(.plain)
                         } else {
-                            CoachRecordingRow(
-                                item: item,
-                                onMove: {
-                                    videoToMove = item
-                                    showingMoveAndTag = true
-                                },
-                                onDelete: {
-                                    videoToDelete = item
-                                    showingDeleteConfirmation = true
-                                }
-                            )
+                            recordingRow(item: item)
                         }
                     }
                 } header: {
@@ -175,5 +155,19 @@ struct CoachRecordingsTab: View {
             }
         }
         .listStyle(.insetGrouped)
+    }
+
+    private func recordingRow(item: CoachRecordingItem) -> some View {
+        CoachRecordingRow(
+            item: item,
+            onMove: {
+                videoToMove = item
+                showingMoveAndTag = true
+            },
+            onDelete: {
+                videoToDelete = item
+                showingDeleteConfirmation = true
+            }
+        )
     }
 }

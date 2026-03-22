@@ -118,10 +118,6 @@ struct CoachVideoPlayerView: View {
             // Load video first (always needed)
             await viewModel.loadVideo()
 
-            // Skip annotations/cues/drill cards for private video previews
-            // (private videos don't exist in the videos collection yet)
-            guard !video.isPrivatePreview else { return }
-
             // Load annotations, cues, and drill cards in parallel
             async let annotationsLoad: () = viewModel.loadAnnotations()
             if let coachID = authManager.userID {
@@ -155,6 +151,7 @@ struct CoachVideoPlayerView: View {
         VStack(spacing: 0) {
             playerContent
                 .frame(height: 250)
+            instructionNoteCard
             if canComment && !templateService.quickCues.isEmpty {
                 QuickCueBar(
                     cues: templateService.quickCues,
@@ -277,9 +274,39 @@ struct CoachVideoPlayerView: View {
         }
     }
 
+    /// Shows the coach's instruction note prominently below the video player.
+    @ViewBuilder
+    private var instructionNoteCard: some View {
+        if let notes = video.notes, !notes.isEmpty,
+           video.videoType == "instruction" || video.videoType == "practice" {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Image(systemName: "person.fill.checkmark")
+                        .font(.caption)
+                        .foregroundColor(.green)
+                    Text(video.uploadedByName)
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                    Spacer()
+                    if let date = video.createdAt {
+                        Text(date.formatted(date: .abbreviated, time: .omitted))
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                Text(notes)
+                    .font(.subheadline)
+                    .foregroundColor(.primary)
+            }
+            .padding()
+            .background(Color.green.opacity(0.08))
+            .cornerRadius(10)
+            .padding(.horizontal)
+            .padding(.vertical, 6)
+        }
+    }
+
     private var canComment: Bool {
-        // Private video previews can't have annotations (no parent doc in videos collection)
-        if video.isPrivatePreview { return false }
         guard let userID = authManager.userID else { return false }
         if userID == folder.ownerAthleteID { return true }
         return folder.getPermissions(for: userID)?.canComment ?? false

@@ -8,6 +8,7 @@
 
 import SwiftUI
 import Combine
+import FirebaseAuth
 
 /// Shows the contents of a shared folder with Games and Practices sections
 struct CoachFolderDetailView: View {
@@ -41,14 +42,14 @@ struct CoachFolderDetailView: View {
     
     enum FolderTab: String, CaseIterable {
         case games = "Games"
-        case practices = "Practices"
+        case instruction = "Instruction"
         case all = "All Videos"
         case myRecordings = "My Recordings"
 
         var icon: String {
             switch self {
             case .games: return "figure.baseball"
-            case .practices: return "figure.run"
+            case .instruction: return "figure.run"
             case .all: return "video"
             case .myRecordings: return "video.badge.plus"
             }
@@ -88,8 +89,8 @@ struct CoachFolderDetailView: View {
                     GamesTabView(folder: folder, videos: filterByTag(viewModel.cachedGameVideos), isLoading: viewModel.isLoading, errorMessage: viewModel.errorMessage) {
                         await viewModel.loadVideos()
                     }
-                case .practices:
-                    PracticesTabView(folder: folder, videos: filterByTag(viewModel.cachedPracticeVideos), isLoading: viewModel.isLoading, errorMessage: viewModel.errorMessage) {
+                case .instruction:
+                    InstructionTabView(folder: folder, videos: filterByTag(viewModel.cachedInstructionVideos), isLoading: viewModel.isLoading, errorMessage: viewModel.errorMessage) {
                         await viewModel.loadVideos()
                     }
                 case .all:
@@ -302,7 +303,7 @@ struct CoachFolderDetailView: View {
         let visibleVideos: [CoachVideoItem]
         switch selectedTab {
         case .games: visibleVideos = viewModel.cachedGameVideos
-        case .practices: visibleVideos = viewModel.cachedPracticeVideos
+        case .instruction: visibleVideos = viewModel.cachedInstructionVideos
         case .all: visibleVideos = viewModel.videos
         case .myRecordings: visibleVideos = []
         }
@@ -476,7 +477,7 @@ struct GameGroupView: View {
 
 // MARK: - Practices Tab View
 
-struct PracticesTabView: View {
+struct InstructionTabView: View {
     let folder: SharedFolder
     let videos: [CoachVideoItem]
     var isLoading: Bool = false
@@ -550,7 +551,7 @@ struct PracticeGroupView: View {
             Button(action: { withAnimation { isExpanded.toggle() } }) {
                 HStack {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Practice")
+                        Text("Instruction")
                             .font(.headline)
                             .foregroundColor(.primary)
                         
@@ -796,11 +797,11 @@ class CoachFolderViewModel: ObservableObject {
     
     /// Cached filtered arrays — updated whenever `videos` changes
     @Published var cachedGameVideos: [CoachVideoItem] = []
-    @Published var cachedPracticeVideos: [CoachVideoItem] = []
+    @Published var cachedInstructionVideos: [CoachVideoItem] = []
 
     private func updateFilteredVideos() {
         cachedGameVideos = videos.filter { $0.videoType == "game" || $0.gameOpponent != nil }
-        cachedPracticeVideos = videos.filter { $0.videoType == "practice" || ($0.practiceDate != nil && $0.gameOpponent == nil) }
+        cachedInstructionVideos = videos.filter { $0.videoType == "instruction" || $0.videoType == "practice" || ($0.practiceDate != nil && $0.gameOpponent == nil) }
     }
     
     func loadVideos() async {
@@ -815,8 +816,14 @@ class CoachFolderViewModel: ObservableObject {
         do {
             let firestoreVideos = try await FirestoreManager.shared.fetchVideos(forSharedFolder: folderID)
 
-            // Convert to CoachVideoItem
-            videos = firestoreVideos.map { CoachVideoItem(from: $0) }
+            // Convert to CoachVideoItem, filtering out other coaches' private videos
+            let currentUserID = Auth.auth().currentUser?.uid
+            videos = firestoreVideos
+                .filter { video in
+                    // Show: shared videos, own private videos, legacy videos (no visibility)
+                    video.visibility != "private" || video.uploadedBy == currentUserID
+                }
+                .map { CoachVideoItem(from: $0) }
                 .sorted { ($0.createdAt ?? Date()) > ($1.createdAt ?? Date()) }
             updateFilteredVideos()
 
@@ -867,13 +874,13 @@ struct CoachVideoItem: Identifiable {
     let annotationCount: Int?
     let tags: [String]
     let drillType: String?
-    var isPrivatePreview: Bool = false
+    var visibility: String? = nil
 
     var contextLabel: String? {
         if let opponent = gameOpponent {
             return "Game vs \(opponent)"
         } else if let _ = practiceDate {
-            return "Practice"
+            return "Instruction"
         }
         return nil
     }
@@ -900,6 +907,7 @@ struct CoachVideoItem: Identifiable {
         self.annotationCount = metadata.annotationCount
         self.tags = metadata.tags ?? []
         self.drillType = metadata.drillType
+        self.visibility = metadata.visibility
     }
 }
 

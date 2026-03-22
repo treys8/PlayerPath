@@ -95,7 +95,7 @@ struct CoachDashboardView: View {
                 VStack(spacing: 8) {
                     Image(systemName: "video.fill.badge.plus")
                         .font(.title2)
-                    Text("Record Practice")
+                    Text("Record Instruction")
                         .font(.caption)
                         .fontWeight(.semibold)
                 }

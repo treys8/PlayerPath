@@ -2,19 +2,26 @@
 //  MoveAndTagSheet.swift
 //  PlayerPath
 //
-//  Sheet shown when a coach shares a recording with an athlete.
-//  Allows adding tags and drill type before sharing.
+//  Sheet shown when a coach shares an instruction video with an athlete.
+//  Allows adding instruction notes, tags, and drill type before sharing.
 //
 
 import SwiftUI
 
 struct MoveAndTagSheet: View {
     let item: CoachRecordingItem
-    let onShare: ([String], String?) -> Void
+    let onShare: (String?, [String], String?) -> Void
     @Environment(\.dismiss) private var dismiss
+    @State private var notes: String
     @State private var tags: [String] = []
     @State private var drillType: String?
     @State private var showingTagEditor = false
+
+    init(item: CoachRecordingItem, onShare: @escaping (String?, [String], String?) -> Void) {
+        self.item = item
+        self.onShare = onShare
+        _notes = State(initialValue: item.metadata.notes ?? "")
+    }
 
     var body: some View {
         NavigationStack {
@@ -35,6 +42,16 @@ struct MoveAndTagSheet: View {
                     }
                 } header: {
                     Text("Share To")
+                }
+
+                // Instruction notes — the key field
+                Section {
+                    TextField("What should the athlete focus on?", text: $notes, axis: .vertical)
+                        .lineLimit(3...8)
+                } header: {
+                    Text("Instruction Notes")
+                } footer: {
+                    Text("Your notes will be displayed alongside the video so the athlete can read them while watching.")
                 }
 
                 // Drill type
@@ -79,11 +96,9 @@ struct MoveAndTagSheet: View {
                     }
                 } header: {
                     Text("Tags")
-                } footer: {
-                    Text("Tags help organize and filter videos later.")
                 }
             }
-            .navigationTitle("Share Recording")
+            .navigationTitle("Share with Athlete")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -91,7 +106,8 @@ struct MoveAndTagSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Share") {
-                        onShare(tags, drillType)
+                        let trimmedNotes = notes.trimmingCharacters(in: .whitespacesAndNewlines)
+                        onShare(trimmedNotes.isEmpty ? nil : trimmedNotes, tags, drillType)
                         Haptics.success()
                         dismiss()
                     }

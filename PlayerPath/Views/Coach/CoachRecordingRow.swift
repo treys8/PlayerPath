@@ -16,7 +16,7 @@ struct CoachRecordingRow: View {
         HStack(spacing: 12) {
             // Thumbnail
             ZStack {
-                if let urlString = item.video.thumbnailURL, let url = URL(string: urlString) {
+                if let urlString = item.metadata.thumbnail?.standardURL, let url = URL(string: urlString) {
                     AsyncImage(url: url) { phase in
                         switch phase {
                         case .success(let image):
@@ -42,15 +42,15 @@ struct CoachRecordingRow: View {
                     .foregroundColor(.green)
 
                 HStack(spacing: 6) {
-                    if let createdAt = item.video.createdAt {
+                    if let createdAt = item.metadata.createdAt {
                         Text(createdAt.formatted(date: .omitted, time: .shortened))
                             .font(.caption2)
                             .foregroundColor(.secondary)
                     }
-                    if let duration = item.video.duration, duration > 0 {
+                    if let duration = item.metadata.duration, duration > 0 {
                         Text("·")
                             .foregroundColor(.secondary)
-                        Text(formatDuration(duration))
+                        Text(duration.formattedTimestamp)
                             .font(.caption2)
                             .foregroundColor(.secondary)
                     }
@@ -59,7 +59,7 @@ struct CoachRecordingRow: View {
 
             Spacer()
 
-            if let fileSize = item.video.fileSize, fileSize > 0 {
+            if let fileSize = item.metadata.fileSize, fileSize > 0 {
                 Text(ByteCountFormatter.string(fromByteCount: fileSize, countStyle: .file))
                     .font(.caption2)
                     .foregroundColor(.secondary)
@@ -104,11 +104,5 @@ struct CoachRecordingRow: View {
             Image(systemName: "video.fill")
                 .foregroundColor(.gray)
         }
-    }
-
-    private func formatDuration(_ seconds: Double) -> String {
-        let mins = Int(seconds) / 60
-        let secs = Int(seconds) % 60
-        return String(format: "%d:%02d", mins, secs)
     }
 }

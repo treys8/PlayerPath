@@ -313,8 +313,8 @@ private struct AthleteFolderDetailContent: View {
                     GamesTabView(folder: folder, videos: viewModel.cachedGameVideos) {
                         await viewModel.loadVideos()
                     }
-                case .practices:
-                    PracticesTabView(folder: folder, videos: viewModel.cachedPracticeVideos) {
+                case .instruction:
+                    InstructionTabView(folder: folder, videos: viewModel.cachedInstructionVideos) {
                         await viewModel.loadVideos()
                     }
                 case .all:

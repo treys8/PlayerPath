@@ -7,6 +7,7 @@
 
 import Foundation
 import FirebaseFirestore
+import FirebaseStorage
 import os
 
 extension FirestoreManager {
@@ -39,7 +40,8 @@ extension FirestoreManager {
         videoType: String = "game",
         gameContext: GameContext? = nil,
         practiceContext: PracticeContext? = nil,
-        uploadedByType: UploadedByType? = nil
+        uploadedByType: UploadedByType? = nil,
+        visibility: String = "shared"
     ) async throws -> String {
         var videoData: [String: Any] = [
             "fileName": fileName,
@@ -56,6 +58,7 @@ extension FirestoreManager {
         if let uploadedByType {
             videoData["uploadedByType"] = uploadedByType.rawValue
         }
+        videoData["visibility"] = visibility
 
         // Add structured thumbnail data
         if let thumbnail = thumbnail {
@@ -98,15 +101,21 @@ extension FirestoreManager {
         }
 
         do {
-            // Batch: create video doc + increment folder count atomically
-            let batch = db.batch()
             let videoRef = db.collection("videos").document()
-            batch.setData(videoData, forDocument: videoRef)
-            batch.updateData([
-                "videoCount": FieldValue.increment(Int64(1)),
-                "updatedAt": FieldValue.serverTimestamp()
-            ], forDocument: db.collection("sharedFolders").document(folderID))
-            try await batch.commit()
+
+            if visibility == "private" {
+                // Private video: create doc only, don't touch folder count
+                try await videoRef.setData(videoData)
+            } else {
+                // Shared video: batch create doc + increment folder count
+                let batch = db.batch()
+                batch.setData(videoData, forDocument: videoRef)
+                batch.updateData([
+                    "videoCount": FieldValue.increment(Int64(1)),
+                    "updatedAt": FieldValue.serverTimestamp()
+                ], forDocument: db.collection("sharedFolders").document(folderID))
+                try await batch.commit()
+            }
 
             return videoRef.documentID
         } catch {
@@ -317,7 +326,8 @@ extension FirestoreManager {
             "fileName", "firebaseStorageURL", "uploadedBy", "uploadedByName",
             "sharedFolderID", "fileSize", "duration", "videoType", "isHighlight",
             "thumbnail", "thumbnailURL", "gameOpponent", "gameDate", "practiceDate",
-            "notes", "playResult", "athleteName", "seasonID", "uploadedByType"
+            "instructionDate", "notes", "playResult", "athleteName", "seasonID",
+            "uploadedByType", "visibility"
         ]
         var safeMetadata = metadata.filter { allowedFields.contains($0.key) }
         safeMetadata["sharedFolderID"] = folderID
@@ -339,6 +349,79 @@ extension FirestoreManager {
             errorMessage = "Failed to save video."
             throw error
         }
+    }
+
+    // MARK: - Coach Private Videos
+
+    /// Fetches private coach videos, optionally filtered by shared folder.
+    func fetchCoachPrivateVideos(coachID: String, sharedFolderID: String? = nil) async throws -> [FirestoreVideoMetadata] {
+        var query = db.collection("videos")
+            .whereField("uploadedBy", isEqualTo: coachID)
+            .whereField("visibility", isEqualTo: "private")
+
+        if let sharedFolderID {
+            query = query.whereField("sharedFolderID", isEqualTo: sharedFolderID)
+        }
+
+        let snapshot = try await query
+            .order(by: "createdAt", descending: true)
+            .limit(to: 100)
+            .getDocuments()
+
+        return snapshot.documents.compactMap { doc in
+            var video = try? doc.data(as: FirestoreVideoMetadata.self)
+            video?.id = doc.documentID
+            return video
+        }
+    }
+
+    /// Publishes a private video to the shared folder (changes visibility + increments folder count).
+    func publishPrivateVideo(
+        videoID: String,
+        sharedFolderID: String,
+        notes: String? = nil,
+        tags: [String]? = nil,
+        drillType: String? = nil
+    ) async throws {
+        let batch = db.batch()
+
+        var updateData: [String: Any] = [
+            "visibility": "shared",
+            "updatedAt": FieldValue.serverTimestamp()
+        ]
+        if let notes, !notes.isEmpty { updateData["notes"] = notes }
+        if let tags, !tags.isEmpty { updateData["tags"] = tags }
+        if let drillType { updateData["drillType"] = drillType }
+
+        batch.updateData(updateData, forDocument: db.collection("videos").document(videoID))
+        batch.updateData([
+            "videoCount": FieldValue.increment(Int64(1)),
+            "updatedAt": FieldValue.serverTimestamp()
+        ], forDocument: db.collection("sharedFolders").document(sharedFolderID))
+
+        try await batch.commit()
+    }
+
+    /// Deletes a private coach video (Firestore doc + Storage file + thumbnail).
+    func deleteCoachPrivateVideo(videoID: String, sharedFolderID: String, fileName: String) async throws {
+        // Delete Storage file
+        do {
+            try await VideoCloudManager.shared.deleteVideo(fileName: fileName, folderID: sharedFolderID)
+        } catch {
+            firestoreLog.warning("Failed to delete private video storage file \(fileName): \(error.localizedDescription)")
+        }
+
+        // Delete Storage thumbnail
+        do {
+            let thumbName = (fileName as NSString).deletingPathExtension + "_thumbnail.jpg"
+            let thumbRef = Storage.storage().reference().child("shared_folders/\(sharedFolderID)/thumbnails/\(thumbName)")
+            try await thumbRef.delete()
+        } catch {
+            firestoreLog.warning("Failed to delete private video thumbnail: \(error.localizedDescription)")
+        }
+
+        // Delete Firestore doc (no folder count decrement — private videos aren't counted)
+        try await db.collection("videos").document(videoID).delete()
     }
 
     // MARK: - Video Tags

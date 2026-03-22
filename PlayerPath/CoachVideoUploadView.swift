@@ -62,7 +62,7 @@ struct CoachVideoUploadView: View {
                     Section("Video Context") {
                         Picker("Upload to", selection: $viewModel.videoContext) {
                             Text("Game").tag(VideoContext.game)
-                            Text("Practice").tag(VideoContext.practice)
+                            Text("Instruction").tag(VideoContext.instruction)
                         }
                         .pickerStyle(.segmented)
                         
@@ -75,7 +75,7 @@ struct CoachVideoUploadView: View {
 
                             DatePicker("Game Date", selection: $viewModel.contextDate, displayedComponents: .date)
                         } else {
-                            DatePicker("Practice Date", selection: $viewModel.contextDate, displayedComponents: .date)
+                            DatePicker("Instruction Date", selection: $viewModel.contextDate, displayedComponents: .date)
                         }
 
                         TextField("Notes (optional)", text: $viewModel.notes, axis: .vertical)
@@ -220,7 +220,7 @@ struct CoachVideoUploadView: View {
 
 enum VideoContext {
     case game
-    case practice
+    case instruction
 }
 
 // MARK: - View Model
@@ -234,7 +234,7 @@ class CoachVideoUploadViewModel: ObservableObject {
     @Published var selectedPhotoItem: PhotosPickerItem?
     @Published var selectedVideoURL: URL?
     
-    @Published var videoContext: VideoContext = .practice
+    @Published var videoContext: VideoContext = .instruction
     @Published var gameOpponent: String = ""
     @Published var contextDate: Date = Date()
     @Published var notes: String = ""
@@ -249,7 +249,7 @@ class CoachVideoUploadViewModel: ObservableObject {
 
     init(folder: SharedFolder, selectedTab: CoachFolderDetailView.FolderTab) {
         self.folder = folder
-        self.videoContext = selectedTab == .games ? .game : .practice
+        self.videoContext = selectedTab == .games ? .game : .instruction
     }
 
     var canUpload: Bool {
@@ -419,8 +419,8 @@ class CoachVideoUploadViewModel: ObservableObject {
                 .components(separatedBy: CharacterSet(charactersIn: "/\\#?% "))
                 .joined(separator: "_")
             return "game_\(sanitized)_\(timestamp)_\(uid).mov"
-        case .practice:
-            return "practice_\(timestamp)_\(uid).mov"
+        case .instruction:
+            return "instruction_\(timestamp)_\(uid).mov"
         }
     }
     
@@ -453,9 +453,9 @@ class CoachVideoUploadViewModel: ObservableObject {
             metadata["gameOpponent"] = gameOpponent
             metadata["gameDate"] = contextDate
             metadata["videoType"] = "game"
-        case .practice:
+        case .instruction:
             metadata["practiceDate"] = contextDate
-            metadata["videoType"] = "practice"
+            metadata["videoType"] = "instruction"
         }
         
         if !notes.isEmpty {
@@ -497,7 +497,7 @@ struct VideoPickerTransferable: Transferable {
             updatedAt: Date(),
             videoCount: 0
         ),
-        selectedTab: .practices
+        selectedTab: .instruction
     )
     .environmentObject(ComprehensiveAuthManager())
 }
