@@ -229,7 +229,7 @@ struct CoachAthletesTab: View {
                 await invitationManager.checkPendingInvitations(forCoachEmail: coachEmail)
             }
         } catch {
-            ErrorHandlerService.shared.handle(error, context: "CoachAthletesTab.reloadData", showAlert: false)
+            ErrorHandlerService.shared.handle(error, context: "CoachAthletesTab.reloadData", showAlert: true)
         }
     }
 }

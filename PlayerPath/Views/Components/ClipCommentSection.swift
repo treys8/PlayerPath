@@ -46,6 +46,8 @@ struct ClipCommentSection: View {
                 .onTapGesture {
                     Task { await loadComments() }
                 }
+                .accessibilityAddTraits(.isButton)
+                .accessibilityLabel("Retry loading comments")
             } else if coachComments.isEmpty {
                 HStack(spacing: 6) {
                     Image(systemName: "text.bubble")

@@ -34,9 +34,14 @@ class CoachTemplateService {
                 .getDocuments()
 
             quickCues = snapshot.documents.compactMap { doc in
-                var cue = try? doc.data(as: QuickCue.self)
-                cue?.id = doc.documentID
-                return cue
+                do {
+                    var cue = try doc.data(as: QuickCue.self)
+                    cue.id = doc.documentID
+                    return cue
+                } catch {
+                    ErrorHandlerService.shared.handle(error, context: "CoachTemplateService.decode(\(doc.documentID))", showAlert: false)
+                    return nil
+                }
             }
         } catch {
             templateLog.warning("Failed to load quick cues: \(error.localizedDescription)")

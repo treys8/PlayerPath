@@ -99,7 +99,7 @@ final class AppleSignInManager: NSObject, ObservableObject {
     // MARK: - Helper Methods
     
     private func randomNonceString(length: Int = 32) -> String {
-        precondition(length > 0)
+        guard length > 0 else { return UUID().uuidString }
         var randomBytes = [UInt8](repeating: 0, count: length)
         let errorCode = SecRandomCopyBytes(kSecRandomDefault, randomBytes.count, &randomBytes)
         if errorCode != errSecSuccess {
@@ -323,8 +323,8 @@ extension AppleSignInManager: ASAuthorizationControllerPresentationContextProvid
             return UIWindow(windowScene: windowScene)
         }
 
-        // Unreachable on any real device — every iOS 15+ app has at least one UIWindowScene.
-        fatalError("No UIWindowScene available for Apple Sign In presentation")
+        // Every iOS 15+ app has at least one UIWindowScene — create a fallback window.
+        return UIWindow(frame: UIScreen.main.bounds)
     }
 }
 

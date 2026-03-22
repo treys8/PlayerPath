@@ -65,6 +65,7 @@ struct AuthenticatedFlow: View {
             ActivityNotificationService.shared.stopListening()
             SharedFolderManager.shared.stopCoachFoldersListener()
             CoachInvitationManager.shared.stopInvitationsListener()
+            AthleteInvitationManager.shared.stopInvitationsListener()
         }
         .onChange(of: authManager.isSignedIn) { oldValue, newValue in
             if oldValue == true && newValue == false {
@@ -72,6 +73,7 @@ struct AuthenticatedFlow: View {
                 ActivityNotificationService.shared.stopListening()
                 SharedFolderManager.shared.stopCoachFoldersListener()
                 CoachInvitationManager.shared.stopInvitationsListener()
+                AthleteInvitationManager.shared.stopInvitationsListener()
             }
         }
         .onChange(of: scenePhase) { _, newPhase in
@@ -80,6 +82,7 @@ struct AuthenticatedFlow: View {
                 ActivityNotificationService.shared.stopListening()
                 SharedFolderManager.shared.stopCoachFoldersListener()
                 CoachInvitationManager.shared.stopInvitationsListener()
+                AthleteInvitationManager.shared.stopInvitationsListener()
             case .active:
                 // Re-start listeners if user is authenticated
                 if let firebaseUID = authManager.currentFirebaseUser?.uid {
@@ -88,6 +91,10 @@ struct AuthenticatedFlow: View {
                         SharedFolderManager.shared.startCoachFoldersListener(coachID: firebaseUID)
                         if let email = authManager.currentFirebaseUser?.email?.lowercased() {
                             CoachInvitationManager.shared.startInvitationsListener(forCoachEmail: email)
+                        }
+                    } else {
+                        if let email = authManager.currentFirebaseUser?.email?.lowercased() {
+                            AthleteInvitationManager.shared.startInvitationsListener(forAthleteEmail: email)
                         }
                     }
                     // Refresh tier from Firestore to catch changes from other devices
@@ -129,6 +136,11 @@ struct AuthenticatedFlow: View {
                 SyncCoordinator.shared.configure(modelContext: modelContext)
                 UploadQueueManager.shared.configure(modelContext: modelContext)
                 QuickActionsManager.shared.setupQuickActions()
+
+                // Start athlete invitation listener so invitations are visible on all tabs
+                if let athleteEmail = authManager.currentFirebaseUser?.email?.lowercased() {
+                    AthleteInvitationManager.shared.startInvitationsListener(forAthleteEmail: athleteEmail)
+                }
 
                 // Run migration, recovery, and sync in background
                 Task(priority: .utility) {

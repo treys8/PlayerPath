@@ -33,6 +33,8 @@ struct SeasonManagementView: View {
                         .onTapGesture {
                             showingSeasonDetail = activeSeason
                         }
+                        .accessibilityAddTraits(.isButton)
+                        .accessibilityHint("View season details")
                 } header: {
                     Text("Active Season")
                 } footer: {
@@ -95,6 +97,8 @@ struct SeasonManagementView: View {
                             .onTapGesture {
                                 showingSeasonDetail = season
                             }
+                            .accessibilityAddTraits(.isButton)
+                            .accessibilityHint("View season details")
                     }
                 } header: {
                     Text("Season History")

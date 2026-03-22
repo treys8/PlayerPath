@@ -153,10 +153,15 @@ struct StarRatingView: View {
                 Image(systemName: star <= rating ? "star.fill" : "star")
                     .font(.subheadline)
                     .foregroundColor(star <= rating ? .yellow : .gray.opacity(0.4))
+                    .frame(minWidth: 44, minHeight: 44)
+                    .contentShape(Rectangle())
                     .onTapGesture {
                         rating = star == rating ? 0 : star
                         Haptics.selection()
                     }
+                    .accessibilityLabel("\(star) star\(star == 1 ? "" : "s")")
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityValue(star <= rating ? "selected" : "not selected")
             }
         }
     }

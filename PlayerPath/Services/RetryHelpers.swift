@@ -14,18 +14,18 @@ func withRetry<T>(
     delay: Duration = .seconds(2),
     operation: () async throws -> T
 ) async throws -> T {
+    var lastError: (any Error)?
     for attempt in 1...maxAttempts {
         do {
             return try await operation()
         } catch {
+            lastError = error
             if attempt < maxAttempts {
                 try? await Task.sleep(for: delay)
-            } else {
-                throw error
             }
         }
     }
-    fatalError("Unreachable")
+    throw lastError!
 }
 
 /// Fire-and-forget retry: silently retries an async operation, discarding errors after exhaustion.

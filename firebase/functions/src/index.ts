@@ -115,7 +115,7 @@ async function sendAthleteToCoachEmail(
   };
 
   await getResend().emails.send(msg);
-  console.log(`✅ Invitation email sent to ${invitation.coachEmail} for invitation ${invitationId}`);
+  console.log(`✅ Invitation email sent for invitation ${invitationId}`);
 
   await snap.ref.update({
     emailSentAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -147,12 +147,67 @@ async function sendCoachToAthleteEmail(
   };
 
   await getResend().emails.send(msg);
-  console.log(`✅ Coach-to-athlete email sent to ${invitation.athleteEmail} for invitation ${invitationId}`);
+  console.log(`✅ Coach-to-athlete email sent for invitation ${invitationId}`);
 
   await snap.ref.update({
     emailSentAt: admin.firestore.FieldValue.serverTimestamp(),
     emailSent: true
   });
+
+  // Write an in-app notification so the athlete sees it immediately via
+  // ActivityNotificationService's real-time Firestore listener.
+  await writeInvitationNotification(
+    invitation.athleteEmail,
+    invitation.coachName,
+    invitation.coachID,
+    invitationId
+  );
+}
+
+/**
+ * Writes an in-app notification to Firestore for an athlete who received
+ * a coach invitation. The athlete's ActivityNotificationService listener
+ * picks this up in real-time and shows a banner/badge.
+ * Gracefully skips if the athlete doesn't have an account yet.
+ */
+async function writeInvitationNotification(
+  athleteEmail: string,
+  coachName: string,
+  coachID: string,
+  invitationId: string
+) {
+  try {
+    const usersSnap = await admin.firestore().collection('users')
+      .where('email', '==', athleteEmail.toLowerCase())
+      .limit(1)
+      .get();
+
+    if (usersSnap.empty) {
+      console.log(`ℹ️ No user found for ${athleteEmail} — skipping in-app notification`);
+      return;
+    }
+
+    const athleteUserID = usersSnap.docs[0].id;
+
+    await admin.firestore()
+      .collection('notifications').doc(athleteUserID)
+      .collection('items').add({
+        type: 'invitation_received',
+        title: 'New Coach Invitation',
+        body: `${coachName} wants to connect with you on PlayerPath`,
+        senderName: coachName,
+        senderID: coachID,
+        targetID: invitationId,
+        targetType: 'invitation',
+        isRead: false,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+    console.log(`✅ In-app notification written for ${athleteEmail}`);
+  } catch (error) {
+    // Best-effort — don't fail the invitation flow
+    console.warn('⚠️ Failed to write in-app notification:', error);
+  }
 }
 
 /**
@@ -642,7 +697,7 @@ export const sendCoachAccessRevokedEmail = functions.firestore
 
       await getResend().emails.send(msg);
 
-      console.log(`✅ Access revoked email sent to ${revocation.coachEmail} for revocation ${revocationId}`);
+      console.log(`✅ Access revoked email sent for revocation ${revocationId}`);
 
       // Update revocation with email sent timestamp
       await snap.ref.update({
@@ -1205,7 +1260,7 @@ export const enforceStorageQuota = functions.storage
     totalBytes += fileSize;
 
     if (totalBytes > limitBytes) {
-      console.warn(`⚠️ Storage quota exceeded for ${ownerUID}: ${totalBytes} bytes > ${limitBytes} bytes (tier: ${tier}). Deleting uploaded file.`);
+      console.warn(`⚠️ Storage quota exceeded: ${totalBytes} bytes > ${limitBytes} bytes (tier: ${tier}). Deleting uploaded file.`);
       try {
         await admin.storage().bucket().file(filePath).delete();
         console.log(`🗑️ Deleted over-quota file: ${filePath}`);
@@ -1260,7 +1315,7 @@ export const syncSubscriptionTier = functions.https.onCall(async (data, context)
   try {
     appTransaction = await verifyAppTransaction(receiptData);
   } catch (error) {
-    console.error(`❌ App Store verification failed for ${uid}:`, error);
+    console.error('❌ App Store verification failed:', error);
     throw new functions.https.HttpsError(
       error instanceof Error && error.message.includes('APP_APPLE_ID')
         ? 'failed-precondition'
@@ -1271,7 +1326,7 @@ export const syncSubscriptionTier = functions.https.onCall(async (data, context)
     );
   }
 
-  console.log(`✅ Verified AppTransaction for ${uid}: bundleId=${appTransaction.bundleId}`);
+  console.log(`✅ Verified AppTransaction: bundleId=${appTransaction.bundleId}`);
 
   // Build the Firestore update
   const updateData: Record<string, any> = {
@@ -1294,10 +1349,10 @@ export const syncSubscriptionTier = functions.https.onCall(async (data, context)
 
   try {
     await admin.firestore().collection('users').doc(uid).set(updateData, { merge: true });
-    console.log(`✅ Synced tiers for ${uid}: athlete=${tier}, coach=${coachTier}`);
+    console.log(`✅ Synced tiers: athlete=${tier}, coach=${coachTier}`);
     return { success: true };
   } catch (error) {
-    console.error(`❌ Failed to sync tiers for ${uid}:`, error);
+    console.error('❌ Failed to sync tiers:', error);
     throw new functions.https.HttpsError('internal', 'Failed to update subscription tier');
   }
 });
@@ -1318,7 +1373,7 @@ export const syncSubscriptionTier = functions.https.onCall(async (data, context)
 export const enforceAthleteLimit = functions.firestore
   .document('users/{uid}/athletes/{athleteID}')
   .onCreate(async (snap, context) => {
-    const { uid, athleteID } = context.params;
+    const { uid } = context.params;
     const db = admin.firestore();
 
     try {
@@ -1340,12 +1395,12 @@ export const enforceAthleteLimit = functions.firestore
 
       if (count > limit) {
         console.warn(
-          `⚠️ Athlete limit exceeded for ${uid}: ${count}/${limit} (tier=${tier}). Deleting athlete ${athleteID}.`
+          `⚠️ Athlete limit exceeded: ${count}/${limit} (tier=${tier}). Deleting athlete document.`
         );
         await snap.ref.delete();
       }
     } catch (error) {
-      console.error(`❌ enforceAthleteLimit failed for ${uid}/${athleteID}:`, error);
+      console.error('❌ enforceAthleteLimit failed:', error);
       // Don't rethrow — allow the athlete to persist rather than crash the function.
       // The client-side limit check is the primary gate.
     }
@@ -1417,7 +1472,7 @@ export const enforceCoachAthleteLimit = functions.firestore
 
       if (totalCommitted >= limit) {
         console.warn(
-          `⚠️ Coach athlete limit exceeded for ${coachID}: ${totalCommitted}/${limit} (tier=${coachTier}). Deleting invitation ${invitationID}.`
+          `⚠️ Coach athlete limit exceeded: ${totalCommitted}/${limit} (tier=${coachTier}). Deleting invitation ${invitationID}.`
         );
         await snap.ref.delete();
       }
@@ -1480,7 +1535,7 @@ export const enforceCoachAthleteLimitOnAccept = functions.firestore
 
       if (connectedAthletes.size >= limit) {
         console.warn(
-          `⚠️ Coach athlete limit exceeded on accept for ${coachID}: ${connectedAthletes.size}/${limit} (tier=${coachTier}). Reverting invitation ${invitationID}.`
+          `⚠️ Coach athlete limit exceeded on accept: ${connectedAthletes.size}/${limit} (tier=${coachTier}). Reverting invitation ${invitationID}.`
         );
 
         // Revert the invitation status

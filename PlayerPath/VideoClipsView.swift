@@ -355,7 +355,8 @@ struct VideoClipsView: View {
             // Capture the most recently imported clip when it has no game context
             if isAwaitingImportedClip, let clip = notification.object as? VideoClip, clip.game == nil {
                 // Delay slightly so the upload picker sheet can dismiss first
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(600))
                     clipToTag = clip
                     isAwaitingImportedClip = false
                 }

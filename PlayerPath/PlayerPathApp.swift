@@ -61,6 +61,7 @@ struct PlayerPathApp: App {
                 let config = ModelConfiguration(isStoredInMemoryOnly: true)
                 return try ModelContainer(for: Schema(SchemaV10.models), configurations: [config])
             } catch {
+                // Intentional fatalError: the app cannot function without a ModelContainer.
                 fatalError("Could not create even an in-memory ModelContainer: \(error)")
             }
         }
@@ -313,7 +314,7 @@ struct ScenePhaseSaveHandler<Content: View>: View {
                     do {
                         try await SyncCoordinator.shared.syncAll(for: user)
                     } catch {
-                        ErrorHandlerService.shared.handle(error, context: "PlayerPathApp.foregroundSync", showAlert: false)
+                        ErrorHandlerService.shared.handle(error, context: "PlayerPathApp.foregroundSync", showAlert: true)
                     }
                 }
             }

@@ -50,6 +50,7 @@ struct EnhancedVideoPlayer: View {
                 }
             }
         }
+        .accessibilityIgnoresInvertColors()
         .onAppear { setupPlayer(); showControlsTemporarily() }
         .onDisappear { cleanup() }
         .onChange(of: scenePhase) { _, newPhase in handleScenePhaseChange(newPhase) }

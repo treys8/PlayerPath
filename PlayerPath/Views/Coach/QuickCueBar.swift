@@ -44,9 +44,9 @@ struct QuickCueBar: View {
                     Image(systemName: "ellipsis.circle")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 6)
+                        .frame(minWidth: 44, minHeight: 44)
                 }
+                .accessibilityLabel("Manage quick cues")
             }
             .padding(.horizontal)
             .padding(.vertical, 6)

@@ -28,12 +28,12 @@ struct VideoClipRow: View {
                             Image(uiImage: thumbnail)
                                 .resizable()
                                 .aspectRatio(contentMode: .fill)
-                                .frame(width: 50, height: 35)
+                                .frame(width: 56, height: 44)
                                 .clipped()
                         } else {
                             Rectangle()
                                 .fill(Color.gray.opacity(0.3))
-                                .frame(width: 50, height: 35)
+                                .frame(width: 56, height: 44)
                                 .overlay(
                                     VStack(spacing: 2) {
                                         if isLoadingThumbnail {

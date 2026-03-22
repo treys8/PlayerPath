@@ -113,8 +113,9 @@ final class QuickActionsManager: ObservableObject {
         }
 
         // Clear the action after executing
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            self?.selectedQuickAction = nil
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(500))
+            selectedQuickAction = nil
         }
     }
 

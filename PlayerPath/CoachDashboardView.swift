@@ -23,6 +23,7 @@ struct CoachDashboardView: View {
     @State private var isEndingSession = false
     @State private var isCompletingSession = false
     private var archiveManager: CoachFolderArchiveManager { .shared }
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var cachedRecentFolders: [SharedFolder] = []
     @State private var cachedThisWeekSessionCount = 0
@@ -36,6 +37,16 @@ struct CoachDashboardView: View {
             } else {
             ScrollView {
                 VStack(spacing: 20) {
+                    // Stale data warning
+                    if let listenerError = sharedFolderManager.listenerError {
+                        Label(listenerError, systemImage: "exclamationmark.triangle.fill")
+                            .font(.subheadline)
+                            .foregroundStyle(.orange)
+                            .padding(10)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+                    }
+
                     // Live session card (top priority)
                     liveSessionSection
 
@@ -147,7 +158,7 @@ struct CoachDashboardView: View {
                             .frame(width: 8, height: 8)
                             .opacity(headerPulse ? 0.4 : 1.0)
                             .shadow(color: headerColor.opacity(0.8), radius: headerPulse ? 4 : 2)
-                            .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: headerPulse)
+                            .animation(reduceMotion ? nil : .easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: headerPulse)
                             .onAppear { headerPulse = true }
 
                         Text(isLive ? "Live Now" : "In Review")
@@ -432,7 +443,7 @@ struct CoachDashboardView: View {
                 await invitationManager.checkPendingInvitations(forCoachEmail: coachEmail)
             }
         } catch {
-            ErrorHandlerService.shared.handle(error, context: "CoachDashboard.reloadData", showAlert: false)
+            ErrorHandlerService.shared.handle(error, context: "CoachDashboard.reloadData", showAlert: true)
         }
     }
 

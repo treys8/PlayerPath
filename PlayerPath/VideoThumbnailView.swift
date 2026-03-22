@@ -146,6 +146,7 @@ struct VideoThumbnailView: View {
         }
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
         .shadow(color: .black.opacity(0.1), radius: 5, x: 0, y: 2)
+        .accessibilityIgnoresInvertColors()
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityDescription)
         .task {

@@ -450,11 +450,8 @@ struct CameraPreviewLayer: UIViewRepresentable {
         }
 
         var videoPreviewLayer: AVCaptureVideoPreviewLayer {
-            // Safe: layerClass is overridden above to return AVCaptureVideoPreviewLayer.self
-            guard let previewLayer = layer as? AVCaptureVideoPreviewLayer else {
-                fatalError("layerClass must be AVCaptureVideoPreviewLayer — override was removed or changed")
-            }
-            return previewLayer
+            // layerClass is overridden above — this cast should always succeed.
+            return layer as! AVCaptureVideoPreviewLayer
         }
     }
 }

@@ -58,6 +58,13 @@ class CoachFolderViewModel {
             return
         }
 
+        guard ConnectivityMonitor.shared.isConnected else {
+            if videos.isEmpty {
+                errorMessage = "You're offline. Connect to the internet to load videos."
+            }
+            return
+        }
+
         do {
             let firestoreVideos = try await FirestoreManager.shared.fetchVideos(forSharedFolder: folderID)
 

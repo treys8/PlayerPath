@@ -48,12 +48,13 @@ struct StatisticsHelpers {
     ///   - athlete: The athlete whose stats to update.
     ///   - modelContext: The SwiftData model context used to save changes.
     static func record(hitType: String, for athlete: Athlete, in modelContext: ModelContext) {
-        // Map the string to a strongly-typed play result and delegate to the single source of truth.
         guard let result = playResult(from: hitType) else {
-            assertionFailure("Unknown hitType: \(hitType)")
+            ErrorHandlerService.shared.handle(
+                NSError(domain: "StatisticsHelpers", code: -1, userInfo: [NSLocalizedDescriptionKey: "Unknown hitType: \(hitType)"]),
+                context: "StatisticsHelpers", showAlert: false
+            )
             return
         }
-        // Delegate to the strongly-typed path to avoid duplication.
         record(playResult: result, for: athlete, in: modelContext)
     }
 
@@ -62,18 +63,17 @@ struct StatisticsHelpers {
         let stats = ensureStatistics(for: athlete, in: modelContext)
         stats.addPlayResult(playResult)
         stats.updatedAt = Date()
-        do {
-            try modelContext.save()
-        } catch {
-            assertionFailure("Failed to save modelContext: \(error)")
-        }
+        ErrorHandlerService.shared.saveContext(modelContext, caller: "StatisticsHelpers.record")
     }
 
     /// Convenience that maps a string to PlayResultType and records it if possible.
     @discardableResult
     static func recordIfPossible(hitType: String, for athlete: Athlete, in modelContext: ModelContext) -> Bool {
         guard let result = playResult(from: hitType) else {
-            assertionFailure("Unknown hitType: \(hitType)")
+            ErrorHandlerService.shared.handle(
+                NSError(domain: "StatisticsHelpers", code: -1, userInfo: [NSLocalizedDescriptionKey: "Unknown hitType: \(hitType)"]),
+                context: "StatisticsHelpers.recordIfPossible", showAlert: false
+            )
             return false
         }
         record(playResult: result, for: athlete, in: modelContext)

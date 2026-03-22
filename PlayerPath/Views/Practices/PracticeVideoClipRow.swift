@@ -35,7 +35,7 @@ struct PracticeVideoClipRow: View {
                                 .background(Color.brandNavy.opacity(0.1))
                         }
                     }
-                    .frame(width: 56, height: 40)
+                    .frame(width: 56, height: 44)
                     .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
                     .overlay(alignment: .center) {
                         Image(systemName: "play.fill")

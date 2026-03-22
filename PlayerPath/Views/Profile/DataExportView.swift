@@ -10,6 +10,8 @@ import SwiftUI
 import SwiftData
 
 struct DataExportView: View {
+    private static let isoFormatter = ISO8601DateFormatter()
+
     @Environment(\.modelContext) private var modelContext
     @EnvironmentObject var authManager: ComprehensiveAuthManager
 
@@ -135,7 +137,7 @@ struct DataExportView: View {
         exportData["user"] = [
             "id": currentUser.id.uuidString,
             "email": authManager.userEmail ?? currentUser.email,
-            "createdAt": ISO8601DateFormatter().string(from: currentUser.createdAt ?? Date())
+            "createdAt": Self.isoFormatter.string(from: currentUser.createdAt ?? Date())
         ]
 
         // Athletes
@@ -144,7 +146,7 @@ struct DataExportView: View {
             return [
                 "id": athlete.id.uuidString,
                 "name": athlete.name,
-                "createdAt": ISO8601DateFormatter().string(from: athlete.createdAt ?? Date()),
+                "createdAt": Self.isoFormatter.string(from: athlete.createdAt ?? Date()),
                 "firestoreId": athlete.firestoreId ?? ""
             ]
         }
@@ -158,8 +160,8 @@ struct DataExportView: View {
                     "id": season.id.uuidString,
                     "athleteId": athlete.id.uuidString,
                     "name": season.name,
-                    "startDate": ISO8601DateFormatter().string(from: season.startDate ?? Date()),
-                    "endDate": season.endDate.map { ISO8601DateFormatter().string(from: $0) } ?? "",
+                    "startDate": Self.isoFormatter.string(from: season.startDate ?? Date()),
+                    "endDate": season.endDate.map { Self.isoFormatter.string(from: $0) } ?? "",
                     "isActive": season.isActive,
                     "sport": season.sport.rawValue,
                     "notes": season.notes
@@ -178,7 +180,7 @@ struct DataExportView: View {
                     "athleteId": athlete.id.uuidString,
                     "seasonId": game.season?.id.uuidString ?? "",
                     "opponent": game.opponent,
-                    "date": ISO8601DateFormatter().string(from: game.date ?? Date()),
+                    "date": Self.isoFormatter.string(from: game.date ?? Date()),
                     "isLive": game.isLive,
                     "isComplete": game.isComplete
                 ]
@@ -220,7 +222,7 @@ struct DataExportView: View {
                     "id": practice.id.uuidString,
                     "athleteId": athlete.id.uuidString,
                     "seasonId": practice.season?.id.uuidString ?? "",
-                    "date": ISO8601DateFormatter().string(from: practice.date ?? Date())
+                    "date": Self.isoFormatter.string(from: practice.date ?? Date())
                 ]
 
                 // Include practice notes
@@ -229,7 +231,7 @@ struct DataExportView: View {
                     return [
                         "id": note.id.uuidString,
                         "content": note.content,
-                        "createdAt": ISO8601DateFormatter().string(from: note.createdAt ?? Date())
+                        "createdAt": Self.isoFormatter.string(from: note.createdAt ?? Date())
                     ]
                 }
 
@@ -244,7 +246,7 @@ struct DataExportView: View {
         exportData["videos"] = allVideos.map { video in
             return [
                 "id": video.id.uuidString,
-                "createdAt": ISO8601DateFormatter().string(from: video.createdAt ?? Date()),
+                "createdAt": Self.isoFormatter.string(from: video.createdAt ?? Date()),
                 "filePath": video.resolvedFilePath,
                 "thumbnailPath": video.thumbnailPath,
                 "playResult": video.playResult?.type.displayName ?? ""
@@ -253,7 +255,7 @@ struct DataExportView: View {
 
         // Export Metadata
         exportData["exportMetadata"] = [
-            "exportedAt": ISO8601DateFormatter().string(from: Date()),
+            "exportedAt": Self.isoFormatter.string(from: Date()),
             "appVersion": "1.0.0",
             "format": "PlayerPath JSON v1"
         ]

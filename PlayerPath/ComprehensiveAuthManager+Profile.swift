@@ -215,7 +215,7 @@ extension ComprehensiveAuthManager {
                 }
             }
         } catch {
-            authLog.error("Failed to load user profile for \(email): \(error.localizedDescription)")
+            authLog.error("Failed to load user profile for \(email, privacy: .private): \(error.localizedDescription)")
         }
     }
 

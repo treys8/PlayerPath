@@ -69,7 +69,7 @@ func postSwitchTab(_ tab: MainTab) {
 // MARK: - App Root
 struct PlayerPathMainView: View {
     @StateObject private var authManager = ComprehensiveAuthManager()
-    @StateObject private var themeManager = ThemeManager.shared
+    @ObservedObject private var themeManager = ThemeManager.shared
     @Environment(\.modelContext) private var modelContext
 
     var body: some View {

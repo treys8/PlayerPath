@@ -322,6 +322,7 @@ struct MainTabView: View {
             )
             .id(homeAthleteID ?? selectedAthlete.id)
         }
+        .modifier(InvitationBadgeModifier())
         .tabItem {
             Label("Home", systemImage: "house.fill")
         }
@@ -584,5 +585,15 @@ private struct UnreadBadgeModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .badge(activityNotifService.unreadCount > 0 ? activityNotifService.unreadCount : 0)
+    }
+}
+
+/// Shows a badge on the Home tab when there are pending coach invitations.
+private struct InvitationBadgeModifier: ViewModifier {
+    private var invitationManager: AthleteInvitationManager { .shared }
+
+    func body(content: Content) -> some View {
+        content
+            .badge(invitationManager.pendingCount > 0 ? invitationManager.pendingCount : 0)
     }
 }

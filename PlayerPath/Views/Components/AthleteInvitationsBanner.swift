@@ -61,10 +61,6 @@ struct AthleteInvitationsBanner: View {
                 .buttonStyle(.plain)
             }
         }
-        .task {
-            guard let email = authManager.userEmail else { return }
-            invitationManager.startInvitationsListener(forAthleteEmail: email)
-        }
         .sheet(isPresented: $showingInvitations) {
             AthleteInvitationsSheet(
                 invitations: invitationManager.pendingInvitations,
@@ -128,7 +124,8 @@ struct AthleteInvitationsSheet: View {
             .alert("Upgrade to Share Videos", isPresented: $showingUpgradePrompt) {
                 Button("View Plans") {
                     dismiss()
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(500))
                         NotificationCenter.default.post(name: .showSubscriptionPaywall, object: nil)
                     }
                 }

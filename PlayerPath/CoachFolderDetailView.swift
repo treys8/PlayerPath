@@ -199,6 +199,16 @@ struct CoachFolderDetailView: View {
 
     private var folderContent: some View {
         VStack(spacing: 0) {
+            if let listenerError = SharedFolderManager.shared.listenerError {
+                Label(listenerError, systemImage: "exclamationmark.triangle.fill")
+                    .font(.subheadline)
+                    .foregroundStyle(.orange)
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+                    .padding(.horizontal)
+            }
+
             FolderInfoHeader(folder: folder, videoCount: viewModel.videos.count, lastRefreshed: lastRefreshed)
 
             Picker("View", selection: $selectedTab) {

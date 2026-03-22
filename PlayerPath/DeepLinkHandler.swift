@@ -4,23 +4,31 @@
 //
 //  Deep link routing is handled by DeepLinkIntent in PlayerPathApp.swift.
 //  This file contains InvitationDetailView, which is presented by PlayerPathApp
-//  when an invitation deep link is opened.
+//  when an invitation deep link is opened. Supports both athlete-to-coach and
+//  coach-to-athlete invitation types.
 //
 
 import SwiftUI
+import SwiftData
 
-/// View that displays a specific invitation from a deep link
+/// View that displays a specific invitation from a deep link.
+/// Determines the invitation type automatically and shows the appropriate UI.
 struct InvitationDetailView: View {
     let invitationId: String
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
-    private var folderManager: SharedFolderManager { .shared }
 
-    @State private var invitation: CoachInvitation?
+    // Which type of invitation was loaded
+    @State private var athleteToCoachInvitation: CoachInvitation?
+    @State private var coachToAthleteInvitation: CoachToAthleteInvitation?
+
     @State private var isLoading = true
     @State private var errorMessage: String?
     @State private var isAccepting = false
+    @State private var showingUpgradePrompt = false
+    @State private var acceptedCoachName: String?
 
     var body: some View {
         NavigationStack {
@@ -28,100 +36,60 @@ struct InvitationDetailView: View {
                 if isLoading {
                     ProgressView("Loading invitation...")
                 } else if let error = errorMessage {
-                    VStack(spacing: 16) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.system(size: 60))
-                            .foregroundColor(.orange)
-
-                        Text("Error Loading Invitation")
-                            .font(.title2)
-                            .fontWeight(.bold)
-
-                        Text(error)
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal)
-
-                        Button("Close") {
-                            dismiss()
-                        }
-                        .buttonStyle(.borderedProminent)
-                    }
-                    .padding()
-                } else if let invitation = invitation {
-                    invitationView(invitation)
+                    errorView(error)
+                } else if let invitation = athleteToCoachInvitation {
+                    athleteToCoachView(invitation)
+                } else if let invitation = coachToAthleteInvitation {
+                    coachToAthleteView(invitation)
                 } else {
-                    VStack(spacing: 16) {
-                        Image(systemName: "envelope.badge.fill")
-                            .font(.system(size: 60))
-                            .foregroundColor(.brandNavy)
-
-                        Text("Invitation Not Found")
-                            .font(.title2)
-                            .fontWeight(.bold)
-
-                        Text("This invitation may have expired or been removed.")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal)
-
-                        Button("Close") {
-                            dismiss()
-                        }
-                        .buttonStyle(.borderedProminent)
-                    }
-                    .padding()
+                    notFoundView
                 }
             }
-            .navigationTitle("Coach Invitation")
+            .navigationTitle("Invitation")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") {
-                        dismiss()
-                    }
+                    Button("Close") { dismiss() }
                 }
             }
-            .task {
-                await loadInvitation()
+            .task { await loadInvitation() }
+            .alert("Upgrade to Share Videos", isPresented: $showingUpgradePrompt) {
+                Button("View Plans") {
+                    dismiss()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        NotificationCenter.default.post(name: .showSubscriptionPaywall, object: nil)
+                    }
+                }
+                Button("Later", role: .cancel) { }
+            } message: {
+                Text("You're now connected with \(acceptedCoachName ?? "your coach")! Upgrade to Pro to create shared folders and share videos with them.")
             }
         }
     }
 
+    // MARK: - Athlete-to-Coach View (coach is viewing)
+
     @ViewBuilder
-    private func invitationView(_ invitation: CoachInvitation) -> some View {
+    private func athleteToCoachView(_ invitation: CoachInvitation) -> some View {
         ScrollView {
             VStack(spacing: 24) {
-                // Header
                 VStack(spacing: 12) {
                     Image(systemName: "envelope.open.fill")
                         .font(.system(size: 60))
                         .foregroundColor(.brandNavy)
-
                     Text("You're Invited!")
-                        .font(.title)
-                        .fontWeight(.bold)
-
+                        .font(.title).fontWeight(.bold)
                     Text("from \(invitation.athleteName)")
-                        .font(.title3)
-                        .foregroundColor(.secondary)
+                        .font(.title3).foregroundColor(.secondary)
                 }
                 .padding(.top)
 
-                // Folder info
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Folder")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .textCase(.uppercase)
-
+                        .font(.caption).foregroundColor(.secondary).textCase(.uppercase)
                     HStack {
-                        Image(systemName: "folder.fill")
-                            .foregroundColor(.brandNavy)
-                        Text(invitation.folderName)
-                            .font(.headline)
+                        Image(systemName: "folder.fill").foregroundColor(.brandNavy)
+                        Text(invitation.folderName).font(.headline)
                     }
                     .padding()
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -130,68 +98,167 @@ struct InvitationDetailView: View {
                 }
                 .padding(.horizontal)
 
-                // Permissions (if available)
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Your Permissions")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .textCase(.uppercase)
-
+                        .font(.caption).foregroundColor(.secondary).textCase(.uppercase)
                     Text("As a coach, you'll be able to view and collaborate on videos in this folder.")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
+                        .font(.subheadline).foregroundColor(.secondary)
                 }
                 .padding(.horizontal)
 
-                // Accept button
-                Button {
-                    Task {
-                        await acceptInvitation()
-                    }
-                } label: {
-                    if isAccepting {
-                        ProgressView()
-                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                    } else {
-                        Text("Accept Invitation")
-                    }
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .disabled(isAccepting)
-                .padding(.horizontal)
-
+                acceptButton
                 Spacer()
             }
         }
     }
 
+    // MARK: - Coach-to-Athlete View (athlete is viewing)
+
+    @ViewBuilder
+    private func coachToAthleteView(_ invitation: CoachToAthleteInvitation) -> some View {
+        ScrollView {
+            VStack(spacing: 24) {
+                VStack(spacing: 12) {
+                    Image(systemName: "envelope.open.fill")
+                        .font(.system(size: 60))
+                        .foregroundColor(.green)
+                    Text("Coach Invitation")
+                        .font(.title).fontWeight(.bold)
+                    Text("from \(invitation.coachName)")
+                        .font(.title3).foregroundColor(.secondary)
+                }
+                .padding(.top)
+
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Coach Info")
+                        .font(.caption).foregroundColor(.secondary).textCase(.uppercase)
+                    HStack {
+                        Image(systemName: "person.fill").foregroundColor(.green)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(invitation.coachName).font(.headline)
+                            Text(invitation.coachEmail).font(.caption).foregroundColor(.secondary)
+                        }
+                    }
+                    .padding()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color(.systemGray6))
+                    .cornerRadius(12)
+                }
+                .padding(.horizontal)
+
+                if let message = invitation.message, !message.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Message")
+                            .font(.caption).foregroundColor(.secondary).textCase(.uppercase)
+                        Text(message)
+                            .font(.subheadline).foregroundColor(.secondary)
+                            .padding()
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color(.systemGray6))
+                            .cornerRadius(12)
+                    }
+                    .padding(.horizontal)
+                }
+
+                Text("Accept to connect with this coach. If you have a Pro plan, a shared folder will be created automatically.")
+                    .font(.subheadline).foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal)
+
+                acceptButton
+                Spacer()
+            }
+        }
+    }
+
+    // MARK: - Shared Components
+
+    private var acceptButton: some View {
+        Button {
+            Task { await acceptInvitation() }
+        } label: {
+            if isAccepting {
+                ProgressView()
+                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
+            } else {
+                Text("Accept Invitation")
+            }
+        }
+        .buttonStyle(.borderedProminent)
+        .controlSize(.large)
+        .disabled(isAccepting)
+        .padding(.horizontal)
+    }
+
+    @ViewBuilder
+    private func errorView(_ error: String) -> some View {
+        VStack(spacing: 16) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 60)).foregroundColor(.orange)
+            Text("Error Loading Invitation")
+                .font(.title2).fontWeight(.bold)
+            Text(error)
+                .font(.subheadline).foregroundColor(.secondary)
+                .multilineTextAlignment(.center).padding(.horizontal)
+            Button("Close") { dismiss() }
+                .buttonStyle(.borderedProminent)
+        }
+        .padding()
+    }
+
+    private var notFoundView: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "envelope.badge.fill")
+                .font(.system(size: 60)).foregroundColor(.brandNavy)
+            Text("Invitation Not Found")
+                .font(.title2).fontWeight(.bold)
+            Text("This invitation may have expired or been removed.")
+                .font(.subheadline).foregroundColor(.secondary)
+                .multilineTextAlignment(.center).padding(.horizontal)
+            Button("Close") { dismiss() }
+                .buttonStyle(.borderedProminent)
+        }
+        .padding()
+    }
+
+    // MARK: - Load
+
     private func loadInvitation() async {
         isLoading = true
         errorMessage = nil
 
+        guard let userEmail = authManager.userEmail else {
+            errorMessage = "Please sign in to view this invitation"
+            isLoading = false
+            return
+        }
+
         do {
-            guard let coachEmail = authManager.userEmail else {
-                errorMessage = "Please sign in to view this invitation"
+            // Try athlete-to-coach first (user is a coach receiving from athlete)
+            let coachInvitations = try await SharedFolderManager.shared.checkPendingInvitations(forEmail: userEmail)
+            if let found = coachInvitations.first(where: { $0.id == invitationId }) {
+                if let expiresAt = found.expiresAt, expiresAt < Date() {
+                    errorMessage = "This invitation has expired. Ask the athlete to send a new one."
+                } else {
+                    athleteToCoachInvitation = found
+                }
                 isLoading = false
                 return
             }
 
-            // Fetch the specific invitation
-            let invitations = try await folderManager.checkPendingInvitations(forEmail: coachEmail)
-
-            // Find the matching invitation
-            if let foundInvitation = invitations.first(where: { $0.id == invitationId }) {
-                // Check if expired client-side
-                if let expiresAt = foundInvitation.expiresAt, expiresAt < Date() {
-                    errorMessage = "This invitation has expired. Ask the athlete to send a new one."
+            // Try coach-to-athlete (user is an athlete receiving from coach)
+            let athleteInvitations = await AthleteInvitationManager.shared.fetchPendingInvitations(forEmail: userEmail)
+            if let found = athleteInvitations.first(where: { $0.id == invitationId }) {
+                if let expiresAt = found.expiresAt, expiresAt < Date() {
+                    errorMessage = "This invitation has expired. Ask your coach to send a new one."
                 } else {
-                    invitation = foundInvitation
+                    coachToAthleteInvitation = found
                 }
-            } else {
-                errorMessage = "Invitation not found or already accepted"
+                isLoading = false
+                return
             }
 
+            // Neither type found
         } catch {
             errorMessage = "Failed to load invitation: \(error.localizedDescription)"
         }
@@ -199,42 +266,81 @@ struct InvitationDetailView: View {
         isLoading = false
     }
 
-    private func acceptInvitation() async {
-        guard let invitation = invitation else { return }
+    // MARK: - Accept
 
-        // Client-side expiration check
+    private func acceptInvitation() async {
+        isAccepting = true
+
+        if let invitation = athleteToCoachInvitation {
+            await acceptAthleteToCoach(invitation)
+        } else if let invitation = coachToAthleteInvitation {
+            await acceptCoachToAthlete(invitation)
+        }
+
+        isAccepting = false
+    }
+
+    private func acceptAthleteToCoach(_ invitation: CoachInvitation) async {
         if let expiresAt = invitation.expiresAt, expiresAt < Date() {
             errorMessage = "This invitation has expired. Ask the athlete to send a new one."
             return
         }
 
-        isAccepting = true
-
         do {
-            try await folderManager.acceptInvitation(invitation, authManager: authManager)
-
+            try await SharedFolderManager.shared.acceptInvitation(invitation, authManager: authManager)
             Haptics.success()
-
-            // Show success briefly then dismiss
             try? await Task.sleep(for: .milliseconds(500))
             dismiss()
-
         } catch SharedFolderError.coachAthleteLimitReached {
-            errorMessage = "You've reached your athlete limit. Upgrade your plan in your Profile to add more athletes."
-            ErrorHandlerService.shared.handle(SharedFolderError.coachAthleteLimitReached, context: "InvitationDetailView.acceptInvitation.limitReached", showAlert: false)
+            errorMessage = "You've reached your athlete limit. Upgrade your plan to add more athletes."
+            ErrorHandlerService.shared.handle(SharedFolderError.coachAthleteLimitReached, context: "InvitationDetailView.acceptAthleteToCoach", showAlert: false)
         } catch {
-            let nsError = error as NSError
-            switch nsError.code {
-            case InvitationErrorCode.expired.rawValue:
-                errorMessage = "This invitation has expired. Ask the athlete to send a new one."
-            case InvitationErrorCode.alreadyProcessed.rawValue:
-                errorMessage = "This invitation has already been processed."
-            default:
-                errorMessage = "Failed to accept invitation: \(error.localizedDescription)"
-            }
-            ErrorHandlerService.shared.handle(error, context: "InvitationDetailView.acceptInvitation", showAlert: false)
+            handleInvitationError(error, sender: "the athlete")
+        }
+    }
+
+    private func acceptCoachToAthlete(_ invitation: CoachToAthleteInvitation) async {
+        if let expiresAt = invitation.expiresAt, expiresAt < Date() {
+            errorMessage = "This invitation has expired. Ask your coach to send a new one."
+            return
         }
 
-        isAccepting = false
+        guard let currentUID = authManager.userID, !currentUID.isEmpty else {
+            errorMessage = "Not signed in. Please sign in and try again."
+            return
+        }
+
+        do {
+            let result = try await AthleteInvitationManager.shared.acceptInvitation(
+                invitation,
+                userID: currentUID,
+                modelContext: modelContext,
+                authManager: authManager
+            )
+            Haptics.success()
+
+            if case .acceptedWithoutFolder(let coachName) = result {
+                acceptedCoachName = coachName
+                showingUpgradePrompt = true
+            } else {
+                try? await Task.sleep(for: .milliseconds(500))
+                dismiss()
+            }
+        } catch {
+            handleInvitationError(error, sender: "your coach")
+        }
+    }
+
+    private func handleInvitationError(_ error: Error, sender: String) {
+        let nsError = error as NSError
+        switch nsError.code {
+        case InvitationErrorCode.expired.rawValue:
+            errorMessage = "This invitation has expired. Ask \(sender) to send a new one."
+        case InvitationErrorCode.alreadyProcessed.rawValue:
+            errorMessage = "This invitation has already been processed."
+        default:
+            errorMessage = "Failed to accept invitation: \(error.localizedDescription)"
+        }
+        ErrorHandlerService.shared.handle(error, context: "InvitationDetailView.acceptInvitation", showAlert: false)
     }
 }

@@ -40,8 +40,13 @@ enum SubscriptionGate {
     @MainActor
     static func fullConnectedAthleteCount(coachID: String) async -> Int {
         var athleteIDs = Set(SharedFolderManager.shared.coachFolders.map(\.ownerAthleteID))
-        if let acceptedIDs = try? await FirestoreManager.shared.fetchAcceptedCoachToAthleteAthleteIDs(coachID: coachID) {
+        do {
+            let acceptedIDs = try await FirestoreManager.shared.fetchAcceptedCoachToAthleteAthleteIDs(coachID: coachID)
             athleteIDs.formUnion(acceptedIDs)
+        } catch {
+            // On network failure, return max to prevent over-inviting
+            ErrorHandlerService.shared.handle(error, context: "SubscriptionGate.fullConnectedAthleteCount", showAlert: false)
+            return Int.max
         }
         return athleteIDs.count
     }
@@ -52,9 +57,15 @@ enum SubscriptionGate {
         let limit = authManager.coachAthleteLimit
         guard limit != Int.max else { return false }
         var count = await fullConnectedAthleteCount(coachID: coachID)
+        guard count != Int.max else { return true }
         if includingPending {
-            let pendingCount = (try? await FirestoreManager.shared.countPendingCoachToAthleteInvitations(coachID: coachID)) ?? 0
-            count += pendingCount
+            do {
+                let pendingCount = try await FirestoreManager.shared.countPendingCoachToAthleteInvitations(coachID: coachID)
+                count += pendingCount
+            } catch {
+                ErrorHandlerService.shared.handle(error, context: "SubscriptionGate.isAtAthleteLimit", showAlert: false)
+                return true // Fail closed: assume at limit on error
+            }
         }
         return count >= limit
     }

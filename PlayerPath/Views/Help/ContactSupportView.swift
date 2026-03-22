@@ -78,7 +78,7 @@ struct ContactSupportView: View {
             }
 
             Section("Other Ways to Reach Us") {
-                Link(destination: URL(string: "mailto:playerpath@proton.me")!) {
+                Link(destination: URL(string: "mailto:playerpath@proton.me") ?? URL(string: "https://playerpath.app")!) {
                     HelpRowLabel(
                         icon: "envelope",
                         title: "Email Support",

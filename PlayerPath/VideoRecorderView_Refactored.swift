@@ -398,7 +398,7 @@ struct GuidelineItem: View {
 
 // MARK: - Network Monitoring
 
-class NetworkMonitor: ObservableObject {
+@MainActor class NetworkMonitor: ObservableObject {
     @Published var isConnected: Bool = true
     @Published var connectionType: NWInterface.InterfaceType?
 
@@ -488,11 +488,8 @@ private struct AVPlayerLayerView: UIViewRepresentable {
     private class PlayerUIView: UIView {
         override class var layerClass: AnyClass { AVPlayerLayer.self }
         var playerLayer: AVPlayerLayer {
-            // Safe: layerClass is overridden above to return AVPlayerLayer.self
-            guard let avLayer = layer as? AVPlayerLayer else {
-                fatalError("layerClass must be AVPlayerLayer — override was removed or changed")
-            }
-            return avLayer
+            // layerClass is overridden above — this cast should always succeed.
+            return layer as! AVPlayerLayer
         }
     }
 }

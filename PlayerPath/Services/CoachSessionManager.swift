@@ -121,9 +121,14 @@ class CoachSessionManager {
                 .getDocuments()
 
             sessions = snapshot.documents.compactMap { doc in
-                var session = try? doc.data(as: CoachSession.self)
-                session?.id = doc.documentID
-                return session
+                do {
+                    var session = try doc.data(as: CoachSession.self)
+                    session.id = doc.documentID
+                    return session
+                } catch {
+                    ErrorHandlerService.shared.handle(error, context: "CoachSessionManager.decode(\(doc.documentID))", showAlert: false)
+                    return nil
+                }
             }
 
             // Detect if there's an active (live/reviewing) session

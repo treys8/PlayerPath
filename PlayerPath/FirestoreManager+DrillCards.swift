@@ -98,9 +98,14 @@ extension FirestoreManager {
             .getDocuments()
 
         return snapshot.documents.compactMap { doc in
-            var card = try? doc.data(as: DrillCard.self)
-            card?.id = doc.documentID
-            return card
+            do {
+                var card = try doc.data(as: DrillCard.self)
+                card.id = doc.documentID
+                return card
+            } catch {
+                firestoreLog.warning("Failed to decode drill card \(doc.documentID): \(error.localizedDescription)")
+                return nil
+            }
         }
     }
 

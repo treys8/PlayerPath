@@ -375,9 +375,14 @@ extension FirestoreManager {
             .getDocuments()
 
         return snapshot.documents.compactMap { doc in
-            var video = try? doc.data(as: FirestoreVideoMetadata.self)
-            video?.id = doc.documentID
-            return video
+            do {
+                var video = try doc.data(as: FirestoreVideoMetadata.self)
+                video.id = doc.documentID
+                return video
+            } catch {
+                firestoreLog.warning("Failed to decode video \(doc.documentID): \(error.localizedDescription)")
+                return nil
+            }
         }
     }
 

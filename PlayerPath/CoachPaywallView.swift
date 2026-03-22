@@ -332,6 +332,33 @@ struct CoachPaywallView: View {
                         .cornerRadius(14)
                 }
                 .buttonStyle(.plain)
+            } else if storeManager.coachProducts.isEmpty && storeManager.isLoading {
+                HStack(spacing: 8) {
+                    ProgressView()
+                    Text("Loading plans...")
+                        .font(.headline).fontWeight(.semibold)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 16)
+                .background(Color(.systemGray5))
+                .cornerRadius(14)
+            } else if storeManager.coachProducts.isEmpty {
+                Button {
+                    Task { await storeManager.loadProducts() }
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "arrow.clockwise")
+                        Text("Unable to load plans. Tap to retry.")
+                            .font(.subheadline).fontWeight(.medium)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 16)
+                    .background(Color(.systemGray5))
+                    .foregroundStyle(.secondary)
+                    .cornerRadius(14)
+                }
+                .buttonStyle(.plain)
             } else {
                 Button {
                     guard !isPurchasing else { return }
@@ -350,7 +377,7 @@ struct CoachPaywallView: View {
                     .cornerRadius(14)
                     .shadow(color: Color.brandNavy.opacity(0.3), radius: 8, x: 0, y: 4)
                 }
-                .disabled(isPurchasing || storeManager.coachProducts.isEmpty)
+                .disabled(isPurchasing)
                 .buttonStyle(.plain)
             }
         }

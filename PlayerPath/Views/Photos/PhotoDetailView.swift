@@ -218,12 +218,11 @@ struct PhotoDetailView: View {
             PHPhotoLibrary.shared().performChanges {
                 PHAssetChangeRequest.creationRequestForAsset(from: image)
             } completionHandler: { success, error in
-                DispatchQueue.main.async {
+                Task { @MainActor in
                     if success {
                         showingSavedToast = true
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                            showingSavedToast = false
-                        }
+                        try? await Task.sleep(for: .seconds(2))
+                        showingSavedToast = false
                     } else {
                         saveError = error?.localizedDescription ?? "Failed to save photo."
                     }

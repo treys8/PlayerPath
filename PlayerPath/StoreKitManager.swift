@@ -9,6 +9,9 @@
 import Foundation
 import StoreKit
 import Combine
+import os
+
+private let storeLog = Logger(subsystem: "com.playerpath.app", category: "StoreKit")
 
 /// Manages StoreKit 2 operations for in-app purchases
 @MainActor
@@ -64,11 +67,17 @@ class StoreKitManager: ObservableObject {
         do {
             let productIDs = TierSubscriptionProduct.allCases.map { $0.rawValue }
             + CoachSubscriptionProduct.allCases.map { $0.rawValue }
+            storeLog.info("Requesting \(productIDs.count) products: \(productIDs.joined(separator: ", "))")
             let storeProducts = try await Product.products(for: productIDs)
+            storeLog.info("Loaded \(storeProducts.count) products: \(storeProducts.map(\.id).joined(separator: ", "))")
             products = storeProducts.sorted { $0.price < $1.price }
             // Only mark as loaded once we have actual products
             if !products.isEmpty { productsLoaded = true }
+            if storeProducts.isEmpty {
+                storeLog.warning("App Store returned 0 products. Check App Store Connect configuration and Paid Apps agreement status.")
+            }
         } catch {
+            storeLog.error("Product load failed: \(error.localizedDescription)")
             self.error = .productLoadFailed(error)
         }
 
