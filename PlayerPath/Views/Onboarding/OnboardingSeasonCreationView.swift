@@ -242,9 +242,18 @@ struct OnboardingSeasonCreationView: View {
 
     private func skipSeasonCreation() {
         Haptics.light()
-        authManager.resetNewUserFlag()
+        // Create a default season so the user isn't stuck without one.
+        // The onboarding flow advances to OnboardingBackupView via the
+        // "has seasons + isNewUser" routing in UserMainFlow.
+        let year = Calendar.current.component(.year, from: Date())
+        let season = Season(name: "\(year) Season", startDate: Date(), sport: .baseball)
+        season.activate()
+        season.athlete = athlete
+        season.needsSync = true
+        modelContext.insert(season)
+        ErrorHandlerService.shared.saveContext(modelContext, caller: "OnboardingSeasonCreation.skip")
         #if DEBUG
-        print("🟡 User skipped season creation during onboarding")
+        print("🟡 User skipped — created default '\(year) Season'")
         #endif
     }
 

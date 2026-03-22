@@ -8,6 +8,14 @@
 import Foundation
 import SwiftData
 
+enum CSVExportError: LocalizedError {
+    case subscriptionRequired
+
+    var errorDescription: String? {
+        "CSV export requires a Plus or Pro subscription."
+    }
+}
+
 final class CSVExportService: Sendable {
     static let shared = CSVExportService()
 
@@ -18,7 +26,11 @@ final class CSVExportService: Sendable {
     /// Export athlete statistics to CSV format
     /// - Parameter athlete: The athlete to export statistics for
     /// - Returns: CSV string ready for file export
-    func exportAthleteStatistics(for athlete: Athlete) -> String {
+    /// - Throws: CSVExportError.subscriptionRequired if below Plus tier
+    func exportAthleteStatistics(for athlete: Athlete) throws -> String {
+        guard StoreKitManager.shared.currentTier >= .plus else {
+            throw CSVExportError.subscriptionRequired
+        }
         var csv = "Athlete Statistics Export\n"
         csv += "Generated: \(Date().formatted(date: .long, time: .standard))\n\n"
 
@@ -92,7 +104,10 @@ final class CSVExportService: Sendable {
     ///   - athlete: The athlete whose games to export
     ///   - season: Optional season filter (nil = all games)
     /// - Returns: CSV string ready for file export
-    func exportGameLog(for athlete: Athlete, season: Season? = nil) -> String {
+    func exportGameLog(for athlete: Athlete, season: Season? = nil) throws -> String {
+        guard StoreKitManager.shared.currentTier >= .plus else {
+            throw CSVExportError.subscriptionRequired
+        }
         var csv = "Game Log Export\n"
         csv += "Generated: \(Date().formatted(date: .long, time: .standard))\n"
         csv += "Athlete: \(escapeCSV(athlete.name))\n"
@@ -151,7 +166,10 @@ final class CSVExportService: Sendable {
     ///   - season: Optional season filter
     ///   - game: Optional game filter
     /// - Returns: CSV string ready for file export
-    func exportPlayByPlay(for athlete: Athlete, season: Season? = nil, game: Game? = nil) -> String {
+    func exportPlayByPlay(for athlete: Athlete, season: Season? = nil, game: Game? = nil) throws -> String {
+        guard StoreKitManager.shared.currentTier >= .plus else {
+            throw CSVExportError.subscriptionRequired
+        }
         var csv = "Play-by-Play Export\n"
         csv += "Generated: \(Date().formatted(date: .long, time: .standard))\n"
         csv += "Athlete: \(escapeCSV(athlete.name))\n"
@@ -206,7 +224,10 @@ final class CSVExportService: Sendable {
     /// Export comprehensive season summary
     /// - Parameter season: The season to export
     /// - Returns: CSV string ready for file export
-    func exportSeasonSummary(for season: Season) -> String {
+    func exportSeasonSummary(for season: Season) throws -> String {
+        guard StoreKitManager.shared.currentTier >= .plus else {
+            throw CSVExportError.subscriptionRequired
+        }
         var csv = "Season Summary Export\n"
         csv += "Generated: \(Date().formatted(date: .long, time: .standard))\n\n"
 

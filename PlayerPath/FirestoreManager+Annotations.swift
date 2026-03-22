@@ -113,14 +113,42 @@ extension FirestoreManager {
             }
     }
 
-    /// Deletes an annotation (user can only delete their own)
+    /// Deletes an annotation and its mirrored comment (user can only delete their own)
     func deleteAnnotation(videoID: String, annotationID: String) async throws {
         do {
+            // Read the annotation before deleting so we can find its mirrored comment
+            let annotationDoc = try await db.collection(FC.videos)
+                .document(videoID)
+                .collection(FC.annotations)
+                .document(annotationID)
+                .getDocument()
+            let annotationData = annotationDoc.data()
+
+            // Delete the annotation
             try await db.collection(FC.videos)
                 .document(videoID)
                 .collection(FC.annotations)
                 .document(annotationID)
                 .delete()
+
+            // Best-effort: delete the mirrored comment in comments/ subcollection
+            if let userID = annotationData?["userID"] as? String,
+               let text = annotationData?["text"] as? String {
+                do {
+                    let commentsQuery = db.collection(FC.videos)
+                        .document(videoID)
+                        .collection("comments")
+                        .whereField("authorId", isEqualTo: userID)
+                        .whereField("text", isEqualTo: text)
+                        .limit(to: 1)
+                    let commentsSnap = try await commentsQuery.getDocuments()
+                    for doc in commentsSnap.documents {
+                        try await doc.reference.delete()
+                    }
+                } catch {
+                    firestoreLog.warning("Failed to delete mirrored comment for annotation \(annotationID): \(error.localizedDescription)")
+                }
+            }
 
             // Decrement annotationCount, floored at 0 via transaction
             let videoRef = db.collection(FC.videos).document(videoID)

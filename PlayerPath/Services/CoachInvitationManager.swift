@@ -30,6 +30,7 @@ class CoachInvitationManager {
         guard invitationsListener == nil else { return }
         let db = FirestoreManager.shared.db
         invitationsListener = db.collection(FC.invitations)
+            .whereField("type", isEqualTo: "athlete_to_coach")
             .whereField("coachEmail", isEqualTo: email.lowercased())
             .whereField("status", isEqualTo: "pending")
             .whereField("expiresAt", isGreaterThan: Timestamp(date: Date()))
@@ -64,6 +65,8 @@ class CoachInvitationManager {
         invitationsListener?.remove()
         invitationsListener = nil
         listenerError = nil
+        pendingInvitations = []
+        pendingInvitationsCount = 0
     }
 
     func checkPendingInvitations(forCoachEmail email: String) async {

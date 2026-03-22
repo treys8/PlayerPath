@@ -33,11 +33,15 @@ class StoreKitManager: ObservableObject {
 
     // Coach tier entitlements
     @Published private(set) var currentCoachTier: CoachSubscriptionTier = .free
+    @Published private(set) var coachTierExpirationDate: Date?
 
     // MARK: - Private Properties
 
     private var updateListenerTask: Task<Void, Never>?
     private var productsLoaded = false
+    /// Tracks when products first failed to load, enabling a grace period
+    /// before forcing a tier downgrade (prevents indefinite retention of expired tiers).
+    private var productsUnavailableSince: Date?
 
     // MARK: - Initialization
 
@@ -72,13 +76,18 @@ class StoreKitManager: ObservableObject {
             storeLog.info("Loaded \(storeProducts.count) products: \(storeProducts.map(\.id).joined(separator: ", "))")
             products = storeProducts.sorted { $0.price < $1.price }
             // Only mark as loaded once we have actual products
-            if !products.isEmpty { productsLoaded = true }
+            if !products.isEmpty {
+                productsLoaded = true
+                productsUnavailableSince = nil
+            }
             if storeProducts.isEmpty {
                 storeLog.warning("App Store returned 0 products. Check App Store Connect configuration and Paid Apps agreement status.")
+                if productsUnavailableSince == nil { productsUnavailableSince = Date() }
             }
         } catch {
             storeLog.error("Product load failed: \(error.localizedDescription)")
             self.error = .productLoadFailed(error)
+            if productsUnavailableSince == nil { productsUnavailableSince = Date() }
         }
 
         isLoading = false
@@ -149,6 +158,7 @@ class StoreKitManager: ObservableObject {
         var resolvedTier: SubscriptionTier = .free
         var resolvedTierExpiration: Date?
         var resolvedCoachTier: CoachSubscriptionTier = .free
+        var resolvedCoachTierExpiration: Date?
         var newPurchasedIDs = Set<String>()
 
         for await result in Transaction.currentEntitlements {
@@ -172,10 +182,12 @@ class StoreKitManager: ObservableObject {
             } else if CoachSubscriptionTier.instructorProductIDs.contains(id) {
                 if resolvedCoachTier < .instructor {
                     resolvedCoachTier = .instructor
+                    resolvedCoachTierExpiration = transaction.expirationDate
                 }
             } else if CoachSubscriptionTier.proInstructorProductIDs.contains(id) {
                 if resolvedCoachTier < .proInstructor {
                     resolvedCoachTier = .proInstructor
+                    resolvedCoachTierExpiration = transaction.expirationDate
                 }
             }
         }
@@ -209,15 +221,33 @@ class StoreKitManager: ObservableObject {
         // Only downgrade on expiration if we can confirm Apple is NOT retrying payment.
         // If products aren't loaded or the status query failed, keep the current tier
         // to avoid incorrectly downgrading a user whose payment Apple is still retrying.
+        // Grace period: if products have been unavailable for > 1 hour, force downgrade
+        // to prevent indefinite retention of expired tiers.
+        let graceExpired = productsUnavailableSince.map { Date().timeIntervalSince($0) > 3600 } ?? false
+
         if let exp = resolvedTierExpiration, exp <= Date() {
             if resolvedBillingRetry {
                 // Apple is retrying — keep the tier
-            } else if !billingRetryCheckSucceeded {
-                // Can't confirm billing state — keep tier, log warning
+            } else if !billingRetryCheckSucceeded && !graceExpired {
+                // Can't confirm billing state — keep tier temporarily
+                storeLog.warning("Billing retry check failed, keeping tier during grace period")
             } else {
-                // Confirmed: expired and not in billing retry
+                // Confirmed expired, or grace period exceeded
                 resolvedTier = .free
                 resolvedTierExpiration = nil
+            }
+        }
+
+        // Apply same expiration logic to coach tier
+        if let exp = resolvedCoachTierExpiration, exp <= Date() {
+            if resolvedBillingRetry {
+                // Apple is retrying — keep coach tier
+            } else if !billingRetryCheckSucceeded && !graceExpired {
+                // Can't confirm billing state — keep coach tier temporarily
+                storeLog.warning("Billing retry check failed, keeping coach tier during grace period")
+            } else {
+                resolvedCoachTier = .free
+                resolvedCoachTierExpiration = nil
             }
         }
 
@@ -226,6 +256,7 @@ class StoreKitManager: ObservableObject {
         tierExpirationDate = resolvedTierExpiration
         isInBillingRetryPeriod = resolvedBillingRetry
         currentCoachTier = resolvedCoachTier
+        coachTierExpirationDate = resolvedCoachTierExpiration
 
     }
 

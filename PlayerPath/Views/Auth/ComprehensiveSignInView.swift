@@ -23,6 +23,7 @@ struct ComprehensiveSignInView: View {
     @State private var confirmedAge = false
     @State private var showingTerms = false
     @State private var showingPrivacyPolicy = false
+    @StateObject private var appleSignInManager = AppleSignInManager()
 
     @FocusState private var nameFocused: Bool
     @FocusState private var emailFocused: Bool
@@ -78,6 +79,8 @@ struct ComprehensiveSignInView: View {
                 }
             }
             .background(Color(.systemGroupedBackground))
+            .onAppear { appleSignInManager.configure(with: authManager) }
+            .onDisappear { appleSignInManager.cleanup() }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -210,6 +213,20 @@ struct ComprehensiveSignInView: View {
     private var actionButtonsSection: some View {
         VStack(spacing: 16) {
             EmptyView().id("actionButtons")
+
+            // Sign in with Apple (required by App Store Guideline 4.8)
+            SignInWithAppleButton(isSignUp: isSignUpMode) {
+                appleSignInManager.pendingRole = selectedRole
+                appleSignInManager.signInWithApple()
+            }
+
+            // Divider
+            HStack {
+                Rectangle().frame(height: 1).foregroundColor(.secondary.opacity(0.3))
+                Text("or").font(.subheadline).foregroundColor(.secondary)
+                Rectangle().frame(height: 1).foregroundColor(.secondary.opacity(0.3))
+            }
+
             Button(action: { Haptics.medium(); performAuth() }) {
                 HStack(spacing: 10) {
                     if authManager.isLoading {

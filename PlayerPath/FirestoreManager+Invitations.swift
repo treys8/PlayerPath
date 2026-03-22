@@ -62,15 +62,28 @@ extension FirestoreManager {
         }
     }
 
-    /// Checks if the current athlete already has a pending invitation to a specific coach email
+    /// Checks if the current athlete already has a pending or accepted athlete-to-coach invitation
     func hasPendingInvitation(athleteID: String, coachEmail: String) async throws -> Bool {
-        let snapshot = try await db.collection(FC.invitations)
+        // Check for accepted invitation (already connected)
+        let acceptedSnapshot = try await db.collection(FC.invitations)
+            .whereField("athleteID", isEqualTo: athleteID)
+            .whereField("coachEmail", isEqualTo: coachEmail.lowercased())
+            .whereField("status", isEqualTo: "accepted")
+            .whereField("type", isEqualTo: "athlete_to_coach")
+            .limit(to: 1)
+            .getDocuments()
+        if !acceptedSnapshot.documents.isEmpty { return true }
+
+        // Check for pending non-expired invitation
+        let pendingSnapshot = try await db.collection(FC.invitations)
             .whereField("athleteID", isEqualTo: athleteID)
             .whereField("coachEmail", isEqualTo: coachEmail.lowercased())
             .whereField("status", isEqualTo: "pending")
+            .whereField("type", isEqualTo: "athlete_to_coach")
+            .whereField("expiresAt", isGreaterThan: Timestamp(date: Date()))
             .limit(to: 1)
             .getDocuments()
-        return !snapshot.documents.isEmpty
+        return !pendingSnapshot.documents.isEmpty
     }
 
     /// Fetches pending invitations for a coach (by email)
@@ -227,8 +240,23 @@ extension FirestoreManager {
         message: String?
     ) async throws -> String {
 
+        // Check for existing accepted invitation (already connected)
+        let acceptedSnapshot = try await db.collection(FC.invitations)
+            .whereField("type", isEqualTo: "coach_to_athlete")
+            .whereField("coachID", isEqualTo: coachID)
+            .whereField("athleteEmail", isEqualTo: athleteEmail.lowercased())
+            .whereField("status", isEqualTo: "accepted")
+            .limit(to: 1)
+            .getDocuments()
+
+        if !acceptedSnapshot.documents.isEmpty {
+            throw NSError(domain: "FirestoreManager", code: InvitationErrorCode.duplicateInvitation.rawValue, userInfo: [
+                NSLocalizedDescriptionKey: "You are already connected with this athlete."
+            ])
+        }
+
         // Check for existing pending invitation to same athlete from this coach
-        let existingSnapshot = try await db.collection(FC.invitations)
+        let pendingSnapshot = try await db.collection(FC.invitations)
             .whereField("type", isEqualTo: "coach_to_athlete")
             .whereField("coachID", isEqualTo: coachID)
             .whereField("athleteEmail", isEqualTo: athleteEmail.lowercased())
@@ -236,8 +264,8 @@ extension FirestoreManager {
             .limit(to: 1)
             .getDocuments()
 
-        if !existingSnapshot.documents.isEmpty {
-            throw NSError(domain: "FirestoreManager", code: -2, userInfo: [
+        if !pendingSnapshot.documents.isEmpty {
+            throw NSError(domain: "FirestoreManager", code: InvitationErrorCode.duplicateInvitation.rawValue, userInfo: [
                 NSLocalizedDescriptionKey: "An invitation has already been sent to this email address."
             ])
         }
@@ -297,46 +325,36 @@ extension FirestoreManager {
         }
     }
 
-    /// Accepts a coach-to-athlete invitation (only if still pending).
-    /// Uses a Firestore transaction so the status check and update are atomic.
+    /// Accepts a coach-to-athlete invitation via Cloud Function (server-side validation).
+    /// Validates caller identity, invitation state, expiration, and coach athlete limit.
     func acceptCoachToAthleteInvitation(invitationID: String, athleteUserID: String) async throws {
-        let invitationRef = db.collection(FC.invitations).document(invitationID)
-
-        _ = try await db.runTransaction({ (transaction, errorPointer) -> Any? in
-            let snapshot: DocumentSnapshot
-            do {
-                snapshot = try transaction.getDocument(invitationRef)
-            } catch let fetchError as NSError {
-                errorPointer?.pointee = fetchError
-                return nil
+        let functions = Functions.functions()
+        do {
+            _ = try await functions.httpsCallable("acceptCoachToAthleteInvitation").call(["invitationID": invitationID])
+            invitationLog.info("Accepted coach-to-athlete invitation \(invitationID) via Cloud Function")
+        } catch {
+            let nsError = error as NSError
+            // Map Cloud Function error codes to invitation error codes for consistent UI handling
+            if nsError.domain == FunctionsErrorDomain {
+                let code = FunctionsErrorCode(rawValue: nsError.code)
+                switch code {
+                case .resourceExhausted:
+                    throw SharedFolderError.coachAthleteLimitReached
+                case .failedPrecondition:
+                    let message = nsError.localizedDescription
+                    if message.contains("expired") {
+                        throw NSError(domain: "FirestoreManager", code: InvitationErrorCode.expired.rawValue,
+                                      userInfo: [NSLocalizedDescriptionKey: message])
+                    } else {
+                        throw NSError(domain: "FirestoreManager", code: InvitationErrorCode.alreadyProcessed.rawValue,
+                                      userInfo: [NSLocalizedDescriptionKey: message])
+                    }
+                default:
+                    throw error
+                }
             }
-
-            let data = snapshot.data()
-
-            if let expiresAt = (data?["expiresAt"] as? Timestamp)?.dateValue(),
-               expiresAt < Date() {
-                let error = NSError(domain: "FirestoreManager", code: InvitationErrorCode.expired.rawValue,
-                                    userInfo: [NSLocalizedDescriptionKey: "This invitation has expired."])
-                errorPointer?.pointee = error
-                return nil
-            }
-
-            guard data?["status"] as? String == "pending" else {
-                let error = NSError(domain: "FirestoreManager", code: InvitationErrorCode.alreadyProcessed.rawValue,
-                                    userInfo: [NSLocalizedDescriptionKey: "This invitation has already been processed."])
-                errorPointer?.pointee = error
-                return nil
-            }
-
-            transaction.updateData([
-                "status": "accepted",
-                "acceptedAt": FieldValue.serverTimestamp(),
-                "athleteUserID": athleteUserID
-            ], forDocument: invitationRef)
-
-            return nil
-        })
-        invitationLog.info("Accepted coach-to-athlete invitation \(invitationID)")
+            throw error
+        }
     }
 
     /// Declines a coach-to-athlete invitation (only if still pending).

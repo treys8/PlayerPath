@@ -76,13 +76,11 @@ extension ComprehensiveAuthManager {
 
     func syncSubscriptionTierToFirestore() {
         guard let userID = currentFirebaseUser?.uid else { return }
-        let tier = currentTier
-        let coachTier = currentCoachTier
         let hasOverride = hasAthleteTierOverride
         Task {
             await retryAsync(maxAttempts: 3) {
                 try await FirestoreManager.shared.syncSubscriptionTiersWithThrow(
-                    userID: userID, tier: tier, coachTier: coachTier,
+                    userID: userID,
                     hasAthleteTierOverride: hasOverride
                 )
             }
@@ -90,22 +88,33 @@ extension ComprehensiveAuthManager {
     }
 
     /// Refreshes the subscription tier from Firestore to pick up changes
-    /// made on other devices or via Cloud Function. Only upgrades — never
-    /// downgrades from a locally-resolved StoreKit tier.
+    /// made on other devices, via Cloud Function, or admin revocation.
+    /// Handles both upgrades (apply comp) and downgrades (revoke comp).
     func refreshTierFromFirestore() async {
         guard let userID = currentFirebaseUser?.uid else { return }
         do {
             guard let profile = try await FirestoreManager.shared.fetchUserProfile(userID: userID) else { return }
             if let tierStr = profile.subscriptionTier,
-               let firestoreTier = SubscriptionTier(rawValue: tierStr),
-               firestoreTier > currentTier {
-                currentTier = firestoreTier
-                hasAthleteTierOverride = true
+               let firestoreTier = SubscriptionTier(rawValue: tierStr) {
+                if firestoreTier > currentTier {
+                    // Firestore has a higher tier (comp granted) — apply it
+                    currentTier = firestoreTier
+                    hasAthleteTierOverride = true
+                } else if firestoreTier < currentTier && hasAthleteTierOverride {
+                    // Firestore has a lower tier AND we had an override — comp was revoked.
+                    // Fall back to whatever StoreKit resolves.
+                    hasAthleteTierOverride = false
+                    currentTier = StoreKitManager.shared.currentTier
+                }
             }
             if let coachTierStr = profile.coachSubscriptionTier,
-               let firestoreCoachTier = CoachSubscriptionTier(rawValue: coachTierStr),
-               firestoreCoachTier > currentCoachTier {
-                currentCoachTier = firestoreCoachTier
+               let firestoreCoachTier = CoachSubscriptionTier(rawValue: coachTierStr) {
+                if firestoreCoachTier > currentCoachTier {
+                    currentCoachTier = firestoreCoachTier
+                } else if firestoreCoachTier < currentCoachTier {
+                    // Coach comp revoked — fall back to StoreKit
+                    currentCoachTier = max(firestoreCoachTier, StoreKitManager.shared.currentCoachTier)
+                }
             }
         } catch {
             authLog.warning("Failed to refresh tier from Firestore: \(error.localizedDescription)")

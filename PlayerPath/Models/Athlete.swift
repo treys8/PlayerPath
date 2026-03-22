@@ -73,6 +73,12 @@ final class Athlete {
     /// Properly delete athlete with all associated files and data.
     /// Use this instead of modelContext.delete(athlete) to avoid orphaning children.
     func delete(in context: ModelContext) {
+        // Cancel any pending uploads for this athlete before deleting clips
+        let athleteId = id
+        Task { @MainActor in
+            UploadQueueManager.shared.cancelUploads(forAthleteId: athleteId)
+        }
+
         // Track which clips are owned by a game or practice so we don't double-delete
         var deletedClipIDs = Set<UUID>()
 

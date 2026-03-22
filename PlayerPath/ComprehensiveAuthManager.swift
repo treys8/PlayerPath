@@ -82,8 +82,8 @@ final class ComprehensiveAuthManager: ObservableObject {
     /// Bridge for legacy call sites — true when user has Plus or Pro
     var isPremiumUser: Bool { currentTier >= .plus }
 
-    /// True when user has Pro tier (coach sharing is a Pro feature)
-    var hasCoachingAccess: Bool { currentTier == .pro }
+    /// True when user has Pro tier or higher (coach sharing is a Pro feature)
+    var hasCoachingAccess: Bool { currentTier >= .pro }
 
     // Coach subscription tier — synced from StoreKit, overridable by Firestore (Academy)
     @Published var currentCoachTier: CoachSubscriptionTier = .free

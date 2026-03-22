@@ -18,19 +18,19 @@ service cloud.firestore {
       return request.auth.uid == userID;
     }
 
-    // Checks if the requesting user has a Pro athlete subscription tier.
+    // Checks if the requesting user has a Pro (or higher) athlete subscription tier.
     // Used to gate shared folder and invitation creation.
+    // Uses list check so future tiers above Pro are automatically included.
     function hasProTier() {
       let user = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
-      return user != null && user.subscriptionTier == "pro";
+      return user != null && user.subscriptionTier in ["pro"];
     }
 
-    // Checks if the requesting user has any coach subscription tier.
-    // Coach-to-athlete invitations require at least an instructor-level coach plan.
+    // Checks if the requesting user is a coach with a subscription tier.
+    // Requires role == 'coach' to prevent athletes from impersonating coaches.
     function hasCoachTier() {
       let user = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
-      // Allow any coach with a coachSubscriptionTier set (including coach_free)
-      return user != null && user.coachSubscriptionTier != null;
+      return user != null && user.role == 'coach' && user.coachSubscriptionTier != null;
     }
 
     // Checks if the requesting user is the owner of a shared folder.
@@ -71,6 +71,8 @@ service cloud.firestore {
       // The coach must be in the NEW sharedWithCoachIDs but NOT in the current one
       return request.auth.uid in request.resource.data.sharedWithCoachIDs
           && !(request.auth.uid in resource.data.sharedWithCoachIDs)
+          // Exactly one coach added, none removed
+          && request.resource.data.sharedWithCoachIDs.size() == resource.data.sharedWithCoachIDs.size() + 1
           // ownerAthleteID must not change
           && request.resource.data.ownerAthleteID == resource.data.ownerAthleteID
           // folder name must not change
@@ -489,6 +491,10 @@ service cloud.firestore {
                     // Email-tracking fields (emailSent, emailSentAt, emailError,
                     // emailResentAt) are omitted — those are written by Cloud Functions
                     // via the admin SDK, which bypasses security rules.
+                    // folderID/folderName are written by the athlete's client after
+                    // creating the folder, so they must remain in the allowed set.
+                    // The Cloud Function reads folderID from the invitation at acceptance
+                    // time via admin SDK, which bypasses these rules.
                     && request.resource.data.diff(resource.data).affectedKeys()
                        .hasOnly(['status', 'acceptedAt', 'declinedAt', 'cancelledAt',
                                  'acceptedByCoachID',
@@ -496,19 +502,23 @@ service cloud.firestore {
                                  'rejectedReason'])
                     && (
                       // Athlete-to-coach flow:
-                      //   Athlete (sender) can cancel
+                      //   Athlete (sender) can ONLY cancel
                       (resource.data.type == "athlete_to_coach"
-                       && resource.data.athleteID == request.auth.uid) ||
-                      //   Coach (recipient) can accept/decline
+                       && resource.data.athleteID == request.auth.uid
+                       && request.resource.data.status in ['cancelled']) ||
+                      //   Coach (recipient) can accept or decline
                       (resource.data.type == "athlete_to_coach"
-                       && resource.data.coachEmail == request.auth.token.email) ||
+                       && resource.data.coachEmail == request.auth.token.email
+                       && request.resource.data.status in ['accepted', 'declined']) ||
                       // Coach-to-athlete flow:
-                      //   Coach (sender) can cancel
+                      //   Coach (sender) can ONLY cancel
                       (resource.data.type == "coach_to_athlete"
-                       && resource.data.coachID == request.auth.uid) ||
-                      //   Athlete (recipient) can accept/decline
+                       && resource.data.coachID == request.auth.uid
+                       && request.resource.data.status in ['cancelled']) ||
+                      //   Athlete (recipient) can accept or decline
                       (resource.data.type == "coach_to_athlete"
-                       && resource.data.athleteEmail == request.auth.token.email)
+                       && resource.data.athleteEmail == request.auth.token.email
+                       && request.resource.data.status in ['accepted', 'declined'])
                     );
 
       // Only the sender can delete

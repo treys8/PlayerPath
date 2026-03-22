@@ -213,7 +213,7 @@ struct StatisticsExportView: View {
 
             switch selectedFormat {
             case .csv:
-                let csvString = generateCSV(for: athlete)
+                let csvString = try generateCSV(for: athlete)
                 url = try CSVExportService.shared.saveCSVToTemporaryFile(
                     csvString,
                     filename: generateFilename(format: "csv")
@@ -236,22 +236,22 @@ struct StatisticsExportView: View {
         }
     }
 
-    private func generateCSV(for athlete: Athlete) -> String {
+    private func generateCSV(for athlete: Athlete) throws -> String {
         switch selectedReportType {
         case .athleteStatistics:
-            return CSVExportService.shared.exportAthleteStatistics(for: athlete)
+            return try CSVExportService.shared.exportAthleteStatistics(for: athlete)
 
         case .gameLog:
-            return CSVExportService.shared.exportGameLog(for: athlete, season: selectedSeason)
+            return try CSVExportService.shared.exportGameLog(for: athlete, season: selectedSeason)
 
         case .playByPlay:
-            return CSVExportService.shared.exportPlayByPlay(for: athlete, season: selectedSeason)
+            return try CSVExportService.shared.exportPlayByPlay(for: athlete, season: selectedSeason)
 
         case .seasonSummary:
             if let season = selectedSeason {
-                return CSVExportService.shared.exportSeasonSummary(for: season)
+                return try CSVExportService.shared.exportSeasonSummary(for: season)
             } else if let latestSeason = (athlete.seasons ?? []).sorted(by: { ($0.startDate ?? Date.distantPast) > ($1.startDate ?? Date.distantPast) }).first {
-                return CSVExportService.shared.exportSeasonSummary(for: latestSeason)
+                return try CSVExportService.shared.exportSeasonSummary(for: latestSeason)
             } else {
                 return "No season data available"
             }

@@ -409,6 +409,20 @@ final class UploadQueueManager {
         }
     }
 
+    /// Cancel all queued uploads for a specific athlete (e.g., on athlete deletion)
+    func cancelUploads(forAthleteId athleteId: UUID) {
+        // Cancel retry tasks for matching clips
+        let matchingPending = pendingUploads.filter { $0.athleteId == athleteId }
+        for upload in matchingPending {
+            retryTasks[upload.clipId]?.cancel()
+            retryTasks[upload.clipId] = nil
+        }
+
+        pendingUploads.removeAll { $0.athleteId == athleteId }
+        failedUploads.removeAll { $0.athleteId == athleteId }
+        queueIsDirty = true
+    }
+
     /// Gets total pending upload count
     var totalPendingCount: Int {
         pendingUploads.count

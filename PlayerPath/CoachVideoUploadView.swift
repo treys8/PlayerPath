@@ -389,19 +389,43 @@ class CoachVideoUploadViewModel {
             }
 
             // Step 4: Create metadata in Firestore
-            let metadata = createMetadata(
+            let thumbnailMeta: ThumbnailMetadata? = thumbnailURL.map { ThumbnailMetadata(standardURL: $0) }
+
+            var gameCtx: GameContext?
+            var practiceCtx: PracticeContext?
+            let resolvedVideoType: String
+
+            switch videoContext {
+            case .game:
+                resolvedVideoType = "game"
+                gameCtx = GameContext(
+                    opponent: gameOpponent,
+                    date: contextDate,
+                    notes: notes.isEmpty ? nil : notes
+                )
+            case .instruction:
+                resolvedVideoType = "instruction"
+                practiceCtx = PracticeContext(
+                    date: contextDate,
+                    notes: notes.isEmpty ? nil : notes
+                )
+            }
+
+            _ = try await FirestoreManager.shared.uploadVideoMetadata(
                 fileName: fileName,
                 storageURL: storageURL,
-                thumbnailURL: thumbnailURL,
-                uploaderID: uploaderID,
-                uploaderName: uploaderName,
-                fileSize: fileSize,
-                duration: duration
-            )
-            
-            _ = try await FirestoreManager.shared.createVideoMetadata(
+                thumbnail: thumbnailMeta,
                 folderID: folderID,
-                metadata: metadata
+                uploadedBy: uploaderID,
+                uploadedByName: uploaderName,
+                fileSize: fileSize,
+                duration: duration,
+                videoType: resolvedVideoType,
+                gameContext: gameCtx,
+                practiceContext: practiceCtx,
+                uploadedByType: .coach,
+                visibility: "shared",
+                isHighlight: isHighlight
             )
 
             // Notify the athlete (folder owner) that the coach added a video
@@ -477,8 +501,9 @@ class CoachVideoUploadViewModel {
             metadata["duration"] = duration
         }
         
-        // Add thumbnail URL if available
+        // Add thumbnail as structured object + legacy flat field
         if let thumbnailURL = thumbnailURL {
+            metadata["thumbnail"] = ["standardURL": thumbnailURL]
             metadata["thumbnailURL"] = thumbnailURL
         }
         

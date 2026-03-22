@@ -13,8 +13,7 @@ struct CoachLimitPaywallSheet: View {
     @ObservedObject private var storeManager = StoreKitManager.shared
     @Environment(\.dismiss) private var dismiss
     @State private var isPurchasing = false
-
-    private var connectedCount: Int { SubscriptionGate.connectedAthleteCount() }
+    @State private var connectedCount = 0
 
     var body: some View {
         NavigationStack {
@@ -95,6 +94,11 @@ struct CoachLimitPaywallSheet: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Close") { dismiss() }
+                }
+            }
+            .task {
+                if let coachID = authManager.userID {
+                    connectedCount = await SubscriptionGate.fullConnectedAthleteCount(coachID: coachID)
                 }
             }
         }

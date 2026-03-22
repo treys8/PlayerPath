@@ -26,6 +26,7 @@ struct EnhancedVideoPlayer: View {
     @State private var timeObserver: Any?
     @State private var hideControlsTask: Task<Void, Never>?
     @State private var isAtEnd = false
+    @State private var shouldResumeOnActive = false
     @Environment(\.verticalSizeClass) private var vSizeClass
     @Environment(\.scenePhase) private var scenePhase
     private var isLandscape: Bool { vSizeClass == .compact }
@@ -119,14 +120,24 @@ struct EnhancedVideoPlayer: View {
 
     private func handleScenePhaseChange(_ newPhase: ScenePhase) {
         if newPhase != .active {
+            shouldResumeOnActive = isPlaying
+            player.pause()
+            isPlaying = false
             if let observer = timeObserver {
                 player.removeTimeObserver(observer)
                 timeObserver = nil
             }
-        } else if timeObserver == nil {
-            let interval = CMTime(seconds: 0.5, preferredTimescale: 600)
-            timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { time in
-                if !isDragging { currentTime = CMTimeGetSeconds(time) }
+        } else {
+            if timeObserver == nil {
+                let interval = CMTime(seconds: 0.5, preferredTimescale: 600)
+                timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { time in
+                    if !isDragging { currentTime = CMTimeGetSeconds(time) }
+                }
+            }
+            if shouldResumeOnActive {
+                player.play()
+                isPlaying = true
+                shouldResumeOnActive = false
             }
         }
     }
@@ -399,6 +410,7 @@ struct EnhancedVideoPlayer: View {
 
     private func cleanup() {
         player.pause()
+        player.replaceCurrentItem(with: nil)
         durationTask?.cancel()
         durationTask = nil
         if let observer = timeObserver {

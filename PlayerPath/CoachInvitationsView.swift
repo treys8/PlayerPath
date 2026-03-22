@@ -431,6 +431,9 @@ struct SentInvitationRow: View {
         case .cancelled:
             Image(systemName: "minus.circle.fill")
                 .foregroundColor(.gray)
+        case .rejectedLimit:
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundColor(.red)
         }
     }
 
@@ -472,6 +475,15 @@ struct SentInvitationRow: View {
                 .padding(.vertical, 3)
                 .background(Color.gray.opacity(0.15))
                 .foregroundColor(.gray)
+                .cornerRadius(6)
+        case .rejectedLimit:
+            Text("Limit Reached")
+                .font(.caption2)
+                .fontWeight(.medium)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(Color.red.opacity(0.15))
+                .foregroundColor(.red)
                 .cornerRadius(6)
         }
     }

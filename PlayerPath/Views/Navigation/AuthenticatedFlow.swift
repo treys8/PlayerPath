@@ -168,12 +168,10 @@ struct AuthenticatedFlow: View {
         }
     }
     
-    // Computed property to check if onboarding has been completed
+    // Single source of truth: UserDefaults via authManager (device-local, always available).
+    // SwiftData OnboardingProgress is kept for backward compatibility but not used for routing.
     private var hasCompletedOnboarding: Bool {
-        // Check if onboarding progress exists for the current user, or auth manager flag is set
-        let currentUID = authManager.currentFirebaseUser?.uid
-        return onboardingProgress.contains { $0.hasCompletedOnboarding && $0.firebaseAuthUid == currentUID }
-            || authManager.hasCompletedOnboarding
+        authManager.hasCompletedOnboarding
     }
     
     private func loadUser() async {

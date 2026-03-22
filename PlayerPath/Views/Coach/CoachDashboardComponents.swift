@@ -93,11 +93,27 @@ struct CoachFolderRowView: View {
     let folder: SharedFolder
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
 
+    private var folderIcon: String {
+        switch folder.folderType {
+        case "games":   return "baseball.fill"
+        case "lessons": return "video.badge.checkmark"
+        default:        return "folder.fill"
+        }
+    }
+
+    private var folderIconColor: Color {
+        switch folder.folderType {
+        case "games":   return .brandNavy
+        case "lessons": return .green
+        default:        return .brandNavy
+        }
+    }
+
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: "folder.fill")
+            Image(systemName: folderIcon)
                 .font(.title2)
-                .foregroundColor(.brandNavy)
+                .foregroundColor(folderIconColor)
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(folder.name)

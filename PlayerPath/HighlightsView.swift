@@ -225,6 +225,10 @@ struct HighlightsView: View {
             recomputeHighlights()
             recomputeGroupedHighlights()
         }
+        .onChange(of: athlete?.id) { _, _ in
+            selection.removeAll()
+            expandedGroups.removeAll()
+        }
         .onAppear {
             AnalyticsService.shared.trackScreenView(screenName: "Highlights", screenClass: "HighlightsView")
         }

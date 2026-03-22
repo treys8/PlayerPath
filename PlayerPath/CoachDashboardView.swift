@@ -29,6 +29,8 @@ struct CoachDashboardView: View {
     @State private var cachedThisWeekSessionCount = 0
     @State private var cachedThisWeekClipCount = 0
     @State private var cachedThisWeekAthleteCount = 0
+    @State private var isOverAthleteLimit = false
+    @State private var fullAthleteCount = 0
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -51,9 +53,9 @@ struct CoachDashboardView: View {
                     liveSessionSection
 
                     // Over-limit banner
-                    if SubscriptionGate.isCoachOverLimit(authManager: authManager) {
+                    if isOverAthleteLimit {
                         CoachOverLimitBanner(
-                            connectedCount: SubscriptionGate.connectedAthleteCount(),
+                            connectedCount: fullAthleteCount,
                             limit: authManager.coachAthleteLimit
                         )
                     }
@@ -61,17 +63,22 @@ struct CoachDashboardView: View {
                     // Quick Actions
                     quickActionsSection
 
-                    // Recent Athletes
-                    if !cachedRecentFolders.isEmpty {
-                        recentAthletesSection
-                    }
+                    if sharedFolderManager.coachFolders.isEmpty && sessionManager.sessions.isEmpty {
+                        // Empty state for new coaches
+                        gettingStartedSection
+                    } else {
+                        // Recent Athletes
+                        if !cachedRecentFolders.isEmpty {
+                            recentAthletesSection
+                        }
 
-                    // This week activity
-                    thisWeekSection
+                        // This week activity
+                        thisWeekSection
 
-                    // Summary stats
-                    if !sharedFolderManager.coachFolders.isEmpty {
-                        summarySection
+                        // Summary stats
+                        if !sharedFolderManager.coachFolders.isEmpty {
+                            summarySection
+                        }
                     }
                 }
                 .padding()
@@ -128,6 +135,7 @@ struct CoachDashboardView: View {
         .task {
             updateCachedValues()
             guard let coachID = authManager.userID else { return }
+            await refreshAthleteLimit(coachID: coachID)
             if sessionManager.sessions.isEmpty {
                 await sessionManager.fetchSessions(coachID: coachID)
             }
@@ -270,14 +278,14 @@ struct CoachDashboardView: View {
                             )
                         } label: {
                             VStack(alignment: .leading, spacing: 8) {
-                                Image(systemName: "figure.baseball")
+                                Image(systemName: recentFolderIcon(folder))
                                     .font(.title2)
-                                    .foregroundColor(.brandNavy)
+                                    .foregroundColor(recentFolderColor(folder))
                                     .frame(width: 40, height: 40)
-                                    .background(Color.brandNavy.opacity(0.1))
+                                    .background(recentFolderColor(folder).opacity(0.1))
                                     .clipShape(Circle())
 
-                                Text(folder.ownerAthleteName ?? folder.name)
+                                Text(folder.name)
                                     .font(.subheadline)
                                     .fontWeight(.medium)
                                     .foregroundColor(.primary)
@@ -330,6 +338,64 @@ struct CoachDashboardView: View {
         }
     }
 
+    // MARK: - Getting Started (empty state)
+
+    private var gettingStartedSection: some View {
+        VStack(spacing: 16) {
+            DashboardSectionHeader(title: "Getting Started", icon: "sparkles", color: .brandNavy)
+
+            VStack(spacing: 12) {
+                gettingStartedStep(
+                    number: 1,
+                    title: "Invite an Athlete",
+                    description: "Tap \"Invite Athlete\" above to send an invitation to a player or parent.",
+                    icon: "person.badge.plus"
+                )
+
+                gettingStartedStep(
+                    number: 2,
+                    title: "Athlete Accepts",
+                    description: "Once they accept, a shared video folder is created automatically.",
+                    icon: "folder.badge.person.crop"
+                )
+
+                gettingStartedStep(
+                    number: 3,
+                    title: "Start a Session",
+                    description: "Record lesson clips, add notes, and track your athletes' progress.",
+                    icon: "video.badge.checkmark"
+                )
+            }
+        }
+    }
+
+    private func gettingStartedStep(number: Int, title: String, description: String, icon: String) -> some View {
+        HStack(spacing: 14) {
+            ZStack {
+                Circle()
+                    .fill(Color.brandNavy.opacity(0.1))
+                    .frame(width: 44, height: 44)
+                Image(systemName: icon)
+                    .font(.title3)
+                    .foregroundColor(.brandNavy)
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("\(number). \(title)")
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+                Text(description)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
+            Spacer()
+        }
+        .padding(12)
+        .background(Color(.secondarySystemBackground))
+        .cornerRadius(12)
+    }
+
     // MARK: - This Week
 
     @ViewBuilder
@@ -377,6 +443,11 @@ struct CoachDashboardView: View {
             .filter { ($0.startedAt ?? .distantPast) >= weekAgo }
             .flatMap(\.athleteIDs)
         ).count
+    }
+
+    private func refreshAthleteLimit(coachID: String) async {
+        isOverAthleteLimit = await SubscriptionGate.isCoachOverLimit(coachID: coachID, authManager: authManager)
+        fullAthleteCount = await SubscriptionGate.fullConnectedAthleteCount(coachID: coachID)
     }
 
     // MARK: - Session Actions
@@ -447,14 +518,35 @@ struct CoachDashboardView: View {
         }
     }
 
+    private func recentFolderIcon(_ folder: SharedFolder) -> String {
+        switch folder.folderType {
+        case "games":   return "baseball.fill"
+        case "lessons": return "video.badge.checkmark"
+        default:        return "figure.baseball"
+        }
+    }
+
+    private func recentFolderColor(_ folder: SharedFolder) -> Color {
+        switch folder.folderType {
+        case "lessons": return .green
+        default:        return .brandNavy
+        }
+    }
+
     private func handleNotificationTap(_ notification: ActivityNotification) {
         switch notification.type {
         case .newVideo:
             if let folderID = notification.targetID {
                 coordinator.navigateToFolder(folderID, folders: sharedFolderManager.coachFolders)
             }
-        case .invitationReceived, .invitationAccepted:
+        case .invitationReceived:
             coordinator.navigateToInvitations()
+        case .invitationAccepted:
+            if notification.targetType == .folder, let folderID = notification.targetID {
+                coordinator.navigateToFolder(folderID, folders: sharedFolderManager.coachFolders)
+            } else {
+                coordinator.navigateToInvitations()
+            }
         case .coachComment, .accessRevoked:
             break
         }

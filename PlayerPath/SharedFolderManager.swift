@@ -7,6 +7,9 @@
 //
 
 import Foundation
+import AVFoundation
+import CoreMedia
+import UIKit
 import FirebaseAuth
 import FirebaseFirestore
 import os
@@ -50,7 +53,8 @@ class SharedFolderManager {
         athleteName: String? = nil,
         hasCoachingAccess: Bool
     ) async throws -> String {
-        guard hasCoachingAccess else {
+        // Verify tier server-side rather than trusting the caller's boolean alone
+        guard hasCoachingAccess, StoreKitManager.shared.currentTier >= .pro else {
             throw SharedFolderError.coachingRequired
         }
 
@@ -165,7 +169,10 @@ class SharedFolderManager {
             athleteID: athleteID
         )
 
-        // 3. Refresh folders list
+        // 3. End any active coach session for this folder
+        await CoachSessionManager.shared.endSessionIfActive(forFolderID: folderID)
+
+        // 4. Refresh folders list
         if let currentUserID = Auth.auth().currentUser?.uid {
             try await loadAthleteFolders(athleteID: currentUserID)
         }
@@ -223,6 +230,9 @@ class SharedFolderManager {
     ///   4. Delete the folder document
     func deleteFolder(folderID: String, athleteID: String) async throws {
 
+        // 0. End any active coach sessions for this folder
+        await CoachSessionManager.shared.endSessionIfActive(forFolderID: folderID)
+
         // 1. Get folder details before deletion
         guard let folder = athleteFolders.first(where: { $0.id == folderID }) else {
             throw SharedFolderError.folderNotFound
@@ -266,8 +276,8 @@ class SharedFolderManager {
             folderLog.warning("Failed to fetch folder videos during cleanup: \(error.localizedDescription)")
         }
 
-        // 4. Delete the folder document (always attempt)
-        try await firestore.deleteSharedFolder(folderID: folderID)
+        // 4. Delete the folder document (skip video cleanup — already handled above)
+        try await firestore.deleteSharedFolder(folderID: folderID, skipVideoCleanup: true)
 
         // 5. Remove from local list
         athleteFolders.removeAll { $0.id == folderID }
@@ -443,8 +453,8 @@ class SharedFolderManager {
         )
         folderLog.info("acceptInvitation: firestore transaction succeeded for \(invitationID)")
 
-        // Refresh coach's folder list
-        try await loadCoachFolders(coachID: coachID)
+        // The real-time listener (startCoachFoldersListener) will automatically
+        // pick up the new folder — no one-shot fetch needed here.
 
         // Notify the athlete that their coach accepted
         let coachName = Auth.auth().currentUser?.displayName
@@ -471,6 +481,8 @@ class SharedFolderManager {
     /// Removes the coach from the folder's sharedWithCoachIDs and permissions,
     /// then removes the folder from the local coachFolders cache.
     func leaveFolder(folderID: String, coachID: String) async throws {
+        // End any active recording sessions for this folder before leaving
+        await CoachSessionManager.shared.endSessionIfActive(forFolderID: folderID)
         try await firestore.removeCoachFromFolder(folderID: folderID, coachID: coachID)
         coachFolders.removeAll { $0.id == folderID }
     }
@@ -493,7 +505,13 @@ class SharedFolderManager {
         uploadedByName: String,
         videoType: String = "game",
         gameContext: GameContext? = nil,
-        practiceContext: PracticeContext? = nil
+        practiceContext: PracticeContext? = nil,
+        playResult: String? = nil,
+        pitchSpeed: Double? = nil,
+        seasonName: String? = nil,
+        athleteName: String? = nil,
+        isHighlight: Bool = false,
+        clipNote: String? = nil
     ) async throws -> String {
         // Verify folder exists and user has upload permission before starting expensive upload
         guard let folder = try await firestore.fetchSharedFolder(folderID: folderID) else {
@@ -525,10 +543,45 @@ class SharedFolderManager {
             fileSize = 0
         }
 
-        // TODO: Get video duration from AVAsset
+        // Get video duration from AVAsset
+        var duration: Double?
+        do {
+            let asset = AVURLAsset(url: videoURL)
+            let durationCM = try await asset.load(.duration)
+            let seconds = CMTimeGetSeconds(durationCM)
+            if seconds.isFinite && seconds > 0 {
+                duration = seconds
+            }
+        } catch {
+            folderLog.warning("Failed to get video duration: \(error.localizedDescription)")
+        }
 
-        // Generate thumbnail (TODO: Implement thumbnail generation)
-        let thumbnail: ThumbnailMetadata? = nil
+        // Generate thumbnail from video
+        var thumbnail: ThumbnailMetadata?
+        do {
+            let asset = AVURLAsset(url: videoURL)
+            let generator = AVAssetImageGenerator(asset: asset)
+            generator.appliesPreferredTrackTransform = true
+            generator.maximumSize = CGSize(width: 320, height: 240)
+            let time = CMTime(seconds: 1.0, preferredTimescale: 600)
+            let cgImage = try generator.copyCGImage(at: time, actualTime: nil)
+            let uiImage = UIImage(cgImage: cgImage)
+            if let jpegData = uiImage.jpegData(compressionQuality: 0.7) {
+                let tempURL = FileManager.default.temporaryDirectory
+                    .appendingPathComponent(UUID().uuidString + "_thumbnail.jpg")
+                try jpegData.write(to: tempURL)
+                defer { try? FileManager.default.removeItem(at: tempURL) }
+
+                let thumbnailURL = try await firestore.uploadThumbnail(
+                    localURL: tempURL,
+                    videoFileName: fileName,
+                    folderID: folderID
+                )
+                thumbnail = ThumbnailMetadata(standardURL: thumbnailURL)
+            }
+        } catch {
+            folderLog.warning("Failed to generate thumbnail: \(error.localizedDescription)")
+        }
 
         // Upload metadata to Firestore
         let videoID = try await firestore.uploadVideoMetadata(
@@ -539,10 +592,15 @@ class SharedFolderManager {
             uploadedBy: uploadedBy,
             uploadedByName: uploadedByName,
             fileSize: fileSize,
-            duration: nil,
+            duration: duration,
             videoType: videoType,
             gameContext: gameContext,
-            practiceContext: practiceContext
+            practiceContext: practiceContext,
+            playResult: playResult,
+            pitchSpeed: pitchSpeed,
+            seasonName: seasonName,
+            athleteName: athleteName,
+            isHighlight: isHighlight
         )
 
         // Notify all coaches with access to this folder

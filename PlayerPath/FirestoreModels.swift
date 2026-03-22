@@ -49,6 +49,7 @@ struct SharedFolder: Codable, Identifiable, Hashable {
     let updatedAt: Date?
     let videoCount: Int?
     var tags: [String]? = nil
+    var folderType: String? = nil  // "games", "lessons", or nil for legacy folders
 
     /// Helper to get typed permissions for a coach
     func getPermissions(for coachID: String) -> FolderPermissions? {
@@ -185,12 +186,17 @@ struct CoachInvitation: Codable, Identifiable {
     var expiresAt: Date?
     var status: InvitationStatus
     var acceptedByCoachID: String?
+    var acceptedAt: Date?
+    var declinedAt: Date?
+    var cancelledAt: Date?
+    var rejectedReason: String?
 
     enum InvitationStatus: String, Codable {
         case pending
         case accepted
         case declined
         case cancelled
+        case rejectedLimit = "rejected_limit"
     }
 }
 
@@ -209,6 +215,10 @@ struct CoachToAthleteInvitation: Codable, Identifiable {
     let folderID: String?
     let folderName: String?
     let athleteUserID: String?
+    var acceptedAt: Date?
+    var declinedAt: Date?
+    var cancelledAt: Date?
+    var rejectedReason: String?
 }
 
 /// Live instruction session for coaches

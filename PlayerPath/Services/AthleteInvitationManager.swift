@@ -74,6 +74,7 @@ class AthleteInvitationManager {
         invitationsListener?.remove()
         invitationsListener = nil
         listenerError = nil
+        pendingInvitations = []
     }
 
     // MARK: - Fetch (one-shot fallback)
@@ -113,58 +114,88 @@ class AthleteInvitationManager {
         let athlete = (try? modelContext.fetch(athleteDescriptor))?.first
         let athleteName = athlete?.name ?? authManager.currentFirebaseUser?.displayName ?? "Athlete"
 
-        // 2. Create shared folder BEFORE accepting (avoids stuck "accepted but no folder" state)
-        var folderID: String?
-        var folderName: String?
-        if authManager.hasCoachingAccess {
-            do {
-                let name = "\(athleteName)'s Videos"
-                let permissions: [String: FolderPermissions] = [invitation.coachID: .default]
+        // 2. Pre-check: verify the coach is not at their athlete limit
+        do {
+            let coachProfile = try await FirestoreManager.shared.fetchUserProfile(userID: invitation.coachID)
+            let coachTier = CoachSubscriptionTier(rawValue: coachProfile?.coachSubscriptionTier ?? "coach_free") ?? .free
+            let connectedCount = await SubscriptionGate.fullConnectedAthleteCount(coachID: invitation.coachID)
+            if connectedCount >= coachTier.athleteLimit {
+                throw SharedFolderError.coachAthleteLimitReached
+            }
+        } catch let error as SharedFolderError where error == .coachAthleteLimitReached {
+            throw error
+        } catch {
+            // Non-limit errors (network, etc.) — log and continue, let the Cloud Function backstop handle it
+            ErrorHandlerService.shared.handle(error, context: "AthleteInvitationManager.coachLimitPreCheck", showAlert: false)
+        }
 
+        // 3. Accept invitation in Firestore (do this BEFORE creating folders to avoid orphans)
+        try await FirestoreManager.shared.acceptCoachToAthleteInvitation(
+            invitationID: invitationID,
+            athleteUserID: userID
+        )
+
+        // 4. Create shared folders AFTER acceptance succeeds
+        //    Two folders: Games (athlete uploads game clips) + Lessons (coach uploads instruction clips)
+        var gamesFolderID: String?
+        var lessonsFolderID: String?
+        var gamesFolderName: String?
+        var lessonsFolderName: String?
+        if authManager.hasCoachingAccess {
+            let permissions: [String: FolderPermissions] = [invitation.coachID: .default]
+
+            // Games folder
+            do {
+                let name = "\(athleteName)'s Games"
                 let id = try await FirestoreManager.shared.createSharedFolder(
                     name: name,
                     ownerAthleteID: userID,
                     ownerAthleteName: athleteName,
-                    permissions: permissions
+                    permissions: permissions,
+                    folderType: "games"
                 )
-                folderID = id
-                folderName = name
+                gamesFolderID = id
+                gamesFolderName = name
             } catch {
-                // Folder creation failed — continue without folder. Coach still gets notified.
-                ErrorHandlerService.shared.handle(error, context: "AthleteInvitationManager.createSharedFolder", showAlert: false)
+                ErrorHandlerService.shared.handle(error, context: "AthleteInvitationManager.createGamesFolder", showAlert: false)
+            }
+
+            // Lessons folder
+            do {
+                let name = "\(athleteName)'s Lessons"
+                let id = try await FirestoreManager.shared.createSharedFolder(
+                    name: name,
+                    ownerAthleteID: userID,
+                    ownerAthleteName: athleteName,
+                    permissions: permissions,
+                    folderType: "lessons"
+                )
+                lessonsFolderID = id
+                lessonsFolderName = name
+            } catch {
+                ErrorHandlerService.shared.handle(error, context: "AthleteInvitationManager.createLessonsFolder", showAlert: false)
             }
         }
 
-        // 3. Accept invitation in Firestore, including folder info if created
-        // Note: Coach athlete limit enforcement is handled server-side by the
-        // enforceCoachAthleteLimitOnAccept Cloud Function.
-        do {
-            try await FirestoreManager.shared.acceptCoachToAthleteInvitation(
-                invitationID: invitationID,
-                athleteUserID: userID
-            )
+        // Update invitation with folder info if folder was created
+        let folderID = gamesFolderID ?? lessonsFolderID
+        let folderName = gamesFolderName ?? lessonsFolderName
+        let createdAnyFolder = gamesFolderID != nil || lessonsFolderID != nil
 
-            // Update invitation with folder info if folder was created
-            if let folderID, let folderName {
+        if let folderID, let folderName {
+            do {
                 try await FirestoreManager.shared.updateCoachToAthleteInvitationWithFolder(
                     invitationID: invitationID,
                     folderID: folderID,
                     folderName: folderName
                 )
+            } catch {
+                // Non-fatal: invitation is accepted, folder exists, just the link is missing
+                ErrorHandlerService.shared.handle(error, context: "AthleteInvitationManager.updateInvitationWithFolder", showAlert: false)
             }
-        } catch {
-            // Acceptance failed — clean up folder if we created one
-            if let folderID {
-                do {
-                    try await FirestoreManager.shared.deleteSharedFolder(folderID: folderID)
-                } catch {
-                    ErrorHandlerService.shared.handle(error, context: "AthleteInvitationManager.cleanupOrphanedFolder", showAlert: false)
-                }
-            }
-            throw error
         }
 
-        // 4. Create or update Coach record in SwiftData
+        // 5. Create or update Coach record in SwiftData
         let coachID = invitation.coachID
         let coachEmail = invitation.coachEmail
         let existingCoachDescriptor = FetchDescriptor<Coach>(
@@ -182,8 +213,10 @@ class AthleteInvitationManager {
             existingCoach.lastInvitationStatus = "accepted"
             existingCoach.invitationAcceptedAt = Date()
             existingCoach.needsSync = true
-            if let folderID, !existingCoach.sharedFolderIDs.contains(folderID) {
-                existingCoach.sharedFolderIDs.append(folderID)
+            for id in [gamesFolderID, lessonsFolderID].compactMap({ $0 }) {
+                if !existingCoach.sharedFolderIDs.contains(id) {
+                    existingCoach.sharedFolderIDs.append(id)
+                }
             }
         } else {
             let coach = Coach(name: invitation.coachName, email: invitation.coachEmail)
@@ -191,19 +224,17 @@ class AthleteInvitationManager {
             coach.invitationAcceptedAt = Date()
             coach.firebaseCoachID = invitation.coachID
             coach.lastInvitationStatus = "accepted"
-            if let folderID {
-                coach.sharedFolderIDs = [folderID]
-            }
+            coach.sharedFolderIDs = [gamesFolderID, lessonsFolderID].compactMap { $0 }
             if let athlete {
                 coach.athlete = athlete
             }
             modelContext.insert(coach)
         }
 
-        // 5. Save SwiftData context
+        // 6. Save SwiftData context
         ErrorHandlerService.shared.saveContext(modelContext, caller: "AthleteInvitationManager.acceptInvitation")
 
-        // 6. Notify the coach
+        // 7. Notify the coach
         if let folderName, let folderID {
             await ActivityNotificationService.shared.postAthleteAcceptedInvitationNotification(
                 folderName: folderName,
@@ -223,7 +254,7 @@ class AthleteInvitationManager {
 
         invitationLog.info("Accepted invitation \(invitationID) from coach \(invitation.coachName)")
 
-        if folderID != nil {
+        if createdAnyFolder {
             return .acceptedWithFolder(coachName: invitation.coachName)
         } else {
             return .acceptedWithoutFolder(coachName: invitation.coachName)

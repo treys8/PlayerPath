@@ -56,7 +56,7 @@ struct CoachTabView: View {
 
     @ViewBuilder
     private var tabViewContent: some View {
-        if horizontalSizeClass == .regular {
+        if #available(iOS 18.0, *), horizontalSizeClass == .regular {
             TabView(selection: Binding(
                 get: { coordinator.selectedTab.rawValue },
                 set: { if let tab = CoachTab(rawValue: $0) { coordinator.selectedTab = tab } }

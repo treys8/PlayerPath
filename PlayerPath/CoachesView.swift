@@ -348,6 +348,8 @@ struct CoachesView: View {
                         )
                     case .declined:
                         coach.lastInvitationStatus = "declined"
+                    case .rejectedLimit:
+                        coach.lastInvitationStatus = "rejected_limit"
                     case .pending, .cancelled:
                         break
                     }

@@ -85,18 +85,12 @@ extension FirestoreManager {
     /// StoreKit by writing tier values directly to Firestore.
     func syncSubscriptionTiers(
         userID: String,
-        tier: SubscriptionTier,
-        coachTier: CoachSubscriptionTier,
-        hasAthleteTierOverride: Bool = false,
-        receiptData: String? = nil
+        hasAthleteTierOverride: Bool = false
     ) async {
         do {
             try await syncSubscriptionTiersWithThrow(
                 userID: userID,
-                tier: tier,
-                coachTier: coachTier,
-                hasAthleteTierOverride: hasAthleteTierOverride,
-                receiptData: receiptData
+                hasAthleteTierOverride: hasAthleteTierOverride
             )
         } catch {
             firestoreLog.warning("Failed to sync subscription tier: \(error.localizedDescription)")
@@ -104,40 +98,30 @@ extension FirestoreManager {
     }
 
     /// Throwing variant for use with retry logic.
+    /// The server derives tiers from verified Transaction JWS tokens —
+    /// the client no longer sends tier strings.
     func syncSubscriptionTiersWithThrow(
         userID: String,
-        tier: SubscriptionTier,
-        coachTier: CoachSubscriptionTier,
-        hasAthleteTierOverride: Bool = false,
-        receiptData: String? = nil
+        hasAthleteTierOverride: Bool = false
     ) async throws {
-        // Obtain the App Store receipt if not provided
-        let receipt: String
-        if let provided = receiptData {
-            receipt = provided
-        } else if let appReceipt = await appStoreReceipt() {
-            receipt = appReceipt
-        } else {
+        // Obtain the AppTransaction JWS (app-level authenticity proof)
+        guard let appReceipt = await appStoreReceipt() else {
             #if DEBUG
-            // In DEBUG, write tier directly to Firestore to unblock development
-            firestoreLog.info("No App Store receipt (DEBUG). Writing tier directly to Firestore.")
-            try await db.collection(FC.users).document(userID).setData([
-                "subscriptionTier": tier.rawValue,
-                "coachSubscriptionTier": coachTier.rawValue,
-                "updatedAt": FieldValue.serverTimestamp()
-            ], merge: true)
-            return
+            firestoreLog.info("No App Store receipt (DEBUG). Tier sync skipped in DEBUG.")
             #else
             firestoreLog.warning("No App Store receipt available. Tier sync skipped.")
-            return
             #endif
+            return
         }
+
+        // Collect JWS tokens from all current entitlements so the server
+        // can verify each transaction and derive tiers from product IDs.
+        let transactionTokens = await currentEntitlementTokens()
 
         let callable = Functions.functions().httpsCallable("syncSubscriptionTier")
         let payload: [String: Any] = [
-            "receiptData": receipt,
-            "tier": tier.rawValue,
-            "coachTier": coachTier.rawValue,
+            "receiptData": appReceipt,
+            "transactionTokens": transactionTokens,
             "hasAthleteTierOverride": hasAthleteTierOverride
         ]
 
@@ -145,13 +129,22 @@ extension FirestoreManager {
     }
 
     /// Returns the StoreKit 2 JWS app transaction token for server-side validation.
-    /// The server verifies the token's signature against Apple's root certificates.
     fileprivate func appStoreReceipt() async -> String? {
-        // StoreKit 2 JWS token (preferred)
         if let result = try? await AppTransaction.shared {
             return result.jwsRepresentation
         }
         return nil
+    }
+
+    /// Collects JWS representations from all current subscription entitlements.
+    /// The server verifies these independently to derive the user's actual tier.
+    fileprivate func currentEntitlementTokens() async -> [String] {
+        var tokens: [String] = []
+        for await result in Transaction.currentEntitlements {
+            // jwsRepresentation is on the VerificationResult envelope
+            tokens.append(result.jwsRepresentation)
+        }
+        return tokens
     }
 
     /// Deletes user profile and all associated data (GDPR compliance)

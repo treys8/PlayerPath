@@ -28,13 +28,24 @@ struct StartSessionSheet: View {
         }
     }
 
-    /// Unique athletes from uploadable folders (deduplicated by ownerAthleteID)
+    /// Unique athletes from uploadable folders (deduplicated by ownerAthleteID).
+    /// Prefers the "lessons" folder for sessions; falls back to any uploadable folder.
     private var availableAthletes: [(athleteID: String, athleteName: String, folderID: String)] {
-        var seen = Set<String>()
-        return uploadableFolders.compactMap { folder in
-            guard let folderID = folder.id,
-                  !seen.contains(folder.ownerAthleteID) else { return nil }
-            seen.insert(folder.ownerAthleteID)
+        // Group folders by athlete, preferring lessons folders for instruction sessions
+        var athleteFolders: [String: SharedFolder] = [:]
+        for folder in uploadableFolders {
+            guard folder.id != nil else { continue }
+            if let existing = athleteFolders[folder.ownerAthleteID] {
+                // Prefer lessons folder over other types
+                if folder.folderType == "lessons" && existing.folderType != "lessons" {
+                    athleteFolders[folder.ownerAthleteID] = folder
+                }
+            } else {
+                athleteFolders[folder.ownerAthleteID] = folder
+            }
+        }
+        return athleteFolders.values.compactMap { folder in
+            guard let folderID = folder.id else { return nil }
             return (athleteID: folder.ownerAthleteID, athleteName: folder.ownerAthleteName ?? "Athlete", folderID: folderID)
         }
     }
@@ -179,7 +190,8 @@ struct StartSessionSheet: View {
                 let sessionID = try await CoachSessionManager.shared.createSession(
                     coachID: coachID,
                     coachName: coachName,
-                    athletes: selected
+                    athletes: selected,
+                    authManager: authManager
                 )
                 Haptics.success()
                 dismiss()

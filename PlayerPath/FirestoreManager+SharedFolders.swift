@@ -24,7 +24,8 @@ extension FirestoreManager {
         name: String,
         ownerAthleteID: String,
         ownerAthleteName: String? = nil,
-        permissions: [String: FolderPermissions] = [:]
+        permissions: [String: FolderPermissions] = [:],
+        folderType: String? = nil
     ) async throws -> String {
         var folderData: [String: Any] = [
             "name": name,
@@ -37,6 +38,9 @@ extension FirestoreManager {
         ]
         if let ownerAthleteName {
             folderData["ownerAthleteName"] = ownerAthleteName
+        }
+        if let folderType {
+            folderData["folderType"] = folderType
         }
 
         do {
@@ -217,7 +221,8 @@ extension FirestoreManager {
     }
 
     /// Deletes a shared folder (athlete only)
-    func deleteSharedFolder(folderID: String) async throws {
+    /// - Parameter skipVideoCleanup: If true, skips video/storage deletion (caller already handled it)
+    func deleteSharedFolder(folderID: String, skipVideoCleanup: Bool = false) async throws {
         do {
             // Cancel pending invitations referencing this folder
             let invitationsQuery = db.collection(FC.invitations)
@@ -236,35 +241,39 @@ extension FirestoreManager {
                 try await batch.commit()
             }
 
-            // Delete all videos in the folder: Storage files first, then Firestore docs
-            let videosQuery = db.collection(FC.videos)
-                .whereField("sharedFolderID", isEqualTo: folderID)
-            while true {
-                let videosSnapshot = try await videosQuery.limit(to: 400).getDocuments()
-                guard !videosSnapshot.documents.isEmpty else { break }
+            if !skipVideoCleanup {
+                // Delete all videos in the folder: subcollections, Storage files, then Firestore docs
+                let videosQuery = db.collection(FC.videos)
+                    .whereField("sharedFolderID", isEqualTo: folderID)
+                while true {
+                    let videosSnapshot = try await videosQuery.limit(to: 400).getDocuments()
+                    guard !videosSnapshot.documents.isEmpty else { break }
 
-                // Delete Storage files for each video (best-effort — don't block on failure)
-                for doc in videosSnapshot.documents {
-                    let data = doc.data()
-                    if let fileName = data["fileName"] as? String {
-                        do {
-                            try await VideoCloudManager.shared.deleteVideo(fileName: fileName, folderID: folderID)
-                        } catch {
-                            firestoreLog.warning("Failed to delete Storage file \(fileName) in folder \(folderID): \(error.localizedDescription)")
-                        }
-                        // Also try to delete the thumbnail
-                        do {
-                            try await VideoCloudManager.shared.deleteThumbnail(videoFileName: fileName, folderID: folderID)
-                        } catch {
-                            // Thumbnail may not exist — ignore
+                    for doc in videosSnapshot.documents {
+                        // Clean up subcollections (annotations, comments, drillCards)
+                        await deleteVideoSubcollections(videoID: doc.documentID)
+
+                        // Delete Storage files (best-effort)
+                        let data = doc.data()
+                        if let fileName = data["fileName"] as? String {
+                            do {
+                                try await VideoCloudManager.shared.deleteVideo(fileName: fileName, folderID: folderID)
+                            } catch {
+                                firestoreLog.warning("Failed to delete Storage file \(fileName) in folder \(folderID): \(error.localizedDescription)")
+                            }
+                            do {
+                                try await VideoCloudManager.shared.deleteThumbnail(videoFileName: fileName, folderID: folderID)
+                            } catch {
+                                // Thumbnail may not exist — ignore
+                            }
                         }
                     }
-                }
 
-                // Now delete the Firestore docs
-                let batch = db.batch()
-                videosSnapshot.documents.forEach { batch.deleteDocument($0.reference) }
-                try await batch.commit()
+                    // Now delete the Firestore docs
+                    let batch = db.batch()
+                    videosSnapshot.documents.forEach { batch.deleteDocument($0.reference) }
+                    try await batch.commit()
+                }
             }
 
             // Then delete the folder

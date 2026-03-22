@@ -244,9 +244,16 @@ final class VideoClip {
             }
         }
 
-        // Delete associated play result
+        // Delete associated play result and recalculate stats
         if let playResult = playResult {
+            let athleteForRecalc = athlete ?? game?.athlete
             context.delete(playResult)
+            // Recalculate stats so they don't drift from actual play results
+            if let athlete = athleteForRecalc {
+                Task { @MainActor in
+                    try? StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: context, skipSave: true)
+                }
+            }
         }
 
         // Delete video clip database record

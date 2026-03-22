@@ -291,7 +291,13 @@ struct ShareToCoachFolderView: View {
                 uploadedByName: uploaderName,
                 videoType: videoType,
                 gameContext: gameCtx,
-                practiceContext: practiceCtx
+                practiceContext: practiceCtx,
+                playResult: clip.playResult?.type.displayName,
+                pitchSpeed: clip.pitchSpeed,
+                seasonName: clip.seasonName ?? clip.season?.name,
+                athleteName: clip.athlete?.name,
+                isHighlight: clip.isHighlight,
+                clipNote: clip.note
             )
             isUploading = false
             Haptics.success()

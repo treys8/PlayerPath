@@ -43,7 +43,12 @@ extension FirestoreManager {
         practiceContext: PracticeContext? = nil,
         uploadedByType: UploadedByType? = nil,
         visibility: String = "shared",
-        sessionID: String? = nil
+        sessionID: String? = nil,
+        playResult: String? = nil,
+        pitchSpeed: Double? = nil,
+        seasonName: String? = nil,
+        athleteName: String? = nil,
+        isHighlight: Bool? = nil
     ) async throws -> String {
         var videoData: [String: Any] = [
             "fileName": fileName,
@@ -54,7 +59,7 @@ extension FirestoreManager {
             "createdAt": FieldValue.serverTimestamp(),
             "fileSize": fileSize,
             "videoType": videoType,
-            "isHighlight": videoType == "highlight"
+            "isHighlight": isHighlight ?? (videoType == "highlight")
         ]
         if let duration {
             videoData["duration"] = duration
@@ -65,6 +70,18 @@ extension FirestoreManager {
         videoData["visibility"] = visibility
         if let sessionID {
             videoData["sessionID"] = sessionID
+        }
+        if let playResult {
+            videoData["playResult"] = playResult
+        }
+        if let pitchSpeed {
+            videoData["pitchSpeed"] = pitchSpeed
+        }
+        if let seasonName {
+            videoData["seasonID"] = seasonName
+        }
+        if let athleteName {
+            videoData["athleteName"] = athleteName
         }
 
         // Add structured thumbnail data
@@ -156,7 +173,7 @@ extension FirestoreManager {
         )
     }
 
-    /// Fetches all videos in a shared folder
+    /// Fetches all videos in a shared folder, filtering out private videos from other users
     func fetchVideos(forFolder folderID: String) async throws -> [FirestoreVideoMetadata] {
         do {
             let snapshot = try await db.collection(FC.videos)
@@ -165,10 +182,15 @@ extension FirestoreManager {
                 .limit(to: 100)
                 .getDocuments()
 
+            let currentUID = Auth.auth().currentUser?.uid
             let videos = snapshot.documents.compactMap { doc -> FirestoreVideoMetadata? in
                 do {
                     var video = try doc.data(as: FirestoreVideoMetadata.self)
                     video.id = doc.documentID
+                    // Hide private videos from other users
+                    if video.visibility == "private" && video.uploadedBy != currentUID {
+                        return nil
+                    }
                     return video
                 } catch {
                     firestoreLog.warning("Failed to decode FirestoreVideoMetadata from doc \(doc.documentID): \(error.localizedDescription)")
@@ -201,20 +223,33 @@ extension FirestoreManager {
         }
     }
 
+    /// Deletes all subcollections (annotations, comments, drillCards) for a video.
+    /// Paginated to handle large subcollections.
+    func deleteVideoSubcollections(videoID: String) async {
+        let videoRef = db.collection(FC.videos).document(videoID)
+        let subcollections = [FC.annotations, "comments", "drillCards"]
+
+        for subcollection in subcollections {
+            let query = videoRef.collection(subcollection)
+            do {
+                while true {
+                    let snapshot = try await query.limit(to: 400).getDocuments()
+                    guard !snapshot.documents.isEmpty else { break }
+                    let batch = db.batch()
+                    snapshot.documents.forEach { batch.deleteDocument($0.reference) }
+                    try await batch.commit()
+                }
+            } catch {
+                firestoreLog.warning("Failed to clean up \(subcollection) for video \(videoID): \(error.localizedDescription)")
+            }
+        }
+    }
+
     /// Deletes a video and its metadata
     func deleteVideo(videoID: String, folderID: String) async throws {
         do {
-            // Delete all annotations first (paginated — delete until none remain)
-            let annotationsQuery = db.collection(FC.videos)
-                .document(videoID)
-                .collection(FC.annotations)
-            while true {
-                let annotationsSnapshot = try await annotationsQuery.limit(to: 400).getDocuments()
-                guard !annotationsSnapshot.documents.isEmpty else { break }
-                let batch = db.batch()
-                annotationsSnapshot.documents.forEach { batch.deleteDocument($0.reference) }
-                try await batch.commit()
-            }
+            // Delete all subcollections (annotations, comments, drillCards)
+            await deleteVideoSubcollections(videoID: videoID)
 
             // Batch: delete video metadata + decrement folder count atomically
             let batch = db.batch()
@@ -256,16 +291,21 @@ extension FirestoreManager {
         // Use VideoCloudManager for actual upload
         let cloudManager = VideoCloudManager.shared
 
-        // Generate appropriate filename based on quality
-        let baseFileName = (videoFileName as NSString).deletingPathExtension
-        let suffix = quality == .high ? "_thumbnail_hq.jpg" : "_thumbnail.jpg"
-        let thumbnailFileName = baseFileName + suffix
+        // Pass the original video filename — VideoCloudManager adds the _thumbnail suffix
+        // For high quality, we need a distinct name, so we modify the video filename
+        let uploadFileName: String
+        if quality == .high {
+            let baseName = (videoFileName as NSString).deletingPathExtension
+            let ext = (videoFileName as NSString).pathExtension
+            uploadFileName = baseName + "_hq." + ext
+        } else {
+            uploadFileName = videoFileName
+        }
 
         do {
-            // Create a temporary reference using the quality-specific filename
             let thumbnailURL = try await cloudManager.uploadThumbnail(
                 thumbnailURL: localURL,
-                videoFileName: thumbnailFileName,
+                videoFileName: uploadFileName,
                 folderID: folderID
             )
 
@@ -439,6 +479,9 @@ extension FirestoreManager {
 
     /// Deletes a private coach video (Firestore doc + Storage file + thumbnail).
     func deleteCoachPrivateVideo(videoID: String, sharedFolderID: String, fileName: String) async throws {
+        // Delete all subcollections (annotations, comments, drillCards)
+        await deleteVideoSubcollections(videoID: videoID)
+
         // Delete Storage file
         do {
             try await VideoCloudManager.shared.deleteVideo(fileName: fileName, folderID: sharedFolderID)

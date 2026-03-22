@@ -19,7 +19,6 @@ struct DashboardView: View {
 
     @StateObject private var viewModel: GamesDashboardViewModel
     @State private var pulseAnimation = false
-    @State private var showingPaywall = false
     @State private var showingDirectCamera = false
     @State private var selectedVideoForPlayback: VideoClip?
     @State private var showingSeasons = false
@@ -143,12 +142,6 @@ struct DashboardView: View {
         }
         .onChange(of: athlete.seasons?.count) { _, _ in
             updateCachedStats()
-        }
-        .sheet(isPresented: $showingPaywall) {
-            ImprovedPaywallView(user: user)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .showSubscriptionPaywall)) { _ in
-            showingPaywall = true
         }
         .sheet(isPresented: $showingSeasons) {
             NavigationStack {
@@ -347,7 +340,7 @@ struct DashboardView: View {
                         NotificationCenter.default.post(name: .navigateToMoreHighlights, object: nil)
                     } else {
                         Haptics.warning()
-                        showingPaywall = true
+                        NotificationCenter.default.post(name: .showSubscriptionPaywall, object: nil)
                     }
                 }
                 DashboardPremiumFeatureCard(icon: "person.3.fill", title: "Coaches", subtitle: "\((athlete.coaches ?? []).count) Coaches", color: .brandGold, isPremium: authManager.currentTier >= .pro) {
@@ -358,7 +351,7 @@ struct DashboardView: View {
                         }
                     } else {
                         Haptics.warning()
-                        showingPaywall = true
+                        NotificationCenter.default.post(name: .showSubscriptionPaywall, object: nil)
                     }
                 }
             }

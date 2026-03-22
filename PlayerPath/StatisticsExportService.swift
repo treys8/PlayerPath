@@ -15,8 +15,12 @@ final class StatisticsExportService {
 
     // MARK: - Public Export Methods
 
-    /// Export statistics to CSV format
+    /// Export statistics to CSV format (requires Plus tier or higher)
     static func exportToCSV(athlete: Athlete, stats: AthleteStatistics) -> Result<URL, ExportError> {
+        guard StoreKitManager.shared.currentTier >= .plus else {
+            return .failure(.fileCreationFailed("Statistics export requires a Plus or Pro subscription."))
+        }
+
         let csvContent = generateCSVContent(athlete: athlete, stats: stats)
 
         do {
@@ -28,8 +32,12 @@ final class StatisticsExportService {
         }
     }
 
-    /// Export statistics to PDF format with formatted layout
+    /// Export statistics to PDF format with formatted layout (requires Plus tier or higher)
     static func exportToPDF(athlete: Athlete, stats: AthleteStatistics, season: Season? = nil) -> Result<URL, ExportError> {
+        guard StoreKitManager.shared.currentTier >= .plus else {
+            return .failure(.fileCreationFailed("Statistics export requires a Plus or Pro subscription."))
+        }
+
         let pdfData = generatePDFData(athlete: athlete, stats: stats, season: season)
 
         do {

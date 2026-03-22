@@ -25,11 +25,22 @@ class CoachSessionManager {
     // MARK: - Session Lifecycle
 
     /// Creates a new live session and returns its ID.
+    /// Validates that the selected athletes don't exceed the coach's tier limit.
     func createSession(
         coachID: String,
         coachName: String,
-        athletes: [(athleteID: String, athleteName: String, folderID: String)]
+        athletes: [(athleteID: String, athleteName: String, folderID: String)],
+        authManager: ComprehensiveAuthManager
     ) async throws -> String {
+        // Enforce coach athlete limit before creating the session
+        let limit = authManager.coachAthleteLimit
+        if limit != Int.max {
+            let connectedCount = await SubscriptionGate.fullConnectedAthleteCount(coachID: coachID)
+            if connectedCount > limit {
+                throw CoachSessionError.athleteLimitExceeded(limit: limit)
+            }
+        }
+
         let athleteIDs = athletes.map(\.athleteID)
         let athleteNames = Dictionary(uniqueKeysWithValues: athletes.map { ($0.athleteID, $0.athleteName) })
         let folderIDs = Dictionary(uniqueKeysWithValues: athletes.map { ($0.athleteID, $0.folderID) })
@@ -91,6 +102,32 @@ class CoachSessionManager {
         }
     }
 
+    /// Ends any active session that involves the given folder (e.g., on access revocation).
+    func endSessionIfActive(forFolderID folderID: String) async {
+        guard let session = activeSession,
+              session.status.isActive,
+              let sessionID = session.id,
+              session.folderIDs.values.contains(folderID) else { return }
+        do {
+            try await endSession(sessionID: sessionID)
+        } catch {
+            ErrorHandlerService.shared.handle(error, context: "CoachSessionManager.endSessionIfActive", showAlert: false)
+        }
+    }
+
+    /// Auto-ends abandoned sessions older than 24 hours.
+    func cleanupAbandonedSessions() async {
+        let cutoff = Date().addingTimeInterval(-24 * 3600)
+        for session in sessions where session.status == .live {
+            guard let startedAt = session.startedAt, startedAt < cutoff, let sessionID = session.id else { continue }
+            do {
+                try await completeSession(sessionID: sessionID)
+            } catch {
+                ErrorHandlerService.shared.handle(error, context: "CoachSessionManager.cleanupAbandoned", showAlert: false)
+            }
+        }
+    }
+
     /// Increments the clip count for the active session.
     func incrementClipCount(sessionID: String) async {
         do {
@@ -133,6 +170,9 @@ class CoachSessionManager {
 
             // Detect if there's an active (live/reviewing) session
             activeSession = sessions.first(where: { $0.status.isActive })
+
+            // Auto-end abandoned sessions (live for > 24 hours)
+            await cleanupAbandonedSessions()
         } catch {
             ErrorHandlerService.shared.handle(error, context: "CoachSessionManager.fetchSessions", showAlert: false)
         }
@@ -201,6 +241,19 @@ class CoachSessionManager {
             await incrementClipCount(sessionID: sessionID)
         } catch {
             ErrorHandlerService.shared.handle(error, context: "CoachSessionManager.uploadClip", showAlert: false)
+        }
+    }
+}
+
+// MARK: - Errors
+
+enum CoachSessionError: LocalizedError {
+    case athleteLimitExceeded(limit: Int)
+
+    var errorDescription: String? {
+        switch self {
+        case .athleteLimitExceeded(let limit):
+            return "Your plan supports up to \(limit) athletes. Upgrade to add more."
         }
     }
 }

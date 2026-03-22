@@ -17,22 +17,21 @@ import SwiftUI
 enum SubscriptionGate {
 
     /// Whether the coach has more connected athletes than their tier allows.
-    static func isCoachOverLimit(authManager: ComprehensiveAuthManager) -> Bool {
+    /// Uses the full async count (folders + accepted invitations) for accuracy.
+    @MainActor
+    static func isCoachOverLimit(coachID: String, authManager: ComprehensiveAuthManager) async -> Bool {
         let limit = authManager.coachAthleteLimit
         guard limit != Int.max else { return false }
-        return connectedAthleteCount() > limit
+        return await fullConnectedAthleteCount(coachID: coachID) > limit
     }
 
     /// How many athlete slots remain for the current coach tier.
-    static func coachAthleteSlotsRemaining(authManager: ComprehensiveAuthManager) -> Int {
+    @MainActor
+    static func coachAthleteSlotsRemaining(coachID: String, authManager: ComprehensiveAuthManager) async -> Int {
         let limit = authManager.coachAthleteLimit
         guard limit != Int.max else { return Int.max }
-        return max(0, limit - connectedAthleteCount())
-    }
-
-    /// Number of athletes currently connected to this coach (folder-based, synchronous).
-    static func connectedAthleteCount() -> Int {
-        Set(SharedFolderManager.shared.coachFolders.map(\.ownerAthleteID)).count
+        let count = await fullConnectedAthleteCount(coachID: coachID)
+        return max(0, limit - count)
     }
 
     /// Full connected athlete count merging folder owners + accepted coach-to-athlete invitations.
@@ -44,9 +43,9 @@ enum SubscriptionGate {
             let acceptedIDs = try await FirestoreManager.shared.fetchAcceptedCoachToAthleteAthleteIDs(coachID: coachID)
             athleteIDs.formUnion(acceptedIDs)
         } catch {
-            // On network failure, return max to prevent over-inviting
+            // On network failure, use local folder count as best estimate rather than
+            // blocking all actions with Int.max (which prevents invitations on flaky networks)
             ErrorHandlerService.shared.handle(error, context: "SubscriptionGate.fullConnectedAthleteCount", showAlert: false)
-            return Int.max
         }
         return athleteIDs.count
     }
@@ -57,22 +56,16 @@ enum SubscriptionGate {
         let limit = authManager.coachAthleteLimit
         guard limit != Int.max else { return false }
         var count = await fullConnectedAthleteCount(coachID: coachID)
-        guard count != Int.max else { return true }
         if includingPending {
             do {
                 let pendingCount = try await FirestoreManager.shared.countPendingCoachToAthleteInvitations(coachID: coachID)
                 count += pendingCount
             } catch {
+                // Best-effort: if pending count fails, use connected count only
                 ErrorHandlerService.shared.handle(error, context: "SubscriptionGate.isAtAthleteLimit", showAlert: false)
-                return true // Fail closed: assume at limit on error
             }
         }
         return count >= limit
-    }
-
-    /// Whether the coach can accept a new invitation.
-    static func canAcceptInvitation(authManager: ComprehensiveAuthManager) -> Bool {
-        coachAthleteSlotsRemaining(authManager: authManager) > 0
     }
 
     /// Whether the athlete can create shared folders (requires Pro).

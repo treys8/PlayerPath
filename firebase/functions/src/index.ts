@@ -1,7 +1,7 @@
 import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
 import { Resend } from 'resend';
-import { SignedDataVerifier, Environment, AppTransaction } from '@apple/app-store-server-library';
+import { SignedDataVerifier, Environment, JWSTransactionDecodedPayload } from '@apple/app-store-server-library';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -71,6 +71,12 @@ export const sendInvitationEmail = functions.firestore
   .onCreate(async (snap, context) => {
     const invitation = snap.data();
     const invitationId = context.params.invitationId;
+
+    // Idempotency guard: skip if email was already sent (onCreate can fire more than once)
+    if (invitation.emailSent === true) {
+      console.log(`Email already sent for invitation ${invitationId}, skipping.`);
+      return;
+    }
 
     try {
       if (invitation.type === 'coach_to_athlete') {
@@ -953,6 +959,105 @@ export const acceptAthleteToCoachInvitation = functions.https.onCall(async (data
 });
 
 /**
+ * Accepts a coach-to-athlete invitation with server-side validation.
+ * The athlete calls this instead of writing directly to Firestore.
+ * Validates: caller identity, invitation state, expiration, and coach athlete limit.
+ */
+export const acceptCoachToAthleteInvitation = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Must be authenticated');
+  }
+
+  const { invitationID } = data;
+  if (!invitationID || typeof invitationID !== 'string') {
+    throw new functions.https.HttpsError('invalid-argument', 'invitationID is required');
+  }
+
+  const athleteUserID = context.auth.uid;
+  const athleteEmail = context.auth.token.email?.toLowerCase();
+  const db = admin.firestore();
+
+  // Pre-check: read coach tier and connected athlete count outside the transaction
+  // (transaction reads must happen before writes, and these are cross-collection)
+  const invSnap = await db.collection('invitations').doc(invitationID).get();
+  if (!invSnap.exists) {
+    throw new functions.https.HttpsError('not-found', 'Invitation not found');
+  }
+  const invData = invSnap.data()!;
+  const coachID = invData.coachID;
+
+  if (!coachID) {
+    throw new functions.https.HttpsError('failed-precondition', 'Invitation missing coachID');
+  }
+
+  // Check coach athlete limit
+  const coachDoc = await db.collection('users').doc(coachID).get();
+  const coachTier = coachDoc.data()?.coachSubscriptionTier || 'coach_free';
+  const limit = getCoachAthleteLimit(coachTier);
+
+  const foldersSnap = await db.collection('sharedFolders')
+    .where('sharedWithCoachIDs', 'array-contains', coachID)
+    .get();
+  const connectedAthletes = new Set(foldersSnap.docs.map(d => d.data().ownerAthleteID));
+
+  const acceptedSnap = await db.collection('invitations')
+    .where('type', '==', 'coach_to_athlete')
+    .where('coachID', '==', coachID)
+    .where('status', '==', 'accepted')
+    .get();
+  for (const doc of acceptedSnap.docs) {
+    const uid = doc.data().athleteUserID;
+    if (uid) connectedAthletes.add(uid);
+  }
+
+  // Adding this athlete would exceed the limit
+  if (!connectedAthletes.has(athleteUserID) && connectedAthletes.size >= limit) {
+    throw new functions.https.HttpsError(
+      'resource-exhausted',
+      'This coach has reached their athlete limit. The invitation cannot be accepted.'
+    );
+  }
+
+  // Transaction: validate and accept
+  return db.runTransaction(async (transaction) => {
+    const invRef = db.collection('invitations').doc(invitationID);
+    const freshSnap = await transaction.get(invRef);
+
+    if (!freshSnap.exists) {
+      throw new functions.https.HttpsError('not-found', 'Invitation not found');
+    }
+
+    const inv = freshSnap.data()!;
+
+    if (inv.type !== 'coach_to_athlete') {
+      throw new functions.https.HttpsError('failed-precondition', 'Wrong invitation type');
+    }
+
+    if (inv.status !== 'pending') {
+      throw new functions.https.HttpsError('failed-precondition', 'This invitation has already been processed.');
+    }
+
+    if (inv.expiresAt && inv.expiresAt.toDate() < new Date()) {
+      throw new functions.https.HttpsError('failed-precondition', 'This invitation has expired.');
+    }
+
+    // Validate the caller is the intended recipient
+    if (inv.athleteEmail?.toLowerCase() !== athleteEmail) {
+      throw new functions.https.HttpsError('permission-denied', 'You are not the intended recipient of this invitation.');
+    }
+
+    // Accept — athleteUserID comes from server auth, not client
+    transaction.update(invRef, {
+      status: 'accepted',
+      acceptedAt: admin.firestore.FieldValue.serverTimestamp(),
+      athleteUserID: athleteUserID,
+    });
+
+    return { success: true };
+  });
+});
+
+/**
  * HTTP endpoint to manually resend an invitation email (for debugging/support)
  */
 export const resendInvitationEmail = functions.https.onCall(async (data, context) => {
@@ -1274,17 +1379,84 @@ export const enforceStorageQuota = functions.storage
 // SUBSCRIPTION TIER SYNC (server-side receipt validation)
 // =============================================================================
 
+// Product ID → tier mapping (must match SubscriptionModels.swift)
+const ATHLETE_PRODUCT_TIERS: Record<string, string> = {
+  'com.playerpath.plus.monthly': 'plus',
+  'com.playerpath.plus.annual':  'plus',
+  'com.playerpath.pro.monthly':  'pro',
+  'com.playerpath.pro.annual':   'pro',
+};
+
+const COACH_PRODUCT_TIERS: Record<string, string> = {
+  'com.playerpath.coach.instructor.monthly':    'coach_instructor',
+  'com.playerpath.coach.instructor.annual':     'coach_instructor',
+  'com.playerpath.coach.proinstructor.monthly':  'coach_pro_instructor',
+  'com.playerpath.coach.proinstructor.annual':   'coach_pro_instructor',
+};
+
+// Tier rank for comparison (higher = better)
+const ATHLETE_TIER_RANK: Record<string, number> = { free: 0, plus: 1, pro: 2 };
+const COACH_TIER_RANK: Record<string, number> = {
+  coach_free: 0, coach_instructor: 1, coach_pro_instructor: 2, coach_academy: 3,
+};
+
 /**
- * Syncs a user's subscription tier to Firestore after validating the
- * App Store receipt server-side. This prevents clients from writing
- * arbitrary tier values directly to Firestore.
+ * Verifies an array of StoreKit 2 Transaction JWS tokens and derives the
+ * highest active athlete and coach subscription tiers from the product IDs.
+ * Only non-expired, non-revoked transactions are considered.
+ */
+async function resolveTransactionTiers(
+  transactionTokens: string[],
+  verifier: SignedDataVerifier,
+): Promise<{ athleteTier: string; coachTier: string }> {
+  let athleteTier = 'free';
+  let coachTier = 'coach_free';
+  const now = Date.now();
+
+  for (const token of transactionTokens) {
+    let tx: JWSTransactionDecodedPayload;
+    try {
+      tx = await verifier.verifyAndDecodeTransaction(token);
+    } catch (e) {
+      console.warn('⚠️ Skipping unverifiable transaction token:', e);
+      continue;
+    }
+
+    // Skip revoked transactions
+    if (tx.revocationDate) continue;
+
+    // Skip expired transactions
+    if (tx.expiresDate && tx.expiresDate < now) continue;
+
+    const productId = tx.productId ?? '';
+
+    // Check athlete products
+    const aTier = ATHLETE_PRODUCT_TIERS[productId];
+    if (aTier && (ATHLETE_TIER_RANK[aTier] ?? 0) > (ATHLETE_TIER_RANK[athleteTier] ?? 0)) {
+      athleteTier = aTier;
+    }
+
+    // Check coach products
+    const cTier = COACH_PRODUCT_TIERS[productId];
+    if (cTier && (COACH_TIER_RANK[cTier] ?? 0) > (COACH_TIER_RANK[coachTier] ?? 0)) {
+      coachTier = cTier;
+    }
+  }
+
+  return { athleteTier, coachTier };
+}
+
+/**
+ * Syncs a user's subscription tier to Firestore after validating
+ * StoreKit 2 Transaction JWS tokens server-side. The server derives the
+ * tier from verified product IDs — it does NOT trust client-provided strings.
  *
  * The client sends:
- *   - receiptData: base64-encoded App Store receipt
- *   - tier: the athlete subscription tier resolved by StoreKit (e.g. "free", "plus", "pro")
- *   - coachTier: the coach subscription tier resolved by StoreKit (e.g. "free", "coach_plus", etc.)
- *   - hasAthleteTierOverride: if true and tier is "free", skip writing subscriptionTier
- *     so that a manually-granted (comped) tier in Firestore is preserved.
+ *   - receiptData: base64-encoded AppTransaction JWS (app-level authenticity proof)
+ *   - transactionTokens: array of JWS strings from Transaction.currentEntitlements
+ *   - hasAthleteTierOverride: if true and resolved tier is "free", preserve Firestore comp
+ *
+ * Legacy clients that omit transactionTokens will be rejected.
  */
 export const syncSubscriptionTier = functions.https.onCall(async (data, context) => {
   if (!context.auth) {
@@ -1292,28 +1464,29 @@ export const syncSubscriptionTier = functions.https.onCall(async (data, context)
   }
 
   const uid = context.auth.uid;
-  const { receiptData, tier, coachTier, hasAthleteTierOverride } = data;
-
-  // Validate inputs
-  const validAthleteTiers = ['free', 'plus', 'pro'];
-  if (!tier || !validAthleteTiers.includes(tier)) {
-    throw new functions.https.HttpsError('invalid-argument', 'Invalid subscription tier');
-  }
-
-  if (!coachTier || typeof coachTier !== 'string') {
-    throw new functions.https.HttpsError('invalid-argument', 'Invalid coach subscription tier');
-  }
+  const { receiptData, transactionTokens, hasAthleteTierOverride } = data;
 
   if (!receiptData || typeof receiptData !== 'string') {
     throw new functions.https.HttpsError('invalid-argument', 'Receipt data is required');
   }
 
-  // --- StoreKit 2 JWS Token Verification ---
-  // The client sends AppTransaction.shared.jwsRepresentation (a signed JWT from Apple).
-  // We verify the signature chain against Apple's root certificates to ensure it's genuine.
-  let appTransaction: AppTransaction;
+  if (!Array.isArray(transactionTokens)) {
+    throw new functions.https.HttpsError(
+      'invalid-argument',
+      'transactionTokens array is required. Please update your app.'
+    );
+  }
+
+  // Create verifier once and reuse for both AppTransaction and Transaction tokens
+  const verifier = createVerifier();
+
+  // --- Step 1: Verify AppTransaction (proves the app binary is legitimate) ---
   try {
-    appTransaction = await verifyAppTransaction(receiptData);
+    const appTransaction = await verifier.verifyAndDecodeAppTransaction(receiptData);
+    if (!appTransaction.bundleId || appTransaction.bundleId !== APP_BUNDLE_ID) {
+      throw new Error(`Bundle ID mismatch: expected ${APP_BUNDLE_ID}, got ${appTransaction.bundleId ?? 'undefined'}`);
+    }
+    console.log(`✅ Verified AppTransaction: bundleId=${appTransaction.bundleId}`);
   } catch (error) {
     console.error('❌ App Store verification failed:', error);
     throw new functions.https.HttpsError(
@@ -1326,31 +1499,40 @@ export const syncSubscriptionTier = functions.https.onCall(async (data, context)
     );
   }
 
-  console.log(`✅ Verified AppTransaction: bundleId=${appTransaction.bundleId}`);
+  // --- Step 2: Verify individual Transaction tokens and derive tiers ---
+  const { athleteTier, coachTier } = await resolveTransactionTiers(transactionTokens, verifier);
 
-  // Build the Firestore update
+  console.log(`🔍 Server-derived tiers: athlete=${athleteTier}, coach=${coachTier}`);
+
+  // --- Step 3: Build the Firestore update, respecting overrides ---
   const updateData: Record<string, any> = {
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
   };
 
-  // Only write subscriptionTier when StoreKit resolves a paid tier.
-  // If StoreKit resolves "free" and there is an athlete tier override,
-  // leave Firestore alone so a manually-granted (comped) tier is preserved.
-  if (tier !== 'free' || !hasAthleteTierOverride) {
-    updateData.subscriptionTier = tier;
+  // Preserve manually-granted (comped) athlete tier when server resolves "free"
+  if (athleteTier !== 'free' || !hasAthleteTierOverride) {
+    updateData.subscriptionTier = athleteTier;
   }
 
-  // Only write coachSubscriptionTier when StoreKit resolves a paid coach tier.
-  // If StoreKit resolves "coach_free", leave Firestore alone — it may hold a
-  // manually-granted tier like "coach_academy".
+  // Preserve manually-granted coach tier (e.g. "coach_academy") when server
+  // resolves a lower or free tier. Always keep the HIGHER of the two values.
   if (coachTier !== 'coach_free') {
-    updateData.coachSubscriptionTier = coachTier;
+    // Read current Firestore value to avoid overwriting a higher manual grant
+    const userDoc = await admin.firestore().collection('users').doc(uid).get();
+    const currentCoachTier = userDoc.data()?.coachSubscriptionTier ?? 'coach_free';
+    const currentRank = COACH_TIER_RANK[currentCoachTier] ?? 0;
+    const newRank = COACH_TIER_RANK[coachTier] ?? 0;
+    if (newRank >= currentRank) {
+      updateData.coachSubscriptionTier = coachTier;
+    }
+    // else: keep the existing higher tier (e.g. Academy)
   }
+  // When coachTier resolves to "coach_free", don't write — preserves any manual grant
 
   try {
     await admin.firestore().collection('users').doc(uid).set(updateData, { merge: true });
-    console.log(`✅ Synced tiers: athlete=${tier}, coach=${coachTier}`);
-    return { success: true };
+    console.log(`✅ Synced tiers for ${uid}: athlete=${athleteTier}, coach=${coachTier}`);
+    return { success: true, athleteTier, coachTier };
   } catch (error) {
     console.error('❌ Failed to sync tiers:', error);
     throw new functions.https.HttpsError('internal', 'Failed to update subscription tier');
@@ -1513,6 +1695,7 @@ export const enforceCoachAthleteLimitOnAccept = functions.firestore
     const db = admin.firestore();
 
     try {
+      // Perform all reads first, then use a transaction for writes
       const coachDoc = await db.collection('users').doc(coachID).get();
       const coachTier = coachDoc.data()?.coachSubscriptionTier || 'coach_free';
       const limit = getCoachAthleteLimit(coachTier);
@@ -1533,24 +1716,42 @@ export const enforceCoachAthleteLimitOnAccept = functions.firestore
         if (athleteUID) connectedAthletes.add(athleteUID);
       }
 
-      if (connectedAthletes.size >= limit) {
+      if (connectedAthletes.size > limit) {
         console.warn(
           `⚠️ Coach athlete limit exceeded on accept: ${connectedAthletes.size}/${limit} (tier=${coachTier}). Reverting invitation ${invitationID}.`
         );
 
-        // Revert the invitation status
-        await change.after.ref.update({
-          status: 'rejected_limit',
-          rejectedReason: 'Coach athlete limit reached'
-        });
-
-        // For athlete-to-coach invitations, also remove the coach from the shared folder
-        // since the Firestore transaction already added them
-        if (after.type === 'athlete_to_coach' && after.folderID) {
-          await db.collection('sharedFolders').doc(after.folderID).update({
-            sharedWithCoachIDs: admin.firestore.FieldValue.arrayRemove([coachID])
-          });
+        // Pre-fetch any athlete folders before entering the transaction (for coach-to-athlete path)
+        let athleteFolderRefs: FirebaseFirestore.DocumentReference[] = [];
+        if (after.type === 'coach_to_athlete' && after.athleteUserID) {
+          const athleteFolders = await db.collection('sharedFolders')
+            .where('ownerAthleteID', '==', after.athleteUserID)
+            .where('sharedWithCoachIDs', 'array-contains', coachID)
+            .get();
+          athleteFolderRefs = athleteFolders.docs.map(d => d.ref);
         }
+
+        // Transaction: all writes are atomic
+        await db.runTransaction(async (transaction) => {
+          // Revert the invitation status
+          transaction.update(change.after.ref, {
+            status: 'rejected_limit',
+            rejectedReason: 'Coach athlete limit reached'
+          });
+
+          // Clean up shared folders that were created during acceptance
+          if (after.type === 'athlete_to_coach' && after.folderID) {
+            transaction.update(db.collection('sharedFolders').doc(after.folderID), {
+              sharedWithCoachIDs: admin.firestore.FieldValue.arrayRemove(coachID)
+            });
+          } else if (athleteFolderRefs.length > 0) {
+            for (const folderRef of athleteFolderRefs) {
+              transaction.update(folderRef, {
+                sharedWithCoachIDs: admin.firestore.FieldValue.arrayRemove(coachID)
+              });
+            }
+          }
+        });
       }
     } catch (error) {
       console.error(`❌ enforceCoachAthleteLimitOnAccept failed for invitation ${invitationID}:`, error);
@@ -1601,20 +1802,6 @@ function createVerifier(): SignedDataVerifier {
   return new SignedDataVerifier(rootCAs, true, environment, APP_BUNDLE_ID, APP_APPLE_ID);
 }
 
-/**
- * Verifies and decodes a StoreKit 2 AppTransaction JWS token.
- * Returns the decoded AppTransaction if valid, null if invalid.
- */
-async function verifyAppTransaction(jwsToken: string): Promise<AppTransaction> {
-  // createVerifier() throws if APP_APPLE_ID is missing in production — let it propagate
-  const verifier = createVerifier();
-  const decoded = await verifier.verifyAndDecodeAppTransaction(jwsToken);
-  // Verify bundle ID matches (bundleId is optional in the type but always present in practice)
-  if (!decoded.bundleId || decoded.bundleId !== APP_BUNDLE_ID) {
-    throw new Error(`Bundle ID mismatch: expected ${APP_BUNDLE_ID}, got ${decoded.bundleId ?? 'undefined'}`);
-  }
-  return decoded;
-}
 
 /**
  * Scheduled cleanup function that runs daily to:

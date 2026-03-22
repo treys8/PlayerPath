@@ -26,6 +26,9 @@ struct MainTabView: View {
     @ObservedObject private var onboardingManager = OnboardingManager.shared
     @State private var hasRunInitialSetup = false
 
+    // Global paywall triggered by notification from any tab
+    @State private var showingPaywall = false
+
     // Swipe gesture tracking
     @GestureState private var dragOffset: CGFloat = 0
     @State private var tabTransition: AnyTransition = .identity
@@ -146,8 +149,8 @@ struct MainTabView: View {
                 }
             }
             .onChange(of: selectedAthlete.id) { _, _ in
-                // Only rebuild the currently visible tab — inactive tabs defer until selected
-                refreshStaleTab(selectedTab)
+                // Update ALL tabs immediately to prevent stale data on tab switch
+                refreshAllTabAthleteIDs()
             }
             .onChange(of: selectedTab) { _, newValue in
                 saveSelectedTab(newValue)
@@ -200,6 +203,12 @@ struct MainTabView: View {
                 }
             }
             .addKeyboardShortcuts()
+            .sheet(isPresented: $showingPaywall) {
+                ImprovedPaywallView(user: user)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .showSubscriptionPaywall)) { _ in
+                showingPaywall = true
+            }
     }
     
     // MARK: - NotificationCenter Management
@@ -292,7 +301,7 @@ struct MainTabView: View {
     
     @ViewBuilder
     private var tabViewContent: some View {
-        if horizontalSizeClass == .regular {
+        if #available(iOS 18.0, *), horizontalSizeClass == .regular {
             TabView(selection: $selectedTab) {
                 homeTab
                 gamesTab
@@ -520,6 +529,14 @@ struct MainTabView: View {
 
     /// Updates the athlete ID for a given tab only if it's stale.
     /// This triggers .id() to change, rebuilding that tab's content.
+    private func refreshAllTabAthleteIDs() {
+        let id = selectedAthlete.id
+        homeAthleteID = id
+        gamesAthleteID = id
+        videosAthleteID = id
+        statsAthleteID = id
+    }
+
     private func refreshStaleTab(_ tab: Int) {
         let id = selectedAthlete.id
         switch tab {
