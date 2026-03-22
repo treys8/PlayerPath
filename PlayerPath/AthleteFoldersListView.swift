@@ -281,8 +281,22 @@ private struct AthleteFolderDetailContent: View {
         }
     }
 
+    enum AthleteVideoTab: String, CaseIterable {
+        case games = "Games"
+        case instruction = "Instruction"
+        case all = "All Videos"
+
+        var icon: String {
+            switch self {
+            case .games: return "figure.baseball"
+            case .instruction: return "figure.run"
+            case .all: return "video"
+            }
+        }
+    }
+
     @State private var activeSheet: SheetType?
-    @State private var selectedTab: CoachFolderDetailView.FolderTab = .all
+    @State private var selectedTab: AthleteVideoTab = .all
 
     init(folder: SharedFolder, athleteID: String) {
         self.folder = folder
@@ -295,10 +309,9 @@ private struct AthleteFolderDetailContent: View {
             // Header with folder info
             folderHeader
 
-            // Tab picker for Games / Practices / All
+            // Tab picker for Games / Instruction / All
             Picker("View", selection: $selectedTab) {
-                // Athletes don't see the "My Recordings" tab (coach-only)
-                ForEach(CoachFolderDetailView.FolderTab.allCases.filter { $0 != .myRecordings }, id: \.self) { tab in
+                ForEach(AthleteVideoTab.allCases, id: \.self) { tab in
                     Label(tab.rawValue, systemImage: tab.icon)
                         .tag(tab)
                 }
@@ -321,8 +334,6 @@ private struct AthleteFolderDetailContent: View {
                     AllVideosTabView(folder: folder, videos: viewModel.videos) {
                         await viewModel.loadVideos()
                     }
-                case .myRecordings:
-                    EmptyView() // Coach-only tab, not shown for athletes
                 }
             }
         }
@@ -360,7 +371,7 @@ private struct AthleteFolderDetailContent: View {
             case .manageCoaches:
                 ManageCoachesView(folder: folder)
             case .uploadVideo:
-                CoachVideoUploadView(folder: folder, selectedTab: selectedTab)
+                CoachVideoUploadView(folder: folder, defaultContext: selectedTab == .games ? .game : .instruction)
             }
         }
         .task {

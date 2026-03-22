@@ -17,7 +17,7 @@ struct CoachFolderDetailView: View {
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @Environment(\.dismiss) private var dismiss
     @StateObject private var viewModel: CoachFolderViewModel
-    @State private var selectedTab: FolderTab = .games
+    @State private var selectedTab: FolderTab = .fromAthlete
     @State private var showingUploadSheet = false
     @State private var verifiedFolder: SharedFolder?
     @State private var permissionError: String?
@@ -41,16 +41,14 @@ struct CoachFolderDetailView: View {
     }
     
     enum FolderTab: String, CaseIterable {
-        case games = "Games"
-        case instruction = "Instruction"
-        case all = "All Videos"
+        case fromAthlete = "From Athlete"
+        case fromMe = "From Me"
         case myRecordings = "My Recordings"
 
         var icon: String {
             switch self {
-            case .games: return "figure.baseball"
-            case .instruction: return "figure.run"
-            case .all: return "video"
+            case .fromAthlete: return "figure.baseball"
+            case .fromMe: return "arrow.up.circle"
             case .myRecordings: return "video.badge.plus"
             }
         }
@@ -85,16 +83,12 @@ struct CoachFolderDetailView: View {
             // Content based on selected tab
             Group {
                 switch selectedTab {
-                case .games:
-                    GamesTabView(folder: folder, videos: filterByTag(viewModel.cachedGameVideos), isLoading: viewModel.isLoading, errorMessage: viewModel.errorMessage) {
+                case .fromAthlete:
+                    AllVideosTabView(folder: folder, videos: filterByTag(viewModel.cachedFromAthleteVideos), isLoading: viewModel.isLoading, errorMessage: viewModel.errorMessage, onRefresh: {
                         await viewModel.loadVideos()
-                    }
-                case .instruction:
-                    InstructionTabView(folder: folder, videos: filterByTag(viewModel.cachedInstructionVideos), isLoading: viewModel.isLoading, errorMessage: viewModel.errorMessage) {
-                        await viewModel.loadVideos()
-                    }
-                case .all:
-                    AllVideosTabView(folder: folder, videos: filterByTag(viewModel.videos), isLoading: viewModel.isLoading, errorMessage: viewModel.errorMessage, onRefresh: {
+                    }, onEditTags: nil)
+                case .fromMe:
+                    AllVideosTabView(folder: folder, videos: filterByTag(viewModel.cachedFromMeVideos), isLoading: viewModel.isLoading, errorMessage: viewModel.errorMessage, onRefresh: {
                         await viewModel.loadVideos()
                     }, onEditTags: { video in
                         editingVideoTags = video
@@ -167,7 +161,7 @@ struct CoachFolderDetailView: View {
         }
         .sheet(isPresented: $showingUploadSheet) {
             if let verified = verifiedFolder {
-                CoachVideoUploadView(folder: verified, selectedTab: selectedTab)
+                CoachVideoUploadView(folder: verified)
             }
         }
         .sheet(isPresented: $showingTagEditor) {
@@ -302,9 +296,8 @@ struct CoachFolderDetailView: View {
     private var availableTags: [String] {
         let visibleVideos: [CoachVideoItem]
         switch selectedTab {
-        case .games: visibleVideos = viewModel.cachedGameVideos
-        case .instruction: visibleVideos = viewModel.cachedInstructionVideos
-        case .all: visibleVideos = viewModel.videos
+        case .fromAthlete: visibleVideos = viewModel.cachedFromAthleteVideos
+        case .fromMe: visibleVideos = viewModel.cachedFromMeVideos
         case .myRecordings: visibleVideos = []
         }
         return Array(Set(visibleVideos.flatMap(\.tags))).sorted()
@@ -796,12 +789,26 @@ class CoachFolderViewModel: ObservableObject {
     }
     
     /// Cached filtered arrays — updated whenever `videos` changes
+    // Coach tabs
+    @Published var cachedFromAthleteVideos: [CoachVideoItem] = []
+    @Published var cachedFromMeVideos: [CoachVideoItem] = []
+    // Athlete tabs (used by AthleteFoldersListView)
     @Published var cachedGameVideos: [CoachVideoItem] = []
     @Published var cachedInstructionVideos: [CoachVideoItem] = []
 
+    private var currentUserID: String? { Auth.auth().currentUser?.uid }
+
     private func updateFilteredVideos() {
-        cachedGameVideos = videos.filter { $0.videoType == "game" || $0.gameOpponent != nil }
-        cachedInstructionVideos = videos.filter { $0.videoType == "instruction" || $0.videoType == "practice" || ($0.practiceDate != nil && $0.gameOpponent == nil) }
+        let myUID = currentUserID ?? ""
+        let sharedVideos = videos.filter { $0.visibility != "private" }
+
+        // Coach: From Athlete / From Me
+        cachedFromAthleteVideos = sharedVideos.filter { $0.uploadedBy != myUID }
+        cachedFromMeVideos = sharedVideos.filter { $0.uploadedBy == myUID }
+
+        // Athlete: Games / Instruction
+        cachedGameVideos = sharedVideos.filter { $0.videoType == "game" || $0.gameOpponent != nil }
+        cachedInstructionVideos = sharedVideos.filter { $0.videoType == "instruction" || $0.videoType == "practice" || ($0.practiceDate != nil && $0.gameOpponent == nil) }
     }
     
     func loadVideos() async {

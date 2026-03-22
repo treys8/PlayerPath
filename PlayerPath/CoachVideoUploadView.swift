@@ -14,18 +14,16 @@ import AVFoundation
 
 struct CoachVideoUploadView: View {
     let folder: SharedFolder
-    let selectedTab: CoachFolderDetailView.FolderTab
-    
+
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @StateObject private var viewModel: CoachVideoUploadViewModel
     @FocusState private var focusedField: UploadField?
     enum UploadField: Hashable { case opponent, notes }
 
-    init(folder: SharedFolder, selectedTab: CoachFolderDetailView.FolderTab) {
+    init(folder: SharedFolder, defaultContext: VideoContext = .instruction) {
         self.folder = folder
-        self.selectedTab = selectedTab
-        _viewModel = StateObject(wrappedValue: CoachVideoUploadViewModel(folder: folder, selectedTab: selectedTab))
+        _viewModel = StateObject(wrappedValue: CoachVideoUploadViewModel(folder: folder, defaultContext: defaultContext))
     }
     
     var body: some View {
@@ -247,9 +245,9 @@ class CoachVideoUploadViewModel: ObservableObject {
     
     private var pickerTempURL: URL?
 
-    init(folder: SharedFolder, selectedTab: CoachFolderDetailView.FolderTab) {
+    init(folder: SharedFolder, defaultContext: VideoContext = .instruction) {
         self.folder = folder
-        self.videoContext = selectedTab == .games ? .game : .instruction
+        self.videoContext = defaultContext
     }
 
     var canUpload: Bool {
@@ -497,7 +495,7 @@ struct VideoPickerTransferable: Transferable {
             updatedAt: Date(),
             videoCount: 0
         ),
-        selectedTab: .instruction
+        defaultContext: .instruction
     )
     .environmentObject(ComprehensiveAuthManager())
 }
