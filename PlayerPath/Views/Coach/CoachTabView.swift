@@ -11,12 +11,18 @@ import SwiftUI
 struct CoachTabView: View {
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
     private var sharedFolderManager: SharedFolderManager { .shared }
+    private var downgradeManager: CoachDowngradeManager { .shared }
     @State private var coordinator = CoachNavigationCoordinator()
     private var invitationManager: CoachInvitationManager { .shared }
     @ObservedObject private var activityNotifService = ActivityNotificationService.shared
     @StateObject private var notificationManager = NotificationObserverManager()
     @State private var hasRunInitialSetup = false
+    @State private var showDowngradeSelection = false
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+    private var athletesTabBadge: Int {
+        activityNotifService.unreadFolderVideoCount + invitationManager.pendingInvitationsCount
+    }
 
     var body: some View {
         tabViewContent
@@ -31,6 +37,7 @@ struct CoachTabView: View {
             // Configure archive manager
             if let coachID = authManager.userID {
                 CoachFolderArchiveManager.shared.configure(coachUID: coachID)
+                await downgradeManager.evaluate(coachID: coachID, coachTier: authManager.currentCoachTier)
             }
 
             AnalyticsService.shared.trackScreenView(
@@ -47,6 +54,25 @@ struct CoachTabView: View {
         }
         .onChange(of: sharedFolderManager.coachFolders) { _, folders in
             coordinator.resolvePendingNavigation(folders: folders)
+            // Re-evaluate downgrade state when folders change
+            if let coachID = authManager.userID {
+                Task { await downgradeManager.evaluate(coachID: coachID, coachTier: authManager.currentCoachTier) }
+            }
+        }
+        .onChange(of: authManager.currentCoachTier) { _, _ in
+            // Re-evaluate when coach tier changes (upgrade or downgrade)
+            if let coachID = authManager.userID {
+                Task { await downgradeManager.evaluate(coachID: coachID, coachTier: authManager.currentCoachTier) }
+            }
+        }
+        .fullScreenCover(isPresented: $showDowngradeSelection) {
+            if let coachID = authManager.userID {
+                CoachDowngradeSelectionView(coachID: coachID)
+                    .environmentObject(authManager)
+            }
+        }
+        .onChange(of: downgradeManager.state) { _, newState in
+            showDowngradeSelection = newState == .selectionRequired
         }
         .environment(coordinator)
         .addKeyboardShortcuts()
@@ -56,25 +82,43 @@ struct CoachTabView: View {
 
     @ViewBuilder
     private var tabViewContent: some View {
-        if #available(iOS 18.0, *), horizontalSizeClass == .regular {
-            TabView(selection: Binding(
-                get: { coordinator.selectedTab.rawValue },
-                set: { if let tab = CoachTab(rawValue: $0) { coordinator.selectedTab = tab } }
-            )) {
-                dashboardTab
-                athletesTab
-                profileTab
+        VStack(spacing: 0) {
+            downgradeGraceBanner
+            if #available(iOS 18.0, *), horizontalSizeClass == .regular {
+                TabView(selection: Binding(
+                    get: { coordinator.selectedTab.rawValue },
+                    set: { if let tab = CoachTab(rawValue: $0) { coordinator.selectedTab = tab } }
+                )) {
+                    dashboardTab
+                    athletesTab
+                    profileTab
+                }
+                .tabViewStyle(.sidebarAdaptable)
+            } else {
+                TabView(selection: Binding(
+                    get: { coordinator.selectedTab.rawValue },
+                    set: { if let tab = CoachTab(rawValue: $0) { coordinator.selectedTab = tab } }
+                )) {
+                    dashboardTab
+                    athletesTab
+                    profileTab
+                }
             }
-            .tabViewStyle(.sidebarAdaptable)
-        } else {
-            TabView(selection: Binding(
-                get: { coordinator.selectedTab.rawValue },
-                set: { if let tab = CoachTab(rawValue: $0) { coordinator.selectedTab = tab } }
-            )) {
-                dashboardTab
-                athletesTab
-                profileTab
-            }
+        }
+    }
+
+    // MARK: - Downgrade Grace Banner
+
+    @ViewBuilder
+    private var downgradeGraceBanner: some View {
+        if case .gracePeriod(let daysRemaining) = downgradeManager.state {
+            CoachDowngradeGraceBanner(
+                daysRemaining: daysRemaining,
+                connectedCount: downgradeManager.connectedCount,
+                limit: downgradeManager.currentLimit
+            )
+            .padding(.top, 4)
+            .transition(.move(edge: .top).combined(with: .opacity))
         }
     }
 
@@ -104,7 +148,7 @@ struct CoachTabView: View {
             Label(CoachTab.athletes.title, systemImage: CoachTab.athletes.icon)
         }
         .tag(CoachTab.athletes.rawValue)
-        .badge(invitationManager.pendingInvitationsCount > 0 ? invitationManager.pendingInvitationsCount : 0)
+        .badge(athletesTabBadge)
         .accessibilityLabel("Athletes tab")
         .accessibilityHint("View and manage connected athletes")
     }

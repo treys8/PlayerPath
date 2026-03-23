@@ -65,7 +65,6 @@ struct PrivacyPolicyView: View {
                     • Video files are stored locally on your device in the app's secure container
                     • Video files are uploaded to Firebase Storage (Google Cloud) for cloud backup and cross-device access
                     • Account data and metadata are stored using Firebase Authentication and Firestore
-                    • iCloud sync may be used for local data backup via CloudKit
                     • All data transmission uses industry-standard encryption (HTTPS/TLS)
                     • We implement appropriate security measures to protect against unauthorized access
                     """
@@ -80,7 +79,6 @@ struct PrivacyPolicyView: View {
                     • Firebase Firestore (Google): Cloud database for syncing app data
                     • Firebase Storage (Google): Cloud storage for videos shared with coaches
                     • Firebase Analytics (Google): Anonymous usage analytics to improve the app
-                    • Apple CloudKit: iCloud-based local data backup
                     • Apple Sign In: Optional authentication method
                     • Apple StoreKit: Subscription and in-app purchase processing
 

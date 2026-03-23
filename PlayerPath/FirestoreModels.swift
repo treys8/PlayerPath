@@ -175,8 +175,8 @@ struct VideoAnnotation: Codable, Identifiable {
 /// Coach invitation model
 struct CoachInvitation: Codable, Identifiable {
     var id: String?
-    var folderID: String
-    var folderName: String
+    var folderID: String?
+    var folderName: String?
     var athleteID: String
     var athleteName: String
     var coachEmail: String

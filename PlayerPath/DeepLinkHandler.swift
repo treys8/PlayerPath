@@ -27,8 +27,6 @@ struct InvitationDetailView: View {
     @State private var isLoading = true
     @State private var errorMessage: String?
     @State private var isAccepting = false
-    @State private var showingUpgradePrompt = false
-    @State private var acceptedCoachName: String?
 
     var body: some View {
         NavigationStack {
@@ -53,17 +51,6 @@ struct InvitationDetailView: View {
                 }
             }
             .task { await loadInvitation() }
-            .alert("Upgrade to Share Videos", isPresented: $showingUpgradePrompt) {
-                Button("View Plans") {
-                    dismiss()
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                        NotificationCenter.default.post(name: .showSubscriptionPaywall, object: nil)
-                    }
-                }
-                Button("Later", role: .cancel) { }
-            } message: {
-                Text("You're now connected with \(acceptedCoachName ?? "your coach")! Upgrade to Pro to create shared folders and share videos with them.")
-            }
         }
     }
 
@@ -84,19 +71,21 @@ struct InvitationDetailView: View {
                 }
                 .padding(.top)
 
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Folder")
-                        .font(.caption).foregroundColor(.secondary).textCase(.uppercase)
-                    HStack {
-                        Image(systemName: "folder.fill").foregroundColor(.brandNavy)
-                        Text(invitation.folderName).font(.headline)
+                if let folderName = invitation.folderName {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Folder")
+                            .font(.caption).foregroundColor(.secondary).textCase(.uppercase)
+                        HStack {
+                            Image(systemName: "folder.fill").foregroundColor(.brandNavy)
+                            Text(folderName).font(.headline)
+                        }
+                        .padding()
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color(.systemGray6))
+                        .cornerRadius(12)
                     }
-                    .padding()
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color(.systemGray6))
-                    .cornerRadius(12)
+                    .padding(.horizontal)
                 }
-                .padding(.horizontal)
 
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Your Permissions")
@@ -311,21 +300,14 @@ struct InvitationDetailView: View {
         }
 
         do {
-            let result = try await AthleteInvitationManager.shared.acceptInvitation(
+            let _ = try await AthleteInvitationManager.shared.acceptInvitation(
                 invitation,
                 userID: currentUID,
-                modelContext: modelContext,
-                authManager: authManager
+                modelContext: modelContext
             )
             Haptics.success()
-
-            if case .acceptedWithoutFolder(let coachName) = result {
-                acceptedCoachName = coachName
-                showingUpgradePrompt = true
-            } else {
-                try? await Task.sleep(for: .milliseconds(500))
-                dismiss()
-            }
+            try? await Task.sleep(for: .milliseconds(500))
+            dismiss()
         } catch {
             handleInvitationError(error, sender: "your coach")
         }

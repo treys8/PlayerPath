@@ -380,10 +380,12 @@ struct HighlightsView: View {
                         } label: {
                             Label("Share", systemImage: "square.and.arrow.up")
                         }
-                        Button {
-                            clipToShareToFolder = clip
-                        } label: {
-                            Label("Share to Coach Folder", systemImage: hasCoachingAccess ? "folder.badge.person.fill" : "lock.fill")
+                        if AppFeatureFlags.isCoachEnabled {
+                            Button {
+                                clipToShareToFolder = clip
+                            } label: {
+                                Label("Share to Coach Folder", systemImage: hasCoachingAccess ? "folder.badge.person.fill" : "lock.fill")
+                            }
                         }
                         Divider()
                         Button {

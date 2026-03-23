@@ -279,43 +279,45 @@ struct ProfileView: View {
             )
         ))
 
-        if authManager.hasCoachingAccess {
-            items.append(SearchResult(
-                title: "Shared Folders",
-                icon: "folder.badge.person.crop",
-                keywords: ["shared", "folders", "coach", "sharing"],
-                link: AnyView(
-                    NavigationLink {
-                        AthleteFoldersListView(userID: authManager.userID)
-                    } label: {
-                        Label("Shared Folders", systemImage: "folder.badge.person.crop")
-                    }
-                )
-            ))
-        } else {
-            items.append(SearchResult(
-                title: "Shared Folders",
-                icon: "folder.badge.person.crop",
-                keywords: ["shared", "folders", "coach", "sharing"],
-                link: AnyView(
-                    Button {
-                        showingPaywall = true
-                    } label: {
-                        HStack {
+        if AppFeatureFlags.isCoachEnabled {
+            if authManager.hasCoachingAccess {
+                items.append(SearchResult(
+                    title: "Shared Folders",
+                    icon: "folder.badge.person.crop",
+                    keywords: ["shared", "folders", "coach", "sharing"],
+                    link: AnyView(
+                        NavigationLink {
+                            AthleteFoldersListView(userID: authManager.userID)
+                        } label: {
                             Label("Shared Folders", systemImage: "folder.badge.person.crop")
-                            Spacer()
-                            HStack(spacing: 4) {
-                                Image(systemName: "crown.fill")
-                                    .font(.caption)
-                                Text("Pro")
-                                    .font(.caption)
-                            }
-                            .foregroundColor(.brandNavy)
                         }
-                    }
-                    .foregroundColor(.primary)
-                )
-            ))
+                    )
+                ))
+            } else {
+                items.append(SearchResult(
+                    title: "Shared Folders",
+                    icon: "folder.badge.person.crop",
+                    keywords: ["shared", "folders", "coach", "sharing"],
+                    link: AnyView(
+                        Button {
+                            showingPaywall = true
+                        } label: {
+                            HStack {
+                                Label("Shared Folders", systemImage: "folder.badge.person.crop")
+                                Spacer()
+                                HStack(spacing: 4) {
+                                    Image(systemName: "crown.fill")
+                                        .font(.caption)
+                                    Text("Pro")
+                                        .font(.caption)
+                                }
+                                .foregroundColor(.brandNavy)
+                            }
+                        }
+                        .foregroundColor(.primary)
+                    )
+                ))
+            }
         }
 
         items.append(SearchResult(
@@ -453,7 +455,9 @@ struct ProfileView: View {
                     Image(systemName: "crown.fill")
                         .foregroundColor(.yellow)
                         .font(.caption)
-                    Text("Upgrade to Pro for up to 5 athletes")
+                    Text(AppFeatureFlags.isCoachEnabled
+                        ? "Upgrade to Pro for up to 5 athletes"
+                        : "Upgrade to Plus for up to \(SubscriptionTier.plus.athleteLimit) athletes")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
@@ -469,31 +473,33 @@ struct ProfileView: View {
 
     private var settingsSection: some View {
         Section("Settings") {
-            // Coach Sharing Feature (requires Pro tier)
-            if authManager.hasCoachingAccess {
-                NavigationLink {
-                    AthleteFoldersListView(userID: authManager.userID)
-                } label: {
-                    Label("Shared Folders", systemImage: "folder.badge.person.crop")
-                }
-            } else {
-                Button {
-                    Haptics.warning()
-                    showingPaywall = true
-                } label: {
-                    HStack {
+            // Coach Sharing Feature (requires Pro tier + coach features enabled)
+            if AppFeatureFlags.isCoachEnabled {
+                if authManager.hasCoachingAccess {
+                    NavigationLink {
+                        AthleteFoldersListView(userID: authManager.userID)
+                    } label: {
                         Label("Shared Folders", systemImage: "folder.badge.person.crop")
-                        Spacer()
-                        HStack(spacing: 4) {
-                            Image(systemName: "crown.fill")
-                                .font(.caption)
-                            Text("Pro")
-                                .font(.caption)
-                        }
-                        .foregroundColor(.brandNavy)
                     }
+                } else {
+                    Button {
+                        Haptics.warning()
+                        showingPaywall = true
+                    } label: {
+                        HStack {
+                            Label("Shared Folders", systemImage: "folder.badge.person.crop")
+                            Spacer()
+                            HStack(spacing: 4) {
+                                Image(systemName: "crown.fill")
+                                    .font(.caption)
+                                Text("Pro")
+                                    .font(.caption)
+                            }
+                            .foregroundColor(.brandNavy)
+                        }
+                    }
+                    .foregroundColor(.primary)
                 }
-                .foregroundColor(.primary)
             }
 
             NavigationLink {

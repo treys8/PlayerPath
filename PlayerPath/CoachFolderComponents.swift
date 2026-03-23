@@ -126,7 +126,9 @@ struct CoachVideoRow: View {
                 annotationCount: video.annotationCount,
                 contextLabel: video.contextLabel,
                 isHighlight: video.isHighlight,
-                hasNotes: video.notes != nil && !(video.notes?.isEmpty ?? true)
+                hasNotes: video.notes != nil && !(video.notes?.isEmpty ?? true),
+                folderID: video.sharedFolderID,
+                videoFileName: video.fileName
             )
 
             VStack(alignment: .leading, spacing: 6) {

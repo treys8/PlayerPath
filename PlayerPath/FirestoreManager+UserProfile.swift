@@ -107,7 +107,23 @@ extension FirestoreManager {
         // Obtain the AppTransaction JWS (app-level authenticity proof)
         guard let appReceipt = await appStoreReceipt() else {
             #if DEBUG
-            firestoreLog.info("No App Store receipt (DEBUG). Tier sync skipped in DEBUG.")
+            // In sandbox/Xcode testing, AppTransaction is unavailable but individual
+            // Transaction JWS tokens still work. Call the Cloud Function in sandboxMode
+            // to skip AppTransaction verification while still validating entitlements.
+            firestoreLog.info("No App Store receipt (DEBUG). Calling syncSubscriptionTier in sandbox mode.")
+            let tokens = await currentEntitlementTokens()
+            let callable = Functions.functions().httpsCallable("syncSubscriptionTier")
+            let payload: [String: Any] = [
+                "sandboxMode": true,
+                "transactionTokens": tokens,
+                "hasAthleteTierOverride": hasAthleteTierOverride
+            ]
+            do {
+                let _ = try await callable.call(payload)
+                firestoreLog.info("DEBUG sandbox tier sync succeeded via Cloud Function.")
+            } catch {
+                firestoreLog.warning("DEBUG sandbox tier sync failed: \(error.localizedDescription)")
+            }
             #else
             firestoreLog.warning("No App Store receipt available. Tier sync skipped.")
             #endif

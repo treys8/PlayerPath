@@ -138,10 +138,12 @@ struct VideoClipRow: View {
         .accessibilityLabel(clip.playResult?.type.displayName ?? "Unrecorded Play")
         .accessibilityHint("Opens the video")
         .contextMenu {
-            Button {
-                showingShareToFolder = true
-            } label: {
-                Label("Share to Coach Folder", systemImage: hasCoachingAccess ? "folder.badge.person.fill" : "lock.fill")
+            if AppFeatureFlags.isCoachEnabled {
+                Button {
+                    showingShareToFolder = true
+                } label: {
+                    Label("Share to Coach Folder", systemImage: hasCoachingAccess ? "folder.badge.person.fill" : "lock.fill")
+                }
             }
         }
         .task {

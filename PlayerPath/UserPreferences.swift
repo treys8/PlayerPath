@@ -2,12 +2,11 @@
 //  UserPreferences.swift
 //  PlayerPath
 //
-//  User preferences model with CloudKit sync
+//  User preferences model
 //
 
 import SwiftUI
 import SwiftData
-import CloudKit
 import os
 
 private let prefsLog = Logger(subsystem: "com.playerpath.app", category: "UserPreferences")
@@ -49,7 +48,6 @@ final class UserPreferences {
 
     // MARK: - Analytics Preferences
     var enableAnalytics: Bool = true { didSet { markAsModified() } }
-    var shareUsageData: Bool = false { didSet { markAsModified() } }
 
     // MARK: - Notification Preferences
     var enableUploadNotifications: Bool = true { didSet { markAsModified() } }

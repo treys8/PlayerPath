@@ -236,40 +236,19 @@ struct InviteCoachSheet: View {
                     ])
                 }
 
-                let folderName = "\(athlete.name)'s Videos"
-
-                // Create folder first, then invitation. If invitation fails, clean up folder.
-                // If folder creation fails entirely, we throw before creating an invitation.
+                // Require Pro tier to invite coaches
                 guard authManager.hasCoachingAccess else {
                     throw SharedFolderError.coachingRequired
                 }
 
-                let folderID = try await SharedFolderManager.shared.createFolder(
-                    name: folderName,
-                    forAthlete: userID,
+                // Create invitation only — folders are created server-side when the coach accepts.
+                // This avoids orphaned folders if the coach never accepts or is at their limit.
+                _ = try await FirestoreManager.shared.createInvitation(
+                    athleteID: userID,
                     athleteName: athlete.name,
-                    hasCoachingAccess: true
+                    coachEmail: coachEmail.lowercased(),
+                    permissions: selectedPermissions
                 )
-
-                // Create invitation — clean up folder on failure
-                do {
-                    try await SharedFolderManager.shared.inviteCoachToFolder(
-                        coachEmail: coachEmail.lowercased(),
-                        folderID: folderID,
-                        athleteID: userID,
-                        athleteName: athlete.name,
-                        folderName: folderName,
-                        permissions: selectedPermissions
-                    )
-                } catch {
-                    // Best-effort folder cleanup — if this also fails, log it
-                    do {
-                        try await SharedFolderManager.shared.deleteFolder(folderID: folderID, athleteID: userID)
-                    } catch let cleanupError {
-                        ErrorHandlerService.shared.handle(cleanupError, context: "Cleaning up orphaned folder \(folderID)", showAlert: false)
-                    }
-                    throw error
-                }
 
                 // Save coach locally (pending status) — safe on MainActor
                 let coach = Coach(

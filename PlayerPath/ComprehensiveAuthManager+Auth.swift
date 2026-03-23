@@ -5,12 +5,28 @@
 //  Sign in, sign up, sign out, password reset, session restore, and auth state listener.
 //
 
+import AuthenticationServices
 import FirebaseAuth
 import os
 
 private let authLog = Logger(subsystem: "com.playerpath.app", category: "Auth")
 
 extension ComprehensiveAuthManager {
+
+    /// Signs the user out when Apple ID credentials are revoked
+    /// (Settings → Password & Security → Apps Using Apple ID).
+    func observeAppleCredentialRevocation() {
+        NotificationCenter.default.addObserver(
+            forName: ASAuthorizationAppleIDProvider.credentialRevokedNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            authLog.warning("Apple ID credential revoked — signing user out")
+            Task { @MainActor in
+                await self?.signOut()
+            }
+        }
+    }
 
     /// Sets up the Firebase auth state change listener.
     func setupAuthStateListener() {

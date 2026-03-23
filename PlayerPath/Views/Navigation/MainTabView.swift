@@ -16,6 +16,7 @@ struct MainTabView: View {
     @State private var hideFloatingRecordButton = false
     @State private var showingSeasons = false
     @State private var showingCoaches = false
+    @State private var showingCoachVideos = false
     @Environment(\.modelContext) private var modelContext
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
@@ -202,6 +203,18 @@ struct MainTabView: View {
                         }
                 }
             }
+            .sheet(isPresented: $showingCoachVideos) {
+                NavigationStack {
+                    AthleteCoachVideosView(athlete: selectedAthlete)
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button("Done") {
+                                    showingCoachVideos = false
+                                }
+                            }
+                        }
+                }
+            }
             .addKeyboardShortcuts()
             .sheet(isPresented: $showingPaywall) {
                 ImprovedPaywallView(user: user)
@@ -271,6 +284,13 @@ struct MainTabView: View {
         notificationManager.observe(name: Notification.Name.presentCoaches) { _ in
             MainActor.assumeIsolated {
                 showingCoaches = true
+                Haptics.light()
+            }
+        }
+
+        notificationManager.observe(name: Notification.Name.presentCoachVideos) { _ in
+            MainActor.assumeIsolated {
+                showingCoachVideos = true
                 Haptics.light()
             }
         }
@@ -418,43 +438,45 @@ struct MainTabView: View {
                         Label("Seasons", systemImage: "calendar")
                             .foregroundColor(.primary)
                     }
-                    NavigationLink(value: MoreDestination.coaches) {
-                        Label {
-                            HStack {
-                                Text("Coaches")
-                                if authManager.currentTier != .pro {
-                                    Text("PRO")
-                                        .font(.caption2)
-                                        .fontWeight(.bold)
-                                        .foregroundColor(.orange)
-                                        .padding(.horizontal, 5)
-                                        .padding(.vertical, 2)
-                                        .background(Capsule().fill(.orange.opacity(0.12)))
+                    if AppFeatureFlags.isCoachEnabled {
+                        NavigationLink(value: MoreDestination.coaches) {
+                            Label {
+                                HStack {
+                                    Text("Coaches")
+                                    if authManager.currentTier != .pro {
+                                        Text("PRO")
+                                            .font(.caption2)
+                                            .fontWeight(.bold)
+                                            .foregroundColor(.orange)
+                                            .padding(.horizontal, 5)
+                                            .padding(.vertical, 2)
+                                            .background(Capsule().fill(.orange.opacity(0.12)))
+                                    }
                                 }
+                            } icon: {
+                                Image(systemName: "person.3.fill")
                             }
-                        } icon: {
-                            Image(systemName: "person.3.fill")
+                            .foregroundColor(.primary)
                         }
-                        .foregroundColor(.primary)
-                    }
-                    NavigationLink(value: MoreDestination.sharedFolders) {
-                        Label {
-                            HStack {
-                                Text("Shared Folders")
-                                if authManager.currentTier != .pro {
-                                    Text("PRO")
-                                        .font(.caption2)
-                                        .fontWeight(.bold)
-                                        .foregroundColor(.orange)
-                                        .padding(.horizontal, 5)
-                                        .padding(.vertical, 2)
-                                        .background(Capsule().fill(.orange.opacity(0.12)))
+                        NavigationLink(value: MoreDestination.sharedFolders) {
+                            Label {
+                                HStack {
+                                    Text("Shared Folders")
+                                    if authManager.currentTier != .pro {
+                                        Text("PRO")
+                                            .font(.caption2)
+                                            .fontWeight(.bold)
+                                            .foregroundColor(.orange)
+                                            .padding(.horizontal, 5)
+                                            .padding(.vertical, 2)
+                                            .background(Capsule().fill(.orange.opacity(0.12)))
+                                    }
                                 }
+                            } icon: {
+                                Image(systemName: "folder.badge.person.crop")
                             }
-                        } icon: {
-                            Image(systemName: "folder.badge.person.crop")
+                            .foregroundColor(.primary)
                         }
-                        .foregroundColor(.primary)
                     }
                 }
 
@@ -594,14 +616,16 @@ struct MainTabView: View {
     }
 }
 
-/// Isolates the badge observation so that changes to unreadCount
+/// Isolates the badge observation so that changes to unreadVideoCount
 /// only invalidate this modifier's body — not the entire MainTabView.
+/// Only counts video-related notifications (newVideo, coachComment),
+/// not invitations or access-revoked which belong on other tabs.
 private struct UnreadBadgeModifier: ViewModifier {
     @ObservedObject private var activityNotifService = ActivityNotificationService.shared
 
     func body(content: Content) -> some View {
         content
-            .badge(activityNotifService.unreadCount > 0 ? activityNotifService.unreadCount : 0)
+            .badge(activityNotifService.unreadVideoCount > 0 ? activityNotifService.unreadVideoCount : 0)
     }
 }
 

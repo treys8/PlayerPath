@@ -7,6 +7,7 @@
 //
 
 import SwiftUI
+import os
 
 struct RemoteThumbnailView: View {
     let urlString: String?
@@ -17,6 +18,29 @@ struct RemoteThumbnailView: View {
     var contextLabel: String?
     var isHighlight: Bool = false
     var hasNotes: Bool = false
+
+    // Secure URL parameters — when provided, uses signed URLs instead of the raw urlString
+    var folderID: String?
+    var videoFileName: String?
+
+    @State private var secureURL: String?
+    @State private var secureFetchFailed = false
+
+    private static let log = Logger(subsystem: "com.playerpath.app", category: "RemoteThumbnailView")
+
+    /// The resolved URL to display: signed URL if available, otherwise raw urlString as fallback.
+    private var resolvedURLString: String? {
+        if folderID != nil && videoFileName != nil {
+            // Secure mode: use signed URL (nil while loading, secureURL once resolved)
+            return secureURL
+        }
+        return urlString
+    }
+
+    /// Whether we are waiting for a signed URL to load.
+    private var isLoadingSecureURL: Bool {
+        folderID != nil && videoFileName != nil && secureURL == nil && !secureFetchFailed
+    }
 
     var body: some View {
         ZStack {
@@ -70,13 +94,43 @@ struct RemoteThumbnailView: View {
         .frame(width: size.width, height: size.height)
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
         .shadow(color: .black.opacity(0.1), radius: 5, x: 0, y: 2)
+        .task(id: secureCacheKey) {
+            await fetchSecureURLIfNeeded()
+        }
+    }
+
+    /// Stable key for the .task modifier so it re-fetches when inputs change.
+    private var secureCacheKey: String? {
+        guard let folderID, let videoFileName else { return nil }
+        return "\(folderID)_\(videoFileName)"
+    }
+
+    // MARK: - Secure URL Fetching
+
+    @MainActor
+    private func fetchSecureURLIfNeeded() async {
+        guard let folderID, let videoFileName else { return }
+
+        do {
+            let url = try await SecureURLManager.shared.getSecureThumbnailURL(
+                videoFileName: videoFileName,
+                folderID: folderID
+            )
+            secureURL = url
+            secureFetchFailed = false
+        } catch {
+            Self.log.error("Failed to get secure thumbnail URL: \(error.localizedDescription, privacy: .public)")
+            secureFetchFailed = true
+        }
     }
 
     // MARK: - Thumbnail Image
 
     private var thumbnailImage: some View {
         Group {
-            if let urlString, let url = URL(string: urlString) {
+            if isLoadingSecureURL {
+                placeholder(icon: nil, iconColor: .white, text: nil, showSpinner: true)
+            } else if let urlString = resolvedURLString, let url = URL(string: urlString) {
                 AsyncImage(url: url) { phase in
                     switch phase {
                     case .success(let image):
@@ -99,7 +153,7 @@ struct RemoteThumbnailView: View {
         .frame(width: size.width, height: size.height)
         .background(Color.black)
         .clipped()
-        .animation(.easeIn(duration: 0.2), value: urlString)
+        .animation(.easeIn(duration: 0.2), value: resolvedURLString)
     }
 
     // MARK: - Placeholder

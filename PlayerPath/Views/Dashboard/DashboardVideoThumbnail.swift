@@ -29,7 +29,7 @@ struct DashboardVideoThumbnail: View {
                 .font(.title)
                 .foregroundColor(.white)
                 .shadow(radius: 2)
-                .symbolEffect(.bounce, options: .speed(0.5))
+                .symbolEffect(.pulse, options: .speed(0.5))
         }
         .aspectRatio(16/9, contentMode: .fit)
         .clipShape(RoundedRectangle(cornerRadius: .cornerLarge))

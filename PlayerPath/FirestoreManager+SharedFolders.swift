@@ -294,4 +294,76 @@ extension FirestoreManager {
             "updatedAt": FieldValue.serverTimestamp()
         ])
     }
+
+    // MARK: - Batch Revocation (Coach Downgrade)
+
+    /// Removes coach access from all folders belonging to the specified athletes
+    /// and cancels any accepted invitations for those athletes.
+    /// Used when a coach downgrades and must reduce their connected athlete count.
+    func batchRevokeCoachAccess(
+        coachID: String,
+        athleteIDsToRevoke: [String]
+    ) async throws {
+        guard !athleteIDsToRevoke.isEmpty else { return }
+
+        let revokeSet = Set(athleteIDsToRevoke)
+        let folders = SharedFolderManager.shared.coachFolders.filter { revokeSet.contains($0.ownerAthleteID) }
+
+        // Fetch coach email once for revocation docs
+        let coachSnapshot = try await db.collection(FC.users).document(coachID).getDocument()
+        let coachEmail = coachSnapshot.data()?["email"] as? String ?? ""
+
+        // 1. Revoke folder access
+        if !folders.isEmpty {
+            // Firestore batches are limited to 500 operations — split if needed
+            let batchSize = 250 // 2 operations per folder (update + revocation doc)
+            for startIndex in stride(from: 0, to: folders.count, by: batchSize) {
+                let chunk = folders[startIndex..<min(startIndex + batchSize, folders.count)]
+                let batch = db.batch()
+
+                for folder in chunk {
+                    guard let folderID = folder.id else { continue }
+
+                    let folderRef = db.collection(FC.sharedFolders).document(folderID)
+                    batch.updateData([
+                        "sharedWithCoachIDs": FieldValue.arrayRemove([coachID]),
+                        "permissions.\(coachID)": FieldValue.delete(),
+                        "updatedAt": FieldValue.serverTimestamp()
+                    ], forDocument: folderRef)
+
+                    let revocationRef = db.collection(FC.coachAccessRevocations).document()
+                    batch.setData([
+                        "folderID": folderID,
+                        "folderName": folder.name,
+                        "coachID": coachID,
+                        "coachEmail": coachEmail,
+                        "athleteID": folder.ownerAthleteID,
+                        "athleteName": folder.ownerAthleteName ?? "Unknown",
+                        "revokedAt": FieldValue.serverTimestamp(),
+                        "emailSent": false,
+                        "reason": "downgrade"
+                    ], forDocument: revocationRef)
+                }
+
+                try await batch.commit()
+            }
+        }
+
+        // 2. Delete accepted coach-to-athlete invitations for revoked athletes.
+        // Using delete instead of status update because accepted invitations may
+        // have expired expiresAt values, and security rules block updates on
+        // expired invitations. Delete is allowed by sender without expiration check.
+        let invitationsSnapshot = try await db.collection(FC.invitations)
+            .whereField("type", isEqualTo: "coach_to_athlete")
+            .whereField("coachID", isEqualTo: coachID)
+            .whereField("status", isEqualTo: "accepted")
+            .getDocuments()
+
+        for doc in invitationsSnapshot.documents {
+            let athleteUID = doc.data()["athleteUserID"] as? String ?? ""
+            if revokeSet.contains(athleteUID) {
+                try await doc.reference.delete()
+            }
+        }
+    }
 }

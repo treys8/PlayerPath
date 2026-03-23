@@ -28,28 +28,29 @@ extension FirestoreManager {
 
     // MARK: - Invitations
 
-    /// Creates an invitation for a coach to join a shared folder
+    /// Creates an invitation for a coach to join a shared folder.
+    /// folderID/folderName are optional — folders are now created server-side on acceptance.
     func createInvitation(
         athleteID: String,
         athleteName: String,
         coachEmail: String,
-        folderID: String,
-        folderName: String,
+        folderID: String? = nil,
+        folderName: String? = nil,
         permissions: FolderPermissions = .default
     ) async throws -> String {
 
-        let invitationData: [String: Any] = [
+        var invitationData: [String: Any] = [
             "type": "athlete_to_coach",
             "athleteID": athleteID,
             "athleteName": athleteName,
             "coachEmail": coachEmail.lowercased(),
-            "folderID": folderID,
-            "folderName": folderName,
             "permissions": permissions.toDictionary(),
             "status": "pending",
             "sentAt": FieldValue.serverTimestamp(),
             "expiresAt": Date().addingTimeInterval(invitationExpirationInterval)
         ]
+        if let folderID { invitationData["folderID"] = folderID }
+        if let folderName { invitationData["folderName"] = folderName }
 
         do {
             let docRef = try await db.collection(FC.invitations).addDocument(data: invitationData)
@@ -90,6 +91,7 @@ extension FirestoreManager {
     func fetchPendingInvitations(forEmail email: String) async throws -> [CoachInvitation] {
         do {
             let snapshot = try await db.collection(FC.invitations)
+                .whereField("type", isEqualTo: "athlete_to_coach")
                 .whereField("coachEmail", isEqualTo: email.lowercased())
                 .whereField("status", isEqualTo: "pending")
                 .whereField("expiresAt", isGreaterThan: Timestamp(date: Date()))
@@ -170,6 +172,8 @@ extension FirestoreManager {
                 case .permissionDenied:
                     throw NSError(domain: "FirestoreManager", code: InvitationErrorCode.invalidInvitation.rawValue,
                                   userInfo: [NSLocalizedDescriptionKey: error.localizedDescription])
+                case .resourceExhausted:
+                    throw SharedFolderError.coachAthleteLimitReached
                 default:
                     break
                 }
@@ -327,14 +331,29 @@ extension FirestoreManager {
 
     /// Accepts a coach-to-athlete invitation via Cloud Function (server-side validation).
     /// Validates caller identity, invitation state, expiration, and coach athlete limit.
-    func acceptCoachToAthleteInvitation(invitationID: String, athleteUserID: String) async throws {
+    /// Creates shared folders server-side (any athlete tier) and returns folder IDs.
+    func acceptCoachToAthleteInvitation(
+        invitationID: String,
+        athleteUserID: String,
+        athleteName: String
+    ) async throws -> (gamesFolderID: String?, lessonsFolderID: String?) {
         let functions = Functions.functions()
         do {
-            _ = try await functions.httpsCallable("acceptCoachToAthleteInvitation").call(["invitationID": invitationID])
+            let result = try await functions.httpsCallable("acceptCoachToAthleteInvitation").call([
+                "invitationID": invitationID,
+                "athleteName": athleteName
+            ])
             invitationLog.info("Accepted coach-to-athlete invitation \(invitationID) via Cloud Function")
+
+            // Parse folder IDs from response
+            if let data = result.data as? [String: Any] {
+                let gamesID = data["gamesFolderID"] as? String
+                let lessonsID = data["lessonsFolderID"] as? String
+                return (gamesFolderID: gamesID, lessonsFolderID: lessonsID)
+            }
+            return (nil, nil)
         } catch {
             let nsError = error as NSError
-            // Map Cloud Function error codes to invitation error codes for consistent UI handling
             if nsError.domain == FunctionsErrorDomain {
                 let code = FunctionsErrorCode(rawValue: nsError.code)
                 switch code {

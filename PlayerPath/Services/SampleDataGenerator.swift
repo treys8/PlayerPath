@@ -5,6 +5,8 @@
 //  Generates realistic sample data for new users to explore the app
 //
 
+#if DEBUG
+
 import Foundation
 import SwiftUI
 import SwiftData
@@ -353,3 +355,5 @@ struct SampleDataPromptView_Previews: PreviewProvider {
             .modelContainer(container))
     }
 }
+
+#endif

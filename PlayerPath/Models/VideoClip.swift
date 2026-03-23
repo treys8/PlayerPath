@@ -170,7 +170,7 @@ final class VideoClip {
     }
 
     /// Properly delete video clip with all associated files and data
-    func delete(in context: ModelContext) {
+    @MainActor func delete(in context: ModelContext) {
         // Capture paths before context.delete to avoid accessing deleted SwiftData object
         let absolutePath = resolvedFilePath
         let capturedThumbPath = thumbnailPath
@@ -250,9 +250,7 @@ final class VideoClip {
             context.delete(playResult)
             // Recalculate stats so they don't drift from actual play results
             if let athlete = athleteForRecalc {
-                Task { @MainActor in
-                    try? StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: context, skipSave: true)
-                }
+                try? StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: context, skipSave: true)
             }
         }
 

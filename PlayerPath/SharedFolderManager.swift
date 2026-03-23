@@ -415,7 +415,8 @@ class SharedFolderManager {
         return try await firestore.fetchPendingInvitations(forEmail: email)
     }
     
-    /// Accepts an invitation to join a shared folder
+    /// Accepts an invitation to join a shared folder.
+    /// Coach athlete limit and folder creation are handled server-side by the Cloud Function.
     func acceptInvitation(_ invitation: CoachInvitation, authManager: ComprehensiveAuthManager? = nil) async throws {
         guard let invitationID = invitation.id,
               let coachID = Auth.auth().currentUser?.uid else {
@@ -430,28 +431,15 @@ class SharedFolderManager {
                           userInfo: [NSLocalizedDescriptionKey: "This invitation has expired."])
         }
 
-        // Enforce coach athlete limit before accepting (centralized check)
-        // Fail closed: if authManager is unavailable, treat as at-limit
-        guard let authManager else {
-            folderLog.warning("acceptInvitation: authManager unavailable, failing closed")
-            throw SharedFolderError.coachAthleteLimitReached
-        }
-        let atLimit = await SubscriptionGate.isAtAthleteLimit(coachID: coachID, authManager: authManager)
-        if atLimit {
-            folderLog.warning("acceptInvitation: at athlete limit for coach \(coachID)")
-            throw SharedFolderError.coachAthleteLimitReached
-        }
-
-        // Use the permissions the athlete specified in the invitation, falling back to default.
+        // Server-side: Cloud Function validates limit, accepts invitation, and creates folders
         let permissions = invitation.permissions ?? .default
-
         folderLog.debug("acceptInvitation: calling firestore.acceptInvitation for \(invitationID)")
         try await firestore.acceptInvitation(
             invitationID: invitationID,
             coachID: coachID,
             permissions: permissions
         )
-        folderLog.info("acceptInvitation: firestore transaction succeeded for \(invitationID)")
+        folderLog.info("acceptInvitation: Cloud Function succeeded for \(invitationID)")
 
         // The real-time listener (startCoachFoldersListener) will automatically
         // pick up the new folder — no one-shot fetch needed here.
@@ -460,12 +448,13 @@ class SharedFolderManager {
         let coachName = Auth.auth().currentUser?.displayName
             ?? Auth.auth().currentUser?.email
             ?? "Your coach"
+        let folderName = invitation.folderName ?? "\(invitation.athleteName)'s Videos"
         await ActivityNotificationService.shared.postInvitationAcceptedNotification(
-            folderName: invitation.folderName,
+            folderName: folderName,
             coachID: coachID,
             coachName: coachName,
             athleteID: invitation.athleteID,
-            folderID: invitation.folderID
+            folderID: invitation.folderID ?? ""
         )
     }
     

@@ -260,10 +260,11 @@ struct AthleteFolderDetailView: View {
     }
 }
 
-private struct AthleteFolderDetailContent: View {
+struct AthleteFolderDetailContent: View {
     let folder: SharedFolder
     let athleteID: String
 
+    @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @State private var viewModel: CoachFolderViewModel
     private var folderManager: SharedFolderManager { .shared }
 
@@ -320,48 +321,54 @@ private struct AthleteFolderDetailContent: View {
             .pickerStyle(.segmented)
             .padding()
 
-            // Content organized by category
-            Group {
-                switch selectedTab {
-                case .games:
-                    GamesTabView(folder: folder, videos: viewModel.cachedGameVideos) {
-                        await viewModel.loadVideos()
-                    }
-                case .instruction:
-                    InstructionTabView(folder: folder, videos: viewModel.cachedInstructionVideos) {
-                        await viewModel.loadVideos()
-                    }
-                case .all:
-                    AllVideosTabView(folder: folder, videos: viewModel.videos) {
-                        await viewModel.loadVideos()
+            // Content: gated behind Pro tier for non-Pro athletes
+            if authManager.hasCoachingAccess {
+                Group {
+                    switch selectedTab {
+                    case .games:
+                        GamesTabView(folder: folder, videos: viewModel.cachedGameVideos) {
+                            await viewModel.loadVideos()
+                        }
+                    case .instruction:
+                        InstructionTabView(folder: folder, videos: viewModel.cachedInstructionVideos) {
+                            await viewModel.loadVideos()
+                        }
+                    case .all:
+                        AllVideosTabView(folder: folder, videos: viewModel.videos) {
+                            await viewModel.loadVideos()
+                        }
                     }
                 }
+            } else {
+                proUpgradeOverlay
             }
         }
         .navigationTitle(folder.name)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Menu {
-                    Button {
-                        activeSheet = .uploadVideo
-                    } label: {
-                        Label("Upload Video", systemImage: "plus.circle")
-                    }
+            if authManager.hasCoachingAccess {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Menu {
+                        Button {
+                            activeSheet = .uploadVideo
+                        } label: {
+                            Label("Upload Video", systemImage: "plus.circle")
+                        }
 
-                    Button {
-                        activeSheet = .inviteCoach
-                    } label: {
-                        Label("Invite Coach", systemImage: "person.badge.plus")
-                    }
+                        Button {
+                            activeSheet = .inviteCoach
+                        } label: {
+                            Label("Invite Coach", systemImage: "person.badge.plus")
+                        }
 
-                    Button {
-                        activeSheet = .manageCoaches
+                        Button {
+                            activeSheet = .manageCoaches
+                        } label: {
+                            Label("Manage Coaches", systemImage: "person.2.fill")
+                        }
                     } label: {
-                        Label("Manage Coaches", systemImage: "person.2.fill")
+                        Image(systemName: "ellipsis.circle")
                     }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
                 }
             }
         }
@@ -382,6 +389,43 @@ private struct AthleteFolderDetailContent: View {
         }
         .refreshable {
             await viewModel.loadVideos()
+        }
+    }
+
+    private var proUpgradeOverlay: some View {
+        VStack(spacing: 20) {
+            Spacer()
+
+            Image(systemName: "lock.fill")
+                .font(.system(size: 40))
+                .foregroundColor(.secondary)
+
+            let videoCount = folder.videoCount ?? 0
+            if videoCount > 0 {
+                Text("\(videoCount) video\(videoCount == 1 ? "" : "s") from your coach")
+                    .font(.headline)
+            }
+
+            Text("Upgrade to Pro to view shared videos and collaborate with your coach.")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 32)
+
+            Button {
+                NotificationCenter.default.post(name: .showSubscriptionPaywall, object: nil)
+            } label: {
+                Text("Upgrade to Pro")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 50)
+                    .background(Color.accentColor)
+                    .foregroundColor(.white)
+                    .cornerRadius(12)
+            }
+            .padding(.horizontal, 40)
+
+            Spacer()
         }
     }
 

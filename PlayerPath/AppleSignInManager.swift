@@ -242,16 +242,38 @@ extension AppleSignInManager: ASAuthorizationControllerDelegate {
                 }
 
                 // Update display name if available and not already set
+                // Apple only provides fullName on the FIRST sign-in — capture it now or lose it
+                var resolvedDisplayName = result.user.displayName ?? ""
                 if let fullName = appleIDCredential.fullName,
                    result.user.displayName == nil || result.user.displayName?.isEmpty == true {
-                    let displayName = [fullName.givenName, fullName.familyName]
+                    let name = [fullName.givenName, fullName.familyName]
                         .compactMap { $0 }
                         .joined(separator: " ")
 
-                    if !displayName.isEmpty {
+                    if !name.isEmpty {
+                        resolvedDisplayName = name
                         let changeRequest = result.user.createProfileChangeRequest()
-                        changeRequest.displayName = displayName
+                        changeRequest.displayName = name
                         try await changeRequest.commitChanges()
+                    }
+                }
+
+                // Create Firestore user profile for new users
+                // Email signup does this in signUp()/signUpAsCoach(), but Apple Sign In
+                // bypasses those paths so we must do it here.
+                // Non-throwing: if Firestore write fails, the auth state listener's
+                // loadUserProfileWithRetry fallback will create the profile on next launch.
+                if isNewUser, let authManager = authManager {
+                    do {
+                        try await authManager.createUserProfile(
+                            userID: result.user.uid,
+                            email: result.user.email?.lowercased() ?? "",
+                            displayName: resolvedDisplayName.isEmpty ? "User" : resolvedDisplayName,
+                            role: pendingRole,
+                            loadAfterCreate: true
+                        )
+                    } catch {
+                        ErrorHandlerService.shared.handle(error, context: "AppleSignIn.createUserProfile", showAlert: false)
                     }
                 }
 

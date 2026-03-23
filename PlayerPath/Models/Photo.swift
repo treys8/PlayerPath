@@ -65,7 +65,7 @@ final class Photo {
     }
 
     /// Delete photo with all associated files
-    func delete(in context: ModelContext) {
+    @MainActor func delete(in context: ModelContext) {
         // Capture paths before context.delete to avoid accessing deleted SwiftData object
         let capturedFilePath = filePath
         let capturedThumbPath = thumbnailPath

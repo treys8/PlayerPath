@@ -8,15 +8,7 @@
 	<array>
 		<string>Default</string>
 	</array>
-	<key>com.apple.developer.icloud-container-identifiers</key>
-	<array>
-		<string>iCloud.com.playerpath</string>
-	</array>
-	<key>com.apple.developer.icloud-services</key>
-	<array>
-		<string>CloudKit</string>
-	</array>
-	<key>keychain-access-groups</key>
+<key>keychain-access-groups</key>
 	<array>
 		<string>$(AppIdentifierPrefix)RZR.DT3</string>
 	</array>

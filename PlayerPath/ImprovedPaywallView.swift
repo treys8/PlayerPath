@@ -104,7 +104,9 @@ struct ImprovedPaywallView: View {
             Text("Unlock PlayerPath")
                 .font(.title2).fontWeight(.bold)
 
-            Text("More athletes, export reports, and Pro coach sharing")
+            Text(AppFeatureFlags.isCoachEnabled
+                ? "More athletes, export reports, and Pro coach sharing"
+                : "More athletes, export reports, and highlights")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -160,7 +162,9 @@ struct ImprovedPaywallView: View {
                 featureHeaderCell("")
                 tierHeaderCell("Free", tier: .free)
                 tierHeaderCell("Plus", tier: .plus)
-                tierHeaderCell("Pro", tier: .pro)
+                if AppFeatureFlags.isCoachEnabled {
+                    tierHeaderCell("Pro", tier: .pro)
+                }
             }
 
             Divider()
@@ -223,12 +227,14 @@ struct ImprovedPaywallView: View {
                 checkIcon(included: true)
             }
 
-            tableRow(feature: "Coach Sharing") {
-                checkIcon(included: false)
-            } plus: {
-                checkIcon(included: false)
-            } pro: {
-                checkIcon(included: true)
+            if AppFeatureFlags.isCoachEnabled {
+                tableRow(feature: "Coach Sharing") {
+                    checkIcon(included: false)
+                } plus: {
+                    checkIcon(included: false)
+                } pro: {
+                    checkIcon(included: true)
+                }
             }
         }
         .background(Color(.secondarySystemBackground))
@@ -281,8 +287,10 @@ struct ImprovedPaywallView: View {
                     .background(selectedTier == .free ? Color.brandNavy.opacity(0.06) : Color.clear)
                 cellFrame { plus() }
                     .background(selectedTier == .plus ? Color.brandNavy.opacity(0.06) : Color.clear)
-                cellFrame { pro() }
-                    .background(selectedTier == .pro ? Color.brandNavy.opacity(0.06) : Color.clear)
+                if AppFeatureFlags.isCoachEnabled {
+                    cellFrame { pro() }
+                        .background(selectedTier == .pro ? Color.brandNavy.opacity(0.06) : Color.clear)
+                }
             }
         }
     }

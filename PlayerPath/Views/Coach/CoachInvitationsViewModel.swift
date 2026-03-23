@@ -47,6 +47,10 @@ class CoachInvitationsViewModel {
         sentInvitations.filter { $0.status == .declined }
     }
 
+    var limitReachedSentInvitations: [CoachToAthleteInvitation] {
+        sentInvitations.filter { $0.status == .rejectedLimit }
+    }
+
     func updateAthleteLimit(coachID: String, authManager: ComprehensiveAuthManager) async {
         isAtAthleteLimit = await SubscriptionGate.isAtAthleteLimit(
             coachID: coachID,

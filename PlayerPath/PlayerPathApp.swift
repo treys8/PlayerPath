@@ -67,23 +67,9 @@ struct PlayerPathApp: App {
         }
     }()
 
-    // Initialize Firebase before anything else
-    init() {
-        // Configure Firebase as early as possible
-        if FirebaseApp.app() == nil {
-            FirebaseApp.configure()
-            // Configure Firestore settings immediately after Firebase init,
-            // before any code accesses Firestore.firestore() elsewhere.
-            let settings = FirestoreSettings()
-            settings.cacheSettings = PersistentCacheSettings(
-                sizeBytes: NSNumber(value: StorageConstants.urlCacheSizeBytes)
-            )
-            Firestore.firestore().settings = settings
-            #if DEBUG
-            print("🔥 Firebase configured in App init")
-            #endif
-        }
-    }
+    // Firebase is configured in PlayerPathAppDelegate.didFinishLaunchingWithOptions
+    // (which runs before App.init) so that App Check is set up before FirebaseApp.configure().
+    // Do NOT add a duplicate FirebaseApp.configure() here.
     
     var body: some Scene {
         WindowGroup {

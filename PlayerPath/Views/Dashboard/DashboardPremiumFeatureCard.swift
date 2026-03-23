@@ -14,6 +14,7 @@ struct DashboardPremiumFeatureCard: View {
     let color: Color
     let isPremium: Bool
     var badgeLabel: String = "PRO"
+    var notificationCount: Int = 0
     let action: () -> Void
 
     var body: some View {
@@ -44,8 +45,16 @@ struct DashboardPremiumFeatureCard: View {
                 .padding(.vertical, 14)
                 .padding(.horizontal, 8)
 
-                // Premium badge overlay (only shown for non-premium users)
-                if !isPremium {
+                if isPremium && notificationCount > 0 {
+                    Text("\(notificationCount)")
+                        .font(.caption2)
+                        .fontWeight(.bold)
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                        .background(Capsule().fill(Color.red))
+                        .offset(x: -8, y: 8)
+                } else if !isPremium {
                     Text(badgeLabel)
                         .font(.caption2)
                         .fontWeight(.bold)

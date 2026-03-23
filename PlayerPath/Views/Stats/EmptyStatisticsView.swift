@@ -22,7 +22,7 @@ struct EmptyStatisticsView: View {
             Circle()
                 .fill(
                     RadialGradient(
-                        colors: [.blue.opacity(0.08), .clear],
+                        colors: [Color.brandNavy.opacity(0.08), .clear],
                         center: .center,
                         startRadius: 0,
                         endRadius: 200
@@ -38,14 +38,14 @@ struct EmptyStatisticsView: View {
                     // Glow effect
                     Image(systemName: "chart.bar")
                         .font(.system(size: 56, weight: .light))
-                        .foregroundStyle(.blue.opacity(0.3))
+                        .foregroundStyle(Color.brandNavy.opacity(0.3))
                         .blur(radius: 20)
 
                     Image(systemName: "chart.bar")
                         .font(.system(size: 56, weight: .light))
                         .foregroundStyle(
                             LinearGradient(
-                                colors: [.blue, .blue.opacity(0.6)],
+                                colors: [Color.brandNavy, Color.brandNavy.opacity(0.6)],
                                 startPoint: .topLeading,
                                 endPoint: .bottomTrailing
                             )
@@ -111,12 +111,12 @@ struct EmptyStatisticsView: View {
                                     .font(.subheadline)
                                     .fontWeight(.medium)
                             }
-                            .foregroundColor(.blue)
+                            .foregroundColor(Color.brandNavy)
                             .frame(maxWidth: 240)
                             .padding(.vertical, 12)
                             .background(
                                 Capsule()
-                                    .strokeBorder(Color.blue.opacity(0.3), lineWidth: 1.5)
+                                    .strokeBorder(Color.brandNavy.opacity(0.3), lineWidth: 1.5)
                             )
                         }
                         .buttonStyle(StatsPremiumButtonStyle())
@@ -138,13 +138,13 @@ struct EmptyStatisticsView: View {
                             .padding(.vertical, 14)
                             .background(
                                 LinearGradient(
-                                    colors: [.blue, .blue.opacity(0.85)],
+                                    colors: [Color.brandNavy, Color.brandNavy.opacity(0.85)],
                                     startPoint: .topLeading,
                                     endPoint: .bottomTrailing
                                 )
                             )
                             .clipShape(Capsule())
-                            .shadow(color: .blue.opacity(0.3), radius: 12, x: 0, y: 6)
+                            .shadow(color: Color.brandNavy.opacity(0.3), radius: 12, x: 0, y: 6)
                         }
                         .buttonStyle(StatsPremiumButtonStyle())
 
@@ -159,12 +159,12 @@ struct EmptyStatisticsView: View {
                                     .font(.subheadline)
                                     .fontWeight(.medium)
                             }
-                            .foregroundColor(.blue)
+                            .foregroundColor(Color.brandNavy)
                             .frame(maxWidth: 240)
                             .padding(.vertical, 12)
                             .background(
                                 Capsule()
-                                    .strokeBorder(Color.blue.opacity(0.3), lineWidth: 1.5)
+                                    .strokeBorder(Color.brandNavy.opacity(0.3), lineWidth: 1.5)
                             )
                         }
                         .buttonStyle(StatsPremiumButtonStyle())

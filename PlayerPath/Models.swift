@@ -216,7 +216,7 @@ final class Practice {
     }
 
     /// Properly delete practice with all associated files and data
-    func delete(in context: ModelContext) {
+    @MainActor func delete(in context: ModelContext) {
         // Delete video clips using their delete method for proper cleanup
         for videoClip in (self.videoClips ?? []) {
             videoClip.delete(in: context)

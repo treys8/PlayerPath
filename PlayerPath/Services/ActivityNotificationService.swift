@@ -54,6 +54,10 @@ final class ActivityNotificationService: ObservableObject {
     static let shared = ActivityNotificationService()
 
     @Published private(set) var unreadCount: Int = 0
+    /// Unread count for video-related notifications only (newVideo, coachComment).
+    @Published private(set) var unreadVideoCount: Int = 0
+    /// Unread count for folder-targeted video notifications (coach card badge).
+    @Published private(set) var unreadFolderVideoCount: Int = 0
     @Published private(set) var recentNotifications: [ActivityNotification] = []
     /// Most-recently-arrived notification, used to drive the in-app banner.
     @Published private(set) var incomingBanner: ActivityNotification?
@@ -105,7 +109,12 @@ final class ActivityNotificationService: ObservableObject {
                 Task { @MainActor in
                     self.listenerError = nil
                     self.recentNotifications = notifications
-                    self.unreadCount = notifications.filter { !$0.isRead }.count
+                    let unread = notifications.filter { !$0.isRead }
+                    self.unreadCount = unread.count
+                    self.unreadVideoCount = unread.filter { $0.type == .newVideo || $0.type == .coachComment }.count
+                    self.unreadFolderVideoCount = unread.filter {
+                        ($0.type == .newVideo || $0.type == .coachComment) && $0.targetType == .folder
+                    }.count
 
                     // Surface in-app banner for any genuinely new (unseen) notification
                     let currentIDs = Set(notifications.compactMap { $0.id })
@@ -149,6 +158,25 @@ final class ActivityNotificationService: ObservableObject {
             try await batch.commit()
         } catch {
             log.error("Failed to mark all notifications read: \(error.localizedDescription)")
+        }
+    }
+
+    func markFolderNotificationsRead(forUserID userID: String) async {
+        let folderUnread = recentNotifications.filter {
+            !$0.isRead && ($0.type == .newVideo || $0.type == .coachComment) && $0.targetType == .folder
+        }
+        guard !folderUnread.isEmpty else { return }
+
+        let batch = db.batch()
+        for n in folderUnread {
+            guard let id = n.id else { continue }
+            let ref = db.collection(FC.notifications).document(userID).collection(FC.items).document(id)
+            batch.updateData(["isRead": true], forDocument: ref)
+        }
+        do {
+            try await batch.commit()
+        } catch {
+            log.error("Failed to mark folder notifications read: \(error.localizedDescription)")
         }
     }
 

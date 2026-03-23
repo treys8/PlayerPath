@@ -81,6 +81,22 @@ service cloud.firestore {
           && request.resource.data.videoCount == resource.data.videoCount;
     }
 
+    // Checks if a coach is ONLY removing themselves from a folder (self-revocation).
+    // Used for the coach downgrade flow where the coach must reduce their athlete count.
+    function isCoachLeavingFolder() {
+      return request.auth.uid in resource.data.sharedWithCoachIDs
+          && !(request.auth.uid in request.resource.data.sharedWithCoachIDs)
+          // Exactly one coach removed, none added
+          && request.resource.data.sharedWithCoachIDs.size() == resource.data.sharedWithCoachIDs.size() - 1
+          // ownerAthleteID must not change
+          && request.resource.data.ownerAthleteID == resource.data.ownerAthleteID
+          // folder name must not change
+          && request.resource.data.name == resource.data.name
+          // Only allowed fields: sharedWithCoachIDs, permissions, updatedAt
+          && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['sharedWithCoachIDs', 'permissions', 'updatedAt']);
+    }
+
     // Checks if a coach is ONLY incrementing or decrementing videoCount on a folder
     // they already have access to. Used to allow batched video create/delete operations.
     function isCoachUpdatingVideoCount() {
@@ -224,10 +240,13 @@ service cloud.firestore {
                     && request.resource.data.ownerAthleteID == request.auth.uid;
 
       // Folder owner can update anything. A coach can also update the folder
-      // when accepting an invitation (adding themselves to sharedWithCoachIDs).
+      // when accepting an invitation (adding themselves to sharedWithCoachIDs),
+      // when leaving a folder (removing themselves during downgrade), or
+      // when updating video count after upload/delete.
       allow update: if isAuthenticated()
                     && (resource.data.ownerAthleteID == request.auth.uid
                         || isCoachJoiningFolder()
+                        || isCoachLeavingFolder()
                         || isCoachUpdatingVideoCount());
       allow delete: if isAuthenticated()
                     && resource.data.ownerAthleteID == request.auth.uid;
@@ -238,10 +257,12 @@ service cloud.firestore {
     // ========================================================================
 
     match /videos/{videoID} {
-      // Read: personal video owner OR shared folder member
+      // Read: personal video owner OR shared folder member with valid tier
+      // Folder owner must have Pro tier; coaches must have any coach tier.
       allow read: if isAuthenticated() && (
         resource.data.uploadedBy == request.auth.uid ||
-        ('sharedFolderID' in resource.data && canAccessFolder(resource.data.sharedFolderID))
+        ('sharedFolderID' in resource.data && canAccessFolder(resource.data.sharedFolderID)
+         && (isFolderOwner(resource.data.sharedFolderID) ? hasProTier() : hasCoachTier()))
       );
 
       // Create: personal athlete video (no sharedFolderID, uploader is owner)
@@ -374,13 +395,16 @@ service cloud.firestore {
     // ========================================================================
 
     match /coach_access_revocations/{revocationID} {
-      // Only the athlete who created the revocation can read it
+      // The athlete or the coach referenced in the revocation can read it
       allow read:   if isAuthenticated()
-                    && resource.data.athleteID == request.auth.uid;
+                    && (resource.data.athleteID == request.auth.uid
+                        || resource.data.coachID == request.auth.uid);
 
-      // Folder owners create revocations referencing themselves
+      // Athletes create revocations when removing a coach from their folder.
+      // Coaches create revocations during downgrade (self-removal from folders).
       allow create: if isAuthenticated()
-                    && request.resource.data.athleteID == request.auth.uid;
+                    && (request.resource.data.athleteID == request.auth.uid
+                        || request.resource.data.coachID == request.auth.uid);
 
       // Immutable after creation (email tracking is server-side)
       allow update: if false;
@@ -470,9 +494,10 @@ service cloud.firestore {
                     && isExpirationInRange(request.resource.data.expiresAt)
                     && (
                       // Athlete-to-coach: athlete is the sender, validate sender identity
+                      // folderID/folderName are optional — folders are created server-side on acceptance
                       (request.resource.data.type == "athlete_to_coach"
                        && request.resource.data.athleteID == request.auth.uid
-                       && request.resource.data.keys().hasAll(['athleteID', 'coachEmail', 'folderID', 'folderName'])
+                       && request.resource.data.keys().hasAll(['athleteID', 'coachEmail'])
                        && hasProTier())
                       ||
                       // Coach-to-athlete: coach is the sender, validate sender identity

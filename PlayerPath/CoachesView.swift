@@ -344,7 +344,7 @@ struct CoachesView: View {
                     case .accepted:
                         coach.markInvitationAccepted(
                             firebaseCoachID: invitation.acceptedByCoachID ?? "",
-                            folderID: invitation.folderID
+                            folderID: invitation.folderID ?? ""
                         )
                     case .declined:
                         coach.lastInvitationStatus = "declined"

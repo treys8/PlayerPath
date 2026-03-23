@@ -2,7 +2,7 @@
 //  UserPreferencesView.swift
 //  PlayerPath
 //
-//  Settings view for user preferences with CloudKit sync
+//  Settings view for user preferences
 //
 
 import SwiftUI
@@ -12,13 +12,12 @@ import UIKit
 struct UserPreferencesView: View {
     @Environment(\.modelContext) private var modelContext
     @StateObject private var viewModel = UserPreferencesViewModel()
-    
+
     var body: some View {
         NavigationStack {
             Group {
                 if let prefs = viewModel.preferences {
                     Form {
-                        cloudKitStatusSection
                         videoRecordingSection(preferences: prefs)
                         uiPreferencesSection(preferences: prefs)
                         cloudSyncSection(preferences: prefs)
@@ -34,20 +33,6 @@ struct UserPreferencesView: View {
             .task {
                 viewModel.attach(modelContext: modelContext)
                 await viewModel.load()
-                viewModel.startObservingRemoteChanges()
-            }
-            .alert(
-                viewModel.alert?.title ?? "Error",
-                isPresented: Binding(
-                    get: { viewModel.alert != nil },
-                    set: { if !$0 { viewModel.alert = nil } }
-                )
-            ) {
-                Button("OK", role: .cancel) { viewModel.alert = nil }
-            } message: {
-                if let alert = viewModel.alert {
-                    Text(alert.message + (alert.recoverySuggestion.map { "\n\n\($0)" } ?? ""))
-                }
             }
             .toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {
@@ -57,20 +42,9 @@ struct UserPreferencesView: View {
                                 do {
                                     try await viewModel.save()
                                 } catch {
-                                    viewModel.alert = UserPreferencesViewModel.SyncAlert(
-                                        title: "Save Failed",
-                                        message: error.localizedDescription,
-                                        recoverySuggestion: "Try again or restart the app."
-                                    )
+                                    ErrorHandlerService.shared.handle(error, context: "UserPreferences.save", showAlert: true)
                                 }
                             }
-                        }
-                    }
-                    if viewModel.showsSyncButton {
-                        Button {
-                            Task { await viewModel.saveAndSync() }
-                        } label: {
-                            Image(systemName: "icloud.and.arrow.up")
                         }
                     }
                 }
@@ -86,71 +60,9 @@ struct UserPreferencesView: View {
             }
         }
     }
-    
+
     // MARK: - View Sections
-    
-    private var cloudKitStatusSection: some View {
-        Section {
-            HStack {
-                Image(systemName: viewModel.canSync ? "icloud" : "icloud.slash")
-                    .foregroundColor(viewModel.canSync ? .green : .red)
-                
-                VStack(alignment: .leading) {
-                    Text("iCloud Sync").font(.headline)
-                    Text(viewModel.canSync ? "Available" : "Not Available")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-                
-                Spacer()
-                
-                switch viewModel.syncStatus {
-                case .idle:
-                    EmptyView()
-                case .syncing:
-                    HStack {
-                        ProgressView()
-                            .scaleEffect(0.8)
-                        Text("Syncing...")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                case .success:
-                    HStack {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(.green)
-                        Text("Synced")
-                            .font(.caption)
-                            .foregroundColor(.green)
-                    }
-                case .failed(let error):
-                    HStack {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundColor(.orange)
-                        Text("Sync Failed")
-                            .font(.caption)
-                            .foregroundColor(.orange)
-                    }
-                    .onTapGesture {
-                        viewModel.alert = UserPreferencesViewModel.SyncAlert(
-                            title: "Sync Error",
-                            message: error.localizedDescription,
-                            recoverySuggestion: error.recoverySuggestion
-                        )
-                    }
-                }
-            }
-            
-            if !viewModel.canSync {
-                Text("Sign in to iCloud to sync your preferences across devices.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-        } header: {
-            Text("Cloud Sync")
-        }
-    }
-    
+
     private func videoRecordingSection(preferences: UserPreferences) -> some View {
         Section {
             Picker("Video Quality", selection: Binding<VideoQuality>(
@@ -201,7 +113,7 @@ struct UserPreferencesView: View {
             }
         }
     }
-    
+
     private func uiPreferencesSection(preferences: UserPreferences) -> some View {
         Section {
             Picker("App Theme", selection: Binding<AppTheme>(
@@ -216,7 +128,7 @@ struct UserPreferencesView: View {
                     Text(theme.displayName).tag(theme)
                 }
             }
-            
+
             Toggle("Show Onboarding Tips", isOn: Binding(
                 get: { viewModel.preferences?.showOnboardingTips ?? false },
                 set: { viewModel.update(\.showOnboardingTips, to: $0) }
@@ -225,21 +137,21 @@ struct UserPreferencesView: View {
             Text("Interface")
         }
     }
-    
+
     private func cloudSyncSection(preferences: UserPreferences) -> some View {
         Section {
             Toggle("Sync Highlights Only", isOn: Binding(
                 get: { viewModel.preferences?.syncHighlightsOnly ?? false },
                 set: { viewModel.update(\.syncHighlightsOnly, to: $0) }
             ))
-            
+
             HStack {
                 Text("Max File Size")
                 Spacer()
                 Text("\(preferences.maxVideoFileSize) MB")
                     .foregroundColor(.secondary)
             }
-            
+
             Slider(
                 value: Binding<Double>(
                     get: { Double(viewModel.preferences?.maxVideoFileSize ?? 500) },
@@ -248,7 +160,7 @@ struct UserPreferencesView: View {
                 in: 50...2000,
                 step: 50
             )
-            
+
             Toggle("Auto-delete After Upload", isOn: Binding(
                 get: { viewModel.preferences?.autoDeleteAfterUpload ?? false },
                 set: { viewModel.update(\.autoDeleteAfterUpload, to: $0) }
@@ -257,7 +169,7 @@ struct UserPreferencesView: View {
             Text("Cloud Storage")
         }
     }
-    
+
     private func privacyAnalyticsSection(preferences: UserPreferences) -> some View {
         Section {
             Toggle("Enable Analytics", isOn: Binding(
@@ -267,16 +179,11 @@ struct UserPreferencesView: View {
                     AnalyticsService.shared.setCollection(enabled: $0)
                 }
             ))
-            
-            Toggle("Share Usage Data", isOn: Binding(
-                get: { viewModel.preferences?.shareUsageData ?? false },
-                set: { viewModel.update(\.shareUsageData, to: $0) }
-            ))
         } header: {
             Text("Privacy & Analytics")
         } footer: {
             Text("Help improve PlayerPath by sharing anonymous usage data.")
         }
     }
-    
+
 }

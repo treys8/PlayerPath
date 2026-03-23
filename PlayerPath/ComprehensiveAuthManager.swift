@@ -139,6 +139,7 @@ final class ComprehensiveAuthManager: ObservableObject {
 
         setupStoreKitSubscribers()
         setupAuthStateListener()
+        observeAppleCredentialRevocation()
 
         // Profile loading for already signed-in users is handled by the
         // auth state listener above (which fires on init). No need to

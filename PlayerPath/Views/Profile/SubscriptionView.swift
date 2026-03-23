@@ -86,7 +86,7 @@ struct SubscriptionView: View {
             SubscriptionFeatureRow(icon: "internaldrive.fill", title: "\(authManager.currentTier.storageLimitGB) GB Storage", description: "Cloud backup and sync")
             SubscriptionFeatureRow(icon: "square.and.arrow.up", title: "Export Reports", description: "CSV and PDF statistics export")
             SubscriptionFeatureRow(icon: "star.fill", title: "Auto Highlights", description: "Automatically generated highlight reels")
-            if authManager.currentTier == .pro {
+            if AppFeatureFlags.isCoachEnabled && authManager.currentTier == .pro {
                 SubscriptionFeatureRow(icon: "person.badge.shield.checkmark.fill", title: "Coach Sharing", description: "Share videos and get coach feedback")
             }
         }
@@ -115,7 +115,9 @@ struct SubscriptionView: View {
                     .font(.title2)
                     .fontWeight(.bold)
 
-                Text("More athletes, cloud storage, highlights, and coach sharing. See full plan details and current pricing below.")
+                Text(AppFeatureFlags.isCoachEnabled
+                    ? "More athletes, cloud storage, highlights, and coach sharing. See full plan details and current pricing below."
+                    : "More athletes, cloud storage, and highlights. See full plan details and current pricing below.")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)

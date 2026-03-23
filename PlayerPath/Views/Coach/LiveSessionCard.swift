@@ -22,7 +22,7 @@ struct LiveSessionCard: View {
 
     private var athleteNamesSummary: String {
         let names = session.athleteNames.values.sorted()
-        if names.count <= 2 {
+        guard names.count > 2 else {
             return names.joined(separator: " & ")
         }
         return "\(names[0]), \(names[1]) +\(names.count - 2)"

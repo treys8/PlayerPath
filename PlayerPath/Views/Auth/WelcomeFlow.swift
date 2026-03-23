@@ -21,9 +21,9 @@ struct WelcomeFlow: View {
     var body: some View {
         NavigationStack {
             ScrollView(showsIndicators: false) {
-                VStack(spacing: 28) {
+                VStack(spacing: 20) {
                     // App Logo and Branding
-                    VStack(spacing: 20) {
+                    VStack(spacing: 14) {
                         ZStack {
                             // Glow effect behind icon
                             Circle()
@@ -35,11 +35,11 @@ struct WelcomeFlow: View {
                                         endRadius: 80
                                     )
                                 )
-                                .frame(width: 130, height: 130)
+                                .frame(width: 110, height: 110)
                                 .blur(radius: 20)
 
                             Image(systemName: "baseball.fill")
-                                .font(.system(size: 90, weight: .medium))
+                                .font(.system(size: 70, weight: .medium))
                                 .foregroundStyle(
                                     LinearGradient(
                                         colors: [.red, .red.opacity(0.7), .white],
@@ -51,7 +51,7 @@ struct WelcomeFlow: View {
                                 .shadow(color: .red.opacity(0.4), radius: 15, x: 0, y: 8)
                         }
 
-                        VStack(spacing: 12) {
+                        VStack(spacing: 8) {
                             Text("PlayerPath")
                                 .font(.largeTitle)
                                 .fontWeight(.bold)
@@ -70,11 +70,10 @@ struct WelcomeFlow: View {
                     }
 
                     // Feature highlights
-                    VStack(alignment: .leading, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 10) {
                         Text("Tag each play as it happens. Stats build themselves.")
                             .font(.subheadline)
                             .foregroundColor(.secondary)
-                            .padding(.bottom, 4)
 
                         FeatureHighlight(
                             icon: "video.circle.fill",
@@ -100,7 +99,7 @@ struct WelcomeFlow: View {
                     .padding(.horizontal)
 
                     // Action buttons
-                    VStack(spacing: 16) {
+                    VStack(spacing: 12) {
                         Button(action: { Haptics.medium(); activeSheet = .signUp }) {
                             HStack(spacing: 12) {
                                 Image(systemName: "person.crop.circle.badge.plus")
@@ -171,7 +170,7 @@ struct WelcomeFlow: View {
                     }
                     .padding(.bottom, 8)
                 }
-                .padding(.top, 20)
+                .padding(.top, 10)
             }
             .padding()
             .toolbar(.hidden, for: .navigationBar)

@@ -18,6 +18,7 @@ struct DashboardView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @StateObject private var viewModel: GamesDashboardViewModel
+    @ObservedObject private var activityNotifService = ActivityNotificationService.shared
     @State private var pulseAnimation = false
     @State private var showingDirectCamera = false
     @State private var selectedVideoForPlayback: VideoClip?
@@ -79,6 +80,14 @@ struct DashboardView: View {
 
     private var seasonSectionTitle: String {
         "\(athlete.name)'s Season"
+    }
+
+    private var coachCardSubtitle: String {
+        let unread = activityNotifService.unreadFolderVideoCount
+        if unread > 0 {
+            return "\(unread) new video\(unread == 1 ? "" : "s")"
+        }
+        return "\((athlete.coaches ?? []).count) Coaches"
     }
 
     // MARK: - Body
@@ -184,8 +193,10 @@ struct DashboardView: View {
     private func dashboardContent(viewModel: GamesDashboardViewModel) -> some View {
         ScrollView {
             LazyVStack(spacing: 32) {
-                AthleteInvitationsBanner()
-                    .padding(.horizontal, dashboardHorizontalPadding)
+                if AppFeatureFlags.isCoachEnabled {
+                    AthleteInvitationsBanner()
+                        .padding(.horizontal, dashboardHorizontalPadding)
+                }
 
                 if seasonRecommendation.message != nil {
                     SeasonRecommendationBanner(athlete: athlete, recommendation: seasonRecommendation)
@@ -343,15 +354,24 @@ struct DashboardView: View {
                         NotificationCenter.default.post(name: .showSubscriptionPaywall, object: nil)
                     }
                 }
-                DashboardPremiumFeatureCard(icon: "person.3.fill", title: "Coaches", subtitle: "\((athlete.coaches ?? []).count) Coaches", color: .brandGold, isPremium: authManager.currentTier >= .pro) {
-                    if authManager.currentTier >= .pro {
-                        postSwitchTab(.home)
-                        Task { @MainActor in
-                            NotificationCenter.default.post(name: Notification.Name.presentCoaches, object: athlete)
+                if AppFeatureFlags.isCoachEnabled {
+                    DashboardPremiumFeatureCard(
+                        icon: "person.3.fill",
+                        title: "Coaches",
+                        subtitle: coachCardSubtitle,
+                        color: .brandGold,
+                        isPremium: authManager.currentTier >= .pro,
+                        notificationCount: activityNotifService.unreadFolderVideoCount
+                    ) {
+                        if authManager.currentTier >= .pro {
+                            postSwitchTab(.home)
+                            Task { @MainActor in
+                                post(.presentCoachVideos(athlete))
+                            }
+                        } else {
+                            Haptics.warning()
+                            NotificationCenter.default.post(name: .showSubscriptionPaywall, object: nil)
                         }
-                    } else {
-                        Haptics.warning()
-                        NotificationCenter.default.post(name: .showSubscriptionPaywall, object: nil)
                     }
                 }
             }

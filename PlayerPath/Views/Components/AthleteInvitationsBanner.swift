@@ -82,8 +82,6 @@ struct AthleteInvitationsSheet: View {
 
     @State private var processingInvitationID: String?
     @State private var errorMessage: String?
-    @State private var showingUpgradePrompt = false
-    @State private var acceptedCoachName: String?
 
     var body: some View {
         NavigationStack {
@@ -121,45 +119,34 @@ struct AthleteInvitationsSheet: View {
             } message: {
                 Text(errorMessage ?? "")
             }
-            .alert("Upgrade to Share Videos", isPresented: $showingUpgradePrompt) {
-                Button("View Plans") {
-                    dismiss()
-                    Task { @MainActor in
-                        try? await Task.sleep(for: .milliseconds(500))
-                        NotificationCenter.default.post(name: .showSubscriptionPaywall, object: nil)
-                    }
-                }
-                Button("Later", role: .cancel) { }
-            } message: {
-                Text("You're now connected with \(acceptedCoachName ?? "your coach")! Upgrade to Pro to create shared folders and share videos with them.")
-            }
         }
     }
 
     private func acceptInvitation(_ invitation: CoachToAthleteInvitation) async {
-        guard processingInvitationID == nil else { return }
+        guard processingInvitationID == nil else {
+            print("🔴 ACCEPT blocked: already processing \(processingInvitationID ?? "nil")")
+            return
+        }
         guard let currentUID = authManager.userID, !currentUID.isEmpty else {
+            print("🔴 ACCEPT blocked: no userID")
             errorMessage = "Not signed in. Please sign in and try again."
             Haptics.error()
             return
         }
+        print("🟢 ACCEPT starting for invitation \(invitation.id ?? "nil") from coach \(invitation.coachName)")
         processingInvitationID = invitation.id
 
         do {
             let result = try await AthleteInvitationManager.shared.acceptInvitation(
                 invitation,
                 userID: currentUID,
-                modelContext: modelContext,
-                authManager: authManager
+                modelContext: modelContext
             )
+            print("🟢 ACCEPT succeeded for coach: \(result.coachName)")
             Haptics.success()
             onInvitationsChanged()
-
-            if case .acceptedWithoutFolder(let coachName) = result {
-                acceptedCoachName = coachName
-                showingUpgradePrompt = true
-            }
         } catch {
+            print("🔴 ACCEPT failed: \(error)")
             errorMessage = AthleteInvitationManager.errorMessage(for: error, action: "accept")
             Haptics.error()
         }
@@ -167,7 +154,11 @@ struct AthleteInvitationsSheet: View {
     }
 
     private func declineInvitation(_ invitation: CoachToAthleteInvitation) async {
-        guard processingInvitationID == nil else { return }
+        guard processingInvitationID == nil else {
+            print("🔴 DECLINE blocked: already processing \(processingInvitationID ?? "nil")")
+            return
+        }
+        print("🟡 DECLINE starting for invitation \(invitation.id ?? "nil") from coach \(invitation.coachName)")
         processingInvitationID = invitation.id
 
         do {
@@ -244,6 +235,7 @@ struct CoachInvitationCard: View {
                         .foregroundColor(.primary)
                         .cornerRadius(10)
                 }
+                .buttonStyle(.borderless)
                 .disabled(isProcessing)
 
                 Button {
@@ -265,6 +257,7 @@ struct CoachInvitationCard: View {
                     .foregroundColor(.white)
                     .cornerRadius(10)
                 }
+                .buttonStyle(.borderless)
                 .disabled(isProcessing)
             }
         }

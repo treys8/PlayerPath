@@ -58,7 +58,13 @@ struct CoachInvitationsView: View {
                 Text(error)
             }
         }
-        .sheet(isPresented: $showingPaywall) {
+        .sheet(isPresented: $showingPaywall, onDismiss: {
+            // Re-check athlete limit after paywall (coach may have upgraded)
+            Task {
+                lastFetchDate = nil
+                await loadInvitations()
+            }
+        }) {
             CoachPaywallView()
                 .environmentObject(authManager)
         }
@@ -91,6 +97,9 @@ struct CoachInvitationsView: View {
                                 },
                                 onDecline: {
                                     await viewModel.declineInvitation(invitation)
+                                },
+                                onUpgrade: {
+                                    showingPaywall = true
                                 }
                             )
                         }
@@ -165,6 +174,18 @@ struct CoachInvitationsView: View {
                         Text("Declined")
                     }
                 }
+
+                if !viewModel.limitReachedSentInvitations.isEmpty {
+                    Section {
+                        ForEach(viewModel.limitReachedSentInvitations) { invitation in
+                            SentInvitationRow(invitation: invitation)
+                        }
+                    } header: {
+                        Text("Limit Reached")
+                    } footer: {
+                        Text("These invitations were accepted but reverted because your athlete limit was reached. Upgrade your plan to connect with more athletes.")
+                    }
+                }
             }
         }
     }
@@ -184,6 +205,7 @@ struct InvitationRow: View {
     var isAtLimit: Bool = false
     let onAccept: () async -> Void
     let onDecline: () async -> Void
+    var onUpgrade: (() -> Void)?
 
     @State private var isProcessing = false
     @State private var showingAcceptConfirmation = false
@@ -199,7 +221,7 @@ struct InvitationRow: View {
                     Text(invitation.athleteName)
                         .font(.headline)
 
-                    Text("Wants to share: \(invitation.folderName)")
+                    Text("Wants to share videos with you")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                 }
@@ -245,7 +267,32 @@ struct InvitationRow: View {
                     .buttonStyle(.borderless)
                     .disabled(isProcessing)
 
-                    VStack(spacing: 4) {
+                    if isAtLimit {
+                        VStack(spacing: 4) {
+                            Button {
+                                Haptics.light()
+                                onUpgrade?()
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "lock.fill")
+                                        .font(.caption)
+                                    Text("Upgrade to Accept")
+                                }
+                                .font(.subheadline)
+                                .fontWeight(.medium)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 8)
+                                .background(Color.orange)
+                                .foregroundColor(.white)
+                                .cornerRadius(8)
+                            }
+                            .buttonStyle(.borderless)
+
+                            Text("Athlete limit reached")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    } else {
                         Button {
                             Haptics.light()
                             showingAcceptConfirmation = true
@@ -255,18 +302,12 @@ struct InvitationRow: View {
                                 .fontWeight(.medium)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 8)
-                                .background(isAtLimit ? Color.gray : Color.brandNavy)
+                                .background(Color.brandNavy)
                                 .foregroundColor(.white)
                                 .cornerRadius(8)
                         }
                         .buttonStyle(.borderless)
-                        .disabled(isProcessing || isAtLimit)
-
-                        if isAtLimit {
-                            Text("Upgrade to add more athletes")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
+                        .disabled(isProcessing)
                     }
                 }
             }
@@ -285,7 +326,7 @@ struct InvitationRow: View {
                 }
             }
         } message: {
-            Text("\(invitation.athleteName) wants to share \"\(invitation.folderName)\" with you. You'll be able to view and interact with their videos based on the permissions they grant.")
+            Text("\(invitation.athleteName) wants to share their videos with you. You'll be able to view and interact with their content based on the permissions they grant.")
         }
     }
 }
@@ -303,9 +344,11 @@ struct AcceptedInvitationRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(invitation.athleteName)
                     .font(.subheadline)
-                Text(invitation.folderName)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                if let folderName = invitation.folderName {
+                    Text(folderName)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
             }
 
             Spacer()
@@ -331,9 +374,11 @@ struct DeclinedInvitationRow: View {
                 Text(invitation.athleteName)
                     .font(.subheadline)
                     .foregroundColor(.secondary)
-                Text(invitation.folderName)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                if let folderName = invitation.folderName {
+                    Text(folderName)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
             }
 
             Spacer()

@@ -16,6 +16,7 @@ enum AppEvent {
     case reactivateGame(Any?)
     case presentSeasons(Athlete)
     case presentCoaches(Athlete)
+    case presentCoachVideos(Athlete)
 }
 
 extension Notification.Name {
@@ -32,6 +33,7 @@ extension Notification.Name {
     static let reactivateGame = Notification.Name("reactivateGame")
     static let presentSeasons = Notification.Name("presentSeasons")
     static let presentCoaches = Notification.Name("presentCoaches")
+    static let presentCoachVideos = Notification.Name("presentCoachVideos")
     static let appWillEnterForeground = Notification.Name("AppWillEnterForeground")
     static let navigateToMorePractice = Notification.Name("navigateToMorePractice")
     static let navigateToMoreHighlights = Notification.Name("navigateToMoreHighlights")
@@ -72,6 +74,8 @@ func post(_ event: AppEvent) {
         NotificationCenter.default.post(name: .presentSeasons, object: athlete)
     case .presentCoaches(let athlete):
         NotificationCenter.default.post(name: .presentCoaches, object: athlete)
+    case .presentCoachVideos(let athlete):
+        NotificationCenter.default.post(name: .presentCoachVideos, object: athlete)
     }
 }
 

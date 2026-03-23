@@ -72,7 +72,7 @@ final class Athlete {
 
     /// Properly delete athlete with all associated files and data.
     /// Use this instead of modelContext.delete(athlete) to avoid orphaning children.
-    func delete(in context: ModelContext) {
+    @MainActor func delete(in context: ModelContext) {
         // Cancel any pending uploads for this athlete before deleting clips
         let athleteId = id
         Task { @MainActor in

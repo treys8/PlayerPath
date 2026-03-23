@@ -9,6 +9,7 @@ import UIKit
 import UserNotifications
 import FirebaseCore
 import FirebaseFirestore
+import FirebaseAppCheck
 import BackgroundTasks
 import OSLog
 
@@ -18,6 +19,16 @@ class PlayerPathAppDelegate: NSObject, UIApplicationDelegate {
     
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         
+        // Configure App Check before Firebase — must be set before FirebaseApp.configure()
+        #if DEBUG
+        // Use debug provider for simulators and development builds
+        let providerFactory = AppCheckDebugProviderFactory()
+        #else
+        // Use App Attest for production builds (stronger than DeviceCheck)
+        let providerFactory = AppAttestProviderFactory()
+        #endif
+        AppCheck.setAppCheckProviderFactory(providerFactory)
+
         // Configure Firebase when the app starts (thread-safe with dispatch_once internally)
         if FirebaseApp.app() == nil {
             appLog.info("Configuring Firebase on launch")
@@ -100,7 +111,6 @@ class PlayerPathAppDelegate: NSObject, UIApplicationDelegate {
             let handled = await withTaskGroup(of: Bool.self, returning: Bool.self) { group in
                 // Task 1: Process the notification
                 group.addTask { @MainActor in
-                    await CloudKitManager.shared.handleRemoteNotification(userInfo)
                     return self.handleRemoteNotification(userInfo: userInfo)
                 }
                 

@@ -191,11 +191,13 @@ struct VideoPlayerView: View {
                         ShareLink(item: clip.resolvedFileURL) {
                             Label("Share Video", systemImage: "square.and.arrow.up")
                         }
-                        Divider()
-                        Button {
-                            showingShareToFolder = true
-                        } label: {
-                            Label("Share to Coach Folder", systemImage: authManager.hasCoachingAccess ? "folder.badge.person.fill" : "lock.fill")
+                        if AppFeatureFlags.isCoachEnabled {
+                            Divider()
+                            Button {
+                                showingShareToFolder = true
+                            } label: {
+                                Label("Share to Coach Folder", systemImage: authManager.hasCoachingAccess ? "folder.badge.person.fill" : "lock.fill")
+                            }
                         }
                     } label: {
                         Image(systemName: "ellipsis.circle")

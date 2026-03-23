@@ -76,7 +76,11 @@ extension Font {
 
 extension Color {
     /// Primary brand colors — derived from the app icon (navy + gold)
-    static let brandNavy = Color(red: 0.0, green: 0.20, blue: 0.45)        // #003373
+    static let brandNavy = Color(UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(red: 0.25, green: 0.66, blue: 0.97, alpha: 1) // #40A8F7
+            : UIColor(red: 0.0, green: 0.20, blue: 0.45, alpha: 1)  // #003373 original navy
+    })
     static let brandGold = Color(red: 0.83, green: 0.63, blue: 0.16)       // #D4A029
     static let brandGoldLight = Color(red: 0.90, green: 0.72, blue: 0.28)  // Brighter for dark mode
 

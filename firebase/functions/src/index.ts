@@ -60,6 +60,43 @@ function clampExpiration(hours: number): number {
   return Math.max(1, Math.min(hours, MAX_EXPIRATION_HOURS));
 }
 
+// Maximum emails a single user can trigger per hour
+const EMAIL_RATE_LIMIT = 10;
+const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000; // 1 hour
+
+/**
+ * Checks whether a user has exceeded the email rate limit.
+ * Uses a Firestore counter document at emailRateLimits/{uid}.
+ * Returns true if the request should be allowed, false if rate-limited.
+ */
+async function checkEmailRateLimit(uid: string): Promise<boolean> {
+  const ref = admin.firestore().collection('emailRateLimits').doc(uid);
+  const doc = await ref.get();
+  const now = Date.now();
+
+  if (!doc.exists) {
+    await ref.set({ count: 1, windowStart: now });
+    return true;
+  }
+
+  const data = doc.data()!;
+  const windowStart = data.windowStart as number;
+  const count = data.count as number;
+
+  if (now - windowStart > RATE_LIMIT_WINDOW_MS) {
+    // Window expired — reset
+    await ref.set({ count: 1, windowStart: now });
+    return true;
+  }
+
+  if (count >= EMAIL_RATE_LIMIT) {
+    return false;
+  }
+
+  await ref.update({ count: admin.firestore.FieldValue.increment(1) });
+  return true;
+}
+
 /**
  * Triggers when a new invitation is created in Firestore.
  * Routes to the appropriate email template based on invitation type:
@@ -75,6 +112,16 @@ export const sendInvitationEmail = functions.firestore
     // Idempotency guard: skip if email was already sent (onCreate can fire more than once)
     if (invitation.emailSent === true) {
       console.log(`Email already sent for invitation ${invitationId}, skipping.`);
+      return;
+    }
+
+    // Rate limit: check the sender (coach or athlete) hasn't exceeded email limits
+    const senderUID = invitation.type === 'coach_to_athlete'
+      ? invitation.coachID
+      : invitation.athleteID;
+    if (senderUID && !(await checkEmailRateLimit(senderUID))) {
+      console.warn(`Rate limit exceeded for user ${senderUID}, skipping email for ${invitationId}`);
+      await snap.ref.update({ emailError: 'Rate limit exceeded', emailSent: false });
       return;
     }
 
@@ -686,6 +733,14 @@ export const sendCoachAccessRevokedEmail = functions.firestore
     const revocation = snap.data();
     const revocationId = context.params.revocationId;
 
+    // Rate limit the revoking user
+    const revokerUID = revocation.athleteID || revocation.revokedBy;
+    if (revokerUID && !(await checkEmailRateLimit(revokerUID))) {
+      console.warn(`Rate limit exceeded for user ${revokerUID}, skipping revocation email ${revocationId}`);
+      await snap.ref.update({ emailError: 'Rate limit exceeded', emailSent: false });
+      return;
+    }
+
     try {
       // Validate revocation data
       if (!revocation.coachEmail || !revocation.athleteName || !revocation.folderName) {
@@ -900,7 +955,40 @@ export const acceptAthleteToCoachInvitation = functions.https.onCall(async (data
   const coachEmail = context.auth.token.email?.toLowerCase();
   const db = admin.firestore();
 
-  return db.runTransaction(async (transaction) => {
+  // Pre-check: verify the coach is not at their athlete limit
+  const coachDoc = await db.collection('users').doc(coachID).get();
+  const coachTier = coachDoc.data()?.coachSubscriptionTier || 'coach_free';
+  const limit = getCoachAthleteLimit(coachTier);
+
+  const foldersSnap = await db.collection('sharedFolders')
+    .where('sharedWithCoachIDs', 'array-contains', coachID)
+    .get();
+  const connectedAthletes = new Set(foldersSnap.docs.map(d => d.data().ownerAthleteID));
+
+  const acceptedSnap = await db.collection('invitations')
+    .where('type', '==', 'coach_to_athlete')
+    .where('coachID', '==', coachID)
+    .where('status', '==', 'accepted')
+    .get();
+  for (const doc of acceptedSnap.docs) {
+    const uid = doc.data().athleteUserID;
+    if (uid) connectedAthletes.add(uid);
+  }
+
+  // Read the invitation to find the athlete for the "already connected" check
+  const preCheckSnap = await db.collection('invitations').doc(invitationID).get();
+  const preCheckData = preCheckSnap.data();
+  const ownerAthleteID = preCheckData?.athleteID || preCheckData?.athleteUserID;
+
+  if (ownerAthleteID && !connectedAthletes.has(ownerAthleteID) && connectedAthletes.size >= limit) {
+    throw new functions.https.HttpsError(
+      'resource-exhausted',
+      'You have reached your athlete limit. Upgrade your plan to accept more athletes.'
+    );
+  }
+
+  // Transaction: validate and accept
+  await db.runTransaction(async (transaction) => {
     const invRef = db.collection('invitations').doc(invitationID);
     const invSnap = await transaction.get(invRef);
 
@@ -910,65 +998,122 @@ export const acceptAthleteToCoachInvitation = functions.https.onCall(async (data
 
     const inv = invSnap.data()!;
 
-    // Validate invitation type
     if (inv.type !== 'athlete_to_coach') {
       throw new functions.https.HttpsError('failed-precondition', 'Wrong invitation type');
     }
 
-    // Validate status
     if (inv.status !== 'pending') {
       throw new functions.https.HttpsError('failed-precondition', 'This invitation has already been processed.');
     }
 
-    // Validate expiration
     if (inv.expiresAt && inv.expiresAt.toDate() < new Date()) {
       throw new functions.https.HttpsError('failed-precondition', 'This invitation has expired.');
     }
 
-    // Validate the caller is the intended recipient
     if (inv.coachEmail?.toLowerCase() !== coachEmail) {
       throw new functions.https.HttpsError('permission-denied', 'You are not the intended recipient of this invitation.');
     }
 
-    // Validate folder exists
-    const folderRef = db.collection('sharedFolders').doc(inv.folderID);
-    const folderSnap = await transaction.get(folderRef);
-    if (!folderSnap.exists) {
-      throw new functions.https.HttpsError('not-found', 'The shared folder no longer exists.');
+    // If invitation has a legacy folderID, join the existing folder
+    if (inv.folderID) {
+      const folderRef = db.collection('sharedFolders').doc(inv.folderID);
+      const folderSnap = await transaction.get(folderRef);
+      if (folderSnap.exists) {
+        const permissions = inv.permissions || { canUpload: false, canComment: true, canDelete: false };
+        transaction.update(folderRef, {
+          sharedWithCoachIDs: admin.firestore.FieldValue.arrayUnion(coachID),
+          [`permissions.${coachID}`]: permissions,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      }
     }
 
-    // Read permissions FROM THE INVITATION (server-side, not client-supplied)
-    const permissions = inv.permissions || { canUpload: false, canComment: true, canDelete: false };
-
-    // Update folder: add coach + permissions
-    transaction.update(folderRef, {
-      sharedWithCoachIDs: admin.firestore.FieldValue.arrayUnion(coachID),
-      [`permissions.${coachID}`]: permissions,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
-
-    // Update invitation status
     transaction.update(invRef, {
       status: 'accepted',
       acceptedAt: admin.firestore.FieldValue.serverTimestamp(),
       acceptedByCoachID: coachID,
     });
-
-    return { success: true, folderID: inv.folderID };
   });
+
+  // Create shared folders after transaction (Admin SDK bypasses security rules).
+  // For new invitations (no folderID), create Games + Lessons folders.
+  // For legacy invitations (with folderID), folders already exist — skip creation.
+  const invAfter = await db.collection('invitations').doc(invitationID).get();
+  const invData = invAfter.data()!;
+
+  if (invData.folderID) {
+    // Legacy invitation — folder was created by the client before sending
+    return { success: true, gamesFolderID: invData.folderID, lessonsFolderID: null };
+  }
+
+  const athleteName = invData.athleteName || 'Athlete';
+  const athleteID = invData.athleteID;
+  const permissions = invData.permissions || { canUpload: true, canComment: true, canDelete: false };
+  const folderBase = {
+    ownerAthleteID: athleteID,
+    ownerAthleteName: athleteName,
+    sharedWithCoachIDs: [coachID],
+    permissions: { [coachID]: permissions },
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    videoCount: 0,
+  };
+
+  let gamesFolderID: string | null = null;
+  let lessonsFolderID: string | null = null;
+
+  try {
+    const gamesRef = await db.collection('sharedFolders').add({
+      ...folderBase,
+      name: `${athleteName}'s Games`,
+      folderType: 'games',
+    });
+    gamesFolderID = gamesRef.id;
+  } catch (e) {
+    console.error('Failed to create Games folder:', e);
+  }
+
+  try {
+    const lessonsRef = await db.collection('sharedFolders').add({
+      ...folderBase,
+      name: `${athleteName}'s Lessons`,
+      folderType: 'lessons',
+    });
+    lessonsFolderID = lessonsRef.id;
+  } catch (e) {
+    console.error('Failed to create Lessons folder:', e);
+  }
+
+  // Link folder IDs back to the invitation
+  const primaryFolderID = gamesFolderID || lessonsFolderID;
+  const primaryFolderName = gamesFolderID ? `${athleteName}'s Games` : `${athleteName}'s Lessons`;
+  if (primaryFolderID) {
+    try {
+      await db.collection('invitations').doc(invitationID).update({
+        folderID: primaryFolderID,
+        folderName: primaryFolderName,
+      });
+    } catch (e) {
+      console.error('Failed to update invitation with folder IDs:', e);
+    }
+  }
+
+  return { success: true, gamesFolderID, lessonsFolderID };
 });
 
 /**
  * Accepts a coach-to-athlete invitation with server-side validation.
  * The athlete calls this instead of writing directly to Firestore.
  * Validates: caller identity, invitation state, expiration, and coach athlete limit.
+ * Creates Games + Lessons shared folders server-side (Admin SDK bypasses Pro tier rule)
+ * so any athlete can accept regardless of subscription tier.
  */
 export const acceptCoachToAthleteInvitation = functions.https.onCall(async (data, context) => {
   if (!context.auth) {
     throw new functions.https.HttpsError('unauthenticated', 'Must be authenticated');
   }
 
-  const { invitationID } = data;
+  const { invitationID, athleteName: clientAthleteName } = data;
   if (!invitationID || typeof invitationID !== 'string') {
     throw new functions.https.HttpsError('invalid-argument', 'invitationID is required');
   }
@@ -977,8 +1122,7 @@ export const acceptCoachToAthleteInvitation = functions.https.onCall(async (data
   const athleteEmail = context.auth.token.email?.toLowerCase();
   const db = admin.firestore();
 
-  // Pre-check: read coach tier and connected athlete count outside the transaction
-  // (transaction reads must happen before writes, and these are cross-collection)
+  // Pre-check: read invitation and coach tier outside the transaction
   const invSnap = await db.collection('invitations').doc(invitationID).get();
   if (!invSnap.exists) {
     throw new functions.https.HttpsError('not-found', 'Invitation not found');
@@ -1010,7 +1154,6 @@ export const acceptCoachToAthleteInvitation = functions.https.onCall(async (data
     if (uid) connectedAthletes.add(uid);
   }
 
-  // Adding this athlete would exceed the limit
   if (!connectedAthletes.has(athleteUserID) && connectedAthletes.size >= limit) {
     throw new functions.https.HttpsError(
       'resource-exhausted',
@@ -1019,7 +1162,7 @@ export const acceptCoachToAthleteInvitation = functions.https.onCall(async (data
   }
 
   // Transaction: validate and accept
-  return db.runTransaction(async (transaction) => {
+  await db.runTransaction(async (transaction) => {
     const invRef = db.collection('invitations').doc(invitationID);
     const freshSnap = await transaction.get(invRef);
 
@@ -1041,20 +1184,72 @@ export const acceptCoachToAthleteInvitation = functions.https.onCall(async (data
       throw new functions.https.HttpsError('failed-precondition', 'This invitation has expired.');
     }
 
-    // Validate the caller is the intended recipient
     if (inv.athleteEmail?.toLowerCase() !== athleteEmail) {
       throw new functions.https.HttpsError('permission-denied', 'You are not the intended recipient of this invitation.');
     }
 
-    // Accept — athleteUserID comes from server auth, not client
     transaction.update(invRef, {
       status: 'accepted',
       acceptedAt: admin.firestore.FieldValue.serverTimestamp(),
       athleteUserID: athleteUserID,
     });
-
-    return { success: true };
   });
+
+  // Create shared folders after transaction succeeds (Admin SDK bypasses security rules).
+  // Uses the athlete's self-chosen name from the client, falling back to the name
+  // the coach typed when creating the invitation.
+  const name = clientAthleteName || invData.athleteName || 'Athlete';
+  const defaultPerms = { canUpload: true, canComment: true, canDelete: false };
+  const folderBase = {
+    ownerAthleteID: athleteUserID,
+    ownerAthleteName: name,
+    sharedWithCoachIDs: [coachID],
+    permissions: { [coachID]: defaultPerms },
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    videoCount: 0,
+  };
+
+  let gamesFolderID: string | null = null;
+  let lessonsFolderID: string | null = null;
+
+  try {
+    const gamesRef = await db.collection('sharedFolders').add({
+      ...folderBase,
+      name: `${name}'s Games`,
+      folderType: 'games',
+    });
+    gamesFolderID = gamesRef.id;
+  } catch (e) {
+    console.error('Failed to create Games folder:', e);
+  }
+
+  try {
+    const lessonsRef = await db.collection('sharedFolders').add({
+      ...folderBase,
+      name: `${name}'s Lessons`,
+      folderType: 'lessons',
+    });
+    lessonsFolderID = lessonsRef.id;
+  } catch (e) {
+    console.error('Failed to create Lessons folder:', e);
+  }
+
+  // Link folder IDs back to the invitation document
+  const folderID = gamesFolderID || lessonsFolderID;
+  const folderName = gamesFolderID ? `${name}'s Games` : lessonsFolderID ? `${name}'s Lessons` : null;
+  if (folderID && folderName) {
+    try {
+      await db.collection('invitations').doc(invitationID).update({
+        folderID,
+        folderName,
+      });
+    } catch (e) {
+      console.error('Failed to update invitation with folder IDs:', e);
+    }
+  }
+
+  return { success: true, gamesFolderID, lessonsFolderID };
 });
 
 /**
@@ -1070,6 +1265,11 @@ export const resendInvitationEmail = functions.https.onCall(async (data, context
 
   if (!invitationId) {
     throw new functions.https.HttpsError('invalid-argument', 'Missing invitationId');
+  }
+
+  // Rate limit: max 10 emails per user per hour
+  if (!(await checkEmailRateLimit(context.auth.uid))) {
+    throw new functions.https.HttpsError('resource-exhausted', 'Too many emails. Try again later.');
   }
 
   try {
@@ -1464,11 +1664,7 @@ export const syncSubscriptionTier = functions.https.onCall(async (data, context)
   }
 
   const uid = context.auth.uid;
-  const { receiptData, transactionTokens, hasAthleteTierOverride } = data;
-
-  if (!receiptData || typeof receiptData !== 'string') {
-    throw new functions.https.HttpsError('invalid-argument', 'Receipt data is required');
-  }
+  const { receiptData, transactionTokens, hasAthleteTierOverride, sandboxMode } = data;
 
   if (!Array.isArray(transactionTokens)) {
     throw new functions.https.HttpsError(
@@ -1477,30 +1673,46 @@ export const syncSubscriptionTier = functions.https.onCall(async (data, context)
     );
   }
 
-  // Create verifier once and reuse for both AppTransaction and Transaction tokens
-  const verifier = createVerifier();
+  // Create both production and sandbox verifiers. TestFlight uses sandbox-signed
+  // tokens, so we try production first then fall back to sandbox.
+  const verifiers = createVerifiers();
+  let activeVerifier: SignedDataVerifier = verifiers.production;
 
   // --- Step 1: Verify AppTransaction (proves the app binary is legitimate) ---
-  try {
-    const appTransaction = await verifier.verifyAndDecodeAppTransaction(receiptData);
-    if (!appTransaction.bundleId || appTransaction.bundleId !== APP_BUNDLE_ID) {
-      throw new Error(`Bundle ID mismatch: expected ${APP_BUNDLE_ID}, got ${appTransaction.bundleId ?? 'undefined'}`);
+  // In sandbox/Xcode testing, AppTransaction is unavailable. When sandboxMode is
+  // true and no receiptData is provided, skip AppTransaction verification but
+  // still verify individual transaction JWS tokens in Step 2.
+  if (sandboxMode && (!receiptData || typeof receiptData !== 'string')) {
+    console.log('⚠️ Sandbox mode: skipping AppTransaction verification (no receipt).');
+    activeVerifier = verifiers.sandbox;
+  } else {
+    if (!receiptData || typeof receiptData !== 'string') {
+      throw new functions.https.HttpsError('invalid-argument', 'Receipt data is required');
     }
-    console.log(`✅ Verified AppTransaction: bundleId=${appTransaction.bundleId}`);
-  } catch (error) {
-    console.error('❌ App Store verification failed:', error);
-    throw new functions.https.HttpsError(
-      error instanceof Error && error.message.includes('APP_APPLE_ID')
-        ? 'failed-precondition'
-        : 'permission-denied',
-      error instanceof Error && error.message.includes('APP_APPLE_ID')
-        ? 'Server configuration error. Please try again later.'
-        : 'Invalid App Store transaction token'
-    );
+    // Try production first, then sandbox (TestFlight uses sandbox-signed tokens)
+    let verified = false;
+    for (const [envName, verifier] of [['production', verifiers.production], ['sandbox', verifiers.sandbox]] as const) {
+      try {
+        const appTransaction = await verifier.verifyAndDecodeAppTransaction(receiptData);
+        if (!appTransaction.bundleId || appTransaction.bundleId !== APP_BUNDLE_ID) {
+          throw new Error(`Bundle ID mismatch: expected ${APP_BUNDLE_ID}, got ${appTransaction.bundleId ?? 'undefined'}`);
+        }
+        console.log(`✅ Verified AppTransaction (${envName}): bundleId=${appTransaction.bundleId}`);
+        activeVerifier = verifier;
+        verified = true;
+        break;
+      } catch (e) {
+        console.log(`AppTransaction verification failed for ${envName}: ${e}`);
+      }
+    }
+    if (!verified) {
+      console.error('❌ App Store verification failed for both production and sandbox environments.');
+      throw new functions.https.HttpsError('permission-denied', 'Invalid App Store transaction token');
+    }
   }
 
   // --- Step 2: Verify individual Transaction tokens and derive tiers ---
-  const { athleteTier, coachTier } = await resolveTransactionTiers(transactionTokens, verifier);
+  const { athleteTier, coachTier } = await resolveTransactionTiers(transactionTokens, activeVerifier);
 
   console.log(`🔍 Server-derived tiers: athlete=${athleteTier}, coach=${coachTier}`);
 
@@ -1666,96 +1878,28 @@ export const enforceCoachAthleteLimit = functions.firestore
 /**
  * Server-side backstop: when any invitation is accepted (status changes to
  * "accepted"), verify the coach is still within their tier's athlete limit.
- * Handles both invitation types:
- *   - coach_to_athlete: coachID is on the invitation directly
- *   - athlete_to_coach: coachID is written as acceptedByCoachID during acceptance
- * If over limit, reverts the invitation and (for athlete_to_coach) removes the
- * coach from the shared folder.
+ *
+ * DISABLED: Both acceptance callables (acceptCoachToAthleteInvitation and
+ * acceptAthleteToCoachInvitation) now enforce the coach athlete limit via a
+ * pre-check before accepting. This trigger previously ran as an async backstop,
+ * but it caused a race condition: the callable would return success to the client,
+ * then this trigger would fire and revert the status to "rejected_limit". The
+ * client would show "accepted" while the other side saw nothing (the invitation
+ * vanished from the UI because rejectedLimit wasn't displayed).
+ *
+ * The pre-checks in the callables are sufficient for normal operation. The only
+ * gap is concurrent acceptances (two athletes accepted by the same coach at the
+ * exact same moment), which is rare enough that it doesn't justify the race
+ * condition this trigger introduces. If stricter enforcement is needed later,
+ * use a distributed counter or a Firestore-native constraint instead.
  */
 export const enforceCoachAthleteLimitOnAccept = functions.firestore
   .document('invitations/{invitationID}')
-  .onUpdate(async (change, context) => {
-    const before = change.before.data();
-    const after = change.after.data();
-
-    // Only act on status transitions to "accepted"
-    if (before.status === 'accepted' || after.status !== 'accepted') return;
-
-    // Determine coachID based on invitation type
-    let coachID: string;
-    if (after.type === 'coach_to_athlete' && after.coachID) {
-      coachID = after.coachID;
-    } else if (after.type === 'athlete_to_coach' && after.acceptedByCoachID) {
-      coachID = after.acceptedByCoachID;
-    } else {
-      return; // Unknown type or missing coachID
-    }
-
-    const invitationID = context.params.invitationID;
-    const db = admin.firestore();
-
-    try {
-      // Perform all reads first, then use a transaction for writes
-      const coachDoc = await db.collection('users').doc(coachID).get();
-      const coachTier = coachDoc.data()?.coachSubscriptionTier || 'coach_free';
-      const limit = getCoachAthleteLimit(coachTier);
-
-      // Count unique connected athletes (shared folders + accepted coach-to-athlete invitations)
-      const foldersSnap = await db.collection('sharedFolders')
-        .where('sharedWithCoachIDs', 'array-contains', coachID)
-        .get();
-      const connectedAthletes = new Set(foldersSnap.docs.map(d => d.data().ownerAthleteID));
-
-      const acceptedSnap = await db.collection('invitations')
-        .where('type', '==', 'coach_to_athlete')
-        .where('coachID', '==', coachID)
-        .where('status', '==', 'accepted')
-        .get();
-      for (const doc of acceptedSnap.docs) {
-        const athleteUID = doc.data().athleteUserID;
-        if (athleteUID) connectedAthletes.add(athleteUID);
-      }
-
-      if (connectedAthletes.size > limit) {
-        console.warn(
-          `⚠️ Coach athlete limit exceeded on accept: ${connectedAthletes.size}/${limit} (tier=${coachTier}). Reverting invitation ${invitationID}.`
-        );
-
-        // Pre-fetch any athlete folders before entering the transaction (for coach-to-athlete path)
-        let athleteFolderRefs: FirebaseFirestore.DocumentReference[] = [];
-        if (after.type === 'coach_to_athlete' && after.athleteUserID) {
-          const athleteFolders = await db.collection('sharedFolders')
-            .where('ownerAthleteID', '==', after.athleteUserID)
-            .where('sharedWithCoachIDs', 'array-contains', coachID)
-            .get();
-          athleteFolderRefs = athleteFolders.docs.map(d => d.ref);
-        }
-
-        // Transaction: all writes are atomic
-        await db.runTransaction(async (transaction) => {
-          // Revert the invitation status
-          transaction.update(change.after.ref, {
-            status: 'rejected_limit',
-            rejectedReason: 'Coach athlete limit reached'
-          });
-
-          // Clean up shared folders that were created during acceptance
-          if (after.type === 'athlete_to_coach' && after.folderID) {
-            transaction.update(db.collection('sharedFolders').doc(after.folderID), {
-              sharedWithCoachIDs: admin.firestore.FieldValue.arrayRemove(coachID)
-            });
-          } else if (athleteFolderRefs.length > 0) {
-            for (const folderRef of athleteFolderRefs) {
-              transaction.update(folderRef, {
-                sharedWithCoachIDs: admin.firestore.FieldValue.arrayRemove(coachID)
-              });
-            }
-          }
-        });
-      }
-    } catch (error) {
-      console.error(`❌ enforceCoachAthleteLimitOnAccept failed for invitation ${invitationID}:`, error);
-    }
+  .onUpdate(async (_change, _context) => {
+    // Both invitation flows now enforce limits in their respective callables.
+    // This trigger is kept as a deployed function stub to avoid breaking existing
+    // deployments (removing an exported function requires explicit deletion).
+    return;
   });
 
 // App bundle ID — must match the client app's bundle identifier
@@ -1780,26 +1924,35 @@ function loadAppleRootCAs(): Buffer[] {
 
 /**
  * Creates a SignedDataVerifier for validating Apple JWS tokens.
- * Determines environment from the FUNCTIONS_EMULATOR env var and APP_APPLE_ID presence.
  *
  * IMPORTANT: In production, APP_APPLE_ID must be set or verification will fail.
  * Set it via: firebase functions:secrets:set APP_APPLE_ID
  * Find it in App Store Connect → General → App Information → Apple ID (numeric).
  */
-function createVerifier(): SignedDataVerifier {
+function createVerifier(environment?: Environment): SignedDataVerifier {
   const rootCAs = loadAppleRootCAs();
   const isEmulator = !!process.env.FUNCTIONS_EMULATOR;
 
   if (!isEmulator && APP_APPLE_ID === undefined) {
-    // Fail loudly in production — sandbox verification would reject all real tokens
     throw new Error(
       'APP_APPLE_ID environment variable is required in production. '
       + 'Set it to your numeric Apple ID from App Store Connect.'
     );
   }
 
-  const environment = isEmulator ? Environment.SANDBOX : Environment.PRODUCTION;
-  return new SignedDataVerifier(rootCAs, true, environment, APP_BUNDLE_ID, APP_APPLE_ID);
+  const env = environment ?? (isEmulator ? Environment.SANDBOX : Environment.PRODUCTION);
+  return new SignedDataVerifier(rootCAs, true, env, APP_BUNDLE_ID, APP_APPLE_ID);
+}
+
+/**
+ * Creates both production and sandbox verifiers. TestFlight uses sandbox-signed
+ * tokens, so we need to try both environments when verifying.
+ */
+function createVerifiers(): { production: SignedDataVerifier; sandbox: SignedDataVerifier } {
+  return {
+    production: createVerifier(Environment.PRODUCTION),
+    sandbox: createVerifier(Environment.SANDBOX),
+  };
 }
 
 

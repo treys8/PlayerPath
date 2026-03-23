@@ -142,8 +142,14 @@ struct ComprehensiveSignInView: View {
                 RoleSelectionButton(role: .athlete, isSelected: selectedRole == .athlete, icon: "figure.baseball", title: "Athlete", description: "Track my progress") {
                     Haptics.light(); selectedRole = .athlete
                 }
-                RoleSelectionButton(role: .coach, isSelected: selectedRole == .coach, icon: "person.2.fill", title: "Coach", description: "Work with athletes") {
-                    Haptics.light(); selectedRole = .coach
+                if AppFeatureFlags.isCoachEnabled {
+                    RoleSelectionButton(role: .coach, isSelected: selectedRole == .coach, icon: "person.2.fill", title: "Coach", description: "Work with athletes") {
+                        Haptics.light(); selectedRole = .coach
+                    }
+                } else {
+                    RoleSelectionButton(role: .coach, isSelected: false, icon: "person.2.fill", title: "Coach", description: "Coming Soon") {}
+                        .opacity(0.5)
+                        .allowsHitTesting(false)
                 }
             }
         }
@@ -214,19 +220,6 @@ struct ComprehensiveSignInView: View {
         VStack(spacing: 16) {
             EmptyView().id("actionButtons")
 
-            // Sign in with Apple (required by App Store Guideline 4.8)
-            SignInWithAppleButton(isSignUp: isSignUpMode) {
-                appleSignInManager.pendingRole = selectedRole
-                appleSignInManager.signInWithApple()
-            }
-
-            // Divider
-            HStack {
-                Rectangle().frame(height: 1).foregroundColor(.secondary.opacity(0.3))
-                Text("or").font(.subheadline).foregroundColor(.secondary)
-                Rectangle().frame(height: 1).foregroundColor(.secondary.opacity(0.3))
-            }
-
             Button(action: { Haptics.medium(); performAuth() }) {
                 HStack(spacing: 10) {
                     if authManager.isLoading {
@@ -249,6 +242,19 @@ struct ComprehensiveSignInView: View {
             }
             .buttonStyle(ScaleButtonStyle())
             .disabled(!canSubmitForm() || authManager.isLoading)
+
+            // Divider
+            HStack {
+                Rectangle().frame(height: 1).foregroundColor(.secondary.opacity(0.3))
+                Text("or").font(.subheadline).foregroundColor(.secondary)
+                Rectangle().frame(height: 1).foregroundColor(.secondary.opacity(0.3))
+            }
+
+            // Sign in with Apple (required by App Store Guideline 4.8)
+            SignInWithAppleButton(isSignUp: isSignUpMode) {
+                appleSignInManager.pendingRole = selectedRole
+                appleSignInManager.signInWithApple()
+            }
 
             if !isSignUpMode {
                 Button { Haptics.light(); showingResetPasswordSheet = true } label: {
