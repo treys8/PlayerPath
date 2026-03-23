@@ -25,7 +25,7 @@ class PlayerPathAppDelegate: NSObject, UIApplicationDelegate {
         let providerFactory = AppCheckDebugProviderFactory()
         #else
         // Use App Attest for production builds (stronger than DeviceCheck)
-        let providerFactory = AppAttestProviderFactory()
+        let providerFactory = PlayerPathAppAttestProviderFactory()
         #endif
         AppCheck.setAppCheckProviderFactory(providerFactory)
 
@@ -243,4 +243,15 @@ extension PlayerPathAppDelegate {
         appLog.info("Background tasks registered")
     }
 }
+
+// MARK: - App Attest Provider Factory
+/// Custom factory that creates `AppAttestProvider` instances for Firebase App Check.
+/// `AppCheckDebugProviderFactory` is built-in, but there is no built-in factory
+/// for App Attest — we must provide one ourselves.
+private class PlayerPathAppAttestProviderFactory: NSObject, AppCheckProviderFactory {
+    func createProvider(with app: FirebaseApp) -> (any AppCheckProvider)? {
+        return AppAttestProvider(app: app)
+    }
+}
+
 
