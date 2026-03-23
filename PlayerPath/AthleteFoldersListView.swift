@@ -23,11 +23,13 @@ struct AthleteFoldersListView: View {
         }
     }
     
+    @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @State private var activeSheet: SheetType?
     @State private var showingError = false
     @State private var errorMessage = ""
     @State private var isDeletingFolders = false
     @State private var lastFetchDate: Date?
+    @State private var showingPaywall = false
 
     var body: some View {
         Group {
@@ -115,6 +117,28 @@ struct AthleteFoldersListView: View {
     
     private var foldersList: some View {
         List {
+            if authManager.currentTier < .pro {
+                Section {
+                    Button {
+                        showingPaywall = true
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundColor(.orange)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Coach Access Paused")
+                                    .font(.subheadline)
+                                    .fontWeight(.semibold)
+                                    .foregroundColor(.primary)
+                                Text("Your coaches can no longer view these folders. Upgrade to Pro to restore access.")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                    }
+                }
+            }
+
             Section {
                 ForEach(folderManager.athleteFolders) { folder in
                     NavigationLink(destination: AthleteFolderDetailView(folder: folder)) {
@@ -127,6 +151,11 @@ struct AthleteFoldersListView: View {
             } footer: {
                 Text("Folders are shared with your coaches. They can view and upload videos based on the permissions you set.")
                     .font(.caption)
+            }
+        }
+        .sheet(isPresented: $showingPaywall) {
+            if let user = authManager.localUser {
+                ImprovedPaywallView(user: user)
             }
         }
     }

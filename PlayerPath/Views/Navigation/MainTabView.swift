@@ -495,7 +495,7 @@ struct MainTabView: View {
                 case .coaches:
                     CoachesView(athlete: selectedAthlete).id(selectedAthlete.id).proRequired()
                 case .sharedFolders:
-                    AthleteFoldersListView(userID: authManager.userID).proRequired()
+                    AthleteFoldersListView(userID: authManager.userID)
                 }
             }
         }

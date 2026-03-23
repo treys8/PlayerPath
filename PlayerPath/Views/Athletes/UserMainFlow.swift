@@ -118,8 +118,20 @@ struct UserMainFlow: View {
                     selectedAthlete: $selectedAthlete,
                     isFirstAthlete: true
                 )
+            } else if athletesForUser.isEmpty && (SyncCoordinator.shared.isSyncing || (!isNewUserFlag && SyncCoordinator.shared.lastSyncDate == nil)) {
+                // Returning user on new device — sync is downloading their athletes,
+                // or sync hasn't started yet (lastSyncDate is nil).
+                // Show loading instead of AddAthleteView to prevent duplicate creation.
+                VStack(spacing: 16) {
+                    ProgressView()
+                        .scaleEffect(1.2)
+                    Text("Syncing your data...")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if athletesForUser.isEmpty {
-                // Returning user with no athletes (e.g. data was lost) — let them add one
+                // Returning user with no athletes after sync finished — let them add one
                 AddAthleteView(
                     user: user,
                     selectedAthlete: $selectedAthlete,

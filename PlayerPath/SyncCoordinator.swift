@@ -338,12 +338,14 @@ final class SyncCoordinator {
         // Get all seasons from all athletes for this user
         let athletes = user.athletes ?? []
         let allSeasons = athletes.flatMap { $0.seasons ?? [] }
-        let dirtySeasons = allSeasons.filter { $0.needsSync && !$0.isDeletedRemotely }
+        // Only upload seasons whose parent athlete has already synced (has a firestoreId).
+        // Uploading before that would persist the local UUID as athleteId in Firestore,
+        // causing orphaned records on other devices.
+        let dirtySeasons = allSeasons.filter { $0.needsSync && !$0.isDeletedRemotely && $0.athlete?.firestoreId != nil }
 
         guard !dirtySeasons.isEmpty else {
             return
         }
-
 
         var syncedSeasons: [Season] = []
 
@@ -498,7 +500,8 @@ final class SyncCoordinator {
         }
         var seenGameIDs = Set<UUID>()
         let allGames = allGamesRaw.filter { seenGameIDs.insert($0.id).inserted }
-        let dirtyGames = allGames.filter { $0.needsSync && !$0.isDeletedRemotely }
+        // Only upload games whose parent athlete has already synced (has a firestoreId).
+        let dirtyGames = allGames.filter { $0.needsSync && !$0.isDeletedRemotely && $0.athlete?.firestoreId != nil }
 
         guard !dirtyGames.isEmpty else {
             return
@@ -681,7 +684,8 @@ final class SyncCoordinator {
             allPractices.append(contentsOf: practices)
         }
 
-        let dirtyPractices = allPractices.filter { $0.needsSync }
+        // Only upload practices whose parent athlete has already synced (has a firestoreId).
+        let dirtyPractices = allPractices.filter { $0.needsSync && $0.athlete?.firestoreId != nil }
 
         guard !dirtyPractices.isEmpty else {
             return
@@ -1461,6 +1465,7 @@ final class SyncCoordinator {
     /// Syncs all entities for a user in dependency order.
     /// Each step is isolated — a failure in one entity type does not abort the rest.
     /// Order: Athletes → Seasons → Games → Practices → Videos → PracticeNotes → Photos → Coaches
+    /// Times out after 2 minutes to prevent isSyncing from staying true indefinitely.
     func syncAll(for user: User) async throws {
         guard !isSyncing else {
             return
@@ -1468,15 +1473,30 @@ final class SyncCoordinator {
         isSyncing = true
         defer { isSyncing = false }
 
+        let syncTask = Task { @MainActor in
+            await self.isolatedSync("Athletes")  { try await self.syncAthletes(for: user) }
+            await self.isolatedSync("Seasons")   { try await self.syncSeasons(for: user) }
+            await self.isolatedSync("Games")     { try await self.syncGames(for: user) }
+            await self.isolatedSync("Practices") { try await self.syncPractices(for: user) }
+            await self.isolatedSync("Videos")    { try await self.syncVideos(for: user) }
+            await self.isolatedSync("Notes")     { try await self.syncPracticeNotes(for: user) }
+            await self.isolatedSync("Photos")    { try await self.syncPhotos(for: user) }
+            await self.isolatedSync("Coaches")   { try await self.syncCoaches(for: user) }
+        }
 
-        await isolatedSync("Athletes")  { try await syncAthletes(for: user) }
-        await isolatedSync("Seasons")   { try await syncSeasons(for: user) }
-        await isolatedSync("Games")     { try await syncGames(for: user) }
-        await isolatedSync("Practices") { try await syncPractices(for: user) }
-        await isolatedSync("Videos")    { try await syncVideos(for: user) }
-        await isolatedSync("Notes")     { try await syncPracticeNotes(for: user) }
-        await isolatedSync("Photos")    { try await syncPhotos(for: user) }
-        await isolatedSync("Coaches")   { try await syncCoaches(for: user) }
+        let timeoutTask = Task {
+            try await Task.sleep(for: .seconds(120))
+            syncTask.cancel()
+        }
+
+        // Wait for sync to finish (or be cancelled by timeout)
+        await syncTask.value
+        timeoutTask.cancel()
+
+        if syncTask.isCancelled {
+            syncLog.warning("syncAll timed out after 120 seconds")
+            appendSyncError(SyncError(type: .syncFailed, entityId: "syncAll", message: "Sync timed out"))
+        }
 
         lastSyncDate = Date()
     }
@@ -1563,6 +1583,57 @@ final class SyncCoordinator {
     /// Clears all sync errors
     func clearErrors() {
         syncErrors.removeAll()
+    }
+
+    /// Deletes all local SwiftData records for the current user.
+    /// Called on sign-out and account deletion to prevent data leakage between accounts.
+    /// - Parameter fallbackContext: Used when SyncCoordinator hasn't been configured
+    ///   (e.g. coach users who skip athlete sync setup).
+    func clearLocalData(fallbackContext: ModelContext? = nil) {
+        guard let context = modelContext ?? fallbackContext else {
+            syncLog.warning("clearLocalData: no modelContext available")
+            return
+        }
+
+        do {
+            // Delete in dependency order (children first) to avoid orphan issues
+            try context.delete(model: PlayResult.self)
+            try context.delete(model: PracticeNote.self)
+            try context.delete(model: GameStatistics.self)
+            try context.delete(model: AthleteStatistics.self)
+            try context.delete(model: Photo.self)
+            try context.delete(model: VideoClip.self)
+            try context.delete(model: PendingUpload.self)
+            try context.delete(model: Game.self)
+            try context.delete(model: Practice.self)
+            try context.delete(model: Season.self)
+            try context.delete(model: Coach.self)
+            try context.delete(model: Athlete.self)
+            try context.delete(model: OnboardingProgress.self)
+            try context.delete(model: User.self)
+            try context.save()
+            lastSyncDate = nil
+            syncLog.info("Cleared all local SwiftData records")
+        } catch {
+            syncLog.error("Failed to clear local data: \(error.localizedDescription)")
+            ErrorHandlerService.shared.handle(error, context: "SyncCoordinator.clearLocalData", showAlert: false)
+        }
+
+        // Delete local video and photo files from disk
+        let fileManager = FileManager.default
+        if let documentsURL = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first {
+            for folder in ["Clips", "Photos"] {
+                let folderURL = documentsURL.appendingPathComponent(folder, isDirectory: true)
+                if fileManager.fileExists(atPath: folderURL.path) {
+                    do {
+                        try fileManager.removeItem(at: folderURL)
+                        syncLog.info("Deleted local \(folder) directory")
+                    } catch {
+                        syncLog.error("Failed to delete \(folder) directory: \(error.localizedDescription)")
+                    }
+                }
+            }
+        }
     }
 
     /// Stops the periodic sync timer, removes background/foreground observers,

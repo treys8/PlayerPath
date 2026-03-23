@@ -404,16 +404,9 @@ extension ComprehensiveAuthManager {
             // Step 3: Clear biometric credentials
             BiometricAuthenticationManager.shared.disableBiometric()
 
-            // Step 4: Clear local SwiftData records (before Firebase Auth deletion
-            // so data isn't orphaned if the app crashes after auth deletion)
-            if let context = modelContext, let localUser = localUser {
-                // Deep-delete all athletes and their children (videos, games, photos, etc.)
-                for athlete in localUser.athletes ?? [] {
-                    athlete.delete(in: context)
-                }
-                context.delete(localUser)
-                ErrorHandlerService.shared.saveContext(context, caller: "AuthManager.deleteAccount")
-            }
+            // Step 4: Cancel any in-flight uploads and clear local data
+            UploadQueueManager.shared.clearAllQueues()
+            SyncCoordinator.shared.clearLocalData(fallbackContext: modelContext)
 
             // Step 5: Delete Firebase Auth account
             try await user.delete()

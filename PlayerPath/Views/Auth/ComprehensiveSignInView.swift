@@ -275,7 +275,9 @@ struct ComprehensiveSignInView: View {
 
     @ViewBuilder
     private var authErrorSection: some View {
-        if let errorMessage = authManager.errorMessage {
+        // Show errors from either auth manager or Apple Sign In manager
+        let displayError = authManager.errorMessage ?? appleSignInManager.errorMessage
+        if let errorMessage = displayError {
             HStack(alignment: .top, spacing: 12) {
                 Image(systemName: "exclamationmark.triangle.fill").font(.title3).foregroundColor(.red)
                 VStack(alignment: .leading, spacing: 4) {
@@ -283,7 +285,11 @@ struct ComprehensiveSignInView: View {
                     Text(errorMessage).font(.caption).foregroundColor(.red.opacity(0.8)).fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer()
-                Button { Haptics.light(); authManager.clearError() } label: {
+                Button {
+                    Haptics.light()
+                    authManager.clearError()
+                    appleSignInManager.errorMessage = nil
+                } label: {
                     Image(systemName: "xmark.circle.fill").font(.title3).foregroundColor(.red.opacity(0.6))
                 }
             }
