@@ -35,6 +35,7 @@ struct CoachFolderDetailView: View {
     @State private var cachedAvailableTags: [String] = []
     @State private var reviewingClip: CoachVideoItem?
     @State private var isSharingAll = false
+    @State private var shareProgress: (current: Int, total: Int)?
     private var archiveManager: CoachFolderArchiveManager { .shared }
 
     init(folder: SharedFolder, initialTab: FolderTab = .fromAthlete) {
@@ -288,9 +289,15 @@ struct CoachFolderDetailView: View {
                     HStack {
                         ProgressView()
                             .controlSize(.small)
-                        Text("Sharing clips...")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
+                        if let progress = shareProgress {
+                            Text("Sharing clip \(progress.current) of \(progress.total)...")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                        } else {
+                            Text("Sharing clips...")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                        }
                     }
                     .padding(.vertical, 8)
                 }
@@ -319,6 +326,7 @@ struct CoachFolderDetailView: View {
         let clips = viewModel.cachedNeedsReviewVideos
         guard !clips.isEmpty, let folderID = folder.id else { return }
         isSharingAll = true
+        shareProgress = (current: 0, total: clips.count)
 
         Task {
             var sharedCount = 0
@@ -333,6 +341,7 @@ struct CoachFolderDetailView: View {
                 } catch {
                     ErrorHandlerService.shared.handle(error, context: "CoachFolderDetail.shareAll", showAlert: false)
                 }
+                shareProgress = (current: sharedCount, total: clips.count)
             }
 
             // Notify athlete once (not per-clip)
@@ -350,6 +359,7 @@ struct CoachFolderDetailView: View {
 
             await viewModel.loadVideos()
             isSharingAll = false
+            shareProgress = nil
             Haptics.success()
         }
     }
@@ -364,7 +374,7 @@ struct CoachFolderDetailView: View {
             Haptics.success()
             dismiss()
         } catch {
-            permissionError = "Failed to leave folder: \(error.localizedDescription)"
+            permissionError = "We couldn't remove you from this folder. Please try again."
             showingPermissionError = true
             ErrorHandlerService.shared.handle(error, context: "CoachFolderDetailView.leaveFolder", showAlert: false)
             isLeaving = false
@@ -384,7 +394,7 @@ struct CoachFolderDetailView: View {
             verifiedFolder = updated
             lastRefreshed = Date()
         } catch {
-            permissionError = error.localizedDescription
+            permissionError = "Your access to this folder has been revoked. Contact the athlete for a new invitation."
             showingPermissionError = true
         }
     }

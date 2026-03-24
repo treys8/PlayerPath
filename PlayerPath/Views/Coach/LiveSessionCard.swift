@@ -159,5 +159,7 @@ struct LiveSessionCard: View {
                 .stroke(accentColor.opacity(0.4), lineWidth: 2)
         )
         .shadow(color: accentColor.opacity(0.15), radius: 8, x: 0, y: 4)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(isLive ? "Live" : "Review") session with \(session.athleteNames.values.sorted().joined(separator: ", ")). \(session.clipCount) clip\(session.clipCount == 1 ? "" : "s").")
     }
 }

@@ -99,6 +99,8 @@ struct SeasonBadge: View {
             .font(.system(size: fontSize))
             .fontWeight(.semibold)
             .foregroundStyle(.white)
+            .lineLimit(1)
+            .fixedSize()
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
             .background(season.isActive ? Color.brandNavy : Color.gray)

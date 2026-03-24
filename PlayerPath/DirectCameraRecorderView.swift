@@ -23,6 +23,8 @@ struct CoachSessionContext {
 struct DirectCameraRecorderView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.verticalSizeClass) private var vSizeClass
+    private var isLandscape: Bool { vSizeClass == .compact }
 
     let athlete: Athlete?
     let game: Game?
@@ -44,6 +46,8 @@ struct DirectCameraRecorderView: View {
     @State private var trimmedVideoURL: URL?
     @State private var showingDiscardConfirmation = false
     @State private var showingSaveError = false
+    @State private var showingSaveFailedError = false
+    @State private var showingOfflineAlert = false
 
     // Coach mode state
     @State private var lastSelectedAthleteID: String?
@@ -95,6 +99,11 @@ struct DirectCameraRecorderView: View {
         } message: {
             Text("No athlete profile found. Please create an athlete profile first.")
         }
+        .alert("Save Failed", isPresented: $showingSaveFailedError) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text("The video could not be saved. Please try recording again.")
+        }
         .alert("Error", isPresented: errorBinding) {
             Button("OK", role: .cancel) {
                 ErrorHandlerService.shared.dismissError()
@@ -104,6 +113,20 @@ struct DirectCameraRecorderView: View {
             if let error = ErrorHandlerService.shared.currentError {
                 Text(error.errorDescription ?? "An error occurred")
             }
+        }
+        .alert("No Internet Connection", isPresented: $showingOfflineAlert) {
+            Button("Try Again") {
+                if let url = trimmedVideoURL ?? recordedVideoURL,
+                   let context = coachContext,
+                   let athleteID = lastSelectedAthleteID ?? context.session.athleteIDs.first {
+                    saveCoachClip(videoURL: url, athleteID: athleteID, context: context)
+                }
+            }
+            Button("Discard", role: .destructive) {
+                cleanupAndDismiss()
+            }
+        } message: {
+            Text("Your clip couldn't be uploaded. Check your connection and try again, or discard the clip.")
         }
     }
 
@@ -152,13 +175,13 @@ struct DirectCameraRecorderView: View {
             if isCoachMode {
                 VStack {
                     liveSessionBadge
-                        .padding(.top, 70)
+                        .padding(.top, isLandscape ? 16 : 72)
                     Spacer()
                 }
             } else if let game = game, game.isLive {
                 VStack {
                     liveGameBadge(for: game)
-                        .padding(.top, 70)
+                        .padding(.top, isLandscape ? 16 : 72)
                     Spacer()
                 }
             }
@@ -254,7 +277,9 @@ struct DirectCameraRecorderView: View {
                     athlete: athlete,
                     practice: practice,
                     onSave: { note, completion in
-                        saveVideoWithResult(videoURL: finalVideoURL, playResult: nil, role: athlete?.primaryRole ?? .batter, note: note) {
+                        saveVideoWithResult(videoURL: finalVideoURL, playResult: nil, role: athlete?.primaryRole ?? .batter, note: note, onError: {
+                            completion() // Reset PracticeVideoSaveView spinner so user can retry
+                        }) {
                             completion()
                             dismiss()
                         }
@@ -269,8 +294,8 @@ struct DirectCameraRecorderView: View {
                     athlete: athlete,
                     game: game,
                     practice: practice,
-                    onSave: { result, pitchSpeed, role in
-                        saveVideoWithResult(videoURL: finalVideoURL, playResult: result, pitchSpeed: pitchSpeed, role: role) { dismiss() }
+                    onSave: { result, pitchSpeed, pitchType, role in
+                        saveVideoWithResult(videoURL: finalVideoURL, playResult: result, pitchSpeed: pitchSpeed, pitchType: pitchType, role: role) { dismiss() }
                     },
                     onCancel: {
                         showingDiscardConfirmation = true
@@ -324,19 +349,17 @@ struct DirectCameraRecorderView: View {
         }
     }
 
-    private func saveVideoWithResult(videoURL: URL, playResult: PlayResultType?, pitchSpeed: Double? = nil, role: AthleteRole = .batter, note: String? = nil, onComplete: @escaping () -> Void) {
+    private func saveVideoWithResult(videoURL: URL, playResult: PlayResultType?, pitchSpeed: Double? = nil, pitchType: String? = nil, role: AthleteRole = .batter, note: String? = nil, onError: (() -> Void)? = nil, onComplete: @escaping () -> Void) {
         guard let athlete = athlete else {
             Haptics.error()
             showingSaveError = true
             return
         }
 
-        // Dismiss immediately so the user isn't waiting
-        Haptics.success()
-        onComplete()
+        // Prevent double-saves
+        guard saveTask == nil else { return }
 
-        // Save in background using ClipPersistenceService for proper
-        // file management, stats, analytics, and playability verification
+        // Save in background — success feedback and dismiss happen AFTER save confirms
         saveTask = Task { @MainActor in
             defer { saveTask = nil }
 
@@ -345,6 +368,7 @@ struct DirectCameraRecorderView: View {
                     from: videoURL,
                     playResult: playResult,
                     pitchSpeed: pitchSpeed,
+                    pitchType: pitchType,
                     role: role,
                     note: note,
                     context: modelContext,
@@ -361,18 +385,24 @@ struct DirectCameraRecorderView: View {
                     )
                 }
 
-                // Clean up temp files after successful save
+                // Save succeeded — now dismiss
+                Haptics.success()
                 VideoFileManager.cleanup(url: videoURL)
                 if let trimmed = trimmedVideoURL {
                     VideoFileManager.cleanup(url: trimmed)
                 }
                 recordedVideoURL = nil
                 trimmedVideoURL = nil
+                onComplete()
             } catch {
+                Haptics.error()
                 ErrorHandlerService.shared.handle(
                     AppError.videoRecordingFailed(error.localizedDescription),
-                    context: "Saving Video"
+                    context: "Saving Video",
+                    showAlert: false
                 )
+                onError?()
+                showingSaveFailedError = true
             }
         }
     }
@@ -380,6 +410,15 @@ struct DirectCameraRecorderView: View {
     private func saveCoachClip(videoURL: URL, athleteID: String, context: CoachSessionContext) {
         guard let folderID = context.session.folderIDs[athleteID],
               let currentUser = Auth.auth().currentUser else { return }
+
+        // Store athleteID before connectivity check so "Try Again" knows the target
+        lastSelectedAthleteID = athleteID
+
+        // Check connectivity before fire-and-forget upload
+        guard ConnectivityMonitor.shared.isConnected else {
+            showingOfflineAlert = true
+            return
+        }
 
         let coachID = currentUser.uid
         let coachName = currentUser.displayName ?? currentUser.email ?? "Coach"
@@ -389,11 +428,10 @@ struct DirectCameraRecorderView: View {
             VideoFileManager.cleanup(url: original)
         }
 
-        lastSelectedAthleteID = athleteID
         Haptics.success()
         dismiss()
 
-        // Fire-and-forget upload in background (manager cleans up the uploaded file)
+        // Fire-and-forget upload in background (manager retries up to 3 times)
         Task {
             await CoachSessionManager.shared.uploadClip(
                 videoURL: videoURL,

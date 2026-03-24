@@ -18,8 +18,13 @@ struct CoachVideoUploadView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @State private var viewModel: CoachVideoUploadViewModel
+    @State private var showingDiscardConfirmation = false
     @FocusState private var focusedField: UploadField?
     enum UploadField: Hashable { case opponent, notes }
+
+    private var hasUnsavedChanges: Bool {
+        viewModel.selectedVideoURL != nil && !viewModel.isUploading && !viewModel.uploadComplete
+    }
 
     init(folder: SharedFolder, defaultContext: VideoContext = .instruction) {
         self.folder = folder
@@ -98,6 +103,15 @@ struct CoachVideoUploadView: View {
                         }
                     }
                     
+                    if !viewModel.canUpload && !viewModel.isUploading && viewModel.errorMessage == nil {
+                        Section {
+                            Text(uploadHintMessage)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .center)
+                        }
+                    }
+
                     if let errorMessage = viewModel.errorMessage {
                         Section {
                             VStack(alignment: .leading, spacing: 10) {
@@ -131,7 +145,11 @@ struct CoachVideoUploadView: View {
                 }
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
-                        dismiss()
+                        if hasUnsavedChanges {
+                            showingDiscardConfirmation = true
+                        } else {
+                            dismiss()
+                        }
                     }
                     .disabled(viewModel.isUploading)
                 }
@@ -196,9 +214,26 @@ struct CoachVideoUploadView: View {
                     }
                 }
             }
+            .interactiveDismissDisabled(hasUnsavedChanges)
+            .confirmationDialog("Discard video?", isPresented: $showingDiscardConfirmation, titleVisibility: .visible) {
+                Button("Discard", role: .destructive) { dismiss() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Your selected video and details will be lost.")
+            }
         }
     }
     
+    private var uploadHintMessage: String {
+        if viewModel.selectedVideoURL == nil {
+            return "Select a video to upload"
+        }
+        if viewModel.videoContext == .game && viewModel.gameOpponent.trimmingCharacters(in: .whitespaces).isEmpty {
+            return "Enter an opponent name for game clips"
+        }
+        return ""
+    }
+
     private func uploadVideo() async {
         guard let userID = authManager.userID,
               let userName = authManager.userDisplayName ?? authManager.userEmail else {
@@ -332,20 +367,22 @@ class CoachVideoUploadViewModel {
             var thumbnailURL: String?
             
             if case .success(let localThumbnailPath) = thumbnailResult {
-                // Step 2: Upload thumbnail (20% of progress)
+                // Step 2: Upload thumbnail with retry (20% of progress)
                 uploadProgress = 0.15
                 do {
-                    thumbnailURL = try await VideoCloudManager.shared.uploadThumbnail(
-                        thumbnailURL: URL(fileURLWithPath: localThumbnailPath),
-                        videoFileName: fileName,
-                        folderID: folderID
-                    )
-                    
+                    thumbnailURL = try await withRetry(maxAttempts: 2, delay: .seconds(2)) {
+                        try await VideoCloudManager.shared.uploadThumbnail(
+                            thumbnailURL: URL(fileURLWithPath: localThumbnailPath),
+                            videoFileName: fileName,
+                            folderID: folderID
+                        )
+                    }
                     // Clean up local thumbnail
                     VideoFileManager.cleanup(url: URL(fileURLWithPath: localThumbnailPath))
                 } catch {
                     // Continue even if thumbnail fails — video upload proceeds without thumbnail
-                    ErrorHandlerService.shared.handle(error, context: "CoachVideoUpload.generateThumbnail", showAlert: false)
+                    VideoFileManager.cleanup(url: URL(fileURLWithPath: localThumbnailPath))
+                    ErrorHandlerService.shared.handle(error, context: "CoachVideoUpload.thumbnailUpload", showAlert: false)
                 }
             } else {
                 ErrorHandlerService.shared.handle(

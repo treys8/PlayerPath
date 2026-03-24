@@ -233,8 +233,28 @@ struct CoachVideoPlayerView: View {
         } else if viewModel.errorMessage != nil {
             ZStack {
                 Color(white: 0.3)
-                Text("Failed to load video")
-                    .foregroundColor(.white)
+                VStack(spacing: 16) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.system(size: 36))
+                        .foregroundColor(.white.opacity(0.7))
+                    Text(viewModel.errorMessage ?? "Failed to load video")
+                        .font(.subheadline)
+                        .foregroundColor(.white)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 32)
+                    Button {
+                        viewModel.errorMessage = nil
+                        Task { await viewModel.loadVideo() }
+                    } label: {
+                        Text("Try Again")
+                            .fontWeight(.semibold)
+                            .padding(.horizontal, 24)
+                            .padding(.vertical, 10)
+                            .background(Color.brandNavy)
+                            .foregroundColor(.white)
+                            .cornerRadius(10)
+                    }
+                }
             }
         } else {
             ZStack {

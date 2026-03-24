@@ -86,12 +86,38 @@ final class Photo {
             }
         }
         // Delete from cloud storage if uploaded.
-        // Capture fileName before context.delete(self) to avoid accessing a deleted SwiftData object.
+        // Capture values before context.delete(self) to avoid accessing a deleted SwiftData object.
         if cloudURL != nil {
             let capturedFileName = self.fileName
+            let capturedPhotoId = self.id
+            let capturedUser = athlete?.user
+            let fileSize: Int64
+            do {
+                let attrs = try FileManager.default.attributesOfItem(atPath: capturedFilePath)
+                fileSize = (attrs[.size] as? Int64) ?? 0
+            } catch {
+                modelsLog.error("Failed to read photo file size for cloud quota update: \(error.localizedDescription)")
+                fileSize = 0
+            }
             Task { @MainActor in
-                await retryAsync {
-                    try await VideoCloudManager.shared.deleteAthletePhoto(fileName: capturedFileName)
+                let cloudManager = VideoCloudManager.shared
+                do {
+                    try await withRetry {
+                        try await cloudManager.deleteAthletePhoto(fileName: capturedFileName)
+                    }
+                    // Only decrement quota after the Storage file is actually deleted
+                    if let user = capturedUser {
+                        user.cloudStorageUsedBytes = max(0, user.cloudStorageUsedBytes - fileSize)
+                    }
+                } catch {
+                    // All retries exhausted — record as pending deletion so server-side
+                    // cleanup can remove the orphaned Storage file later.
+                    // Quota is NOT freed — the cleanup function will handle it.
+                    do {
+                        try await cloudManager.recordPendingPhotoDeletion(photoId: capturedPhotoId, fileName: capturedFileName)
+                    } catch {
+                        modelsLog.error("Failed to record pending photo deletion for \(capturedPhotoId): \(error.localizedDescription)")
+                    }
                 }
             }
         }

@@ -752,13 +752,24 @@ extension CameraViewModel: AVCaptureFileOutputRecordingDelegate {
         error: Error?
     ) {
         if let error = error {
-            // Delete the partial temp file so it doesn't accumulate
-            try? FileManager.default.removeItem(at: outputFileURL)
-            Task { @MainActor in
-                self.cleanupRecordingState()
-                self.handleError("Recording failed: \(error.localizedDescription)", isFatal: false)
+            // AVFoundation reports some "errors" (e.g. hitting max duration/file size)
+            // that still produce valid, complete video files. Don't delete those.
+            let nsError = error as NSError
+            let isRecoverable = nsError.domain == AVFoundationErrorDomain
+                && [AVError.maximumDurationReached.rawValue,
+                    AVError.maximumFileSizeReached.rawValue].contains(nsError.code)
+            if isRecoverable,
+               FileManager.default.fileExists(atPath: outputFileURL.path) {
+                // File is valid despite the "error" — fall through to success path
+            } else {
+                // Genuine failure — delete the partial temp file
+                try? FileManager.default.removeItem(at: outputFileURL)
+                Task { @MainActor in
+                    self.cleanupRecordingState()
+                    self.handleError("Recording failed: \(error.localizedDescription)", isFatal: false)
+                }
+                return
             }
-            return
         }
 
 

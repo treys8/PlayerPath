@@ -262,7 +262,9 @@ struct ErrorAlertModifier: ViewModifier {
             }
         case .contactSupport:
             Button("Contact Support") {
-                // TODO: Open support contact flow
+                if let url = URL(string: "mailto:\(AuthConstants.supportEmail)") {
+                    UIApplication.shared.open(url)
+                }
                 errorHandler.dismissError()
             }
         case .dismiss:

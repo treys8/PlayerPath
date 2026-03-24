@@ -11,6 +11,7 @@ import FirebaseAuth
 
 struct StartSessionSheet: View {
     let onSessionStarted: (String) -> Void
+    var onInviteAthlete: (() -> Void)?
 
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
@@ -97,6 +98,7 @@ struct StartSessionSheet: View {
                                         .font(.headline)
                                         .foregroundColor(.brandNavy)
                                 }
+                                .accessibilityHidden(true)
 
                                 Text(athlete.athleteName)
                                     .font(.body)
@@ -112,7 +114,9 @@ struct StartSessionSheet: View {
                                         .foregroundColor(.gray)
                                 }
                             }
+                            .accessibilityElement(children: .combine)
                         }
+                        .accessibilityAddTraits(selectedAthleteIDs.contains(athlete.athleteID) ? .isSelected : [])
                     }
                 } header: {
                     Text("Select Athletes")
@@ -160,6 +164,23 @@ struct StartSessionSheet: View {
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 32)
+
+            if onInviteAthlete != nil {
+                Button {
+                    dismiss()
+                    onInviteAthlete?()
+                } label: {
+                    Label("Invite an Athlete", systemImage: "person.badge.plus")
+                        .fontWeight(.semibold)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 50)
+                        .background(Color.brandNavy)
+                        .foregroundColor(.white)
+                        .cornerRadius(12)
+                }
+                .padding(.horizontal, 32)
+            }
+
             Spacer()
         }
     }

@@ -38,9 +38,27 @@ class CoachVideoPlayerViewModel {
         self.folder = folder
     }
 
+    deinit {
+        // @MainActor class instances owned by SwiftUI views are deallocated
+        // on the main thread, so assumeIsolated is safe here.
+        MainActor.assumeIsolated {
+            durationTask?.cancel()
+            if let observer = timeObserver {
+                player?.removeTimeObserver(observer)
+            }
+            statusObservation?.invalidate()
+            player?.pause()
+        }
+    }
+
     // MARK: - Video Loading
 
     func loadVideo() async {
+        // Clean up previous player resources before creating new ones
+        stopTimeObserver()
+        statusObservation?.invalidate()
+        statusObservation = nil
+
         isLoading = true
         isPlayerReady = false
 
@@ -65,7 +83,6 @@ class CoachVideoPlayerViewModel {
         let newPlayer = AVPlayer(url: url)
         player = newPlayer
 
-        statusObservation = nil
         statusObservation = newPlayer.currentItem?.observe(\.status, options: [.new]) { [weak self] item, _ in
             Task { @MainActor [weak self] in
                 guard let self else { return }

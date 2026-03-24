@@ -16,11 +16,13 @@ struct PracticeVideoClipRow: View {
     @State private var showingShareToFolder = false
     @State private var showingNoteEditor = false
     @State private var thumbnailImage: UIImage?
+    @State private var isLoadingThumbnail = false
+    @Environment(\.modelContext) private var modelContext
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                // Thumbnail — tappable play button
+            HStack(spacing: 14) {
+                // Square thumbnail — no overlays
                 Button(action: { onPlay?() }) {
                     Group {
                         if let uiImage = thumbnailImage {
@@ -28,22 +30,23 @@ struct PracticeVideoClipRow: View {
                                 .resizable()
                                 .scaledToFill()
                         } else {
-                            Image(systemName: "video.fill")
-                                .foregroundColor(.brandNavy)
-                                .font(.title3)
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                .background(Color.brandNavy.opacity(0.1))
+                            Group {
+                                if isLoadingThumbnail {
+                                    ProgressView()
+                                        .progressViewStyle(CircularProgressViewStyle(tint: .gray))
+                                        .scaleEffect(0.7)
+                                } else {
+                                    Image(systemName: "video.fill")
+                                        .foregroundColor(.gray)
+                                        .font(.title3)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .background(Color.gray.opacity(0.2))
                         }
                     }
-                    .frame(width: 56, height: 44)
-                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                    .overlay(alignment: .center) {
-                        Image(systemName: "play.fill")
-                            .font(.caption)
-                            .foregroundStyle(.white)
-                            .padding(4)
-                            .background(Circle().fill(.black.opacity(0.55)))
-                    }
+                    .frame(width: 72, height: 72)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 }
                 .buttonStyle(.plain)
                 .disabled(onPlay == nil)
@@ -102,7 +105,7 @@ struct PracticeVideoClipRow: View {
                 ClipCommentSection(clipId: clipId)
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 10)
         .contextMenu {
             Button {
                 showingNoteEditor = true
@@ -124,13 +127,41 @@ struct PracticeVideoClipRow: View {
             EditClipNoteSheet(clip: clip)
         }
         .task {
-            // Load thumbnail asynchronously instead of synchronously in the view body
-            guard thumbnailImage == nil, let thumbPath = clip.thumbnailPath else { return }
-            let size = CGSize(width: 112, height: 80)
-            if let image = try? await ThumbnailCache.shared.loadThumbnail(at: thumbPath, targetSize: size) {
+            await loadThumbnail()
+        }
+    }
+
+    @MainActor
+    private func loadThumbnail() async {
+        guard !isLoadingThumbnail, thumbnailImage == nil else { return }
+
+        isLoadingThumbnail = true
+
+        // Try loading from existing path first
+        if let thumbnailPath = clip.thumbnailPath {
+            if let image = try? await ThumbnailCache.shared.loadThumbnail(at: thumbnailPath, targetSize: .thumbnailSmall) {
                 thumbnailImage = image
+                isLoadingThumbnail = false
+                return
             }
         }
+
+        // Generate thumbnail from video file
+        let result = await VideoFileManager.generateThumbnail(from: clip.resolvedFileURL)
+
+        switch result {
+        case .success(let thumbnailPath):
+            clip.thumbnailPath = thumbnailPath
+            ErrorHandlerService.shared.saveContext(modelContext, caller: "PracticeVideoClipRow.generateThumbnail")
+
+            if let image = try? await ThumbnailCache.shared.loadThumbnail(at: thumbnailPath, targetSize: .thumbnailSmall) {
+                thumbnailImage = image
+            }
+        case .failure:
+            break
+        }
+
+        isLoadingThumbnail = false
     }
 
     // "2:45 PM" — readable clip title derived from creation time

@@ -32,6 +32,10 @@ struct CoachDowngradeGraceBanner: View {
                     Text("You have \(connectedCount) athletes but your plan allows \(limit). Upgrade or select which to keep.")
                         .font(.caption)
                         .foregroundStyle(.white.opacity(0.85))
+
+                    Text("After this period, you'll be asked to select which athletes to keep.")
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(0.7))
                 }
 
                 Spacer()
@@ -56,6 +60,8 @@ struct CoachDowngradeGraceBanner: View {
         }
         .buttonStyle(.plain)
         .padding(.horizontal)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(daysRemaining) day\(daysRemaining == 1 ? "" : "s") to choose athletes. You have \(connectedCount) athletes but your plan allows \(limit). Tap to upgrade.")
         .sheet(isPresented: $showingPaywall) {
             CoachPaywallView()
         }

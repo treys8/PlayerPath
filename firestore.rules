@@ -262,7 +262,7 @@ service cloud.firestore {
       allow read: if isAuthenticated() && (
         resource.data.uploadedBy == request.auth.uid ||
         ('sharedFolderID' in resource.data && canAccessFolder(resource.data.sharedFolderID)
-         && (isFolderOwner(resource.data.sharedFolderID) ? hasProTier() : hasCoachTier()))
+         && (isFolderOwner(resource.data.sharedFolderID) || hasCoachTier()))
       );
 
       // Create: personal athlete video (no sharedFolderID, uploader is owner)
@@ -272,7 +272,7 @@ service cloud.firestore {
          !('sharedFolderID' in request.resource.data)) ||
         (hasPermission(request.resource.data.sharedFolderID, "upload") &&
          request.resource.data.uploadedBy == request.auth.uid &&
-         (isFolderOwner(request.resource.data.sharedFolderID) || hasCoachTier()))
+         (isFolderOwner(request.resource.data.sharedFolderID) ? hasProTier() : hasCoachTier()))
       );
 
       // Only the uploader can update their own video.

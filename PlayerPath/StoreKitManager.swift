@@ -43,6 +43,12 @@ class StoreKitManager: ObservableObject {
     /// before forcing a tier downgrade (prevents indefinite retention of expired tiers).
     private var productsUnavailableSince: Date?
 
+    /// True once the first `updateEntitlements()` call completes.
+    /// Until this is set, other components should not sync tiers to Firestore
+    /// because the resolved tier may be stale (e.g. second device with no
+    /// transactions synced yet).
+    @Published private(set) var hasResolvedEntitlements = false
+
     // MARK: - Initialization
 
     private init() {
@@ -51,6 +57,7 @@ class StoreKitManager: ObservableObject {
         Task {
             await loadProducts()
             await updateEntitlements()
+            hasResolvedEntitlements = true
         }
     }
 

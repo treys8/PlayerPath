@@ -27,6 +27,9 @@ struct MainTabView: View {
     @ObservedObject private var onboardingManager = OnboardingManager.shared
     @State private var hasRunInitialSetup = false
 
+    // Athlete downgrade detection (shared folders + Pro lapse)
+    private var athleteDowngradeManager: AthleteDowngradeManager { .shared }
+
     // Global paywall triggered by notification from any tab
     @State private var showingPaywall = false
 
@@ -148,10 +151,17 @@ struct MainTabView: View {
                 if !onboardingManager.hasSeenWelcomeTutorial {
                     onboardingManager.markMilestoneComplete(.welcomeTutorial)
                 }
+
+                // Evaluate athlete downgrade state
+                athleteDowngradeManager.evaluate(tier: authManager.currentTier)
             }
             .onChange(of: selectedAthlete.id) { _, _ in
-                // Update ALL tabs immediately to prevent stale data on tab switch
-                refreshAllTabAthleteIDs()
+                // Only update the ACTIVE tab immediately; inactive tabs
+                // refresh lazily via refreshStaleTab() when selected.
+                refreshActiveTabAthleteID()
+            }
+            .onChange(of: authManager.currentTier) { _, newTier in
+                athleteDowngradeManager.evaluate(tier: newTier)
             }
             .onChange(of: selectedTab) { _, newValue in
                 saveSelectedTab(newValue)
@@ -297,24 +307,23 @@ struct MainTabView: View {
 
         notificationManager.observe(name: Notification.Name.navigateToMorePractice) { _ in
             MainActor.assumeIsolated {
-                morePath = NavigationPath()
+                // Build the path with the destination BEFORE switching tabs
+                // to avoid a flash of the More root view.
+                var path = NavigationPath()
+                path.append(MoreDestination.practice)
+                morePath = path
                 selectedTab = MainTab.more.rawValue
                 Haptics.light()
-                // Append on the next run-loop tick so the tab switch completes first
-                Task { @MainActor in
-                    morePath.append(MoreDestination.practice)
-                }
             }
         }
 
         notificationManager.observe(name: Notification.Name.navigateToMoreHighlights) { _ in
             MainActor.assumeIsolated {
-                morePath = NavigationPath()
+                var path = NavigationPath()
+                path.append(MoreDestination.highlights)
+                morePath = path
                 selectedTab = MainTab.more.rawValue
                 Haptics.light()
-                Task { @MainActor in
-                    morePath.append(MoreDestination.highlights)
-                }
             }
         }
     }
@@ -549,14 +558,17 @@ struct MainTabView: View {
     
     // MARK: - Deferred Tab Rebuild
 
-    /// Updates the athlete ID for a given tab only if it's stale.
-    /// This triggers .id() to change, rebuilding that tab's content.
-    private func refreshAllTabAthleteIDs() {
+    /// Updates only the currently visible tab's athlete ID.
+    /// Inactive tabs keep their old ID and refresh lazily via refreshStaleTab().
+    private func refreshActiveTabAthleteID() {
         let id = selectedAthlete.id
-        homeAthleteID = id
-        gamesAthleteID = id
-        videosAthleteID = id
-        statsAthleteID = id
+        switch selectedTab {
+        case MainTab.home.rawValue: homeAthleteID = id
+        case MainTab.games.rawValue: gamesAthleteID = id
+        case MainTab.videos.rawValue: videosAthleteID = id
+        case MainTab.stats.rawValue: statsAthleteID = id
+        default: break // More tab uses selectedAthlete.id directly
+        }
     }
 
     private func refreshStaleTab(_ tab: Int) {

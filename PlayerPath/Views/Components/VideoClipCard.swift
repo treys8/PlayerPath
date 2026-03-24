@@ -96,32 +96,8 @@ struct VideoClipCard: View {
 
                 // Info section
                 VStack(alignment: .leading, spacing: 6) {
-                        // Headline: game context > practice > play result > fallback
-                        if let game = video.game {
-                            HStack(spacing: 6) {
-                                Text("vs \(game.opponent)")
-                                    .font(.subheadline)
-                                    .fontWeight(.bold)
-                                    .foregroundColor(.primary)
-                                    .lineLimit(1)
-                                    .truncationMode(.tail)
-                                Spacer()
-                                if let season = video.season {
-                                    SeasonBadge(season: season, fontSize: 8)
-                                }
-                            }
-                        } else if video.practice != nil {
-                            HStack(spacing: 6) {
-                                Text("Practice")
-                                    .font(.subheadline)
-                                    .fontWeight(.bold)
-                                    .foregroundColor(.primary)
-                                Spacer()
-                                if let season = video.season {
-                                    SeasonBadge(season: season, fontSize: 8)
-                                }
-                            }
-                        } else if let result = video.playResult {
+                        // Headline: play result > fallback
+                        if let result = video.playResult {
                             Text(result.type.displayName)
                                 .font(.subheadline)
                                 .fontWeight(.bold)
@@ -135,31 +111,38 @@ struct VideoClipCard: View {
                                 .foregroundColor(.primary)
                         }
 
-                        // Secondary: play result + pitch speed (when game/practice is headline)
-                        if video.game != nil || video.practice != nil {
-                            if let result = video.playResult {
-                                HStack(spacing: 6) {
-                                    Text(result.type.displayName)
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                    if let speed = video.pitchSpeed, speed > 0 {
-                                        Text("·").foregroundColor(.secondary)
-                                        Text("\(Int(speed)) MPH")
-                                            .font(.caption)
-                                            .fontWeight(.semibold)
-                                            .foregroundColor(.orange)
-                                    }
-                                }
-                            } else if let speed = video.pitchSpeed, speed > 0 {
-                                Text("\(Int(speed)) MPH")
+                        // Secondary: game/practice context + season badge
+                        if let game = video.game {
+                            HStack(spacing: 6) {
+                                Text("vs \(game.opponent)")
                                     .font(.caption)
-                                    .fontWeight(.semibold)
-                                    .foregroundColor(.orange)
+                                    .foregroundColor(.brandNavy)
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                                Spacer()
+                                if let season = video.season {
+                                    SeasonBadge(season: season, fontSize: 8)
+                                }
                             }
-                        }
 
-                        // Date
-                        if let created = video.createdAt {
+                            Text((game.date ?? Date()), style: .date)
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        } else if video.practice != nil {
+                            HStack(spacing: 6) {
+                                Text("Practice")
+                                    .font(.caption)
+                                    .foregroundColor(.green)
+                                Spacer()
+                                if let season = video.season {
+                                    SeasonBadge(season: season, fontSize: 8)
+                                }
+                            }
+
+                            Text((video.createdAt ?? Date()), style: .date)
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        } else if let created = video.createdAt {
                             Text(created, style: .date)
                                 .font(.caption2)
                                 .foregroundColor(.secondary)

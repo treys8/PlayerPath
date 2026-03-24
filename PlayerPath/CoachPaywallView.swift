@@ -19,6 +19,7 @@ struct CoachPaywallView: View {
     @State private var showingTerms = false
     @State private var showingPrivacyPolicy = false
     @State private var showingPendingAlert = false
+    @State private var showingEmailCopied = false
 
     var body: some View {
         NavigationStack {
@@ -56,6 +57,11 @@ struct CoachPaywallView: View {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text("Your purchase is awaiting approval. Once approved, your subscription will activate automatically.")
+            }
+            .alert("Email Copied", isPresented: $showingEmailCopied) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text("support@playerpath.app has been copied to your clipboard.")
             }
             .overlay {
                 if isPurchasing { LoadingOverlay(message: "Processing purchase...") }
@@ -96,7 +102,7 @@ struct CoachPaywallView: View {
     private var billingToggle: some View {
         HStack(spacing: 0) {
             billingPill(title: "Monthly", selected: !isAnnual) { isAnnual = false }
-            billingPill(title: "Annual (Save 25%)", selected: isAnnual) { isAnnual = true }
+            billingPill(title: coachAnnualSavingsLabel, selected: isAnnual) { isAnnual = true }
         }
         .background(Color(.systemGray5))
         .cornerRadius(10)
@@ -118,6 +124,19 @@ struct CoachPaywallView: View {
         .animation(.easeInOut(duration: 0.2), value: selected)
     }
 
+    private var coachAnnualSavingsLabel: String {
+        guard let monthly = storeManager.coachProduct(for: .instructorMonthly),
+              let annual = storeManager.coachProduct(for: .instructorAnnual) else {
+            return "Annual"
+        }
+        let yearlyAtMonthly = monthly.price * 12
+        guard yearlyAtMonthly > 0 else { return "Annual" }
+        let savings = ((yearlyAtMonthly - annual.price) / yearlyAtMonthly * 100) as NSDecimalNumber
+        let percent = savings.intValue
+        guard percent > 0 else { return "Annual" }
+        return "Annual (Save \(percent)%)"
+    }
+
     // MARK: - Tier Comparison Table
 
     private var tierComparisonTable: some View {
@@ -127,7 +146,7 @@ struct CoachPaywallView: View {
                 coachFeatureHeaderCell("")
                 coachTierHeaderCell("Free", tier: .free)
                 coachTierHeaderCell("Instructor", tier: .instructor)
-                coachTierHeaderCell("Pro", tier: .proInstructor)
+                coachTierHeaderCell("Pro\nInstructor", tier: .proInstructor)
                 academyHeaderCell
             }
 
@@ -211,6 +230,9 @@ struct CoachPaywallView: View {
         } label: {
             Text(title)
                 .font(.caption).fontWeight(.semibold)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .minimumScaleFactor(0.8)
                 .foregroundStyle(isSelected ? .white : .primary)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 12)
@@ -307,8 +329,12 @@ struct CoachPaywallView: View {
             if selectedTier == .academy {
                 // Academy: Contact Us CTA
                 Button {
-                    if let url = URL(string: "mailto:support@playerpath.app?subject=Academy%20Plan%20Inquiry") {
+                    if let url = URL(string: "mailto:support@playerpath.app?subject=Academy%20Plan%20Inquiry"),
+                       UIApplication.shared.canOpenURL(url) {
                         UIApplication.shared.open(url)
+                    } else {
+                        UIPasteboard.general.string = "support@playerpath.app"
+                        showingEmailCopied = true
                     }
                 } label: {
                     Text("Contact Us for Academy")

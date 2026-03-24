@@ -48,14 +48,13 @@ struct HighlightsView: View {
 
     var highlights: [VideoClip] { cachedHighlights }
 
-    /// Single entry point that debounces and calls both recompute functions.
+    /// Single entry point that debounces and recomputes the flat highlights list.
     private func recomputeAll() {
         recomputeTask?.cancel()
         recomputeTask = Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(100))
             guard !Task.isCancelled else { return }
             recomputeHighlights()
-            recomputeGroupedHighlights()
         }
     }
 
@@ -223,7 +222,6 @@ struct HighlightsView: View {
         .task {
             migrateHitVideosToHighlights()
             recomputeHighlights()
-            recomputeGroupedHighlights()
         }
         .onChange(of: athlete?.id) { _, _ in
             selection.removeAll()
@@ -242,11 +240,9 @@ struct HighlightsView: View {
                 try? await Task.sleep(for: .milliseconds(250))
                 guard !Task.isCancelled else { return }
                 recomputeHighlights()
-                recomputeGroupedHighlights()
             }
         }
         .onChange(of: sortOrder) { _, _ in recomputeAll() }
-        .onChange(of: expandedGroups) { _, _ in recomputeGroupedHighlights() }
     }
 
     private func migrateHitVideosToHighlights() {

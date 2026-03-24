@@ -42,6 +42,8 @@ struct PitchingStatsSection: View {
             VStack(spacing: 0) {
                 DetailedStatRow(label: "Strikes", value: "\(statistics.strikes)")
                 DetailedStatRow(label: "Balls", value: "\(statistics.balls)")
+                DetailedStatRow(label: "Strikeouts", value: "\(statistics.pitchingStrikeouts)")
+                DetailedStatRow(label: "Walks", value: "\(statistics.pitchingWalks)")
                 DetailedStatRow(label: "Hit By Pitch", value: "\(statistics.hitByPitches)")
                 DetailedStatRow(label: "Wild Pitches", value: "\(statistics.wildPitches)", isLast: true)
             }

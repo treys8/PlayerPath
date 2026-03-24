@@ -24,11 +24,12 @@ struct ManualStatisticsEntryView: View {
     @State private var walks: String = ""
     @State private var groundOuts: String = ""
     @State private var flyOuts: String = ""
+    @State private var hitByPitches: String = ""
     @State private var showingValidationAlert = false
     @State private var alertMessage = ""
 
     enum StatField: Int, Hashable, CaseIterable {
-        case singles, doubles, triples, homeRuns, runs, rbis, strikeouts, groundOuts, flyOuts, walks
+        case singles, doubles, triples, homeRuns, runs, rbis, strikeouts, groundOuts, flyOuts, walks, hitByPitches
     }
     @FocusState private var focusedStatField: StatField?
 
@@ -47,6 +48,7 @@ struct ManualStatisticsEntryView: View {
     var newWalks: Int { Int(walks) ?? 0 }
     var newGroundOuts: Int { Int(groundOuts) ?? 0 }
     var newFlyOuts: Int { Int(flyOuts) ?? 0 }
+    var newHitByPitches: Int { Int(hitByPitches) ?? 0 }
 
     var newHits: Int { newSingles + newDoubles + newTriples + newHomeRuns }
     var newAtBats: Int { newHits + newStrikeouts + newGroundOuts + newFlyOuts }
@@ -101,6 +103,7 @@ struct ManualStatisticsEntryView: View {
                     StatEntryRow(title: "Ground Outs", value: $groundOuts, icon: "arrow.down.circle.fill", color: .red, field: .groundOuts, focusedField: $focusedStatField)
                     StatEntryRow(title: "Fly Outs", value: $flyOuts, icon: "arrow.up.circle.fill", color: .red, field: .flyOuts, focusedField: $focusedStatField)
                     StatEntryRow(title: "Walks (BB's)", value: $walks, icon: "figure.walk", color: .cyan, field: .walks, focusedField: $focusedStatField)
+                    StatEntryRow(title: "Hit By Pitch", value: $hitByPitches, icon: "exclamationmark.circle.fill", color: .orange, field: .hitByPitches, focusedField: $focusedStatField)
                 }
 
                 Section("Current Game Statistics") {
@@ -186,12 +189,12 @@ struct ManualStatisticsEntryView: View {
     private var hasAnyInput: Bool {
         !singles.isEmpty || !doubles.isEmpty || !triples.isEmpty || !homeRuns.isEmpty ||
         !runs.isEmpty || !rbis.isEmpty || !strikeouts.isEmpty || !walks.isEmpty ||
-        !groundOuts.isEmpty || !flyOuts.isEmpty
+        !groundOuts.isEmpty || !flyOuts.isEmpty || !hitByPitches.isEmpty
     }
 
     private func saveStatistics() {
         // Validation
-        if newAtBats < 0 || newHits < 0 || newRuns < 0 || newRbis < 0 || newStrikeouts < 0 || newWalks < 0 || newGroundOuts < 0 || newFlyOuts < 0 {
+        if newAtBats < 0 || newHits < 0 || newRuns < 0 || newRbis < 0 || newStrikeouts < 0 || newWalks < 0 || newGroundOuts < 0 || newFlyOuts < 0 || newHitByPitches < 0 {
             alertMessage = "Statistics cannot be negative numbers."
             showingValidationAlert = true
             return
@@ -219,27 +222,16 @@ struct ManualStatisticsEntryView: View {
                 strikeouts: newStrikeouts,
                 walks: newWalks,
                 groundOuts: newGroundOuts,
-                flyOuts: newFlyOuts
+                flyOuts: newFlyOuts,
+                hitByPitches: newHitByPitches
             )
 
-
-            // Also update athlete's overall statistics if they exist
-            if let athlete = game.athlete,
-               let athleteStats = athlete.statistics {
-
-                athleteStats.addManualStatistic(
-                    singles: newSingles,
-                    doubles: newDoubles,
-                    triples: newTriples,
-                    homeRuns: newHomeRuns,
-                    runs: newRuns,
-                    rbis: newRbis,
-                    strikeouts: newStrikeouts,
-                    walks: newWalks,
-                    groundOuts: newGroundOuts,
-                    flyOuts: newFlyOuts
+            // Recalculate career + season statistics from scratch so they
+            // stay consistent with game stats (also repairs any prior corruption).
+            if let athlete = game.athlete {
+                try? StatisticsService.shared.recalculateAthleteStatistics(
+                    for: athlete, context: modelContext, skipSave: true
                 )
-
             }
         }
 

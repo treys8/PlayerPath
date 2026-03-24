@@ -549,7 +549,7 @@ extension FirestoreManager {
             .whereField("uploadedBy", isEqualTo: ownerUID)
             .whereField("athleteId", isEqualTo: athleteId)
             .whereField("isDeleted", isEqualTo: false)
-            .limit(to: 100)
+            .limit(to: 1000)
             .getDocuments()
         return snapshot.documents.compactMap { doc -> FirestorePhoto? in
             do {

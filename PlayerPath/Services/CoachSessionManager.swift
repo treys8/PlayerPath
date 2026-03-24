@@ -191,6 +191,7 @@ class CoachSessionManager {
     // MARK: - Clip Upload
 
     /// Uploads a recorded clip to Firebase Storage and writes metadata to Firestore.
+    /// Retries the Storage upload up to 3 times for transient network failures.
     /// Increments clip count automatically after successful upload.
     func uploadClip(
         videoURL: URL,
@@ -206,20 +207,22 @@ class CoachSessionManager {
             let attributes = try FileManager.default.attributesOfItem(atPath: videoURL.path)
             let fileSize = attributes[.size] as? Int64 ?? 0
 
-            async let uploadTask = VideoCloudManager.shared.uploadVideo(
-                localURL: videoURL,
-                fileName: fileName,
-                folderID: folderID,
-                progressHandler: { _ in }
-            )
-            async let processTask = CoachVideoProcessingService.shared.process(
-                videoURL: videoURL,
-                fileName: fileName,
-                folderID: folderID
+            // Run Storage upload (with retry) and thumbnail processing in parallel
+            async let uploadTask: String = withRetry(maxAttempts: 3, delay: .seconds(3)) {
+                try await VideoCloudManager.shared.uploadVideo(
+                    localURL: videoURL,
+                    fileName: fileName,
+                    folderID: folderID,
+                    progressHandler: { _ in }
+                )
+            }
+            async let processTask = processWithThumbnailRetry(
+                videoURL: videoURL, fileName: fileName, folderID: folderID
             )
 
             let (storageURL, processed) = try await (uploadTask, processTask)
 
+            // Metadata write — single attempt (small doc, unlikely to fail after Storage succeeded)
             _ = try await FirestoreManager.shared.uploadVideoMetadata(
                 fileName: fileName,
                 storageURL: storageURL,
@@ -236,12 +239,29 @@ class CoachSessionManager {
                 sessionID: sessionID
             )
 
+            // Only delete local file after full success
             try? FileManager.default.removeItem(at: videoURL)
 
             await incrementClipCount(sessionID: sessionID)
         } catch {
             ErrorHandlerService.shared.handle(error, context: "CoachSessionManager.uploadClip", showAlert: false)
         }
+    }
+
+    /// Processes video with a single thumbnail retry if the first attempt fails.
+    private func processWithThumbnailRetry(
+        videoURL: URL, fileName: String, folderID: String
+    ) async -> CoachVideoProcessingService.ProcessedVideo {
+        let result = await CoachVideoProcessingService.shared.process(
+            videoURL: videoURL, fileName: fileName, folderID: folderID
+        )
+        if result.thumbnailURL == nil {
+            try? await Task.sleep(for: .seconds(2))
+            return await CoachVideoProcessingService.shared.process(
+                videoURL: videoURL, fileName: fileName, folderID: folderID
+            )
+        }
+        return result
     }
 }
 

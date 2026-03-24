@@ -9,7 +9,6 @@
 import Foundation
 import AVFoundation
 import CoreMedia
-import UIKit
 import FirebaseAuth
 import FirebaseFirestore
 import os
@@ -248,6 +247,17 @@ class SharedFolderManager {
                 cleanupErrors.append("Coach \(coachID) revocation: \(error.localizedDescription)")
                 folderLog.error("Failed to revoke coach \(coachID) access during folder deletion: \(error.localizedDescription)")
             }
+        }
+
+        // 2b. Notify revoked coaches in-app
+        for coachID in folder.sharedWithCoachIDs {
+            await notifyCoachAccessRevoked(
+                coachID: coachID,
+                coachEmail: "",
+                folderID: folderID,
+                folderName: folder.name,
+                athleteID: athleteID
+            )
         }
 
         // 3. Delete all videos and their storage files
@@ -497,6 +507,7 @@ class SharedFolderManager {
         practiceContext: PracticeContext? = nil,
         playResult: String? = nil,
         pitchSpeed: Double? = nil,
+        pitchType: String? = nil,
         seasonName: String? = nil,
         athleteName: String? = nil,
         isHighlight: Bool = false,
@@ -545,30 +556,23 @@ class SharedFolderManager {
             folderLog.warning("Failed to get video duration: \(error.localizedDescription)")
         }
 
-        // Generate thumbnail from video
+        // Generate thumbnail using shared VideoFileManager (consistent size/quality with coach + athlete)
         var thumbnail: ThumbnailMetadata?
-        do {
-            let asset = AVURLAsset(url: videoURL)
-            let generator = AVAssetImageGenerator(asset: asset)
-            generator.appliesPreferredTrackTransform = true
-            generator.maximumSize = CGSize(width: 320, height: 240)
-            let time = CMTime(seconds: 1.0, preferredTimescale: 600)
-            let cgImage = try generator.copyCGImage(at: time, actualTime: nil)
-            let uiImage = UIImage(cgImage: cgImage)
-            if let jpegData = uiImage.jpegData(compressionQuality: 0.7) {
-                let tempURL = FileManager.default.temporaryDirectory
-                    .appendingPathComponent(UUID().uuidString + "_thumbnail.jpg")
-                try jpegData.write(to: tempURL)
-                defer { try? FileManager.default.removeItem(at: tempURL) }
-
+        let thumbResult = await VideoFileManager.generateThumbnail(from: videoURL)
+        if case .success(let localThumbPath) = thumbResult {
+            do {
                 let thumbnailURL = try await firestore.uploadThumbnail(
-                    localURL: tempURL,
+                    localURL: URL(fileURLWithPath: localThumbPath),
                     videoFileName: fileName,
                     folderID: folderID
                 )
                 thumbnail = ThumbnailMetadata(standardURL: thumbnailURL)
+            } catch {
+                folderLog.warning("Failed to upload thumbnail: \(error.localizedDescription)")
             }
-        } catch {
+            // Clean up local thumbnail file
+            try? FileManager.default.removeItem(atPath: localThumbPath)
+        } else if case .failure(let error) = thumbResult {
             folderLog.warning("Failed to generate thumbnail: \(error.localizedDescription)")
         }
 
@@ -587,6 +591,7 @@ class SharedFolderManager {
             practiceContext: practiceContext,
             playResult: playResult,
             pitchSpeed: pitchSpeed,
+            pitchType: pitchType,
             seasonName: seasonName,
             athleteName: athleteName,
             isHighlight: isHighlight

@@ -18,6 +18,8 @@ struct InviteAthleteSheet: View {
     @State private var isSending = false
     @State private var showingSuccess = false
     @State private var errorMessage: String?
+    @State private var isAtLimit = false
+    @State private var showingPaywall = false
 
     private enum Field: Hashable { case name, email, message }
     @FocusState private var focusedField: Field?
@@ -27,13 +29,37 @@ struct InviteAthleteSheet: View {
     }
 
     private var canSend: Bool {
-        isValidEmail && !athleteName.isEmpty && !isSending
+        isValidEmail && !athleteName.isEmpty && !isSending && !isAtLimit
     }
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 24) {
+                    // Limit warning
+                    if isAtLimit {
+                        HStack(spacing: 10) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundColor(.orange)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Athlete limit reached")
+                                    .font(.subheadline).fontWeight(.semibold)
+                                Text("Your plan allows \(authManager.coachAthleteLimit) athletes. Upgrade to invite more.")
+                                    .font(.caption).foregroundColor(.secondary)
+                            }
+                            Spacer()
+                            Button("Upgrade") { showingPaywall = true }
+                                .font(.caption).fontWeight(.semibold)
+                                .foregroundColor(.orange)
+                                .padding(.horizontal, 10).padding(.vertical, 5)
+                                .background(Color.orange.opacity(0.15), in: Capsule())
+                        }
+                        .padding()
+                        .background(Color.orange.opacity(0.08))
+                        .cornerRadius(12)
+                        .padding(.horizontal)
+                    }
+
                     // Header
                     VStack(spacing: 12) {
                         ZStack {
@@ -73,6 +99,7 @@ struct InviteAthleteSheet: View {
                                 .focused($focusedField, equals: .name)
                                 .submitLabel(.next)
                                 .onSubmit { focusedField = .email }
+                                .accessibilityLabel("Athlete name")
                         }
 
                         // Parent/Guardian Email
@@ -91,6 +118,7 @@ struct InviteAthleteSheet: View {
                                 .focused($focusedField, equals: .email)
                                 .submitLabel(.next)
                                 .onSubmit { focusedField = .message }
+                                .accessibilityLabel("Athlete or parent email")
 
                             if !athleteEmail.isEmpty && !isValidEmail {
                                 Text("Please enter a valid email address")
@@ -179,6 +207,15 @@ struct InviteAthleteSheet: View {
                     }
                 }
             }
+            .task {
+                guard let coachID = authManager.userID else { return }
+                isAtLimit = await SubscriptionGate.isAtAthleteLimit(
+                    coachID: coachID,
+                    authManager: authManager,
+                    includingPending: true
+                )
+            }
+            .sheet(isPresented: $showingPaywall) { CoachPaywallView() }
             .alert("Invitation Sent!", isPresented: $showingSuccess) {
                 Button("Done") {
                     dismiss()

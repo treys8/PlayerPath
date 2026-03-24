@@ -167,6 +167,9 @@ struct PhotoDetailView: View {
         .onAppear {
             captionText = photo.caption ?? ""
         }
+        .onDisappear {
+            fullImage = nil
+        }
     }
 
     // MARK: - Metadata Overlay

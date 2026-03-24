@@ -23,7 +23,7 @@ final class Season {
     @Relationship(inverse: \VideoClip.season) var videoClips: [VideoClip]?
     @Relationship(inverse: \Photo.season) var photos: [Photo]?
 
-    /// Season-specific statistics (calculated when season is archived)
+    /// Season-specific statistics (initialized at creation, updated as games are played)
     @Relationship(inverse: \AthleteStatistics.season) var seasonStatistics: AthleteStatistics?
 
     /// Notes about the season (goals, achievements, etc.)
@@ -161,6 +161,11 @@ final class Season {
         self.sport = sport
         self.isActive = false
         self.createdAt = Date()
+
+        // Initialize empty statistics so season comparisons work immediately
+        let stats = AthleteStatistics()
+        stats.season = self
+        self.seasonStatistics = stats
     }
 
     /// End this season and archive it

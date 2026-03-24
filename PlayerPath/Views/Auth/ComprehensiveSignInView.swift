@@ -241,7 +241,7 @@ struct ComprehensiveSignInView: View {
                 .shadow(color: canSubmitForm() && !authManager.isLoading ? .brandNavy.opacity(0.3) : .clear, radius: 8, x: 0, y: 4)
             }
             .buttonStyle(ScaleButtonStyle())
-            .disabled(!canSubmitForm() || authManager.isLoading)
+            .disabled(!canSubmitForm() || authManager.isLoading || appleSignInManager.isLoading)
 
             // Divider
             HStack {
@@ -251,9 +251,17 @@ struct ComprehensiveSignInView: View {
             }
 
             // Sign in with Apple (required by App Store Guideline 4.8)
-            SignInWithAppleButton(isSignUp: isSignUpMode) {
-                appleSignInManager.pendingRole = selectedRole
-                appleSignInManager.signInWithApple()
+            if appleSignInManager.isLoading {
+                ProgressView()
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 50)
+            } else {
+                SignInWithAppleButton(isSignUp: isSignUpMode) {
+                    appleSignInManager.pendingRole = selectedRole
+                    appleSignInManager.signInWithApple()
+                }
+                .disabled(authManager.isLoading || (isSignUpMode && !confirmedAge))
+                .opacity(isSignUpMode && !confirmedAge ? 0.5 : 1)
             }
 
             if !isSignUpMode {

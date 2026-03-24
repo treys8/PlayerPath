@@ -73,7 +73,10 @@ class VideoFileManager {
         static let minFileSizeBytes: Int64 = 1024 // 1KB
         static let maxDurationSeconds: TimeInterval = 600 // 10 minutes
         static let minDurationSeconds: TimeInterval = 1 // 1 second
-        static let thumbnailSize: CGSize = .thumbnailMedium
+        /// Cloud thumbnails generated at 3x base size (480x270) so they look crisp on all
+        /// Retina displays. Matches the effective quality of athlete local thumbnails, which
+        /// are stored at full resolution and downsampled at display time by ThumbnailCache.
+        static let thumbnailSize: CGSize = CGSize(width: 480, height: 270)
         static let thumbnailCompressionQuality: CGFloat = 0.8
     }
     

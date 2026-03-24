@@ -142,24 +142,17 @@ struct QuickStatisticsEntryView: View {
         case .homeRun: return "Home Runs"
         case .groundOut: return "Ground Outs"
         case .flyOut: return "Fly Outs"
-        case .hitByPitch: return "Hit By Pitches"
+        case .hitByPitch, .batterHitByPitch: return "Hit By Pitches"
         case .wildPitch: return "Wild Pitches"
+        case .pitchingStrikeout: return "Strikeouts"
+        case .pitchingWalk: return "Walks"
         default: return playType.displayName + "s"
         }
     }
 
     private func updateGameStatistics(_ gameStats: GameStatistics, playResultType: PlayResultType, playCount: Int) {
-        if playResultType.isHit {
-            gameStats.hits += playCount
-        }
-        if playResultType.countsAsAtBat {
-            gameStats.atBats += playCount
-        }
-        if playResultType == .strikeout {
-            gameStats.strikeouts += playCount
-        }
-        if playResultType == .walk {
-            gameStats.walks += playCount
+        for _ in 0..<playCount {
+            gameStats.addPlayResult(playResultType)
         }
     }
 
@@ -176,23 +169,6 @@ struct QuickStatisticsEntryView: View {
             return
         }
 
-        // Update athlete statistics
-        if let stats = athlete.statistics {
-            for _ in 0..<playCount {
-                stats.addPlayResult(playResultType)
-            }
-        } else {
-            // Create statistics if they don't exist
-            let newStats = AthleteStatistics()
-            athlete.statistics = newStats
-            newStats.athlete = athlete
-            modelContext.insert(newStats)
-
-            for _ in 0..<playCount {
-                newStats.addPlayResult(playResultType)
-            }
-        }
-
         // Update game statistics
         let gameStats: GameStatistics
         if let existingStats = game.gameStats {
@@ -206,6 +182,12 @@ struct QuickStatisticsEntryView: View {
         }
 
         updateGameStatistics(gameStats, playResultType: playResultType, playCount: playCount)
+
+        // Recalculate career + season statistics from scratch so they
+        // stay consistent with game stats (also repairs any prior corruption).
+        try? StatisticsService.shared.recalculateAthleteStatistics(
+            for: athlete, context: modelContext, skipSave: true
+        )
 
         do {
             try modelContext.save()

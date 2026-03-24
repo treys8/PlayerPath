@@ -8,6 +8,7 @@
 //
 
 import SwiftUI
+import FirebaseAuth
 import os
 
 private let selectionLog = Logger(subsystem: "com.playerpath.app", category: "CoachDowngradeSelection")
@@ -67,7 +68,7 @@ struct CoachDowngradeSelectionView: View {
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("You will lose access to folders from athletes you don't select. They can re-invite you later.")
+                Text("You will lose access to folders from athletes you don't select. They will be notified and can re-invite you later.")
             }
         }
     }
@@ -80,10 +81,10 @@ struct CoachDowngradeSelectionView: View {
                 .font(.system(size: 40))
                 .foregroundStyle(.orange)
 
-            Text("Your plan allows \(limit) athlete\(limit == 1 ? "" : "s")")
+            Text("Select up to \(limit) athlete\(limit == 1 ? "" : "s") to keep")
                 .font(.headline)
 
-            Text("Select which athletes to keep working with. You currently have \(athletes.count) connected.")
+            Text("You have \(athletes.count) connected. Unselected athletes will be disconnected.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -117,6 +118,8 @@ struct CoachDowngradeSelectionView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityAddTraits(selectedIDs.contains(athlete.id) ? .isSelected : [])
+            .accessibilityLabel("\(athlete.name). \(athlete.folderCount) folder\(athlete.folderCount == 1 ? "" : "s"), \(athlete.videoCount) video\(athlete.videoCount == 1 ? "" : "s")")
         }
         .listStyle(.plain)
     }
@@ -223,6 +226,28 @@ struct CoachDowngradeSelectionView: View {
                 coachID: coachID,
                 athleteIDsToRevoke: athleteIDsToRevoke
             )
+
+            // End active sessions and notify affected athletes
+            let revokeSet = Set(athleteIDsToRevoke)
+            let affectedFolders = sharedFolderManager.coachFolders.filter {
+                revokeSet.contains($0.ownerAthleteID)
+            }
+            let coachName = Auth.auth().currentUser?.displayName
+                ?? Auth.auth().currentUser?.email?.components(separatedBy: "@").first
+                ?? "Your coach"
+
+            for folder in affectedFolders {
+                guard let folderID = folder.id else { continue }
+                await CoachSessionManager.shared.endSessionIfActive(forFolderID: folderID)
+                await ActivityNotificationService.shared.postCoachAccessLostNotification(
+                    folderID: folderID,
+                    folderName: folder.name,
+                    coachName: coachName,
+                    coachID: coachID,
+                    athleteUserID: folder.ownerAthleteID
+                )
+            }
+
             CoachDowngradeManager.shared.markResolved(coachID: coachID)
             Haptics.success()
             selectionLog.info("Revoked access for \(athleteIDsToRevoke.count) athletes")

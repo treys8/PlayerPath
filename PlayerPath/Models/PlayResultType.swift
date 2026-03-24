@@ -17,12 +17,15 @@ enum PlayResultType: Int, CaseIterable, Codable {
     case strikeout = 5
     case groundOut = 6
     case flyOut = 7
+    case batterHitByPitch = 8
 
     // Pitching results
     case ball = 10
     case strike = 11
     case hitByPitch = 12
     case wildPitch = 13
+    case pitchingStrikeout = 14
+    case pitchingWalk = 15
 
     var isPitchingResult: Bool {
         rawValue >= 10
@@ -45,7 +48,7 @@ enum PlayResultType: Int, CaseIterable, Codable {
     /// Baseball rules: Walks, HBP, sac flies, and sac bunts do NOT count as at-bats
     var countsAsAtBat: Bool {
         switch self {
-        case .walk, .hitByPitch:
+        case .walk, .hitByPitch, .batterHitByPitch:
             return false // Walks and HBP don't count as at-bats
         case .single, .double, .triple, .homeRun, .strikeout, .groundOut, .flyOut:
             return true // Hits and outs count as at-bats
@@ -83,10 +86,13 @@ enum PlayResultType: Int, CaseIterable, Codable {
         case .strikeout: return "Strikeout"
         case .groundOut: return "Ground Out"
         case .flyOut: return "Fly Out"
+        case .batterHitByPitch: return "Hit By Pitch"
         case .ball: return "Ball"
         case .strike: return "Strike"
         case .hitByPitch: return "Hit By Pitch"
         case .wildPitch: return "Wild Pitch"
+        case .pitchingStrikeout: return "Strikeout"
+        case .pitchingWalk: return "Walk"
         }
     }
 

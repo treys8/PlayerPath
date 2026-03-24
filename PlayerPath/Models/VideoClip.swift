@@ -21,6 +21,7 @@ final class VideoClip {
     var createdAt: Date?
     var duration: Double?          // Video duration in seconds
     var pitchSpeed: Double?        // Pitch speed in MPH (optional, radar gun input)
+    var pitchType: String?         // "fastball" or "offspeed" (optional, pitcher mode only)
     @Relationship(inverse: \PlayResult.videoClip) var playResult: PlayResult?
     var isHighlight: Bool = false
     var note: String? = nil

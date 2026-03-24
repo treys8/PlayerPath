@@ -59,7 +59,7 @@ extension VideoCloudManager {
             // Monitor upload progress with throttling
             uploadTask.observe(.progress) { [weak self] snapshot in
                 guard let progress = snapshot.progress else { return }
-                let percentComplete = Double(progress.completedUnitCount) / Double(progress.totalUnitCount)
+                let percentComplete = progress.totalUnitCount > 0 ? Double(progress.completedUnitCount) / Double(progress.totalUnitCount) : 0.0
 
                 Task { @MainActor in
                     guard let self = self else {

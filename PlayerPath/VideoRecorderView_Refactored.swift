@@ -40,6 +40,7 @@ struct VideoRecorderView_Refactored: View {
     @State private var showingDiscardConfirmation = false
     @State private var pendingDismissAction: (() -> Void)?
     @State private var saveTask: Task<Void, Never>?
+    @State private var showingSaveError = false
     @State private var showingTrimmer = false
     @State private var trimmedVideoURL: URL?
     @State private var uploadFlowShowingPlayResult = false
@@ -98,48 +99,79 @@ struct VideoRecorderView_Refactored: View {
     
     @ViewBuilder
     private var videoTrimmerView: some View {
-        if let videoURL = recordedVideoURL {
-            if uploadFlowShowingPlayResult {
-                let finalVideoURL = trimmedVideoURL ?? videoURL
-                if practice != nil {
-                    PracticeVideoSaveView(
-                        videoURL: finalVideoURL,
-                        athlete: athlete,
-                        practice: practice,
-                        onSave: { note, completion in
-                            saveVideoWithResult(videoURL: finalVideoURL, playResult: nil, note: note) {
-                                completion()
-                                uploadFlowShowingPlayResult = false
-                                showingTrimmer = false
-                                dismiss()
-                            }
-                        },
-                        onDiscard: {
-                            pendingDismissAction = {
-                                VideoFileManager.cleanup(url: videoURL)
-                                if let trimmed = trimmedVideoURL {
-                                    VideoFileManager.cleanup(url: trimmed)
+        ZStack {
+            if let videoURL = recordedVideoURL {
+                if uploadFlowShowingPlayResult {
+                    let finalVideoURL = trimmedVideoURL ?? videoURL
+                    if practice != nil {
+                        PracticeVideoSaveView(
+                            videoURL: finalVideoURL,
+                            athlete: athlete,
+                            practice: practice,
+                            onSave: { note, completion in
+                                saveVideoWithResult(videoURL: finalVideoURL, playResult: nil, note: note, onError: {
+                                    completion() // Reset PracticeVideoSaveView spinner so user can retry
+                                }) {
+                                    completion()
+                                    uploadFlowShowingPlayResult = false
+                                    showingTrimmer = false
+                                    dismiss()
                                 }
-                                self.recordedVideoURL = nil
-                                self.trimmedVideoURL = nil
-                                self.uploadFlowShowingPlayResult = false
-                                self.showingTrimmer = false
+                            },
+                            onDiscard: {
+                                pendingDismissAction = {
+                                    VideoFileManager.cleanup(url: videoURL)
+                                    if let trimmed = trimmedVideoURL {
+                                        VideoFileManager.cleanup(url: trimmed)
+                                    }
+                                    self.recordedVideoURL = nil
+                                    self.trimmedVideoURL = nil
+                                    self.uploadFlowShowingPlayResult = false
+                                    self.showingTrimmer = false
+                                }
+                                showingDiscardConfirmation = true
                             }
-                            showingDiscardConfirmation = true
-                        }
-                    )
+                        )
+                    } else {
+                        PlayResultOverlayView(
+                            videoURL: finalVideoURL,
+                            athlete: athlete,
+                            game: game,
+                            practice: practice,
+                            onSave: { result, pitchSpeed, pitchType, role in
+                                saveVideoWithResult(videoURL: finalVideoURL, playResult: result, pitchSpeed: pitchSpeed, pitchType: pitchType, role: role) {
+                                    uploadFlowShowingPlayResult = false
+                                    showingTrimmer = false
+                                    dismiss()
+                                }
+                            },
+                            onCancel: {
+                                pendingDismissAction = {
+                                    VideoFileManager.cleanup(url: videoURL)
+                                    if let trimmed = trimmedVideoURL {
+                                        VideoFileManager.cleanup(url: trimmed)
+                                    }
+                                    self.recordedVideoURL = nil
+                                    self.trimmedVideoURL = nil
+                                    self.uploadFlowShowingPlayResult = false
+                                    self.showingTrimmer = false
+                                }
+                                showingDiscardConfirmation = true
+                            }
+                        )
+                    }
                 } else {
-                    PlayResultOverlayView(
-                        videoURL: finalVideoURL,
-                        athlete: athlete,
-                        game: game,
-                        practice: practice,
-                        onSave: { result, pitchSpeed, role in
-                            saveVideoWithResult(videoURL: finalVideoURL, playResult: result, pitchSpeed: pitchSpeed, role: role) {
-                                uploadFlowShowingPlayResult = false
-                                showingTrimmer = false
-                                dismiss()
-                            }
+                    PreUploadTrimmerView(
+                        videoURL: videoURL,
+                        onSave: { trimmedURL in
+                            trimmedVideoURL = trimmedURL
+                            if practice != nil { lockPortrait() }
+                            uploadFlowShowingPlayResult = true
+                        },
+                        onSkip: {
+                            trimmedVideoURL = nil
+                            if practice != nil { lockPortrait() }
+                            uploadFlowShowingPlayResult = true
                         },
                         onCancel: {
                             pendingDismissAction = {
@@ -149,40 +181,18 @@ struct VideoRecorderView_Refactored: View {
                                 }
                                 self.recordedVideoURL = nil
                                 self.trimmedVideoURL = nil
-                                self.uploadFlowShowingPlayResult = false
                                 self.showingTrimmer = false
                             }
                             showingDiscardConfirmation = true
                         }
                     )
                 }
-            } else {
-                PreUploadTrimmerView(
-                    videoURL: videoURL,
-                    onSave: { trimmedURL in
-                        trimmedVideoURL = trimmedURL
-                        if practice != nil { lockPortrait() }
-                        uploadFlowShowingPlayResult = true
-                    },
-                    onSkip: {
-                        trimmedVideoURL = nil
-                        if practice != nil { lockPortrait() }
-                        uploadFlowShowingPlayResult = true
-                    },
-                    onCancel: {
-                        pendingDismissAction = {
-                            VideoFileManager.cleanup(url: videoURL)
-                            if let trimmed = trimmedVideoURL {
-                                VideoFileManager.cleanup(url: trimmed)
-                            }
-                            self.recordedVideoURL = nil
-                            self.trimmedVideoURL = nil
-                            self.showingTrimmer = false
-                        }
-                        showingDiscardConfirmation = true
-                    }
-                )
             }
+        }
+        .alert("Save Failed", isPresented: $showingSaveError) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text("The video could not be saved. Please try recording again.")
         }
     }
 
@@ -276,7 +286,7 @@ struct VideoRecorderView_Refactored: View {
         }
     }
 
-    private func saveVideoWithResult(videoURL: URL, playResult: PlayResultType?, pitchSpeed: Double? = nil, role: AthleteRole = .batter, note: String? = nil, onComplete: @escaping () -> Void) {
+    private func saveVideoWithResult(videoURL: URL, playResult: PlayResultType?, pitchSpeed: Double? = nil, pitchType: String? = nil, role: AthleteRole = .batter, note: String? = nil, onError: (() -> Void)? = nil, onComplete: @escaping () -> Void) {
         guard let athlete = athlete else {
             Haptics.error()
             onComplete() // Still dismiss UI to avoid stuck state
@@ -289,12 +299,8 @@ struct VideoRecorderView_Refactored: View {
             return
         }
 
-        // Dismiss immediately so the user isn't waiting
-        Haptics.success()
-        UIAccessibility.post(notification: .announcement, argument: "Video saved successfully")
-        onComplete()
-
-        // Save in background — video file stays on disk until copy completes
+        // Save in background — video file stays on disk until copy completes.
+        // Success feedback and dismiss happen AFTER the save confirms.
         saveTask = Task {
             guard !Task.isCancelled else {
                 await MainActor.run { self.saveTask = nil }
@@ -306,6 +312,7 @@ struct VideoRecorderView_Refactored: View {
                     from: videoURL,
                     playResult: playResult,
                     pitchSpeed: pitchSpeed,
+                    pitchType: pitchType,
                     role: role,
                     note: note,
                     context: modelContext,
@@ -314,8 +321,10 @@ struct VideoRecorderView_Refactored: View {
                     practice: practice
                 )
 
-                // Clean up temp files after successful save
+                // Save succeeded — now dismiss
                 await MainActor.run {
+                    Haptics.success()
+                    UIAccessibility.post(notification: .announcement, argument: "Video saved successfully")
                     VideoFileManager.cleanup(url: videoURL)
                     if let trimmed = self.trimmedVideoURL {
                         VideoFileManager.cleanup(url: trimmed)
@@ -323,6 +332,7 @@ struct VideoRecorderView_Refactored: View {
                     self.recordedVideoURL = nil
                     self.trimmedVideoURL = nil
                     self.saveTask = nil
+                    onComplete()
                 }
             } catch {
                 guard !Task.isCancelled else {
@@ -330,8 +340,11 @@ struct VideoRecorderView_Refactored: View {
                     return
                 }
                 await MainActor.run {
+                    Haptics.error()
                     ErrorHandlerService.shared.handle(error, context: "VideoRecorderView.saveVideoWithResult", showAlert: false)
                     self.saveTask = nil
+                    onError?()
+                    self.showingSaveError = true
                 }
             }
         }

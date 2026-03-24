@@ -20,7 +20,7 @@ function getResend(): Resend {
 }
 
 // App Store download link — update with the actual App Store ID once published
-const APP_STORE_URL = 'https://apps.apple.com/us/app/playerpath/id6742426618';
+const APP_STORE_URL = 'https://apps.apple.com/us/app/playerpath/id6754497342';
 
 // Maximum signed URL expiration (30 days)
 const MAX_EXPIRATION_HOURS = 720;

@@ -911,6 +911,7 @@ final class SyncCoordinator {
                     note: clip.note,
                     playResultType: clip.playResult?.type,
                     pitchSpeed: clip.pitchSpeed,
+                    pitchType: clip.pitchType,
                     gameId: clip.game.map { $0.firestoreId ?? $0.id.uuidString },
                     gameOpponent: clip.gameOpponent ?? clip.game?.opponent,
                     gameDate: clip.gameDate ?? clip.game?.date,
@@ -1012,6 +1013,9 @@ final class SyncCoordinator {
                 if let pitchSpeed = remoteVideo.pitchSpeed {
                     localClip.pitchSpeed = pitchSpeed
                 }
+                if let pitchType = remoteVideo.pitchType {
+                    localClip.pitchType = pitchType
+                }
                 if let duration = remoteVideo.duration {
                     localClip.duration = duration
                 }
@@ -1041,6 +1045,7 @@ final class SyncCoordinator {
                 newClip.isHighlight = remoteVideo.isHighlight
                 newClip.note = remoteVideo.note
                 newClip.pitchSpeed = remoteVideo.pitchSpeed
+                newClip.pitchType = remoteVideo.pitchType
                 newClip.duration = remoteVideo.duration
                 newClip.firestoreId = remoteVideo.id.uuidString
                 newClip.needsSync = false
@@ -1297,6 +1302,12 @@ final class SyncCoordinator {
                     } catch {
                         // Firestore write failed after Storage upload — clean up orphaned file
                         syncLog.error("Firestore photo create failed, cleaning up Storage: \(error.localizedDescription)")
+                        let capturedFileName = photo.fileName
+                        Task {
+                            await retryAsync {
+                                try await VideoCloudManager.shared.deleteAthletePhoto(fileName: capturedFileName)
+                            }
+                        }
                         photo.cloudURL = nil
                         throw error
                     }
@@ -1363,8 +1374,30 @@ final class SyncCoordinator {
                 pendingDownloadTasks[taskID] = Task { [weak self] in
                     do {
                         try await VideoCloudManager.shared.downloadPhoto(from: downloadURL, to: localPath)
+                        // Generate thumbnail for the downloaded photo
+                        if let image = UIImage(contentsOfFile: localPath) {
+                            let thumbSize = CGSize(width: 300, height: 300)
+                            let scale = max(thumbSize.width / image.size.width, thumbSize.height / image.size.height)
+                            let newSize = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+                            let format = UIGraphicsImageRendererFormat()
+                            format.scale = 1.0
+                            let renderer = UIGraphicsImageRenderer(size: thumbSize, format: format)
+                            let thumb = renderer.image { _ in
+                                let origin = CGPoint(x: (thumbSize.width - newSize.width) / 2, y: (thumbSize.height - newSize.height) / 2)
+                                image.draw(in: CGRect(origin: origin, size: newSize))
+                            }
+                            if let thumbData = thumb.jpegData(compressionQuality: 0.7) {
+                                let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+                                let thumbDir = documentsURL.appendingPathComponent("PhotoThumbnails", isDirectory: true)
+                                try? FileManager.default.createDirectory(at: thumbDir, withIntermediateDirectories: true)
+                                let thumbPath = thumbDir.appendingPathComponent("thumb_\(photoRef.id.uuidString).jpg")
+                                try? thumbData.write(to: thumbPath, options: .atomic)
+                                await MainActor.run { photoRef.thumbnailPath = thumbPath.path }
+                            }
+                        }
                     } catch {
                         // Mark for re-download on next sync so the photo doesn't remain as a ghost record
+                        syncLog.error("Failed to download photo \(photoRef.id): \(error.localizedDescription)")
                         photoRef.needsSync = true
                     }
                     self?.pendingDownloadTasks.removeValue(forKey: taskID)

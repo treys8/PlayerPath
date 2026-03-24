@@ -140,6 +140,7 @@ final class ComprehensiveAuthManager: ObservableObject {
         setupStoreKitSubscribers()
         setupAuthStateListener()
         observeAppleCredentialRevocation()
+        setupForegroundTierRefresh()
 
         // Profile loading for already signed-in users is handled by the
         // auth state listener above (which fires on init). No need to
@@ -208,6 +209,8 @@ final class ComprehensiveAuthManager: ObservableObject {
             return AuthConstants.ErrorMessages.userNotFound
         case AuthErrorCode.wrongPassword.rawValue:
             return AuthConstants.ErrorMessages.wrongPassword
+        case AuthErrorCode.invalidCredential.rawValue:
+            return "Invalid email or password. Please try again."
         case AuthErrorCode.networkError.rawValue:
             return AuthConstants.ErrorMessages.networkError
         case AuthErrorCode.tooManyRequests.rawValue:

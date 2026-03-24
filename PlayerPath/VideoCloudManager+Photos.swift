@@ -8,6 +8,7 @@
 import Foundation
 import FirebaseStorage
 import FirebaseAuth
+import FirebaseFirestore
 import os
 
 private let videoCloudLog = Logger(subsystem: "com.playerpath.app", category: "VideoCloud")
@@ -81,7 +82,13 @@ extension VideoCloudManager {
         } catch {
             videoCloudLog.error("Failed to create photo download directory: \(error.localizedDescription)")
         }
-        if FileManager.default.fileExists(atPath: localPath) { return }
+        if FileManager.default.fileExists(atPath: localPath) {
+            let attrs = try? FileManager.default.attributesOfItem(atPath: localPath)
+            let size = attrs?[.size] as? Int64 ?? 0
+            if size > 0 { return }
+            // Remove corrupt/empty file so we can re-download
+            try? FileManager.default.removeItem(atPath: localPath)
+        }
 
         let storage = Storage.storage()
         let photoRef = storage.reference(forURL: storageURL.absoluteString)
@@ -95,6 +102,19 @@ extension VideoCloudManager {
                 }
             }
         }
+    }
+
+    /// Records a failed photo deletion for server-side cleanup.
+    func recordPendingPhotoDeletion(photoId: UUID, fileName: String) async throws {
+        guard let ownerUID = Auth.auth().currentUser?.uid else { return }
+        let db = Firestore.firestore()
+        try await db.collection(FC.pendingDeletions).document(photoId.uuidString).setData([
+            "ownerUID": ownerUID,
+            "fileName": fileName,
+            "storagePath": "athlete_photos/\(ownerUID)/\(fileName)",
+            "type": "photo",
+            "createdAt": Timestamp(date: Date())
+        ])
     }
 
     /// Deletes all photo files from Firebase Storage for a user (GDPR compliance)

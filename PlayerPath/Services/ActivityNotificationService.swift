@@ -375,6 +375,28 @@ final class ActivityNotificationService: ObservableObject {
         await writeNotification(data, toUserIDs: [coachUserID])
     }
 
+    /// Coach loses folder access (downgrade) → notify the affected athlete.
+    func postCoachAccessLostNotification(
+        folderID: String,
+        folderName: String,
+        coachName: String,
+        coachID: String,
+        athleteUserID: String
+    ) async {
+        let data: [String: Any] = [
+            "type": ActivityNotification.NotificationType.accessRevoked.rawValue,
+            "title": "Coach Access Ended",
+            "body": "\(coachName) no longer has access to \"\(folderName)\"",
+            "senderName": coachName,
+            "senderID": coachID,
+            "targetID": folderID,
+            "targetType": ActivityNotification.TargetType.folder.rawValue,
+            "isRead": false,
+            "createdAt": FieldValue.serverTimestamp()
+        ]
+        await writeNotification(data, toUserIDs: [athleteUserID])
+    }
+
     // MARK: - Internal Write
 
     private func writeNotification(_ data: [String: Any], toUserIDs userIDs: [String]) async {

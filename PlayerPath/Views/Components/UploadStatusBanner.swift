@@ -128,7 +128,7 @@ struct UploadStatusBanner: View {
 
             Spacer()
 
-            Text("Uploading...")
+            Text("Waiting...")
                 .font(.caption)
                 .foregroundColor(.brandNavy)
         }

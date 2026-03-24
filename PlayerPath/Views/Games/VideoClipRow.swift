@@ -19,90 +19,39 @@ struct VideoClipRow: View {
 
     var body: some View {
         Button(action: { showingVideoPlayer = true }) {
-            HStack {
-                // Enhanced thumbnail with overlay - using the same logic as VideoClipListItem
-                ZStack(alignment: .bottomLeading) {
-                    // Thumbnail Image
-                    Group {
-                        if let thumbnail = thumbnailImage {
-                            Image(uiImage: thumbnail)
-                                .resizable()
-                                .aspectRatio(contentMode: .fill)
-                                .frame(width: 56, height: 44)
-                                .clipped()
-                        } else {
-                            Rectangle()
-                                .fill(Color.gray.opacity(0.3))
-                                .frame(width: 56, height: 44)
-                                .overlay(
-                                    VStack(spacing: 2) {
-                                        if isLoadingThumbnail {
-                                            ProgressView()
-                                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                                                .scaleEffect(0.5)
-                                        } else {
-                                            Image(systemName: "video.fill")
-                                                .foregroundColor(.white)
-                                                .font(.caption)
-                                        }
-
-                                        if !isLoadingThumbnail {
-                                            Text("No Preview")
-                                                .font(.system(size: 8))
-                                                .foregroundColor(.white)
-                                        }
-                                    }
-                                )
-                        }
-                    }
-                    .cornerRadius(6)
-                    .overlay(
-                        // Play button overlay
-                        Circle()
-                            .fill(Color.black.opacity(0.6))
-                            .frame(width: 16, height: 16)
-                            .overlay(
-                                Image(systemName: "play.fill")
-                                    .foregroundColor(.white)
-                                    .font(.system(size: 8))
-                            )
-                    )
-
-                    // Play result badge
-                    if let playResult = clip.playResult {
-                        Text(playResultAbbreviation(for: playResult.type))
-                            .font(.caption2)
-                            .fontWeight(.bold)
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 4)
-                            .padding(.vertical, 1)
-                            .background(playResult.type.badgeColor)
-                            .cornerRadius(3)
-                            .offset(x: 2, y: -2)
+            HStack(spacing: 14) {
+                // Square thumbnail — no overlays
+                Group {
+                    if let thumbnail = thumbnailImage {
+                        Image(uiImage: thumbnail)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .frame(width: 72, height: 72)
+                            .clipped()
                     } else {
-                        Text("?")
-                            .font(.caption2)
-                            .fontWeight(.bold)
-                            .foregroundColor(.white)
-                            .frame(width: 12, height: 12)
-                            .background(Color.gray)
-                            .clipShape(Circle())
-                            .offset(x: 2, y: -2)
-                    }
-
-                    // Highlight indicator
-                    if clip.isHighlight {
-                        Image(systemName: "star.fill")
-                            .foregroundColor(.yellow)
-                            .font(.system(size: 8))
-                            .background(Circle().fill(Color.black.opacity(0.6)).frame(width: 12, height: 12))
-                            .offset(x: -2, y: 2)
+                        Rectangle()
+                            .fill(Color.gray.opacity(0.2))
+                            .frame(width: 72, height: 72)
+                            .overlay(
+                                Group {
+                                    if isLoadingThumbnail {
+                                        ProgressView()
+                                            .progressViewStyle(CircularProgressViewStyle(tint: .gray))
+                                            .scaleEffect(0.7)
+                                    } else {
+                                        Image(systemName: "video.fill")
+                                            .foregroundColor(.gray)
+                                            .font(.title3)
+                                    }
+                                }
+                            )
                     }
                 }
+                .cornerRadius(10)
 
                 VStack(alignment: .leading, spacing: 4) {
                     if let playResult = clip.playResult {
-                        Text(String(describing: playResult.type))
+                        Text(playResult.type.displayName)
                             .font(.subheadline)
                             .fontWeight(.semibold)
                             .foregroundColor(.primary)
@@ -114,8 +63,12 @@ struct VideoClipRow: View {
 
                     if let createdAt = clip.createdAt {
                         Text(createdAt, formatter: DateFormatter.shortTime)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
                     } else {
                         Text("Unknown Time")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
                     }
                 }
 
@@ -131,7 +84,7 @@ struct VideoClipRow: View {
                     .foregroundColor(.gray)
                     .font(.caption)
             }
-            .padding(.vertical, 4)
+            .padding(.vertical, 10)
         }
         .buttonStyle(PlainButtonStyle())
         .accessibilityElement(children: .combine)
@@ -159,75 +112,35 @@ struct VideoClipRow: View {
 
     @MainActor
     private func loadThumbnail() async {
-        // Skip if already loading or already have image
         guard !isLoadingThumbnail, thumbnailImage == nil else { return }
-
-        // Check if we have a thumbnail path
-        guard let thumbnailPath = clip.thumbnailPath else {
-            // Generate thumbnail if none exists
-            await generateMissingThumbnail()
-            return
-        }
 
         isLoadingThumbnail = true
 
-        do {
-            // Load thumbnail asynchronously using the same cache system
-            let size: CGSize = .thumbnailMedium
-            let image = try await ThumbnailCache.shared.loadThumbnail(at: thumbnailPath, targetSize: size)
-            thumbnailImage = image
-        } catch {
-            // Try to regenerate thumbnail
-            await generateMissingThumbnail()
+        // Try loading from existing path first
+        if let thumbnailPath = clip.thumbnailPath {
+            if let image = try? await ThumbnailCache.shared.loadThumbnail(at: thumbnailPath, targetSize: .thumbnailSmall) {
+                thumbnailImage = image
+                isLoadingThumbnail = false
+                return
+            }
+        }
+
+        // Generate thumbnail from video file
+        let result = await VideoFileManager.generateThumbnail(from: clip.resolvedFileURL)
+
+        switch result {
+        case .success(let thumbnailPath):
+            clip.thumbnailPath = thumbnailPath
+            ErrorHandlerService.shared.saveContext(modelContext, caller: "VideoClipRow.generateThumbnail")
+
+            if let image = try? await ThumbnailCache.shared.loadThumbnail(at: thumbnailPath, targetSize: .thumbnailSmall) {
+                thumbnailImage = image
+            }
+        case .failure:
+            break
         }
 
         isLoadingThumbnail = false
-    }
-
-    private func generateMissingThumbnail() async {
-
-        let videoURL = clip.resolvedFileURL
-        let result = await VideoFileManager.generateThumbnail(from: videoURL)
-
-        await MainActor.run {
-            switch result {
-            case .success(let thumbnailPath):
-                clip.thumbnailPath = thumbnailPath
-                do {
-                    try modelContext.save()
-                } catch {
-                    ErrorHandlerService.shared.handle(error, context: "GamesView.saveThumbnailPath", showAlert: false)
-                }
-                isLoadingThumbnail = false
-            case .failure(_):
-                isLoadingThumbnail = false
-            }
-        }
-        // Load through the cache (off main thread) after saving the path
-        if case .success(let thumbnailPath) = result {
-            let size: CGSize = .thumbnailMedium
-            if let image = try? await ThumbnailCache.shared.loadThumbnail(at: thumbnailPath, targetSize: size) {
-                await MainActor.run { thumbnailImage = image }
-            }
-        }
-    }
-
-    // Helper functions for styling
-    private func playResultAbbreviation(for type: PlayResultType) -> String {
-        switch type {
-        case .single: return "1B"
-        case .double: return "2B"
-        case .triple: return "3B"
-        case .homeRun: return "HR"
-        case .walk: return "BB"
-        case .strikeout: return "K"
-        case .groundOut: return "GO"
-        case .flyOut: return "FO"
-        case .ball: return "B"
-        case .strike: return "S"
-        case .hitByPitch: return "HBP"
-        case .wildPitch: return "WP"
-        }
     }
 
 }

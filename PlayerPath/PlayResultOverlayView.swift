@@ -14,7 +14,7 @@ struct PlayResultOverlayView: View {
     let athlete: Athlete?
     let game: Game?
     let practice: Practice?
-    let onSave: (PlayResultType?, Double?, AthleteRole) -> Void
+    let onSave: (PlayResultType?, Double?, String?, AthleteRole) -> Void
     let onCancel: () -> Void
     
     @State private var selectedResult: PlayResultType?
@@ -28,6 +28,7 @@ struct PlayResultOverlayView: View {
     @State private var showContent = false
     @State private var isSaving = false
     @State private var pitchSpeedText = ""
+    @State private var pitchType: String = "fastball"
     @FocusState private var pitchSpeedFocused: Bool
 
     @Environment(\.verticalSizeClass) private var vSizeClass
@@ -38,7 +39,7 @@ struct PlayResultOverlayView: View {
         athlete: Athlete?,
         game: Game?,
         practice: Practice?,
-        onSave: @escaping (PlayResultType?, Double?, AthleteRole) -> Void,
+        onSave: @escaping (PlayResultType?, Double?, String?, AthleteRole) -> Void,
         onCancel: @escaping () -> Void
     ) {
         self.videoURL = videoURL
@@ -231,8 +232,7 @@ struct PlayResultOverlayView: View {
             Button("Save", role: .none) {
                 guard let result = selectedResult else { return }
                 isSaving = true
-                Haptics.success()
-                onSave(result, parsedPitchSpeed, recordingMode)
+                onSave(result, parsedPitchSpeed, parsedPitchType, recordingMode)
                 selectedResult = nil
                 // Reset after a timeout in case the parent doesn't dismiss this overlay
                 Task {
@@ -345,6 +345,26 @@ struct PlayResultOverlayView: View {
                 .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Color.white.opacity(0.2), lineWidth: 1))
                 .opacity(showContent ? 1 : 0)
                 .offset(y: showContent ? 0 : 20)
+
+                // Pitch Type Picker
+                HStack(spacing: 0) {
+                    PitchTypeButton(title: "Fastball", isSelected: pitchType == "fastball") {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                            pitchType = "fastball"
+                        }
+                        Haptics.light()
+                    }
+                    PitchTypeButton(title: "Off-Speed", isSelected: pitchType == "offspeed") {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                            pitchType = "offspeed"
+                        }
+                        Haptics.light()
+                    }
+                }
+                .padding(4)
+                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.white.opacity(0.1)))
+                .opacity(showContent ? 1 : 0)
+                .offset(y: showContent ? 0 : 20)
             }
 
             // Play Result Grid
@@ -374,8 +394,7 @@ struct PlayResultOverlayView: View {
                     style: .primary
                 ) {
                     isSaving = true
-                    Haptics.success()
-                    onSave(nil, parsedPitchSpeed, recordingMode)
+                    onSave(nil, parsedPitchSpeed, parsedPitchType, recordingMode)
                 }
                 .disabled(isSaving)
                 .accessibilityLabel(practice != nil ? "Save Video Only" : "Skip and Save")
@@ -438,6 +457,9 @@ struct PlayResultOverlayView: View {
                 PlayResultButton(result: .walk, isSelected: selectedResult == .walk, fullWidth: true) {
                     selectResult(.walk)
                 }
+                PlayResultButton(result: .batterHitByPitch, isSelected: selectedResult == .batterHitByPitch, fullWidth: true) {
+                    selectResult(.batterHitByPitch)
+                }
             }
 
             PlayResultDivider()
@@ -480,13 +502,23 @@ struct PlayResultOverlayView: View {
 
                 VStack(spacing: 10) {
                     HStack(spacing: 10) {
-                        PlayResultButton(result: .strikeout, isSelected: selectedResult == .strikeout) { selectResult(.strikeout) }
+                        PlayResultButton(result: .pitchingStrikeout, isSelected: selectedResult == .pitchingStrikeout) { selectResult(.pitchingStrikeout) }
                         PlayResultButton(result: .groundOut, isSelected: selectedResult == .groundOut) { selectResult(.groundOut) }
                     }
                     HStack(spacing: 10) {
                         PlayResultButton(result: .flyOut, isSelected: selectedResult == .flyOut) { selectResult(.flyOut) }
                         Color.clear.frame(maxWidth: .infinity)
                     }
+                }
+            }
+
+            PlayResultDivider()
+
+            VStack(alignment: .leading, spacing: 10) {
+                PlayResultSectionHeader(icon: "figure.walk", title: "WALK", color: .brandNavy)
+
+                PlayResultButton(result: .pitchingWalk, isSelected: selectedResult == .pitchingWalk, fullWidth: true) {
+                    selectResult(.pitchingWalk)
                 }
             }
 
@@ -508,6 +540,11 @@ struct PlayResultOverlayView: View {
         return Double(pitchSpeedText)
     }
 
+    private var parsedPitchType: String? {
+        guard recordingMode == .pitcher else { return nil }
+        return pitchType
+    }
+
     private func selectResult(_ result: PlayResultType) {
         selectedResult = result
         Haptics.medium()
@@ -526,10 +563,13 @@ extension PlayResultType {
         case .strikeout: return "k.circle.fill"
         case .groundOut: return "arrow.down.circle.fill"
         case .flyOut: return "arrow.up.circle.fill"
+        case .batterHitByPitch: return "figure.fall"
         case .ball: return "circle"
         case .strike: return "xmark.circle.fill"
         case .hitByPitch: return "figure.fall"
         case .wildPitch: return "arrow.up.right.and.arrow.down.left"
+        case .pitchingStrikeout: return "k.circle.fill"
+        case .pitchingWalk: return "figure.walk"
         }
     }
 
@@ -544,10 +584,13 @@ extension PlayResultType {
         case .strikeout: return "K"
         case .groundOut: return "GO"
         case .flyOut: return "FO"
+        case .batterHitByPitch: return "HBP"
         case .ball: return "B"
         case .strike: return "S"
         case .hitByPitch: return "HBP"
         case .wildPitch: return "WP"
+        case .pitchingStrikeout: return "K"
+        case .pitchingWalk: return "BB"
         }
     }
 
@@ -561,10 +604,13 @@ extension PlayResultType {
         case .walk: return .cyan
         case .strikeout: return .red
         case .groundOut, .flyOut: return .red
+        case .batterHitByPitch: return .purple
         case .ball: return .orange
         case .strike: return .green
         case .hitByPitch: return .purple
         case .wildPitch: return .red
+        case .pitchingStrikeout: return .red
+        case .pitchingWalk: return .cyan
         }
     }
 
@@ -575,10 +621,13 @@ extension PlayResultType {
         case .homeRun: return .gold
         case .walk: return .brandNavy
         case .strikeout, .groundOut, .flyOut: return .red
+        case .batterHitByPitch: return .purple
         case .ball: return .orange
         case .strike: return .green
         case .hitByPitch: return .purple
         case .wildPitch: return .red
+        case .pitchingStrikeout: return .red
+        case .pitchingWalk: return .brandNavy
         }
     }
 
@@ -826,6 +875,35 @@ struct PlayResultModePicker: View {
     }
 }
 
+// MARK: - Pitch Type Button
+
+struct PitchTypeButton: View {
+    let title: String
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.subheadline)
+                .fontWeight(.semibold)
+                .foregroundColor(isSelected ? .white : .white.opacity(0.6))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+                .background(
+                    ZStack {
+                        if isSelected {
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .fill(LinearGradient(colors: [.purple, .purple.opacity(0.7)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                                .shadow(color: .purple.opacity(0.4), radius: 8, x: 0, y: 2)
+                        }
+                    }
+                )
+        }
+        .buttonStyle(.plain)
+    }
+}
+
 // MARK: - Premium Action Button
 
 struct PlayResultActionButton: View {
@@ -1042,7 +1120,7 @@ extension PlayResultOverlayView {
         athlete: nil,
         game: nil,
         practice: nil,
-        onSave: { _, _, _ in },
+        onSave: { _, _, _, _ in },
         onCancel: { }
     )
 }

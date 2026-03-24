@@ -144,11 +144,8 @@ enum AppError: LocalizedError {
             return "Password must be at least 8 characters long."
 
         // General
-        case .unknown(let error):
-            if let error = error {
-                return "An unexpected error occurred: \(error.localizedDescription)"
-            }
-            return "An unexpected error occurred. Please try again."
+        case .unknown:
+            return "Something went wrong. Please try again."
         case .notImplemented:
             return "This feature is not yet implemented."
         case .operationCancelled:

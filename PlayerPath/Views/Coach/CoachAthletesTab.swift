@@ -100,7 +100,9 @@ struct CoachAthletesTab: View {
             }
         }
         .sheet(isPresented: $showingStartSession) {
-            StartSessionSheet { _ in }
+            StartSessionSheet(onSessionStarted: { _ in }, onInviteAthlete: {
+                showingInviteAthlete = true
+            })
         }
         .sheet(isPresented: $showingInviteAthlete) {
             InviteAthleteSheet()
@@ -121,6 +123,17 @@ struct CoachAthletesTab: View {
     private var athletesList: some View {
         ScrollView {
             LazyVStack(spacing: 20) {
+                // Offline indicator
+                if !ConnectivityMonitor.shared.isConnected {
+                    Label("You're offline. Showing cached data.", systemImage: "wifi.slash")
+                        .font(.subheadline)
+                        .foregroundStyle(.orange)
+                        .padding(10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+                        .padding(.horizontal)
+                }
+
                 // Pending invitations banner at top
                 PendingInvitationsBanner(showingInvitations: $showingInvitations)
 

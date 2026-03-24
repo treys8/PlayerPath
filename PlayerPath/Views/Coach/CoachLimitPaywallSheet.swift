@@ -42,7 +42,7 @@ struct CoachLimitPaywallSheet: View {
                 }
                 .font(.subheadline)
 
-                Text("Upgrade your coaching plan to connect with more athletes.")
+                Text("Your \(authManager.currentCoachTier.displayName) plan allows \(authManager.coachAthleteLimit) athletes. Upgrade to connect with more.")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)

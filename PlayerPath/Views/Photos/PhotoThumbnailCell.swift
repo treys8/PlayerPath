@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import ImageIO
 
 struct PhotoThumbnailCell: View {
     let photo: Photo
@@ -69,9 +70,17 @@ struct PhotoThumbnailCell: View {
                 return
             }
         }
-        // Fallback to full image
-        if let image = UIImage(contentsOfFile: photo.filePath) {
-            thumbnail = image
+        // Fallback: load a downsampled version instead of the full-res bitmap
+        let url = URL(fileURLWithPath: photo.filePath) as CFURL
+        if let source = CGImageSourceCreateWithURL(url, nil) {
+            let options: [CFString: Any] = [
+                kCGImageSourceThumbnailMaxPixelSize: 300,
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true
+            ]
+            if let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) {
+                thumbnail = UIImage(cgImage: cgImage)
+            }
         }
     }
 }

@@ -56,7 +56,7 @@ struct AddAthleteView: View {
                                     .fontWeight(.bold)
                                     .multilineTextAlignment(.center)
 
-                                Text(isFirstAthlete ? "Create your first profile to get started." : "Add another athlete to track.")
+                                Text(isFirstAthlete ? "Enter your athlete's name to get started." : "Add another athlete to track.")
                                     .font(.title3)
                                     .foregroundColor(.secondary)
                                     .multilineTextAlignment(.center)
@@ -197,10 +197,6 @@ struct AddAthleteView: View {
                 }
             }
             .onAppear {
-                // Pre-fill with user's display name for first athlete (if not an email)
-                if isFirstAthlete && athleteName.isEmpty && !user.username.contains("@") {
-                    athleteName = user.username
-                }
                 isNameFieldFocused = true
             }
         }

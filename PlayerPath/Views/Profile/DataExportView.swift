@@ -202,16 +202,98 @@ struct DataExportView: View {
                     "doubles": stats.doubles,
                     "triples": stats.triples,
                     "homeRuns": stats.homeRuns,
+                    "runs": stats.runs,
+                    "rbis": stats.rbis,
                     "walks": stats.walks,
                     "strikeouts": stats.strikeouts,
+                    "groundOuts": stats.groundOuts,
+                    "flyOuts": stats.flyOuts,
+                    "hitByPitches": stats.hitByPitches,
+                    "totalPitches": stats.totalPitches,
+                    "balls": stats.balls,
+                    "strikes": stats.strikes,
+                    "wildPitches": stats.wildPitches,
+                    "pitchingStrikeouts": stats.pitchingStrikeouts,
+                    "pitchingWalks": stats.pitchingWalks,
                     "battingAverage": stats.battingAverage,
                     "onBasePercentage": stats.onBasePercentage,
                     "sluggingPercentage": stats.sluggingPercentage,
-                    "ops": stats.onBasePercentage + stats.sluggingPercentage
+                    "ops": stats.ops
                 ])
             }
         }
         exportData["statistics"] = allStats
+
+        // Season Statistics
+        var allSeasonStats: [[String: Any]] = []
+        for athlete in athletes {
+            for season in athlete.seasons ?? [] {
+                if let stats = season.seasonStatistics {
+                    allSeasonStats.append([
+                        "athleteId": athlete.id.uuidString,
+                        "seasonId": season.id.uuidString,
+                        "seasonName": season.displayName,
+                        "totalGames": stats.totalGames,
+                        "atBats": stats.atBats,
+                        "hits": stats.hits,
+                        "singles": stats.singles,
+                        "doubles": stats.doubles,
+                        "triples": stats.triples,
+                        "homeRuns": stats.homeRuns,
+                        "runs": stats.runs,
+                        "rbis": stats.rbis,
+                        "walks": stats.walks,
+                        "strikeouts": stats.strikeouts,
+                        "groundOuts": stats.groundOuts,
+                        "flyOuts": stats.flyOuts,
+                        "hitByPitches": stats.hitByPitches,
+                        "totalPitches": stats.totalPitches,
+                        "balls": stats.balls,
+                        "strikes": stats.strikes,
+                        "wildPitches": stats.wildPitches,
+                        "battingAverage": stats.battingAverage,
+                        "onBasePercentage": stats.onBasePercentage,
+                        "sluggingPercentage": stats.sluggingPercentage,
+                        "ops": stats.ops
+                    ])
+                }
+            }
+        }
+        exportData["seasonStatistics"] = allSeasonStats
+
+        // Game Statistics
+        var allGameStats: [[String: Any]] = []
+        for athlete in athletes {
+            for game in athlete.games ?? [] {
+                if let gs = game.gameStats {
+                    allGameStats.append([
+                        "athleteId": athlete.id.uuidString,
+                        "gameId": game.id.uuidString,
+                        "opponent": game.opponent,
+                        "atBats": gs.atBats,
+                        "hits": gs.hits,
+                        "singles": gs.singles,
+                        "doubles": gs.doubles,
+                        "triples": gs.triples,
+                        "homeRuns": gs.homeRuns,
+                        "runs": gs.runs,
+                        "rbis": gs.rbis,
+                        "walks": gs.walks,
+                        "strikeouts": gs.strikeouts,
+                        "groundOuts": gs.groundOuts,
+                        "flyOuts": gs.flyOuts,
+                        "hitByPitches": gs.hitByPitches,
+                        "totalPitches": gs.totalPitches,
+                        "balls": gs.balls,
+                        "strikes": gs.strikes,
+                        "wildPitches": gs.wildPitches,
+                        "pitchingStrikeouts": gs.pitchingStrikeouts,
+                        "pitchingWalks": gs.pitchingWalks
+                    ])
+                }
+            }
+        }
+        exportData["gameStatistics"] = allGameStats
 
         // Practices
         var allPractices: [[String: Any]] = []

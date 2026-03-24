@@ -208,7 +208,7 @@ class VideoCloudManager: ObservableObject {
                 // Monitor upload progress with throttling
                 uploadTask.observe(.progress) { [weak self] snapshot in
                     guard let progress = snapshot.progress else { return }
-                    let percentComplete = Double(progress.completedUnitCount) / Double(progress.totalUnitCount)
+                    let percentComplete = progress.totalUnitCount > 0 ? Double(progress.completedUnitCount) / Double(progress.totalUnitCount) : 0.0
 
                     Task { @MainActor in
                         guard let self = self else { return }
@@ -291,7 +291,7 @@ class VideoCloudManager: ObservableObject {
                 // Monitor download progress with throttling
                 downloadTask.observe(.progress) { [weak self] snapshot in
                     guard let progress = snapshot.progress else { return }
-                    let percentComplete = Double(progress.completedUnitCount) / Double(progress.totalUnitCount)
+                    let percentComplete = progress.totalUnitCount > 0 ? Double(progress.completedUnitCount) / Double(progress.totalUnitCount) : 0.0
 
                     Task { @MainActor in
                         guard let self = self else { return }
@@ -534,7 +534,7 @@ class VideoCloudManager: ObservableObject {
 
                 uploadTask.observe(.progress) { [weak self] snapshot in
                     guard let progress = snapshot.progress else { return }
-                    let percentComplete = Double(progress.completedUnitCount) / Double(progress.totalUnitCount)
+                    let percentComplete = progress.totalUnitCount > 0 ? Double(progress.completedUnitCount) / Double(progress.totalUnitCount) : 0.0
 
                     Task { @MainActor in
                         guard let self = self else { return }
@@ -662,6 +662,7 @@ struct VideoClipMetadata {
     let practiceId: String?
     let practiceDate: Date?
     let pitchSpeed: Double?
+    let pitchType: String?
     let duration: Double?
     let athleteName: String
     let fileSize: Int64

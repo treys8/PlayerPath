@@ -162,7 +162,14 @@ extension ComprehensiveAuthManager {
                 }
 
                 hasLoadedProfile = true
-                syncSubscriptionTierToFirestore()
+
+                // Only sync to Firestore after StoreKit's initial entitlement
+                // resolution completes. On a second device, StoreKit may not have
+                // synced transactions yet and would overwrite the correct Firestore
+                // tier with .free via empty JWS tokens.
+                if StoreKitManager.shared.hasResolvedEntitlements {
+                    syncSubscriptionTierToFirestore()
+                }
 
                 // Only update userRole if it's different AND this is not a new user
                 // For new users, we want to keep the role we set synchronously at signup

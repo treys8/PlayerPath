@@ -252,6 +252,7 @@ final class ClipPersistenceService {
         from url: URL,
         playResult: PlayResultType?,
         pitchSpeed: Double? = nil,
+        pitchType: String? = nil,
         role: AthleteRole = .batter,
         note: String? = nil,
         context: ModelContext,
@@ -339,6 +340,7 @@ final class ClipPersistenceService {
         videoClip.thumbnailPath = thumbnailPath
         videoClip.duration = durationSeconds
         videoClip.pitchSpeed = pitchSpeed
+        videoClip.pitchType = pitchType
         videoClip.note = note
 
         // Create and link PlayResult model if provided
@@ -412,6 +414,15 @@ final class ClipPersistenceService {
         if let preferences, preferences.saveToPhotosLibrary {
             let savedURL = destinationURL
             Task { @MainActor in
+                let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
+                guard status == .authorized || status == .limited else {
+                    ErrorHandlerService.shared.handle(
+                        AppError.unknown(nil),
+                        context: "ClipPersistence.saveToPhotosLibrary.permissionDenied",
+                        showAlert: false
+                    )
+                    return
+                }
                 do {
                     try await PHPhotoLibrary.shared().performChanges {
                         PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: savedURL)

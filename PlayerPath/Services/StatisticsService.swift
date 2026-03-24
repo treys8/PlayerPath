@@ -23,8 +23,16 @@ final class StatisticsService {
         print("StatisticsService: Recalculating statistics for athlete \(athlete.name)")
         #endif
 
-        // Ensure athlete has statistics model
-        if athlete.statistics == nil {
+        // Ensure athlete has a dedicated career statistics model.
+        // Repair: if athlete.statistics was hijacked by a season stats object
+        // (has season != nil), detach it and create a fresh career-only object.
+        if let existing = athlete.statistics, existing.season != nil {
+            existing.athlete = nil
+            let careerStats = AthleteStatistics()
+            careerStats.athlete = athlete
+            athlete.statistics = careerStats
+            context.insert(careerStats)
+        } else if athlete.statistics == nil {
             let stats = AthleteStatistics()
             stats.athlete = athlete
             athlete.statistics = stats
@@ -57,6 +65,12 @@ final class StatisticsService {
                 stats.groundOuts += gameStats.groundOuts
                 stats.flyOuts += gameStats.flyOuts
                 stats.hitByPitches += gameStats.hitByPitches
+                stats.totalPitches += gameStats.totalPitches
+                stats.balls += gameStats.balls
+                stats.strikes += gameStats.strikes
+                stats.wildPitches += gameStats.wildPitches
+                stats.pitchingStrikeouts += gameStats.pitchingStrikeouts
+                stats.pitchingWalks += gameStats.pitchingWalks
             }
         }
 
@@ -81,6 +95,15 @@ final class StatisticsService {
             try recalculateSeasonStatistics(for: season, athlete: athlete, context: context, skipSave: true)
         }
 
+        // Clean up orphaned AthleteStatistics left behind by the old bug
+        // where season stats stole the athlete relationship
+        let allStatsDescriptor = FetchDescriptor<AthleteStatistics>()
+        if let allStats = try? context.fetch(allStatsDescriptor) {
+            for stat in allStats where stat.athlete == nil && stat.season == nil {
+                context.delete(stat)
+            }
+        }
+
         if !skipSave {
             try context.save()
         }
@@ -93,10 +116,12 @@ final class StatisticsService {
         #endif
 
         // Ensure season has statistics model
+        // Do NOT set stats.athlete here — Athlete.statistics is a one-to-one
+        // inverse on AthleteStatistics.athlete. Setting it on season stats
+        // would steal the relationship from the career stats object.
         if season.seasonStatistics == nil {
             let stats = AthleteStatistics()
             stats.season = season
-            stats.athlete = athlete
             season.seasonStatistics = stats
             context.insert(stats)
         }
@@ -127,6 +152,12 @@ final class StatisticsService {
                 stats.groundOuts += gameStats.groundOuts
                 stats.flyOuts += gameStats.flyOuts
                 stats.hitByPitches += gameStats.hitByPitches
+                stats.totalPitches += gameStats.totalPitches
+                stats.balls += gameStats.balls
+                stats.strikes += gameStats.strikes
+                stats.wildPitches += gameStats.wildPitches
+                stats.pitchingStrikeouts += gameStats.pitchingStrikeouts
+                stats.pitchingWalks += gameStats.pitchingWalks
             }
         }
 
@@ -202,9 +233,25 @@ final class StatisticsService {
                 case .flyOut:
                     stats.flyOuts += 1
                 case .hitByPitch:
+                    stats.totalPitches += 1
                     stats.hitByPitches += 1
-                case .ball, .strike, .wildPitch:
-                    break // Pitching stats are not tracked in GameStatistics
+                case .ball:
+                    stats.totalPitches += 1
+                    stats.balls += 1
+                case .strike:
+                    stats.totalPitches += 1
+                    stats.strikes += 1
+                case .wildPitch:
+                    stats.totalPitches += 1
+                    stats.wildPitches += 1
+                case .batterHitByPitch:
+                    stats.hitByPitches += 1
+                case .pitchingStrikeout:
+                    stats.totalPitches += 1
+                    stats.pitchingStrikeouts += 1
+                case .pitchingWalk:
+                    stats.totalPitches += 1
+                    stats.pitchingWalks += 1
                 }
             }
         }
@@ -256,6 +303,14 @@ final class StatisticsService {
         case .wildPitch:
             stats.totalPitches += 1
             stats.wildPitches += 1
+        case .batterHitByPitch:
+            stats.hitByPitches += 1
+        case .pitchingStrikeout:
+            stats.totalPitches += 1
+            stats.pitchingStrikeouts += 1
+        case .pitchingWalk:
+            stats.totalPitches += 1
+            stats.pitchingWalks += 1
         }
     }
 

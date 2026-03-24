@@ -256,6 +256,7 @@ struct ImportTaggingSheet: View {
             // Walk
             resultSectionHeader(icon: "figure.walk", title: "WALK", color: .info)
             resultChip(.walk)
+            resultChip(.batterHitByPitch)
 
             // Outs
             resultSectionHeader(icon: "xmark.circle.fill", title: "OUTS", color: .error)
@@ -277,10 +278,13 @@ struct ImportTaggingSheet: View {
 
             resultSectionHeader(icon: "xmark.circle.fill", title: "OUTS", color: .error)
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: .spacingSmall) {
-                resultChip(.strikeout)
+                resultChip(.pitchingStrikeout)
                 resultChip(.groundOut)
                 resultChip(.flyOut)
             }
+
+            resultSectionHeader(icon: "figure.walk", title: "WALK", color: .info)
+            resultChip(.pitchingWalk)
 
             resultSectionHeader(icon: "exclamationmark.triangle.fill", title: "SPECIAL", color: .warning)
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: .spacingSmall) {
@@ -500,8 +504,14 @@ struct ImportTaggingSheet: View {
             gameStats.groundOuts = max(0, gameStats.groundOuts - 1)
         case .flyOut:
             gameStats.flyOuts = max(0, gameStats.flyOuts - 1)
+        case .batterHitByPitch:
+            gameStats.hitByPitches = max(0, gameStats.hitByPitches - 1)
         case .hitByPitch:
             gameStats.hitByPitches = max(0, gameStats.hitByPitches - 1)
+        case .pitchingStrikeout:
+            gameStats.pitchingStrikeouts = max(0, gameStats.pitchingStrikeouts - 1)
+        case .pitchingWalk:
+            gameStats.pitchingWalks = max(0, gameStats.pitchingWalks - 1)
         case .ball, .strike, .wildPitch:
             break
         }

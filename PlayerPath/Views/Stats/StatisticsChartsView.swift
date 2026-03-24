@@ -364,33 +364,34 @@ struct StatisticsChartsView: View {
         guard !completedGames.isEmpty else { return nil }
 
         var atBats = 0, hits = 0, singles = 0, doubles = 0
-        var triples = 0, homeRuns = 0, walks = 0, runs = 0, rbis = 0
+        var triples = 0, homeRuns = 0, walks = 0, runs = 0, rbis = 0, hitByPitches = 0
 
         for game in completedGames {
             guard let gs = game.gameStats else { continue }
-            atBats    += gs.atBats
-            hits      += gs.hits
-            singles   += gs.singles
-            doubles   += gs.doubles
-            triples   += gs.triples
-            homeRuns  += gs.homeRuns
-            walks     += gs.walks
-            runs      += gs.runs
-            rbis      += gs.rbis
+            atBats       += gs.atBats
+            hits         += gs.hits
+            singles      += gs.singles
+            doubles      += gs.doubles
+            triples      += gs.triples
+            homeRuns     += gs.homeRuns
+            walks        += gs.walks
+            runs         += gs.runs
+            rbis         += gs.rbis
+            hitByPitches += gs.hitByPitches
         }
 
         switch metric {
         case .battingAverage:
             return atBats > 0 ? Double(hits) / Double(atBats) : 0
         case .onBasePercentage:
-            let pa = atBats + walks
-            return pa > 0 ? Double(hits + walks) / Double(pa) : 0
+            let pa = atBats + walks + hitByPitches
+            return pa > 0 ? Double(hits + walks + hitByPitches) / Double(pa) : 0
         case .sluggingPercentage:
             let bases = singles + (doubles * 2) + (triples * 3) + (homeRuns * 4)
             return atBats > 0 ? Double(bases) / Double(atBats) : 0
         case .ops:
-            let pa = atBats + walks
-            let obp = pa > 0 ? Double(hits + walks) / Double(pa) : 0.0
+            let pa = atBats + walks + hitByPitches
+            let obp = pa > 0 ? Double(hits + walks + hitByPitches) / Double(pa) : 0.0
             let bases = singles + (doubles * 2) + (triples * 3) + (homeRuns * 4)
             let slg = atBats > 0 ? Double(bases) / Double(atBats) : 0.0
             return obp + slg

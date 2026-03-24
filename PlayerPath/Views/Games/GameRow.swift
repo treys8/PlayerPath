@@ -107,6 +107,7 @@ struct GameRow: View {
                     .font(.subheadline)
                     .fontWeight(.semibold)
                     .foregroundColor(.primary)
+                    .lineLimit(1)
 
                 // Date and season
                 HStack(spacing: 8) {

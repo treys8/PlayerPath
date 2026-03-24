@@ -26,6 +26,7 @@ extension VideoCloudManager {
         let clipThumbnailPath = videoClip.thumbnailPath
         let clipNote = videoClip.note
         let clipPitchSpeed = videoClip.pitchSpeed
+        let clipPitchType = videoClip.pitchType
         let playResultType = videoClip.playResult?.type
         let gameId = videoClip.game.map { $0.firestoreId ?? $0.id.uuidString }
         let gameOpponent = videoClip.gameOpponent ?? videoClip.game?.opponent
@@ -96,6 +97,9 @@ extension VideoCloudManager {
         if let pitchSpeed = clipPitchSpeed {
             data["pitchSpeed"] = pitchSpeed
         }
+        if let pitchType = clipPitchType {
+            data["pitchType"] = pitchType
+        }
 
         // Upload thumbnail to Storage if exists, then add URL to metadata
         if let thumbnailPath = clipThumbnailPath,
@@ -125,7 +129,7 @@ extension VideoCloudManager {
     }
 
     /// Updates mutable video metadata fields in Firestore (isHighlight, note).
-    func updateVideoMetadata(clipId: String, isHighlight: Bool, note: String?, playResultType: PlayResultType?, pitchSpeed: Double?, gameId: String?, gameOpponent: String?, gameDate: Date?, seasonId: String?, seasonName: String?, practiceId: String?, practiceDate: Date? = nil) async throws {
+    func updateVideoMetadata(clipId: String, isHighlight: Bool, note: String?, playResultType: PlayResultType?, pitchSpeed: Double?, pitchType: String? = nil, gameId: String?, gameOpponent: String?, gameDate: Date?, seasonId: String?, seasonName: String?, practiceId: String?, practiceDate: Date? = nil) async throws {
         let db = Firestore.firestore()
         var data: [String: Any] = [
             "isHighlight": isHighlight,
@@ -140,6 +144,7 @@ extension VideoCloudManager {
             data["playResultName"] = NSNull()
         }
         data["pitchSpeed"] = pitchSpeed ?? NSNull()
+        data["pitchType"] = pitchType ?? NSNull()
         data["gameId"] = gameId ?? NSNull()
         data["gameOpponent"] = gameOpponent ?? NSNull()
         data["gameDate"] = gameDate.map { Timestamp(date: $0) } ?? NSNull()
@@ -258,6 +263,7 @@ extension VideoCloudManager {
                 practiceId: data["practiceId"] as? String,
                 practiceDate: (data["practiceDate"] as? Timestamp)?.dateValue(),
                 pitchSpeed: data["pitchSpeed"] as? Double,
+                pitchType: data["pitchType"] as? String,
                 duration: data["duration"] as? Double,
                 athleteName: athleteName,
                 fileSize: data["fileSize"] as? Int64 ?? 0,
@@ -338,6 +344,7 @@ extension VideoCloudManager {
                         practiceId: data["practiceId"] as? String,
                         practiceDate: (data["practiceDate"] as? Timestamp)?.dateValue(),
                         pitchSpeed: data["pitchSpeed"] as? Double,
+                        pitchType: data["pitchType"] as? String,
                         duration: data["duration"] as? Double,
                         athleteName: athleteName,
                         fileSize: data["fileSize"] as? Int64 ?? 0,

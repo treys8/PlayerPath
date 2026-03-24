@@ -76,6 +76,10 @@ struct PlayerPathMainView: View {
         Group {
             if authManager.isSignedIn {
                 AuthenticatedFlow()
+            } else if authManager.currentFirebaseUser != nil {
+                // Firebase session exists but profile hasn't loaded yet —
+                // show a splash screen instead of flashing the sign-in view.
+                LoadingView(title: "Welcome back!", subtitle: "Loading your profile...")
             } else {
                 WelcomeFlow()
             }
