@@ -4,13 +4,6 @@ import Foundation
 
 /// Simple validation helpers for common input fields.
 public enum Validation {
-    /// Validates an email string using a reasonable regex.
-    public static func isValidEmail(_ email: String) -> Bool {
-        let emailRegex = "[A-Z0-9a-z._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,64}"
-        let predicate = NSPredicate(format: "SELF MATCHES %@", emailRegex)
-        return predicate.evaluate(with: email)
-    }
-
     /// Validates a person-like display name with allowed characters and length.
     /// - Parameters:
     ///   - name: The input string.

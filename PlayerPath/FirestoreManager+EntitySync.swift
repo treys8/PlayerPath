@@ -535,6 +535,12 @@ extension FirestoreManager {
             ])
     }
 
+    func updatePhoto(photoId: String, data: [String: Any]) async throws {
+        var updateData = data
+        updateData["updatedAt"] = FieldValue.serverTimestamp()
+        try await db.collection(FC.photos).document(photoId).updateData(updateData)
+    }
+
     func createPhoto(data: [String: Any]) async throws -> String {
         var photoData = data
         photoData["createdAt"] = FieldValue.serverTimestamp()

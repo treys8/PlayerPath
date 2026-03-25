@@ -44,12 +44,6 @@ struct SettingsView: View {
                 } label: {
                     Label("Manage Storage", systemImage: "internaldrive")
                 }
-
-                NavigationLink {
-                    SimpleCloudStorageView()
-                } label: {
-                    Label("Cloud Upload Queue", systemImage: "icloud.and.arrow.up")
-                }
             }
 
             Section("Preferences") {

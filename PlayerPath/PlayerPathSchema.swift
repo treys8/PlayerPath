@@ -245,12 +245,25 @@ enum SchemaV12: VersionedSchema {
     static var models: [any PersistentModel.Type] { SchemaV1.models }
 }
 
+// MARK: - Schema V13 (3/25/26 — Photo sync parity)
+//
+//  Changes from V12:
+//    • Photo.version (Int = 0) added
+//    • Photo.isDeletedRemotely (Bool = false) added
+//
+//  Both additions have defaults → lightweight migration.
+
+enum SchemaV13: VersionedSchema {
+    static var versionIdentifier = Schema.Version(13, 0, 0)
+    static var models: [any PersistentModel.Type] { SchemaV1.models }
+}
+
 // MARK: - Migration Plan
 
 enum PlayerPathMigrationPlan: SchemaMigrationPlan {
     /// All schema versions in chronological order (oldest first).
     static var schemas: [any VersionedSchema.Type] {
-        [SchemaV1.self, SchemaV2.self, SchemaV3.self, SchemaV4.self, SchemaV5.self, SchemaV6.self, SchemaV7.self, SchemaV8.self, SchemaV9.self, SchemaV10.self, SchemaV11.self, SchemaV12.self]
+        [SchemaV1.self, SchemaV2.self, SchemaV3.self, SchemaV4.self, SchemaV5.self, SchemaV6.self, SchemaV7.self, SchemaV8.self, SchemaV9.self, SchemaV10.self, SchemaV11.self, SchemaV12.self, SchemaV13.self]
     }
 
     /// Migration stages between consecutive versions.
@@ -266,7 +279,8 @@ enum PlayerPathMigrationPlan: SchemaMigrationPlan {
             .lightweight(fromVersion: SchemaV8.self, toVersion: SchemaV9.self),
             .lightweight(fromVersion: SchemaV9.self, toVersion: SchemaV10.self),
             .lightweight(fromVersion: SchemaV10.self, toVersion: SchemaV11.self),
-            .lightweight(fromVersion: SchemaV11.self, toVersion: SchemaV12.self)
+            .lightweight(fromVersion: SchemaV11.self, toVersion: SchemaV12.self),
+            .lightweight(fromVersion: SchemaV12.self, toVersion: SchemaV13.self)
         ]
     }
 }

@@ -255,7 +255,7 @@ private struct EnableBiometricSheet: View {
     }
 
     private var canEnable: Bool {
-        !email.isEmpty && FormValidator.shared.validateEmail(email).isValid
+        email.isValidEmail
     }
 
     private func enableBiometric() {

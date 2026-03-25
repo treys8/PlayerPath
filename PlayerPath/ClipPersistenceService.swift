@@ -3,6 +3,7 @@ import SwiftData
 import Foundation
 import AVFoundation
 import Photos
+import os
 
 enum ClipPersistenceError: LocalizedError {
     case fileNotFound(URL)
@@ -35,6 +36,7 @@ final class ClipPersistenceService {
 
     private let fileManager: FileManager
     private let now: () -> Date
+    private let clipLog = Logger(subsystem: "com.playerpath.app", category: "ClipPersistence")
 
     public init(fileManager: FileManager = .default, now: @escaping () -> Date = Date.init) {
         self.fileManager = fileManager
@@ -125,6 +127,7 @@ final class ClipPersistenceService {
                 migratedCount += 1
 
             } catch {
+                clipLog.error("Video migration failed for \(oldVideoURL.lastPathComponent): \(error.localizedDescription)")
                 failedCount += 1
             }
         }

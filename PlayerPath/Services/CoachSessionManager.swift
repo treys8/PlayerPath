@@ -222,22 +222,29 @@ class CoachSessionManager {
 
             let (storageURL, processed) = try await (uploadTask, processTask)
 
-            // Metadata write — single attempt (small doc, unlikely to fail after Storage succeeded)
-            _ = try await FirestoreManager.shared.uploadVideoMetadata(
-                fileName: fileName,
-                storageURL: storageURL,
-                thumbnail: processed.thumbnailURL.map { ThumbnailMetadata(standardURL: $0) },
-                folderID: folderID,
-                uploadedBy: coachID,
-                uploadedByName: coachName,
-                fileSize: fileSize,
-                duration: processed.duration,
-                videoType: "instruction",
-                practiceContext: PracticeContext(date: Date()),
-                uploadedByType: .coach,
-                visibility: "private",
-                sessionID: sessionID
-            )
+            // Metadata write — rollback Storage upload on failure
+            do {
+                _ = try await FirestoreManager.shared.uploadVideoMetadata(
+                    fileName: fileName,
+                    storageURL: storageURL,
+                    thumbnail: processed.thumbnailURL.map { ThumbnailMetadata(standardURL: $0) },
+                    folderID: folderID,
+                    uploadedBy: coachID,
+                    uploadedByName: coachName,
+                    fileSize: fileSize,
+                    duration: processed.duration,
+                    videoType: "instruction",
+                    practiceContext: PracticeContext(date: Date()),
+                    uploadedByType: .coach,
+                    visibility: "private",
+                    sessionID: sessionID
+                )
+            } catch {
+                ErrorHandlerService.shared.handle(error, context: "CoachSession.metadataRollback", showAlert: false)
+                try? await VideoCloudManager.shared.deleteVideo(fileName: fileName, folderID: folderID)
+                try? await VideoCloudManager.shared.deleteThumbnail(videoFileName: fileName, folderID: folderID)
+                throw error
+            }
 
             // Only delete local file after full success
             try? FileManager.default.removeItem(at: videoURL)

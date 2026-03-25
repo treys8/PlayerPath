@@ -64,7 +64,7 @@ struct SharedFolder: Codable, Identifiable, Hashable {
 
 /// Thumbnail metadata with support for multiple quality levels
 struct ThumbnailMetadata: Codable, Equatable {
-    let standardURL: String         // Standard quality (160x90, 16:9)
+    let standardURL: String         // Standard quality (480x270, 16:9)
     let highQualityURL: String?     // High quality - for highlights
     let timestamp: Double?          // Time in video (seconds) where thumbnail was captured
     let width: Int?

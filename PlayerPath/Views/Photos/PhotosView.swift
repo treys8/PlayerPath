@@ -337,6 +337,7 @@ struct PhotosView: View {
                     )
                     savedCount += 1
                 } catch {
+                    ErrorHandlerService.shared.handle(error, context: "PhotosView.importPhoto", showAlert: false)
                     failedCount += 1
                 }
             }

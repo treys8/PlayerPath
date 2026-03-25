@@ -29,23 +29,17 @@ final class OrphanedClipRecoveryService {
     /// Safe to call on every launch — it's fully idempotent.
     func recoverIfNeeded(context: ModelContext, athletes: [Athlete]) async {
         guard !athletes.isEmpty else {
-            #if DEBUG
-            print("🔄 OrphanedClipRecovery: No athletes in DB — skipping recovery")
-            #endif
+            recoveryLog.debug("No athletes in DB — skipping recovery")
             return
         }
 
         let orphans = findOrphanedVideoFiles(context: context)
         guard !orphans.isEmpty else {
-            #if DEBUG
-            print("✅ OrphanedClipRecovery: No orphaned video files found")
-            #endif
+            recoveryLog.debug("No orphaned video files found")
             return
         }
 
-        #if DEBUG
-        print("🔄 OrphanedClipRecovery: Found \(orphans.count) orphaned video file(s) — recovering...")
-        #endif
+        recoveryLog.info("Found \(orphans.count) orphaned video file(s) — recovering...")
 
         // Pick the most recently created athlete as the best guess for ownership.
         // For single-athlete accounts this is the only one; for multi-athlete it's
@@ -67,9 +61,7 @@ final class OrphanedClipRecoveryService {
         if recoveredCount > 0 {
             do {
                 try context.save()
-                #if DEBUG
-                print("✅ OrphanedClipRecovery: Recovered \(recoveredCount) clip(s) for \(targetAthlete.name)")
-                #endif
+                recoveryLog.info("Recovered \(recoveredCount) clip(s) for \(targetAthlete.name, privacy: .private)")
 
                 // Generate thumbnails AFTER the bulk save succeeds, so we never
                 // commit a clip that the main flow considered failed.
@@ -84,9 +76,7 @@ final class OrphanedClipRecoveryService {
                     ErrorHandlerService.shared.saveContext(context, caller: "OrphanedClipRecovery.saveThumbnails")
                 }
             } catch {
-                #if DEBUG
-                print("❌ OrphanedClipRecovery: Failed to save recovered clips: \(error.localizedDescription)")
-                #endif
+                recoveryLog.error("Failed to save recovered clips: \(error.localizedDescription)")
             }
         }
     }
@@ -103,9 +93,7 @@ final class OrphanedClipRecoveryService {
             let clips = try context.fetch(descriptor)
             trackedFileNames = Set(clips.map { $0.fileName })
         } catch {
-            #if DEBUG
-            print("❌ OrphanedClipRecovery: Failed to fetch existing clips: \(error.localizedDescription)")
-            #endif
+            recoveryLog.error("Failed to fetch existing clips: \(error.localizedDescription)")
             return []
         }
 
@@ -126,9 +114,7 @@ final class OrphanedClipRecoveryService {
                 !trackedFileNames.contains(url.lastPathComponent)
             }
         } catch {
-            #if DEBUG
-            print("❌ OrphanedClipRecovery: Failed to scan Clips directory: \(error.localizedDescription)")
-            #endif
+            recoveryLog.error("Failed to scan Clips directory: \(error.localizedDescription)")
             return []
         }
     }
@@ -141,19 +127,17 @@ final class OrphanedClipRecoveryService {
         do {
             attributes = try fileManager.attributesOfItem(atPath: fileURL.path)
         } catch {
-            recoveryLog.warning("Cannot read attributes for orphaned file '\(fileURL.lastPathComponent)': \(error.localizedDescription)")
+            recoveryLog.warning("Cannot read attributes for orphaned file '\(fileURL.lastPathComponent, privacy: .private)': \(error.localizedDescription)")
             return nil
         }
         let fileSize = (attributes[.size] as? Int64) ?? 0
         guard fileSize > 10_000 else {
             // Delete tiny/corrupt files so they don't get re-scanned every launch
-            #if DEBUG
-            print("⚠️ OrphanedClipRecovery: Deleting tiny/corrupt file: \(fileURL.lastPathComponent) (\(fileSize) bytes)")
-            #endif
+            recoveryLog.warning("Deleting tiny/corrupt file: \(fileURL.lastPathComponent, privacy: .private) (\(fileSize) bytes)")
             do {
                 try fileManager.removeItem(at: fileURL)
             } catch {
-                recoveryLog.warning("Failed to delete tiny/corrupt file '\(fileURL.lastPathComponent)': \(error.localizedDescription)")
+                recoveryLog.warning("Failed to delete tiny/corrupt file '\(fileURL.lastPathComponent, privacy: .private)': \(error.localizedDescription)")
             }
             return nil
         }
@@ -165,15 +149,11 @@ final class OrphanedClipRecoveryService {
             let cmDuration = try await asset.load(.duration)
             duration = CMTimeGetSeconds(cmDuration)
             guard duration > 0 && duration.isFinite && duration < 3600 else {
-                #if DEBUG
-                print("⚠️ OrphanedClipRecovery: Invalid duration for \(fileURL.lastPathComponent)")
-                #endif
+                recoveryLog.warning("Invalid duration for \(fileURL.lastPathComponent, privacy: .private)")
                 return nil
             }
         } catch {
-            #if DEBUG
-            print("⚠️ OrphanedClipRecovery: Could not load asset \(fileURL.lastPathComponent): \(error.localizedDescription)")
-            #endif
+            recoveryLog.warning("Could not load asset \(fileURL.lastPathComponent, privacy: .private): \(error.localizedDescription)")
             return nil
         }
 
@@ -205,9 +185,7 @@ final class OrphanedClipRecoveryService {
                 clip.season = season
                 clip.seasonName = season.displayName
             }
-            #if DEBUG
-            print("🔄 OrphanedClipRecovery: Matched \(fileURL.lastPathComponent) to game vs \(matchedGame.opponent)")
-            #endif
+            recoveryLog.info("Matched \(fileURL.lastPathComponent, privacy: .private) to game vs \(matchedGame.opponent)")
         } else if let activeSeason = athlete.activeSeason {
             // No game match — link to active season as a practice clip
             clip.season = activeSeason
@@ -215,9 +193,7 @@ final class OrphanedClipRecoveryService {
 
         context.insert(clip)
 
-        #if DEBUG
-        print("🔄 OrphanedClipRecovery: Recovered \(fileURL.lastPathComponent) (\(Int(duration))s)")
-        #endif
+        recoveryLog.debug("Recovered \(fileURL.lastPathComponent, privacy: .private) (\(Int(duration))s)")
         return clip
     }
 

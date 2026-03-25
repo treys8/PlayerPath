@@ -167,7 +167,12 @@ struct StatisticsView: View {
             .sheet(isPresented: $showingCharts) {
                 if let ath = athlete {
                     NavigationStack {
-                        StatisticsChartsView(athlete: ath)
+                        StatisticsChartsView(
+                            athlete: ath,
+                            initialSeason: selectedSeasonFilter.flatMap { id in
+                                availableSeasons.first { $0.id.uuidString == id }
+                            }
+                        )
                             .toolbar {
                                 ToolbarItem(placement: .cancellationAction) {
                                     Button("Done") {

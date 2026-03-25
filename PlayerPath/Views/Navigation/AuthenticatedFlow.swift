@@ -8,6 +8,9 @@
 import SwiftUI
 import SwiftData
 import FirebaseAuth
+import os
+
+private let log = Logger(subsystem: "com.playerpath.app", category: "AuthenticatedFlow")
 
 struct AuthenticatedFlow: View {
     @Environment(\.modelContext) private var modelContext
@@ -25,9 +28,7 @@ struct AuthenticatedFlow: View {
             if isLoading {
                 LoadingView(title: "Setting up your profile...", subtitle: "This will only take a moment")
             } else if let user = currentUser {
-                #if DEBUG
-                let _ = print("🎯 AuthenticatedFlow - isNewUser: \(authManager.isNewUser), hasCompletedOnboarding: \(hasCompletedOnboarding), userRole: \(authManager.userRole.rawValue)")
-                #endif
+                let _ = log.debug("AuthenticatedFlow - isNewUser: \(authManager.isNewUser), hasCompletedOnboarding: \(hasCompletedOnboarding), userRole: \(authManager.userRole.rawValue)")
                 
                 // Show onboarding whenever it hasn't been completed. isNewUser alone is not
                 // sufficient — a user who signs out mid-onboarding has isNewUser reset to false
@@ -192,9 +193,7 @@ struct AuthenticatedFlow: View {
         
         let email = rawEmail.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
         
-        #if DEBUG
-        print("🟢 Looking up user with email: \(email)")
-        #endif
+        log.debug("Looking up user with email: \(email, privacy: .private)")
         
         // Find or create user
         if let existingUser = users.first(where: { $0.email == email }) {
@@ -204,17 +203,11 @@ struct AuthenticatedFlow: View {
             if let storedUID = existingUser.firebaseAuthUid,
                !storedUID.isEmpty,
                storedUID != authUser.uid {
-                #if DEBUG
-                print("🟡 Email match but Firebase UID mismatch — treating as new account")
-                print("  stored: \(storedUID), current: \(authUser.uid)")
-                #endif
+                log.warning("Email match but Firebase UID mismatch — treating as new account (stored: \(storedUID, privacy: .private), current: \(authUser.uid, privacy: .private))")
                 guard !Task.isCancelled else { return }
                 await createNewUser(authUser: authUser, email: email)
             } else {
-            #if DEBUG
-            print("🟢 Found existing user: \(existingUser.username) (ID: \(existingUser.id))")
-            print("🟢 User has \((existingUser.athletes ?? []).count) athletes")
-            #endif
+            log.debug("Found existing user: \(existingUser.username, privacy: .private) (ID: \(existingUser.id, privacy: .private)) with \((existingUser.athletes ?? []).count) athletes")
 
             // Check cancellation before updating state
             guard !Task.isCancelled else {
@@ -226,25 +219,17 @@ struct AuthenticatedFlow: View {
             await MainActor.run {
                 if let refreshedByEmail = users.first(where: { $0.email == email }) {
                     currentUser = refreshedByEmail
-                    #if DEBUG
-                    print("🟢 Using persisted user by email: \(refreshedByEmail.username) | athletes: \((refreshedByEmail.athletes ?? []).count)")
-                    #endif
+                    log.debug("Using persisted user by email: \(refreshedByEmail.username, privacy: .private) | athletes: \((refreshedByEmail.athletes ?? []).count)")
                 } else if let refreshedByID = users.first(where: { $0.id == existingUser.id }) {
                     currentUser = refreshedByID
-                    #if DEBUG
-                    print("🟢 Fallback persisted user by id: \(refreshedByID.username) | athletes: \((refreshedByID.athletes ?? []).count)")
-                    #endif
+                    log.debug("Fallback persisted user by id: \(refreshedByID.username, privacy: .private) | athletes: \((refreshedByID.athletes ?? []).count)")
                 } else {
-                    #if DEBUG
-                    print("🟠 Could not re-fetch persisted user; using in-memory instance")
-                    #endif
+                    log.warning("Could not re-fetch persisted user; using in-memory instance")
                 }
             }
             } // end UID-match else
         } else {
-            #if DEBUG
-            print("🟡 Creating new user")
-            #endif
+            log.info("Creating new user")
             
             // Check cancellation before creating
             guard !Task.isCancelled else {
@@ -294,9 +279,7 @@ struct AuthenticatedFlow: View {
         
         do {
             try modelContext.save()
-            #if DEBUG
-            print("🟢 Successfully created new user with ID: \(newUser.id)")
-            #endif
+            log.info("Successfully created new user with ID: \(newUser.id, privacy: .private)")
             
             // Attach the model context to auth manager for future use
             authManager.attachModelContext(modelContext)
@@ -305,20 +288,14 @@ struct AuthenticatedFlow: View {
             await MainActor.run {
                 if let refreshed = users.first(where: { $0.email == normalizedEmail }) {
                     currentUser = refreshed
-                    #if DEBUG
-                    print("🟢 Using refreshed user: \(refreshed.id)")
-                    #endif
+                    log.debug("Using refreshed user: \(refreshed.id, privacy: .private)")
                 } else {
                     currentUser = newUser
-                    #if DEBUG
-                    print("🟠 Using original user instance: \(newUser.id)")
-                    #endif
+                    log.warning("Using original user instance: \(newUser.id, privacy: .private)")
                 }
             }
         } catch {
-            #if DEBUG
-            print("❌ Failed to save new user to SwiftData: \(error.localizedDescription)")
-            #endif
+            log.warning("Failed to save new user to SwiftData: \(error.localizedDescription)")
         }
     }
 }

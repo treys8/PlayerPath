@@ -53,49 +53,69 @@ struct ComprehensiveSignInView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollViewReader { proxy in
-                ScrollView {
-                    VStack(spacing: 28) {
-                        headerSection
-                        if isSignUpMode { roleSelectionSection }
-                        formFieldsSection
-                        if isSignUpMode { ageAndTermsSection }
-                        actionButtonsSection
-                        authErrorSection
+            if authManager.needsEmailVerification {
+                EmailVerificationView()
+                    .environmentObject(authManager)
+                    .background(Color(.systemGroupedBackground))
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button {
+                                Task { await authManager.cancelEmailVerification() }
+                                dismiss()
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.title3)
+                                    .symbolRenderingMode(.hierarchical)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
                     }
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 16)
-                    .padding(.bottom, 40)
-                }
-                .scrollDismissesKeyboard(.interactively)
-                .onChange(of: nameFocused) { _, focused in
-                    if focused { withAnimation(.easeInOut(duration: 0.3)) { proxy.scrollTo("nameField", anchor: .center) } }
-                }
-                .onChange(of: emailFocused) { _, focused in
-                    if focused { withAnimation(.easeInOut(duration: 0.3)) { proxy.scrollTo("emailField", anchor: .center) } }
-                }
-                .onChange(of: passwordFocused) { _, focused in
-                    if focused { withAnimation(.easeInOut(duration: 0.3)) { proxy.scrollTo("actionButtons", anchor: .bottom) } }
-                }
-            }
-            .background(Color(.systemGroupedBackground))
-            .onAppear { appleSignInManager.configure(with: authManager) }
-            .onDisappear { appleSignInManager.cleanup() }
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button { dismiss() } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.title3)
-                            .symbolRenderingMode(.hierarchical)
-                            .foregroundStyle(.secondary)
+            } else {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(spacing: 28) {
+                            headerSection
+                            if isSignUpMode { roleSelectionSection }
+                            formFieldsSection
+                            if isSignUpMode { ageAndTermsSection }
+                            actionButtonsSection
+                            authErrorSection
+                        }
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 16)
+                        .padding(.bottom, 40)
+                    }
+                    .scrollDismissesKeyboard(.interactively)
+                    .onChange(of: nameFocused) { _, focused in
+                        if focused { withAnimation(.easeInOut(duration: 0.3)) { proxy.scrollTo("nameField", anchor: .center) } }
+                    }
+                    .onChange(of: emailFocused) { _, focused in
+                        if focused { withAnimation(.easeInOut(duration: 0.3)) { proxy.scrollTo("emailField", anchor: .center) } }
+                    }
+                    .onChange(of: passwordFocused) { _, focused in
+                        if focused { withAnimation(.easeInOut(duration: 0.3)) { proxy.scrollTo("actionButtons", anchor: .bottom) } }
                     }
                 }
-            }
-            .onAppear {
-                Task {
-                    try? await Task.sleep(for: .milliseconds(600))
-                    if isSignUpMode { nameFocused = true } else { emailFocused = true }
+                .background(Color(.systemGroupedBackground))
+                .onAppear { appleSignInManager.configure(with: authManager) }
+                .onDisappear { appleSignInManager.cleanup() }
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button { dismiss() } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.title3)
+                                .symbolRenderingMode(.hierarchical)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .onAppear {
+                    Task {
+                        try? await Task.sleep(for: .milliseconds(600))
+                        if isSignUpMode { nameFocused = true } else { emailFocused = true }
+                    }
                 }
             }
         }
@@ -362,7 +382,7 @@ struct ComprehensiveSignInView: View {
     // MARK: - Validation Functions
 
     private func isValidEmail(_ email: String) -> Bool {
-        Validation.isValidEmail(email)
+        email.isValidEmail
     }
 
     private func isValidPassword(_ password: String) -> Bool {

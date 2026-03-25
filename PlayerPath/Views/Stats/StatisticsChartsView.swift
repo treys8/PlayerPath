@@ -10,6 +10,7 @@ import Charts
 
 struct StatisticsChartsView: View {
     let athlete: Athlete
+    var initialSeason: Season?
 
     @State private var selectedMetric: StatMetric = .battingAverage
     @State private var selectedTimeframe: Timeframe = .game
@@ -42,6 +43,11 @@ struct StatisticsChartsView: View {
         }
         .navigationTitle("Performance Charts")
         .navigationBarTitleDisplayMode(.inline)
+        .onAppear {
+            if selectedSeason == nil {
+                selectedSeason = initialSeason
+            }
+        }
     }
 
     // MARK: - Metric Selector
@@ -132,32 +138,61 @@ struct StatisticsChartsView: View {
             } else {
                 Chart {
                     ForEach(chartData) { dataPoint in
-                        LineMark(
-                            x: .value("Time", dataPoint.date),
-                            y: .value(selectedMetric.displayName, dataPoint.value)
-                        )
-                        .foregroundStyle(selectedMetric.color)
-                        .interpolationMethod(.catmullRom)
-
-                        AreaMark(
-                            x: .value("Time", dataPoint.date),
-                            y: .value(selectedMetric.displayName, dataPoint.value)
-                        )
-                        .foregroundStyle(
-                            LinearGradient(
-                                gradient: Gradient(colors: [selectedMetric.color.opacity(0.3), selectedMetric.color.opacity(0.05)]),
-                                startPoint: .top,
-                                endPoint: .bottom
+                        if isGameLevelData {
+                            LineMark(
+                                x: .value("Game", dataPoint.index),
+                                y: .value(selectedMetric.displayName, dataPoint.value)
                             )
-                        )
-                        .interpolationMethod(.catmullRom)
+                            .foregroundStyle(selectedMetric.color)
+                            .interpolationMethod(.catmullRom)
 
-                        PointMark(
-                            x: .value("Time", dataPoint.date),
-                            y: .value(selectedMetric.displayName, dataPoint.value)
-                        )
-                        .foregroundStyle(selectedMetric.color)
-                        .symbolSize(50)
+                            AreaMark(
+                                x: .value("Game", dataPoint.index),
+                                y: .value(selectedMetric.displayName, dataPoint.value)
+                            )
+                            .foregroundStyle(
+                                LinearGradient(
+                                    gradient: Gradient(colors: [selectedMetric.color.opacity(0.3), selectedMetric.color.opacity(0.05)]),
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                )
+                            )
+                            .interpolationMethod(.catmullRom)
+
+                            PointMark(
+                                x: .value("Game", dataPoint.index),
+                                y: .value(selectedMetric.displayName, dataPoint.value)
+                            )
+                            .foregroundStyle(selectedMetric.color)
+                            .symbolSize(50)
+                        } else {
+                            LineMark(
+                                x: .value("Time", dataPoint.date),
+                                y: .value(selectedMetric.displayName, dataPoint.value)
+                            )
+                            .foregroundStyle(selectedMetric.color)
+                            .interpolationMethod(.catmullRom)
+
+                            AreaMark(
+                                x: .value("Time", dataPoint.date),
+                                y: .value(selectedMetric.displayName, dataPoint.value)
+                            )
+                            .foregroundStyle(
+                                LinearGradient(
+                                    gradient: Gradient(colors: [selectedMetric.color.opacity(0.3), selectedMetric.color.opacity(0.05)]),
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                )
+                            )
+                            .interpolationMethod(.catmullRom)
+
+                            PointMark(
+                                x: .value("Time", dataPoint.date),
+                                y: .value(selectedMetric.displayName, dataPoint.value)
+                            )
+                            .foregroundStyle(selectedMetric.color)
+                            .symbolSize(50)
+                        }
                     }
                 }
                 .chartYAxis {
@@ -173,9 +208,23 @@ struct StatisticsChartsView: View {
                 .chartXAxis {
                     AxisMarks { value in
                         AxisGridLine()
-                        AxisValueLabel(format: .dateTime.month(.abbreviated))
+                        if isGameLevelData {
+                            AxisValueLabel {
+                                if let idx = value.as(Int.self) {
+                                    Text("G\(idx)")
+                                }
+                            }
+                        } else {
+                            AxisValueLabel {
+                                if let date = value.as(Date.self) {
+                                    Text(date, format: .dateTime.month(.abbreviated).year(.twoDigits))
+                                }
+                            }
+                        }
                     }
                 }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(chartAccessibilityLabel)
                 .frame(height: 250)
             }
 
@@ -335,6 +384,8 @@ struct StatisticsChartsView: View {
         let seasonPoints = sortedSeasons.compactMap { season -> ChartDataPoint? in
             let value: Double
             if let stats = season.seasonStatistics {
+                // Skip rate stats for seasons with no at-bats
+                if selectedMetric.isRateStat && stats.atBats == 0 { return nil }
                 value = getValue(from: stats, for: selectedMetric)
             } else {
                 guard let liveValue = liveSeasonValue(for: season, metric: selectedMetric) else { return nil }
@@ -344,18 +395,13 @@ struct StatisticsChartsView: View {
             return ChartDataPoint(date: season.startDate ?? Date(), value: value, label: label)
         }
 
-        // If season data exists use it; otherwise fall back to per-game points
-        // so the chart is never blank just because seasons haven't been set up yet.
-        if !seasonPoints.isEmpty { return seasonPoints }
+        // If we have season-level data, use it.
+        // If only one season exists, fall back to game-by-game cumulative view
+        // so the chart has meaningful data points to show a trend.
+        if seasonPoints.count >= 2 { return seasonPoints }
 
-        return (athlete.games ?? [])
-            .filter { $0.isComplete && $0.gameStats != nil }
-            .sorted { ($0.date ?? Date.distantPast) < ($1.date ?? Date.distantPast) }
-            .compactMap { game -> ChartDataPoint? in
-                guard let stats = game.gameStats else { return nil }
-                let value = getValue(from: stats, for: selectedMetric)
-                return ChartDataPoint(date: game.date ?? Date(), value: value, label: game.opponent)
-            }
+        // Fall back to game-by-game cumulative data (same as Game view)
+        return buildGameChartData(from: athlete.games ?? [])
     }
 
     /// Computes a single metric value for an active season by aggregating its completed game stats.
@@ -382,18 +428,19 @@ struct StatisticsChartsView: View {
 
         switch metric {
         case .battingAverage:
-            return atBats > 0 ? Double(hits) / Double(atBats) : 0
+            return atBats > 0 ? Double(hits) / Double(atBats) : nil
         case .onBasePercentage:
             let pa = atBats + walks + hitByPitches
-            return pa > 0 ? Double(hits + walks + hitByPitches) / Double(pa) : 0
+            return pa > 0 ? Double(hits + walks + hitByPitches) / Double(pa) : nil
         case .sluggingPercentage:
             let bases = singles + (doubles * 2) + (triples * 3) + (homeRuns * 4)
-            return atBats > 0 ? Double(bases) / Double(atBats) : 0
+            return atBats > 0 ? Double(bases) / Double(atBats) : nil
         case .ops:
             let pa = atBats + walks + hitByPitches
-            let obp = pa > 0 ? Double(hits + walks + hitByPitches) / Double(pa) : 0.0
+            guard atBats > 0, pa > 0 else { return nil }
+            let obp = Double(hits + walks + hitByPitches) / Double(pa)
             let bases = singles + (doubles * 2) + (triples * 3) + (homeRuns * 4)
-            let slg = atBats > 0 ? Double(bases) / Double(atBats) : 0.0
+            let slg = Double(bases) / Double(atBats)
             return obp + slg
         case .hits:     return Double(hits)
         case .homeRuns: return Double(homeRuns)
@@ -410,23 +457,91 @@ struct StatisticsChartsView: View {
             games = games.filter { $0.season?.id == season.id }
         }
 
+        return buildGameChartData(from: games)
+    }
+
+    /// Builds game-by-game chart data with ordinal indexes.
+    /// Rate stats use running cumulative averages; counting stats use per-game values.
+    private func buildGameChartData(from games: [Game]) -> [ChartDataPoint] {
         let sortedGames = games
             .filter { $0.isComplete && $0.gameStats != nil }
             .sorted { ($0.date ?? Date.distantPast) < ($1.date ?? Date.distantPast) }
 
+        if selectedMetric.isRateStat {
+            var totalAB = 0, totalH = 0, totalSingles = 0, totalDoubles = 0
+            var totalTriples = 0, totalHR = 0, totalBB = 0, totalHBP = 0
+            var idx = 0
+
+            return sortedGames.compactMap { game in
+                guard let gs = game.gameStats else { return nil }
+                totalAB      += gs.atBats
+                totalH       += gs.hits
+                totalSingles += gs.singles
+                totalDoubles += gs.doubles
+                totalTriples += gs.triples
+                totalHR      += gs.homeRuns
+                totalBB      += gs.walks
+                totalHBP     += gs.hitByPitches
+
+                let value: Double?
+                switch selectedMetric {
+                case .battingAverage:
+                    value = totalAB > 0 ? Double(totalH) / Double(totalAB) : nil
+                case .onBasePercentage:
+                    let pa = totalAB + totalBB + totalHBP
+                    value = pa > 0 ? Double(totalH + totalBB + totalHBP) / Double(pa) : nil
+                case .sluggingPercentage:
+                    let bases = totalSingles + (totalDoubles * 2) + (totalTriples * 3) + (totalHR * 4)
+                    value = totalAB > 0 ? Double(bases) / Double(totalAB) : nil
+                case .ops:
+                    let pa = totalAB + totalBB + totalHBP
+                    guard totalAB > 0, pa > 0 else { return nil }
+                    let obp = Double(totalH + totalBB + totalHBP) / Double(pa)
+                    let bases = totalSingles + (totalDoubles * 2) + (totalTriples * 3) + (totalHR * 4)
+                    let slg = Double(bases) / Double(totalAB)
+                    value = obp + slg
+                default:
+                    value = nil
+                }
+
+                guard let v = value else { return nil }
+                idx += 1
+                return ChartDataPoint(date: game.date ?? Date(), value: v, label: game.opponent, index: idx)
+            }
+        }
+
+        var idx = 0
         return sortedGames.compactMap { game in
             guard let stats = game.gameStats else { return nil }
             let value = getValue(from: stats, for: selectedMetric)
-            return ChartDataPoint(
-                date: game.date ?? Date(),
-                value: value,
-                label: game.opponent
-            )
+            idx += 1
+            return ChartDataPoint(date: game.date ?? Date(), value: value, label: game.opponent, index: idx)
         }
     }
 
     private var currentValue: Double? {
-        chartData.last?.value
+        // Pull from the same statistics objects the Statistics page uses
+        if let season = selectedSeason {
+            if let stats = season.seasonStatistics {
+                return getValue(from: stats, for: selectedMetric)
+            }
+            return liveSeasonValue(for: season, metric: selectedMetric)
+        }
+        // All Seasons = career statistics
+        if let stats = athlete.statistics {
+            return getValue(from: stats, for: selectedMetric)
+        }
+        return chartData.last?.value
+    }
+
+    /// True when chart data is game-by-game (needs ordinal X-axis, not dates)
+    private var isGameLevelData: Bool {
+        if selectedTimeframe == .game { return true }
+        // Season view fell back to game data (single season)
+        let seasonCount = (athlete.seasons ?? [])
+            .filter { $0.seasonStatistics != nil || $0.isActive }
+            .count
+        return seasonCount < 2
     }
 
     private var relevantStatistics: StatsSummary? {
@@ -492,6 +607,29 @@ struct StatisticsChartsView: View {
         } else {
             return .stable
         }
+    }
+
+    // MARK: - Accessibility
+
+    private var chartAccessibilityLabel: String {
+        let metricName = selectedMetric.displayName
+        let count = chartData.count
+        guard count > 0 else { return "\(metricName) chart, no data" }
+
+        let values = chartData.map { $0.value }
+        let latest = formatValue(values.last!, for: selectedMetric)
+        let trendText: String
+        if let trend = calculateTrend() {
+            switch trend {
+            case .improving: trendText = ", trending up"
+            case .declining: trendText = ", trending down"
+            case .stable: trendText = ", stable"
+            }
+        } else {
+            trendText = ""
+        }
+
+        return "\(metricName) chart, \(count) data points, latest value \(latest)\(trendText)"
     }
 
     // MARK: - Formatting
@@ -582,6 +720,13 @@ enum StatMetric: String, CaseIterable, Identifiable {
         case .runs: return .mint
         }
     }
+
+    var isRateStat: Bool {
+        switch self {
+        case .battingAverage, .onBasePercentage, .sluggingPercentage, .ops: return true
+        case .hits, .homeRuns, .rbis, .runs: return false
+        }
+    }
 }
 
 enum Timeframe: String, CaseIterable, Identifiable {
@@ -599,10 +744,19 @@ enum Timeframe: String, CaseIterable, Identifiable {
 }
 
 struct ChartDataPoint: Identifiable {
-    let id = UUID()
+    let id: UUID
     let date: Date
     let value: Double
     let label: String
+    let index: Int
+
+    init(date: Date, value: Double, label: String, index: Int = 0) {
+        self.id = UUID()
+        self.date = date
+        self.value = value
+        self.label = label
+        self.index = index
+    }
 }
 
 struct StatsSummary {

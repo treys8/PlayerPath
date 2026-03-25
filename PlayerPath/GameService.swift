@@ -100,21 +100,11 @@ class GameService {
         // Check if athlete has an active season
         let hasActiveSeason = athlete.activeSeason != nil
 
-        #if DEBUG
-        print("🎮 GameService.createGame() called")
-        print("   Athlete: \(athlete.name)")
-        print("   Has active season: \(hasActiveSeason)")
-        if let season = athlete.activeSeason {
-            print("   Active season: \(season.name)")
-        }
-        print("   Allow without season: \(allowWithoutSeason)")
-        #endif
+        logger.debug("createGame() called — athlete: \(athlete.name, privacy: .private), hasActiveSeason: \(hasActiveSeason), activeSeason: \(athlete.activeSeason?.name ?? "none"), allowWithoutSeason: \(allowWithoutSeason)")
 
         // If no active season and not explicitly allowed to create without season, return error
         if !hasActiveSeason && !allowWithoutSeason {
-            #if DEBUG
-            print("   ❌ Returning .noActiveSeason error")
-            #endif
+            logger.debug("Returning .noActiveSeason error")
             return .failure(.noActiveSeason)
         }
 
@@ -180,10 +170,8 @@ class GameService {
                 }
             }
 
-            #if DEBUG
             let seasonInfo = game.season?.name ?? "year \(game.year ?? 0)"
-            print("✅ Game created: \(opponent) (live: \(isLive), tracking: \(seasonInfo))")
-            #endif
+            logger.info("Game created: \(opponent, privacy: .private) (live: \(isLive), tracking: \(seasonInfo))")
 
             NotificationCenter.default.post(name: .gameCreated, object: game)
 
@@ -204,6 +192,7 @@ class GameService {
     
     func start(_ game: Game) async {
         guard let athlete = game.athlete else {
+            logger.warning("start() called but game.athlete is nil — no action taken")
             return
         }
         
@@ -292,11 +281,92 @@ class GameService {
 
             // Track completed game for review prompt eligibility
             ReviewPromptManager.shared.recordCompletedGame()
+
+            NotificationCenter.default.post(name: .gameEnded, object: game)
         } catch {
             logger.error("Failed to save game end: \(error.localizedDescription)")
         }
     }
-    
+
+    func restart(_ game: Game) async {
+        guard let athlete = game.athlete else {
+            logger.warning("restart() called but game.athlete is nil — no action taken")
+            return
+        }
+
+        // End other live games of this athlete
+        for otherGame in athlete.games ?? [] where otherGame.isLive && otherGame != game {
+            otherGame.isLive = false
+            GameAlertService.shared.cancelEndGameReminder(for: otherGame)
+        }
+
+        // Restart this game
+        game.isComplete = false
+        game.isLive = true
+        game.liveStartDate = Date()
+        game.needsSync = true
+
+        do {
+            try modelContext.save()
+
+            AnalyticsService.shared.trackGameStarted(gameID: game.id.uuidString)
+
+            let userForSync = athlete.user
+            Task {
+                guard let user = userForSync else { return }
+                do {
+                    try await SyncCoordinator.shared.syncGames(for: user)
+                } catch {
+                    self.logger.error("Sync after game restart failed: \(error.localizedDescription)")
+                }
+            }
+
+            NotificationCenter.default.post(name: .gameBecameLive, object: game)
+            await GameAlertService.shared.requestPermissionIfNeeded()
+            await GameAlertService.shared.scheduleEndGameReminder(for: game)
+        } catch {
+            logger.error("Failed to save game restart: \(error.localizedDescription)")
+        }
+    }
+
+    func complete(_ game: Game) async {
+        game.isComplete = true
+        game.needsSync = true
+
+        // Recalculate game stats first (they feed into athlete stats)
+        do {
+            try StatisticsService.shared.recalculateGameStatistics(for: game, context: modelContext)
+        } catch {
+            logger.error("Failed to recalculate game statistics on complete: \(error.localizedDescription)")
+        }
+
+        if let athlete = game.athlete {
+            do {
+                try StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: modelContext, skipSave: true)
+            } catch {
+                logger.error("Failed to recalculate athlete statistics on complete: \(error.localizedDescription)")
+            }
+        }
+
+        do {
+            try modelContext.save()
+
+            let userForSync = game.athlete?.user
+            Task {
+                guard let user = userForSync else { return }
+                do {
+                    try await SyncCoordinator.shared.syncGames(for: user)
+                } catch {
+                    self.logger.error("Sync after game complete failed: \(error.localizedDescription)")
+                }
+            }
+
+            ReviewPromptManager.shared.recordCompletedGame()
+        } catch {
+            logger.error("Failed to save game completion: \(error.localizedDescription)")
+        }
+    }
+
     // MARK: - Data Consistency Repair
     
     func repairConsistency(for athlete: Athlete, allGames: [Game]) async {

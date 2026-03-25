@@ -3,7 +3,7 @@
 //  PlayerPath
 //
 //  Reusable thumbnail view for URL-based video thumbnails (coach/shared folder videos).
-//  Matches VideoThumbnailView visual quality with proper loading states and overlays.
+//  Uses ThumbnailCache for disk + memory caching, matching athlete thumbnail performance.
 //
 
 import SwiftUI
@@ -12,43 +12,105 @@ import os
 struct RemoteThumbnailView: View {
     let urlString: String?
     var size: CGSize = CGSize(width: 120, height: 68)
-    var cornerRadius: CGFloat = 10
+    var cornerRadius: CGFloat = 12
     var duration: Double?
     var annotationCount: Int?
     var contextLabel: String?
     var isHighlight: Bool = false
     var hasNotes: Bool = false
+    var fillsContainer: Bool = false
 
     // Secure URL parameters — when provided, uses signed URLs instead of the raw urlString
     var folderID: String?
     var videoFileName: String?
 
-    @State private var secureURL: String?
-    @State private var secureFetchFailed = false
+    @State private var thumbnailImage: UIImage?
+    @State private var isLoading = false
+    @State private var loadFailed = false
+    @State private var loadAttempts = 0
 
     private static let log = Logger(subsystem: "com.playerpath.app", category: "RemoteThumbnailView")
+    private let maxLoadAttempts = 2
 
-    /// The resolved URL to display: signed URL if available, otherwise raw urlString as fallback.
-    private var resolvedURLString: String? {
-        if folderID != nil && videoFileName != nil {
-            // Secure mode: use signed URL (nil while loading, secureURL once resolved)
-            return secureURL
-        }
-        return urlString
+    // MARK: - Convenience Factories
+
+    static func small(
+        urlString: String? = nil,
+        folderID: String? = nil,
+        videoFileName: String? = nil
+    ) -> RemoteThumbnailView {
+        RemoteThumbnailView(
+            urlString: urlString,
+            size: CGSize(width: 50, height: 28),
+            cornerRadius: 8,
+            folderID: folderID,
+            videoFileName: videoFileName
+        )
     }
 
-    /// Whether we are waiting for a signed URL to load.
-    private var isLoadingSecureURL: Bool {
-        folderID != nil && videoFileName != nil && secureURL == nil && !secureFetchFailed
+    static func medium(
+        urlString: String? = nil,
+        folderID: String? = nil,
+        videoFileName: String? = nil
+    ) -> RemoteThumbnailView {
+        RemoteThumbnailView(
+            urlString: urlString,
+            size: CGSize(width: 80, height: 45),
+            cornerRadius: 12,
+            folderID: folderID,
+            videoFileName: videoFileName
+        )
     }
+
+    static func large(
+        urlString: String? = nil,
+        folderID: String? = nil,
+        videoFileName: String? = nil
+    ) -> RemoteThumbnailView {
+        RemoteThumbnailView(
+            urlString: urlString,
+            size: CGSize(width: 120, height: 68),
+            cornerRadius: 12,
+            folderID: folderID,
+            videoFileName: videoFileName
+        )
+    }
+
+    // MARK: - Body
 
     var body: some View {
-        ZStack {
-            // Image layer
-            thumbnailImage
+        let safeSize = CGSize(width: max(size.width, 1), height: max(size.height, 1))
 
-            // Play button (center)
-            playButton
+        ZStack {
+            // Thumbnail image with fade-in transition
+            ZStack {
+                if let thumbnail = thumbnailImage {
+                    Image(uiImage: thumbnail)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(
+                            minWidth: fillsContainer ? 0 : safeSize.width,
+                            maxWidth: fillsContainer ? .infinity : safeSize.width,
+                            minHeight: fillsContainer ? 0 : safeSize.height,
+                            maxHeight: fillsContainer ? .infinity : safeSize.height
+                        )
+                        .clipped()
+                        .transition(.opacity)
+                } else {
+                    if fillsContainer {
+                        placeholder(size: safeSize)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .transition(.opacity)
+                    } else {
+                        placeholder(size: safeSize)
+                            .transition(.opacity)
+                    }
+                }
+            }
+            .animation(.easeIn(duration: 0.2), value: thumbnailImage == nil)
+            .background(Color.black)
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+            .overlay(playButtonOverlay)
 
             // Annotation count (top-right)
             if let count = annotationCount, count > 0 {
@@ -67,10 +129,10 @@ struct RemoteThumbnailView: View {
                 HStack {
                     VStack(alignment: .leading, spacing: 3) {
                         if let context = contextLabel {
-                            metadataPill(text: context)
+                            contextBadge(text: context)
                         }
                         if let d = duration, d > 0 {
-                            metadataPill(text: d.formattedTimestamp)
+                            contextBadge(text: d.formattedTimestamp)
                         }
                     }
                     Spacer()
@@ -91,111 +153,144 @@ struct RemoteThumbnailView: View {
                 }
             }
         }
-        .frame(width: size.width, height: size.height)
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
         .shadow(color: .black.opacity(0.1), radius: 5, x: 0, y: 2)
-        .task(id: secureCacheKey) {
-            await fetchSecureURLIfNeeded()
+        .task(id: cacheKey) {
+            await loadThumbnail()
         }
     }
 
-    /// Stable key for the .task modifier so it re-fetches when inputs change.
-    private var secureCacheKey: String? {
-        guard let folderID, let videoFileName else { return nil }
-        return "\(folderID)_\(videoFileName)"
+    // MARK: - Cache Key
+
+    private var cacheKey: String? {
+        if let folderID, let videoFileName {
+            return "\(folderID)_\(videoFileName)"
+        }
+        return urlString
     }
 
-    // MARK: - Secure URL Fetching
+    // MARK: - Loading
 
     @MainActor
-    private func fetchSecureURLIfNeeded() async {
-        guard let folderID, let videoFileName else { return }
+    private func loadThumbnail() async {
+        guard thumbnailImage == nil, !isLoading, !Task.isCancelled else { return }
 
-        do {
-            let url = try await SecureURLManager.shared.getSecureThumbnailURL(
-                videoFileName: videoFileName,
-                folderID: folderID
-            )
-            secureURL = url
-            secureFetchFailed = false
-        } catch {
-            Self.log.error("Failed to get secure thumbnail URL: \(error.localizedDescription, privacy: .public)")
-            secureFetchFailed = true
-        }
-    }
+        // Secure mode: load through ThumbnailCache with disk caching
+        if let folderID, let videoFileName {
+            isLoading = true
+            loadFailed = false
+            let key = "\(folderID)_\(videoFileName)"
+            let targetSize = CGSize(width: size.width * 2, height: size.height * 2)
 
-    // MARK: - Thumbnail Image
-
-    private var thumbnailImage: some View {
-        Group {
-            if isLoadingSecureURL {
-                placeholder(icon: nil, iconColor: .white, text: nil, showSpinner: true)
-            } else if let urlString = resolvedURLString, let url = URL(string: urlString) {
-                AsyncImage(url: url) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                            .transition(.opacity)
-                    case .failure:
-                        placeholder(icon: "exclamationmark.triangle.fill", iconColor: .yellow, text: "Failed to Load")
-                    case .empty:
-                        placeholder(icon: nil, iconColor: .white, text: nil, showSpinner: true)
-                    @unknown default:
-                        placeholder(icon: "video.fill", iconColor: .white, text: nil)
-                    }
+            do {
+                let image = try await ThumbnailCache.shared.loadRemoteThumbnail(
+                    cacheKey: key,
+                    urlProvider: {
+                        try await SecureURLManager.shared.getSecureThumbnailURL(
+                            videoFileName: videoFileName,
+                            folderID: folderID
+                        )
+                    },
+                    targetSize: targetSize
+                )
+                guard !Task.isCancelled else { isLoading = false; return }
+                thumbnailImage = image
+            } catch {
+                guard !Task.isCancelled else { isLoading = false; return }
+                Self.log.error("Failed to load thumbnail: \(error.localizedDescription, privacy: .public)")
+                loadAttempts += 1
+                if loadAttempts < maxLoadAttempts {
+                    try? await Task.sleep(nanoseconds: UInt64(pow(2.0, Double(loadAttempts)) * 1_000_000_000))
+                    isLoading = false
+                    guard !Task.isCancelled else { return }
+                    await loadThumbnail()
+                    return
                 }
-            } else {
-                placeholder(icon: "video.fill", iconColor: .white, text: "No Preview")
+                loadFailed = true
             }
+            isLoading = false
+            return
         }
-        .frame(width: size.width, height: size.height)
-        .background(Color.black)
-        .clipped()
-        .animation(.easeIn(duration: 0.2), value: resolvedURLString)
+
+        // Fallback: direct URL loading (non-secure, no folder context)
+        guard let urlString, let url = URL(string: urlString) else {
+            loadFailed = true
+            return
+        }
+        isLoading = true
+        do {
+            let (data, _) = try await URLSession.shared.data(from: url)
+            guard !Task.isCancelled else { isLoading = false; return }
+            if let image = UIImage(data: data) {
+                thumbnailImage = image
+            } else {
+                loadFailed = true
+            }
+        } catch {
+            guard !Task.isCancelled else { isLoading = false; return }
+            loadFailed = true
+        }
+        isLoading = false
     }
 
     // MARK: - Placeholder
 
-    private func placeholder(icon: String?, iconColor: Color, text: String?, showSpinner: Bool = false) -> some View {
+    private func placeholder(size: CGSize) -> some View {
         Rectangle()
             .fill(LinearGradient(
                 colors: [Color.gray.opacity(0.5), Color.gray.opacity(0.7)],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             ))
+            .frame(width: size.width, height: size.height)
             .overlay(
-                VStack(spacing: 6) {
-                    if showSpinner {
+                VStack(spacing: scaledSpacing(8)) {
+                    if isLoading {
                         ProgressView()
                             .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                    } else if let icon {
-                        Image(systemName: icon)
-                            .foregroundColor(iconColor)
-                            .font(.system(size: 20))
+                            .scaleEffect(scaledValue(1.0))
+                    } else if loadFailed {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundColor(.yellow)
+                            .font(.system(size: scaledValue(24)))
+                            .accessibilityHidden(true)
+                    } else {
+                        Image(systemName: "video.fill")
+                            .foregroundColor(.white)
+                            .font(.system(size: scaledValue(24)))
+                            .accessibilityHidden(true)
                     }
-                    if let text {
-                        Text(text)
-                            .font(.system(size: 9))
-                            .foregroundColor(.white.opacity(0.8))
-                    }
+                    Text(placeholderText)
+                        .font(.system(size: scaledValue(10)))
+                        .foregroundColor(.white.opacity(0.8))
+                        .multilineTextAlignment(.center)
                 }
+                .padding(scaledSpacing(4))
             )
+    }
+
+    private var placeholderText: String {
+        if isLoading { return "Loading..." }
+        else if loadFailed { return "Failed to Load" }
+        else { return contextLabel ?? "No Preview" }
     }
 
     // MARK: - Overlays
 
-    private var playButton: some View {
+    @ViewBuilder
+    private var playButtonOverlay: some View {
+        let circleSize = min(scaledValue(44), 44)
+        let iconSize = min(scaledValue(14), 15)
         Circle()
             .fill(.black.opacity(0.35))
             .background(.ultraThinMaterial, in: Circle())
-            .frame(width: 36, height: 36)
+            .frame(width: circleSize, height: circleSize)
             .overlay(
                 Image(systemName: "play.fill")
                     .foregroundColor(.white)
-                    .font(.system(size: 12))
+                    .font(.system(size: iconSize))
                     .offset(x: 1)
+                    .accessibilityHidden(true)
             )
             .shadow(color: .black.opacity(0.3), radius: 8, x: 0, y: 4)
     }
@@ -217,47 +312,60 @@ struct RemoteThumbnailView: View {
             }
         }
         .shadow(color: .black.opacity(0.25), radius: 4, x: 0, y: 2)
-        .padding(.top, 6)
-        .padding(.trailing, 6)
+        .padding(.top, 8)
+        .padding(.trailing, 8)
     }
 
-    private func metadataPill(text: String) -> some View {
+    private func contextBadge(text: String) -> some View {
         Text(text)
-            .font(.system(size: 10, weight: .semibold))
+            .font(.system(size: min(scaledValue(9), 11), weight: .semibold))
             .foregroundColor(.white)
             .lineLimit(1)
             .truncationMode(.tail)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
+            .padding(.horizontal, min(scaledSpacing(5), 7))
+            .padding(.vertical, min(scaledSpacing(2), 3))
             .background {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 4).fill(.ultraThinMaterial)
-                    RoundedRectangle(cornerRadius: 4).fill(.black.opacity(0.4))
+                    RoundedRectangle(cornerRadius: 5).fill(.ultraThinMaterial)
+                    RoundedRectangle(cornerRadius: 5).fill(.black.opacity(0.4))
                 }
             }
-            .padding(.leading, 6)
-            .padding(.bottom, 2)
+            .padding(.bottom, 8)
+            .padding(.leading, 8)
     }
 
     private var highlightIndicator: some View {
         Image(systemName: "star.fill")
-            .font(.system(size: 10, weight: .bold))
+            .font(.system(size: 12, weight: .bold))
             .foregroundColor(.yellow)
-            .padding(5)
+            .padding(6)
             .background(.ultraThinMaterial, in: Circle())
             .shadow(color: .black.opacity(0.25), radius: 4, x: 0, y: 2)
-            .padding(.bottom, 6)
-            .padding(.trailing, 6)
+            .padding(.bottom, 8)
+            .padding(.trailing, 8)
+            .accessibilityHidden(true)
     }
 
     private var noteIndicator: some View {
         Image(systemName: "note.text")
-            .font(.system(size: 9, weight: .semibold))
+            .font(.system(size: 10, weight: .semibold))
             .foregroundColor(.white.opacity(0.9))
-            .padding(4)
+            .padding(5)
             .background(.ultraThinMaterial, in: Circle())
             .shadow(color: .black.opacity(0.25), radius: 4, x: 0, y: 2)
-            .padding(.bottom, 6)
-            .padding(.trailing, isHighlight ? 0 : 6)
+            .padding(.bottom, 8)
+            .padding(.trailing, isHighlight ? 0 : 8)
+            .accessibilityLabel("Has note")
+    }
+
+    // MARK: - Scaling Helpers
+
+    private func scaledValue(_ baseValue: CGFloat) -> CGFloat {
+        let baseWidth: CGFloat = 80
+        return baseValue * (size.width / baseWidth)
+    }
+
+    private func scaledSpacing(_ baseSpacing: CGFloat) -> CGFloat {
+        scaledValue(baseSpacing)
     }
 }

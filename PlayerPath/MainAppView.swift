@@ -91,7 +91,14 @@ struct PlayerPathMainView: View {
         .withErrorHandling() // Global error handling
         .task {
             // Enforce singleton UserPreferences on every launch (dedup + create if missing)
-            _ = UserPreferences.shared(in: modelContext)
+            let prefs = UserPreferences.shared(in: modelContext)
+
+            // Honor analytics opt-out preference on launch
+            AnalyticsService.shared.setCollection(enabled: prefs.enableAnalytics)
+
+            // Sync notification prefs from UserDefaults → SwiftData to prevent divergence
+            prefs.enableGameReminders = UserDefaults.standard.object(forKey: "notif_gameReminders") as? Bool ?? true
+            prefs.enableUploadNotifications = UserDefaults.standard.object(forKey: "notif_uploads") as? Bool ?? true
         }
     }
 }

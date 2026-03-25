@@ -22,6 +22,7 @@ final class ComprehensiveAuthManager: ObservableObject {
     @Published var isLoading: Bool = false
     @Published var errorMessage: String?
     @Published var isNewUser: Bool = false // Session-level flag; NOT persisted across launches
+    @Published var needsEmailVerification: Bool = false
 
     @Published var localUser: User?
     @Published var hasCompletedOnboarding: Bool = false {
@@ -193,6 +194,34 @@ final class ComprehensiveAuthManager: ObservableObject {
         UserDefaults.standard.removeObject(forKey: AuthConstants.UserDefaultsKeys.userRole)
         UserDefaults.standard.removeObject(forKey: AuthConstants.UserDefaultsKeys.hasCompletedOnboarding)
         UserDefaults.standard.removeObject(forKey: AuthConstants.UserDefaultsKeys.hasAthleteTierOverride)
+    }
+
+    // MARK: - Email Verification Grandfathering
+
+    /// Accounts created before this date bypass email verification.
+    /// Set to the date this feature shipped — all prior accounts are grandfathered.
+    static let emailVerificationCutoff: Date = {
+        var components = DateComponents()
+        components.year = 2026
+        components.month = 3
+        components.day = 25
+        return Calendar.current.date(from: components) ?? Date.distantPast
+    }()
+
+    /// Returns true if the user was created before the email verification requirement.
+    func isGrandfathered(_ user: FirebaseAuth.User) -> Bool {
+        guard let creationDate = user.metadata.creationDate else { return true }
+        return creationDate < Self.emailVerificationCutoff
+    }
+
+    /// Returns true if the user needs to verify their email before accessing the app.
+    /// Apple Sign In users and grandfathered accounts are exempt.
+    func requiresEmailVerification(_ user: FirebaseAuth.User) -> Bool {
+        // Already verified — no action needed
+        if user.isEmailVerified { return false }
+        // Grandfathered accounts skip verification
+        if isGrandfathered(user) { return false }
+        return true
     }
 
     func friendlyErrorMessage(from error: Error) -> String {

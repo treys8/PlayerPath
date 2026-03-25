@@ -30,17 +30,13 @@ extension ComprehensiveAuthManager {
                 if existingUser.role != self.userRole.rawValue {
                     existingUser.role = self.userRole.rawValue
                     needsSave = true
-                    #if DEBUG
-                    print("🔄 Synced user role to SwiftData: \(self.userRole.rawValue)")
-                    #endif
+                    authLog.debug("Synced user role to SwiftData: \(self.userRole.rawValue)")
                 }
                 // Store Firebase Auth UID so SyncCoordinator queries the correct Firestore path
                 if existingUser.firebaseAuthUid != firebaseUser.uid {
                     existingUser.firebaseAuthUid = firebaseUser.uid
                     needsSave = true
-                    #if DEBUG
-                    print("🔄 Stored Firebase Auth UID: \(firebaseUser.uid)")
-                    #endif
+                    authLog.debug("Stored Firebase Auth UID: \(firebaseUser.uid, privacy: .private)")
                 }
                 if needsSave { try context.save() }
                 self.localUser = existingUser
@@ -50,9 +46,7 @@ extension ComprehensiveAuthManager {
                 newUser.firebaseAuthUid = firebaseUser.uid
                 context.insert(newUser)
                 try context.save()
-                #if DEBUG
-                print("✅ Created new SwiftData user with role: \(self.userRole.rawValue), Firebase UID: \(firebaseUser.uid)")
-                #endif
+                authLog.debug("Created new SwiftData user with role: \(self.userRole.rawValue), Firebase UID: \(firebaseUser.uid, privacy: .private)")
                 self.localUser = newUser
             }
         } catch {
@@ -82,9 +76,7 @@ extension ComprehensiveAuthManager {
             profileData["coachSubscriptionTier"] = "coach_free"
         }
 
-        #if DEBUG
-        print("🔵 Creating user profile in Firestore - Role: \(role.rawValue), Email: \(email)")
-        #endif
+        authLog.debug("Creating user profile in Firestore - Role: \(role.rawValue), Email: \(email, privacy: .private)")
 
         try await FirestoreManager.shared.updateUserProfile(
             userID: userID,
@@ -96,15 +88,10 @@ extension ComprehensiveAuthManager {
         // Note: userRole is already set synchronously before this function is called
         // We verify it matches what we're saving to Firestore
         if self.userRole != role {
-            #if DEBUG
-            print("⚠️ WARNING: Local userRole (\(self.userRole.rawValue)) doesn't match Firestore role (\(role.rawValue))")
-            print("✅ Corrected userRole in memory to: \(role.rawValue)")
-            #endif
+            authLog.warning("Local userRole (\(self.userRole.rawValue)) doesn't match Firestore role (\(role.rawValue)) — correcting to: \(role.rawValue)")
             self.userRole = role
         } else {
-            #if DEBUG
-            print("✅ Verified userRole in memory matches Firestore: \(role.rawValue)")
-            #endif
+            authLog.debug("Verified userRole in memory matches Firestore: \(role.rawValue)")
         }
 
         // Fetch and cache the profile with retry logic to handle Firestore propagation.
@@ -119,15 +106,11 @@ extension ComprehensiveAuthManager {
     func loadUserProfile() async {
         guard let userID = currentFirebaseUser?.uid,
               let email = currentFirebaseUser?.email else {
-            #if DEBUG
-            print("⚠️ loadUserProfile: No user ID or email")
-            #endif
+            authLog.warning("loadUserProfile: No user ID or email")
             return
         }
 
-        #if DEBUG
-        print("🔍 loadUserProfile: Fetching profile for user \(email)")
-        #endif
+        authLog.debug("loadUserProfile: Fetching profile for user \(email, privacy: .private)")
 
         do {
             if let profile = try await FirestoreManager.shared.fetchUserProfile(userID: userID) {
@@ -143,9 +126,7 @@ extension ComprehensiveAuthManager {
                 // Academy coach tier is manually granted via Firestore — override StoreKit resolution
                 if profile.coachSubscriptionTier == CoachSubscriptionTier.academy.rawValue {
                     currentCoachTier = .academy
-                    #if DEBUG
-                    print("✅ Academy coach tier applied from Firestore override")
-                    #endif
+                    authLog.debug("Academy coach tier applied from Firestore override")
                 }
 
                 // Athlete tier can be comped via Firestore — if Firestore holds a higher
@@ -154,9 +135,7 @@ extension ComprehensiveAuthManager {
                 if profile.tier > currentTier {
                     currentTier = profile.tier
                     hasAthleteTierOverride = true
-                    #if DEBUG
-                    print("✅ Comped athlete tier applied from Firestore override: \(profile.tier.displayName)")
-                    #endif
+                    authLog.debug("Comped athlete tier applied from Firestore override: \(profile.tier.displayName)")
                 } else {
                     hasAthleteTierOverride = false
                 }
@@ -175,26 +154,19 @@ extension ComprehensiveAuthManager {
                 // For new users, we want to keep the role we set synchronously at signup
                 if isNewUser {
                     // New user: Keep the role we set at signup, but verify it matches Firestore
-                    #if DEBUG
                     if profile.userRole != currentRole {
-                        print("⚠️ WARNING: Firestore role (\(profile.userRole.rawValue)) doesn't match pre-set role (\(currentRole.rawValue)) for new user")
-                        print("⚠️ Keeping pre-set role: \(currentRole.rawValue)")
+                        authLog.warning("Role mismatch for new user: Firestore (\(profile.userRole.rawValue)) vs pre-set (\(currentRole.rawValue)) — keeping pre-set role: \(currentRole.rawValue)")
                     } else {
-                        print("✅ Firestore role matches pre-set role: \(currentRole.rawValue)")
+                        authLog.debug("Firestore role matches pre-set role: \(currentRole.rawValue)")
                     }
-                    #endif
                     // Keep the pre-set role, don't override
                 } else {
                     // Existing user: Update role from Firestore
                     userRole = profile.userRole
-                    #if DEBUG
-                    print("✅ Updated role from Firestore for existing user: \(profile.userRole.rawValue)")
-                    #endif
+                    authLog.debug("Updated role from Firestore for existing user: \(profile.userRole.rawValue)")
                 }
 
-                #if DEBUG
-                print("✅ Loaded user profile: \(profile.role) for \(email)")
-                #endif
+                authLog.debug("Loaded user profile: \(profile.role) for \(email, privacy: .private)")
             } else {
                 // Profile doesn't exist - only create if this is NOT a new user
                 // (new users should have had their profile created in signUp/signUpAsCoach)
@@ -205,9 +177,7 @@ extension ComprehensiveAuthManager {
                     // profile load. This prevents overwriting a coach's Firestore
                     // doc with "athlete" if the profile transiently isn't found.
                     let fallbackRole = self.userRole
-                    #if DEBUG
-                    print("⚠️ Profile doesn't exist for existing user \(email), creating profile with role: \(fallbackRole.rawValue)")
-                    #endif
+                    authLog.warning("Profile doesn't exist for existing user \(email, privacy: .private), creating profile with role: \(fallbackRole.rawValue)")
                     try await createUserProfile(
                         userID: userID,
                         email: email,
@@ -216,9 +186,7 @@ extension ComprehensiveAuthManager {
                     )
                     syncSubscriptionTierToFirestore()
                 } else {
-                    #if DEBUG
-                    print("⚠️ Profile not found for new user \(email), but keeping existing role: \(userRole.rawValue)")
-                    #endif
+                    authLog.warning("Profile not found for new user \(email, privacy: .private), but keeping existing role: \(self.userRole.rawValue)")
                 }
             }
         } catch {
@@ -231,9 +199,7 @@ extension ComprehensiveAuthManager {
     func loadUserProfileWithRetry(maxAttempts: Int = 5) async {
         guard let userID = currentFirebaseUser?.uid,
               let email = currentFirebaseUser?.email else {
-            #if DEBUG
-            print("⚠️ loadUserProfileWithRetry: No user ID or email")
-            #endif
+            authLog.warning("loadUserProfileWithRetry: No user ID or email")
             return
         }
 
@@ -250,24 +216,17 @@ extension ComprehensiveAuthManager {
                     userProfile = profile
 
                     if isNewUser {
-                        #if DEBUG
                         if profile.userRole != currentRole {
-                            print("⚠️ WARNING: Firestore role (\(profile.userRole.rawValue)) doesn't match pre-set role (\(currentRole.rawValue)) for new user")
-                            print("⚠️ Keeping pre-set role: \(currentRole.rawValue)")
+                            authLog.warning("Role mismatch for new user: Firestore (\(profile.userRole.rawValue)) vs pre-set (\(currentRole.rawValue)) — keeping pre-set role: \(currentRole.rawValue)")
                         } else {
-                            print("✅ Firestore role matches pre-set role: \(currentRole.rawValue)")
+                            authLog.debug("Firestore role matches pre-set role: \(currentRole.rawValue)")
                         }
-                        #endif
                     } else {
                         userRole = profile.userRole
-                        #if DEBUG
-                        print("✅ Updated role from Firestore for existing user: \(profile.userRole.rawValue)")
-                        #endif
+                        authLog.debug("Updated role from Firestore for existing user: \(profile.userRole.rawValue)")
                     }
 
-                    #if DEBUG
-                    print("✅ Loaded user profile on attempt \(attempt): \(profile.role) for \(email)")
-                    #endif
+                    authLog.debug("Loaded user profile on attempt \(attempt): \(profile.role) for \(email, privacy: .private)")
                     return
                 } else if attempt < maxAttempts {
                     // Profile not found yet, retry with exponential backoff.
@@ -275,16 +234,11 @@ extension ComprehensiveAuthManager {
                     // propagate a CancellationError up through signUpAsCoach's catch block,
                     // which would incorrectly reset isNewUser/userRole for a successfully-created account.
                     let delay = pow(2.0, Double(attempt - 1)) * 0.1 // 0.1s, 0.2s, 0.4s, 0.8s, 1.6s
-                    #if DEBUG
-                    print("⏳ Profile not found for \(email) on attempt \(attempt)/\(maxAttempts), retrying in \(delay)s...")
-                    #endif
+                    authLog.debug("Profile not found for \(email, privacy: .private) on attempt \(attempt)/\(maxAttempts), retrying in \(delay)s...")
                     try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                 } else {
                     // Last attempt and still not found - create profile as fallback
-                    #if DEBUG
-                    print("⚠️ Profile not found for \(email) after \(maxAttempts) attempts")
-                    print("🔧 Creating fallback Firestore profile with current role: \(self.userRole.rawValue)")
-                    #endif
+                    authLog.warning("Profile not found for \(email, privacy: .private) after \(maxAttempts) attempts — creating fallback Firestore profile with current role: \(self.userRole.rawValue)")
 
                     // Create profile with current role (from UserDefaults/SwiftData).
                     // loadAfterCreate: false prevents re-entering this retry loop.
@@ -296,9 +250,7 @@ extension ComprehensiveAuthManager {
                             role: self.userRole,
                             loadAfterCreate: false
                         )
-                        #if DEBUG
-                        print("✅ Successfully created fallback Firestore profile")
-                        #endif
+                        authLog.debug("Successfully created fallback Firestore profile")
                     } catch {
                         authLog.error("Failed to create fallback profile: \(error.localizedDescription)")
                     }
@@ -322,9 +274,7 @@ extension ComprehensiveAuthManager {
                             role: self.userRole,
                             loadAfterCreate: false
                         )
-                        #if DEBUG
-                        print("✅ Successfully created fallback Firestore profile after errors")
-                        #endif
+                        authLog.debug("Successfully created fallback Firestore profile after errors")
                     } catch {
                         authLog.error("Failed to create fallback profile: \(error.localizedDescription)")
                     }
@@ -373,36 +323,26 @@ extension ComprehensiveAuthManager {
         do {
             let userID = user.uid
 
-            #if DEBUG
-            print("🗑️ Starting account deletion for user: \(user.email ?? "unknown")")
-            #endif
+            authLog.info("Starting account deletion for user: \(user.email ?? "unknown", privacy: .private)")
 
             // Track account deletion request
             AnalyticsService.shared.trackAccountDeletionRequested(userID: userID)
 
             // Step 1: Delete all user videos from Firebase Storage
-            #if DEBUG
-            print("🗑️ Deleting user videos from Storage...")
-            #endif
+            authLog.info("Deleting user videos from Storage...")
             do {
                 try await VideoCloudManager.shared.deleteAllUserVideos(userID: userID)
-                #if DEBUG
-                print("✅ Deleted all videos from Storage")
-                #endif
+                authLog.debug("Deleted all videos from Storage")
             } catch {
                 authLog.warning("Error deleting videos from Storage during account deletion: \(error.localizedDescription)")
                 // Continue with deletion even if video deletion fails
             }
 
             // Step 2: Delete Firestore user profile and related data
-            #if DEBUG
-            print("🗑️ Deleting user profile from Firestore...")
-            #endif
+            authLog.info("Deleting user profile from Firestore...")
             do {
                 try await FirestoreManager.shared.deleteUserProfile(userID: userID)
-                #if DEBUG
-                print("✅ Deleted user profile from Firestore")
-                #endif
+                authLog.debug("Deleted user profile from Firestore")
             } catch {
                 authLog.warning("Error deleting Firestore profile during account deletion: \(error.localizedDescription)")
                 // Continue with deletion even if Firestore deletion fails
@@ -434,9 +374,7 @@ extension ComprehensiveAuthManager {
             AnalyticsService.shared.trackAccountDeletionCompleted(userID: userID)
             AnalyticsService.shared.clearUserID()
 
-            #if DEBUG
-            print("✅ Account deletion successful")
-            #endif
+            authLog.debug("Account deletion successful")
 
         } catch {
             errorMessage = "Failed to delete account: \(error.localizedDescription)"

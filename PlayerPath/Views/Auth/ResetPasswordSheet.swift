@@ -19,7 +19,7 @@ struct ResetPasswordSheet: View {
     @FocusState private var emailFocused: Bool
 
     private var isValidEmail: Bool {
-        Validation.isValidEmail(resetEmail)
+        resetEmail.isValidEmail
     }
 
     private var emailValidationState: FieldValidationState {

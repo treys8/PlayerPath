@@ -7,6 +7,9 @@
 
 import SwiftUI
 import SwiftData
+import os
+
+private let log = Logger(subsystem: "com.playerpath.app", category: "UserMainFlow")
 
 struct UserMainFlow: View {
     let user: User
@@ -168,12 +171,10 @@ struct UserMainFlow: View {
             }
         }
         .onChange(of: athletesForUser) { _, newValue in
-            #if DEBUG
-            print("🟡 Athletes changed for user \(user.id) (\(user.email)): \(newValue.count) athletes")
+            log.debug("Athletes changed for user \(user.id, privacy: .private) (\(user.email, privacy: .private)): \(newValue.count) athletes")
             for athlete in newValue {
-                print("  - \(athlete.name) (ID: \(athlete.id), User: \(athlete.user?.email ?? "None"))")
+                log.debug("  - \(athlete.name) (ID: \(athlete.id, privacy: .private), User: \(athlete.user?.email ?? "None", privacy: .private))")
             }
-            #endif
 
             // Clear selection if the selected athlete was deleted
             if let current = selectedAthlete, !newValue.contains(where: { $0.id == current.id }) {
@@ -183,9 +184,7 @@ struct UserMainFlow: View {
             // If a new athlete was created and we now have 2+ athletes, the newest one should already be selected
             // If exactly one athlete exists and none is selected, select it.
             if selectedAthlete == nil, newValue.count == 1, let only = newValue.first {
-                #if DEBUG
-                print("🟢 Auto-selecting only athlete: \(only.name) (ID: \(only.id))")
-                #endif
+                log.debug("Auto-selecting only athlete: \(only.name) (ID: \(only.id, privacy: .private))")
                 selectedAthlete = only
                 // Only show the toast if the initial restoration has already run.
                 // Otherwise this fires on every app launch when @Query populates
@@ -198,32 +197,24 @@ struct UserMainFlow: View {
                     }
                 }
             } else if let current = selectedAthlete {
-                #if DEBUG
-                print("🟡 Athletes changed. Current selection: \(current.name) (ID: \(current.id))")
-                #endif
+                log.debug("Athletes changed. Current selection: \(current.name) (ID: \(current.id, privacy: .private))")
             }
         }
         .onAppear {
             setupNotificationObservers()
         }
         .task {
-            #if DEBUG
-            print("🟡 UserMainFlow task - User: \(user.id), Athletes: \(athletesForUser.count)")
-            #endif
+            log.debug("UserMainFlow task - User: \(user.id, privacy: .private), Athletes: \(athletesForUser.count)")
 
             // Restore last selected athlete from persistence
             if selectedAthlete == nil {
                 if let savedID = lastSelectedAthleteID,
                    let savedUUID = UUID(uuidString: savedID),
                    let savedAthlete = athletesForUser.first(where: { $0.id == savedUUID }) {
-                    #if DEBUG
-                    print("🟢 Restoring saved athlete: \(savedAthlete.name) (ID: \(savedAthlete.id))")
-                    #endif
+                    log.debug("Restoring saved athlete: \(savedAthlete.name) (ID: \(savedAthlete.id, privacy: .private))")
                     selectedAthlete = savedAthlete
                 } else if athletesForUser.count == 1, let only = athletesForUser.first {
-                    #if DEBUG
-                    print("🟢 Task auto-selecting athlete: \(only.name) (ID: \(only.id))")
-                    #endif
+                    log.debug("Task auto-selecting athlete: \(only.name) (ID: \(only.id, privacy: .private))")
                     selectedAthlete = only
                 }
             }
@@ -233,9 +224,7 @@ struct UserMainFlow: View {
             // Persist athlete selection
             if let athlete = newValue {
                 lastSelectedAthleteID = athlete.id.uuidString
-                #if DEBUG
-                print("💾 Saved athlete selection: \(athlete.name) (ID: \(athlete.id))")
-                #endif
+                log.debug("Saved athlete selection: \(athlete.name) (ID: \(athlete.id, privacy: .private))")
             } else {
                 lastSelectedAthleteID = nil
             }
@@ -243,9 +232,7 @@ struct UserMainFlow: View {
         .onChange(of: quickActionsManager.selectedQuickAction) { _, newAction in
             // Execute quick action when it changes
             if let action = newAction {
-                #if DEBUG
-                print("🎯 UserMainFlow - Executing quick action: \(action.title)")
-                #endif
+                log.info("Executing quick action: \(action.title)")
                 quickActionsManager.executeAction(action)
             }
         }

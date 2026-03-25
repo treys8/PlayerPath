@@ -277,6 +277,38 @@ extension FirestoreManager {
         return try await fetchVideos(forFolder: folderID)
     }
 
+    // MARK: - Real-Time Video Listener
+
+    /// Attaches a snapshot listener for videos in a shared folder.
+    /// Returns the `ListenerRegistration` so the caller can remove it on cleanup.
+    func listenToVideos(
+        forFolder folderID: String,
+        onChange: @escaping ([FirestoreVideoMetadata]) -> Void
+    ) -> ListenerRegistration {
+        return db.collection(FC.videos)
+            .whereField("sharedFolderID", isEqualTo: folderID)
+            .order(by: "createdAt", descending: true)
+            .limit(to: 100)
+            .addSnapshotListener { snapshot, error in
+                if let error {
+                    firestoreLog.warning("Video listener error for folder \(folderID): \(error.localizedDescription)")
+                    return
+                }
+                guard let docs = snapshot?.documents else { return }
+                let videos = docs.compactMap { doc -> FirestoreVideoMetadata? in
+                    do {
+                        var video = try doc.data(as: FirestoreVideoMetadata.self)
+                        video.id = doc.documentID
+                        return video
+                    } catch {
+                        firestoreLog.warning("Failed to decode video \(doc.documentID): \(error.localizedDescription)")
+                        return nil
+                    }
+                }
+                onChange(videos)
+            }
+    }
+
     // MARK: - Thumbnail Management
 
     /// Uploads a single thumbnail to Firebase Storage

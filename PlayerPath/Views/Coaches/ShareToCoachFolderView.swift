@@ -298,7 +298,8 @@ struct ShareToCoachFolderView: View {
                 seasonName: clip.seasonName ?? clip.season?.name,
                 athleteName: clip.athlete?.name,
                 isHighlight: clip.isHighlight,
-                clipNote: clip.note
+                clipNote: clip.note,
+                existingThumbnailPath: clip.thumbnailPath
             )
             isUploading = false
             Haptics.success()

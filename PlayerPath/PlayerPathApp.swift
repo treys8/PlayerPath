@@ -12,6 +12,9 @@ import Combine
 import LocalAuthentication
 import FirebaseCore
 import FirebaseFirestore
+import os
+
+private let appLog = Logger(subsystem: "com.playerpath.app", category: "App")
 
 /// Provides a shared `NavigationCoordinator` via the environment so views can react
 /// to app-wide navigation requests (e.g., from notifications or deep links).
@@ -52,14 +55,14 @@ struct PlayerPathApp: App {
     /// inside each VersionedSchema enum per Apple's WWDC pattern.
     static let sharedModelContainer: ModelContainer = {
         do {
-            return try ModelContainer(for: Schema(SchemaV12.models))
+            return try ModelContainer(for: Schema(SchemaV13.models))
         } catch {
             // Last resort: try an in-memory container so the app can launch and show
             // an error instead of crash-looping. If even that fails, we have no choice
             // but to terminate.
             do {
                 let config = ModelConfiguration(isStoredInMemoryOnly: true)
-                return try ModelContainer(for: Schema(SchemaV12.models), configurations: [config])
+                return try ModelContainer(for: Schema(SchemaV13.models), configurations: [config])
             } catch {
                 // Intentional fatalError: the app cannot function without a ModelContainer.
                 fatalError("Could not create even an in-memory ModelContainer: \(error)")
@@ -78,9 +81,7 @@ struct PlayerPathApp: App {
                     .environment(\.navigationCoordinator, navigationCoordinator)
                     .onReceive(NotificationCenter.default.publisher(for: .navigateToStatistics)) { (notification: Notification) in
                         if let athleteId = notification.object as? String {
-                            #if DEBUG
-                            print("🔔 Received navigateToStatistics for id: \(athleteId)")
-                            #endif
+                            appLog.debug("Received navigateToStatistics for id: \(athleteId)")
                             Haptics.light()
                             navigationCoordinator.selectedAthleteId = athleteId
                             navigationCoordinator.showStatistics = true
@@ -89,9 +90,7 @@ struct PlayerPathApp: App {
                     }
                     .onReceive(NotificationCenter.default.publisher(for: .startRecordingForGame)) { (notification: Notification) in
                         if let gameId = notification.object as? String {
-                            #if DEBUG
-                            print("🔔 Received startRecordingForGame for id: \(gameId)")
-                            #endif
+                            appLog.debug("Received startRecordingForGame for id: \(gameId)")
                             Haptics.light()
                             navigationCoordinator.selectedGameId = gameId
                             navigationCoordinator.showVideoRecorder = true
@@ -100,9 +99,7 @@ struct PlayerPathApp: App {
                     }
                     .onReceive(NotificationCenter.default.publisher(for: .startRecordingForPractice)) { (notification: Notification) in
                         if let practiceId = notification.object as? String {
-                            #if DEBUG
-                            print("🔔 Received startRecordingForPractice for id: \(practiceId)")
-                            #endif
+                            appLog.debug("Received startRecordingForPractice for id: \(practiceId)")
                             Haptics.light()
                             navigationCoordinator.selectedPracticeId = practiceId
                             navigationCoordinator.showVideoRecorder = true
@@ -139,9 +136,7 @@ struct PlayerPathApp: App {
                     }
             }
                 .onOpenURL { url in
-                    #if DEBUG
-                    print("🔗 OpenURL: \(url.absoluteString)")
-                    #endif
+                    appLog.info("OpenURL: \(url.absoluteString)")
                     if let intent = DeepLinkIntent(url: url) {
                         Haptics.light()
                         switch intent {
@@ -274,15 +269,11 @@ struct ScenePhaseSaveHandler<Content: View>: View {
     }
 
     private func handleScenePhaseChange(from oldPhase: ScenePhase, to newPhase: ScenePhase) {
-        #if DEBUG
-        print("📱 Scene phase changed: \(oldPhase) -> \(newPhase)")
-        #endif
+        appLog.debug("Scene phase changed: \(String(describing: oldPhase)) -> \(String(describing: newPhase))")
 
         switch newPhase {
         case .active:
-            #if DEBUG
-            print("📱 App became active")
-            #endif
+            appLog.info("App became active")
 
             // Biometric unlock is handled by BiometricLockScreen.onAppear
             // (no duplicate prompt needed here)
@@ -307,16 +298,12 @@ struct ScenePhaseSaveHandler<Content: View>: View {
             lastSavedPhase = .active
 
         case .inactive:
-            #if DEBUG
-            print("📱 App became inactive - saving data...")
-            #endif
+            appLog.info("App became inactive — saving data")
             saveModelContext()
             lastSavedPhase = .inactive
 
         case .background:
-            #if DEBUG
-            print("📱 App moved to background - saving data...")
-            #endif
+            appLog.info("App moved to background — saving data")
             saveModelContext()
             // Lock the app if biometric is enabled
             if biometricManager.isBiometricEnabled {
@@ -333,21 +320,15 @@ struct ScenePhaseSaveHandler<Content: View>: View {
     private func saveModelContext() {
         // Only save if there are changes
         guard modelContext.hasChanges else {
-            #if DEBUG
-            print("💾 No changes to save")
-            #endif
+            appLog.debug("No changes to save")
             return
         }
 
         do {
             try modelContext.save()
-            #if DEBUG
-            print("✅ Model context saved successfully")
-            #endif
+            appLog.debug("Model context saved successfully")
         } catch {
-            #if DEBUG
-            print("❌ Failed to save model context: \(error.localizedDescription)")
-            #endif
+            appLog.warning("Failed to save model context: \(error.localizedDescription)")
             // Log the error but don't crash the app
         }
     }

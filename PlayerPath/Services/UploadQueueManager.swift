@@ -537,6 +537,25 @@ final class UploadQueueManager {
                 quotaUser = user
             }
 
+            // Compress video before upload to reduce bandwidth and storage costs.
+            // Non-fatal: if compression fails, upload the original file.
+            do {
+                let sourceURL = URL(fileURLWithPath: upload.filePath)
+                _ = try await VideoCompressionService.shared.compressForUpload(at: sourceURL)
+
+                // Update reserved quota with actual (possibly compressed) size
+                if let user = quotaUser {
+                    let compressedSize = FileManager.default.fileSize(atPath: upload.filePath)
+                    let savedBytes = reservedBytes - compressedSize
+                    if savedBytes > 0 {
+                        user.cloudStorageUsedBytes -= savedBytes
+                        reservedBytes = compressedSize
+                    }
+                }
+            } catch {
+                uploadLog.warning("Video compression failed, uploading original: \(error.localizedDescription)")
+            }
+
             // Perform upload with progress updates
             let cloudManager = VideoCloudManager.shared
 

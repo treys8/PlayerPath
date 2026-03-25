@@ -7,6 +7,9 @@
 
 import SwiftUI
 import SwiftData
+import os
+
+private let log = Logger(subsystem: "com.playerpath.app", category: "AddGameView")
 
 struct AddGameView: View {
     @Environment(\.modelContext) private var modelContext
@@ -119,12 +122,8 @@ struct AddGameView: View {
 
         let trimmedOpponent = opponent.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        #if DEBUG
-        print("📱 AddGameView.saveGame() called")
-        print("   Athlete: \(athlete.name)")
-        print("   Active season: \(athlete.activeSeason?.name ?? "none")")
-        print("   Seasons count: \(athlete.seasons?.count ?? 0)")
-        #endif
+        log.debug("saveGame() called for athlete: \(athlete.name, privacy: .private)")
+        log.debug("Active season: \(athlete.activeSeason?.name ?? "none"), seasons count: \(athlete.seasons?.count ?? 0)")
 
         // Use GameService for consistent game creation
         let gameService = GameService(modelContext: modelContext)
@@ -141,9 +140,7 @@ struct AddGameView: View {
             await MainActor.run {
                 switch result {
                 case .success(let createdGame):
-                    #if DEBUG
-                    print("   ✅ Game created successfully")
-                    #endif
+                    log.info("Game created successfully")
                     // Schedule a reminder if the game is in the future and reminders are enabled
                     if (try? modelContext.fetch(FetchDescriptor<UserPreferences>()).first)?.enableGameReminders ?? true,
                        let gameDate = createdGame.date,
@@ -158,10 +155,7 @@ struct AddGameView: View {
                     }
                     dismiss()
                 case .failure(let error):
-                    #if DEBUG
-                    print("   ❌ Game creation failed: \(error)")
-                    print("   Is season error: \(error == .noActiveSeason)")
-                    #endif
+                    log.warning("Game creation failed: \(error.localizedDescription), isSeasonError: \(error == .noActiveSeason)")
                     // Show error alert
                     errorMessage = error.localizedDescription
                     isSeasonError = (error == .noActiveSeason)

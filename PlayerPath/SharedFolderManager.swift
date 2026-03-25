@@ -511,7 +511,8 @@ class SharedFolderManager {
         seasonName: String? = nil,
         athleteName: String? = nil,
         isHighlight: Bool = false,
-        clipNote: String? = nil
+        clipNote: String? = nil,
+        existingThumbnailPath: String? = nil
     ) async throws -> String {
         // Verify folder exists and user has upload permission before starting expensive upload
         guard let folder = try await firestore.fetchSharedFolder(folderID: folderID) else {
@@ -556,10 +557,24 @@ class SharedFolderManager {
             folderLog.warning("Failed to get video duration: \(error.localizedDescription)")
         }
 
-        // Generate thumbnail using shared VideoFileManager (consistent size/quality with coach + athlete)
+        // Upload thumbnail — reuse existing local thumbnail if available, otherwise generate
         var thumbnail: ThumbnailMetadata?
-        let thumbResult = await VideoFileManager.generateThumbnail(from: videoURL)
-        if case .success(let localThumbPath) = thumbResult {
+        var localThumbPath: String?
+        var shouldCleanupThumb = false
+
+        if let existingThumbnailPath, FileManager.default.fileExists(atPath: existingThumbnailPath) {
+            localThumbPath = existingThumbnailPath
+        } else {
+            let thumbResult = await VideoFileManager.generateThumbnail(from: videoURL)
+            if case .success(let generated) = thumbResult {
+                localThumbPath = generated
+                shouldCleanupThumb = true
+            } else if case .failure(let error) = thumbResult {
+                folderLog.warning("Failed to generate thumbnail: \(error.localizedDescription)")
+            }
+        }
+
+        if let localThumbPath {
             do {
                 let thumbnailURL = try await firestore.uploadThumbnail(
                     localURL: URL(fileURLWithPath: localThumbPath),
@@ -570,32 +585,47 @@ class SharedFolderManager {
             } catch {
                 folderLog.warning("Failed to upload thumbnail: \(error.localizedDescription)")
             }
-            // Clean up local thumbnail file
-            try? FileManager.default.removeItem(atPath: localThumbPath)
-        } else if case .failure(let error) = thumbResult {
-            folderLog.warning("Failed to generate thumbnail: \(error.localizedDescription)")
+            if shouldCleanupThumb {
+                try? FileManager.default.removeItem(atPath: localThumbPath)
+            }
         }
 
-        // Upload metadata to Firestore
-        let videoID = try await firestore.uploadVideoMetadata(
-            fileName: fileName,
-            storageURL: storageURL,
-            thumbnail: thumbnail,
-            folderID: folderID,
-            uploadedBy: uploadedBy,
-            uploadedByName: uploadedByName,
-            fileSize: fileSize,
-            duration: duration,
-            videoType: videoType,
-            gameContext: gameContext,
-            practiceContext: practiceContext,
-            playResult: playResult,
-            pitchSpeed: pitchSpeed,
-            pitchType: pitchType,
-            seasonName: seasonName,
-            athleteName: athleteName,
-            isHighlight: isHighlight
-        )
+        // Upload metadata to Firestore — rollback Storage upload on failure
+        let videoID: String
+        do {
+            videoID = try await firestore.uploadVideoMetadata(
+                fileName: fileName,
+                storageURL: storageURL,
+                thumbnail: thumbnail,
+                folderID: folderID,
+                uploadedBy: uploadedBy,
+                uploadedByName: uploadedByName,
+                fileSize: fileSize,
+                duration: duration,
+                videoType: videoType,
+                gameContext: gameContext,
+                practiceContext: practiceContext,
+                playResult: playResult,
+                pitchSpeed: pitchSpeed,
+                pitchType: pitchType,
+                seasonName: seasonName,
+                athleteName: athleteName,
+                isHighlight: isHighlight
+            )
+        } catch {
+            folderLog.error("Metadata write failed, rolling back Storage upload for \(fileName)")
+            do {
+                try await VideoCloudManager.shared.deleteVideo(fileName: fileName, folderID: folderID)
+            } catch {
+                folderLog.error("Rollback video deletion failed for \(fileName): \(error.localizedDescription)")
+            }
+            do {
+                try await VideoCloudManager.shared.deleteThumbnail(videoFileName: fileName, folderID: folderID)
+            } catch {
+                folderLog.error("Rollback thumbnail deletion failed for \(fileName): \(error.localizedDescription)")
+            }
+            throw error
+        }
 
         // Notify all coaches with access to this folder
         if let folder = try? await firestore.fetchSharedFolder(folderID: folderID),

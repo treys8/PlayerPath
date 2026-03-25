@@ -23,7 +23,7 @@ struct CreateFolderView: View {
 
     private var isValid: Bool {
         !coachEmail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        isValidEmail(coachEmail)
+        coachEmail.isValidEmail
     }
 
     private var autoFolderName: String {
@@ -98,7 +98,7 @@ struct CreateFolderView: View {
                     Task { await createFolder() }
                 }
 
-            if !coachEmail.isEmpty && !isValidEmail(coachEmail) {
+            if !coachEmail.isEmpty && !coachEmail.isValidEmail {
                 Label("Please enter a valid email address", systemImage: "exclamationmark.triangle.fill")
                     .font(.caption)
                     .foregroundColor(.orange)
@@ -194,13 +194,6 @@ struct CreateFolderView: View {
         isCreating = false
     }
     
-    // MARK: - Validation
-    
-    private func isValidEmail(_ email: String) -> Bool {
-        let emailRegex = #"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"#
-        let emailPredicate = NSPredicate(format: "SELF MATCHES %@", emailRegex)
-        return emailPredicate.evaluate(with: email)
-    }
 }
 
 // MARK: - Invite Coach View (for existing folders)
@@ -222,7 +215,7 @@ struct InviteCoachView: View {
     
     private var isValid: Bool {
         !coachEmail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        isValidEmail(coachEmail)
+        coachEmail.isValidEmail
     }
     
     var body: some View {
@@ -240,7 +233,7 @@ struct InviteCoachView: View {
                             Task { await sendInvitation() }
                         }
 
-                    if !coachEmail.isEmpty && !isValidEmail(coachEmail) {
+                    if !coachEmail.isEmpty && !coachEmail.isValidEmail {
                         Label("Please enter a valid email address", systemImage: "exclamationmark.triangle.fill")
                             .font(.caption)
                             .foregroundColor(.orange)
@@ -362,11 +355,6 @@ struct InviteCoachView: View {
         isSending = false
     }
     
-    private func isValidEmail(_ email: String) -> Bool {
-        let emailRegex = #"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"#
-        let emailPredicate = NSPredicate(format: "SELF MATCHES %@", emailRegex)
-        return emailPredicate.evaluate(with: email)
-    }
 }
 
 // MARK: - Preview

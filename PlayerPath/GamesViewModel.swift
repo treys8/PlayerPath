@@ -2,6 +2,9 @@ import Foundation
 import SwiftUI
 import SwiftData
 import Combine
+import os
+
+private let gamesLog = Logger(subsystem: "com.playerpath.app", category: "GamesViewModel")
 
 @MainActor
 final class GamesViewModel: ObservableObject {
@@ -11,6 +14,11 @@ final class GamesViewModel: ObservableObject {
     @Published private(set) var completedGames: [Game] = []
     @Published private(set) var upcomingGames: [Game] = []
     @Published private(set) var pastGames: [Game] = []
+
+    // Pagination for completed games (the only section likely to grow large)
+    @Published var completedDisplayLimit = 50
+    var hasMoreCompleted: Bool { allCompletedGames.count > completedDisplayLimit }
+    private var allCompletedGames: [Game] = []
 
     private let modelContext: ModelContext
     private let gameService: GameService
@@ -23,9 +31,7 @@ final class GamesViewModel: ObservableObject {
     }
     
     func update(allGames: [Game]) {
-        #if DEBUG
-        print("📊 GamesViewModel: Updating with \(allGames.count) total games")
-        #endif
+        gamesLog.debug("Updating with \(allGames.count) total games")
         recomputeSections(allGames: allGames)
     }
     
@@ -35,9 +41,7 @@ final class GamesViewModel: ObservableObject {
             completedGames = []
             upcomingGames = []
             pastGames = []
-            #if DEBUG
-            print("📊 GamesViewModel: No athlete, cleared all sections")
-            #endif
+            gamesLog.debug("No athlete, cleared all sections")
             return
         }
         
@@ -45,12 +49,7 @@ final class GamesViewModel: ObservableObject {
         let filteredGamesSet = Set(allGames.filter { $0.athlete?.id == athlete.id })
         let combinedGames = Array(athleteGamesSet.union(filteredGamesSet))
         
-        #if DEBUG
-        print("📊 GamesViewModel: Athlete '\(athlete.name)'")
-        print("   - Games from relationship: \(athleteGamesSet.count)")
-        print("   - Games from query filter: \(filteredGamesSet.count)")
-        print("   - Combined unique games: \(combinedGames.count)")
-        #endif
+        gamesLog.debug("Athlete '\(athlete.name)' — relationship: \(athleteGamesSet.count), query: \(filteredGamesSet.count), combined: \(combinedGames.count)")
         
         let sortedGames = combinedGames.sorted { a, b in
             switch (a.date, b.date) {
@@ -68,7 +67,9 @@ final class GamesViewModel: ObservableObject {
         
         let now = Date()
         liveGames = sortedGames.filter { $0.isLive }
-        completedGames = sortedGames.filter { $0.isComplete }
+        allCompletedGames = sortedGames.filter { $0.isComplete }
+        completedDisplayLimit = 50
+        completedGames = Array(allCompletedGames.prefix(completedDisplayLimit))
         upcomingGames = sortedGames.filter { game in
             guard !game.isLive, !game.isComplete else { return false }
             guard let d = game.date else { return true } // nil date → treat as upcoming
@@ -80,15 +81,14 @@ final class GamesViewModel: ObservableObject {
             return d <= now
         }
         
-        #if DEBUG
-        print("📊 GamesViewModel: Sections updated")
-        print("   - Live: \(liveGames.count)")
-        print("   - Completed: \(completedGames.count)")
-        print("   - Upcoming: \(upcomingGames.count)")
-        print("   - Past: \(pastGames.count)")
-        #endif
+        gamesLog.debug("Sections updated — live: \(self.liveGames.count), completed: \(self.completedGames.count), upcoming: \(self.upcomingGames.count), past: \(self.pastGames.count)")
     }
     
+    func loadMoreCompleted() {
+        completedDisplayLimit += 50
+        completedGames = Array(allCompletedGames.prefix(completedDisplayLimit))
+    }
+
     func repair(allGames: [Game]) {
         Task { @MainActor in
             if let athlete = self.athlete {
@@ -118,7 +118,15 @@ final class GamesViewModel: ObservableObject {
     func end(_ game: Game) {
         Task { await gameService.end(game) }
     }
-    
+
+    func restart(_ game: Game) {
+        Task { await gameService.restart(game) }
+    }
+
+    func complete(_ game: Game) {
+        Task { await gameService.complete(game) }
+    }
+
     func deleteDeep(_ game: Game) {
         Task { @MainActor in
             await gameService.deleteGameDeep(game)

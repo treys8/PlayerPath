@@ -21,15 +21,13 @@ struct VideoClipsView: View {
     @State private var showingUploadPicker = false
     @State private var showingAdvancedSearch = false
     @State private var selectedVideo: VideoClip?
-    @State private var searchText = ""
+    @State private var viewModel = VideoClipsViewModel()
     @State private var liveGameContext: Game?
     @State private var errorMessage: String?
     @State private var showingError = false
     @State private var isImporting = false
     @State private var videoToDelete: VideoClip?
     @State private var showingDeleteConfirmation = false
-    @State private var selectedSeasonFilter: String? = nil // nil = All Seasons
-    @State private var selectedUploadFilter: UploadStatusFilter = .all
 
     // Batch selection mode
     @State private var isSelectionMode = false
@@ -48,23 +46,11 @@ struct VideoClipsView: View {
     @State private var clipToTag: VideoClip?
     @State private var isAwaitingImportedClip = false
 
-    // Cached computed results — updated explicitly via updateFilteredVideos() / updateAvailableSeasons()
-    @State private var cachedFilteredVideos: [VideoClip] = []
-    @State private var cachedFilteredVideoIndex: [UUID: Int] = [:]  // O(1) lookup for prefetch
-    @State private var cachedAvailableSeasons: [Season] = []
-
-    // Get all unique seasons from videos
-    private func updateAvailableSeasons() {
-        let seasons = (athlete.videoClips ?? []).compactMap { $0.season }
-        let uniqueSeasons = Array(Set(seasons))
-        cachedAvailableSeasons = uniqueSeasons.sorted { ($0.startDate ?? Date.distantPast) > ($1.startDate ?? Date.distantPast) }
-    }
-
     // Check if filters are active
     private var hasActiveFilters: Bool {
-        selectedSeasonFilter != nil ||
-        selectedUploadFilter != .all ||
-        !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        viewModel.selectedSeasonFilter != nil ||
+        viewModel.selectedUploadFilter != .all ||
+        !viewModel.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     // Check if we have any videos at all (before filtering)
@@ -72,104 +58,23 @@ struct VideoClipsView: View {
         !(athlete.videoClips?.isEmpty ?? true)
     }
 
-    private static let searchDateFormatter = DateFormatter.mediumDate
-    private static let searchShortFormatter = DateFormatter.compactDate
-
-    private func updateFilteredVideos() {
-        var videos = athlete.videoClips ?? []
-
-        // Filter by season
-        if let seasonFilter = selectedSeasonFilter {
-            videos = videos.filter { video in
-                if seasonFilter == "no_season" {
-                    return video.season == nil
-                } else {
-                    return video.season?.id.uuidString == seasonFilter
-                }
-            }
-        }
-
-        // Filter by upload status — build ID sets once for O(1) lookups
-        if selectedUploadFilter != .all {
-            let pendingIDs = Set(uploadManager.pendingUploads.map(\.clipId))
-            let failedIDs = Set(uploadManager.failedUploads.map(\.clipId))
-            let activeIDs = Set(uploadManager.activeUploads.keys)
-
-            videos = videos.filter { video in
-                switch selectedUploadFilter {
-                case .all:
-                    return true
-                case .uploaded:
-                    return video.isUploaded
-                case .notUploaded:
-                    return !video.isUploaded &&
-                           !activeIDs.contains(video.id) &&
-                           !pendingIDs.contains(video.id) &&
-                           !failedIDs.contains(video.id)
-                case .uploading:
-                    return activeIDs.contains(video.id) || pendingIDs.contains(video.id)
-                case .failed:
-                    return failedIDs.contains(video.id)
-                }
-            }
-        }
-
-        // Filter by search text
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if !query.isEmpty {
-            videos = videos.filter { video in
-                video.fileName.lowercased().contains(query) ||
-                (video.playResult?.type.displayName.lowercased().contains(query) ?? false) ||
-                (video.game?.opponent.lowercased().contains(query) ?? false) ||
-                (video.game?.location?.lowercased().contains(query) ?? false) ||
-                (video.game?.season?.displayName.lowercased().contains(query) ?? false) ||
-                (video.practice?.season?.displayName.lowercased().contains(query) ?? false) ||
-                (video.note?.lowercased().contains(query) ?? false) ||
-                (video.createdAt.map { Self.searchDateFormatter.string(from: $0).lowercased() }?.contains(query) ?? false) ||
-                (video.createdAt.map { Self.searchShortFormatter.string(from: $0).lowercased() }?.contains(query) ?? false)
-            }
-        }
-
-        // Sort by creation date
-        let sorted = videos.sorted { (lhs: VideoClip, rhs: VideoClip) in
-            switch (lhs.createdAt, rhs.createdAt) {
-            case let (l?, r?):
-                return l > r
-            case (nil, _?):
-                return false
-            case (_?, nil):
-                return true
-            case (nil, nil):
-                return false
-            }
-        }
-        cachedFilteredVideos = sorted
-        // Build O(1) index map for prefetch lookups
-        var indexMap: [UUID: Int] = [:]
-        indexMap.reserveCapacity(sorted.count)
-        for (i, clip) in sorted.enumerated() {
-            indexMap[clip.id] = i
-        }
-        cachedFilteredVideoIndex = indexMap
-    }
-
     private var filterDescription: String {
         var parts: [String] = []
 
-        if let seasonID = selectedSeasonFilter {
+        if let seasonID = viewModel.selectedSeasonFilter {
             if seasonID == "no_season" {
                 parts.append("season: None")
-            } else if let season = cachedAvailableSeasons.first(where: { $0.id.uuidString == seasonID }) {
+            } else if let season = viewModel.availableSeasons.first(where: { $0.id.uuidString == seasonID }) {
                 parts.append("season: \(season.displayName)")
             }
         }
 
-        if selectedUploadFilter != .all {
-            parts.append("upload: \(selectedUploadFilter.rawValue)")
+        if viewModel.selectedUploadFilter != .all {
+            parts.append("upload: \(viewModel.selectedUploadFilter.rawValue)")
         }
 
-        if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            parts.append("search: \"\(searchText)\"")
+        if !viewModel.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            parts.append("search: \"\(viewModel.searchText)\"")
         }
 
         return parts.isEmpty ? "your filters" : parts.joined(separator: ", ")
@@ -181,19 +86,18 @@ struct VideoClipsView: View {
         filterDebounceTask = Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(250))
             guard !Task.isCancelled else { return }
-            updateFilteredVideos()
+            viewModel.refilter()
         }
     }
 
     private func clearAllFilters() {
         Haptics.light()
         withAnimation {
-            selectedSeasonFilter = nil
-            selectedUploadFilter = .all
-            searchText = ""
+            viewModel.selectedSeasonFilter = nil
+            viewModel.selectedUploadFilter = .all
+            viewModel.searchText = ""
         }
-        updateFilteredVideos()
-        updateAvailableSeasons()
+        viewModel.update(videos: athlete.videoClips ?? [])
     }
     
     @ToolbarContentBuilder
@@ -249,8 +153,8 @@ struct VideoClipsView: View {
             if !(athlete.videoClips?.isEmpty ?? true) {
                 ToolbarItem(placement: .topBarLeading) {
                     SeasonFilterMenu(
-                        selectedSeasonID: $selectedSeasonFilter,
-                        availableSeasons: cachedAvailableSeasons,
+                        selectedSeasonID: $viewModel.selectedSeasonFilter,
+                        availableSeasons: viewModel.availableSeasons,
                         showNoSeasonOption: (athlete.videoClips ?? []).contains(where: { $0.season == nil })
                     )
                 }
@@ -304,7 +208,9 @@ struct VideoClipsView: View {
 
     @ViewBuilder
     private var videosContent: some View {
-        if cachedFilteredVideos.isEmpty {
+        if viewModel.isLoading {
+            VideoGridSkeletonView()
+        } else if viewModel.filteredVideos.isEmpty {
             if hasActiveFilters && hasAnyVideos {
                 FilteredEmptyStateView(
                         filterDescription: filterDescription,
@@ -326,7 +232,7 @@ struct VideoClipsView: View {
         }
         .navigationTitle("Videos")
         .navigationBarTitleDisplayMode(.large)
-        .searchable(text: $searchText, prompt: "Search videos")
+        .searchable(text: $viewModel.searchText, prompt: "Search videos")
         .toolbar { videosToolbar }
         .fullScreenCover(isPresented: $showingRecorder) {
             DirectCameraRecorderView(athlete: athlete, game: liveGameContext)
@@ -374,8 +280,7 @@ struct VideoClipsView: View {
             }
         }
         .task {
-            updateAvailableSeasons()
-            updateFilteredVideos()
+            viewModel.update(videos: athlete.videoClips ?? [])
         }
         .onAppear {
             // Tell MainTabView that Videos manages its own controls
@@ -386,18 +291,17 @@ struct VideoClipsView: View {
             NotificationCenter.default.post(name: .videosManageOwnControls, object: false)
             liveGameContext = nil
         }
-        .onChange(of: searchText) { _, _ in
+        .onChange(of: viewModel.searchText) { _, _ in
             debouncedFilterUpdate()
         }
-        .onChange(of: selectedSeasonFilter) { _, _ in
-            updateFilteredVideos()
+        .onChange(of: viewModel.selectedSeasonFilter) { _, _ in
+            viewModel.refilter()
         }
-        .onChange(of: selectedUploadFilter) { _, _ in
-            updateFilteredVideos()
+        .onChange(of: viewModel.selectedUploadFilter) { _, _ in
+            viewModel.refilter()
         }
         .onChange(of: athlete.videoClips?.count) { _, _ in
-            updateAvailableSeasons()
-            updateFilteredVideos()
+            viewModel.update(videos: athlete.videoClips ?? [])
         }
         .alert("Something Went Wrong", isPresented: $showingError) {
             Button("OK", role: .cancel) { }
@@ -481,8 +385,7 @@ struct VideoClipsView: View {
                 if let athlete = videoAthlete {
                     try StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: modelContext)
                 }
-                updateAvailableSeasons()
-                updateFilteredVideos()
+                viewModel.update(videos: athlete.videoClips ?? [])
                 isDeleting = false
             } catch {
                 isDeleting = false
@@ -533,8 +436,7 @@ struct VideoClipsView: View {
                 }
                 try StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: modelContext)
 
-                updateAvailableSeasons()
-                updateFilteredVideos()
+                viewModel.update(videos: athlete.videoClips ?? [])
                 Haptics.success()
             } catch {
                 errorMessage = "Could not delete the selected videos. Please try again or restart the app if the problem continues."
@@ -576,7 +478,7 @@ struct VideoClipsView: View {
 
         do {
             try modelContext.save()
-            updateFilteredVideos()
+            viewModel.refilter()
             Haptics.success()
             showBulkToast("\(videosToMark.count) video\(videosToMark.count == 1 ? "" : "s") marked as highlights")
         } catch {
@@ -621,7 +523,7 @@ struct VideoClipsView: View {
                 ForEach(UploadStatusFilter.allCases, id: \.self) { filter in
                     Button {
                         withAnimation {
-                            selectedUploadFilter = filter
+                            viewModel.selectedUploadFilter = filter
                         }
                         Haptics.light()
                     } label: {
@@ -631,17 +533,17 @@ struct VideoClipsView: View {
 
                             Text(filter.rawValue)
                                 .font(.subheadline)
-                                .fontWeight(selectedUploadFilter == filter ? .semibold : .regular)
+                                .fontWeight(viewModel.selectedUploadFilter == filter ? .semibold : .regular)
                         }
                         .padding(.horizontal, 12)
                         .padding(.vertical, 8)
                         .background(
-                            selectedUploadFilter == filter ?
+                            viewModel.selectedUploadFilter == filter ?
                                 filter.color.opacity(0.2) :
                                 Color.gray.opacity(0.1)
                         )
                         .foregroundColor(
-                            selectedUploadFilter == filter ?
+                            viewModel.selectedUploadFilter == filter ?
                                 filter.color :
                                 .secondary
                         )
@@ -649,7 +551,7 @@ struct VideoClipsView: View {
                         .overlay(
                             RoundedRectangle(cornerRadius: 20)
                                 .stroke(
-                                    selectedUploadFilter == filter ?
+                                    viewModel.selectedUploadFilter == filter ?
                                         filter.color :
                                         Color.clear,
                                     lineWidth: 1.5
@@ -679,7 +581,7 @@ struct VideoClipsView: View {
                     ],
                     spacing: 16
                 ) {
-                    ForEach(cachedFilteredVideos) { video in
+                    ForEach(viewModel.filteredVideos) { video in
                         VideoClipCard(
                             video: video,
                             isSelectionMode: isSelectionMode,
@@ -702,14 +604,30 @@ struct VideoClipsView: View {
                             }
                         )
                         .onAppear {
-                            if let index = cachedFilteredVideoIndex[video.id] {
-                                prefetchNearbyThumbnails(for: index, in: cachedFilteredVideos)
+                            if let index = viewModel.filteredVideoIndex[video.id] {
+                                prefetchNearbyThumbnails(for: index, in: viewModel.filteredVideos)
                             }
                         }
                     }
                 }
                 .padding(.vertical)
                 .padding(.horizontal, horizontalSizeClass == .regular ? 32 : 16)
+
+                if viewModel.hasMore {
+                    Button {
+                        Haptics.light()
+                        viewModel.loadMore()
+                    } label: {
+                        HStack(spacing: 6) {
+                            Text("Load More")
+                            Image(systemName: "arrow.down.circle")
+                        }
+                        .font(.subheadline).fontWeight(.medium)
+                        .foregroundColor(.brandNavy)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                    }
+                }
             }
         }
         .refreshable {

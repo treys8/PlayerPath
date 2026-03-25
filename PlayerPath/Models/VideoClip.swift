@@ -248,8 +248,13 @@ final class VideoClip {
         // Delete associated play result and recalculate stats
         if let playResult = playResult {
             let athleteForRecalc = athlete ?? game?.athlete
+            let gameForRecalc = game
             context.delete(playResult)
-            // Recalculate stats so they don't drift from actual play results
+            // Recalculate game stats so they don't retain the deleted clip's contribution
+            if let game = gameForRecalc {
+                try? StatisticsService.shared.recalculateGameStatistics(for: game, context: context)
+            }
+            // Recalculate athlete stats so they don't drift from actual play results
             if let athlete = athleteForRecalc {
                 try? StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: context, skipSave: true)
             }

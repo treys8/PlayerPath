@@ -152,6 +152,14 @@ struct VideoThumbnailView: View {
         .task {
             await loadThumbnail()
         }
+        .onChange(of: clip.thumbnailPath) { _, newPath in
+            guard newPath != nil, thumbnailImage == nil else { return }
+            // Reset stale error state so the reload gets a clean slate
+            loadError = nil
+            generationAttempts = 0
+            isLoadingThumbnail = false
+            Task { await loadThumbnail() }
+        }
     }
 
     // MARK: - Accessibility

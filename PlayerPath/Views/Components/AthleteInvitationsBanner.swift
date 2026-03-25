@@ -8,6 +8,9 @@
 import SwiftUI
 import SwiftData
 import FirebaseAuth
+import os
+
+private let log = Logger(subsystem: "com.playerpath.app", category: "AthleteInvitationsBanner")
 
 struct AthleteInvitationsBanner: View {
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
@@ -124,16 +127,16 @@ struct AthleteInvitationsSheet: View {
 
     private func acceptInvitation(_ invitation: CoachToAthleteInvitation) async {
         guard processingInvitationID == nil else {
-            print("🔴 ACCEPT blocked: already processing \(processingInvitationID ?? "nil")")
+            log.warning("ACCEPT blocked: already processing \(processingInvitationID ?? "nil")")
             return
         }
         guard let currentUID = authManager.userID, !currentUID.isEmpty else {
-            print("🔴 ACCEPT blocked: no userID")
+            log.warning("ACCEPT blocked: no userID")
             errorMessage = "Not signed in. Please sign in and try again."
             Haptics.error()
             return
         }
-        print("🟢 ACCEPT starting for invitation \(invitation.id ?? "nil") from coach \(invitation.coachName)")
+        log.debug("ACCEPT starting for invitation \(invitation.id ?? "nil") from coach \(invitation.coachName, privacy: .private)")
         processingInvitationID = invitation.id
 
         do {
@@ -142,11 +145,11 @@ struct AthleteInvitationsSheet: View {
                 userID: currentUID,
                 modelContext: modelContext
             )
-            print("🟢 ACCEPT succeeded for coach: \(result.coachName)")
+            log.info("ACCEPT succeeded for coach: \(result.coachName, privacy: .private)")
             Haptics.success()
             onInvitationsChanged()
         } catch {
-            print("🔴 ACCEPT failed: \(error)")
+            log.warning("ACCEPT failed: \(error.localizedDescription)")
             errorMessage = AthleteInvitationManager.errorMessage(for: error, action: "accept")
             Haptics.error()
         }
@@ -155,10 +158,10 @@ struct AthleteInvitationsSheet: View {
 
     private func declineInvitation(_ invitation: CoachToAthleteInvitation) async {
         guard processingInvitationID == nil else {
-            print("🔴 DECLINE blocked: already processing \(processingInvitationID ?? "nil")")
+            log.warning("DECLINE blocked: already processing \(processingInvitationID ?? "nil")")
             return
         }
-        print("🟡 DECLINE starting for invitation \(invitation.id ?? "nil") from coach \(invitation.coachName)")
+        log.debug("DECLINE starting for invitation \(invitation.id ?? "nil") from coach \(invitation.coachName, privacy: .private)")
         processingInvitationID = invitation.id
 
         do {

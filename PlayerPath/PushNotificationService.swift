@@ -42,33 +42,6 @@ final class PushNotificationService: NSObject, ObservableObject {
     
     // MARK: - Notification Categories
     private let notificationCategories: Set<UNNotificationCategory> = [
-        // Premium welcome category
-        UNNotificationCategory(
-            identifier: "PREMIUM_WELCOME",
-            actions: [
-                UNNotificationAction(
-                    identifier: "EXPLORE_FEATURES",
-                    title: "Explore Features",
-                    options: [.foreground]
-                )
-            ],
-            intentIdentifiers: []
-        ),
-        
-        // Performance insights category
-        UNNotificationCategory(
-            identifier: "PERFORMANCE_INSIGHTS",
-            actions: [
-                UNNotificationAction(
-                    identifier: "VIEW_STATS",
-                    title: "View Stats",
-                    options: [.foreground]
-                )
-                // Fix AK: SHARE_STATS removed — action was unhandled and presented dead UI
-            ],
-            intentIdentifiers: []
-        ),
-        
         // Cloud backup category
         UNNotificationCategory(
             identifier: "CLOUD_BACKUP",
@@ -428,41 +401,18 @@ final class PushNotificationService: NSObject, ObservableObject {
         )
     }
 
-    /// Send immediate cloud backup completion notification
-    func notifyCloudBackupComplete(videoCount: Int, totalSize: String) async {
-        guard canScheduleNotifications else { return }
-        // Skip if app is in foreground — the upload UI already provides feedback
-        guard UIApplication.shared.applicationState != .active else { return }
-
-        let title = "Cloud Backup Complete ☁️"
-        let body = "\(videoCount) video\(videoCount == 1 ? "" : "s") (\(totalSize)) safely backed up to the cloud."
-
-        let success = await scheduleLocalNotification(
-            identifier: "cloud_backup_complete",
-            title: title,
-            body: body,
-            categoryIdentifier: "CLOUD_BACKUP",
-            userInfo: ["type": "cloud_backup", "videoCount": videoCount],
-            trigger: UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
-        )
-
-        if success {
-            logger.info("Sent cloud backup completion notification")
-        }
-    }
-    
     // MARK: - Remote Notifications
     
-    private func sendTokenToServerWithRetry(_ token: String, previousToken: String? = nil, attempt: Int = 1, maxAttempts: Int = 3) async {
-        let (success, shouldRetry) = await sendTokenToServer(token, previousToken: previousToken)
-
-        if !success && shouldRetry && attempt < maxAttempts {
-            // Exponential backoff: 2^attempt seconds
-            let delay = pow(2.0, Double(attempt))
-            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-            await sendTokenToServerWithRetry(token, previousToken: previousToken, attempt: attempt + 1, maxAttempts: maxAttempts)
-        } else if !success && !shouldRetry {
-            logger.error("Permanent failure sending token to server - will not retry")
+    private func sendTokenToServerWithRetry(_ token: String, previousToken: String? = nil) async {
+        await retryAsync(maxAttempts: 3, delay: .seconds(2), backoff: true) { [self] in
+            let (success, shouldRetry) = await sendTokenToServer(token, previousToken: previousToken)
+            if !success {
+                if shouldRetry {
+                    throw NSError(domain: "PushNotification", code: -1, userInfo: [NSLocalizedDescriptionKey: "Token send failed, will retry"])
+                }
+                // Permanent failure — log and return without throwing (stops retry)
+                logger.error("Permanent failure sending token to server - will not retry")
+            }
         }
     }
 
@@ -598,16 +548,6 @@ extension PushNotificationService: UNUserNotificationCenterDelegate {
         // Current implementation is a temporary solution
         
         switch actionIdentifier {
-        case "EXPLORE_FEATURES":
-            NotificationCenter.default.post(name: .navigateToPremiumFeatures, object: nil)
-            
-        case "VIEW_STATS":
-            if let athleteId = userInfo["athleteId"] as? String {
-                NotificationCenter.default.post(name: .navigateToStatistics, object: athleteId)
-            } else {
-                logger.warning("VIEW_STATS action missing athleteId")
-            }
-            
         case "VIEW_BACKUP":
             NotificationCenter.default.post(name: .navigateToCloudStorage, object: nil)
             

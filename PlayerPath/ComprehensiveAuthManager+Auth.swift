@@ -40,6 +40,7 @@ extension ComprehensiveAuthManager {
                     self?.isSignedIn = false
                     // Clear ALL user-specific data to prevent leakage between accounts
                     self?.isNewUser = false
+                    self?.needsEmailVerification = false
                     self?.userRole = .athlete
                     self?.userProfile = nil
                     self?.localUser = nil
@@ -48,15 +49,11 @@ extension ComprehensiveAuthManager {
                     self?.currentCoachTier = .free
                     self?.hasAthleteTierOverride = false
                     self?.clearPersistedUserDefaults()
-                    #if DEBUG
-                    print("🔄 Cleared all user data on sign out")
-                    #endif
-                } else if self?.isHandlingSignIn == true {
-                    // signIn() is in progress — it will set isSignedIn after
-                    // loadUserProfile() completes so the UI sees the correct role.
-                    #if DEBUG
-                    print("⏭️ Auth state changed - Skipping (handled by signIn())")
-                    #endif
+                    authLog.debug("Cleared all user data on sign out")
+                } else if self?.isHandlingSignIn == true || self?.needsEmailVerification == true {
+                    // signIn()/signUp() is in progress or user needs to verify email —
+                    // skip automatic isSignedIn to prevent bypassing verification gate.
+                    authLog.debug("Auth state changed - Skipping (handled by signIn/signUp or pending verification)")
                 } else {
                     // User signed in via Apple Sign In or app relaunch —
                     // load profile BEFORE setting isSignedIn so the UI
@@ -65,23 +62,26 @@ extension ComprehensiveAuthManager {
                     // Only load profile if this isn't a brand new signup.
                     // signUp/signUpAsCoach handle profile creation themselves.
                     if self?.isNewUser == false {
-                        #if DEBUG
-                        print("🔍 Auth state changed - Loading profile for existing user")
-                        #endif
+                        authLog.debug("Auth state changed - Loading profile for existing user")
                         // Use retry logic for the listener path (app relaunch, Apple Sign In).
                         // A single-shot loadUserProfile() silently swallows errors, leaving
                         // the role as the stale default. Retry with backoff gives Firestore
                         // time to establish a connection after a cold launch.
                         await self?.loadUserProfileWithRetry(maxAttempts: 3)
                     } else {
-                        #if DEBUG
-                        print("⏭️ Auth state changed - Skipping profile load (new user signup)")
-                        #endif
+                        authLog.debug("Auth state changed - Skipping profile load (new user signup)")
                     }
 
                     // Sync local SwiftData user AFTER profile load so
                     // the correct role is written (not the stale default).
                     await self?.ensureLocalUser()
+
+                    // Block unverified non-grandfathered accounts on app relaunch
+                    if let user = user, self?.requiresEmailVerification(user) == true {
+                        self?.needsEmailVerification = true
+                        authLog.info("Auth state listener — email not verified, blocking access")
+                        return
+                    }
 
                     self?.isSignedIn = true
 
@@ -108,6 +108,14 @@ extension ComprehensiveAuthManager {
         errorMessage = nil
         currentFirebaseUser = user
         await loadUserProfile()
+
+        // Check email verification for non-grandfathered accounts
+        if requiresEmailVerification(user) {
+            needsEmailVerification = true
+            isLoading = false
+            return
+        }
+
         isSignedIn = true
         isLoading = false
     }
@@ -130,6 +138,14 @@ extension ComprehensiveAuthManager {
             // so userRole is resolved before the UI transitions to AuthenticatedFlow.
             await loadUserProfile()
 
+            // Check email verification for non-grandfathered accounts
+            if requiresEmailVerification(result.user) {
+                needsEmailVerification = true
+                authLog.info("Sign in blocked — email not verified for \(result.user.email ?? "unknown", privacy: .private)")
+                isLoading = false
+                return
+            }
+
             isSignedIn = true
 
             // Track successful sign in
@@ -137,9 +153,7 @@ extension ComprehensiveAuthManager {
             AnalyticsService.shared.trackSignIn(method: "email")
 
             isLoading = false
-            #if DEBUG
-            print("🟢 Sign in successful for: \(result.user.email ?? "unknown") as \(userRole.rawValue)")
-            #endif
+            authLog.info("Sign in successful for \(result.user.email ?? "unknown", privacy: .private) as \(self.userRole.rawValue)")
         } catch {
             errorMessage = friendlyErrorMessage(from: error)
             isLoading = false
@@ -159,9 +173,7 @@ extension ComprehensiveAuthManager {
         // Set the role IMMEDIATELY before any async operations
         // This ensures the UI sees the correct role right away
         userRole = .athlete
-        #if DEBUG
-        print("✅ Pre-set userRole to athlete BEFORE Firebase operations")
-        #endif
+        authLog.debug("Pre-set userRole to athlete BEFORE Firebase operations")
 
         do {
             let result = try await Auth.auth().createUser(withEmail: email, password: password)
@@ -171,11 +183,8 @@ extension ComprehensiveAuthManager {
                 try await changeRequest.commitChanges()
             }
             currentFirebaseUser = result.user
-            isSignedIn = true
 
-            #if DEBUG
-            print("🔵 Creating athlete profile for: \(email)")
-            #endif
+            authLog.debug("Creating athlete profile for \(email, privacy: .private)")
 
             // Create user profile in Firestore with default athlete role
             // Note: createUserProfile will also set userRole = .athlete internally
@@ -188,9 +197,7 @@ extension ComprehensiveAuthManager {
 
             // Double-check the role is still set (defensive programming)
             if userRole != .athlete {
-                #if DEBUG
-                print("⚠️ WARNING: userRole was changed after createUserProfile, resetting to athlete")
-                #endif
+                authLog.warning("userRole was changed after createUserProfile, resetting to athlete")
                 userRole = .athlete
             }
 
@@ -198,10 +205,17 @@ extension ComprehensiveAuthManager {
             AnalyticsService.shared.setUserID(result.user.uid)
             AnalyticsService.shared.trackSignUp(method: "email")
 
+            // Send verification email and gate access until verified
+            do {
+                try await result.user.sendEmailVerification()
+                authLog.info("Verification email sent to \(email, privacy: .private)")
+            } catch {
+                authLog.error("Failed to send verification email: \(error.localizedDescription)")
+            }
+            needsEmailVerification = true
+
             isLoading = false
-            #if DEBUG
-            print("🟢 Sign up successful for athlete: \(result.user.email ?? "unknown") with role: \(userRole.rawValue)")
-            #endif
+            authLog.info("Sign up successful for athlete: \(result.user.email ?? "unknown", privacy: .private) with role: \(self.userRole.rawValue)")
         } catch {
             errorMessage = friendlyErrorMessage(from: error)
             isLoading = false
@@ -223,9 +237,7 @@ extension ComprehensiveAuthManager {
         // Set the role IMMEDIATELY before any async operations
         // This ensures the UI sees the correct role right away
         userRole = .coach
-        #if DEBUG
-        print("✅ Pre-set userRole to coach BEFORE Firebase operations")
-        #endif
+        authLog.debug("Pre-set userRole to coach BEFORE Firebase operations")
 
         do {
             let result = try await Auth.auth().createUser(withEmail: email, password: password)
@@ -234,11 +246,8 @@ extension ComprehensiveAuthManager {
             try await changeRequest.commitChanges()
 
             currentFirebaseUser = result.user
-            isSignedIn = true
 
-            #if DEBUG
-            print("🔵 Creating coach profile for: \(email)")
-            #endif
+            authLog.debug("Creating coach profile for \(email, privacy: .private)")
 
             // Create coach profile in Firestore
             // Note: createUserProfile will also set userRole = .coach internally
@@ -251,27 +260,30 @@ extension ComprehensiveAuthManager {
 
             // Double-check the role is still set (defensive programming)
             if userRole != .coach {
-                #if DEBUG
-                print("⚠️ WARNING: userRole was changed after createUserProfile, resetting to coach")
-                #endif
+                authLog.warning("userRole was changed after createUserProfile, resetting to coach")
                 userRole = .coach
             }
 
             // Check for pending invitations
             let invitations = try await SharedFolderManager.shared.checkPendingInvitations(forEmail: email)
-            #if DEBUG
             if !invitations.isEmpty {
-                print("✅ Found \(invitations.count) pending invitations for new coach")
+                authLog.debug("Found \(invitations.count) pending invitations for new coach")
             }
-            #endif
+
+            // Send verification email and gate access until verified
+            do {
+                try await result.user.sendEmailVerification()
+                authLog.info("Verification email sent to \(email, privacy: .private)")
+            } catch {
+                authLog.error("Failed to send verification email: \(error.localizedDescription)")
+            }
+            needsEmailVerification = true
 
             // Note: We DON'T mark hasCompletedOnboarding = true here
             // We want coaches to see their coach-specific onboarding flow
 
             isLoading = false
-            #if DEBUG
-            print("🟢 Coach sign up successful for: \(email) with role: \(userRole.rawValue)")
-            #endif
+            authLog.info("Coach sign up successful for \(email, privacy: .private) with role: \(self.userRole.rawValue)")
         } catch {
             isLoading = false
             // Only reset isNewUser/userRole if the Firebase account was never created.
@@ -309,6 +321,7 @@ extension ComprehensiveAuthManager {
             currentFirebaseUser = nil
             isSignedIn = false
             isNewUser = false
+            needsEmailVerification = false
             errorMessage = nil
             userRole = .athlete // Reset to default
 
@@ -342,14 +355,52 @@ extension ComprehensiveAuthManager {
             // Clear upload queues to prevent cross-account data leakage
             UploadQueueManager.shared.clearAllQueues()
 
-            #if DEBUG
-            print("🟢 Sign out successful")
-            #endif
+            authLog.info("Sign out successful")
         } catch {
             errorMessage = "Failed to sign out: \(error.localizedDescription)"
             authLog.error("Sign out failed: \(error.localizedDescription)")
             ErrorHandlerService.shared.handle(error, context: "Auth.signOut", showAlert: false)
         }
+    }
+
+    // MARK: - Email Verification
+
+    /// Resends the verification email to the current user.
+    func resendVerificationEmail() async throws {
+        guard let user = currentFirebaseUser else {
+            throw AppError.authenticationFailed(AuthConstants.ErrorMessages.noUserSignedIn)
+        }
+        try await user.sendEmailVerification()
+        authLog.info("Verification email resent to \(user.email ?? "unknown", privacy: .private)")
+    }
+
+    /// Reloads the Firebase user and checks if their email is now verified.
+    /// If verified, transitions to the signed-in state.
+    func checkEmailVerification() async -> Bool {
+        guard let user = currentFirebaseUser else { return false }
+        do {
+            try await user.reload()
+            // Re-fetch the user object after reload to get updated properties
+            guard let refreshedUser = Auth.auth().currentUser else { return false }
+            currentFirebaseUser = refreshedUser
+
+            if refreshedUser.isEmailVerified {
+                needsEmailVerification = false
+                isSignedIn = true
+                authLog.info("Email verified for \(refreshedUser.email ?? "unknown", privacy: .private)")
+                return true
+            }
+            return false
+        } catch {
+            authLog.error("Failed to reload user for verification check: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    /// Signs out an unverified user and resets verification state.
+    func cancelEmailVerification() async {
+        needsEmailVerification = false
+        await signOut()
     }
 
     func resetPassword(email: String) async throws {
@@ -358,9 +409,7 @@ extension ComprehensiveAuthManager {
 
         do {
             try await Auth.auth().sendPasswordReset(withEmail: email)
-            #if DEBUG
-            print("🟢 Password reset sent to: \(email)")
-            #endif
+            authLog.info("Password reset sent to \(email, privacy: .private)")
         } catch {
             authLog.error("Password reset failed: \(error.localizedDescription)")
             throw AppError.authenticationFailed(friendlyErrorMessage(from: error))

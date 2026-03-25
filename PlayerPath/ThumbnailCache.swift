@@ -158,6 +158,130 @@ import UIKit
         loadingTasks.removeValue(forKey: path)
     }
     
+    // MARK: - Remote Thumbnail API
+
+    /// Load a thumbnail from a remote URL, caching to disk + memory for instant subsequent loads.
+    /// Uses the same NSCache, deduplication, and downsampling as local thumbnails.
+    /// - Parameters:
+    ///   - cacheKey: Stable key for this thumbnail (e.g. "folderID_videoFileName")
+    ///   - urlProvider: Async closure that returns the download URL (e.g. signed URL from Cloud Function)
+    ///   - targetSize: Optional target size for downsampling
+    func loadRemoteThumbnail(
+        cacheKey: String,
+        urlProvider: @escaping () async throws -> String,
+        targetSize: CGSize? = nil
+    ) async throws -> UIImage {
+        let nsKey = cacheKey as NSString
+
+        // 1. Check memory cache
+        if let cached = cache.object(forKey: nsKey) {
+            Task { @MainActor in PerformanceMonitor.shared.recordCacheHit() }
+            return cached
+        }
+
+        Task { @MainActor in PerformanceMonitor.shared.recordCacheMiss() }
+
+        // 2. Check disk cache — load and store under cacheKey (not disk path)
+        let diskPath = sharedThumbnailPath(for: cacheKey)
+        if FileManager.default.fileExists(atPath: diskPath) {
+            let image = try await loadThumbnail(at: diskPath, targetSize: targetSize)
+            // Also store under cacheKey so future memory cache lookups hit
+            let pixelW = image.size.width * image.scale
+            let pixelH = image.size.height * image.scale
+            cache.setObject(image, forKey: nsKey, cost: Int(pixelW * pixelH * 4))
+            return image
+        }
+
+        // 3. Deduplicate concurrent requests
+        if let existingTask = loadingTasks[cacheKey] {
+            return try await existingTask.value
+        }
+
+        let screenScale = UITraitCollection.current.displayScale
+
+        // 4. Download, save to disk, load into cache
+        let task = Task<UIImage, Error> {
+            let urlString = try await urlProvider()
+            guard let url = URL(string: urlString) else {
+                throw ThumbnailError.downloadFailed
+            }
+
+            let (data, response) = try await URLSession.shared.data(from: url)
+            guard let httpResponse = response as? HTTPURLResponse,
+                  httpResponse.statusCode == 200,
+                  !data.isEmpty else {
+                throw ThumbnailError.downloadFailed
+            }
+
+            // Write to disk and downsample off MainActor
+            let capturedData = data
+            let capturedDiskPath = diskPath
+            let capturedTargetSize = targetSize
+            let capturedScale = screenScale
+
+            return try await withCheckedThrowingContinuation { continuation in
+                DispatchQueue.global(qos: .userInitiated).async {
+                    let diskURL = URL(fileURLWithPath: capturedDiskPath)
+                    try? FileManager.default.createDirectory(
+                        at: diskURL.deletingLastPathComponent(),
+                        withIntermediateDirectories: true
+                    )
+                    try? capturedData.write(to: diskURL)
+
+                    if let targetSize = capturedTargetSize {
+                        if let image = self.downsampleImage(at: diskURL, to: targetSize, scale: capturedScale) {
+                            continuation.resume(returning: image)
+                            return
+                        }
+                    }
+
+                    guard let image = UIImage(data: capturedData) else {
+                        continuation.resume(throwing: ThumbnailError.invalidImage)
+                        return
+                    }
+                    continuation.resume(returning: image)
+                }
+            }
+        }
+
+        loadingTasks[cacheKey] = task
+
+        do {
+            let image = try await task.value
+            let pixelWidth = image.size.width * image.scale
+            let pixelHeight = image.size.height * image.scale
+            let cost = Int(pixelWidth * pixelHeight * 4)
+            cache.setObject(image, forKey: nsKey, cost: cost)
+            loadingTasks.removeValue(forKey: cacheKey)
+            return image
+        } catch {
+            loadingTasks.removeValue(forKey: cacheKey)
+            throw error
+        }
+    }
+
+    /// Prefetch multiple remote thumbnails in the background
+    func prefetchRemoteThumbnails(
+        items: [(cacheKey: String, urlProvider: () async throws -> String)],
+        targetSize: CGSize? = nil
+    ) {
+        Task(priority: .utility) {
+            await withTaskGroup(of: Void.self) { group in
+                for item in items.prefix(6) {
+                    let key = item.cacheKey
+                    let provider = item.urlProvider
+                    group.addTask {
+                        _ = try? await self.loadRemoteThumbnail(
+                            cacheKey: key,
+                            urlProvider: provider,
+                            targetSize: targetSize
+                        )
+                    }
+                }
+            }
+        }
+    }
+
     /// Clear all cached thumbnails
     func clearCache() {
         cache.removeAllObjects()
@@ -166,6 +290,13 @@ import UIKit
     }
 
     // MARK: - Private Helpers
+
+    private func sharedThumbnailPath(for cacheKey: String) -> String {
+        let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+        let thumbDir = cacheDir.appendingPathComponent("shared_thumbnails", isDirectory: true)
+        let sanitized = cacheKey.replacingOccurrences(of: "/", with: "_")
+        return thumbDir.appendingPathComponent("\(sanitized).jpg").path
+    }
 
     /// Downsample an image to reduce memory usage
     /// This is much more memory-efficient than loading full resolution and then scaling
@@ -199,13 +330,16 @@ import UIKit
 enum ThumbnailError: LocalizedError {
     case fileNotFound
     case invalidImage
-    
+    case downloadFailed
+
     var errorDescription: String? {
         switch self {
         case .fileNotFound:
             return "Thumbnail file not found"
         case .invalidImage:
             return "Invalid image file"
+        case .downloadFailed:
+            return "Failed to download thumbnail"
         }
     }
 }

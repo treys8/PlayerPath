@@ -27,6 +27,8 @@ final class Photo {
     var cloudURL: String?
     var firestoreId: String?
     var needsSync: Bool = false
+    var version: Int = 0
+    var isDeletedRemotely: Bool = false
 
     init(fileName: String, filePath: String) {
         self.id = UUID()
@@ -39,36 +41,103 @@ final class Photo {
         var data: [String: Any] = [
             "id": id.uuidString,
             "fileName": fileName,
-            "athleteId": athlete?.id.uuidString ?? "",
+            "athleteId": athlete?.firestoreId ?? athlete?.id.uuidString ?? "",
             "uploadedBy": ownerUID,
             "createdAt": createdAt ?? Date(),
             "updatedAt": Date(),
             "isDeleted": false
         ]
         if let caption = caption { data["caption"] = caption }
-        if let gameId = game?.id.uuidString { data["gameId"] = gameId }
-        if let practiceId = practice?.id.uuidString { data["practiceId"] = practiceId }
-        if let seasonId = season?.id.uuidString { data["seasonId"] = seasonId }
+        if let gameId = game?.firestoreId ?? game?.id.uuidString { data["gameId"] = gameId }
+        if let practiceId = practice?.firestoreId ?? practice?.id.uuidString { data["practiceId"] = practiceId }
+        if let seasonId = season?.firestoreId ?? season?.id.uuidString { data["seasonId"] = seasonId }
         if let cloudURL = cloudURL { data["downloadURL"] = cloudURL }
         return data
     }
 
-    /// Full-size image URL derived from filePath
-    var fileURL: URL? {
-        URL(fileURLWithPath: filePath)
+    /// Returns metadata fields that can change after initial upload.
+    func updatableFirestoreData() -> [String: Any] {
+        var data: [String: Any] = [
+            "updatedAt": Date()
+        ]
+        data["caption"] = caption ?? NSNull()
+        data["gameId"] = (game?.firestoreId ?? game?.id.uuidString) ?? NSNull()
+        data["practiceId"] = (practice?.firestoreId ?? practice?.id.uuidString) ?? NSNull()
+        data["seasonId"] = (season?.firestoreId ?? season?.id.uuidString) ?? NSNull()
+        return data
     }
 
-    /// Thumbnail image URL derived from thumbnailPath
-    var thumbnailURL: URL? {
+    // MARK: - Path Resolution
+
+    @Transient private var _cachedResolvedPath: String?
+    @Transient private var _cachedResolvedThumbPath: String?
+
+    /// Resolves `filePath` to an absolute path, handling both legacy absolute paths
+    /// and relative paths (relative to Documents directory).
+    var resolvedFilePath: String {
+        if let cached = _cachedResolvedPath { return cached }
+        let resolved = _resolveFilePath()
+        _cachedResolvedPath = resolved
+        return resolved
+    }
+
+    private func _resolveFilePath() -> String {
+        if !filePath.hasPrefix("/") {
+            guard let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
+                return filePath
+            }
+            return docs.appendingPathComponent(filePath).path
+        }
+        if FileManager.default.fileExists(atPath: filePath) {
+            return filePath
+        }
+        guard let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
+            return filePath
+        }
+        let recovered = docs.appendingPathComponent("Photos").appendingPathComponent(fileName).path
+        if FileManager.default.fileExists(atPath: recovered) {
+            return recovered
+        }
+        return filePath
+    }
+
+    /// Resolves `thumbnailPath` to an absolute path.
+    var resolvedThumbnailPath: String? {
         guard let thumbnailPath else { return nil }
-        return URL(fileURLWithPath: thumbnailPath)
+        if let cached = _cachedResolvedThumbPath { return cached }
+        let resolved: String
+        if !thumbnailPath.hasPrefix("/") {
+            guard let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
+                return thumbnailPath
+            }
+            resolved = docs.appendingPathComponent(thumbnailPath).path
+        } else {
+            resolved = thumbnailPath
+        }
+        _cachedResolvedThumbPath = resolved
+        return resolved
+    }
+
+    /// Full-size image URL derived from resolved filePath
+    var fileURL: URL? {
+        URL(fileURLWithPath: resolvedFilePath)
+    }
+
+    /// Thumbnail image URL derived from resolved thumbnailPath
+    var thumbnailURL: URL? {
+        guard let path = resolvedThumbnailPath else { return nil }
+        return URL(fileURLWithPath: path)
+    }
+
+    var isAvailableOffline: Bool {
+        FileManager.default.fileExists(atPath: resolvedFilePath)
     }
 
     /// Delete photo with all associated files
     @MainActor func delete(in context: ModelContext) {
         // Capture paths before context.delete to avoid accessing deleted SwiftData object
-        let capturedFilePath = filePath
-        let capturedThumbPath = thumbnailPath
+        let capturedFilePath = resolvedFilePath
+        let capturedThumbPath = resolvedThumbnailPath
 
         // Dispatch file I/O to background
         DispatchQueue.global(qos: .utility).async {

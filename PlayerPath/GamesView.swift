@@ -301,6 +301,23 @@ struct GamesView: View {
                         showingDeleteGameConfirmation = true
                     }
                 }
+
+                if viewModelHolder.viewModel?.hasMoreCompleted == true {
+                    Button {
+                        Haptics.light()
+                        viewModelHolder.viewModel?.loadMoreCompleted()
+                        updateFilteredGames()
+                    } label: {
+                        HStack(spacing: 6) {
+                            Text("Load More")
+                            Image(systemName: "arrow.down.circle")
+                        }
+                        .font(.subheadline).fontWeight(.medium)
+                        .foregroundColor(.brandNavy)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                    }
+                }
             }
         }
     }
@@ -467,30 +484,8 @@ struct GamesView: View {
     }
     
     private func completeGame(_ game: Game) {
-        game.isComplete = true
-        Task {
-            // Recalculate game stats first (they feed into athlete stats)
-            do {
-                try StatisticsService.shared.recalculateGameStatistics(for: game, context: modelContext)
-            } catch {
-                ErrorHandlerService.shared.handle(error, context: "GamesView.completeGame.gameStats", showAlert: false)
-            }
-            if let athlete = game.athlete {
-                do {
-                    try StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: modelContext)
-                } catch {
-                    ErrorHandlerService.shared.handle(error, context: "GamesView.completeGame.athleteStats", showAlert: false)
-                }
-            }
-            do {
-                try modelContext.save()
-                refreshGames()
-                // Track completed game for review prompt eligibility
-                ReviewPromptManager.shared.recordCompletedGame()
-            } catch {
-                showError("Failed to mark game as complete: \(error.localizedDescription)")
-            }
-        }
+        viewModelHolder.viewModel?.complete(game)
+        refreshGames()
     }
 
     private func deleteGame(_ game: Game) {

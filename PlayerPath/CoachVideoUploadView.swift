@@ -448,22 +448,37 @@ class CoachVideoUploadViewModel {
                 )
             }
 
-            _ = try await FirestoreManager.shared.uploadVideoMetadata(
-                fileName: fileName,
-                storageURL: storageURL,
-                thumbnail: thumbnailMeta,
-                folderID: folderID,
-                uploadedBy: uploaderID,
-                uploadedByName: uploaderName,
-                fileSize: fileSize,
-                duration: duration,
-                videoType: resolvedVideoType,
-                gameContext: gameCtx,
-                practiceContext: practiceCtx,
-                uploadedByType: .coach,
-                visibility: "shared",
-                isHighlight: isHighlight
-            )
+            do {
+                _ = try await FirestoreManager.shared.uploadVideoMetadata(
+                    fileName: fileName,
+                    storageURL: storageURL,
+                    thumbnail: thumbnailMeta,
+                    folderID: folderID,
+                    uploadedBy: uploaderID,
+                    uploadedByName: uploaderName,
+                    fileSize: fileSize,
+                    duration: duration,
+                    videoType: resolvedVideoType,
+                    gameContext: gameCtx,
+                    practiceContext: practiceCtx,
+                    uploadedByType: .coach,
+                    visibility: "shared",
+                    isHighlight: isHighlight
+                )
+            } catch {
+                ErrorHandlerService.shared.handle(error, context: "CoachVideoUpload.metadataRollback", showAlert: false)
+                do {
+                    try await VideoCloudManager.shared.deleteVideo(fileName: fileName, folderID: folderID)
+                } catch {
+                    ErrorHandlerService.shared.handle(error, context: "CoachVideoUpload.rollbackVideo", showAlert: false)
+                }
+                do {
+                    try await VideoCloudManager.shared.deleteThumbnail(videoFileName: fileName, folderID: folderID)
+                } catch {
+                    ErrorHandlerService.shared.handle(error, context: "CoachVideoUpload.rollbackThumbnail", showAlert: false)
+                }
+                throw error
+            }
 
             // Notify the athlete (folder owner) that the coach added a video
             // Note: coachIDs param is used as generic recipientIDs by the notification service
@@ -509,57 +524,6 @@ class CoachVideoUploadViewModel {
         case .instruction:
             return "instruction_\(timestamp)_\(uid).mov"
         }
-    }
-    
-    private func createMetadata(
-        fileName: String,
-        storageURL: String,
-        thumbnailURL: String?,
-        uploaderID: String,
-        uploaderName: String,
-        fileSize: Int64 = 0,
-        duration: Double? = nil
-    ) -> [String: Any] {
-        var metadata: [String: Any] = [
-            "fileName": fileName,
-            "firebaseStorageURL": storageURL,
-            "uploadedBy": uploaderID,
-            "uploadedByName": uploaderName,
-            "uploadedByType": "coach",
-            "sharedFolderID": folder.id ?? "",
-            "isHighlight": isHighlight,
-            "createdAt": Date()
-        ]
-
-        if fileSize > 0 {
-            metadata["fileSize"] = fileSize
-        }
-        if let duration {
-            metadata["duration"] = duration
-        }
-        
-        // Add thumbnail as structured object + legacy flat field
-        if let thumbnailURL = thumbnailURL {
-            metadata["thumbnail"] = ["standardURL": thumbnailURL]
-            metadata["thumbnailURL"] = thumbnailURL
-        }
-        
-        // Add context-specific metadata
-        switch videoContext {
-        case .game:
-            metadata["gameOpponent"] = gameOpponent
-            metadata["gameDate"] = contextDate
-            metadata["videoType"] = "game"
-        case .instruction:
-            metadata["practiceDate"] = contextDate
-            metadata["videoType"] = "instruction"
-        }
-        
-        if !notes.isEmpty {
-            metadata["notes"] = notes
-        }
-        
-        return metadata
     }
 }
 

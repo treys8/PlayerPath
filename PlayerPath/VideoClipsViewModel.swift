@@ -1,0 +1,134 @@
+import Foundation
+import SwiftUI
+
+@MainActor @Observable
+final class VideoClipsViewModel {
+    // MARK: - Filter State
+    var searchText = ""
+    var selectedSeasonFilter: String?
+    var selectedUploadFilter: UploadStatusFilter = .all
+
+    // MARK: - Loading & Pagination
+    var isLoading = true
+    var displayLimit = 50
+    var hasMore: Bool { allFilteredVideos.count > displayLimit }
+
+    // MARK: - Results
+    private(set) var filteredVideos: [VideoClip] = []
+    private(set) var filteredVideoIndex: [UUID: Int] = [:]
+    private(set) var availableSeasons: [Season] = []
+
+    // MARK: - Private
+    private var allVideos: [VideoClip] = []
+    private var allFilteredVideos: [VideoClip] = []
+    private static let searchDateFormatter = DateFormatter.mediumDate
+    private static let searchShortFormatter = DateFormatter.compactDate
+
+    // MARK: - Public API
+
+    /// Call when source data changes (athlete.videoClips)
+    func update(videos: [VideoClip]) {
+        allVideos = videos
+        updateAvailableSeasons()
+        refilter()
+    }
+
+    /// Call when any filter property changes
+    func refilter() {
+        let uploadManager = UploadQueueManager.shared
+        var videos = allVideos
+
+        // Season filter
+        if let seasonFilter = selectedSeasonFilter {
+            videos = videos.filter { video in
+                if seasonFilter == "no_season" {
+                    return video.season == nil
+                } else {
+                    return video.season?.id.uuidString == seasonFilter
+                }
+            }
+        }
+
+        // Upload status filter
+        if selectedUploadFilter != .all {
+            let pendingIDs = Set(uploadManager.pendingUploads.map(\.clipId))
+            let failedIDs = Set(uploadManager.failedUploads.map(\.clipId))
+            let activeIDs = Set(uploadManager.activeUploads.keys)
+
+            videos = videos.filter { video in
+                switch selectedUploadFilter {
+                case .all: return true
+                case .uploaded: return video.isUploaded
+                case .notUploaded:
+                    return !video.isUploaded &&
+                           !activeIDs.contains(video.id) &&
+                           !pendingIDs.contains(video.id) &&
+                           !failedIDs.contains(video.id)
+                case .uploading:
+                    return activeIDs.contains(video.id) || pendingIDs.contains(video.id)
+                case .failed:
+                    return failedIDs.contains(video.id)
+                }
+            }
+        }
+
+        // Search filter
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if !query.isEmpty {
+            videos = videos.filter { video in
+                video.fileName.lowercased().contains(query) ||
+                (video.playResult?.type.displayName.lowercased().contains(query) ?? false) ||
+                (video.game?.opponent.lowercased().contains(query) ?? false) ||
+                (video.game?.location?.lowercased().contains(query) ?? false) ||
+                (video.game?.season?.displayName.lowercased().contains(query) ?? false) ||
+                (video.practice?.season?.displayName.lowercased().contains(query) ?? false) ||
+                (video.note?.lowercased().contains(query) ?? false) ||
+                (video.createdAt.map { Self.searchDateFormatter.string(from: $0).lowercased() }?.contains(query) ?? false) ||
+                (video.createdAt.map { Self.searchShortFormatter.string(from: $0).lowercased() }?.contains(query) ?? false)
+            }
+        }
+
+        // Sort by creation date (newest first)
+        let sorted = videos.sorted { (lhs: VideoClip, rhs: VideoClip) in
+            switch (lhs.createdAt, rhs.createdAt) {
+            case let (l?, r?): return l > r
+            case (nil, _?): return false
+            case (_?, nil): return true
+            case (nil, nil): return false
+            }
+        }
+        allFilteredVideos = sorted
+        displayLimit = 50
+        filteredVideos = Array(sorted.prefix(displayLimit))
+
+        // Build O(1) index map
+        var indexMap: [UUID: Int] = [:]
+        indexMap.reserveCapacity(filteredVideos.count)
+        for (i, clip) in filteredVideos.enumerated() {
+            indexMap[clip.id] = i
+        }
+        filteredVideoIndex = indexMap
+        isLoading = false
+    }
+
+    func loadMore() {
+        displayLimit += 50
+        filteredVideos = Array(allFilteredVideos.prefix(displayLimit))
+
+        // Rebuild index map
+        var indexMap: [UUID: Int] = [:]
+        indexMap.reserveCapacity(filteredVideos.count)
+        for (i, clip) in filteredVideos.enumerated() {
+            indexMap[clip.id] = i
+        }
+        filteredVideoIndex = indexMap
+    }
+
+    // MARK: - Private
+
+    private func updateAvailableSeasons() {
+        let seasons = allVideos.compactMap { $0.season }
+        let uniqueSeasons = Array(Set(seasons))
+        availableSeasons = uniqueSeasons.sorted { ($0.startDate ?? .distantPast) > ($1.startDate ?? .distantPast) }
+    }
+}

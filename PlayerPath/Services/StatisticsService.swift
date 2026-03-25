@@ -7,6 +7,9 @@
 
 import Foundation
 import SwiftData
+import os
+
+private let statsLog = Logger(subsystem: "com.playerpath.app", category: "Statistics")
 
 @MainActor
 final class StatisticsService {
@@ -19,9 +22,7 @@ final class StatisticsService {
     /// Recalculates all statistics for an athlete from scratch by querying all play results
     /// Use this to ensure statistics are accurate after deletions or manual edits
     func recalculateAthleteStatistics(for athlete: Athlete, context: ModelContext, skipSave: Bool = false) throws {
-        #if DEBUG
-        print("StatisticsService: Recalculating statistics for athlete \(athlete.name)")
-        #endif
+        statsLog.debug("Recalculating statistics for athlete \(athlete.name)")
 
         // Ensure athlete has a dedicated career statistics model.
         // Repair: if athlete.statistics was hijacked by a season stats object
@@ -86,9 +87,7 @@ final class StatisticsService {
 
         stats.updatedAt = Date()
 
-        #if DEBUG
-        print("StatisticsService: ✅ Recalculated - BA: \(stats.battingAverage.formatted(.number.precision(.fractionLength(3)))), OBP: \(stats.onBasePercentage.formatted(.number.precision(.fractionLength(3)))), OPS: \(stats.ops.formatted(.number.precision(.fractionLength(3))))")
-        #endif
+        statsLog.info("Recalculated - BA: \(stats.battingAverage.formatted(.number.precision(.fractionLength(3)))), OBP: \(stats.onBasePercentage.formatted(.number.precision(.fractionLength(3)))), OPS: \(stats.ops.formatted(.number.precision(.fractionLength(3))))")
 
         // Also recalculate season statistics so they stay in sync
         for season in athlete.seasons ?? [] {
@@ -111,9 +110,7 @@ final class StatisticsService {
 
     /// Recalculates statistics for a specific season
     func recalculateSeasonStatistics(for season: Season, athlete: Athlete, context: ModelContext, skipSave: Bool = false) throws {
-        #if DEBUG
-        print("StatisticsService: Recalculating statistics for season \(season.displayName)")
-        #endif
+        statsLog.debug("Recalculating statistics for season \(season.displayName)")
 
         // Ensure season has statistics model
         // Do NOT set stats.athlete here — Athlete.statistics is a one-to-one
@@ -177,16 +174,12 @@ final class StatisticsService {
             try context.save()
         }
 
-        #if DEBUG
-        print("StatisticsService: ✅ Season stats - BA: \(stats.battingAverage.formatted(.number.precision(.fractionLength(3))))")
-        #endif
+        statsLog.info("Season stats - BA: \(stats.battingAverage.formatted(.number.precision(.fractionLength(3))))")
     }
 
     /// Recalculates game statistics from scratch based on video play results
     func recalculateGameStatistics(for game: Game, context: ModelContext) throws {
-        #if DEBUG
-        print("StatisticsService: Recalculating statistics for game vs \(game.opponent)")
-        #endif
+        statsLog.debug("Recalculating statistics for game vs \(game.opponent)")
 
         // Ensure game has statistics model
         if game.gameStats == nil {
@@ -258,9 +251,7 @@ final class StatisticsService {
 
         try context.save()
 
-        #if DEBUG
-        print("StatisticsService: ✅ Game stats - Hits: \(stats.hits), AB: \(stats.atBats), BA: \(stats.battingAverage.formatted(.number.precision(.fractionLength(3))))")
-        #endif
+        statsLog.info("Game stats - Hits: \(stats.hits), AB: \(stats.atBats), BA: \(stats.battingAverage.formatted(.number.precision(.fractionLength(3))))")
     }
 
     // MARK: - Helper Methods

@@ -15,6 +15,7 @@ struct PhotoDetailView: View {
     @Environment(\.modelContext) private var modelContext
 
     @State private var fullImage: UIImage?
+    @State private var loadFailed = false
     @State private var showingDeleteConfirmation = false
     @State private var showingTagSheet = false
     @State private var isEditingCaption = false
@@ -62,6 +63,15 @@ struct PhotoDetailView: View {
                             }
                         }
                     }
+            } else if loadFailed {
+                VStack(spacing: 8) {
+                    Image(systemName: photo.cloudURL != nil ? "icloud.and.arrow.down" : "photo")
+                        .font(.largeTitle)
+                        .foregroundColor(.white.opacity(0.5))
+                    Text(photo.cloudURL != nil ? "Photo not yet downloaded" : "Photo unavailable")
+                        .font(.subheadline)
+                        .foregroundColor(.white.opacity(0.5))
+                }
             } else {
                 ProgressView()
                     .tint(.white)
@@ -129,6 +139,7 @@ struct PhotoDetailView: View {
         .sheet(isPresented: $isEditingCaption) {
             CaptionEditSheet(captionText: $captionText) {
                 photo.caption = captionText.isEmpty ? nil : captionText
+                photo.needsSync = true
                 ErrorHandlerService.shared.saveContext(modelContext, caller: "PhotoDetail.saveCaption")
             }
             .presentationDetents([.medium])
@@ -205,9 +216,23 @@ struct PhotoDetailView: View {
     }
 
     private func loadFullImage() async {
-        if let image = UIImage(contentsOfFile: photo.filePath) {
+        if let image = UIImage(contentsOfFile: photo.resolvedFilePath) {
             fullImage = image
+            return
         }
+        // If local file is missing but we have a cloud URL, try downloading
+        if let cloudURL = photo.cloudURL, !cloudURL.isEmpty {
+            do {
+                try await VideoCloudManager.shared.downloadPhoto(from: cloudURL, to: photo.resolvedFilePath)
+                if let image = UIImage(contentsOfFile: photo.resolvedFilePath) {
+                    fullImage = image
+                    return
+                }
+            } catch {
+                // Download failed — fall through to loadFailed
+            }
+        }
+        loadFailed = true
     }
 
     private func saveToCameraRoll(_ image: UIImage) {

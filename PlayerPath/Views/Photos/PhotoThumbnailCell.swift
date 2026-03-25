@@ -13,6 +13,7 @@ struct PhotoThumbnailCell: View {
     let onDelete: () -> Void
 
     @State private var thumbnail: UIImage?
+    @State private var loadFailed = false
 
     var body: some View {
         ZStack(alignment: .bottomLeading) {
@@ -22,6 +23,21 @@ struct PhotoThumbnailCell: View {
                     .scaledToFill()
                     .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
                     .clipped()
+            } else if loadFailed {
+                Rectangle()
+                    .fill(Color(.systemGray5))
+                    .overlay {
+                        VStack(spacing: 4) {
+                            Image(systemName: photo.cloudURL != nil ? "icloud.and.arrow.down" : "photo")
+                                .font(.title3)
+                                .foregroundColor(.secondary)
+                            if photo.cloudURL != nil {
+                                Text("Syncing…")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                    }
             } else {
                 Rectangle()
                     .fill(Color(.systemGray5))
@@ -64,14 +80,14 @@ struct PhotoThumbnailCell: View {
     }
 
     private func loadThumbnail() async {
-        if let thumbPath = photo.thumbnailPath {
+        if let thumbPath = photo.resolvedThumbnailPath {
             if let image = try? await ThumbnailCache.shared.loadThumbnail(at: thumbPath) {
                 thumbnail = image
                 return
             }
         }
         // Fallback: load a downsampled version instead of the full-res bitmap
-        let url = URL(fileURLWithPath: photo.filePath) as CFURL
+        let url = URL(fileURLWithPath: photo.resolvedFilePath) as CFURL
         if let source = CGImageSourceCreateWithURL(url, nil) {
             let options: [CFString: Any] = [
                 kCGImageSourceThumbnailMaxPixelSize: 300,
@@ -80,7 +96,30 @@ struct PhotoThumbnailCell: View {
             ]
             if let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) {
                 thumbnail = UIImage(cgImage: cgImage)
+                return
             }
         }
+        // If we have a cloud URL but no local file, attempt to download it
+        if let cloudURL = photo.cloudURL, !cloudURL.isEmpty {
+            do {
+                try await VideoCloudManager.shared.downloadPhoto(from: cloudURL, to: photo.resolvedFilePath)
+                // Retry loading after download
+                let downloadedURL = URL(fileURLWithPath: photo.resolvedFilePath) as CFURL
+                if let source = CGImageSourceCreateWithURL(downloadedURL, nil) {
+                    let options: [CFString: Any] = [
+                        kCGImageSourceThumbnailMaxPixelSize: 300,
+                        kCGImageSourceCreateThumbnailFromImageAlways: true,
+                        kCGImageSourceCreateThumbnailWithTransform: true
+                    ]
+                    if let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) {
+                        thumbnail = UIImage(cgImage: cgImage)
+                        return
+                    }
+                }
+            } catch {
+                // Download failed — fall through to loadFailed
+            }
+        }
+        loadFailed = true
     }
 }

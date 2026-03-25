@@ -67,6 +67,9 @@ final class ActivityNotificationService: ObservableObject {
     private let db = Firestore.firestore()
     private var listener: ListenerRegistration?
     private var previousIDs: Set<String> = []
+    private var currentUserID: String?
+    private var retryAttempt: Int = 0
+    private static let maxRetryAttempts = 3
 
     private init() {}
 
@@ -78,7 +81,13 @@ final class ActivityNotificationService: ObservableObject {
 
     func startListening(forUserID userID: String) {
         stopListening()
+        currentUserID = userID
+        retryAttempt = 0
+        attachListener(forUserID: userID)
+    }
 
+    private func attachListener(forUserID userID: String) {
+        listener?.remove()
         listener = db
             .collection(FC.notifications)
             .document(userID)
@@ -90,6 +99,7 @@ final class ActivityNotificationService: ObservableObject {
                 if error != nil {
                     Task { @MainActor in
                         self.listenerError = "Unable to refresh notifications."
+                        self.scheduleListenerRetry()
                     }
                     return
                 }
@@ -108,6 +118,7 @@ final class ActivityNotificationService: ObservableObject {
 
                 Task { @MainActor in
                     self.listenerError = nil
+                    self.retryAttempt = 0
                     self.recentNotifications = notifications
                     let unread = notifications.filter { !$0.isRead }
                     self.unreadCount = unread.count
@@ -136,6 +147,21 @@ final class ActivityNotificationService: ObservableObject {
         listener = nil
         previousIDs = []
         listenerError = nil
+        currentUserID = nil
+        retryAttempt = 0
+    }
+
+    private func scheduleListenerRetry() {
+        guard retryAttempt < Self.maxRetryAttempts,
+              let userID = currentUserID else { return }
+        retryAttempt += 1
+        let delay = pow(2.0, Double(retryAttempt))
+        log.info("Retrying notification listener in \(delay)s (attempt \(self.retryAttempt)/\(Self.maxRetryAttempts))")
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            guard let self, self.currentUserID == userID else { return }
+            self.attachListener(forUserID: userID)
+        }
     }
 
     func dismissBanner() {

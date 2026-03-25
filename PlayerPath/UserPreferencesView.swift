@@ -11,7 +11,7 @@ import UIKit
 
 struct UserPreferencesView: View {
     @Environment(\.modelContext) private var modelContext
-    @StateObject private var viewModel = UserPreferencesViewModel()
+    @State private var viewModel = UserPreferencesViewModel()
 
     var body: some View {
         NavigationStack {

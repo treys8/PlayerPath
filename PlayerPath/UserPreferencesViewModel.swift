@@ -1,10 +1,10 @@
 import SwiftUI
 import SwiftData
-import Combine
 import os
 
 @MainActor
-final class UserPreferencesViewModel: ObservableObject {
+@Observable
+final class UserPreferencesViewModel {
     private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.playerpath", category: "UserPreferences")
 
     var modelContext: ModelContext?
@@ -12,8 +12,8 @@ final class UserPreferencesViewModel: ObservableObject {
         self.modelContext = modelContext
     }
 
-    @Published var preferences: UserPreferences?
-    @Published var hasUnsavedChanges = false
+    var preferences: UserPreferences?
+    var hasUnsavedChanges = false
 
     func load() async {
         guard let context = modelContext else { return }
@@ -52,7 +52,6 @@ final class UserPreferencesViewModel: ObservableObject {
     func update<T>(_ keyPath: WritableKeyPath<UserPreferences, T>, to newValue: T) {
         preferences?[keyPath: keyPath] = newValue
         hasUnsavedChanges = true
-        objectWillChange.send()
     }
 }
 

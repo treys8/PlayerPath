@@ -129,9 +129,7 @@ struct GameDetailView: View {
                     }
                 } else {
                     Button {
-                        game.isComplete = false
-                        game.isLive = true
-                        ErrorHandlerService.shared.saveContext(modelContext, caller: "GamesView.restartGame")
+                        restartGame()
                     } label: {
                         Label("Restart Game", systemImage: "arrow.counterclockwise")
                     }
@@ -265,11 +263,7 @@ struct GameDetailView: View {
                             }
                         }
                     } else {
-                        Button(action: {
-                            game.isComplete = false
-                            game.isLive = true
-                            ErrorHandlerService.shared.saveContext(modelContext, caller: "GamesView.restartGame")
-                        }) {
+                        Button(action: { restartGame() }) {
                             Label("Restart Game", systemImage: "arrow.counterclockwise")
                         }
 
@@ -357,6 +351,11 @@ struct GameDetailView: View {
     @MainActor
     private func endGame() {
         Task { await gameService?.end(game) }
+    }
+
+    @MainActor
+    private func restartGame() {
+        Task { await gameService?.restart(game) }
     }
 
     @MainActor

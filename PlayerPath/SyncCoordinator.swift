@@ -141,7 +141,7 @@ final class SyncCoordinator {
                     )
                     athlete.firestoreId = docId
                     // Save firestoreId immediately to prevent duplicate creation on crash
-                    try? context.save()
+                    ErrorHandlerService.shared.saveContext(context, caller: "SyncCoordinator.syncAthletes.firestoreId")
                 }
 
                 athlete.needsSync = false
@@ -363,7 +363,7 @@ final class SyncCoordinator {
                         data: season.toFirestoreData()
                     )
                     season.firestoreId = docId
-                    try? context.save()
+                    ErrorHandlerService.shared.saveContext(context, caller: "SyncCoordinator.syncSeasons.firestoreId")
                 }
 
                 season.needsSync = false
@@ -526,7 +526,7 @@ final class SyncCoordinator {
                         data: game.toFirestoreData()
                     )
                     game.firestoreId = docId
-                    try? context.save()
+                    ErrorHandlerService.shared.saveContext(context, caller: "SyncCoordinator.syncGames.firestoreId")
                 }
 
                 // Mark as synced
@@ -713,7 +713,7 @@ final class SyncCoordinator {
                         data: practice.toFirestoreData()
                     )
                     practice.firestoreId = docId
-                    try? context.save()
+                    ErrorHandlerService.shared.saveContext(context, caller: "SyncCoordinator.syncPractices.firestoreId")
                 }
 
                 practice.needsSync = false
@@ -1176,7 +1176,11 @@ final class SyncCoordinator {
 
             // Clean up any partial file left on disk to prevent orphaned storage
             if FileManager.default.fileExists(atPath: localPath) {
-                try? FileManager.default.removeItem(atPath: localPath)
+                do {
+                    try FileManager.default.removeItem(atPath: localPath)
+                } catch {
+                    syncLog.error("Failed to clean up partial download at \(localPath): \(error.localizedDescription)")
+                }
             }
 
             // Delete the ghost record (and its PlayResult) so it gets re-created and
@@ -1222,7 +1226,7 @@ final class SyncCoordinator {
                             data: note.toFirestoreData(practiceFirestoreId: practiceFirestoreId)
                         )
                         note.firestoreId = docId
-                        try? context.save()
+                        ErrorHandlerService.shared.saveContext(context, caller: "SyncCoordinator.syncPracticeNotes.firestoreId")
                     }
                     note.needsSync = false
                     syncedNotes.append(note)
@@ -1323,6 +1327,22 @@ final class SyncCoordinator {
                 }
             }
 
+            // Update metadata for photos that have been edited locally
+            let updatedPhotos = photos.filter { $0.needsSync && $0.firestoreId != nil && $0.cloudURL != nil }
+            for photo in updatedPhotos {
+                guard let firestoreId = photo.firestoreId else { continue }
+                do {
+                    try await FirestoreManager.shared.updatePhoto(
+                        photoId: firestoreId,
+                        data: photo.updatableFirestoreData()
+                    )
+                    photo.needsSync = false
+                    syncedPhotos.append(photo)
+                } catch {
+                    syncLog.error("Failed to update photo metadata in Firestore: \(error.localizedDescription)")
+                }
+            }
+
             // Download photos that exist remotely but not locally
             let athleteStableId = athlete.firestoreId ?? athlete.id.uuidString
             let remotePhotos = try await FirestoreManager.shared.fetchPhotos(
@@ -1334,18 +1354,16 @@ final class SyncCoordinator {
             for remotePhoto in remotePhotos where !localPhotoIds.contains(remotePhoto.id ?? "") {
                 guard let downloadURL = remotePhoto.downloadURL else { continue }
 
-                // Build local path
-                guard let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { continue }
-                let photosDir = documentsURL.appendingPathComponent("Photos", isDirectory: true)
-                do {
-                    try FileManager.default.createDirectory(at: photosDir, withIntermediateDirectories: true)
-                } catch {
-                    syncLog.error("Failed to create Photos directory: \(error.localizedDescription)")
-                    continue
-                }
-                let localPath = photosDir.appendingPathComponent(remotePhoto.fileName).path
+                // Build relative path (resolvedFilePath handles absolute resolution at read time)
+                let relativePath = "Photos/\(remotePhoto.fileName)"
 
-                let newPhoto = Photo(fileName: remotePhoto.fileName, filePath: localPath)
+                // Ensure the Photos directory exists for downloads
+                if let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
+                    let photosDir = documentsURL.appendingPathComponent("Photos", isDirectory: true)
+                    try? FileManager.default.createDirectory(at: photosDir, withIntermediateDirectories: true)
+                }
+
+                let newPhoto = Photo(fileName: remotePhoto.fileName, filePath: relativePath)
                 newPhoto.id = UUID(uuidString: remotePhoto.swiftDataId) ?? UUID()
                 newPhoto.cloudURL = downloadURL
                 newPhoto.caption = remotePhoto.caption
@@ -1373,9 +1391,9 @@ final class SyncCoordinator {
                 let photoRef = newPhoto
                 pendingDownloadTasks[taskID] = Task { [weak self] in
                     do {
-                        try await VideoCloudManager.shared.downloadPhoto(from: downloadURL, to: localPath)
+                        try await VideoCloudManager.shared.downloadPhoto(from: downloadURL, to: photoRef.resolvedFilePath)
                         // Generate thumbnail for the downloaded photo
-                        if let image = UIImage(contentsOfFile: localPath) {
+                        if let image = UIImage(contentsOfFile: photoRef.resolvedFilePath) {
                             let thumbSize = CGSize(width: 300, height: 300)
                             let scale = max(thumbSize.width / image.size.width, thumbSize.height / image.size.height)
                             let newSize = CGSize(width: image.size.width * scale, height: image.size.height * scale)
@@ -1389,10 +1407,15 @@ final class SyncCoordinator {
                             if let thumbData = thumb.jpegData(compressionQuality: 0.7) {
                                 let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
                                 let thumbDir = documentsURL.appendingPathComponent("PhotoThumbnails", isDirectory: true)
-                                try? FileManager.default.createDirectory(at: thumbDir, withIntermediateDirectories: true)
-                                let thumbPath = thumbDir.appendingPathComponent("thumb_\(photoRef.id.uuidString).jpg")
-                                try? thumbData.write(to: thumbPath, options: .atomic)
-                                await MainActor.run { photoRef.thumbnailPath = thumbPath.path }
+                                do {
+                                    try FileManager.default.createDirectory(at: thumbDir, withIntermediateDirectories: true)
+                                    let thumbPath = thumbDir.appendingPathComponent("thumb_\(photoRef.id.uuidString).jpg")
+                                    try thumbData.write(to: thumbPath, options: .atomic)
+                                    let relativeThumbPath = "PhotoThumbnails/thumb_\(photoRef.id.uuidString).jpg"
+                                    await MainActor.run { photoRef.thumbnailPath = relativeThumbPath }
+                                } catch {
+                                    syncLog.error("Failed to save photo thumbnail for \(photoRef.id): \(error.localizedDescription)")
+                                }
                             }
                         }
                     } catch {
@@ -1401,6 +1424,21 @@ final class SyncCoordinator {
                         photoRef.needsSync = true
                     }
                     self?.pendingDownloadTasks.removeValue(forKey: taskID)
+                }
+            }
+
+            // Detect photos deleted on other devices
+            let remotePhotoIds = Set(remotePhotos.compactMap { $0.id })
+            let syncedLocalPhotos = photos.filter { $0.firestoreId != nil }
+            let remoteReturnedTooFew = !syncedLocalPhotos.isEmpty
+                && remotePhotoIds.count < syncedLocalPhotos.count / 2
+            if remoteReturnedTooFew {
+                syncLog.warning("Remote returned \(remotePhotoIds.count) photos but \(syncedLocalPhotos.count) synced locally — skipping deletion pass")
+            } else {
+                for localPhoto in syncedLocalPhotos {
+                    guard let fsId = localPhoto.firestoreId, !remotePhotoIds.contains(fsId) else { continue }
+                    syncLog.info("Photo \(localPhoto.id) deleted remotely — removing local copy")
+                    localPhoto.delete(in: context)
                 }
             }
         }
@@ -1449,7 +1487,7 @@ final class SyncCoordinator {
                         )
                         coach.firestoreId = docId
                         // Save firestoreId immediately to prevent duplicate creation on crash
-                        try? context.save()
+                        ErrorHandlerService.shared.saveContext(context, caller: "SyncCoordinator.syncCoaches.firestoreId")
                     }
                     coach.needsSync = false
                     syncedCoaches.append(coach)

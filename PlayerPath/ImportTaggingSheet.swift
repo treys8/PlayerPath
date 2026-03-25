@@ -454,6 +454,11 @@ struct ImportTaggingSheet: View {
             }
             game.gameStats?.addPlayResult(playResultType)
 
+            // Recalculate athlete stats to reflect the new play result
+            if let athlete = clip.athlete ?? game.athlete {
+                try? StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: modelContext, skipSave: true)
+            }
+
             // Track analytics
             AnalyticsService.shared.trackVideoTagged(
                 playResult: playResultType.displayName,

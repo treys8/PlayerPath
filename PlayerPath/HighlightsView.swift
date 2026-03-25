@@ -23,30 +23,12 @@ struct HighlightsView: View {
     @State private var showingAutoHighlightSettings = false
 
     @State private var clipToShareToFolder: VideoClip?
-    @State private var searchText: String = ""
-    enum Filter: String, CaseIterable, Identifiable { case all, game, practice; var id: String { rawValue } }
-    @State private var filter: Filter = .all
-    enum SortOrder: String, CaseIterable, Identifiable { case newest, oldest; var id: String { rawValue } }
-    @State private var sortOrder: SortOrder = .newest
+    @State private var viewModel = HighlightsViewModel()
     @State private var selection = Set<VideoClip.ID>()
     @AppStorage("hasCompletedHighlightMigration") private var hasCompletedMigration = false
     @State private var expandedGroups = Set<UUID>()
-    @State private var selectedSeasonFilter: String? = nil // nil = All Seasons
-    
-    // Get all unique seasons from highlights
-    private var availableSeasons: [Season] {
-        guard let athlete = athlete, let videoClips = athlete.videoClips else { return [] }
-        let highlightClips = videoClips.filter { $0.isHighlight }
-        let seasons = highlightClips.compactMap { $0.season }
-        let uniqueSeasons = Array(Set(seasons))
-        return uniqueSeasons.sorted { ($0.startDate ?? Date.distantPast) > ($1.startDate ?? Date.distantPast) }
-    }
 
-    // Cached highlights — recomputed via recomputeAll() when inputs change
-    @State private var cachedHighlights: [VideoClip] = []
     @State private var recomputeTask: Task<Void, Never>?
-
-    var highlights: [VideoClip] { cachedHighlights }
 
     /// Single entry point that debounces and recomputes the flat highlights list.
     private func recomputeAll() {
@@ -54,141 +36,16 @@ struct HighlightsView: View {
         recomputeTask = Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(100))
             guard !Task.isCancelled else { return }
-            recomputeHighlights()
+            viewModel.refilter()
+            viewModel.recomputeGroups(expandedGroups: expandedGroups)
         }
-    }
-
-    private func recomputeHighlights() {
-        guard let athlete = athlete, let videoClips = athlete.videoClips else {
-            cachedHighlights = []
-            return
-        }
-        var filtered = videoClips.filter { $0.isHighlight }
-
-        // Filter by season
-        if let seasonFilter = selectedSeasonFilter {
-            filtered = filtered.filter { clip in
-                if seasonFilter == "no_season" {
-                    return clip.season == nil
-                } else {
-                    return clip.season?.id.uuidString == seasonFilter
-                }
-            }
-        }
-
-        // Filter by type
-        filtered = filtered.filter { clip in
-            switch filter {
-            case .all: return true
-            case .game: return clip.game != nil
-            case .practice: return clip.game == nil
-            }
-        }
-
-        // Filter by search text
-        if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            let q = searchText.lowercased()
-            filtered = filtered.filter { clip in
-                let opponent = clip.game?.opponent.lowercased() ?? ""
-                let result = clip.playResult?.type.displayName.lowercased() ?? ""
-                let fileName = clip.fileName.lowercased()
-                return opponent.contains(q) || result.contains(q) || fileName.contains(q)
-            }
-        }
-
-        // Sort
-        cachedHighlights = filtered.sorted { lhs, rhs in
-            let l = lhs.createdAt ?? .distantPast
-            let r = rhs.createdAt ?? .distantPast
-            return sortOrder == .newest ? (l > r) : (l < r)
-        }
-    }
-
-    // Cached grouped highlights — recomputed only when inputs change
-    @State private var cachedGroupedHighlights: [GameHighlightGroup] = []
-    @State private var lastGroupInputHash: Int = 0
-
-    // Group highlights by game for better organization
-    var groupedHighlights: [GameHighlightGroup] {
-        cachedGroupedHighlights
-    }
-
-    private func recomputeGroupedHighlights() {
-        let clips = highlights
-
-        // Build a lightweight hash from the inputs that affect grouping
-        var hasher = Hasher()
-        hasher.combine(clips.count)
-        hasher.combine(sortOrder)
-        hasher.combine(expandedGroups)
-        for clip in clips.prefix(20) { hasher.combine(clip.id) }
-        let inputHash = hasher.finalize()
-        guard inputHash != lastGroupInputHash else { return }
-        lastGroupInputHash = inputHash
-
-        // Separate game clips and practice clips
-        var gameClips: [UUID: [VideoClip]] = [:]
-        var practiceClips: [VideoClip] = []
-
-        for clip in clips {
-            if let game = clip.game {
-                let gameID = game.id
-                gameClips[gameID, default: []].append(clip)
-            } else {
-                practiceClips.append(clip)
-            }
-        }
-
-        // Create groups for games (sorted by clips within each game)
-        var groups: [GameHighlightGroup] = gameClips.map { gameID, clips in
-            let sortedClips = clips.sorted { lhs, rhs in
-                let l = lhs.createdAt ?? .distantPast
-                let r = rhs.createdAt ?? .distantPast
-                return l < r  // Always chronological within game
-            }
-
-            return GameHighlightGroup(
-                id: gameID,
-                game: clips.first?.game,
-                clips: sortedClips,
-                isExpanded: expandedGroups.contains(gameID)
-            )
-        }
-
-        // Add practice clips as individual groups
-        for clip in practiceClips {
-            groups.append(GameHighlightGroup(
-                id: clip.id,
-                game: nil,
-                clips: [clip],
-                isExpanded: true
-            ))
-        }
-
-        // Sort ALL groups together — use clip createdAt as fallback for practice groups
-        groups.sort { lhs, rhs in
-            let lDate = lhs.game?.date ?? lhs.clips.first?.createdAt ?? .distantPast
-            let rDate = rhs.game?.date ?? rhs.clips.first?.createdAt ?? .distantPast
-            return sortOrder == .newest ? (lDate > rDate) : (lDate < rDate)
-        }
-
-        // Auto-expand single-clip game groups
-        groups = groups.map { group in
-            var updatedGroup = group
-            if group.clips.count == 1 {
-                updatedGroup.isExpanded = true
-            }
-            return updatedGroup
-        }
-
-        cachedGroupedHighlights = groups
     }
     
     var body: some View {
         contentView
-            .navigationTitle("\(athlete?.name ?? "Highlights") (\(highlights.count))")
+            .navigationTitle("\(athlete?.name ?? "Highlights") (\(viewModel.totalCount))")
             .navigationBarTitleDisplayMode(.large)
-            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always))
+            .searchable(text: $viewModel.searchText, placement: .navigationBarDrawer(displayMode: .always))
             .toolbar {
                 toolbarContent
             }
@@ -221,7 +78,8 @@ struct HighlightsView: View {
         }
         .task {
             migrateHitVideosToHighlights()
-            recomputeHighlights()
+            viewModel.update(videoClips: athlete?.videoClips ?? [])
+            viewModel.recomputeGroups(expandedGroups: expandedGroups)
         }
         .onChange(of: athlete?.id) { _, _ in
             selection.removeAll()
@@ -231,18 +89,20 @@ struct HighlightsView: View {
             AnalyticsService.shared.trackScreenView(screenName: "Highlights", screenClass: "HighlightsView")
         }
         .onChange(of: athlete?.videoClips?.count) { _, _ in recomputeAll() }
-        .onChange(of: selectedSeasonFilter) { _, _ in recomputeAll() }
-        .onChange(of: filter) { _, _ in recomputeAll() }
-        .onChange(of: searchText) { _, _ in
+        .onChange(of: viewModel.selectedSeasonFilter) { _, _ in recomputeAll() }
+        .onChange(of: viewModel.filter) { _, _ in recomputeAll() }
+        .onChange(of: viewModel.searchText) { _, _ in
             // Search uses longer debounce since it fires on every keystroke
             recomputeTask?.cancel()
             recomputeTask = Task { @MainActor in
                 try? await Task.sleep(for: .milliseconds(250))
                 guard !Task.isCancelled else { return }
-                recomputeHighlights()
+                viewModel.refilter()
+                viewModel.recomputeGroups(expandedGroups: expandedGroups)
             }
         }
-        .onChange(of: sortOrder) { _, _ in recomputeAll() }
+        .onChange(of: viewModel.sortOrder) { _, _ in recomputeAll() }
+        .onChange(of: expandedGroups) { _, _ in viewModel.recomputeGroups(expandedGroups: expandedGroups) }
     }
 
     private func migrateHitVideosToHighlights() {
@@ -282,9 +142,9 @@ struct HighlightsView: View {
 
     // Check if filters are active
     private var hasActiveFilters: Bool {
-        selectedSeasonFilter != nil ||
-        filter != .all ||
-        !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        viewModel.selectedSeasonFilter != nil ||
+        viewModel.filter != .all ||
+        !viewModel.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     // Check if we have any highlights at all (before filtering)
@@ -295,7 +155,9 @@ struct HighlightsView: View {
 
     @ViewBuilder
     private var contentView: some View {
-        if highlights.isEmpty {
+        if viewModel.isLoading {
+            VideoGridSkeletonView()
+        } else if viewModel.highlights.isEmpty {
             if hasActiveFilters && hasAnyHighlights {
                 // Filtered empty state - user has highlights but filters exclude them
                 FilteredEmptyStateView(
@@ -314,20 +176,20 @@ struct HighlightsView: View {
     private var filterDescription: String {
         var parts: [String] = []
 
-        if let seasonID = selectedSeasonFilter {
+        if let seasonID = viewModel.selectedSeasonFilter {
             if seasonID == "no_season" {
                 parts.append("season: None")
-            } else if let season = availableSeasons.first(where: { $0.id.uuidString == seasonID }) {
+            } else if let season = viewModel.availableSeasons.first(where: { $0.id.uuidString == seasonID }) {
                 parts.append("season: \(season.displayName)")
             }
         }
 
-        if filter != .all {
-            parts.append("type: \(filter == .game ? "Games" : "Practice")")
+        if viewModel.filter != .all {
+            parts.append("type: \(viewModel.filter == .game ? "Games" : "Practice")")
         }
 
-        if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            parts.append("search: \"\(searchText)\"")
+        if !viewModel.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            parts.append("search: \"\(viewModel.searchText)\"")
         }
 
         return parts.isEmpty ? "your filters" : parts.joined(separator: ", ")
@@ -336,9 +198,9 @@ struct HighlightsView: View {
     private func clearAllFilters() {
         Haptics.light()
         withAnimation {
-            selectedSeasonFilter = nil
-            filter = .all
-            searchText = ""
+            viewModel.selectedSeasonFilter = nil
+            viewModel.filter = .all
+            viewModel.searchText = ""
         }
     }
 
@@ -350,7 +212,7 @@ struct HighlightsView: View {
                 ],
                 spacing: 16
             ) {
-                ForEach(highlights) { clip in
+                ForEach(viewModel.highlights) { clip in
                     HighlightCard(
                         clip: clip,
                         editMode: editMode,
@@ -413,6 +275,22 @@ struct HighlightsView: View {
                 }
             }
             .padding()
+
+            if viewModel.hasMore {
+                Button {
+                    Haptics.light()
+                    viewModel.loadMore()
+                } label: {
+                    HStack(spacing: 6) {
+                        Text("Load More")
+                        Image(systemName: "arrow.down.circle")
+                    }
+                    .font(.subheadline).fontWeight(.medium)
+                    .foregroundColor(.brandNavy)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                }
+            }
         }
     }
 
@@ -427,35 +305,35 @@ struct HighlightsView: View {
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         // Season filter (only show if we have highlights)
-        if !highlights.isEmpty {
+        if !viewModel.highlights.isEmpty {
             ToolbarItem(placement: .topBarLeading) {
                 SeasonFilterMenu(
-                    selectedSeasonID: $selectedSeasonFilter,
-                    availableSeasons: availableSeasons,
-                    showNoSeasonOption: cachedHighlights.contains(where: { $0.season == nil })
+                    selectedSeasonID: $viewModel.selectedSeasonFilter,
+                    availableSeasons: viewModel.availableSeasons,
+                    showNoSeasonOption: viewModel.highlights.contains(where: { $0.season == nil })
                 )
             }
         }
 
         // Combined Filter & Sort menu
-        if !highlights.isEmpty {
+        if !viewModel.highlights.isEmpty {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     Section("Filter") {
-                        Picker("Type", selection: $filter) {
-                            Label("All", systemImage: "square.grid.2x2").tag(Filter.all)
-                            Label("Games", systemImage: "baseball.diamond.bases").tag(Filter.game)
-                            Label("Practice", systemImage: "figure.baseball").tag(Filter.practice)
+                        Picker("Type", selection: $viewModel.filter) {
+                            Label("All", systemImage: "square.grid.2x2").tag(HighlightsViewModel.Filter.all)
+                            Label("Games", systemImage: "baseball.diamond.bases").tag(HighlightsViewModel.Filter.game)
+                            Label("Practice", systemImage: "figure.baseball").tag(HighlightsViewModel.Filter.practice)
                         }
                     }
                     Section("Sort") {
-                        Picker("Sort", selection: $sortOrder) {
-                            Label("Newest", systemImage: "arrow.down").tag(SortOrder.newest)
-                            Label("Oldest", systemImage: "arrow.up").tag(SortOrder.oldest)
+                        Picker("Sort", selection: $viewModel.sortOrder) {
+                            Label("Newest", systemImage: "arrow.down").tag(HighlightsViewModel.SortOrder.newest)
+                            Label("Oldest", systemImage: "arrow.up").tag(HighlightsViewModel.SortOrder.oldest)
                         }
                     }
                 } label: {
-                    Image(systemName: (filter != .all || sortOrder != .newest) ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                    Image(systemName: (viewModel.filter != .all || viewModel.sortOrder != .newest) ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
                 }
                 .accessibilityLabel("Filter and sort highlights")
             }
@@ -475,7 +353,7 @@ struct HighlightsView: View {
         }
 
         // Edit button
-        if !highlights.isEmpty {
+        if !viewModel.highlights.isEmpty {
             ToolbarItem(placement: .topBarTrailing) {
                 editButton
             }
@@ -533,7 +411,7 @@ struct HighlightsView: View {
         } label: {
             Label("Select All", systemImage: "checkmark.circle")
         }
-        .disabled(highlights.isEmpty)
+        .disabled(viewModel.highlights.isEmpty)
 
         Spacer()
 
@@ -599,11 +477,11 @@ struct HighlightsView: View {
 
     private func selectAll() {
         Haptics.light()
-        selection = Set(highlights.map { $0.id })
+        selection = Set(viewModel.highlights.map { $0.id })
     }
 
     private func batchDeleteSelected() {
-        let clips = highlights.filter { selection.contains($0.id) }
+        let clips = viewModel.highlights.filter { selection.contains($0.id) }
         guard !clips.isEmpty else { return }
 
         // Capture references before deletion — accessing SwiftData object properties after
@@ -668,7 +546,7 @@ struct HighlightsView: View {
     }
 
     private func batchRemoveFromHighlights() {
-        let clips = highlights.filter { selection.contains($0.id) }
+        let clips = viewModel.highlights.filter { selection.contains($0.id) }
         guard !clips.isEmpty else { return }
 
         withAnimation {
@@ -690,7 +568,7 @@ struct HighlightsView: View {
     }
 
     private func batchUploadSelected() {
-        let clips = highlights.filter { selection.contains($0.id) }
+        let clips = viewModel.highlights.filter { selection.contains($0.id) }
         guard !clips.isEmpty, let athlete = athlete else { return }
 
         Task {
@@ -714,6 +592,7 @@ struct HighlightsView: View {
                         }
                     }
                 } catch {
+                    ErrorHandlerService.shared.handle(error, context: "HighlightsView.batchUpload", showAlert: false)
                     failedCount += 1
                 }
             }
@@ -737,7 +616,7 @@ struct HighlightsView: View {
     }
 
     private func batchShareSelected() {
-        let clips = highlights.filter { selection.contains($0.id) }
+        let clips = viewModel.highlights.filter { selection.contains($0.id) }
         guard !clips.isEmpty else { return }
 
         // Get file URLs for all selected clips

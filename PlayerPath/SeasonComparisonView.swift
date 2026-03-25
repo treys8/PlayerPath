@@ -295,6 +295,8 @@ struct TrendChartSection: View {
                     )
                     .foregroundStyle(Color.blue)
                 }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("\(title) trend across \(chartData.count) seasons, from \(chartData.first?.seasonName ?? "") to \(chartData.last?.seasonName ?? "")")
                 .frame(height: 200)
                 .chartYScale(domain: .automatic(includesZero: false))
 

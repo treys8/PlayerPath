@@ -334,19 +334,6 @@ struct ProfileView: View {
         ))
 
         items.append(SearchResult(
-            title: "Cloud Upload Queue",
-            icon: "icloud.and.arrow.up",
-            keywords: ["cloud", "upload", "sync", "icloud", "storage", "backup", "videos", "pending"],
-            link: AnyView(
-                NavigationLink {
-                    SimpleCloudStorageView()
-                } label: {
-                    Label("Cloud Upload Queue", systemImage: "icloud.and.arrow.up")
-                }
-            )
-        ))
-
-        items.append(SearchResult(
             title: "Export My Data",
             icon: "arrow.down.doc",
             keywords: ["export", "data", "download", "backup", "gdpr", "json"],

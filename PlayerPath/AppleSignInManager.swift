@@ -127,28 +127,19 @@ final class AppleSignInManager: NSObject, ObservableObject {
         return hashString
     }
     
+    private static let retryableNetworkErrors: Set<Int> = [
+        NSURLErrorTimedOut,
+        NSURLErrorCannotConnectToHost,
+        NSURLErrorNetworkConnectionLost,
+        NSURLErrorNotConnectedToInternet
+    ]
+
     /// Sign in with Firebase with automatic retry for transient network errors
-    private func signInWithRetry(credential: AuthCredential, attempt: Int = 1, maxAttempts: Int = 3) async throws -> AuthDataResult {
-        do {
-            return try await Auth.auth().signIn(with: credential)
-        } catch {
-            let nsError = error as NSError
-            
-            // Retry only on transient network errors
-            let retryableErrors: Set<Int> = [
-                NSURLErrorTimedOut,
-                NSURLErrorCannotConnectToHost,
-                NSURLErrorNetworkConnectionLost,
-                NSURLErrorNotConnectedToInternet
-            ]
-            
-            if retryableErrors.contains(nsError.code) && attempt < maxAttempts {
-                let delay = pow(2.0, Double(attempt)) // Exponential backoff
-                try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-                return try await signInWithRetry(credential: credential, attempt: attempt + 1, maxAttempts: maxAttempts)
-            }
-            
-            throw error
+    private func signInWithRetry(credential: AuthCredential) async throws -> AuthDataResult {
+        try await withRetry(maxAttempts: 3, delay: .seconds(2), backoff: true, shouldRetry: { error in
+            Self.retryableNetworkErrors.contains((error as NSError).code)
+        }) {
+            try await Auth.auth().signIn(with: credential)
         }
     }
 }

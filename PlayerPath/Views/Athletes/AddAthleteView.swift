@@ -8,6 +8,9 @@
 import SwiftUI
 import SwiftData
 import FirebaseAuth
+import os
+
+private let log = Logger(subsystem: "com.playerpath.app", category: "AddAthleteView")
 
 struct AddAthleteView: View {
     @Environment(\.modelContext) private var modelContext
@@ -284,18 +287,14 @@ struct AddAthleteView: View {
             // Insert in model context
             modelContext.insert(athlete)
 
-            #if DEBUG
-            print("🟡 Attempting to save athlete '\(trimmedName)' for user: \(user.id)")
-            print("🟡 User email: \(user.email)")
-            print("🟡 User currently has \((user.athletes ?? []).count) athletes")
-            print("🟡 Firebase user: \(authManager.currentFirebaseUser?.email ?? "None")")
-            #endif
+            log.debug("Attempting to save athlete '\(trimmedName, privacy: .private)' for user: \(user.id, privacy: .private)")
+            log.debug("User email: \(user.email, privacy: .private)")
+            log.debug("User currently has \((user.athletes ?? []).count) athletes")
+            log.debug("Firebase user: \(authManager.currentFirebaseUser?.email ?? "None", privacy: .private)")
 
             do {
                 try modelContext.save()
-                #if DEBUG
-                print("🟢 Successfully saved athlete '\(trimmedName)' with ID: \(athlete.id)")
-                #endif
+                log.info("Successfully saved athlete '\(trimmedName, privacy: .private)' with ID: \(athlete.id, privacy: .private)")
 
                 // Track athlete creation analytics
                 AnalyticsService.shared.trackAthleteCreated(
@@ -306,9 +305,7 @@ struct AddAthleteView: View {
                 // SwiftData should have already updated the relationship via inverse
                 // But we verify and log for debugging
                 await MainActor.run {
-                    #if DEBUG
-                    print("🟢 User now has \((user.athletes ?? []).count) athletes")
-                    #endif
+                    log.debug("User now has \((user.athletes ?? []).count) athletes")
 
                     // Auto-select the new athlete
                     selectedAthlete = athlete
@@ -316,9 +313,7 @@ struct AddAthleteView: View {
                     // Track athlete selection analytics
                     AnalyticsService.shared.trackAthleteSelected(athleteID: athlete.id.uuidString)
 
-                    #if DEBUG
-                    print("🟢 Selected new athlete: \(athlete.name) (ID: \(athlete.id))")
-                    #endif
+                    log.debug("Selected new athlete: \(athlete.name, privacy: .private) (ID: \(athlete.id, privacy: .private))")
 
                     // Trigger immediate sync to Firestore
                     Task {
@@ -342,9 +337,7 @@ struct AddAthleteView: View {
                         // Save to SwiftData
                         do {
                             try modelContext.save()
-                            #if DEBUG
-                            print("🟢 Saved onboarding completion to SwiftData")
-                            #endif
+                            log.debug("Saved onboarding completion to SwiftData")
                         } catch {
                             ErrorHandlerService.shared.handle(error, context: "AddAthleteView.saveOnboardingProgress", showAlert: false)
                         }
@@ -353,9 +346,7 @@ struct AddAthleteView: View {
                         authManager.markOnboardingComplete()
 
                         // DON'T reset new user flag here - let season creation do it
-                        #if DEBUG
-                        print("🟢 First athlete created - user still flagged as new until season created")
-                        #endif
+                        log.debug("First athlete created - user still flagged as new until season created")
                     }
                 }
 

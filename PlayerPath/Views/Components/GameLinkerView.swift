@@ -109,9 +109,23 @@ struct GameLinkerView: View {
     }
 
     private func saveChanges() {
+        let oldGame = clip.game
+
         clip.game = selectedGame
+        clip.needsSync = true
         if let game = selectedGame {
             clip.season = game.season
+        }
+
+        // Recalculate stats for affected games
+        if let oldGame, oldGame != selectedGame {
+            try? StatisticsService.shared.recalculateGameStatistics(for: oldGame, context: modelContext)
+            if let athlete = oldGame.athlete {
+                try? StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: modelContext, skipSave: true)
+            }
+        }
+        if let newGame = selectedGame, newGame != oldGame {
+            try? StatisticsService.shared.recalculateGameStatistics(for: newGame, context: modelContext)
         }
 
         do {

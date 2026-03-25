@@ -8,6 +8,7 @@
 
 import SwiftUI
 import FirebaseAuth
+import FirebaseFirestore
 
 @MainActor
 @Observable
@@ -29,8 +30,17 @@ class CoachFolderViewModel {
     var cachedGameVideos: [CoachVideoItem] = []
     var cachedInstructionVideos: [CoachVideoItem] = []
 
+    private var videosListener: ListenerRegistration?
+    private var prefetchedFileNames: Set<String> = []
+    /// Stored outside MainActor isolation so deinit can clean up the Firestore listener.
+    private nonisolated(unsafe) var listenerForCleanup: ListenerRegistration?
+
     init(folder: SharedFolder) {
         self.folder = folder
+    }
+
+    deinit {
+        listenerForCleanup?.remove()
     }
 
     private var currentUserID: String? { Auth.auth().currentUser?.uid }
@@ -47,6 +57,47 @@ class CoachFolderViewModel {
         // Athlete: Games / Instruction
         cachedGameVideos = sharedVideos.filter { $0.videoType == "game" || $0.gameOpponent != nil }
         cachedInstructionVideos = sharedVideos.filter { $0.videoType == "instruction" || $0.videoType == "practice" || ($0.practiceDate != nil && $0.gameOpponent == nil) }
+    }
+
+    /// Processes a list of Firestore video metadata into the view's video arrays.
+    private func applyVideos(_ firestoreVideos: [FirestoreVideoMetadata]) {
+        let currentUID = Auth.auth().currentUser?.uid
+        videos = firestoreVideos
+            .filter { $0.visibility != "private" || $0.uploadedBy == currentUID }
+            .map { CoachVideoItem(from: $0) }
+            .sorted { ($0.createdAt ?? Date()) > ($1.createdAt ?? Date()) }
+        updateFilteredVideos()
+    }
+
+    /// Prefetches signed URLs only for videos not already prefetched.
+    private func prefetchURLs(folderID: String) {
+        let newFileNames = videos.map(\.fileName).filter { !prefetchedFileNames.contains($0) }
+        guard !newFileNames.isEmpty else { return }
+        prefetchedFileNames.formUnion(newFileNames)
+        Task {
+            do {
+                _ = try await SecureURLManager.shared.getBatchSecureVideoURLs(
+                    fileNames: newFileNames,
+                    folderID: folderID
+                )
+            } catch {
+                ErrorHandlerService.shared.handle(error, context: "CoachFolderDetail.prefetchURLs", showAlert: false)
+            }
+        }
+    }
+
+    /// Starts a snapshot listener if one isn't already running.
+    private func ensureListening(folderID: String) {
+        guard videosListener == nil else { return }
+        let listener = FirestoreManager.shared.listenToVideos(forFolder: folderID) { [weak self] firestoreVideos in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.applyVideos(firestoreVideos)
+                self.prefetchURLs(folderID: folderID)
+            }
+        }
+        videosListener = listener
+        listenerForCleanup = listener
     }
 
     func loadVideos() async {
@@ -67,34 +118,13 @@ class CoachFolderViewModel {
 
         do {
             let firestoreVideos = try await FirestoreManager.shared.fetchVideos(forSharedFolder: folderID)
+            applyVideos(firestoreVideos)
+            prefetchURLs(folderID: folderID)
 
-            // Convert to CoachVideoItem, filtering out other coaches' private videos
-            let currentUserID = Auth.auth().currentUser?.uid
-            videos = firestoreVideos
-                .filter { video in
-                    // Show: shared videos, own private videos, legacy videos (no visibility)
-                    video.visibility != "private" || video.uploadedBy == currentUserID
-                }
-                .map { CoachVideoItem(from: $0) }
-                .sorted { ($0.createdAt ?? Date()) > ($1.createdAt ?? Date()) }
-            updateFilteredVideos()
-
-            // Pre-fetch signed URLs in background so tapping a video
-            // doesn't block on a Cloud Function round-trip (200-800ms).
-            // The 24-hour expiry makes this safe to do eagerly.
-            let fileNames = videos.map(\.fileName)
-            if !fileNames.isEmpty {
-                Task {
-                    do {
-                        _ = try await SecureURLManager.shared.getBatchSecureVideoURLs(
-                            fileNames: fileNames,
-                            folderID: folderID
-                        )
-                    } catch {
-                        ErrorHandlerService.shared.handle(error, context: "CoachFolderDetail.prefetchURLs", showAlert: false)
-                    }
-                }
-            }
+            // After the first successful load, start listening for real-time updates.
+            // The listener's first callback will fire with current data (a no-op since
+            // we just fetched), then subsequent callbacks deliver live changes.
+            ensureListening(folderID: folderID)
 
         } catch {
             errorMessage = "Failed to load videos: \(error.localizedDescription)"

@@ -3,7 +3,6 @@
 //  PlayerPath
 //
 //  Schedules and cancels local notifications reminding users to end a live game.
-//  Also provides a helper to detect stale live games for in-app prompts.
 //
 
 import Foundation
@@ -29,7 +28,7 @@ final class GameAlertService {
         let settings = await center.notificationSettings()
         guard settings.authorizationStatus == .notDetermined else { return }
         do {
-            _ = try await center.requestAuthorization(options: [.alert, .sound])
+            _ = try await center.requestAuthorization(options: [.alert, .badge, .sound])
         } catch {
             alertLog.warning("Failed to request notification authorization: \(error.localizedDescription)")
         }
@@ -87,14 +86,4 @@ final class GameAlertService {
             .removePendingNotificationRequests(withIdentifiers: [notifID])
     }
 
-    // MARK: - Foreground Stale Check
-
-    /// Returns live games whose `liveStartDate` exceeds `staleDuration` ago.
-    func staleLiveGames(from games: [Game]) -> [Game] {
-        let cutoff = Date().addingTimeInterval(-GameAlertService.staleDuration)
-        return games.filter { game in
-            guard game.isLive, let startDate = game.liveStartDate else { return false }
-            return startDate < cutoff
-        }
-    }
 }
