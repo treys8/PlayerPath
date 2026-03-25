@@ -9,6 +9,8 @@
 import SwiftUI
 import AVKit
 import CoreMedia
+import Photos
+import FirebaseAuth
 
 @MainActor
 @Observable
@@ -25,6 +27,14 @@ class CoachVideoPlayerViewModel {
     var playbackRate: Double = 1.0
     var videoDuration: Double?
     var shouldResumeOnActive = false
+
+    // Download & save state
+    var isDownloading = false
+    var downloadProgress: Double = 0
+    var isSaving = false
+    var didSaveSuccessfully = false
+    var saveError: String?
+
     private var durationTask: Task<Void, Never>?
     private var statusObservation: NSKeyValueObservation?
     private var timeObserver: Any?
@@ -62,25 +72,51 @@ class CoachVideoPlayerViewModel {
         isLoading = true
         isPlayerReady = false
 
-        let playbackURLString: String
-        do {
-            playbackURLString = try await SecureURLManager.shared.getSecureVideoURL(
-                fileName: video.fileName,
-                folderID: folder.id ?? ""
-            )
-        } catch {
-            ErrorHandlerService.shared.handle(error, context: "CoachVideoPlayer.getSignedURL", showAlert: false)
-            errorMessage = "Unable to load video. Please check your connection and try again."
-            isLoading = false
-            return
+        let cache = CoachVideoCacheService.shared
+        let folderID = folder.id ?? ""
+        let playbackURL: URL
+
+        // Check cache first for offline playback
+        if let cachedURL = cache.cachedURL(folderID: folderID, fileName: video.fileName) {
+            playbackURL = cachedURL
+        } else {
+            // Fetch signed URL and download to cache
+            let signedURLString: String
+            do {
+                signedURLString = try await SecureURLManager.shared.getSecureVideoURL(
+                    fileName: video.fileName,
+                    folderID: folderID
+                )
+            } catch {
+                ErrorHandlerService.shared.handle(error, context: "CoachVideoPlayer.getSignedURL", showAlert: false)
+                errorMessage = "Unable to load video. Please check your connection and try again."
+                isLoading = false
+                return
+            }
+
+            // Download and cache for offline use
+            isDownloading = true
+            do {
+                playbackURL = try await cache.downloadAndCache(
+                    signedURLString: signedURLString,
+                    folderID: folderID,
+                    fileName: video.fileName
+                )
+            } catch {
+                // Fall back to streaming if download fails
+                isDownloading = false
+                if let url = URL(string: signedURLString) {
+                    playbackURL = url
+                } else {
+                    errorMessage = "Unable to load video."
+                    isLoading = false
+                    return
+                }
+            }
+            isDownloading = false
         }
 
-        guard let url = URL(string: playbackURLString) else {
-            isLoading = false
-            return
-        }
-
-        let newPlayer = AVPlayer(url: url)
+        let newPlayer = AVPlayer(url: playbackURL)
         player = newPlayer
 
         statusObservation = newPlayer.currentItem?.observe(\.status, options: [.new]) { [weak self] item, _ in
@@ -97,6 +133,21 @@ class CoachVideoPlayerViewModel {
                     break
                 }
             }
+        }
+
+        // Log video access (fire-and-forget, don't block playback)
+        Task {
+            guard let user = Auth.auth().currentUser,
+                  let userName = user.displayName else { return }
+            let userID = user.uid
+            await FirestoreManager.shared.logVideoAccess(
+                videoID: video.id,
+                userID: userID,
+                userName: userName,
+                userRole: "coach",
+                action: "view",
+                folderID: folderID
+            )
         }
     }
 
@@ -257,5 +308,70 @@ class CoachVideoPlayerViewModel {
         if player?.timeControlStatus == .playing {
             player?.rate = Float(rate)
         }
+    }
+
+    // MARK: - Save to Photos
+
+    func saveToPhotos() async {
+        isSaving = true
+        saveError = nil
+        didSaveSuccessfully = false
+
+        let cache = CoachVideoCacheService.shared
+        let folderID = folder.id ?? ""
+
+        // Get or download the file
+        let fileURL: URL
+        if let cachedURL = cache.cachedURL(folderID: folderID, fileName: video.fileName) {
+            fileURL = cachedURL
+        } else {
+            do {
+                let signedURL = try await SecureURLManager.shared.getSecureVideoURL(
+                    fileName: video.fileName,
+                    folderID: folderID
+                )
+                fileURL = try await cache.downloadAndCache(
+                    signedURLString: signedURL,
+                    folderID: folderID,
+                    fileName: video.fileName
+                )
+            } catch {
+                saveError = "Failed to download video: \(error.localizedDescription)"
+                isSaving = false
+                return
+            }
+        }
+
+        // Request Photos permission and save
+        let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
+        guard status == .authorized || status == .limited else {
+            saveError = "Photo library access is required to save videos. Please enable it in Settings."
+            isSaving = false
+            return
+        }
+
+        do {
+            try await PHPhotoLibrary.shared().performChanges {
+                PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: fileURL)
+            }
+            didSaveSuccessfully = true
+            Haptics.success()
+
+            // Log download action
+            if let user = Auth.auth().currentUser {
+                await FirestoreManager.shared.logVideoAccess(
+                    videoID: video.id,
+                    userID: user.uid,
+                    userName: user.displayName ?? "Coach",
+                    userRole: "coach",
+                    action: "download",
+                    folderID: folderID
+                )
+            }
+        } catch {
+            saveError = "Failed to save video: \(error.localizedDescription)"
+        }
+
+        isSaving = false
     }
 }

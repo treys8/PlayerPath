@@ -69,12 +69,15 @@ func postSwitchTab(_ tab: MainTab) {
 // MARK: - App Root
 struct PlayerPathMainView: View {
     @StateObject private var authManager = ComprehensiveAuthManager()
+    @ObservedObject private var updateManager = AppUpdateManager.shared
     @ObservedObject private var themeManager = ThemeManager.shared
     @Environment(\.modelContext) private var modelContext
 
     var body: some View {
         Group {
-            if authManager.isSignedIn {
+            if updateManager.requiresUpdate {
+                ForceUpdateView(updateURL: updateManager.updateURL)
+            } else if authManager.isSignedIn {
                 AuthenticatedFlow()
             } else if authManager.currentFirebaseUser != nil {
                 // Firebase session exists but profile hasn't loaded yet —
@@ -89,6 +92,12 @@ struct PlayerPathMainView: View {
         .preferredColorScheme(themeManager.colorScheme)
         .dynamicTypeSize(...DynamicTypeSize.accessibility5)
         .withErrorHandling() // Global error handling
+        .sheet(isPresented: $updateManager.showWhatsNew) {
+            WhatsNewView(items: updateManager.whatsNewItems) {
+                updateManager.markWhatsNewSeen()
+            }
+            .interactiveDismissDisabled()
+        }
         .task {
             // Enforce singleton UserPreferences on every launch (dedup + create if missing)
             let prefs = UserPreferences.shared(in: modelContext)
@@ -99,6 +108,9 @@ struct PlayerPathMainView: View {
             // Sync notification prefs from UserDefaults → SwiftData to prevent divergence
             prefs.enableGameReminders = UserDefaults.standard.object(forKey: "notif_gameReminders") as? Bool ?? true
             prefs.enableUploadNotifications = UserDefaults.standard.object(forKey: "notif_uploads") as? Bool ?? true
+
+            // Check for forced updates and What's New content
+            await updateManager.checkOnLaunch()
         }
     }
 }

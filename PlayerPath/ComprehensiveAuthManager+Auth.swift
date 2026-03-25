@@ -121,6 +121,12 @@ extension ComprehensiveAuthManager {
     }
 
     func signIn(email: String, password: String) async {
+        // Enforce client-side lockout before attempting Firebase auth
+        if isSignInLocked {
+            errorMessage = "Too many failed attempts. Please wait \(lockoutRemainingSeconds) seconds before trying again."
+            return
+        }
+
         isHandlingSignIn = true
         defer { isHandlingSignIn = false }
         isLoading = true
@@ -133,6 +139,10 @@ extension ComprehensiveAuthManager {
         do {
             let result = try await Auth.auth().signIn(withEmail: email, password: password)
             currentFirebaseUser = result.user
+
+            // Reset lockout on success
+            failedSignInAttempts = 0
+            signInLockedUntil = nil
 
             // Load user profile from Firestore BEFORE setting isSignedIn,
             // so userRole is resolved before the UI transitions to AuthenticatedFlow.
@@ -155,7 +165,18 @@ extension ComprehensiveAuthManager {
             isLoading = false
             authLog.info("Sign in successful for \(result.user.email ?? "unknown", privacy: .private) as \(self.userRole.rawValue)")
         } catch {
-            errorMessage = friendlyErrorMessage(from: error)
+            // Track failed attempts and enforce progressive lockout
+            failedSignInAttempts += 1
+            if failedSignInAttempts >= 5 {
+                // Exponential lockout: 60s at 5 attempts, 120s at 10, 240s at 15
+                let lockoutTier = (failedSignInAttempts - 5) / 5
+                let lockoutSeconds = 60.0 * pow(2.0, Double(min(lockoutTier, 3)))
+                signInLockedUntil = Date().addingTimeInterval(lockoutSeconds)
+                errorMessage = "Too many failed attempts. Please wait \(Int(lockoutSeconds)) seconds before trying again."
+                authLog.warning("Account lockout triggered: \(self.failedSignInAttempts) attempts, locked for \(Int(lockoutSeconds))s")
+            } else {
+                errorMessage = friendlyErrorMessage(from: error)
+            }
             isLoading = false
             authLog.error("Sign in failed: \(error.localizedDescription)")
             ErrorHandlerService.shared.handle(error, context: "Auth.signIn", showAlert: false)

@@ -58,25 +58,55 @@ struct CoachVideoPlayerView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
-                Button {
-                    showingSpeedPicker = true
-                } label: {
-                    Text(viewModel.playbackRate == 1.0
-                         ? "1x"
-                         : viewModel.playbackRate < 1.0
-                             ? String(format: "%.2gx", viewModel.playbackRate)
-                             : String(format: "%.4gx", viewModel.playbackRate))
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
-                        .monospacedDigit()
-                        .foregroundColor(.brandNavy)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(Color.brandNavy.opacity(0.12))
-                        .clipShape(Capsule())
+                HStack(spacing: 12) {
+                    // Save to device button
+                    Button {
+                        Task { await viewModel.saveToPhotos() }
+                    } label: {
+                        if viewModel.isSaving {
+                            ProgressView().scaleEffect(0.8)
+                        } else {
+                            Image(systemName: "square.and.arrow.down")
+                                .foregroundColor(.brandNavy)
+                        }
+                    }
+                    .disabled(viewModel.isSaving || !viewModel.isPlayerReady)
+                    .accessibilityLabel("Save video to device")
+
+                    // Playback speed button
+                    Button {
+                        showingSpeedPicker = true
+                    } label: {
+                        Text(viewModel.playbackRate == 1.0
+                             ? "1x"
+                             : viewModel.playbackRate < 1.0
+                                 ? String(format: "%.2gx", viewModel.playbackRate)
+                                 : String(format: "%.4gx", viewModel.playbackRate))
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                            .monospacedDigit()
+                            .foregroundColor(.brandNavy)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Color.brandNavy.opacity(0.12))
+                            .clipShape(Capsule())
+                    }
+                    .accessibilityLabel("Playback speed: \(viewModel.playbackRate)x")
                 }
-                .accessibilityLabel("Playback speed: \(viewModel.playbackRate)x")
             }
+        }
+        .alert("Video Saved", isPresented: $viewModel.didSaveSuccessfully) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Video has been saved to your Camera Roll.")
+        }
+        .alert("Save Failed", isPresented: .init(
+            get: { viewModel.saveError != nil },
+            set: { if !$0 { viewModel.saveError = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(viewModel.saveError ?? "An unknown error occurred.")
         }
         .confirmationDialog("Playback Speed", isPresented: $showingSpeedPicker) {
             ForEach([0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0], id: \.self) { rate in

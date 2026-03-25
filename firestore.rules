@@ -453,6 +453,34 @@ service cloud.firestore {
     }
 
     // ========================================================================
+    // VIDEO ACCESS LOGS (subcollection of videos)
+    // ========================================================================
+
+    match /videos/{videoID}/access_logs/{logID} {
+      // Read: video uploader or coaches with folder access (for engagement tracking)
+      allow read: if isAuthenticated()
+                  && ('sharedFolderID' in getVideoData(videoID)
+                      ? (canAccessFolder(getVideoData(videoID).sharedFolderID)
+                         || getVideoData(videoID).uploadedBy == request.auth.uid)
+                      : getVideoData(videoID).uploadedBy == request.auth.uid);
+
+      // Write: any authenticated user who can read the parent video
+      allow create: if isAuthenticated()
+                    && request.resource.data.userID == request.auth.uid
+                    && ('sharedFolderID' in getVideoData(videoID)
+                        ? canAccessFolder(getVideoData(videoID).sharedFolderID)
+                        : getVideoData(videoID).uploadedBy == request.auth.uid);
+    }
+
+    // ========================================================================
+    // APP CONFIG (force update, What's New — read-only for clients)
+    // ========================================================================
+
+    match /appConfig/{docID} {
+      allow read: if isAuthenticated();
+    }
+
+    // ========================================================================
     // COACH SESSIONS
     // ========================================================================
 

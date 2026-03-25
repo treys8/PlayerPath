@@ -126,6 +126,10 @@ struct FirestoreVideoMetadata: Codable, Identifiable {
     var visibility: String? = nil
     var instructionDate: Date? = nil
 
+    // View tracking
+    var viewCount: Int? = nil
+    var lastViewedAt: Date? = nil
+
     /// Display name for uploader (handles orphaned accounts)
     var uploaderDisplayName: String {
         if isOrphaned == true {
@@ -138,6 +142,17 @@ struct FirestoreVideoMetadata: Codable, Identifiable {
     var wasUploadedByCoach: Bool {
         uploadedByType == .coach
     }
+}
+
+/// Access log entry for tracking who viewed/downloaded a shared video
+struct VideoAccessLog: Codable, Identifiable {
+    var id: String?
+    let userID: String
+    let userName: String
+    let userRole: String          // "athlete" or "coach"
+    let action: String            // "view" or "download"
+    let folderID: String
+    let timestamp: Date?
 }
 
 /// Type of user who uploaded a video

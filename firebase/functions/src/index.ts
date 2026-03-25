@@ -1366,6 +1366,18 @@ export const getSignedVideoURL = functions.https.onCall(async (data, context) =>
     throw new functions.https.HttpsError('permission-denied', 'Access denied to this folder');
   }
 
+  // Enforce subscription tier for coaches accessing shared videos
+  if (context.auth.uid !== folder.ownerAthleteID) {
+    const userDoc = await db.collection('users').doc(context.auth.uid).get();
+    if (!userDoc.exists) {
+      throw new functions.https.HttpsError('permission-denied', 'User profile not found');
+    }
+    const userData = userDoc.data()!;
+    if (userData.role === 'coach' && !userData.coachSubscriptionTier) {
+      throw new functions.https.HttpsError('permission-denied', 'Active coach subscription required');
+    }
+  }
+
   const expiresAt = new Date();
   expiresAt.setHours(expiresAt.getHours() + clampExpiration(expirationHours));
 
@@ -1408,6 +1420,18 @@ export const getSignedThumbnailURL = functions.https.onCall(async (data, context
   const hasAccess = context.auth.uid === folder.ownerAthleteID || sharedCoachIDs.includes(context.auth.uid);
   if (!hasAccess) {
     throw new functions.https.HttpsError('permission-denied', 'Access denied to this folder');
+  }
+
+  // Enforce subscription tier for coaches accessing shared content
+  if (context.auth.uid !== folder.ownerAthleteID) {
+    const userDoc = await db.collection('users').doc(context.auth.uid).get();
+    if (!userDoc.exists) {
+      throw new functions.https.HttpsError('permission-denied', 'User profile not found');
+    }
+    const userData = userDoc.data()!;
+    if (userData.role === 'coach' && !userData.coachSubscriptionTier) {
+      throw new functions.https.HttpsError('permission-denied', 'Active coach subscription required');
+    }
   }
 
   const baseName = safeVideoFileName.replace(/\.[^/.]+$/, '');
@@ -1455,6 +1479,18 @@ export const getBatchSignedVideoURLs = functions.https.onCall(async (data, conte
   const hasAccess = context.auth.uid === folder.ownerAthleteID || sharedCoachIDs.includes(context.auth.uid);
   if (!hasAccess) {
     throw new functions.https.HttpsError('permission-denied', 'Access denied to this folder');
+  }
+
+  // Enforce subscription tier for coaches accessing shared content
+  if (context.auth.uid !== folder.ownerAthleteID) {
+    const userDoc = await db.collection('users').doc(context.auth.uid).get();
+    if (!userDoc.exists) {
+      throw new functions.https.HttpsError('permission-denied', 'User profile not found');
+    }
+    const userData = userDoc.data()!;
+    if (userData.role === 'coach' && !userData.coachSubscriptionTier) {
+      throw new functions.https.HttpsError('permission-denied', 'Active coach subscription required');
+    }
   }
 
   const expiresAt = new Date();

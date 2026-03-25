@@ -1,0 +1,82 @@
+//
+//  CoachVideoCacheService.swift
+//  PlayerPath
+//
+//  Caches coach shared folder videos locally for offline playback.
+//  Uses Caches directory so iOS can reclaim space under storage pressure.
+//
+
+import Foundation
+import os
+
+private let cacheLog = Logger(subsystem: "com.playerpath.app", category: "CoachVideoCache")
+
+@MainActor
+final class CoachVideoCacheService {
+    static let shared = CoachVideoCacheService()
+    private init() {}
+
+    var downloadProgress: Double = 0
+
+    private var cacheRoot: URL {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("coach_videos", isDirectory: true)
+    }
+
+    /// Returns local URL if the video is already cached.
+    func cachedURL(folderID: String, fileName: String) -> URL? {
+        let url = cacheRoot
+            .appendingPathComponent(folderID, isDirectory: true)
+            .appendingPathComponent(fileName)
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
+    /// Downloads a video from a signed URL and caches it locally. Returns the local file URL.
+    func downloadAndCache(signedURLString: String, folderID: String, fileName: String) async throws -> URL {
+        guard let signedURL = URL(string: signedURLString) else {
+            throw URLError(.badURL)
+        }
+
+        let folderDir = cacheRoot.appendingPathComponent(folderID, isDirectory: true)
+        try FileManager.default.createDirectory(at: folderDir, withIntermediateDirectories: true)
+
+        let destinationURL = folderDir.appendingPathComponent(fileName)
+
+        // Download with progress tracking
+        downloadProgress = 0
+        let (tempURL, response) = try await URLSession.shared.download(from: signedURL)
+
+        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+            throw URLError(.badServerResponse)
+        }
+
+        // Move to cache location (overwrite if exists)
+        if FileManager.default.fileExists(atPath: destinationURL.path) {
+            try FileManager.default.removeItem(at: destinationURL)
+        }
+        try FileManager.default.moveItem(at: tempURL, to: destinationURL)
+
+        let size = (try? FileManager.default.attributesOfItem(atPath: destinationURL.path)[.size] as? Int64) ?? 0
+        let mb = Double(size) / 1_048_576.0
+        cacheLog.info("Cached video: \(fileName) in folder \(folderID) (\(String(format: "%.1f", mb)) MB)")
+
+        downloadProgress = 1.0
+        return destinationURL
+    }
+
+    /// Deletes all cached coach videos.
+    func clearCache() {
+        try? FileManager.default.removeItem(at: cacheRoot)
+        cacheLog.info("Cleared coach video cache")
+    }
+
+    /// Total bytes used by the cache.
+    func cacheSize() -> Int64 {
+        guard let enumerator = FileManager.default.enumerator(at: cacheRoot, includingPropertiesForKeys: [.fileSizeKey]) else { return 0 }
+        var total: Int64 = 0
+        for case let url as URL in enumerator {
+            total += (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize.map(Int64.init)) ?? 0
+        }
+        return total
+    }
+}

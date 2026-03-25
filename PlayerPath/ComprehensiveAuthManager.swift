@@ -24,6 +24,18 @@ final class ComprehensiveAuthManager: ObservableObject {
     @Published var isNewUser: Bool = false // Session-level flag; NOT persisted across launches
     @Published var needsEmailVerification: Bool = false
 
+    // MARK: - Account Lockout
+    var failedSignInAttempts = 0
+    var signInLockedUntil: Date?
+    var isSignInLocked: Bool {
+        guard let lockedUntil = signInLockedUntil else { return false }
+        return Date() < lockedUntil
+    }
+    var lockoutRemainingSeconds: Int {
+        guard let lockedUntil = signInLockedUntil else { return 0 }
+        return max(0, Int(lockedUntil.timeIntervalSinceNow.rounded(.up)))
+    }
+
     @Published var localUser: User?
     @Published var hasCompletedOnboarding: Bool = false {
         didSet {

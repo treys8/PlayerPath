@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import Combine
 
 struct ComprehensiveSignInView: View {
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
@@ -17,6 +18,10 @@ struct ComprehensiveSignInView: View {
     @State private var email = ""
     @State private var password = ""
     @State private var displayName = ""
+
+    // Lockout countdown timer (ticks every second to update remaining time)
+    @State private var lockoutTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+    @State private var lockoutTick = false // toggled to force view update
     @State private var showingResetPasswordSheet = false
     @State private var selectedRole: UserRole = .athlete
 
@@ -128,6 +133,17 @@ struct ComprehensiveSignInView: View {
                     try? await Task.sleep(for: .milliseconds(100))
                     dismiss()
                 }
+            }
+        }
+        .onReceive(lockoutTimer) { _ in
+            if authManager.isSignInLocked {
+                // Update countdown in error message and re-evaluate button state
+                authManager.errorMessage = "Too many failed attempts. Please wait \(authManager.lockoutRemainingSeconds) seconds before trying again."
+                lockoutTick.toggle()
+            } else if lockoutTick {
+                // Lockout just expired — clear error and reset tick
+                authManager.errorMessage = nil
+                lockoutTick = false
             }
         }
     }
@@ -401,6 +417,10 @@ struct ComprehensiveSignInView: View {
     }
 
     private func canSubmitForm() -> Bool {
+        // Use lockoutTick to ensure SwiftUI re-evaluates when timer fires
+        let _ = lockoutTick
+        if authManager.isSignInLocked { return false }
+
         let emailValid = isValidEmail(email)
         let passwordValid = isValidPassword(password)
         let displayNameValid = isSignUpMode ? (displayName.isEmpty || isValidDisplayName(displayName)) : true

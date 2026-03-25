@@ -226,16 +226,21 @@ final class PushNotificationService: NSObject, ObservableObject {
         body: String,
         categoryIdentifier: String? = nil,
         userInfo: [String: Any] = [:],
-        trigger: UNNotificationTrigger?
+        trigger: UNNotificationTrigger?,
+        attachments: [UNNotificationAttachment] = []
     ) async -> Bool {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
         content.sound = .default
         content.userInfo = userInfo
-        
+
         if let categoryIdentifier = categoryIdentifier {
             content.categoryIdentifier = categoryIdentifier
+        }
+
+        if !attachments.isEmpty {
+            content.attachments = attachments
         }
         
         let request = UNNotificationRequest(
@@ -387,17 +392,42 @@ final class PushNotificationService: NSObject, ObservableObject {
     }
     
     /// Send immediate upload-complete notification (called after each successful upload)
-    func notifyUploadComplete() async {
+    func notifyUploadComplete(thumbnailPath: String? = nil) async {
         guard canScheduleNotifications else { return }
         // Skip if app is in foreground — the upload UI already provides feedback
         guard UIApplication.shared.applicationState != .active else { return }
+
+        // Attach video thumbnail if available
+        var attachments: [UNNotificationAttachment] = []
+        if let thumbPath = thumbnailPath, FileManager.default.fileExists(atPath: thumbPath) {
+            // Copy to temp location — UNNotificationAttachment moves the file
+            let tempURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString)
+                .appendingPathExtension("jpg")
+            do {
+                try FileManager.default.copyItem(
+                    at: URL(fileURLWithPath: thumbPath),
+                    to: tempURL
+                )
+                let attachment = try UNNotificationAttachment(
+                    identifier: "thumbnail",
+                    url: tempURL,
+                    options: nil
+                )
+                attachments.append(attachment)
+            } catch {
+                logger.warning("Failed to attach thumbnail to notification: \(error.localizedDescription)")
+            }
+        }
+
         _ = await scheduleLocalNotification(
             identifier: "upload_complete",
             title: "Upload Complete ☁️",
             body: "Your video has been successfully backed up to the cloud.",
             categoryIdentifier: "CLOUD_BACKUP",
             userInfo: ["type": "cloud_backup"],
-            trigger: UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
+            trigger: UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false),
+            attachments: attachments
         )
     }
 

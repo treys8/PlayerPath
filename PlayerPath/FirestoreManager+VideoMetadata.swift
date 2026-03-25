@@ -558,4 +558,40 @@ extension FirestoreManager {
 
         try await db.collection(FC.videos).document(videoID).updateData(data)
     }
+
+    // MARK: - Video Access Logging
+
+    /// Logs a video access event and increments the view counter.
+    func logVideoAccess(
+        videoID: String,
+        userID: String,
+        userName: String,
+        userRole: String,
+        action: String,
+        folderID: String
+    ) async {
+        let logData: [String: Any] = [
+            "userID": userID,
+            "userName": userName,
+            "userRole": userRole,
+            "action": action,
+            "folderID": folderID,
+            "timestamp": FieldValue.serverTimestamp()
+        ]
+
+        do {
+            // Write access log entry
+            try await db.collection(FC.videos).document(videoID)
+                .collection("access_logs").addDocument(data: logData)
+
+            // Atomically increment view count and update last viewed timestamp
+            try await db.collection(FC.videos).document(videoID).updateData([
+                "viewCount": FieldValue.increment(Int64(1)),
+                "lastViewedAt": FieldValue.serverTimestamp()
+            ])
+        } catch {
+            // Non-fatal — don't block playback for audit logging
+            firestoreLog.warning("Failed to log video access for \(videoID): \(error.localizedDescription)")
+        }
+    }
 }

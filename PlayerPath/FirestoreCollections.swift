@@ -18,6 +18,7 @@ enum FC {
     static let coachSessions = "coachSessions"
     static let pendingDeletions = "pendingDeletions"
     static let coachAccessRevocations = "coach_access_revocations"
+    static let appConfig = "appConfig"
 
     // Subcollections
     static let athletes = "athletes"

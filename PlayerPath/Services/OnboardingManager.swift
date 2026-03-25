@@ -25,6 +25,7 @@ final class OnboardingManager: ObservableObject {
     @Published var hasExportedData: Bool
     @Published var hasUsedQuickActions: Bool
     @Published var hasInvitedCoach: Bool
+    @Published var hasSeenCoachAnnouncement: Bool
 
     // Feature tips tracking
     @Published var dismissedTips: Set<String> = []
@@ -51,6 +52,7 @@ final class OnboardingManager: ObservableObject {
         static let hasExportedData = "hasExportedData"
         static let hasUsedQuickActions = "hasUsedQuickActions"
         static let hasInvitedCoach = "hasInvitedCoach"
+        static let hasSeenCoachAnnouncement = "hasSeenCoachAnnouncement"
         static let dismissedTips = "dismissedTips"
         static let onboardingVersion = "onboardingVersion"
     }
@@ -71,6 +73,7 @@ final class OnboardingManager: ObservableObject {
         self.hasExportedData = false
         self.hasUsedQuickActions = false
         self.hasInvitedCoach = false
+        self.hasSeenCoachAnnouncement = false
     }
 
     /// Call this when the user signs in to scope all UserDefaults keys to their account.
@@ -90,6 +93,7 @@ final class OnboardingManager: ObservableObject {
         hasExportedData = UserDefaults.standard.bool(forKey: key(BaseKeys.hasExportedData))
         hasUsedQuickActions = UserDefaults.standard.bool(forKey: key(BaseKeys.hasUsedQuickActions))
         hasInvitedCoach = UserDefaults.standard.bool(forKey: key(BaseKeys.hasInvitedCoach))
+        hasSeenCoachAnnouncement = UserDefaults.standard.bool(forKey: key(BaseKeys.hasSeenCoachAnnouncement))
 
         if let tipsData = UserDefaults.standard.array(forKey: key(BaseKeys.dismissedTips)) as? [String] {
             dismissedTips = Set(tipsData)
@@ -137,6 +141,9 @@ final class OnboardingManager: ObservableObject {
         case .inviteCoach:
             hasInvitedCoach = true
             UserDefaults.standard.set(true, forKey: key(BaseKeys.hasInvitedCoach))
+        case .coachAnnouncement:
+            hasSeenCoachAnnouncement = true
+            UserDefaults.standard.set(true, forKey: key(BaseKeys.hasSeenCoachAnnouncement))
         }
 
         // Post notification for achievement tracking
@@ -158,6 +165,7 @@ final class OnboardingManager: ObservableObject {
         case .exportData: return hasExportedData
         case .useQuickActions: return hasUsedQuickActions
         case .inviteCoach: return hasInvitedCoach
+        case .coachAnnouncement: return hasSeenCoachAnnouncement
         }
     }
 
@@ -212,6 +220,14 @@ final class OnboardingManager: ObservableObject {
         markMilestoneComplete(.welcomeTutorial)
     }
 
+    // MARK: - Coach Announcement
+
+    var shouldShowCoachAnnouncement: Bool {
+        AppFeatureFlags.isCoachEnabled
+        && hasCompletedInitialOnboarding
+        && !hasSeenCoachAnnouncement
+    }
+
     // MARK: - Progress Tracking
 
     var onboardingProgress: Double {
@@ -242,6 +258,7 @@ final class OnboardingManager: ObservableObject {
         hasExportedData = false
         hasUsedQuickActions = false
         hasInvitedCoach = false
+        hasSeenCoachAnnouncement = false
         dismissedTips.removeAll()
         currentTutorialStep = nil
 
@@ -255,6 +272,7 @@ final class OnboardingManager: ObservableObject {
         UserDefaults.standard.removeObject(forKey: key(BaseKeys.hasExportedData))
         UserDefaults.standard.removeObject(forKey: key(BaseKeys.hasUsedQuickActions))
         UserDefaults.standard.removeObject(forKey: key(BaseKeys.hasInvitedCoach))
+        UserDefaults.standard.removeObject(forKey: key(BaseKeys.hasSeenCoachAnnouncement))
         UserDefaults.standard.removeObject(forKey: key(BaseKeys.dismissedTips))
     }
 }
@@ -272,6 +290,7 @@ enum OnboardingMilestone: String, CaseIterable {
     case exportData
     case useQuickActions
     case inviteCoach
+    case coachAnnouncement
 
     var title: String {
         switch self {
@@ -285,6 +304,7 @@ enum OnboardingMilestone: String, CaseIterable {
         case .exportData: return "Export Your Data"
         case .useQuickActions: return "Use Quick Actions"
         case .inviteCoach: return "Connect with a Coach"
+        case .coachAnnouncement: return "Coach Features Announcement"
         }
     }
 
@@ -310,6 +330,8 @@ enum OnboardingMilestone: String, CaseIterable {
             return "Access features from your home screen"
         case .inviteCoach:
             return "Collaborate with your coach"
+        case .coachAnnouncement:
+            return "Learn about coach sharing features"
         }
     }
 
@@ -325,6 +347,7 @@ enum OnboardingMilestone: String, CaseIterable {
         case .exportData: return "square.and.arrow.up.fill"
         case .useQuickActions: return "hand.tap.fill"
         case .inviteCoach: return "person.2.fill"
+        case .coachAnnouncement: return "megaphone.fill"
         }
     }
 }
