@@ -41,7 +41,7 @@ class SecureURLManager {
     }
     
     // MARK: - Public Methods
-    
+
     /// Gets a secure, time-limited URL for a video file
     /// - Parameters:
     ///   - fileName: Name of the video file in storage
@@ -70,8 +70,6 @@ class SecureURLManager {
 
         log.debug("Generating secure video URL for \(fileName, privacy: .private)")
 
-        let callable = functions.httpsCallable("getSignedVideoURL")
-
         let data: [String: Any] = [
             "folderID": folderID,
             "fileName": fileName,
@@ -79,6 +77,7 @@ class SecureURLManager {
         ]
 
         do {
+            let callable = functions.httpsCallable("getSignedVideoURL")
             let result = try await callable.call(data)
 
             guard let response = result.data as? [String: Any],
@@ -130,8 +129,6 @@ class SecureURLManager {
 
         log.debug("Generating secure thumbnail URL for \(videoFileName, privacy: .private)")
 
-        let callable = functions.httpsCallable("getSignedThumbnailURL")
-
         let data: [String: Any] = [
             "folderID": folderID,
             "videoFileName": videoFileName,
@@ -139,6 +136,7 @@ class SecureURLManager {
         ]
 
         do {
+            let callable = functions.httpsCallable("getSignedThumbnailURL")
             let result = try await callable.call(data)
 
             guard let response = result.data as? [String: Any],
@@ -176,8 +174,6 @@ class SecureURLManager {
         
         log.debug("Generating \(fileNames.count) secure video URLs in batch")
 
-        let callable = functions.httpsCallable("getBatchSignedVideoURLs")
-
         let data: [String: Any] = [
             "folderID": folderID,
             "fileNames": fileNames,
@@ -185,6 +181,7 @@ class SecureURLManager {
         ]
 
         do {
+            let callable = functions.httpsCallable("getBatchSignedVideoURLs")
             let result = try await callable.call(data)
 
             guard let response = result.data as? [String: Any],
@@ -244,7 +241,6 @@ class SecureURLManager {
             return cached.url
         }
 
-        let callable = functions.httpsCallable("getPersonalVideoSignedURL")
         let data: [String: Any] = [
             "ownerUID": ownerUID,
             "fileName": fileName,
@@ -252,6 +248,7 @@ class SecureURLManager {
         ]
 
         do {
+            let callable = functions.httpsCallable("getPersonalVideoSignedURL")
             let result = try await callable.call(data)
             guard let response = result.data as? [String: Any],
                   let signedURL = response["signedURL"] as? String,

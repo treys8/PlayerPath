@@ -11,7 +11,7 @@ import FirebaseFirestore
 import FirebaseFunctions
 import os
 
-private nonisolated(unsafe) let invitationLog = Logger(subsystem: "com.playerpath.app", category: "Invitations")
+private let invitationLog = Logger(subsystem: "com.playerpath.app", category: "Invitations")
 
 /// Invitation-specific error codes for distinguishing failure reasons
 enum InvitationErrorCode: Int {
@@ -155,7 +155,7 @@ extension FirestoreManager {
     /// Accepts an athlete-to-coach invitation via server-side Cloud Function.
     /// The server reads permissions from the invitation document to prevent
     /// client-side privilege escalation.
-    nonisolated func acceptInvitation(
+    func acceptInvitation(
         invitationID: String,
         coachID: String,
         permissions: FolderPermissions // kept for API compat; server reads from invitation
@@ -348,18 +348,17 @@ extension FirestoreManager {
     /// Accepts a coach-to-athlete invitation via Cloud Function (server-side validation).
     /// Validates caller identity, invitation state, expiration, and coach athlete limit.
     /// Creates shared folders server-side (any athlete tier) and returns folder IDs.
-    nonisolated func acceptCoachToAthleteInvitation(
+    func acceptCoachToAthleteInvitation(
         invitationID: String,
         athleteUserID: String,
         athleteName: String
     ) async throws -> (gamesFolderID: String?, lessonsFolderID: String?) {
-        let callable = Functions.functions().httpsCallable("acceptCoachToAthleteInvitation")
-        let params: [String: Any] = [
-            "invitationID": invitationID,
-            "athleteName": athleteName
-        ]
+        let functions = Functions.functions()
         do {
-            let result = try await callable.call(params)
+            let result = try await functions.httpsCallable("acceptCoachToAthleteInvitation").call([
+                "invitationID": invitationID,
+                "athleteName": athleteName
+            ])
             invitationLog.info("Accepted coach-to-athlete invitation \(invitationID) via Cloud Function")
 
             // Parse folder IDs from response

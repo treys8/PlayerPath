@@ -13,7 +13,7 @@ import FirebaseFirestore
 import Combine
 import os
 
-nonisolated(unsafe) let firestoreLog = Logger(subsystem: "com.playerpath.app", category: "Firestore")
+let firestoreLog = Logger(subsystem: "com.playerpath.app", category: "Firestore")
 
 /// Main service for all Firestore operations
 /// Handles shared folders, video metadata, annotations, and invitations

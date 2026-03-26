@@ -100,7 +100,7 @@ extension FirestoreManager {
     /// Throwing variant for use with retry logic.
     /// The server derives tiers from verified Transaction JWS tokens —
     /// the client no longer sends tier strings.
-    nonisolated func syncSubscriptionTiersWithThrow(
+    func syncSubscriptionTiersWithThrow(
         userID: String,
         hasAthleteTierOverride: Bool = false
     ) async throws {
@@ -145,7 +145,7 @@ extension FirestoreManager {
     }
 
     /// Returns the StoreKit 2 JWS app transaction token for server-side validation.
-    fileprivate nonisolated func appStoreReceipt() async -> String? {
+    fileprivate func appStoreReceipt() async -> String? {
         if let result = try? await AppTransaction.shared {
             return result.jwsRepresentation
         }
@@ -154,7 +154,7 @@ extension FirestoreManager {
 
     /// Collects JWS representations from all current subscription entitlements.
     /// The server verifies these independently to derive the user's actual tier.
-    fileprivate nonisolated func currentEntitlementTokens() async -> [String] {
+    fileprivate func currentEntitlementTokens() async -> [String] {
         var tokens: [String] = []
         for await result in Transaction.currentEntitlements {
             // jwsRepresentation is on the VerificationResult envelope
