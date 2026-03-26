@@ -30,17 +30,16 @@ class CoachFolderViewModel {
     var cachedGameVideos: [CoachVideoItem] = []
     var cachedInstructionVideos: [CoachVideoItem] = []
 
-    private var videosListener: ListenerRegistration?
     private var prefetchedFileNames: Set<String> = []
-    /// Stored outside MainActor isolation so deinit can clean up the Firestore listener.
-    private nonisolated var listenerForCleanup: ListenerRegistration?
+    // nonisolated(unsafe) required so deinit can call .remove() on the listener
+    private nonisolated(unsafe) var videosListener: ListenerRegistration?
 
     init(folder: SharedFolder) {
         self.folder = folder
     }
 
     deinit {
-        listenerForCleanup?.remove()
+        videosListener?.remove()
     }
 
     private var currentUserID: String? { Auth.auth().currentUser?.uid }
@@ -54,9 +53,10 @@ class CoachFolderViewModel {
         cachedNeedsReviewVideos = videos.filter { $0.visibility == "private" && $0.uploadedBy == myUID }
         cachedFromMeVideos = sharedVideos.filter { $0.uploadedBy == myUID }
 
-        // Athlete: Games / Instruction
+        // Athlete: Games / Instruction (mutually exclusive — games take priority)
         cachedGameVideos = sharedVideos.filter { $0.videoType == "game" || $0.gameOpponent != nil }
-        cachedInstructionVideos = sharedVideos.filter { $0.videoType == "instruction" || $0.videoType == "practice" || ($0.practiceDate != nil && $0.gameOpponent == nil) }
+        let gameSet = Set(cachedGameVideos.map(\.id))
+        cachedInstructionVideos = sharedVideos.filter { !gameSet.contains($0.id) && ($0.videoType == "instruction" || $0.videoType == "practice" || $0.practiceDate != nil) }
     }
 
     /// Processes a list of Firestore video metadata into the view's video arrays.
@@ -65,7 +65,7 @@ class CoachFolderViewModel {
         videos = firestoreVideos
             .filter { $0.visibility != "private" || $0.uploadedBy == currentUID }
             .map { CoachVideoItem(from: $0) }
-            .sorted { ($0.createdAt ?? Date()) > ($1.createdAt ?? Date()) }
+            .sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
         updateFilteredVideos()
     }
 
@@ -74,7 +74,8 @@ class CoachFolderViewModel {
         let newFileNames = videos.map(\.fileName).filter { !prefetchedFileNames.contains($0) }
         guard !newFileNames.isEmpty else { return }
         prefetchedFileNames.formUnion(newFileNames)
-        Task {
+        Task { [weak self] in
+            guard self != nil else { return }
             do {
                 _ = try await SecureURLManager.shared.getBatchSecureVideoURLs(
                     fileNames: newFileNames,
@@ -97,7 +98,6 @@ class CoachFolderViewModel {
             }
         }
         videosListener = listener
-        listenerForCleanup = listener
     }
 
     func loadVideos() async {
@@ -118,6 +118,7 @@ class CoachFolderViewModel {
 
         do {
             let firestoreVideos = try await FirestoreManager.shared.fetchVideos(forSharedFolder: folderID)
+            errorMessage = nil
             applyVideos(firestoreVideos)
             prefetchURLs(folderID: folderID)
 
