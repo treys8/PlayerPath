@@ -10,6 +10,7 @@ import UserNotifications
 import FirebaseCore
 import FirebaseFirestore
 import FirebaseAppCheck
+import FirebaseMessaging
 import BackgroundTasks
 import OSLog
 
@@ -70,12 +71,16 @@ class PlayerPathAppDelegate: NSObject, UIApplicationDelegate {
     }
     
     // MARK: - Push Notifications Setup
-    
+
     private func setupPushNotifications(_ application: UIApplication) {
         // Fix AE: Permission is no longer requested on cold launch — that produces a system
         // dialog before the user understands the app's value, leading to low opt-in rates.
         // PushNotificationService.init() already configures categories and the delegate.
         // The permission request is deferred to MainTabView.task, after onboarding completes.
+
+        // Configure Firebase Cloud Messaging delegate for FCM token management
+        Messaging.messaging().delegate = self
+
         appLog.info("Push notification categories and delegate configured via PushNotificationService.init()")
     }
     
@@ -89,12 +94,23 @@ class PlayerPathAppDelegate: NSObject, UIApplicationDelegate {
         case performanceInsights = "performance_insights"
         case gameReminder = "game_reminder"
         case practiceReminder = "practice_reminder"
+        // Coach/athlete notification types delivered via FCM
+        case newVideo = "new_video"
+        case coachComment = "coach_comment"
+        case invitationReceived = "invitation_received"
+        case invitationAccepted = "invitation_accepted"
+        case accessRevoked = "access_revoked"
+        case drillCard = "drill_card"
+        case accessLapsed = "access_lapsed"
     }
     
     // MARK: - Remote Notifications
     
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
-        // Forward to notification service (called on main thread by system)
+        // Forward APNs token to Firebase Messaging so it can map to an FCM token
+        Messaging.messaging().apnsToken = deviceToken
+
+        // Forward to notification service for APNs token storage
         PushNotificationService.shared.didRegisterForRemoteNotifications(withDeviceToken: deviceToken)
     }
     
@@ -141,6 +157,16 @@ class PlayerPathAppDelegate: NSObject, UIApplicationDelegate {
             appLog.info("Handling remote notification type: \(type.rawValue, privacy: .public)")
             switch type {
             case .performanceInsights, .gameReminder, .practiceReminder:
+                return true
+            case .newVideo, .coachComment, .drillCard:
+                // Coach notification — refresh in-app notification list
+                NotificationCenter.default.post(name: .refreshActivityNotifications, object: nil)
+                return true
+            case .invitationReceived, .invitationAccepted:
+                NotificationCenter.default.post(name: .refreshActivityNotifications, object: nil)
+                return true
+            case .accessRevoked, .accessLapsed:
+                NotificationCenter.default.post(name: .refreshActivityNotifications, object: nil)
                 return true
             }
         } else if let unknown = userInfo[RemoteNotificationKey.type] {
@@ -241,6 +267,21 @@ extension PlayerPathAppDelegate {
         // Register video upload background task
         UploadQueueManager.registerBackgroundTasks()
         appLog.info("Background tasks registered")
+    }
+}
+
+// MARK: - Firebase Cloud Messaging Delegate
+
+extension PlayerPathAppDelegate: MessagingDelegate {
+    func messaging(_ messaging: Messaging, didReceiveRegistrationToken fcmToken: String?) {
+        guard let fcmToken else {
+            appLog.warning("FCM token refresh returned nil")
+            return
+        }
+        appLog.info("FCM token received (length: \(fcmToken.count))")
+        Task { @MainActor in
+            PushNotificationService.shared.didReceiveFCMToken(fcmToken)
+        }
     }
 }
 

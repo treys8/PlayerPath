@@ -381,31 +381,36 @@ extension FirestoreManager {
         do {
             let coachFoldersQuery = db.collection(FC.sharedFolders)
                 .whereField("sharedWithCoachIDs", arrayContains: userID)
-            let coachFoldersSnap = try await coachFoldersQuery.getDocuments()
-            for folderDoc in coachFoldersSnap.documents {
-                try await folderDoc.reference.updateData([
-                    "sharedWithCoachIDs": FieldValue.arrayRemove([userID]),
-                    "permissions.\(userID)": FieldValue.delete(),
-                    "updatedAt": FieldValue.serverTimestamp()
-                ])
+            while true {
+                let coachFoldersSnap = try await coachFoldersQuery.limit(to: 50).getDocuments()
+                guard !coachFoldersSnap.documents.isEmpty else { break }
+                for folderDoc in coachFoldersSnap.documents {
+                    try await folderDoc.reference.updateData([
+                        "sharedWithCoachIDs": FieldValue.arrayRemove([userID]),
+                        "permissions.\(userID)": FieldValue.delete(),
+                        "updatedAt": FieldValue.serverTimestamp()
+                    ])
+                }
             }
         } catch {
             stepErrors.append("coach folder cleanup: \(error.localizedDescription)")
         }
 
         // MARK: Step 8 — Mark videos uploaded by user to others' folders as orphaned
-        // Single pass (not paginated delete loop) because we're updating, not removing.
         // updateData is idempotent so re-processing is safe if this runs twice.
+        // Cursor-based pagination because updated docs still match the query.
         do {
             let uploadedVideosQuery = db.collection(FC.videos)
                 .whereField("uploadedBy", isEqualTo: userID)
-            let snap = try await uploadedVideosQuery.getDocuments()
-            // Batch in groups of 400 to stay within Firestore's 500-operation limit
-            let chunks = stride(from: 0, to: snap.documents.count, by: 400)
-            for chunkStart in chunks {
-                let chunkEnd = min(chunkStart + 400, snap.documents.count)
+            var lastDoc: QueryDocumentSnapshot?
+            while true {
+                var pageQuery = uploadedVideosQuery.limit(to: 400)
+                if let lastDoc { pageQuery = pageQuery.start(afterDocument: lastDoc) }
+                let snap = try await pageQuery.getDocuments()
+                guard !snap.documents.isEmpty else { break }
+                lastDoc = snap.documents.last
                 let batch = db.batch()
-                for doc in snap.documents[chunkStart..<chunkEnd] {
+                for doc in snap.documents {
                     batch.updateData([
                         "isOrphaned": true,
                         "orphanedAt": FieldValue.serverTimestamp()
@@ -434,25 +439,28 @@ extension FirestoreManager {
 
         // MARK: Step 10 — Delete user subcollections (bottom-up: notes → practices → games → seasons → coaches → athletes)
         do {
-            // Fetch all athlete documents for this user
-            let athletesQuery = db.collection(FC.users).document(userID).collection(FC.athletes)
-            let athletesSnap = try await athletesQuery.getDocuments()
+            // Fetch and delete athlete documents for this user (paginated — deleted docs fall out of query)
+            let athletesBaseQuery = db.collection(FC.users).document(userID).collection(FC.athletes)
+            while true {
+                let athletesSnap = try await athletesBaseQuery.limit(to: 50).getDocuments()
+                guard !athletesSnap.documents.isEmpty else { break }
 
-            for athleteDoc in athletesSnap.documents {
-                let athleteRef = athleteDoc.reference
+                for athleteDoc in athletesSnap.documents {
+                    let athleteRef = athleteDoc.reference
 
-                // Delete coaches subcollection
-                let coachesQuery = athleteRef.collection(FC.coaches)
-                while true {
-                    let snap = try await coachesQuery.limit(to: 400).getDocuments()
-                    guard !snap.documents.isEmpty else { break }
-                    let batch = db.batch()
-                    snap.documents.forEach { batch.deleteDocument($0.reference) }
-                    try await batch.commit()
+                    // Delete coaches subcollection
+                    let coachesQuery = athleteRef.collection(FC.coaches)
+                    while true {
+                        let snap = try await coachesQuery.limit(to: 400).getDocuments()
+                        guard !snap.documents.isEmpty else { break }
+                        let batch = db.batch()
+                        snap.documents.forEach { batch.deleteDocument($0.reference) }
+                        try await batch.commit()
+                    }
+
+                    // Delete athlete document
+                    try await athleteRef.delete()
                 }
-
-                // Delete athlete document
-                try await athleteRef.delete()
             }
 
             // Delete practices (with nested notes)

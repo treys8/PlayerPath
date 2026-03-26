@@ -48,6 +48,8 @@ extension Notification.Name {
     static let showSubscriptionPaywall = Notification.Name("showSubscriptionPaywall")
     static let videoRecorded = Notification.Name("VideoRecorded")
     static let presentAddPractice = Notification.Name("presentAddPractice")
+    /// Refresh the in-app activity notification list (e.g., after receiving an FCM push).
+    static let refreshActivityNotifications = Notification.Name("refreshActivityNotifications")
 }
 
 @inline(__always)

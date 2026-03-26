@@ -51,6 +51,14 @@ final class CoachDowngradeManager {
     func evaluate(coachID: String, coachTier: CoachSubscriptionTier) async {
         let limit = coachTier.athleteLimit
 
+        // Don't evaluate until StoreKit entitlements have resolved AND Firestore profile loaded.
+        // Without this, Academy tier coaches (Firestore-granted) may see a flash of the
+        // downgrade banner while StoreKit resolves their Free tier before profile loads.
+        guard StoreKitManager.shared.hasResolvedEntitlements else {
+            downgradeLog.debug("Skipping downgrade evaluation — entitlements not yet resolved")
+            return
+        }
+
         // Academy = unlimited, never over limit
         guard limit != Int.max else {
             clearGrace(coachID: coachID)
@@ -58,15 +66,19 @@ final class CoachDowngradeManager {
             return
         }
 
-        let count = await SubscriptionGate.fullConnectedAthleteCount(coachID: coachID)
+        let result = await SubscriptionGate.fullConnectedAthleteCountResult(coachID: coachID)
         currentLimit = limit
-        connectedCount = count
+        connectedCount = result.count
 
-        guard count > limit else {
-            // Under or at limit — clear any grace period
-            clearGrace(coachID: coachID)
-            state = .none
-            downgradeLog.debug("Coach \(coachID) within limit (\(count)/\(limit))")
+        guard result.count > limit else {
+            // Under or at limit — only clear grace period if count is confirmed.
+            // If count is unconfirmed (network failure), preserve existing grace state
+            // to prevent a sync failure from accidentally resetting the countdown.
+            if result.isConfirmed {
+                clearGrace(coachID: coachID)
+                state = .none
+            }
+            downgradeLog.debug("Coach \(coachID) within limit (\(result.count)/\(limit), confirmed: \(result.isConfirmed))")
             return
         }
 
@@ -77,10 +89,10 @@ final class CoachDowngradeManager {
 
         if remaining > 0 {
             state = .gracePeriod(daysRemaining: remaining)
-            downgradeLog.info("Coach \(coachID) over limit (\(count)/\(limit)), grace period: \(remaining) days remaining")
+            downgradeLog.info("Coach \(coachID) over limit (\(result.count)/\(limit)), grace period: \(remaining) days remaining")
         } else {
             state = .selectionRequired
-            downgradeLog.warning("Coach \(coachID) over limit (\(count)/\(limit)), grace period expired — selection required")
+            downgradeLog.warning("Coach \(coachID) over limit (\(result.count)/\(limit)), grace period expired — selection required")
         }
     }
 

@@ -102,6 +102,31 @@ class CoachVideoPlayerViewModel {
                     folderID: folderID,
                     fileName: video.fileName
                 )
+            } catch let cacheError as CoachVideoCacheError where cacheError == .signedURLExpired {
+                // Signed URL expired mid-download — fetch a fresh one and retry once
+                isDownloading = false
+                do {
+                    let freshURL = try await SecureURLManager.shared.getSecureVideoURL(
+                        fileName: video.fileName,
+                        folderID: folderID,
+                        forceRefresh: true
+                    )
+                    isDownloading = true
+                    playbackURL = try await cache.downloadAndCache(
+                        signedURLString: freshURL,
+                        folderID: folderID,
+                        fileName: video.fileName
+                    )
+                } catch {
+                    isDownloading = false
+                    if let url = URL(string: signedURLString) {
+                        playbackURL = url
+                    } else {
+                        errorMessage = "Unable to load video."
+                        isLoading = false
+                        return
+                    }
+                }
             } catch {
                 // Fall back to streaming if download fails
                 isDownloading = false

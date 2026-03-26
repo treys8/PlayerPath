@@ -23,6 +23,7 @@ final class PushNotificationService: NSObject, ObservableObject {
     // MARK: - Published Properties
     @Published private(set) var authorizationStatus: UNAuthorizationStatus = .notDetermined
     @Published private(set) var deviceToken: String?
+    @Published private(set) var fcmToken: String?
     @Published private(set) var isRegisteredForRemoteNotifications = false
     
     // Fix AI: Only .notDetermined warrants an in-app prompt.
@@ -94,6 +95,57 @@ final class PushNotificationService: NSObject, ObservableObject {
                     options: [.foreground]
                 )
                 // Fix AK: SET_GOALS removed — action was unhandled and presented dead UI
+            ],
+            intentIdentifiers: []
+        ),
+
+        // Coach/athlete notification categories
+        UNNotificationCategory(
+            identifier: "COACH_VIDEO",
+            actions: [
+                UNNotificationAction(
+                    identifier: "VIEW_VIDEO",
+                    title: "View Video",
+                    options: [.foreground]
+                )
+            ],
+            intentIdentifiers: []
+        ),
+        UNNotificationCategory(
+            identifier: "COACH_COMMENT",
+            actions: [
+                UNNotificationAction(
+                    identifier: "VIEW_COMMENT",
+                    title: "View Comment",
+                    options: [.foreground]
+                )
+            ],
+            intentIdentifiers: []
+        ),
+        UNNotificationCategory(
+            identifier: "INVITATION",
+            actions: [
+                UNNotificationAction(
+                    identifier: "VIEW_INVITATION",
+                    title: "View Invitation",
+                    options: [.foreground]
+                )
+            ],
+            intentIdentifiers: []
+        ),
+        UNNotificationCategory(
+            identifier: "ACCESS_REVOKED",
+            actions: [],
+            intentIdentifiers: []
+        ),
+        UNNotificationCategory(
+            identifier: "DRILL_CARD",
+            actions: [
+                UNNotificationAction(
+                    identifier: "VIEW_DRILL_CARD",
+                    title: "View Drill Card",
+                    options: [.foreground]
+                )
             ],
             intentIdentifiers: []
         )
@@ -503,6 +555,88 @@ final class PushNotificationService: NSObject, ObservableObject {
             logger.error("Failed to remove device token from Firestore: \(error.localizedDescription)")
         }
     }
+
+    // MARK: - FCM Token Management
+
+    /// Called by AppDelegate when Firebase Messaging provides or refreshes the FCM token.
+    func didReceiveFCMToken(_ token: String) {
+        let previousFCMToken = UserDefaults.standard.string(forKey: "fcmToken")
+        let tokenChanged = previousFCMToken != token
+
+        self.fcmToken = token
+        UserDefaults.standard.set(token, forKey: "fcmToken")
+
+        if tokenChanged {
+            logger.info("FCM token \(previousFCMToken == nil ? "received" : "rotated")")
+            Task {
+                await sendFCMTokenToServerWithRetry(token, previousToken: previousFCMToken)
+            }
+        }
+    }
+
+    private func sendFCMTokenToServerWithRetry(_ token: String, previousToken: String? = nil) async {
+        await retryAsync(maxAttempts: 3, delay: .seconds(2), backoff: true) { [self] in
+            let (success, shouldRetry) = await sendFCMTokenToServer(token, previousToken: previousToken)
+            if !success {
+                if shouldRetry {
+                    throw NSError(domain: "PushNotification", code: -2, userInfo: [NSLocalizedDescriptionKey: "FCM token send failed, will retry"])
+                }
+                logger.error("Permanent failure sending FCM token to server - will not retry")
+            }
+        }
+    }
+
+    /// Returns (success, shouldRetry)
+    private func sendFCMTokenToServer(_ token: String, previousToken: String? = nil) async -> (Bool, Bool) {
+        guard let userID = Auth.auth().currentUser?.uid else {
+            logger.warning("Cannot store FCM token — no authenticated user")
+            return (false, false)
+        }
+
+        do {
+            let db = Firestore.firestore()
+
+            // Remove rotated token first
+            if let old = previousToken, old != token {
+                do {
+                    try await db.collection(FC.users).document(userID).updateData([
+                        "fcmTokens": FieldValue.arrayRemove([old])
+                    ])
+                } catch {
+                    logger.warning("Failed to remove old FCM token: \(error.localizedDescription)")
+                }
+            }
+
+            try await db.collection(FC.users).document(userID).setData([
+                "fcmTokens": FieldValue.arrayUnion([token]),
+                "fcmTokenUpdatedAt": FieldValue.serverTimestamp(),
+                "platform": "ios"
+            ], merge: true)
+            logger.info("Stored FCM token in Firestore for user \(userID, privacy: .private)")
+            return (true, false)
+        } catch {
+            logger.error("Failed to store FCM token: \(error.localizedDescription)")
+            return (false, true)
+        }
+    }
+
+    /// Removes this device's FCM token from Firestore on sign-out.
+    func removeFCMTokenFromServer() async {
+        guard let token = UserDefaults.standard.string(forKey: "fcmToken"),
+              let userID = Auth.auth().currentUser?.uid else { return }
+
+        UserDefaults.standard.removeObject(forKey: "fcmToken")
+
+        let db = Firestore.firestore()
+        do {
+            try await db.collection(FC.users).document(userID).updateData([
+                "fcmTokens": FieldValue.arrayRemove([token])
+            ])
+            logger.info("Removed FCM token from Firestore for user \(userID, privacy: .private)")
+        } catch {
+            logger.error("Failed to remove FCM token from Firestore: \(error.localizedDescription)")
+        }
+    }
     
     // MARK: - Notification Settings
     
@@ -580,31 +714,39 @@ extension PushNotificationService: UNUserNotificationCenterDelegate {
         switch actionIdentifier {
         case "VIEW_BACKUP":
             NotificationCenter.default.post(name: .navigateToCloudStorage, object: nil)
-            
+
         case "START_RECORDING":
             if let gameId = userInfo["gameId"] as? String {
                 NotificationCenter.default.post(name: .startRecordingForGame, object: gameId)
             } else {
                 logger.warning("START_RECORDING action missing gameId")
             }
-            
+
         case "START_PRACTICE":
             if let practiceId = userInfo["practiceId"] as? String {
                 NotificationCenter.default.post(name: .startRecordingForPractice, object: practiceId)
             } else {
                 logger.warning("START_PRACTICE action missing practiceId")
             }
-            
+
         case "VIEW_SUMMARY":
             NotificationCenter.default.post(name: .navigateToWeeklySummary, object: nil)
-            
+
+        case "VIEW_VIDEO", "VIEW_COMMENT", "VIEW_DRILL_CARD":
+            if let folderID = userInfo["folderID"] as? String {
+                NotificationCenter.default.post(name: .navigateToCoachFolder, object: folderID)
+            }
+
+        case "VIEW_INVITATION":
+            NotificationCenter.default.post(name: .openCoachInvitations, object: nil)
+
         case UNNotificationDefaultActionIdentifier:
             // Handle default tap (open app)
             guard let notificationType = userInfo["type"] as? String else {
                 logger.info("Default notification tap with no type specified")
                 return
             }
-            
+
             switch notificationType {
             case "game_reminder":
                 if let gameId = userInfo["gameId"] as? String {
@@ -619,10 +761,19 @@ extension PushNotificationService: UNUserNotificationCenterDelegate {
             case "weekly_summary":
                 // Fix AJ: route default tap to the same destination as the VIEW_SUMMARY action
                 NotificationCenter.default.post(name: .navigateToWeeklySummary, object: nil)
+            case "new_video", "coach_comment", "drill_card":
+                if let folderID = userInfo["folderID"] as? String {
+                    NotificationCenter.default.post(name: .navigateToCoachFolder, object: folderID)
+                }
+            case "invitation_received", "invitation_accepted":
+                NotificationCenter.default.post(name: .openCoachInvitations, object: nil)
+            case "access_revoked", "access_lapsed":
+                // Refresh notifications — no specific navigation target
+                NotificationCenter.default.post(name: .refreshActivityNotifications, object: nil)
             default:
                 logger.info("Unhandled notification type: \(notificationType)")
             }
-            
+
         default:
             logger.info("Unhandled notification action: \(actionIdentifier)")
         }

@@ -34,20 +34,34 @@ enum SubscriptionGate {
         return max(0, limit - count)
     }
 
+    /// Result of a connected athlete count query. `isConfirmed` is true when the
+    /// Firestore fetch succeeded, false when falling back to local data only.
+    struct AthleteCountResult {
+        let count: Int
+        let isConfirmed: Bool
+    }
+
     /// Full connected athlete count merging folder owners + accepted coach-to-athlete invitations.
     /// This is the single source of truth for athlete limit checks.
+    /// Returns `isConfirmed: false` on network failure (uses local folder count as fallback).
     @MainActor
-    static func fullConnectedAthleteCount(coachID: String) async -> Int {
+    static func fullConnectedAthleteCountResult(coachID: String) async -> AthleteCountResult {
         var athleteIDs = Set(SharedFolderManager.shared.coachFolders.map(\.ownerAthleteID))
+        var confirmed = true
         do {
             let acceptedIDs = try await FirestoreManager.shared.fetchAcceptedCoachToAthleteAthleteIDs(coachID: coachID)
             athleteIDs.formUnion(acceptedIDs)
         } catch {
-            // On network failure, use local folder count as best estimate rather than
-            // blocking all actions with Int.max (which prevents invitations on flaky networks)
+            confirmed = false
             ErrorHandlerService.shared.handle(error, context: "SubscriptionGate.fullConnectedAthleteCount", showAlert: false)
         }
-        return athleteIDs.count
+        return AthleteCountResult(count: athleteIDs.count, isConfirmed: confirmed)
+    }
+
+    /// Full connected athlete count (convenience accessor when confirmation status isn't needed).
+    @MainActor
+    static func fullConnectedAthleteCount(coachID: String) async -> Int {
+        await fullConnectedAthleteCountResult(coachID: coachID).count
     }
 
     /// Whether the coach is at or over their athlete limit (async, includes all sources).

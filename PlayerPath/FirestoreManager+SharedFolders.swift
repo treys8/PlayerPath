@@ -249,30 +249,51 @@ extension FirestoreManager {
                     let videosSnapshot = try await videosQuery.limit(to: 400).getDocuments()
                     guard !videosSnapshot.documents.isEmpty else { break }
 
+                    // Track which docs had successful Storage deletion
+                    var safeToDeleteDocIDs: Set<String> = []
+
                     for doc in videosSnapshot.documents {
                         // Clean up subcollections (annotations, comments, drillCards)
                         await deleteVideoSubcollections(videoID: doc.documentID)
 
-                        // Delete Storage files (best-effort)
+                        // Delete Storage files — only mark doc safe to delete if Storage succeeds
                         let data = doc.data()
                         if let fileName = data["fileName"] as? String {
+                            var storageDeletedOk = true
                             do {
                                 try await VideoCloudManager.shared.deleteVideo(fileName: fileName, folderID: folderID)
                             } catch {
                                 firestoreLog.warning("Failed to delete Storage file \(fileName) in folder \(folderID): \(error.localizedDescription)")
+                                storageDeletedOk = false
                             }
                             do {
                                 try await VideoCloudManager.shared.deleteThumbnail(videoFileName: fileName, folderID: folderID)
                             } catch {
                                 // Thumbnail may not exist — ignore
                             }
+                            if storageDeletedOk {
+                                safeToDeleteDocIDs.insert(doc.documentID)
+                            }
+                        } else {
+                            // No fileName — safe to delete metadata
+                            safeToDeleteDocIDs.insert(doc.documentID)
                         }
                     }
 
-                    // Now delete the Firestore docs
-                    let batch = db.batch()
-                    videosSnapshot.documents.forEach { batch.deleteDocument($0.reference) }
-                    try await batch.commit()
+                    // Only delete Firestore docs whose Storage files were successfully deleted.
+                    // Docs with failed Storage deletes are preserved so a cleanup job can find them.
+                    let docsToDelete = videosSnapshot.documents.filter { safeToDeleteDocIDs.contains($0.documentID) }
+                    if !docsToDelete.isEmpty {
+                        let batch = db.batch()
+                        docsToDelete.forEach { batch.deleteDocument($0.reference) }
+                        try await batch.commit()
+                    }
+
+                    // If some docs couldn't be deleted, log for manual cleanup
+                    let orphanedCount = videosSnapshot.documents.count - docsToDelete.count
+                    if orphanedCount > 0 {
+                        firestoreLog.warning("\(orphanedCount) video doc(s) preserved in folder \(folderID) due to Storage deletion failure")
+                    }
                 }
             }
 
@@ -300,6 +321,9 @@ extension FirestoreManager {
     /// Removes coach access from all folders belonging to the specified athletes
     /// and cancels any accepted invitations for those athletes.
     /// Used when a coach downgrades and must reduce their connected athlete count.
+    /// Revokes coach access from folders owned by the specified athletes.
+    /// Collects errors per-batch so that a single failure doesn't halt the entire operation.
+    /// Returns silently on full success; throws an aggregate error if any batch failed.
     func batchRevokeCoachAccess(
         coachID: String,
         athleteIDsToRevoke: [String]
@@ -313,9 +337,10 @@ extension FirestoreManager {
         let coachSnapshot = try await db.collection(FC.users).document(coachID).getDocument()
         let coachEmail = coachSnapshot.data()?["email"] as? String ?? ""
 
+        var batchErrors: [Error] = []
+
         // 1. Revoke folder access
         if !folders.isEmpty {
-            // Firestore batches are limited to 500 operations — split if needed
             let batchSize = 250 // 2 operations per folder (update + revocation doc)
             for startIndex in stride(from: 0, to: folders.count, by: batchSize) {
                 let chunk = folders[startIndex..<min(startIndex + batchSize, folders.count)]
@@ -345,25 +370,69 @@ extension FirestoreManager {
                     ], forDocument: revocationRef)
                 }
 
-                try await batch.commit()
+                do {
+                    try await batch.commit()
+                } catch {
+                    firestoreLog.error("Batch revocation failed for chunk starting at \(startIndex): \(error.localizedDescription)")
+                    batchErrors.append(error)
+                }
             }
         }
 
         // 2. Delete accepted coach-to-athlete invitations for revoked athletes.
-        // Using delete instead of status update because accepted invitations may
-        // have expired expiresAt values, and security rules block updates on
-        // expired invitations. Delete is allowed by sender without expiration check.
-        let invitationsSnapshot = try await db.collection(FC.invitations)
-            .whereField("type", isEqualTo: "coach_to_athlete")
-            .whereField("coachID", isEqualTo: coachID)
-            .whereField("status", isEqualTo: "accepted")
-            .getDocuments()
+        do {
+            let c2aSnapshot = try await db.collection(FC.invitations)
+                .whereField("type", isEqualTo: "coach_to_athlete")
+                .whereField("coachID", isEqualTo: coachID)
+                .whereField("status", isEqualTo: "accepted")
+                .getDocuments()
 
-        for doc in invitationsSnapshot.documents {
-            let athleteUID = doc.data()["athleteUserID"] as? String ?? ""
-            if revokeSet.contains(athleteUID) {
-                try await doc.reference.delete()
+            for doc in c2aSnapshot.documents {
+                let athleteUID = doc.data()["athleteUserID"] as? String ?? ""
+                if revokeSet.contains(athleteUID) {
+                    do {
+                        try await doc.reference.delete()
+                    } catch {
+                        firestoreLog.error("Failed to delete coach-to-athlete invitation \(doc.documentID): \(error.localizedDescription)")
+                        batchErrors.append(error)
+                    }
+                }
             }
+        } catch {
+            firestoreLog.error("Failed to fetch coach-to-athlete invitations for cleanup: \(error.localizedDescription)")
+            batchErrors.append(error)
+        }
+
+        // 3. Also delete accepted athlete-to-coach invitations for revoked athletes.
+        do {
+            let a2cSnapshot = try await db.collection(FC.invitations)
+                .whereField("type", isEqualTo: "athlete_to_coach")
+                .whereField("acceptedByCoachID", isEqualTo: coachID)
+                .whereField("status", isEqualTo: "accepted")
+                .getDocuments()
+
+            for doc in a2cSnapshot.documents {
+                let athleteID = doc.data()["athleteID"] as? String ?? ""
+                if revokeSet.contains(athleteID) {
+                    do {
+                        try await doc.reference.delete()
+                    } catch {
+                        firestoreLog.error("Failed to delete athlete-to-coach invitation \(doc.documentID): \(error.localizedDescription)")
+                        batchErrors.append(error)
+                    }
+                }
+            }
+        } catch {
+            firestoreLog.error("Failed to fetch athlete-to-coach invitations for cleanup: \(error.localizedDescription)")
+            batchErrors.append(error)
+        }
+
+        if !batchErrors.isEmpty {
+            throw NSError(
+                domain: "PlayerPath",
+                code: -1,
+                userInfo: [NSLocalizedDescriptionKey: "\(batchErrors.count) operation(s) failed during coach access revocation. Some folders may not have been revoked."]
+            )
         }
     }
 }

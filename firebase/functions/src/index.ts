@@ -97,6 +97,217 @@ async function checkEmailRateLimit(uid: string): Promise<boolean> {
   return true;
 }
 
+// ============================================================
+// FCM Push Notification Helper
+// ============================================================
+
+/**
+ * Sends an FCM push notification to a specific user's devices.
+ * Reads fcmTokens from the user's Firestore document.
+ * Automatically cleans up invalid/expired tokens.
+ * Best-effort — failures are logged but never thrown.
+ */
+async function sendPushNotification(
+  userID: string,
+  title: string,
+  body: string,
+  data: Record<string, string> = {},
+  category?: string
+): Promise<void> {
+  try {
+    const userDoc = await admin.firestore().collection('users').doc(userID).get();
+    if (!userDoc.exists) return;
+
+    const userData = userDoc.data()!;
+    const fcmTokens: string[] = userData.fcmTokens || [];
+    if (fcmTokens.length === 0) return;
+
+    const message: admin.messaging.MulticastMessage = {
+      tokens: fcmTokens,
+      notification: { title, body },
+      data: { ...data, type: data.type || '' },
+      apns: {
+        payload: {
+          aps: {
+            sound: 'default',
+            badge: 1,
+            ...(category ? { category } : {}),
+          },
+        },
+      },
+    };
+
+    const response = await admin.messaging().sendEachForMulticast(message);
+
+    // Clean up invalid tokens
+    if (response.failureCount > 0) {
+      const tokensToRemove: string[] = [];
+      response.responses.forEach((resp, idx) => {
+        if (resp.error) {
+          const code = resp.error.code;
+          if (
+            code === 'messaging/invalid-registration-token' ||
+            code === 'messaging/registration-token-not-registered'
+          ) {
+            tokensToRemove.push(fcmTokens[idx]);
+          }
+        }
+      });
+
+      if (tokensToRemove.length > 0) {
+        await admin.firestore().collection('users').doc(userID).update({
+          fcmTokens: admin.firestore.FieldValue.arrayRemove(...tokensToRemove),
+        });
+        console.log(`Removed ${tokensToRemove.length} invalid FCM token(s) for user ${userID}`);
+      }
+    }
+
+    console.log(`FCM sent to ${userID}: ${response.successCount} success, ${response.failureCount} fail`);
+  } catch (error) {
+    // Best-effort — don't fail the calling function
+    console.warn(`⚠️ FCM send failed for user ${userID}:`, error);
+  }
+}
+
+/**
+ * Sends FCM push to multiple users in parallel.
+ */
+async function sendPushToMultipleUsers(
+  userIDs: string[],
+  title: string,
+  body: string,
+  data: Record<string, string> = {},
+  category?: string
+): Promise<void> {
+  await Promise.allSettled(
+    userIDs.map(uid => sendPushNotification(uid, title, body, data, category))
+  );
+}
+
+// ============================================================
+// FCM Triggers for Coach/Athlete Events
+// ============================================================
+
+/**
+ * When a new video is added to a shared folder, push-notify relevant users.
+ * - Athlete uploads → notify all coaches with folder access
+ * - Coach uploads with visibility "shared" → notify the folder owner (athlete)
+ */
+export const onNewSharedVideo = functions.firestore
+  .document('videos/{videoId}')
+  .onCreate(async (snap) => {
+    const video = snap.data();
+    const folderID = video.sharedFolderID;
+    if (!folderID) return; // Personal video, not shared
+
+    // Only notify for completed/visible videos
+    if (video.uploadStatus === 'pending' || video.uploadStatus === 'failed') return;
+    if (video.visibility === 'private') return;
+
+    const folderDoc = await admin.firestore().collection('sharedFolders').doc(folderID).get();
+    if (!folderDoc.exists) return;
+    const folder = folderDoc.data()!;
+
+    const uploaderName = video.uploadedByName || 'Someone';
+    const uploaderType = video.uploadedByType; // "athlete" or "coach"
+
+    if (uploaderType === 'athlete') {
+      // Notify all coaches with folder access
+      const coachIDs: string[] = folder.sharedWithCoachIDs || [];
+      if (coachIDs.length > 0) {
+        await sendPushToMultipleUsers(
+          coachIDs,
+          'New Video Shared',
+          `${uploaderName} shared a new video in ${folder.name || 'a folder'}`,
+          { type: 'new_video', folderID },
+          'COACH_VIDEO'
+        );
+      }
+    } else if (uploaderType === 'coach') {
+      // Notify the folder owner (athlete)
+      const athleteID = folder.ownerAthleteID;
+      if (athleteID) {
+        await sendPushNotification(
+          athleteID,
+          'New Coach Video',
+          `${uploaderName} uploaded a video for you`,
+          { type: 'new_video', folderID },
+          'COACH_VIDEO'
+        );
+      }
+    }
+  });
+
+/**
+ * When a comment is added to a video, notify the video uploader.
+ */
+export const onNewComment = functions.firestore
+  .document('videos/{videoId}/comments/{commentId}')
+  .onCreate(async (snap, context) => {
+    const comment = snap.data();
+    const videoId = context.params.videoId;
+
+    const videoDoc = await admin.firestore().collection('videos').doc(videoId).get();
+    if (!videoDoc.exists) return;
+    const video = videoDoc.data()!;
+
+    // Don't notify if the commenter is the video uploader, or if uploader is unknown
+    if (!video.uploadedBy) return;
+    if (comment.authorID === video.uploadedBy) return;
+
+    const commenterName = comment.authorName || 'Someone';
+    const preview = (comment.text || '').substring(0, 80);
+
+    await sendPushNotification(
+      video.uploadedBy,
+      'New Comment',
+      `${commenterName}: ${preview}`,
+      {
+        type: 'coach_comment',
+        folderID: video.sharedFolderID || '',
+        videoID: videoId,
+      },
+      'COACH_COMMENT'
+    );
+  });
+
+/**
+ * When a drill card is added to a video, notify the folder owner.
+ */
+export const onNewDrillCard = functions.firestore
+  .document('videos/{videoId}/drillCards/{cardId}')
+  .onCreate(async (snap, context) => {
+    const card = snap.data();
+    const videoId = context.params.videoId;
+
+    const videoDoc = await admin.firestore().collection('videos').doc(videoId).get();
+    if (!videoDoc.exists) return;
+    const video = videoDoc.data()!;
+
+    if (!video.sharedFolderID) return;
+
+    const folderDoc = await admin.firestore().collection('sharedFolders').doc(video.sharedFolderID).get();
+    if (!folderDoc.exists) return;
+    const folder = folderDoc.data()!;
+
+    const coachName = card.coachName || 'Your coach';
+
+    // Notify the athlete (folder owner)
+    if (folder.ownerAthleteID && folder.ownerAthleteID !== card.coachID) {
+      await sendPushNotification(
+        folder.ownerAthleteID,
+        'New Drill Card',
+        `${coachName} added a drill card to your video`,
+        {
+          type: 'drill_card',
+          folderID: video.sharedFolderID,
+          videoID: videoId,
+        },
+        'DRILL_CARD'
+      );
+    }
+  });
+
 /**
  * Triggers when a new invitation is created in Firestore.
  * Routes to the appropriate email template based on invitation type:
@@ -174,6 +385,21 @@ async function sendAthleteToCoachEmail(
     emailSentAt: admin.firestore.FieldValue.serverTimestamp(),
     emailSent: true
   });
+
+  // Also send FCM push to coach (if they already have an account)
+  const coachSnap = await admin.firestore().collection('users')
+    .where('email', '==', invitation.coachEmail.toLowerCase())
+    .limit(1)
+    .get();
+  if (!coachSnap.empty) {
+    await sendPushNotification(
+      coachSnap.docs[0].id,
+      'New Invitation',
+      `${invitation.athleteName} invited you to collaborate on PlayerPath`,
+      { type: 'invitation_received', invitationID: invitationId },
+      'INVITATION'
+    );
+  }
 }
 
 /**
@@ -215,6 +441,21 @@ async function sendCoachToAthleteEmail(
     invitation.coachID,
     invitationId
   );
+
+  // Also send FCM push to athlete (if they have an account)
+  const athleteSnap = await admin.firestore().collection('users')
+    .where('email', '==', invitation.athleteEmail.toLowerCase())
+    .limit(1)
+    .get();
+  if (!athleteSnap.empty) {
+    await sendPushNotification(
+      athleteSnap.docs[0].id,
+      'New Coach Invitation',
+      `Coach ${invitation.coachName} wants to connect with you on PlayerPath`,
+      { type: 'invitation_received', invitationID: invitationId },
+      'INVITATION'
+    );
+  }
 }
 
 /**
@@ -981,6 +1222,12 @@ export const acceptAthleteToCoachInvitation = functions.https.onCall(async (data
   const ownerAthleteID = preCheckData?.athleteID || preCheckData?.athleteUserID;
 
   if (ownerAthleteID && !connectedAthletes.has(ownerAthleteID) && connectedAthletes.size >= limit) {
+    // Update invitation status before throwing so client UI shows "rejected" instead of "pending"
+    await db.collection('invitations').doc(invitationID).update({
+      status: 'rejected_limit',
+      rejectedReason: 'Coach athlete limit reached',
+      rejectedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
     throw new functions.https.HttpsError(
       'resource-exhausted',
       'You have reached your athlete limit. Upgrade your plan to accept more athletes.'
@@ -1155,6 +1402,12 @@ export const acceptCoachToAthleteInvitation = functions.https.onCall(async (data
   }
 
   if (!connectedAthletes.has(athleteUserID) && connectedAthletes.size >= limit) {
+    // Update invitation status before throwing so client UI shows "rejected" instead of "pending"
+    await db.collection('invitations').doc(invitationID).update({
+      status: 'rejected_limit',
+      rejectedReason: 'Coach athlete limit reached',
+      rejectedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
     throw new functions.https.HttpsError(
       'resource-exhausted',
       'This coach has reached their athlete limit. The invitation cannot be accepted.'
@@ -2090,6 +2343,46 @@ export const dailyStorageCleanup = functions.pubsub
       console.log(`✅ Deleted ${expiredCount} expired invitations`);
     } catch (err) {
       console.error('Error deleting expired invitations:', err);
+    }
+
+    // --- 4. Clean up orphaned uploads (metadata-first pattern) ---
+    // Videos with uploadStatus "pending" or "failed" older than 24 hours
+    // indicate interrupted uploads whose metadata was written but file never completed.
+    let orphanedUploadCount = 0;
+    try {
+      const twentyFourHoursAgo = new Date();
+      twentyFourHoursAgo.setHours(twentyFourHoursAgo.getHours() - 24);
+
+      const orphanedSnap = await db.collection('videos')
+        .where('uploadStatus', 'in', ['pending', 'failed'])
+        .where('createdAt', '<=', admin.firestore.Timestamp.fromDate(twentyFourHoursAgo))
+        .limit(200)
+        .get();
+
+      for (const doc of orphanedSnap.docs) {
+        const data = doc.data();
+        const fileName = data.fileName as string;
+        const folderID = data.sharedFolderID as string;
+
+        // Attempt to delete any partial Storage file (may not exist)
+        if (fileName && folderID) {
+          try {
+            await bucket.file(`shared_folders/${folderID}/${fileName}`).delete();
+          } catch (err: any) {
+            if (err?.code !== 404) {
+              console.warn(`Failed to delete orphaned Storage file ${fileName}:`, err);
+            }
+          }
+        }
+
+        // Delete the metadata doc
+        await doc.ref.delete();
+        orphanedUploadCount++;
+      }
+
+      console.log(`✅ Cleaned up ${orphanedUploadCount} orphaned upload metadata docs`);
+    } catch (err) {
+      console.error('Error cleaning up orphaned uploads:', err);
     }
 
     return null;

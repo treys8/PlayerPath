@@ -312,7 +312,9 @@ extension ComprehensiveAuthManager {
             // (e.g. Firestore profile write, task cancellation from SignInView.onDisappear),
             // keep isNewUser = true so the coach still sees the onboarding flow.
             // Any missing Firestore profile will be re-created on the next loadUserProfile() call.
-            if isSignedIn {
+            if currentFirebaseUser != nil {
+                // Firebase account was created but a later step failed (invitations, verification email, etc.)
+                // Preserve coach state so the user still sees verification/onboarding flow.
                 authLog.warning("Coach sign up: post-auth step failed but account exists — preserving onboarding state: \(error.localizedDescription)")
             } else {
                 isNewUser = false
@@ -334,9 +336,10 @@ extension ComprehensiveAuthManager {
             AnalyticsService.shared.trackSignOut()
             AnalyticsService.shared.clearUserID()
 
-            // Remove this device's push token before signing out so it stops
+            // Remove this device's push tokens (APNs + FCM) before signing out so it stops
             // receiving notifications for this account on this device.
             await PushNotificationService.shared.removeTokenFromServer()
+            await PushNotificationService.shared.removeFCMTokenFromServer()
 
             try Auth.auth().signOut()
             currentFirebaseUser = nil

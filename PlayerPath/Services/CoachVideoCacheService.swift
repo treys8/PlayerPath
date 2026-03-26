@@ -46,7 +46,16 @@ final class CoachVideoCacheService {
         downloadProgress = 0
         let (tempURL, response) = try await URLSession.shared.download(from: signedURL)
 
-        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw URLError(.badServerResponse)
+        }
+
+        // Detect expired signed URLs so callers can refresh and retry
+        if httpResponse.statusCode == 403 || httpResponse.statusCode == 401 {
+            throw CoachVideoCacheError.signedURLExpired
+        }
+
+        guard httpResponse.statusCode == 200 else {
             throw URLError(.badServerResponse)
         }
 
@@ -70,6 +79,13 @@ final class CoachVideoCacheService {
         cacheLog.info("Cleared coach video cache")
     }
 
+    /// Deletes cached videos for a specific folder (e.g., after access revocation).
+    func clearCache(forFolderID folderID: String) {
+        let folderDir = cacheRoot.appendingPathComponent(folderID, isDirectory: true)
+        try? FileManager.default.removeItem(at: folderDir)
+        cacheLog.info("Cleared cache for folder \(folderID)")
+    }
+
     /// Total bytes used by the cache.
     func cacheSize() -> Int64 {
         guard let enumerator = FileManager.default.enumerator(at: cacheRoot, includingPropertiesForKeys: [.fileSizeKey]) else { return 0 }
@@ -78,5 +94,16 @@ final class CoachVideoCacheService {
             total += (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize.map(Int64.init)) ?? 0
         }
         return total
+    }
+}
+
+enum CoachVideoCacheError: LocalizedError {
+    case signedURLExpired
+
+    var errorDescription: String? {
+        switch self {
+        case .signedURLExpired:
+            return "Video link has expired. Refreshing..."
+        }
     }
 }

@@ -79,6 +79,26 @@ struct PlayerPathMainView: View {
                 ForceUpdateView(updateURL: updateManager.updateURL)
             } else if authManager.isSignedIn {
                 AuthenticatedFlow()
+            } else if authManager.needsEmailVerification {
+                // User signed up but hasn't verified email — show verification UI directly.
+                // WelcomeFlow only shows Get Started / Sign In buttons; EmailVerificationView
+                // is buried inside a sheet there, so we surface it at the top level instead.
+                NavigationStack {
+                    EmailVerificationView()
+                        .environmentObject(authManager)
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button {
+                                    Task { await authManager.cancelEmailVerification() }
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .font(.title3)
+                                        .symbolRenderingMode(.hierarchical)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                }
             } else if authManager.currentFirebaseUser != nil {
                 // Firebase session exists but profile hasn't loaded yet —
                 // show a splash screen instead of flashing the sign-in view.

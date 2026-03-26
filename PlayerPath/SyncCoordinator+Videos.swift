@@ -264,7 +264,7 @@ extension SyncCoordinator {
                 pendingDownloadTasks[taskID] = Task { [weak self] in
                     guard let self else { return }
                     await downloadVideoFile(clip: newClip, context: context)
-                    pendingDownloadTasks.removeValue(forKey: taskID)
+                    await MainActor.run { _ = self.pendingDownloadTasks.removeValue(forKey: taskID) }
                 }
             }
 

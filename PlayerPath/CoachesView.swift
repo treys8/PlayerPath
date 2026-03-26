@@ -284,37 +284,39 @@ struct CoachesView: View {
 
         withAnimation {
             modelContext.delete(coach)
-            Task {
-                do {
-                    try modelContext.save()
-                    Haptics.medium()
-                } catch {
-                    Haptics.error()
-                }
+        }
 
-                // Revoke Firestore folder access in the background.
-                // Silent failures are acceptable — Firestore rules prevent
-                // unauthorized access regardless.
-                if let coachID = firebaseCoachID, !sharedFolderIDs.isEmpty {
-                    for folderID in sharedFolderIDs {
-                        do {
-                            try await FirestoreManager.shared.removeCoachFromFolder(
-                                folderID: folderID,
-                                coachID: coachID
-                            )
-                        } catch {
-                            ErrorHandlerService.shared.handle(error, context: "CoachesView.removeCoachFromFolder", showAlert: false)
-                        }
-                    }
-                }
+        Task {
+            do {
+                try modelContext.save()
+                Haptics.medium()
+            } catch {
+                ErrorHandlerService.shared.handle(error, context: "CoachesView.deleteCoach save", showAlert: false)
+                Haptics.error()
+            }
 
-                // Soft-delete coach record in Firestore
-                if let coachFirestoreId, let userId, let athleteFirestoreId {
-                    await retryAsync {
-                        try await FirestoreManager.shared.deleteCoach(
-                            userId: userId, athleteFirestoreId: athleteFirestoreId, coachId: coachFirestoreId
+            // Revoke Firestore folder access in the background.
+            // Silent failures are acceptable — Firestore rules prevent
+            // unauthorized access regardless.
+            if let coachID = firebaseCoachID, !sharedFolderIDs.isEmpty {
+                for folderID in sharedFolderIDs {
+                    do {
+                        try await FirestoreManager.shared.removeCoachFromFolder(
+                            folderID: folderID,
+                            coachID: coachID
                         )
+                    } catch {
+                        ErrorHandlerService.shared.handle(error, context: "CoachesView.removeCoachFromFolder", showAlert: false)
                     }
+                }
+            }
+
+            // Soft-delete coach record in Firestore
+            if let coachFirestoreId, let userId, let athleteFirestoreId {
+                await retryAsync {
+                    try await FirestoreManager.shared.deleteCoach(
+                        userId: userId, athleteFirestoreId: athleteFirestoreId, coachId: coachFirestoreId
+                    )
                 }
             }
         }

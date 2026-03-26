@@ -19,6 +19,7 @@
 		2DF23B942EAD2514001C3216 /* Assets.xcassetsContents.json in Resources */ = {isa = PBXBuildFile; fileRef = 2DF23B932EAD2514001C3216 /* Assets.xcassetsContents.json */; };
 		2DF23B962EAD2521001C3216 /* Assets.xcassetsAppIcon.appiconsetContents.json in Resources */ = {isa = PBXBuildFile; fileRef = 2DF23B952EAD2521001C3216 /* Assets.xcassetsAppIcon.appiconsetContents.json */; };
 		AABB00012EF9000000000001 /* FirebaseCrashlytics in Frameworks */ = {isa = PBXBuildFile; productRef = AABB00002EF9000000000001 /* FirebaseCrashlytics */; };
+		AABB00032EF9000000000002 /* FirebaseMessaging in Frameworks */ = {isa = PBXBuildFile; productRef = AABB00022EF9000000000002 /* FirebaseMessaging */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -65,6 +66,7 @@
 				2D2FA2D82EB28A66002E1B80 /* StoreKit.framework in Frameworks */,
 				2DB4F0352F71631E00884F9E /* FirebaseAppCheck in Frameworks */,
 				AABB00012EF9000000000001 /* FirebaseCrashlytics in Frameworks */,
+				AABB00032EF9000000000002 /* FirebaseMessaging in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -129,6 +131,7 @@
 				2DC94F732ED25AD600EFDC25 /* FirebaseFunctions */,
 				AABB00002EF9000000000001 /* FirebaseCrashlytics */,
 				2DB4F0342F71631E00884F9E /* FirebaseAppCheck */,
+				AABB00022EF9000000000002 /* FirebaseMessaging */,
 			);
 			productName = DT3;
 			productReference = 2D3C65892EAB1CC900BC2B9C /* PlayerPath.app */;
@@ -224,7 +227,7 @@
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
 				CODE_SIGN_ENTITLEMENTS = PlayerPath/PlayerPath.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 104;
+				CURRENT_PROJECT_VERSION = 105;
 				DEVELOPMENT_TEAM = GW6V623MC7;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -245,7 +248,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 4.1;
+				MARKETING_VERSION = 4.1.1;
 				PRODUCT_BUNDLE_IDENTIFIER = RZR.DT3;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -266,7 +269,7 @@
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
 				CODE_SIGN_ENTITLEMENTS = PlayerPath/PlayerPath.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 104;
+				CURRENT_PROJECT_VERSION = 105;
 				DEVELOPMENT_TEAM = GW6V623MC7;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -287,7 +290,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 4.1;
+				MARKETING_VERSION = 4.1.1;
 				PRODUCT_BUNDLE_IDENTIFIER = RZR.DT3;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -497,6 +500,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 2D14AB942EAE7157007951C5 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
 			productName = FirebaseCrashlytics;
+		};
+		AABB00022EF9000000000002 /* FirebaseMessaging */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 2D14AB942EAE7157007951C5 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseMessaging;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

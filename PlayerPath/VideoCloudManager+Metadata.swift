@@ -218,60 +218,10 @@ extension VideoCloudManager {
             .limit(to: 200)
             .getDocuments()
 
-        var videos: [VideoClipMetadata] = []
+        let videos = snapshot.documents.compactMap { VideoClipMetadata(from: $0.data()) }
 
-        for document in snapshot.documents {
-            let data = document.data()
-
-            guard let idString = data["id"] as? String,
-                  let id = UUID(uuidString: idString),
-                  let fileName = data["fileName"] as? String,
-                  let downloadURL = data["downloadURL"] as? String,
-                  let athleteName = data["athleteName"] as? String else {
-                continue
-            }
-
-            let createdAt: Date
-            if let timestamp = data["createdAt"] as? Timestamp {
-                createdAt = timestamp.dateValue()
-            } else {
-                createdAt = Date()
-            }
-
-            let updatedAt: Date
-            if let updatedTimestamp = data["updatedAt"] as? Timestamp {
-                updatedAt = updatedTimestamp.dateValue()
-            } else {
-                updatedAt = createdAt
-            }
-
-            let metadata = VideoClipMetadata(
-                id: id,
-                fileName: fileName,
-                downloadURL: downloadURL,
-                createdAt: createdAt,
-                updatedAt: updatedAt,
-                isHighlight: data["isHighlight"] as? Bool ?? false,
-                playResult: data["playResultName"] as? String,
-                playResultRawValue: data["playResult"] as? Int,
-                note: data["note"] as? String,
-                gameId: data["gameId"] as? String,
-                gameOpponent: data["gameOpponent"] as? String,
-                gameDate: (data["gameDate"] as? Timestamp)?.dateValue(),
-                seasonId: data["seasonId"] as? String,
-                seasonName: data["seasonName"] as? String,
-                practiceId: data["practiceId"] as? String,
-                practiceDate: (data["practiceDate"] as? Timestamp)?.dateValue(),
-                pitchSpeed: data["pitchSpeed"] as? Double,
-                pitchType: data["pitchType"] as? String,
-                duration: data["duration"] as? Double,
-                athleteName: athleteName,
-                fileSize: data["fileSize"] as? Int64 ?? 0,
-                thumbnailURL: data["thumbnailURL"] as? String,
-                isDeleted: data["isDeleted"] as? Bool ?? false
-            )
-
-            videos.append(metadata)
+        if snapshot.documents.count == 200 {
+            videoCloudLog.warning("syncVideos hit 200-document limit for athlete \(athleteStableId) — older videos may be missing")
         }
 
         return videos
@@ -287,75 +237,4 @@ extension VideoCloudManager {
         ])
     }
 
-    /// Sets up a real-time listener for new videos from other devices
-    func listenForNewVideos(
-        for athlete: Athlete,
-        onNewVideo: @escaping (VideoClipMetadata) -> Void
-    ) -> ListenerRegistration {
-        let athleteStableId = athlete.firestoreId ?? athlete.id.uuidString
-        let db = Firestore.firestore()
-        guard let ownerUID = Auth.auth().currentUser?.uid else {
-            return db.collection(FC.videos).limit(to: 0).addSnapshotListener { _, _ in }
-        }
-
-        let listener = db.collection(FC.videos)
-            .whereField("uploadedBy", isEqualTo: ownerUID)
-            .whereField("athleteId", isEqualTo: athleteStableId)
-            .whereField("isDeleted", isEqualTo: false)
-            .limit(to: 200)
-            .addSnapshotListener { snapshot, error in
-                guard let snapshot = snapshot else {
-                    return
-                }
-
-                for change in snapshot.documentChanges where change.type == .added {
-                    let data = change.document.data()
-
-                    guard let idString = data["id"] as? String,
-                          let id = UUID(uuidString: idString),
-                          let fileName = data["fileName"] as? String,
-                          let downloadURL = data["downloadURL"] as? String,
-                          let athleteName = data["athleteName"] as? String else {
-                        continue
-                    }
-
-                    let createdAt: Date
-                    if let timestamp = data["createdAt"] as? Timestamp {
-                        createdAt = timestamp.dateValue()
-                    } else {
-                        createdAt = Date()
-                    }
-
-                    let metadata = VideoClipMetadata(
-                        id: id,
-                        fileName: fileName,
-                        downloadURL: downloadURL,
-                        createdAt: createdAt,
-                        updatedAt: (data["updatedAt"] as? Timestamp)?.dateValue() ?? createdAt,
-                        isHighlight: data["isHighlight"] as? Bool ?? false,
-                        playResult: data["playResultName"] as? String,
-                        playResultRawValue: data["playResult"] as? Int,
-                        note: data["note"] as? String,
-                        gameId: data["gameId"] as? String,
-                        gameOpponent: data["gameOpponent"] as? String,
-                        gameDate: (data["gameDate"] as? Timestamp)?.dateValue(),
-                        seasonId: data["seasonId"] as? String,
-                        seasonName: data["seasonName"] as? String,
-                        practiceId: data["practiceId"] as? String,
-                        practiceDate: (data["practiceDate"] as? Timestamp)?.dateValue(),
-                        pitchSpeed: data["pitchSpeed"] as? Double,
-                        pitchType: data["pitchType"] as? String,
-                        duration: data["duration"] as? Double,
-                        athleteName: athleteName,
-                        fileSize: data["fileSize"] as? Int64 ?? 0,
-                        thumbnailURL: data["thumbnailURL"] as? String,
-                        isDeleted: data["isDeleted"] as? Bool ?? false
-                    )
-
-                    onNewVideo(metadata)
-                }
-            }
-
-        return listener
-    }
 }

@@ -109,7 +109,7 @@ struct DataExportView: View {
 
             // Write file off main thread (we're already in async context)
             if let dataString {
-                exportFileURL = createExportFile(data: dataString)
+                exportFileURL = try createExportFile(data: dataString)
             }
 
             // Track export completion
@@ -338,23 +338,18 @@ struct DataExportView: View {
         // Export Metadata
         exportData["exportMetadata"] = [
             "exportedAt": Self.isoFormatter.string(from: Date()),
-            "appVersion": "1.0.0",
+            "appVersion": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown",
             "format": "PlayerPath JSON v1"
         ]
 
         return exportData
     }
 
-    private func createExportFile(data: String) -> URL {
+    private func createExportFile(data: String) throws -> URL {
         let fileName = "PlayerPath_Export_\(dateFormatter.string(from: Date())).json"
         let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
-
-        do {
-            try data.write(to: tempURL, atomically: true, encoding: .utf8)
-            return tempURL
-        } catch {
-            return tempURL
-        }
+        try data.write(to: tempURL, atomically: true, encoding: .utf8)
+        return tempURL
     }
 
     private var dateFormatter: DateFormatter {

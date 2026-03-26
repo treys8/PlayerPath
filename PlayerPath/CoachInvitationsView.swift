@@ -13,6 +13,7 @@ struct CoachInvitationsView: View {
     @State private var viewModel = CoachInvitationsViewModel()
     @State private var showingPaywall = false
     @State private var lastFetchDate: Date?
+    @State private var showingError = false
     @State private var selectedTab: InvitationTab = .received
 
     enum InvitationTab: String, CaseIterable {
@@ -49,7 +50,7 @@ struct CoachInvitationsView: View {
             await loadInvitations()
             lastFetchDate = Date()
         }
-        .alert("Error", isPresented: .constant(viewModel.errorMessage != nil)) {
+        .alert("Error", isPresented: $showingError) {
             Button("OK") {
                 viewModel.errorMessage = nil
             }
@@ -57,6 +58,9 @@ struct CoachInvitationsView: View {
             if let error = viewModel.errorMessage {
                 Text(error)
             }
+        }
+        .onChange(of: viewModel.errorMessage) { _, newValue in
+            showingError = newValue != nil
         }
         .sheet(isPresented: $showingPaywall, onDismiss: {
             // Re-check athlete limit after paywall (coach may have upgraded)

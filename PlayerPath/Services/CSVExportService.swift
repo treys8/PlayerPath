@@ -16,7 +16,8 @@ enum CSVExportError: LocalizedError {
     }
 }
 
-final class CSVExportService: Sendable {
+@MainActor
+final class CSVExportService {
     static let shared = CSVExportService()
 
     private init() {}

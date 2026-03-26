@@ -356,155 +356,61 @@ class CoachVideoUploadViewModel {
             return
         }
 
+        // Copy video to stable Documents path for queue persistence
+        let fileName = generateFileName()
+        let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        let coachUploadsDir = documentsURL.appendingPathComponent("coach_pending_uploads", isDirectory: true)
+        try? FileManager.default.createDirectory(at: coachUploadsDir, withIntermediateDirectories: true)
+        let stablePath = coachUploadsDir.appendingPathComponent(fileName)
+
         do {
-            // Generate file name
-            let fileName = generateFileName()
-            
-            // Step 1: Generate thumbnail (10% of progress)
-            uploadProgress = 0.05
-            let thumbnailResult = await VideoFileManager.generateThumbnail(from: videoURL)
-            
-            var thumbnailURL: String?
-            
-            if case .success(let localThumbnailPath) = thumbnailResult {
-                // Step 2: Upload thumbnail with retry (20% of progress)
-                uploadProgress = 0.15
-                do {
-                    thumbnailURL = try await withRetry(maxAttempts: 2, delay: .seconds(2)) {
-                        try await VideoCloudManager.shared.uploadThumbnail(
-                            thumbnailURL: URL(fileURLWithPath: localThumbnailPath),
-                            videoFileName: fileName,
-                            folderID: folderID
-                        )
-                    }
-                    // Clean up local thumbnail
-                    VideoFileManager.cleanup(url: URL(fileURLWithPath: localThumbnailPath))
-                } catch {
-                    // Continue even if thumbnail fails — video upload proceeds without thumbnail
-                    VideoFileManager.cleanup(url: URL(fileURLWithPath: localThumbnailPath))
-                    ErrorHandlerService.shared.handle(error, context: "CoachVideoUpload.thumbnailUpload", showAlert: false)
-                }
-            } else {
-                ErrorHandlerService.shared.handle(
-                    NSError(domain: "CoachVideoUpload", code: -1, userInfo: [NSLocalizedDescriptionKey: "Thumbnail generation failed"]),
-                    context: "CoachVideoUpload.thumbnailGeneration",
-                    showAlert: false
-                )
+            if FileManager.default.fileExists(atPath: stablePath.path) {
+                try FileManager.default.removeItem(at: stablePath)
             }
-
-            uploadProgress = 0.2
-            
-            // Step 3: Upload video (20% - 100% of progress)
-            let storageURL = try await VideoCloudManager.shared.uploadVideo(
-                localURL: videoURL,
-                fileName: fileName,
-                folderID: folderID,
-                progressHandler: { videoProgress in
-                    Task { @MainActor in
-                        // Map video progress from 20% to 100%
-                        self.uploadProgress = 0.2 + (videoProgress * 0.8)
-                    }
-                }
-            )
-            
-            // Extract file size and duration before creating metadata
-            let fileSize: Int64
-            do {
-                let attrs = try FileManager.default.attributesOfItem(atPath: videoURL.path)
-                fileSize = attrs[.size] as? Int64 ?? 0
-            } catch {
-                fileSize = 0
-            }
-
-            let duration: Double?
-            do {
-                let asset = AVURLAsset(url: videoURL)
-                let cmDuration = try await asset.load(.duration)
-                duration = cmDuration.seconds.isFinite ? cmDuration.seconds : nil
-            } catch {
-                duration = nil
-            }
-
-            // Step 4: Create metadata in Firestore
-            let thumbnailMeta: ThumbnailMetadata? = thumbnailURL.map { ThumbnailMetadata(standardURL: $0) }
-
-            var gameCtx: GameContext?
-            var practiceCtx: PracticeContext?
-            let resolvedVideoType: String
-
-            switch videoContext {
-            case .game:
-                resolvedVideoType = "game"
-                gameCtx = GameContext(
-                    opponent: gameOpponent,
-                    date: contextDate,
-                    notes: notes.isEmpty ? nil : notes
-                )
-            case .instruction:
-                resolvedVideoType = "instruction"
-                practiceCtx = PracticeContext(
-                    date: contextDate,
-                    notes: notes.isEmpty ? nil : notes
-                )
-            }
-
-            do {
-                _ = try await FirestoreManager.shared.uploadVideoMetadata(
-                    fileName: fileName,
-                    storageURL: storageURL,
-                    thumbnail: thumbnailMeta,
-                    folderID: folderID,
-                    uploadedBy: uploaderID,
-                    uploadedByName: uploaderName,
-                    fileSize: fileSize,
-                    duration: duration,
-                    videoType: resolvedVideoType,
-                    gameContext: gameCtx,
-                    practiceContext: practiceCtx,
-                    uploadedByType: .coach,
-                    visibility: "shared",
-                    isHighlight: isHighlight
-                )
-            } catch {
-                ErrorHandlerService.shared.handle(error, context: "CoachVideoUpload.metadataRollback", showAlert: false)
-                do {
-                    try await VideoCloudManager.shared.deleteVideo(fileName: fileName, folderID: folderID)
-                } catch {
-                    ErrorHandlerService.shared.handle(error, context: "CoachVideoUpload.rollbackVideo", showAlert: false)
-                }
-                do {
-                    try await VideoCloudManager.shared.deleteThumbnail(videoFileName: fileName, folderID: folderID)
-                } catch {
-                    ErrorHandlerService.shared.handle(error, context: "CoachVideoUpload.rollbackThumbnail", showAlert: false)
-                }
-                throw error
-            }
-
-            // Notify the athlete (folder owner) that the coach added a video
-            // Note: coachIDs param is used as generic recipientIDs by the notification service
-            await ActivityNotificationService.shared.postNewVideoNotification(
-                folderID: folderID,
-                folderName: folder.name,
-                uploaderID: uploaderID,
-                uploaderName: uploaderName,
-                coachIDs: [folder.ownerAthleteID],
-                videoFileName: fileName
-            )
-
-            uploadComplete = true
-            Haptics.success()
-
+            try FileManager.default.copyItem(at: videoURL, to: stablePath)
         } catch {
-            errorMessage = "Upload failed: \(error.localizedDescription)"
-            ErrorHandlerService.shared.handle(error, context: "CoachVideoUploadView.uploadVideo", showAlert: false)
+            errorMessage = "Failed to prepare video for upload: \(error.localizedDescription)"
+            isUploading = false
+            return
         }
 
-        // Clean up picker temp file regardless of outcome
+        // Enqueue to UploadQueueManager for background task support, retry, and persistence
+        UploadQueueManager.shared.enqueueCoachUpload(
+            fileName: fileName,
+            filePath: stablePath.path,
+            folderID: folderID,
+            coachID: uploaderID,
+            coachName: uploaderName,
+            priority: .high
+        )
+
+        // Clean up picker temp file
         if let url = pickerTempURL {
             try? FileManager.default.removeItem(at: url)
             pickerTempURL = nil
         }
 
+        // Monitor queue progress — must match the deterministic UUID used by UploadQueueManager
+        let clipId = UploadQueueManager.stableUUID(from: "\(folderID)|\(fileName)")
+        Task { @MainActor in
+            while !Task.isCancelled {
+                if let progress = UploadQueueManager.shared.getProgress(for: clipId) {
+                    uploadProgress = progress
+                } else if UploadQueueManager.shared.failedUploads.contains(where: { $0.clipId == clipId }) {
+                    errorMessage = "Upload failed. It will be retried automatically."
+                    isUploading = false
+                    return
+                } else if !UploadQueueManager.shared.pendingUploads.contains(where: { $0.clipId == clipId })
+                            && UploadQueueManager.shared.activeUploads[clipId] == nil {
+                    // Upload completed (no longer in any queue)
+                    break
+                }
+                try? await Task.sleep(for: .milliseconds(250))
+            }
+        }
+
+        uploadComplete = true
+        Haptics.success()
         isUploading = false
     }
     

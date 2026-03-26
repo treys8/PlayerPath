@@ -126,6 +126,10 @@ struct FirestoreVideoMetadata: Codable, Identifiable {
     var visibility: String? = nil
     var instructionDate: Date? = nil
 
+    // Upload lifecycle tracking (metadata-first pattern)
+    var uploadStatus: String? = nil // "pending", "completed", "failed" — nil for legacy
+    var uploadStartedAt: Date? = nil
+
     // View tracking
     var viewCount: Int? = nil
     var lastViewedAt: Date? = nil

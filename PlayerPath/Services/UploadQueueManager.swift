@@ -216,16 +216,34 @@ final class UploadQueueManager {
                 pendingUploads.map { ($0, .pending) } + failedUploads.map { ($0, .failed) }
 
             for (index, (upload, status)) in allUploads.enumerated() {
-                let persistedUpload = PendingUpload(
-                    clipId: upload.clipId,
-                    athleteId: upload.athleteId,
-                    fileName: upload.fileName,
-                    filePath: upload.filePath,
-                    priority: upload.priority.rawValue,
-                    retryCount: upload.retryCount,
-                    lastAttempt: upload.lastAttempt,
-                    status: status
-                )
+                let persistedUpload: PendingUpload
+                if upload.isCoachUpload, let folderID = upload.folderID,
+                   let coachID = upload.coachID, let coachName = upload.coachName {
+                    persistedUpload = PendingUpload(
+                        clipId: upload.clipId,
+                        fileName: upload.fileName,
+                        filePath: upload.filePath,
+                        priority: upload.priority.rawValue,
+                        retryCount: upload.retryCount,
+                        lastAttempt: upload.lastAttempt,
+                        status: status,
+                        folderID: folderID,
+                        coachID: coachID,
+                        coachName: coachName,
+                        sessionID: upload.sessionID
+                    )
+                } else {
+                    persistedUpload = PendingUpload(
+                        clipId: upload.clipId,
+                        athleteId: upload.athleteId ?? UUID(),
+                        fileName: upload.fileName,
+                        filePath: upload.filePath,
+                        priority: upload.priority.rawValue,
+                        retryCount: upload.retryCount,
+                        lastAttempt: upload.lastAttempt,
+                        status: status
+                    )
+                }
                 modelContext.insert(persistedUpload)
 
                 // Yield every 20 inserts to keep UI responsive
@@ -255,34 +273,56 @@ final class UploadQueueManager {
 
             // Restore to in-memory queues
             for persisted in persistedUploads {
-                // Verify the video clip still exists
-                let clipIdToFind = persisted.clipId
-                let clipDescriptor = FetchDescriptor<VideoClip>(
-                    predicate: #Predicate<VideoClip> { clip in
-                        clip.id == clipIdToFind
+                let queuedUpload: QueuedUpload
+
+                if persisted.isCoachUpload, let folderID = persisted.folderID,
+                   let coachID = persisted.coachID, let coachName = persisted.coachName {
+                    // Coach upload — verify local file still exists
+                    guard FileManager.default.fileExists(atPath: persisted.filePath) else {
+                        modelContext.delete(persisted)
+                        continue
                     }
-                )
-                guard let clip = try modelContext.fetch(clipDescriptor).first else {
-                    // Clip no longer exists, delete persisted record
-                    modelContext.delete(persisted)
-                    continue
-                }
+                    queuedUpload = QueuedUpload(
+                        clipId: persisted.clipId,
+                        fileName: persisted.fileName,
+                        filePath: persisted.filePath,
+                        priority: UploadPriority(rawValue: persisted.priority) ?? .normal,
+                        retryCount: persisted.retryCount,
+                        lastAttempt: persisted.lastAttempt,
+                        folderID: folderID,
+                        coachID: coachID,
+                        coachName: coachName,
+                        sessionID: persisted.sessionID
+                    )
+                } else {
+                    // Athlete upload — verify the video clip still exists
+                    let clipIdToFind = persisted.clipId
+                    let clipDescriptor = FetchDescriptor<VideoClip>(
+                        predicate: #Predicate<VideoClip> { clip in
+                            clip.id == clipIdToFind
+                        }
+                    )
+                    guard let clip = try modelContext.fetch(clipDescriptor).first else {
+                        modelContext.delete(persisted)
+                        continue
+                    }
 
-                // Skip if already uploaded
-                if clip.isUploaded {
-                    modelContext.delete(persisted)
-                    continue
-                }
+                    // Skip if already uploaded
+                    if clip.isUploaded {
+                        modelContext.delete(persisted)
+                        continue
+                    }
 
-                let queuedUpload = QueuedUpload(
-                    clipId: persisted.clipId,
-                    athleteId: persisted.athleteId,
-                    fileName: persisted.fileName,
-                    filePath: persisted.filePath,
-                    priority: UploadPriority(rawValue: persisted.priority) ?? .normal,
-                    retryCount: persisted.retryCount,
-                    lastAttempt: persisted.lastAttempt
-                )
+                    queuedUpload = QueuedUpload(
+                        clipId: persisted.clipId,
+                        athleteId: persisted.athleteId,
+                        fileName: persisted.fileName,
+                        filePath: persisted.filePath,
+                        priority: UploadPriority(rawValue: persisted.priority) ?? .normal,
+                        retryCount: persisted.retryCount,
+                        lastAttempt: persisted.lastAttempt
+                    )
+                }
 
                 if persisted.status == PendingUploadStatus.failed {
                     failedUploads.append(queuedUpload)
@@ -335,6 +375,49 @@ final class UploadQueueManager {
 
 
         // Trigger processing if not already running
+        if !isProcessing {
+            startProcessing()
+        }
+    }
+
+    /// Queues a coach video for upload to a shared folder.
+    /// Uses the same background task support, persistence, and retry logic as athlete uploads.
+    func enqueueCoachUpload(
+        fileName: String,
+        filePath: String,
+        folderID: String,
+        coachID: String,
+        coachName: String,
+        sessionID: String? = nil,
+        priority: UploadPriority = .normal
+    ) {
+        // Deterministic UUID from folderID+fileName so duplicate detection works across app restarts
+        let clipId = Self.stableUUID(from: "\(folderID)|\(fileName)")
+
+        // Don't queue if already in any queue
+        guard !pendingUploads.contains(where: { $0.clipId == clipId }),
+              !failedUploads.contains(where: { $0.clipId == clipId }),
+              activeUploads[clipId] == nil else {
+            return
+        }
+
+        let upload = QueuedUpload(
+            clipId: clipId,
+            fileName: fileName,
+            filePath: filePath,
+            priority: priority,
+            retryCount: 0,
+            lastAttempt: nil,
+            folderID: folderID,
+            coachID: coachID,
+            coachName: coachName,
+            sessionID: sessionID
+        )
+
+        pendingUploads.append(upload)
+        pendingUploads.sort { $0.priority.rawValue > $1.priority.rawValue }
+        queueIsDirty = true
+
         if !isProcessing {
             startProcessing()
         }
@@ -420,6 +503,19 @@ final class UploadQueueManager {
 
         pendingUploads.removeAll { $0.athleteId == athleteId }
         failedUploads.removeAll { $0.athleteId == athleteId }
+        queueIsDirty = true
+    }
+
+    /// Cancel all queued coach uploads for a specific folder
+    func cancelCoachUploads(forFolderID folderID: String) {
+        let matching = pendingUploads.filter { $0.folderID == folderID }
+        for upload in matching {
+            retryTasks[upload.clipId]?.cancel()
+            retryTasks[upload.clipId] = nil
+        }
+
+        pendingUploads.removeAll { $0.folderID == folderID }
+        failedUploads.removeAll { $0.folderID == folderID }
         queueIsDirty = true
     }
 
@@ -513,9 +609,21 @@ final class UploadQueueManager {
         weak var quotaUser: User?
 
         do {
+            // Coach uploads follow a separate path — no local VideoClip or Athlete
+            if upload.isCoachUpload {
+                try await processCoachUpload(upload)
+                progressTask?.cancel()
+                progressTask = nil
+                activeUploads.removeValue(forKey: upload.clipId)
+                return
+            }
+
             // Fetch VideoClip and Athlete from database
+            guard let athleteId = upload.athleteId else {
+                throw UploadError.uploadFailed("Missing athleteId for non-coach upload")
+            }
             guard let clip = try fetchVideoClip(upload.clipId, context: context),
-                  let athlete = try fetchAthlete(upload.athleteId, context: context) else {
+                  let athlete = try fetchAthlete(athleteId, context: context) else {
                 throw UploadError.entityNotFound
             }
 
@@ -714,6 +822,140 @@ final class UploadQueueManager {
         }
     }
 
+    // MARK: - Coach Upload Processing
+
+    /// Processes a coach upload to a shared folder.
+    /// Uses VideoCloudManager+SharedFolders for Storage and FirestoreManager for metadata.
+    private func processCoachUpload(_ upload: QueuedUpload) async throws {
+        guard let folderID = upload.folderID,
+              let coachID = upload.coachID,
+              let coachName = upload.coachName else {
+            throw UploadError.uploadFailed("Missing coach upload metadata")
+        }
+
+        // Verify coach still has a valid subscription tier before uploading
+        let coachTier = StoreKitManager.shared.currentCoachTier
+        if coachTier == .free {
+            // Free tier coaches can still upload — no tier gate here.
+            // Server-side Firestore rules enforce hasCoachTier() which allows free coaches.
+        }
+
+        let localURL = URL(fileURLWithPath: upload.filePath)
+        guard FileManager.default.fileExists(atPath: upload.filePath) else {
+            throw UploadError.uploadFailed("Local video file not found")
+        }
+
+        // Compress video before upload to reduce bandwidth and storage costs.
+        // Non-fatal: if compression fails, upload the original file.
+        do {
+            _ = try await VideoCompressionService.shared.compressForUpload(at: localURL)
+        } catch {
+            uploadLog.warning("Coach video compression failed, uploading original: \(error.localizedDescription)")
+        }
+
+        let cloudManager = VideoCloudManager.shared
+
+        // Upload video to shared folder Storage path with 10-minute timeout
+        let downloadURL = try await withThrowingTaskGroup(of: String.self) { group in
+            group.addTask {
+                try await cloudManager.uploadVideo(
+                    localURL: localURL,
+                    fileName: upload.fileName,
+                    folderID: folderID,
+                    progressHandler: { [weak self] progress in
+                        Task { @MainActor [weak self] in
+                            self?.activeUploads[upload.clipId] = progress
+                        }
+                    }
+                )
+            }
+            group.addTask {
+                try await Task.sleep(for: .seconds(600))
+                throw UploadError.uploadFailed("Coach upload timed out after 10 minutes")
+            }
+            guard let result = try await group.next() else {
+                throw UploadError.uploadFailed("No upload result received")
+            }
+            group.cancelAll()
+            return result
+        }
+
+        // Process video: extract duration + generate/upload thumbnail
+        let processed = await CoachVideoProcessingService.shared.process(
+            videoURL: localURL,
+            fileName: upload.fileName,
+            folderID: folderID
+        )
+
+        let fileSize = FileManager.default.fileSize(atPath: upload.filePath)
+
+        // Write metadata to Firestore
+        do {
+            _ = try await FirestoreManager.shared.uploadVideoMetadata(
+                fileName: upload.fileName,
+                storageURL: downloadURL,
+                thumbnail: nil,
+                folderID: folderID,
+                uploadedBy: coachID,
+                uploadedByName: coachName,
+                fileSize: fileSize,
+                duration: processed.duration,
+                videoType: "instruction",
+                uploadedByType: .coach,
+                visibility: "private",
+                sessionID: upload.sessionID
+            )
+        } catch {
+            // Rollback Storage file on metadata failure
+            do {
+                try await cloudManager.deleteVideo(fileName: upload.fileName, folderID: folderID)
+            } catch {
+                uploadLog.error("Failed to rollback Storage file '\(upload.fileName)' after metadata failure: \(error.localizedDescription)")
+            }
+            throw error
+        }
+
+        // Increment session clip count if part of a live session
+        if let sessionID = upload.sessionID {
+            await CoachSessionManager.shared.incrementClipCount(sessionID: sessionID)
+        }
+
+        uploadLog.info("Coach upload completed: \(upload.fileName) → folder \(folderID)")
+    }
+
+    // MARK: - Helpers
+
+    /// Generates a deterministic UUID from a string key (e.g., "folderID|fileName").
+    /// Used for coach uploads so the same file always gets the same clipId,
+    /// enabling reliable duplicate detection across app restarts.
+    static func stableUUID(from key: String) -> UUID {
+        // Hash the key into two 64-bit values to fill 16 UUID bytes
+        var h1: UInt64 = 0
+        for char in key.utf8 {
+            h1 = h1 &* 31 &+ UInt64(char)
+        }
+        let h2 = h1 &* 6364136223846793005 &+ 1442695040888963407 // LCG for second half
+
+        // Build UUID bytes directly — no unsafe rebinding needed
+        let b1 = UInt8(truncatingIfNeeded: h1 >> 56)
+        let b2 = UInt8(truncatingIfNeeded: h1 >> 48)
+        let b3 = UInt8(truncatingIfNeeded: h1 >> 40)
+        let b4 = UInt8(truncatingIfNeeded: h1 >> 32)
+        let b5 = UInt8(truncatingIfNeeded: h1 >> 24)
+        let b6 = UInt8(truncatingIfNeeded: h1 >> 16)
+        let b7 = UInt8(truncatingIfNeeded: h1 >> 8)
+        let b8 = UInt8(truncatingIfNeeded: h1)
+        let b9  = UInt8(truncatingIfNeeded: h2 >> 56)
+        let b10 = UInt8(truncatingIfNeeded: h2 >> 48)
+        let b11 = UInt8(truncatingIfNeeded: h2 >> 40)
+        let b12 = UInt8(truncatingIfNeeded: h2 >> 32)
+        let b13 = UInt8(truncatingIfNeeded: h2 >> 24)
+        let b14 = UInt8(truncatingIfNeeded: h2 >> 16)
+        let b15 = UInt8(truncatingIfNeeded: h2 >> 8)
+        let b16 = UInt8(truncatingIfNeeded: h2)
+        return UUID(uuid: (b1, b2, b3, b4, b5, b6, b7, b8, b9, b10, b11, b12, b13, b14, b15, b16))
+    }
+
     // MARK: - Database Helpers
 
     private func getModelContext() -> ModelContext? {
@@ -744,12 +986,19 @@ final class UploadQueueManager {
 struct QueuedUpload: Identifiable {
     let id = UUID()
     let clipId: UUID
-    let athleteId: UUID
+    let athleteId: UUID?       // nil for coach uploads
     let fileName: String
     let filePath: String
     let priority: UploadPriority
     var retryCount: Int
     var lastAttempt: Date?
+
+    // Coach upload fields (nil for athlete uploads)
+    let isCoachUpload: Bool
+    let folderID: String?
+    let coachID: String?
+    let coachName: String?
+    let sessionID: String?
 
     var timeUntilRetry: TimeInterval? {
         guard let lastAttempt = lastAttempt, retryCount > 0 else { return nil }
@@ -758,6 +1007,41 @@ struct QueuedUpload: Identifiable {
         let delay = delays[delayIndex]
         let elapsed = Date().timeIntervalSince(lastAttempt)
         return max(0, delay - elapsed)
+    }
+
+    /// Convenience initializer for athlete uploads (backward compatible)
+    init(clipId: UUID, athleteId: UUID, fileName: String, filePath: String,
+         priority: UploadPriority, retryCount: Int, lastAttempt: Date?) {
+        self.clipId = clipId
+        self.athleteId = athleteId
+        self.fileName = fileName
+        self.filePath = filePath
+        self.priority = priority
+        self.retryCount = retryCount
+        self.lastAttempt = lastAttempt
+        self.isCoachUpload = false
+        self.folderID = nil
+        self.coachID = nil
+        self.coachName = nil
+        self.sessionID = nil
+    }
+
+    /// Initializer for coach uploads
+    init(clipId: UUID, fileName: String, filePath: String, priority: UploadPriority,
+         retryCount: Int, lastAttempt: Date?, folderID: String, coachID: String,
+         coachName: String, sessionID: String?) {
+        self.clipId = clipId
+        self.athleteId = nil
+        self.fileName = fileName
+        self.filePath = filePath
+        self.priority = priority
+        self.retryCount = retryCount
+        self.lastAttempt = lastAttempt
+        self.isCoachUpload = true
+        self.folderID = folderID
+        self.coachID = coachID
+        self.coachName = coachName
+        self.sessionID = sessionID
     }
 }
 
@@ -818,6 +1102,13 @@ final class PendingUpload {
     var createdAt: Date = Date()
     var statusRaw: String = "pending"
 
+    // Coach upload fields (added for coach queue integration)
+    var isCoachUpload: Bool = false
+    var folderID: String?
+    var coachID: String?
+    var coachName: String?
+    var sessionID: String?
+
     var status: PendingUploadStatus {
         get { PendingUploadStatus(rawValue: statusRaw) ?? PendingUploadStatus.pending }
         set { statusRaw = newValue.rawValue }
@@ -842,6 +1133,36 @@ final class PendingUpload {
         self.lastAttempt = lastAttempt
         self.createdAt = Date()
         self.statusRaw = status.rawValue
+    }
+
+    /// Initializer for coach uploads
+    init(
+        clipId: UUID,
+        fileName: String,
+        filePath: String,
+        priority: Int,
+        retryCount: Int,
+        lastAttempt: Date?,
+        status: PendingUploadStatus,
+        folderID: String,
+        coachID: String,
+        coachName: String,
+        sessionID: String?
+    ) {
+        self.clipId = clipId
+        self.athleteId = UUID() // Placeholder for coach uploads
+        self.fileName = fileName
+        self.filePath = filePath
+        self.priority = priority
+        self.retryCount = retryCount
+        self.lastAttempt = lastAttempt
+        self.createdAt = Date()
+        self.statusRaw = status.rawValue
+        self.isCoachUpload = true
+        self.folderID = folderID
+        self.coachID = coachID
+        self.coachName = coachName
+        self.sessionID = sessionID
     }
 }
 

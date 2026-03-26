@@ -453,7 +453,7 @@ struct HighlightsView: View {
                 }
 
             } catch {
-                print("[HighlightsView] Failed to save or recalculate stats after deleting clip \(clipID): \(error)")
+                ErrorHandlerService.shared.handle(error, context: "HighlightsView.deleteClip(\(clipID))", showAlert: false)
             }
         }
     }

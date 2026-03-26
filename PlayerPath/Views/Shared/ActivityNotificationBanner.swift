@@ -81,6 +81,7 @@ struct ActivityNotificationBanner: View {
         case .invitationReceived: return "envelope.fill"
         case .invitationAccepted: return "checkmark.circle.fill"
         case .accessRevoked:      return "minus.circle.fill"
+        case .accessLapsed:       return "exclamationmark.triangle.fill"
         }
     }
 
@@ -91,6 +92,7 @@ struct ActivityNotificationBanner: View {
         case .invitationReceived: return .indigo
         case .invitationAccepted: return .green
         case .accessRevoked:      return .orange
+        case .accessLapsed:       return .yellow
         }
     }
 }

@@ -83,36 +83,6 @@ extension FirestoreManager {
         }
     }
 
-    /// Real-time listener for annotations (for live updates)
-    func listenToAnnotations(
-        videoID: String,
-        completion: @escaping ([VideoAnnotation]) -> Void
-    ) -> ListenerRegistration {
-        return db.collection(FC.videos)
-            .document(videoID)
-            .collection(FC.annotations)
-            .order(by: "timestamp")
-            .limit(to: 200)
-            .addSnapshotListener { snapshot, error in
-                guard let documents = snapshot?.documents else {
-                    return
-                }
-
-                let annotations = documents.compactMap { doc -> VideoAnnotation? in
-                    do {
-                        var annotation = try doc.data(as: VideoAnnotation.self)
-                        annotation.id = doc.documentID
-                        return annotation
-                    } catch {
-                        firestoreLog.warning("Failed to decode VideoAnnotation from doc \(doc.documentID): \(error.localizedDescription)")
-                        return nil
-                    }
-                }
-
-                completion(annotations)
-            }
-    }
-
     /// Deletes an annotation and its mirrored comment (user can only delete their own)
     func deleteAnnotation(videoID: String, annotationID: String) async throws {
         do {

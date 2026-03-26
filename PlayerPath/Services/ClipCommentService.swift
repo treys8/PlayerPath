@@ -129,39 +129,4 @@ final class ClipCommentService {
         cache[clipId] = comments
         return comments
     }
-
-    // MARK: - Real-time listener
-
-    /// Attaches a real-time listener for a clip's comment thread.
-    /// Caller is responsible for removing the returned `ListenerRegistration` on deinit.
-    @discardableResult
-    func listenForComments(
-        clipId: String,
-        onUpdate: @escaping ([ClipComment]) -> Void
-    ) -> ListenerRegistration {
-        return db
-            .collection(FC.videos)
-            .document(clipId)
-            .collection(FC.comments)
-            .order(by: "createdAt")
-            .limit(to: 100)
-            .addSnapshotListener { snapshot, error in
-                guard let documents = snapshot?.documents else {
-                    if error != nil {
-                    }
-                    return
-                }
-                let comments = documents.compactMap { doc -> ClipComment? in
-                    do {
-                        var comment = try doc.data(as: ClipComment.self)
-                        comment.id = doc.documentID
-                        return comment
-                    } catch {
-                        commentLog.warning("Failed to decode comment \(doc.documentID): \(error.localizedDescription)")
-                        return nil
-                    }
-                }
-                onUpdate(comments)
-            }
-    }
 }

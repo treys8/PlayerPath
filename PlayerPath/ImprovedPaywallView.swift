@@ -105,8 +105,8 @@ struct ImprovedPaywallView: View {
                 .font(.title2).fontWeight(.bold)
 
             Text(AppFeatureFlags.isCoachEnabled
-                ? "More athletes, export reports, and Pro coach sharing"
-                : "More athletes, export reports, and highlights")
+                ? "Share film with your coach. Track every at-bat."
+                : "Track every at-bat. See your progress over time.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -117,38 +117,44 @@ struct ImprovedPaywallView: View {
 
     private var billingToggle: some View {
         HStack(spacing: 0) {
-            billingPill(title: "Monthly", selected: !isAnnual) { isAnnual = false }
-            billingPill(title: annualSavingsLabel, selected: isAnnual) { isAnnual = true }
+            billingPill(title: "Monthly", savingsPercent: nil, selected: !isAnnual) { isAnnual = false }
+            billingPill(title: "Annual", savingsPercent: annualSavingsPercent, selected: isAnnual) { isAnnual = true }
         }
         .background(Color(.systemGray5))
         .cornerRadius(10)
     }
 
-    private var annualSavingsLabel: String {
+    private var annualSavingsPercent: Int? {
         guard let monthly = storeManager.product(for: .plusMonthly),
               let annual = storeManager.product(for: .plusAnnual) else {
-            return "Annual"
+            return nil
         }
         let yearlyAtMonthly = monthly.price * 12
-        guard yearlyAtMonthly > 0 else { return "Annual" }
+        guard yearlyAtMonthly > 0 else { return nil }
         let savings = ((yearlyAtMonthly - annual.price) / yearlyAtMonthly * 100) as NSDecimalNumber
         let percent = savings.intValue
-        guard percent > 0 else { return "Annual" }
-        return "Annual (Save \(percent)%)"
+        return percent > 0 ? percent : nil
     }
 
-    private func billingPill(title: String, selected: Bool, action: @escaping () -> Void) -> some View {
+    private func billingPill(title: String, savingsPercent: Int?, selected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Text(title)
-                .font(.subheadline).fontWeight(selected ? .semibold : .regular)
-                .foregroundStyle(selected ? .white : .secondary)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 10)
-                .background(selected ? Color.brandNavy : Color.clear)
-                .cornerRadius(9)
+            HStack(spacing: 4) {
+                Text(title)
+                    .font(.subheadline).fontWeight(selected ? .semibold : .regular)
+                    .foregroundStyle(selected ? .white : .secondary)
+                if let percent = savingsPercent {
+                    Text("Save \(percent)%")
+                        .font(.caption2).fontWeight(.bold)
+                        .foregroundStyle(selected ? .white : .green)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+            .background(selected ? Color.brandNavy : Color.clear)
+            .cornerRadius(9)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(title)
+        .accessibilityLabel(savingsPercent.map { "\(title), save \($0) percent" } ?? title)
         .accessibilityAddTraits(selected ? .isSelected : [])
         .animation(.easeInOut(duration: 0.2), value: selected)
     }

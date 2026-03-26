@@ -267,13 +267,15 @@ service cloud.firestore {
 
       // Create: personal athlete video (no sharedFolderID, uploader is owner)
       //         OR shared folder video (uploader has permission; coaches must have active subscription)
+      // Visibility must be "shared" or "private" if specified.
+      // uploadStatus "pending" is allowed for metadata-first uploads (firebaseStorageURL may be empty).
       allow create: if isAuthenticated() && (
         (request.resource.data.uploadedBy == request.auth.uid &&
          !('sharedFolderID' in request.resource.data)) ||
         (hasPermission(request.resource.data.sharedFolderID, "upload") &&
          request.resource.data.uploadedBy == request.auth.uid &&
          (isFolderOwner(request.resource.data.sharedFolderID) ? hasProTier() : hasCoachTier()))
-      );
+      ) && (!('visibility' in request.resource.data) || request.resource.data.visibility in ['shared', 'private']);
 
       // Only the uploader can update their own video.
       // uploadedBy is immutable; all other fields are user-controlled.

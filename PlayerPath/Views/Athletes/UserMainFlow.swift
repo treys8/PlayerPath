@@ -265,7 +265,7 @@ struct UserMainFlow: View {
         case .invitationReceived:
             // Athlete shouldn't normally receive this (coaches do), but handle gracefully
             postSwitchTab(.more)
-        case .accessRevoked:
+        case .accessRevoked, .accessLapsed:
             // Informational only — no navigation target
             break
         }

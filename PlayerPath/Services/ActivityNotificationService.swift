@@ -37,6 +37,7 @@ struct ActivityNotification: Identifiable, Codable {
         case invitationReceived  = "invitation_received"
         case invitationAccepted  = "invitation_accepted"
         case accessRevoked       = "access_revoked"
+        case accessLapsed        = "access_lapsed"
     }
 
     enum TargetType: String, Codable {
@@ -421,6 +422,27 @@ final class ActivityNotificationService: ObservableObject {
             "createdAt": FieldValue.serverTimestamp()
         ]
         await writeNotification(data, toUserIDs: [athleteUserID])
+    }
+
+    /// Athlete's subscription lapsed → notify coaches that the sharing relationship is in limbo.
+    func postAccessLapsedNotification(
+        folderID: String,
+        folderName: String,
+        athleteName: String,
+        coachUserID: String
+    ) async {
+        let data: [String: Any] = [
+            "type": ActivityNotification.NotificationType.accessLapsed.rawValue,
+            "title": "Athlete Subscription Lapsed",
+            "body": "\(athleteName)'s subscription has changed. Shared folders may be temporarily unavailable.",
+            "senderName": athleteName,
+            "senderID": "",
+            "targetID": folderID,
+            "targetType": ActivityNotification.TargetType.folder.rawValue,
+            "isRead": false,
+            "createdAt": FieldValue.serverTimestamp()
+        ]
+        await writeNotification(data, toUserIDs: [coachUserID])
     }
 
     // MARK: - Internal Write

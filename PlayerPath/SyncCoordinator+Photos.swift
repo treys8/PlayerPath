@@ -167,9 +167,9 @@ extension SyncCoordinator {
                     } catch {
                         // Mark for re-download on next sync so the photo doesn't remain as a ghost record
                         syncLog.error("Failed to download photo \(photoRef.id): \(error.localizedDescription)")
-                        photoRef.needsSync = true
+                        await MainActor.run { photoRef.needsSync = true }
                     }
-                    self?.pendingDownloadTasks.removeValue(forKey: taskID)
+                    await MainActor.run { _ = self?.pendingDownloadTasks.removeValue(forKey: taskID) }
                 }
             }
 

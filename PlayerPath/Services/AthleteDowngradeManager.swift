@@ -8,6 +8,7 @@
 //
 
 import Foundation
+import FirebaseAuth
 import os
 
 private let downgradeLog = Logger(subsystem: "com.playerpath.app", category: "AthleteDowngrade")
@@ -36,17 +37,44 @@ final class AthleteDowngradeManager {
     /// Call on app launch, after tier changes, and after folder list updates.
     func evaluate(tier: SubscriptionTier) {
         let hasFolders = !SharedFolderManager.shared.athleteFolders.isEmpty
+        let previousState = state
 
         if tier < .pro && hasFolders {
             if state != .lapsed {
                 downgradeLog.info("Athlete has shared folders but tier is \(tier.rawValue) — marking lapsed")
             }
             state = .lapsed
+
+            // Notify coaches when athlete first transitions to lapsed state
+            if previousState != .lapsed {
+                Task {
+                    await notifyCoachesOfLapsedStatus()
+                }
+            }
         } else {
             if state != .none {
                 downgradeLog.info("Athlete downgrade resolved (tier: \(tier.rawValue), folders: \(hasFolders))")
             }
             state = .none
+        }
+    }
+
+    /// Posts in-app notifications (and triggers FCM via Firestore) to all coaches
+    /// with access to the athlete's shared folders that the athlete's subscription lapsed.
+    private func notifyCoachesOfLapsedStatus() async {
+        let folders = SharedFolderManager.shared.athleteFolders
+        let athleteName = Auth.auth().currentUser?.displayName ?? "An athlete"
+
+        for folder in folders {
+            let coachIDs = folder.sharedWithCoachIDs
+            for coachID in coachIDs {
+                await ActivityNotificationService.shared.postAccessLapsedNotification(
+                    folderID: folder.id ?? "",
+                    folderName: folder.name,
+                    athleteName: athleteName,
+                    coachUserID: coachID
+                )
+            }
         }
     }
 }

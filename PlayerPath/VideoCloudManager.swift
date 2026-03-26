@@ -273,9 +273,17 @@ class VideoCloudManager: ObservableObject {
         let downloadBox = DownloadTaskBox()
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
+                let hasResumed = OSAllocatedUnfairLock(initialState: false)
                 let downloadTask = storageRef.write(toFile: localURL) { [weak downloadBox] url, error in
                     // Remove progress observer to prevent memory leaks
                     downloadBox?.task?.removeAllObservers()
+
+                    let alreadyResumed = hasResumed.withLock { val -> Bool in
+                        if val { return true }
+                        val = true
+                        return false
+                    }
+                    guard !alreadyResumed else { return }
 
                     if let error = error {
                         continuation.resume(throwing: error)
@@ -668,4 +676,46 @@ struct VideoClipMetadata {
     let fileSize: Int64
     let thumbnailURL: String?
     let isDeleted: Bool
+
+    /// Parses a Firestore document into VideoClipMetadata, returning nil if required fields are missing.
+    init?(from data: [String: Any]) {
+        guard let idString = data["id"] as? String,
+              let id = UUID(uuidString: idString),
+              let fileName = data["fileName"] as? String,
+              let downloadURL = data["downloadURL"] as? String,
+              let athleteName = data["athleteName"] as? String else {
+            return nil
+        }
+
+        let createdAt: Date
+        if let timestamp = data["createdAt"] as? Timestamp {
+            createdAt = timestamp.dateValue()
+        } else {
+            createdAt = Date()
+        }
+
+        self.id = id
+        self.fileName = fileName
+        self.downloadURL = downloadURL
+        self.createdAt = createdAt
+        self.updatedAt = (data["updatedAt"] as? Timestamp)?.dateValue() ?? createdAt
+        self.isHighlight = data["isHighlight"] as? Bool ?? false
+        self.playResult = data["playResultName"] as? String
+        self.playResultRawValue = data["playResult"] as? Int
+        self.note = data["note"] as? String
+        self.gameId = data["gameId"] as? String
+        self.gameOpponent = data["gameOpponent"] as? String
+        self.gameDate = (data["gameDate"] as? Timestamp)?.dateValue()
+        self.seasonId = data["seasonId"] as? String
+        self.seasonName = data["seasonName"] as? String
+        self.practiceId = data["practiceId"] as? String
+        self.practiceDate = (data["practiceDate"] as? Timestamp)?.dateValue()
+        self.pitchSpeed = data["pitchSpeed"] as? Double
+        self.pitchType = data["pitchType"] as? String
+        self.duration = data["duration"] as? Double
+        self.athleteName = athleteName
+        self.fileSize = data["fileSize"] as? Int64 ?? 0
+        self.thumbnailURL = data["thumbnailURL"] as? String
+        self.isDeleted = data["isDeleted"] as? Bool ?? false
+    }
 }

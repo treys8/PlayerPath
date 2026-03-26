@@ -196,27 +196,6 @@ struct CoachPaywallView: View {
                 coachCheckIcon(included: true)
             }
 
-            // Annotations row
-            coachTableRow(feature: "Annotations") {
-                coachCheckIcon(included: true)
-            } instructor: {
-                coachCheckIcon(included: true)
-            } proInstructor: {
-                coachCheckIcon(included: true)
-            } academy: {
-                coachCheckIcon(included: true)
-            }
-
-            // Priority Support row
-            coachTableRow(feature: "Priority Support") {
-                coachCheckIcon(included: false)
-            } instructor: {
-                coachCheckIcon(included: false)
-            } proInstructor: {
-                coachCheckIcon(included: true)
-            } academy: {
-                coachCheckIcon(included: true)
-            }
         }
         .background(Color(.secondarySystemBackground))
         .cornerRadius(14)

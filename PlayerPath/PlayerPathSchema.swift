@@ -258,12 +258,28 @@ enum SchemaV13: VersionedSchema {
     static var models: [any PersistentModel.Type] { SchemaV1.models }
 }
 
+// MARK: - Schema V14 (3/25/26 — Coach upload queue fields)
+//
+//  Changes from V13:
+//    • PendingUpload.isCoachUpload (Bool = false) added
+//    • PendingUpload.folderID (String? = nil) added
+//    • PendingUpload.coachID (String? = nil) added
+//    • PendingUpload.coachName (String? = nil) added
+//    • PendingUpload.sessionID (String? = nil) added
+//
+//  All additions have defaults → lightweight migration.
+
+enum SchemaV14: VersionedSchema {
+    static var versionIdentifier = Schema.Version(14, 0, 0)
+    static var models: [any PersistentModel.Type] { SchemaV1.models }
+}
+
 // MARK: - Migration Plan
 
 enum PlayerPathMigrationPlan: SchemaMigrationPlan {
     /// All schema versions in chronological order (oldest first).
     static var schemas: [any VersionedSchema.Type] {
-        [SchemaV1.self, SchemaV2.self, SchemaV3.self, SchemaV4.self, SchemaV5.self, SchemaV6.self, SchemaV7.self, SchemaV8.self, SchemaV9.self, SchemaV10.self, SchemaV11.self, SchemaV12.self, SchemaV13.self]
+        [SchemaV1.self, SchemaV2.self, SchemaV3.self, SchemaV4.self, SchemaV5.self, SchemaV6.self, SchemaV7.self, SchemaV8.self, SchemaV9.self, SchemaV10.self, SchemaV11.self, SchemaV12.self, SchemaV13.self, SchemaV14.self]
     }
 
     /// Migration stages between consecutive versions.
@@ -280,7 +296,8 @@ enum PlayerPathMigrationPlan: SchemaMigrationPlan {
             .lightweight(fromVersion: SchemaV9.self, toVersion: SchemaV10.self),
             .lightweight(fromVersion: SchemaV10.self, toVersion: SchemaV11.self),
             .lightweight(fromVersion: SchemaV11.self, toVersion: SchemaV12.self),
-            .lightweight(fromVersion: SchemaV12.self, toVersion: SchemaV13.self)
+            .lightweight(fromVersion: SchemaV12.self, toVersion: SchemaV13.self),
+            .lightweight(fromVersion: SchemaV13.self, toVersion: SchemaV14.self)
         ]
     }
 }

@@ -547,7 +547,7 @@ struct CoachDashboardView: View {
             } else {
                 coordinator.navigateToInvitations()
             }
-        case .coachComment, .accessRevoked:
+        case .coachComment, .accessRevoked, .accessLapsed:
             break
         }
 

@@ -33,7 +33,7 @@ class CoachFolderViewModel {
     private var videosListener: ListenerRegistration?
     private var prefetchedFileNames: Set<String> = []
     /// Stored outside MainActor isolation so deinit can clean up the Firestore listener.
-    private nonisolated(unsafe) var listenerForCleanup: ListenerRegistration?
+    private nonisolated var listenerForCleanup: ListenerRegistration?
 
     init(folder: SharedFolder) {
         self.folder = folder

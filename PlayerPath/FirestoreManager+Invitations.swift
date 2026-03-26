@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import FirebaseAuth
 import FirebaseFirestore
 import FirebaseFunctions
 import os
@@ -63,20 +64,21 @@ extension FirestoreManager {
         }
     }
 
-    /// Checks if the current athlete already has a pending or accepted athlete-to-coach invitation
+    /// Checks if the current athlete already has a pending or accepted invitation with this coach
+    /// in EITHER direction (athlete→coach or coach→athlete).
     func hasPendingInvitation(athleteID: String, coachEmail: String) async throws -> Bool {
-        // Check for accepted invitation (already connected)
-        let acceptedSnapshot = try await db.collection(FC.invitations)
+        // 1. Check for accepted athlete-to-coach invitation
+        let acceptedA2C = try await db.collection(FC.invitations)
             .whereField("athleteID", isEqualTo: athleteID)
             .whereField("coachEmail", isEqualTo: coachEmail.lowercased())
             .whereField("status", isEqualTo: "accepted")
             .whereField("type", isEqualTo: "athlete_to_coach")
             .limit(to: 1)
             .getDocuments()
-        if !acceptedSnapshot.documents.isEmpty { return true }
+        if !acceptedA2C.documents.isEmpty { return true }
 
-        // Check for pending non-expired invitation
-        let pendingSnapshot = try await db.collection(FC.invitations)
+        // 2. Check for pending non-expired athlete-to-coach invitation
+        let pendingA2C = try await db.collection(FC.invitations)
             .whereField("athleteID", isEqualTo: athleteID)
             .whereField("coachEmail", isEqualTo: coachEmail.lowercased())
             .whereField("status", isEqualTo: "pending")
@@ -84,7 +86,22 @@ extension FirestoreManager {
             .whereField("expiresAt", isGreaterThan: Timestamp(date: Date()))
             .limit(to: 1)
             .getDocuments()
-        return !pendingSnapshot.documents.isEmpty
+        if !pendingA2C.documents.isEmpty { return true }
+
+        // 3. Check for accepted coach-to-athlete invitation (opposite direction).
+        // The coach may have already invited this athlete via the coach-to-athlete flow.
+        if let currentEmail = Auth.auth().currentUser?.email?.lowercased() {
+            let acceptedC2A = try await db.collection(FC.invitations)
+                .whereField("athleteEmail", isEqualTo: currentEmail)
+                .whereField("coachEmail", isEqualTo: coachEmail.lowercased())
+                .whereField("status", isEqualTo: "accepted")
+                .whereField("type", isEqualTo: "coach_to_athlete")
+                .limit(to: 1)
+                .getDocuments()
+            if !acceptedC2A.documents.isEmpty { return true }
+        }
+
+        return false
     }
 
     /// Fetches pending invitations for a coach (by email)
@@ -488,6 +505,7 @@ extension FirestoreManager {
             .whereField("type", isEqualTo: "coach_to_athlete")
             .whereField("coachID", isEqualTo: coachID)
             .whereField("status", isEqualTo: "accepted")
+            .limit(to: 200)
             .getDocuments()
         var ids = Set<String>()
         for doc in snapshot.documents {
@@ -500,11 +518,11 @@ extension FirestoreManager {
 
     /// Counts pending outbound coach-to-athlete invitations for a given coach.
     func countPendingCoachToAthleteInvitations(coachID: String) async throws -> Int {
-        let snapshot = try await db.collection(FC.invitations)
+        let query = db.collection(FC.invitations)
             .whereField("type", isEqualTo: "coach_to_athlete")
             .whereField("coachID", isEqualTo: coachID)
             .whereField("status", isEqualTo: "pending")
-            .getDocuments()
-        return snapshot.documents.count
+        let countResult = try await query.count.getAggregation(source: .server)
+        return Int(truncating: countResult.count)
     }
 }

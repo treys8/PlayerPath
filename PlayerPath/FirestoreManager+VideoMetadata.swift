@@ -195,6 +195,10 @@ extension FirestoreManager {
                     if video.visibility == "private" && video.uploadedBy != currentUID {
                         return nil
                     }
+                    // Hide videos still being uploaded (metadata-first pattern)
+                    if let status = video.uploadStatus, status != "completed" {
+                        return nil
+                    }
                     return video
                 } catch {
                     firestoreLog.warning("Failed to decode FirestoreVideoMetadata from doc \(doc.documentID): \(error.localizedDescription)")
@@ -295,10 +299,19 @@ extension FirestoreManager {
                     return
                 }
                 guard let docs = snapshot?.documents else { return }
+                let currentUID = Auth.auth().currentUser?.uid
                 let videos = docs.compactMap { doc -> FirestoreVideoMetadata? in
                     do {
                         var video = try doc.data(as: FirestoreVideoMetadata.self)
                         video.id = doc.documentID
+                        // Hide private videos from other users
+                        if video.visibility == "private" && video.uploadedBy != currentUID {
+                            return nil
+                        }
+                        // Hide videos still being uploaded (metadata-first pattern)
+                        if let status = video.uploadStatus, status != "completed" {
+                            return nil
+                        }
                         return video
                     } catch {
                         firestoreLog.warning("Failed to decode video \(doc.documentID): \(error.localizedDescription)")
@@ -499,23 +512,43 @@ extension FirestoreManager {
         tags: [String]? = nil,
         drillType: String? = nil
     ) async throws {
-        let batch = db.batch()
+        // Use a transaction to check current visibility first (idempotency guard).
+        // Without this, calling publishPrivateVideo twice would increment videoCount twice.
+        let videoRef = db.collection(FC.videos).document(videoID)
+        let folderRef = db.collection(FC.sharedFolders).document(sharedFolderID)
 
-        var updateData: [String: Any] = [
-            "visibility": "shared",
-            "updatedAt": FieldValue.serverTimestamp()
-        ]
-        if let notes, !notes.isEmpty { updateData["notes"] = notes }
-        if let tags, !tags.isEmpty { updateData["tags"] = tags }
-        if let drillType { updateData["drillType"] = drillType }
+        _ = try await db.runTransaction { transaction, errorPointer in
+            let videoDoc: DocumentSnapshot
+            do {
+                videoDoc = try transaction.getDocument(videoRef)
+            } catch let error as NSError {
+                errorPointer?.pointee = error
+                return nil
+            }
 
-        batch.updateData(updateData, forDocument: db.collection(FC.videos).document(videoID))
-        batch.updateData([
-            "videoCount": FieldValue.increment(Int64(1)),
-            "updatedAt": FieldValue.serverTimestamp()
-        ], forDocument: db.collection(FC.sharedFolders).document(sharedFolderID))
+            // If already "shared", only update metadata fields — don't increment count
+            let currentVisibility = videoDoc.data()?["visibility"] as? String
+            let alreadyShared = currentVisibility == "shared"
 
-        try await batch.commit()
+            var updateData: [String: Any] = [
+                "visibility": "shared",
+                "updatedAt": FieldValue.serverTimestamp()
+            ]
+            if let notes, !notes.isEmpty { updateData["notes"] = notes }
+            if let tags, !tags.isEmpty { updateData["tags"] = tags }
+            if let drillType { updateData["drillType"] = drillType }
+
+            transaction.updateData(updateData, forDocument: videoRef)
+
+            if !alreadyShared {
+                transaction.updateData([
+                    "videoCount": FieldValue.increment(Int64(1)),
+                    "updatedAt": FieldValue.serverTimestamp()
+                ], forDocument: folderRef)
+            }
+
+            return nil
+        }
     }
 
     /// Deletes a private coach video (Firestore doc + Storage file + thumbnail).

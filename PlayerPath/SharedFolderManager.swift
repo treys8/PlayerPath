@@ -355,6 +355,12 @@ class SharedFolderManager {
                         self.isLoading = false
                         // Permission denied (code 7) means coach access was revoked
                         if error.code == 7 {
+                            // Clear cached videos for all previously accessible folders
+                            for folder in self.coachFolders {
+                                if let folderID = folder.id {
+                                    CoachVideoCacheService.shared.clearCache(forFolderID: folderID)
+                                }
+                            }
                             self.coachFolders = []
                             self.stopCoachFoldersListener()
                             self.listenerError = "Your access to shared folders has been revoked."

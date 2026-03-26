@@ -190,9 +190,8 @@ class CoachSessionManager {
 
     // MARK: - Clip Upload
 
-    /// Uploads a recorded clip to Firebase Storage and writes metadata to Firestore.
-    /// Retries the Storage upload up to 3 times for transient network failures.
-    /// Increments clip count automatically after successful upload.
+    /// Enqueues a recorded clip for background upload via UploadQueueManager.
+    /// The queue handles retries, background task support, and persistence.
     func uploadClip(
         videoURL: URL,
         folderID: String,
@@ -200,59 +199,56 @@ class CoachSessionManager {
         coachID: String,
         coachName: String
     ) async {
+        // Verify session is still live before uploading — clips to completed sessions may be missed
+        do {
+            let sessionDoc = try await db.collection(FC.coachSessions).document(sessionID).getDocument()
+            let status = sessionDoc.data()?["status"] as? String
+            if status != SessionStatus.live.rawValue && status != SessionStatus.reviewing.rawValue {
+                ErrorHandlerService.shared.handle(
+                    CoachSessionError.sessionNotActive,
+                    context: "CoachSessionManager.uploadClip.sessionCheck",
+                    showAlert: false
+                )
+                // Don't abort — the clip is recorded locally. Enqueue it anyway so it's not lost.
+            }
+        } catch {
+            // Network failure checking session status — proceed with upload anyway
+            ErrorHandlerService.shared.handle(error, context: "CoachSessionManager.uploadClip.sessionCheck", showAlert: false)
+        }
+
         let dateStr = Date().formatted(.iso8601.year().month().day())
         let fileName = "instruction_\(dateStr)_\(UUID().uuidString.prefix(8)).mov"
 
+        // Move the video to a stable Documents path so it survives app backgrounding.
+        // The queue will read from this path later.
+        let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        let coachUploadsDir = documentsURL.appendingPathComponent("coach_pending_uploads", isDirectory: true)
+        try? FileManager.default.createDirectory(at: coachUploadsDir, withIntermediateDirectories: true)
+        let stablePath = coachUploadsDir.appendingPathComponent(fileName)
+
         do {
-            let attributes = try FileManager.default.attributesOfItem(atPath: videoURL.path)
-            let fileSize = attributes[.size] as? Int64 ?? 0
-
-            // Run Storage upload (with retry) and thumbnail processing in parallel
-            async let uploadTask: String = withRetry(maxAttempts: 3, delay: .seconds(3)) {
-                try await VideoCloudManager.shared.uploadVideo(
-                    localURL: videoURL,
-                    fileName: fileName,
-                    folderID: folderID,
-                    progressHandler: { _ in }
-                )
+            // Copy instead of move in case the source is still referenced
+            if FileManager.default.fileExists(atPath: stablePath.path) {
+                try FileManager.default.removeItem(at: stablePath)
             }
-            async let processTask = processWithThumbnailRetry(
-                videoURL: videoURL, fileName: fileName, folderID: folderID
-            )
-
-            let (storageURL, processed) = try await (uploadTask, processTask)
-
-            // Metadata write — rollback Storage upload on failure
-            do {
-                _ = try await FirestoreManager.shared.uploadVideoMetadata(
-                    fileName: fileName,
-                    storageURL: storageURL,
-                    thumbnail: processed.thumbnailURL.map { ThumbnailMetadata(standardURL: $0) },
-                    folderID: folderID,
-                    uploadedBy: coachID,
-                    uploadedByName: coachName,
-                    fileSize: fileSize,
-                    duration: processed.duration,
-                    videoType: "instruction",
-                    practiceContext: PracticeContext(date: Date()),
-                    uploadedByType: .coach,
-                    visibility: "private",
-                    sessionID: sessionID
-                )
-            } catch {
-                ErrorHandlerService.shared.handle(error, context: "CoachSession.metadataRollback", showAlert: false)
-                try? await VideoCloudManager.shared.deleteVideo(fileName: fileName, folderID: folderID)
-                try? await VideoCloudManager.shared.deleteThumbnail(videoFileName: fileName, folderID: folderID)
-                throw error
-            }
-
-            // Only delete local file after full success
-            try? FileManager.default.removeItem(at: videoURL)
-
-            await incrementClipCount(sessionID: sessionID)
+            try FileManager.default.copyItem(at: videoURL, to: stablePath)
         } catch {
-            ErrorHandlerService.shared.handle(error, context: "CoachSessionManager.uploadClip", showAlert: false)
+            ErrorHandlerService.shared.handle(error, context: "CoachSessionManager.copyForQueue", showAlert: false)
+            return
         }
+
+        // Remove the original recording now that we have a stable copy
+        try? FileManager.default.removeItem(at: videoURL)
+
+        UploadQueueManager.shared.enqueueCoachUpload(
+            fileName: fileName,
+            filePath: stablePath.path,
+            folderID: folderID,
+            coachID: coachID,
+            coachName: coachName,
+            sessionID: sessionID,
+            priority: .normal
+        )
     }
 
     /// Processes video with a single thumbnail retry if the first attempt fails.
@@ -276,11 +272,14 @@ class CoachSessionManager {
 
 enum CoachSessionError: LocalizedError {
     case athleteLimitExceeded(limit: Int)
+    case sessionNotActive
 
     var errorDescription: String? {
         switch self {
         case .athleteLimitExceeded(let limit):
             return "Your plan supports up to \(limit) athletes. Upgrade to add more."
+        case .sessionNotActive:
+            return "This session is no longer active."
         }
     }
 }
