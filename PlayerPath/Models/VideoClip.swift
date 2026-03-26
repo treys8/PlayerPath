@@ -135,9 +135,10 @@ final class VideoClip {
     /// Converts video metadata to Firestore document
     /// Note: This syncs metadata only - actual video files are in Firebase Storage
     func toFirestoreData() -> [String: Any] {
+        let athleteRef = athlete?.firestoreId ?? athlete?.id.uuidString ?? ""
         var data: [String: Any] = [
             "id": id.uuidString,
-            "athleteId": athlete?.id.uuidString ?? "",
+            "athleteId": athleteRef,
             "fileName": fileName,
             "isHighlight": isHighlight,
             "isUploaded": isUploaded,
@@ -147,17 +148,17 @@ final class VideoClip {
             "isDeleted": false
         ]
 
-        // Optional fields
-        if let gameId = game?.id.uuidString {
+        // Optional fields — prefer firestoreId for cross-device sync
+        if let gameId = game?.firestoreId ?? game?.id.uuidString {
             data["gameId"] = gameId
         }
-        if let practiceId = practice?.id.uuidString {
+        if let practiceId = practice?.firestoreId ?? practice?.id.uuidString {
             data["practiceId"] = practiceId
         }
         if let practiceDate = practiceDate ?? practice?.date {
             data["practiceDate"] = practiceDate
         }
-        if let seasonId = season?.id.uuidString {
+        if let seasonId = season?.firestoreId ?? season?.id.uuidString {
             data["seasonId"] = seasonId
         }
         if let cloudURL = cloudURL {
@@ -172,9 +173,21 @@ final class VideoClip {
 
     /// Properly delete video clip with all associated files and data
     @MainActor func delete(in context: ModelContext) {
-        // Capture paths before context.delete to avoid accessing deleted SwiftData object
+        // Capture paths and file size before any deletion to avoid races
         let absolutePath = resolvedFilePath
         let capturedThumbPath = thumbnailPath
+        let capturedFileSize: Int64
+        if isUploaded {
+            do {
+                let attrs = try FileManager.default.attributesOfItem(atPath: absolutePath)
+                capturedFileSize = (attrs[.size] as? Int64) ?? 0
+            } catch {
+                modelsLog.error("Failed to read file size for cloud quota update: \(error.localizedDescription)")
+                capturedFileSize = 0
+            }
+        } else {
+            capturedFileSize = 0
+        }
 
         // Dispatch file I/O to background — removeItem can take 10-50ms for large videos
         DispatchQueue.global(qos: .utility).async {
@@ -205,14 +218,7 @@ final class VideoClip {
             let capturedFileName = self.fileName
             let capturedClipId = self.id
             let capturedUser = athlete?.user
-            let fileSize: Int64
-            do {
-                let attrs = try FileManager.default.attributesOfItem(atPath: resolvedFilePath)
-                fileSize = (attrs[.size] as? Int64) ?? 0
-            } catch {
-                modelsLog.error("Failed to read file size for cloud quota update: \(error.localizedDescription)")
-                fileSize = 0
-            }
+            let fileSize = capturedFileSize
             Task { @MainActor in
                 let cloudManager = VideoCloudManager.shared
                 do {

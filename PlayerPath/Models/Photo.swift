@@ -135,9 +135,21 @@ final class Photo {
 
     /// Delete photo with all associated files
     @MainActor func delete(in context: ModelContext) {
-        // Capture paths before context.delete to avoid accessing deleted SwiftData object
+        // Capture paths and file size before any deletion to avoid races
         let capturedFilePath = resolvedFilePath
         let capturedThumbPath = resolvedThumbnailPath
+        let capturedFileSize: Int64
+        if cloudURL != nil {
+            do {
+                let attrs = try FileManager.default.attributesOfItem(atPath: capturedFilePath)
+                capturedFileSize = (attrs[.size] as? Int64) ?? 0
+            } catch {
+                modelsLog.error("Failed to read photo file size for cloud quota update: \(error.localizedDescription)")
+                capturedFileSize = 0
+            }
+        } else {
+            capturedFileSize = 0
+        }
 
         // Dispatch file I/O to background
         DispatchQueue.global(qos: .utility).async {
@@ -160,14 +172,7 @@ final class Photo {
             let capturedFileName = self.fileName
             let capturedPhotoId = self.id
             let capturedUser = athlete?.user
-            let fileSize: Int64
-            do {
-                let attrs = try FileManager.default.attributesOfItem(atPath: capturedFilePath)
-                fileSize = (attrs[.size] as? Int64) ?? 0
-            } catch {
-                modelsLog.error("Failed to read photo file size for cloud quota update: \(error.localizedDescription)")
-                fileSize = 0
-            }
+            let fileSize = capturedFileSize
             Task { @MainActor in
                 let cloudManager = VideoCloudManager.shared
                 do {

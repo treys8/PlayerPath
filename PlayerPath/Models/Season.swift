@@ -180,17 +180,7 @@ final class Season {
         }
 
         // Reset before aggregating so re-archiving doesn't double-count
-        stats.singles = 0
-        stats.doubles = 0
-        stats.triples = 0
-        stats.homeRuns = 0
-        stats.runs = 0
-        stats.rbis = 0
-        stats.walks = 0
-        stats.strikeouts = 0
-        stats.atBats = 0
-        stats.hits = 0
-        stats.hitByPitches = 0
+        stats.resetAllCounts()
 
         // Aggregate all game stats into season stats
         for game in (games ?? []) where game.isComplete {
@@ -206,6 +196,14 @@ final class Season {
                 stats.atBats += gameStats.atBats
                 stats.hits += gameStats.hits
                 stats.hitByPitches += gameStats.hitByPitches
+                stats.groundOuts += gameStats.groundOuts
+                stats.flyOuts += gameStats.flyOuts
+                stats.totalPitches += gameStats.totalPitches
+                stats.balls += gameStats.balls
+                stats.strikes += gameStats.strikes
+                stats.wildPitches += gameStats.wildPitches
+                stats.pitchingStrikeouts += gameStats.pitchingStrikeouts
+                stats.pitchingWalks += gameStats.pitchingWalks
             }
         }
 

@@ -106,8 +106,11 @@ class AthleteInvitationManager {
         }
 
         // 1. Find the local athlete for this user
+        // Use optional binding so both sides of the #Predicate comparison are String?,
+        // avoiding a SwiftData crash when evaluating entities with nil relationships.
+        let optionalUserID: String? = userID
         let athleteDescriptor = FetchDescriptor<Athlete>(
-            predicate: #Predicate { $0.user?.firebaseAuthUid == userID }
+            predicate: #Predicate { $0.user?.firebaseAuthUid == optionalUserID }
         )
         let athlete = (try? modelContext.fetch(athleteDescriptor))?.first
         let athleteName = athlete?.name ?? Auth.auth().currentUser?.displayName ?? "Athlete"
@@ -122,15 +125,17 @@ class AthleteInvitationManager {
         )
 
         // 3. Create or update Coach record in SwiftData
-        let coachID = invitation.coachID
+        // Wrap in optionals so #Predicate compares String? == String? (not String? == String),
+        // preventing a potential SwiftData EXC_BAD_ACCESS on entities with nil firebaseCoachID.
+        let optionalCoachID: String? = invitation.coachID
         let coachEmail = invitation.coachEmail
         let existingCoachDescriptor = FetchDescriptor<Coach>(
             predicate: #Predicate<Coach> { coach in
-                coach.firebaseCoachID == coachID || coach.email == coachEmail
+                coach.firebaseCoachID == optionalCoachID || coach.email == coachEmail
             }
         )
         let existingCoaches = (try? modelContext.fetch(existingCoachDescriptor)) ?? []
-        let existingCoach = existingCoaches.first { $0.athlete == athlete }
+        let existingCoach = existingCoaches.first { $0.athlete?.id == athlete?.id }
 
         if let existingCoach {
             existingCoach.name = invitation.coachName

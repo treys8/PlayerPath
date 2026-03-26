@@ -382,7 +382,7 @@ service cloud.firestore {
                     && request.resource.data.isRead == false
                     && request.resource.data.type in [
                          'new_video', 'coach_comment', 'invitation_received',
-                         'invitation_accepted', 'access_revoked'
+                         'invitation_accepted', 'access_revoked', 'access_lapsed'
                        ];
 
       // Only the recipient can mark notifications as read

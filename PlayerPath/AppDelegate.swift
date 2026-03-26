@@ -21,14 +21,13 @@ class PlayerPathAppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         
         // Configure App Check before Firebase — must be set before FirebaseApp.configure()
+        // App Check is disabled until App Attest is properly configured in Firebase Console.
+        // The debug provider only works in DEBUG builds; App Attest was returning 403 on
+        // TestFlight/production builds, causing EXC_GUARD / XPC crashes.
         #if DEBUG
-        // Use debug provider for simulators and development builds
         let providerFactory = AppCheckDebugProviderFactory()
-        #else
-        // Use App Attest for production builds (stronger than DeviceCheck)
-        let providerFactory = PlayerPathAppAttestProviderFactory()
-        #endif
         AppCheck.setAppCheckProviderFactory(providerFactory)
+        #endif
 
         // Configure Firebase when the app starts (thread-safe with dispatch_once internally)
         if FirebaseApp.app() == nil {

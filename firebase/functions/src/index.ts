@@ -1437,7 +1437,12 @@ export const acceptCoachToAthleteInvitation = functions.https.onCall(async (data
       throw new functions.https.HttpsError('failed-precondition', 'This invitation has expired.');
     }
 
-    if (inv.athleteEmail?.toLowerCase() !== athleteEmail) {
+    // Allow acceptance if the caller's email matches the invitation target OR if the
+    // caller uses Apple Sign In "Hide My Email" (private relay). Apple relay emails
+    // end with @privaterelay.appleid.com and won't match the real email the coach used.
+    const invEmail = inv.athleteEmail?.toLowerCase();
+    const isAppleRelay = athleteEmail?.endsWith('@privaterelay.appleid.com');
+    if (invEmail !== athleteEmail && !isAppleRelay) {
       throw new functions.https.HttpsError('permission-denied', 'You are not the intended recipient of this invitation.');
     }
 
