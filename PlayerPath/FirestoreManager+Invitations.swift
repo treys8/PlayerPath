@@ -11,7 +11,7 @@ import FirebaseFirestore
 import FirebaseFunctions
 import os
 
-private let invitationLog = Logger(subsystem: "com.playerpath.app", category: "Invitations")
+private nonisolated(unsafe) let invitationLog = Logger(subsystem: "com.playerpath.app", category: "Invitations")
 
 /// Invitation-specific error codes for distinguishing failure reasons
 enum InvitationErrorCode: Int {
@@ -155,7 +155,7 @@ extension FirestoreManager {
     /// Accepts an athlete-to-coach invitation via server-side Cloud Function.
     /// The server reads permissions from the invitation document to prevent
     /// client-side privilege escalation.
-    func acceptInvitation(
+    nonisolated func acceptInvitation(
         invitationID: String,
         coachID: String,
         permissions: FolderPermissions // kept for API compat; server reads from invitation
@@ -196,7 +196,6 @@ extension FirestoreManager {
                 }
             }
             invitationLog.error("Failed to accept invitation \(invitationID): \(error.localizedDescription)")
-            errorMessage = "Failed to accept invitation."
             throw error
         }
     }
@@ -349,17 +348,18 @@ extension FirestoreManager {
     /// Accepts a coach-to-athlete invitation via Cloud Function (server-side validation).
     /// Validates caller identity, invitation state, expiration, and coach athlete limit.
     /// Creates shared folders server-side (any athlete tier) and returns folder IDs.
-    func acceptCoachToAthleteInvitation(
+    nonisolated func acceptCoachToAthleteInvitation(
         invitationID: String,
         athleteUserID: String,
         athleteName: String
     ) async throws -> (gamesFolderID: String?, lessonsFolderID: String?) {
-        let functions = Functions.functions()
+        let callable = Functions.functions().httpsCallable("acceptCoachToAthleteInvitation")
+        let params: [String: Any] = [
+            "invitationID": invitationID,
+            "athleteName": athleteName
+        ]
         do {
-            let result = try await functions.httpsCallable("acceptCoachToAthleteInvitation").call([
-                "invitationID": invitationID,
-                "athleteName": athleteName
-            ])
+            let result = try await callable.call(params)
             invitationLog.info("Accepted coach-to-athlete invitation \(invitationID) via Cloud Function")
 
             // Parse folder IDs from response
