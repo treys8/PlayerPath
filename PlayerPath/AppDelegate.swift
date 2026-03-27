@@ -57,6 +57,11 @@ class PlayerPathAppDelegate: NSObject, UIApplicationDelegate {
             StorageManager.cleanupOrphanedImports()
         }
 
+        // Reschedule coach review reminder if enabled
+        Task {
+            await PushNotificationService.shared.rescheduleReviewReminderIfNeeded()
+        }
+
         return true
     }
     
@@ -159,14 +164,10 @@ class PlayerPathAppDelegate: NSObject, UIApplicationDelegate {
             case .performanceInsights, .gameReminder, .practiceReminder:
                 return true
             case .newVideo, .coachComment, .drillCard:
-                // Coach notification — refresh in-app notification list
-                NotificationCenter.default.post(name: .refreshActivityNotifications, object: nil)
                 return true
             case .invitationReceived, .invitationAccepted:
-                NotificationCenter.default.post(name: .refreshActivityNotifications, object: nil)
                 return true
             case .accessRevoked, .accessLapsed:
-                NotificationCenter.default.post(name: .refreshActivityNotifications, object: nil)
                 return true
             }
         } else if let unknown = userInfo[RemoteNotificationKey.type] {

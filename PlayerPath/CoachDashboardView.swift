@@ -22,6 +22,9 @@ struct CoachDashboardView: View {
     @State private var showingCamera = false
     @State private var isEndingSession = false
     @State private var isCompletingSession = false
+    @State private var startingScheduledSessionID: String?
+    @State private var showingCancelConfirmation = false
+    @State private var sessionToCancel: CoachSession?
     private var archiveManager: CoachFolderArchiveManager { .shared }
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -51,6 +54,9 @@ struct CoachDashboardView: View {
 
                     // Live session card (top priority)
                     liveSessionSection
+
+                    // Upcoming scheduled sessions
+                    upcomingSessionsSection
 
                     // Over-limit banner
                     if isOverAthleteLimit {
@@ -92,6 +98,9 @@ struct CoachDashboardView: View {
             // In-app notification banner
             if let banner = activityNotifService.incomingBanner {
                 ActivityNotificationBanner(notification: banner, onDismiss: {
+                    if let notifID = banner.id, let coachID = authManager.userID {
+                        Task { await activityNotifService.markRead(notifID, forUserID: coachID) }
+                    }
                     activityNotifService.dismissBanner()
                 }, onTap: {
                     handleNotificationTap(banner)
@@ -103,6 +112,23 @@ struct CoachDashboardView: View {
             }
         }
         .navigationTitle(authManager.userDisplayName ?? "Dashboard")
+        .alert("Cancel Session?", isPresented: $showingCancelConfirmation) {
+            Button("Cancel Session", role: .destructive) {
+                if let session = sessionToCancel, let sessionID = session.id {
+                    Task {
+                        do {
+                            try await sessionManager.cancelScheduledSession(sessionID: sessionID)
+                            Haptics.success()
+                        } catch {
+                            ErrorHandlerService.shared.handle(error, context: "CoachDashboard.cancelScheduled", showAlert: false)
+                        }
+                    }
+                }
+            }
+            Button("Keep", role: .cancel) {}
+        } message: {
+            Text("This scheduled session will be removed.")
+        }
         .sheet(isPresented: $showingInviteAthlete) {
             InviteAthleteSheet()
         }
@@ -148,6 +174,7 @@ struct CoachDashboardView: View {
         .onChange(of: sharedFolderManager.coachFolders) { _, _ in updateCachedValues() }
         .onChange(of: archiveManager.archivedFolderIDs) { _, _ in updateCachedValues() }
         .onChange(of: sessionManager.sessions) { _, _ in updateCachedValues() }
+        .onChange(of: sessionManager.scheduledSessions) { _, _ in updateCachedValues() }
     }
 
     // MARK: - Live Session
@@ -226,6 +253,61 @@ struct CoachDashboardView: View {
         }
     }
 
+    // MARK: - Upcoming Sessions
+
+    @ViewBuilder
+    private var upcomingSessionsSection: some View {
+        if !sessionManager.scheduledSessions.isEmpty {
+            VStack(spacing: 12) {
+                HStack {
+                    HStack(spacing: 6) {
+                        Image(systemName: "calendar.badge.clock")
+                            .font(.caption)
+                            .foregroundColor(.blue)
+                        Text("Upcoming Sessions")
+                            .font(.title3)
+                            .fontWeight(.bold)
+                    }
+                    Spacer()
+                    Text("\(sessionManager.scheduledSessions.count)")
+                        .font(.caption2)
+                        .fontWeight(.bold)
+                        .foregroundColor(.blue)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(Capsule().fill(Color.blue.opacity(0.12)))
+                }
+
+                ForEach(sessionManager.scheduledSessions) { session in
+                    UpcomingSessionCard(
+                        session: session,
+                        isStarting: startingScheduledSessionID == session.id,
+                        onStart: { startScheduledSession(session) },
+                        onCancel: {
+                            sessionToCancel = session
+                            showingCancelConfirmation = true
+                        }
+                    )
+                }
+            }
+        }
+    }
+
+    private func startScheduledSession(_ session: CoachSession) {
+        guard let sessionID = session.id, startingScheduledSessionID == nil else { return }
+        startingScheduledSessionID = sessionID
+        Task {
+            do {
+                try await sessionManager.startScheduledSession(sessionID: sessionID)
+                Haptics.success()
+                showingCamera = true
+            } catch {
+                ErrorHandlerService.shared.handle(error, context: "CoachDashboard.startScheduledSession", showAlert: false)
+            }
+            startingScheduledSessionID = nil
+        }
+    }
+
     // MARK: - Quick Actions
 
     private var quickActionsSection: some View {
@@ -251,6 +333,14 @@ struct CoachDashboardView: View {
                     ) {
                         startSessionAction()
                     }
+                }
+
+                QuickActionButton(
+                    icon: "calendar.badge.plus",
+                    title: "Schedule",
+                    color: .blue
+                ) {
+                    showingStartSession = true
                 }
 
                 QuickActionButton(
@@ -566,14 +656,10 @@ struct CoachDashboardView: View {
             } else {
                 coordinator.navigateToInvitations()
             }
-        case .coachComment, .accessRevoked, .accessLapsed:
+        case .accessRevoked, .accessLapsed:
+            coordinator.selectedTab = .athletes
+        case .coachComment:
             break
-        }
-
-        if let notifID = notification.id, let coachID = authManager.userID {
-            Task {
-                await ActivityNotificationService.shared.markRead(notifID, forUserID: coachID)
-            }
         }
     }
 }

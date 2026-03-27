@@ -207,6 +207,25 @@ final class ActivityNotificationService: ObservableObject {
         }
     }
 
+    func markInvitationNotificationsRead(forUserID userID: String) async {
+        let invitationUnread = recentNotifications.filter {
+            !$0.isRead && ($0.type == .invitationAccepted || $0.type == .invitationReceived)
+        }
+        guard !invitationUnread.isEmpty else { return }
+
+        let batch = db.batch()
+        for n in invitationUnread {
+            guard let id = n.id else { continue }
+            let ref = db.collection(FC.notifications).document(userID).collection(FC.items).document(id)
+            batch.updateData(["isRead": true], forDocument: ref)
+        }
+        do {
+            try await batch.commit()
+        } catch {
+            log.error("Failed to mark invitation notifications read: \(error.localizedDescription)")
+        }
+    }
+
     func markRead(_ notifID: String, forUserID userID: String) async {
         do {
             try await db.collection(FC.notifications)

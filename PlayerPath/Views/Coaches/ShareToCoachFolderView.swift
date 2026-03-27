@@ -18,6 +18,7 @@ struct ShareToCoachFolderView: View {
     @State private var selectedFolder: SharedFolder?
     @State private var notes: String = ""
     @State private var isUploading = false
+    @State private var uploadProgress: Double = 0
     @State private var errorMessage: String?
     @FocusState private var notesFocused: Bool
 
@@ -210,10 +211,11 @@ struct ShareToCoachFolderView: View {
             Color.black.opacity(0.35)
                 .ignoresSafeArea()
             VStack(spacing: 12) {
-                ProgressView()
-                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                    .scaleEffect(1.4)
-                Text("Uploading…")
+                ProgressView(value: uploadProgress)
+                    .progressViewStyle(.linear)
+                    .tint(.white)
+                    .frame(width: 180)
+                Text("Uploading \(Int(uploadProgress * 100))%")
                     .font(.headline)
                     .foregroundColor(.white)
             }
@@ -247,6 +249,7 @@ struct ShareToCoachFolderView: View {
         }
 
         isUploading = true
+        uploadProgress = 0
         errorMessage = nil
 
         let uploaderName = authManager.userDisplayName ?? authManager.userEmail ?? "Athlete"
@@ -277,7 +280,7 @@ struct ShareToCoachFolderView: View {
             gameCtx = trimmedNotes.isEmpty ? nil : GameContext(opponent: "", date: Date(), notes: trimmedNotes)
             practiceCtx = nil
         } else {
-            videoType = "game"
+            videoType = "other"
             gameCtx = trimmedNotes.isEmpty ? nil : GameContext(opponent: "", date: Date(), notes: trimmedNotes)
             practiceCtx = nil
         }
@@ -299,7 +302,12 @@ struct ShareToCoachFolderView: View {
                 athleteName: clip.athlete?.name,
                 isHighlight: clip.isHighlight,
                 clipNote: clip.note,
-                existingThumbnailPath: clip.thumbnailPath
+                existingThumbnailPath: clip.thumbnailPath,
+                progressHandler: { progress in
+                    Task { @MainActor in
+                        uploadProgress = progress
+                    }
+                }
             )
             isUploading = false
             Haptics.success()

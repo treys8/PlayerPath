@@ -88,7 +88,9 @@ struct CoachFolderDetailView: View {
                     onDiscarded: { Task { await viewModel.loadVideos() } }
                 )
             }
-            .fullScreenCover(isPresented: $showingQuickRecord) {
+            .fullScreenCover(isPresented: $showingQuickRecord, onDismiss: {
+                Task { await viewModel.loadVideos() }
+            }) {
                 if let session = CoachSessionManager.shared.activeSession {
                     DirectCameraRecorderView(
                         coachContext: CoachSessionContext(sessionID: session.id ?? "", session: session)
@@ -447,9 +449,16 @@ struct CoachFolderDetailView: View {
     }
 
     private func quickRecord() {
-        guard CoachSessionManager.shared.activeSession == nil else {
-            showingActiveSessionAlert = true
-            return
+        // If there's already an active session for this folder, resume recording
+        if let active = CoachSessionManager.shared.activeSession {
+            let folderID = folder.id ?? ""
+            if active.folderIDs.values.contains(folderID) {
+                showingQuickRecord = true
+                return
+            } else {
+                showingActiveSessionAlert = true
+                return
+            }
         }
         guard let folderID = folder.id else { return }
         let athlete = (

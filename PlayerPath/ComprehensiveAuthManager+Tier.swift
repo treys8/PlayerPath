@@ -105,6 +105,19 @@ extension ComprehensiveAuthManager {
         }
     }
 
+    /// Awaitable version of tier sync — use before operations that depend on Firestore
+    /// having the latest subscription tier (e.g. accepting coach invitations after upgrade).
+    func syncSubscriptionTierToFirestoreAndWait() async {
+        guard let userID = currentFirebaseUser?.uid else { return }
+        let hasOverride = hasAthleteTierOverride
+        await retryAsync(maxAttempts: 3) {
+            try await FirestoreManager.shared.syncSubscriptionTiersWithThrow(
+                userID: userID,
+                hasAthleteTierOverride: hasOverride
+            )
+        }
+    }
+
     /// Listens for app entering foreground and refreshes the tier from Firestore.
     /// This catches purchases made on other devices that this device's StoreKit
     /// may not have received (e.g. different Apple ID, or App Store propagation delay).

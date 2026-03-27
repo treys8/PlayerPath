@@ -174,6 +174,9 @@ struct CoachProfileView: View {
                     NavigationLink(destination: NotificationSettingsView(athleteId: nil)) {
                         Label("Notifications", systemImage: "bell")
                     }
+                    NavigationLink(destination: CoachReviewReminderSettingsView()) {
+                        Label("Review Reminders", systemImage: "bell.badge")
+                    }
                     NavigationLink(destination: ChangePasswordView(email: authManager.userEmail ?? "")) {
                         Label("Change Password", systemImage: "lock")
                     }

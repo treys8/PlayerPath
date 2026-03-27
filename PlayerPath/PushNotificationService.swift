@@ -148,6 +148,17 @@ final class PushNotificationService: NSObject, ObservableObject {
                 )
             ],
             intentIdentifiers: []
+        ),
+        UNNotificationCategory(
+            identifier: "COACH_REVIEW_REMINDER",
+            actions: [
+                UNNotificationAction(
+                    identifier: "REVIEW_CLIPS",
+                    title: "Review Clips",
+                    options: [.foreground]
+                )
+            ],
+            intentIdentifiers: []
         )
     ]
     
@@ -388,6 +399,52 @@ final class PushNotificationService: NSObject, ObservableObject {
         }
     }
     
+    // MARK: - Coach Review Reminders
+
+    private static let reviewReminderID = "coach_review_reminder"
+
+    /// Schedules a daily local notification reminding the coach to review clips.
+    /// Adding a notification with the same identifier replaces any existing one.
+    func scheduleReviewReminder(hour: Int, minute: Int) async {
+        guard canScheduleNotifications else { return }
+
+        var dateComponents = DateComponents()
+        dateComponents.hour = hour
+        dateComponents.minute = minute
+
+        let trigger = UNCalendarNotificationTrigger(
+            dateMatching: dateComponents,
+            repeats: true
+        )
+
+        let success = await scheduleLocalNotification(
+            identifier: Self.reviewReminderID,
+            title: "Clips Waiting for Review",
+            body: "You have session clips that haven't been reviewed yet. Tap to review and share with your athletes.",
+            categoryIdentifier: "COACH_REVIEW_REMINDER",
+            userInfo: ["type": "coach_review_reminder"],
+            trigger: trigger
+        )
+
+        if success {
+            logger.info("Scheduled daily review reminder at \(hour):\(minute)")
+        }
+    }
+
+    /// Cancels the coach review reminder notification.
+    func cancelReviewReminder() {
+        cancelNotifications(withIdentifiers: [Self.reviewReminderID])
+    }
+
+    /// Reschedules the review reminder if enabled in settings. Call on app launch.
+    func rescheduleReviewReminderIfNeeded() async {
+        let enabled = UserDefaults.standard.bool(forKey: ReviewReminderKeys.enabled)
+        guard enabled else { return }
+        let hour = UserDefaults.standard.object(forKey: ReviewReminderKeys.hour) as? Int ?? 9
+        let minute = UserDefaults.standard.object(forKey: ReviewReminderKeys.minute) as? Int ?? 0
+        await scheduleReviewReminder(hour: hour, minute: minute)
+    }
+
     /// Schedule weekly performance summary with real stats.
     /// Uses a one-shot trigger for next Sunday 6 PM so stats stay fresh
     /// when re-scheduled on each app foreground.
@@ -740,6 +797,9 @@ extension PushNotificationService: UNUserNotificationCenterDelegate {
         case "VIEW_INVITATION":
             NotificationCenter.default.post(name: .openCoachInvitations, object: nil)
 
+        case "REVIEW_CLIPS":
+            NotificationCenter.default.post(name: .switchCoachTab, object: 1) // Athletes tab
+
         case UNNotificationDefaultActionIdentifier:
             // Handle default tap (open app)
             guard let notificationType = userInfo["type"] as? String else {
@@ -768,8 +828,9 @@ extension PushNotificationService: UNUserNotificationCenterDelegate {
             case "invitation_received", "invitation_accepted":
                 NotificationCenter.default.post(name: .openCoachInvitations, object: nil)
             case "access_revoked", "access_lapsed":
-                // Refresh notifications — no specific navigation target
-                NotificationCenter.default.post(name: .refreshActivityNotifications, object: nil)
+                break
+            case "coach_review_reminder":
+                NotificationCenter.default.post(name: .switchCoachTab, object: 1)
             default:
                 logger.info("Unhandled notification type: \(notificationType)")
             }

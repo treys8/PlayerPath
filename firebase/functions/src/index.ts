@@ -1381,6 +1381,22 @@ export const acceptCoachToAthleteInvitation = functions.https.onCall(async (data
     throw new functions.https.HttpsError('failed-precondition', 'Invitation missing coachID');
   }
 
+  // Check athlete has Pro subscription tier (coach sharing is a Pro feature)
+  const athleteDoc = await db.collection('users').doc(athleteUserID).get();
+  if (!athleteDoc.exists) {
+    throw new functions.https.HttpsError(
+      'not-found',
+      'Athlete profile not found. Please ensure your account is set up.'
+    );
+  }
+  const athleteTier = athleteDoc.data()?.subscriptionTier;
+  if (athleteTier !== 'pro') {
+    throw new functions.https.HttpsError(
+      'permission-denied',
+      'Pro subscription required to accept coach invitations'
+    );
+  }
+
   // Check coach athlete limit
   const coachDoc = await db.collection('users').doc(coachID).get();
   const coachTier = coachDoc.data()?.coachSubscriptionTier || 'coach_free';

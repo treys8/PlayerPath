@@ -2,12 +2,11 @@
 //  StartSessionSheet.swift
 //  PlayerPath
 //
-//  Athlete picker for starting a live instruction session.
-//  Coach selects 1+ athletes, then starts the session.
+//  Athlete picker for starting or scheduling an instruction session.
+//  Coach selects 1+ athletes, then starts now or schedules for later.
 //
 
 import SwiftUI
-import FirebaseAuth
 
 struct StartSessionSheet: View {
     let onSessionStarted: (String) -> Void
@@ -19,6 +18,14 @@ struct StartSessionSheet: View {
     @State private var selectedAthleteIDs: Set<String> = []
     @State private var isStarting = false
     @State private var errorMessage: String?
+    @State private var sessionMode: SessionMode = .startNow
+    @State private var scheduledDate = Date().addingTimeInterval(3600)
+    @State private var sessionNotes = ""
+
+    private enum SessionMode: String, CaseIterable {
+        case startNow = "Start Now"
+        case schedule = "Schedule"
+    }
 
     private var availableAthletes: [(athleteID: String, athleteName: String, folderID: String)] {
         guard let coachID = authManager.userID else { return [] }
@@ -34,7 +41,7 @@ struct StartSessionSheet: View {
                     athleteList
                 }
             }
-            .navigationTitle("Start Session")
+            .navigationTitle(sessionMode == .startNow ? "Start Session" : "Schedule Session")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -58,6 +65,36 @@ struct StartSessionSheet: View {
     private var athleteList: some View {
         VStack(spacing: 0) {
             List {
+                // Mode picker
+                Section {
+                    Picker("Session Type", selection: $sessionMode) {
+                        ForEach(SessionMode.allCases, id: \.self) { mode in
+                            Text(mode.rawValue).tag(mode)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
+                }
+
+                // Scheduling options
+                if sessionMode == .schedule {
+                    Section {
+                        DatePicker(
+                            "Date & Time",
+                            selection: $scheduledDate,
+                            in: Date()...,
+                            displayedComponents: [.date, .hourAndMinute]
+                        )
+
+                        TextField("Notes (optional)", text: $sessionNotes, axis: .vertical)
+                            .lineLimit(2...4)
+                    } header: {
+                        Text("Session Details")
+                    }
+                }
+
+                // Athlete selection
                 Section {
                     ForEach(availableAthletes, id: \.athleteID) { athlete in
                         Button {
@@ -99,27 +136,38 @@ struct StartSessionSheet: View {
                 }
             }
 
-            // Start button
+            // Action button
             Button {
-                startSession()
+                if sessionMode == .startNow {
+                    startSession()
+                } else {
+                    scheduleSession()
+                }
             } label: {
                 HStack {
                     if isStarting {
                         ProgressView()
                             .tint(.white)
                     }
-                    Text(isStarting ? "Starting..." : "Start Session")
+                    Text(actionButtonTitle)
                         .fontWeight(.semibold)
                 }
                 .frame(maxWidth: .infinity)
                 .frame(height: 50)
-                .background(selectedAthleteIDs.isEmpty ? Color.gray : Color.brandNavy)
+                .background(selectedAthleteIDs.isEmpty ? Color.gray : sessionMode == .startNow ? Color.brandNavy : Color.blue)
                 .foregroundColor(.white)
                 .cornerRadius(12)
             }
             .disabled(selectedAthleteIDs.isEmpty || isStarting)
             .padding()
         }
+    }
+
+    private var actionButtonTitle: String {
+        if isStarting {
+            return sessionMode == .startNow ? "Starting..." : "Scheduling..."
+        }
+        return sessionMode == .startNow ? "Start Session" : "Schedule Session"
     }
 
     // MARK: - No Athletes
@@ -170,10 +218,12 @@ struct StartSessionSheet: View {
         Haptics.light()
     }
 
+    private var resolvedCoachName: String {
+        authManager.userDisplayName ?? authManager.userEmail ?? "Coach"
+    }
+
     private func startSession() {
         guard let coachID = authManager.userID else { return }
-        let currentUser = Auth.auth().currentUser
-        let coachName = currentUser?.displayName ?? currentUser?.email ?? "Coach"
 
         let selected = availableAthletes.filter { selectedAthleteIDs.contains($0.athleteID) }
         guard !selected.isEmpty else { return }
@@ -184,7 +234,7 @@ struct StartSessionSheet: View {
             do {
                 let sessionID = try await CoachSessionManager.shared.createSession(
                     coachID: coachID,
-                    coachName: coachName,
+                    coachName: resolvedCoachName,
                     athletes: selected,
                     authManager: authManager
                 )
@@ -194,6 +244,35 @@ struct StartSessionSheet: View {
             } catch {
                 errorMessage = "Failed to start session: \(error.localizedDescription)"
                 ErrorHandlerService.shared.handle(error, context: "StartSessionSheet.startSession", showAlert: false)
+                isStarting = false
+            }
+        }
+    }
+
+    private func scheduleSession() {
+        guard let coachID = authManager.userID else { return }
+
+        let selected = availableAthletes.filter { selectedAthleteIDs.contains($0.athleteID) }
+        guard !selected.isEmpty else { return }
+
+        isStarting = true
+
+        Task {
+            do {
+                let notes = sessionNotes.trimmingCharacters(in: .whitespacesAndNewlines)
+                _ = try await CoachSessionManager.shared.scheduleSession(
+                    coachID: coachID,
+                    coachName: resolvedCoachName,
+                    athletes: selected,
+                    scheduledDate: scheduledDate,
+                    notes: notes.isEmpty ? nil : notes,
+                    authManager: authManager
+                )
+                Haptics.success()
+                dismiss()
+            } catch {
+                errorMessage = "Failed to schedule session: \(error.localizedDescription)"
+                ErrorHandlerService.shared.handle(error, context: "StartSessionSheet.scheduleSession", showAlert: false)
                 isStarting = false
             }
         }

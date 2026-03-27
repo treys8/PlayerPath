@@ -8,12 +8,14 @@
 import SwiftUI
 
 enum SessionStatus: String, Codable, Hashable {
+    case scheduled
     case live
     case reviewing
     case completed
 
     var displayText: String {
         switch self {
+        case .scheduled: return "SCHEDULED"
         case .live: return "LIVE"
         case .reviewing: return "REVIEW"
         case .completed: return "DONE"
@@ -22,6 +24,7 @@ enum SessionStatus: String, Codable, Hashable {
 
     var color: Color {
         switch self {
+        case .scheduled: return .blue
         case .live: return .red
         case .reviewing: return .orange
         case .completed: return .green
@@ -30,6 +33,7 @@ enum SessionStatus: String, Codable, Hashable {
 
     var icon: String {
         switch self {
+        case .scheduled: return "calendar.badge.clock"
         case .live: return "record.circle"
         case .reviewing: return "eye"
         case .completed: return "checkmark.circle"

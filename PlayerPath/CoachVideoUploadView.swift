@@ -381,7 +381,10 @@ class CoachVideoUploadViewModel {
             folderID: folderID,
             coachID: uploaderID,
             coachName: uploaderName,
-            priority: .high
+            priority: .high,
+            videoType: videoContext == .game ? "game" : "instruction",
+            gameOpponent: videoContext == .game ? gameOpponent.trimmingCharacters(in: .whitespaces) : nil,
+            gameDate: contextDate
         )
 
         // Clean up picker temp file

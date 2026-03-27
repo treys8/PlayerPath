@@ -230,7 +230,10 @@ final class UploadQueueManager {
                         folderID: folderID,
                         coachID: coachID,
                         coachName: coachName,
-                        sessionID: upload.sessionID
+                        sessionID: upload.sessionID,
+                        videoType: upload.videoType,
+                        gameOpponent: upload.gameOpponent,
+                        gameDate: upload.gameDate
                     )
                 } else {
                     persistedUpload = PendingUpload(
@@ -292,7 +295,10 @@ final class UploadQueueManager {
                         folderID: folderID,
                         coachID: coachID,
                         coachName: coachName,
-                        sessionID: persisted.sessionID
+                        sessionID: persisted.sessionID,
+                        videoType: persisted.videoType,
+                        gameOpponent: persisted.gameOpponent,
+                        gameDate: persisted.gameDate
                     )
                 } else {
                     // Athlete upload — verify the video clip still exists
@@ -389,7 +395,10 @@ final class UploadQueueManager {
         coachID: String,
         coachName: String,
         sessionID: String? = nil,
-        priority: UploadPriority = .normal
+        priority: UploadPriority = .normal,
+        videoType: String = "instruction",
+        gameOpponent: String? = nil,
+        gameDate: Date? = nil
     ) {
         // Deterministic UUID from folderID+fileName so duplicate detection works across app restarts
         let clipId = Self.stableUUID(from: "\(folderID)|\(fileName)")
@@ -411,7 +420,10 @@ final class UploadQueueManager {
             folderID: folderID,
             coachID: coachID,
             coachName: coachName,
-            sessionID: sessionID
+            sessionID: sessionID,
+            videoType: videoType,
+            gameOpponent: gameOpponent,
+            gameDate: gameDate
         )
 
         pendingUploads.append(upload)
@@ -645,24 +657,11 @@ final class UploadQueueManager {
                 quotaUser = user
             }
 
-            // Compress video before upload to reduce bandwidth and storage costs.
-            // Non-fatal: if compression fails, upload the original file.
-            do {
-                let sourceURL = URL(fileURLWithPath: upload.filePath)
-                _ = try await VideoCompressionService.shared.compressForUpload(at: sourceURL)
-
-                // Update reserved quota with actual (possibly compressed) size
-                if let user = quotaUser {
-                    let compressedSize = FileManager.default.fileSize(atPath: upload.filePath)
-                    let savedBytes = reservedBytes - compressedSize
-                    if savedBytes > 0 {
-                        user.cloudStorageUsedBytes -= savedBytes
-                        reservedBytes = compressedSize
-                    }
-                }
-            } catch {
-                uploadLog.warning("Video compression failed, uploading original: \(error.localizedDescription)")
-            }
+            // NOTE: Athlete uploads go through VideoCloudManager.uploadVideo(clip, athlete:)
+            // which reads the file path from the VideoClip model. Compression would require
+            // either a copy or changing that API — skipped here to avoid destroying the
+            // athlete's original local video. Athlete shared-folder uploads (via
+            // SharedFolderManager) do compress before upload.
 
             // Perform upload with progress updates
             let cloudManager = VideoCloudManager.shared
@@ -847,6 +846,7 @@ final class UploadQueueManager {
 
         // Compress video before upload to reduce bandwidth and storage costs.
         // Non-fatal: if compression fails, upload the original file.
+        // Safe to compress in-place here — localURL is a staging copy in coach_pending_uploads/.
         do {
             _ = try await VideoCompressionService.shared.compressForUpload(at: localURL)
         } catch {
@@ -902,7 +902,12 @@ final class UploadQueueManager {
                 uploadedByName: coachName,
                 fileSize: fileSize,
                 duration: processed.duration,
-                videoType: "instruction",
+                videoType: upload.videoType ?? "instruction",
+                gameContext: upload.videoType == "game" ? GameContext(
+                    opponent: upload.gameOpponent ?? "",
+                    date: upload.gameDate ?? Date(),
+                    notes: nil
+                ) : nil,
                 uploadedByType: .coach,
                 visibility: "private",
                 sessionID: upload.sessionID
@@ -920,6 +925,15 @@ final class UploadQueueManager {
         // Increment session clip count if part of a live session
         if let sessionID = upload.sessionID {
             await CoachSessionManager.shared.incrementClipCount(sessionID: sessionID)
+        }
+
+        // Clean up local staging file — it's a copy, so always safe to delete
+        if FileManager.default.fileExists(atPath: upload.filePath) {
+            do {
+                try FileManager.default.removeItem(atPath: upload.filePath)
+            } catch {
+                uploadLog.error("Failed to delete local coach upload file: \(error.localizedDescription)")
+            }
         }
 
         uploadLog.info("Coach upload completed: \(upload.fileName) → folder \(folderID)")
@@ -1001,6 +1015,9 @@ struct QueuedUpload: Identifiable {
     let coachID: String?
     let coachName: String?
     let sessionID: String?
+    let videoType: String?
+    let gameOpponent: String?
+    let gameDate: Date?
 
     var timeUntilRetry: TimeInterval? {
         guard let lastAttempt = lastAttempt, retryCount > 0 else { return nil }
@@ -1026,12 +1043,16 @@ struct QueuedUpload: Identifiable {
         self.coachID = nil
         self.coachName = nil
         self.sessionID = nil
+        self.videoType = nil
+        self.gameOpponent = nil
+        self.gameDate = nil
     }
 
     /// Initializer for coach uploads
     init(clipId: UUID, fileName: String, filePath: String, priority: UploadPriority,
          retryCount: Int, lastAttempt: Date?, folderID: String, coachID: String,
-         coachName: String, sessionID: String?) {
+         coachName: String, sessionID: String?,
+         videoType: String? = nil, gameOpponent: String? = nil, gameDate: Date? = nil) {
         self.clipId = clipId
         self.athleteId = nil
         self.fileName = fileName
@@ -1044,6 +1065,9 @@ struct QueuedUpload: Identifiable {
         self.coachID = coachID
         self.coachName = coachName
         self.sessionID = sessionID
+        self.videoType = videoType
+        self.gameOpponent = gameOpponent
+        self.gameDate = gameDate
     }
 }
 
@@ -1110,6 +1134,9 @@ final class PendingUpload {
     var coachID: String?
     var coachName: String?
     var sessionID: String?
+    var videoType: String?
+    var gameOpponent: String?
+    var gameDate: Date?
 
     var status: PendingUploadStatus {
         get { PendingUploadStatus(rawValue: statusRaw) ?? PendingUploadStatus.pending }
@@ -1149,7 +1176,10 @@ final class PendingUpload {
         folderID: String,
         coachID: String,
         coachName: String,
-        sessionID: String?
+        sessionID: String?,
+        videoType: String? = nil,
+        gameOpponent: String? = nil,
+        gameDate: Date? = nil
     ) {
         self.clipId = clipId
         self.athleteId = UUID() // Placeholder for coach uploads
@@ -1165,6 +1195,9 @@ final class PendingUpload {
         self.coachID = coachID
         self.coachName = coachName
         self.sessionID = sessionID
+        self.videoType = videoType
+        self.gameOpponent = gameOpponent
+        self.gameDate = gameDate
     }
 }
 

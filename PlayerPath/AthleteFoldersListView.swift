@@ -73,11 +73,6 @@ struct AthleteFoldersListView: View {
                     .shadow(radius: 10)
             }
         }
-        .task {
-            if let lastFetch = lastFetchDate, Date().timeIntervalSince(lastFetch) < 60 { return }
-            await loadFolders()
-            lastFetchDate = Date()
-        }
         .refreshable {
             await loadFolders()
         }

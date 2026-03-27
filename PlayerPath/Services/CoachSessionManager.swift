@@ -17,10 +17,33 @@ class CoachSessionManager {
 
     var activeSession: CoachSession?
     var sessions: [CoachSession] = []
+    var scheduledSessions: [CoachSession] = []
     var isLoading = false
 
     private let db = Firestore.firestore()
     private init() {}
+
+    // MARK: - Helpers
+
+    private func athleteData(
+        from athletes: [(athleteID: String, athleteName: String, folderID: String)]
+    ) -> (ids: [String], names: [String: String], folders: [String: String]) {
+        (
+            athletes.map(\.athleteID),
+            Dictionary(uniqueKeysWithValues: athletes.map { ($0.athleteID, $0.athleteName) }),
+            Dictionary(uniqueKeysWithValues: athletes.map { ($0.athleteID, $0.folderID) })
+        )
+    }
+
+    /// Validates the coach hasn't exceeded their tier's athlete limit.
+    private func enforceAthleteLimit(coachID: String, authManager: ComprehensiveAuthManager) async throws {
+        let limit = authManager.coachAthleteLimit
+        guard limit != Int.max else { return }
+        let connectedCount = await SubscriptionGate.fullConnectedAthleteCount(coachID: coachID)
+        if connectedCount > limit {
+            throw CoachSessionError.athleteLimitExceeded(limit: limit)
+        }
+    }
 
     // MARK: - Session Lifecycle
 
@@ -32,18 +55,9 @@ class CoachSessionManager {
         athletes: [(athleteID: String, athleteName: String, folderID: String)],
         authManager: ComprehensiveAuthManager
     ) async throws -> String {
-        // Enforce coach athlete limit before creating the session
-        let limit = authManager.coachAthleteLimit
-        if limit != Int.max {
-            let connectedCount = await SubscriptionGate.fullConnectedAthleteCount(coachID: coachID)
-            if connectedCount > limit {
-                throw CoachSessionError.athleteLimitExceeded(limit: limit)
-            }
-        }
+        try await enforceAthleteLimit(coachID: coachID, authManager: authManager)
 
-        let athleteIDs = athletes.map(\.athleteID)
-        let athleteNames = Dictionary(uniqueKeysWithValues: athletes.map { ($0.athleteID, $0.athleteName) })
-        let folderIDs = Dictionary(uniqueKeysWithValues: athletes.map { ($0.athleteID, $0.folderID) })
+        let (athleteIDs, athleteNames, folderIDs) = athleteData(from: athletes)
 
         let data: [String: Any] = [
             "coachID": coachID,
@@ -108,6 +122,7 @@ class CoachSessionManager {
             sessions[idx].status = .reviewing
             sessions[idx].endedAt = Date()
         }
+        NotificationCenter.default.post(name: .sessionEnded, object: sessionID)
     }
 
     /// Marks session as completed.
@@ -149,6 +164,124 @@ class CoachSessionManager {
         }
     }
 
+    // MARK: - Scheduled Sessions
+
+    /// Creates a scheduled session for a future date.
+    /// Validates athlete limit to prevent scheduling beyond the coach's tier.
+    func scheduleSession(
+        coachID: String,
+        coachName: String,
+        athletes: [(athleteID: String, athleteName: String, folderID: String)],
+        scheduledDate: Date,
+        notes: String?,
+        authManager: ComprehensiveAuthManager
+    ) async throws -> String {
+        try await enforceAthleteLimit(coachID: coachID, authManager: authManager)
+
+        let (athleteIDs, athleteNames, folderIDs) = athleteData(from: athletes)
+
+        var data: [String: Any] = [
+            "coachID": coachID,
+            "coachName": coachName,
+            "athleteIDs": athleteIDs,
+            "athleteNames": athleteNames,
+            "folderIDs": folderIDs,
+            "status": SessionStatus.scheduled.rawValue,
+            "scheduledDate": Timestamp(date: scheduledDate),
+            "clipCount": 0
+        ]
+        if let notes, !notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            data["notes"] = notes
+        }
+
+        let docRef = try await db.collection(FC.coachSessions).addDocument(data: data)
+
+        let session = CoachSession(
+            id: docRef.documentID,
+            coachID: coachID,
+            coachName: coachName,
+            athleteIDs: athleteIDs,
+            athleteNames: athleteNames,
+            folderIDs: folderIDs,
+            status: .scheduled,
+            startedAt: nil,
+            clipCount: 0,
+            scheduledDate: scheduledDate,
+            notes: notes
+        )
+        scheduledSessions.append(session)
+        scheduledSessions.sort { ($0.scheduledDate ?? .distantFuture) < ($1.scheduledDate ?? .distantFuture) }
+
+        NotificationCenter.default.post(name: .sessionScheduled, object: docRef.documentID)
+        return docRef.documentID
+    }
+
+    /// Transitions a scheduled session to live, ending any existing live session first.
+    func startScheduledSession(sessionID: String) async throws {
+        // End any existing live session to enforce one-active-session constraint
+        if let existing = activeSession, let existingID = existing.id, existing.status == .live {
+            try await endSession(sessionID: existingID)
+        }
+
+        try await db.collection(FC.coachSessions).document(sessionID).updateData([
+            "status": SessionStatus.live.rawValue,
+            "startedAt": FieldValue.serverTimestamp()
+        ])
+
+        if let idx = scheduledSessions.firstIndex(where: { $0.id == sessionID }) {
+            var session = scheduledSessions.remove(at: idx)
+            session.status = .live
+            activeSession = session
+            sessions.insert(session, at: 0)
+        }
+
+        NotificationCenter.default.post(name: .sessionBecameLive, object: sessionID)
+    }
+
+    /// Cancels a scheduled session (deletes it).
+    func cancelScheduledSession(sessionID: String) async throws {
+        try await db.collection(FC.coachSessions).document(sessionID).delete()
+        scheduledSessions.removeAll { $0.id == sessionID }
+    }
+
+    /// Updates a scheduled session's date, athletes, or notes.
+    func editScheduledSession(
+        sessionID: String,
+        newDate: Date? = nil,
+        newAthletes: [(athleteID: String, athleteName: String, folderID: String)]? = nil,
+        newNotes: String? = nil
+    ) async throws {
+        var updates: [String: Any] = [:]
+
+        if let newDate {
+            updates["scheduledDate"] = Timestamp(date: newDate)
+        }
+        if let newAthletes {
+            let (ids, names, folders) = athleteData(from: newAthletes)
+            updates["athleteIDs"] = ids
+            updates["athleteNames"] = names
+            updates["folderIDs"] = folders
+        }
+        if let newNotes {
+            updates["notes"] = newNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? FieldValue.delete() : newNotes
+        }
+
+        guard !updates.isEmpty else { return }
+        try await db.collection(FC.coachSessions).document(sessionID).updateData(updates)
+
+        if let idx = scheduledSessions.firstIndex(where: { $0.id == sessionID }) {
+            if let newDate { scheduledSessions[idx].scheduledDate = newDate }
+            if let newAthletes {
+                let (ids, names, folders) = athleteData(from: newAthletes)
+                scheduledSessions[idx].athleteIDs = ids
+                scheduledSessions[idx].athleteNames = names
+                scheduledSessions[idx].folderIDs = folders
+            }
+            if let newNotes { scheduledSessions[idx].notes = newNotes }
+            scheduledSessions.sort { ($0.scheduledDate ?? .distantFuture) < ($1.scheduledDate ?? .distantFuture) }
+        }
+    }
+
     /// Increments the clip count for the active session.
     func incrementClipCount(sessionID: String) async {
         do {
@@ -172,19 +305,42 @@ class CoachSessionManager {
         defer { isLoading = false }
 
         do {
-            let snapshot = try await db.collection(FC.coachSessions)
+            // Run both queries in parallel — they're independent reads
+            async let startedSnapshot = db.collection(FC.coachSessions)
                 .whereField("coachID", isEqualTo: coachID)
+                .whereField("status", isNotEqualTo: SessionStatus.scheduled.rawValue)
+                .order(by: "status")
                 .order(by: "startedAt", descending: true)
                 .limit(to: 50)
                 .getDocuments()
 
-            sessions = snapshot.documents.compactMap { doc in
+            async let scheduledSnapshot = db.collection(FC.coachSessions)
+                .whereField("coachID", isEqualTo: coachID)
+                .whereField("status", isEqualTo: SessionStatus.scheduled.rawValue)
+                .order(by: "scheduledDate", descending: false)
+                .limit(to: 20)
+                .getDocuments()
+
+            let (started, scheduled) = try await (startedSnapshot, scheduledSnapshot)
+
+            sessions = started.documents.compactMap { doc in
                 do {
                     var session = try doc.data(as: CoachSession.self)
                     session.id = doc.documentID
                     return session
                 } catch {
                     ErrorHandlerService.shared.handle(error, context: "CoachSessionManager.decode(\(doc.documentID))", showAlert: false)
+                    return nil
+                }
+            }
+
+            scheduledSessions = scheduled.documents.compactMap { doc in
+                do {
+                    var session = try doc.data(as: CoachSession.self)
+                    session.id = doc.documentID
+                    return session
+                } catch {
+                    ErrorHandlerService.shared.handle(error, context: "CoachSessionManager.decodeScheduled(\(doc.documentID))", showAlert: false)
                     return nil
                 }
             }
@@ -272,21 +428,7 @@ class CoachSessionManager {
         )
     }
 
-    /// Processes video with a single thumbnail retry if the first attempt fails.
-    private func processWithThumbnailRetry(
-        videoURL: URL, fileName: String, folderID: String
-    ) async -> CoachVideoProcessingService.ProcessedVideo {
-        let result = await CoachVideoProcessingService.shared.process(
-            videoURL: videoURL, fileName: fileName, folderID: folderID
-        )
-        if result.thumbnailURL == nil {
-            try? await Task.sleep(for: .seconds(2))
-            return await CoachVideoProcessingService.shared.process(
-                videoURL: videoURL, fileName: fileName, folderID: folderID
-            )
-        }
-        return result
-    }
+
 }
 
 // MARK: - Errors

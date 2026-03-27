@@ -46,6 +46,9 @@ struct CoachInvitationsView: View {
         .navigationTitle("Invitations")
         .navigationBarTitleDisplayMode(.inline)
         .task {
+            if let coachID = authManager.userID {
+                await ActivityNotificationService.shared.markInvitationNotificationsRead(forUserID: coachID)
+            }
             if let lastFetch = lastFetchDate, Date().timeIntervalSince(lastFetch) < 60 { return }
             await loadInvitations()
             lastFetchDate = Date()

@@ -200,6 +200,24 @@
       ]
     },
     {
+      "collectionGroup": "coachSessions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "coachID", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "startedAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "coachSessions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "coachID", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "scheduledDate", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "videos",
       "queryScope": "COLLECTION",
       "fields": [

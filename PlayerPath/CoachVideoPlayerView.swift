@@ -161,17 +161,20 @@ struct CoachVideoPlayerView: View {
 
             // Load annotations, cues, and drill cards in parallel
             async let annotationsLoad: () = viewModel.loadAnnotations()
+            async let drillCardsLoad: [DrillCard] = {
+                do { return try await FirestoreManager.shared.fetchDrillCards(forVideo: video.id) }
+                catch {
+                    ErrorHandlerService.shared.handle(error, context: "CoachVideoPlayer.loadDrillCards", showAlert: false)
+                    return []
+                }
+            }()
             if let coachID = authManager.userID {
                 async let cuesLoad: () = templateService.loadQuickCues(coachID: coachID)
                 _ = await (annotationsLoad, cuesLoad)
             } else {
                 _ = await annotationsLoad
             }
-            do {
-                drillCards = try await FirestoreManager.shared.fetchDrillCards(forVideo: video.id)
-            } catch {
-                ErrorHandlerService.shared.handle(error, context: "CoachVideoPlayer.loadDrillCards", showAlert: false)
-            }
+            drillCards = await drillCardsLoad
         }
         .onChange(of: scenePhase) { oldPhase, newPhase in
             if newPhase != .active {
@@ -188,10 +191,14 @@ struct CoachVideoPlayerView: View {
     
     // MARK: - Layout Variants
 
+    private var playerHeight: CGFloat {
+        min(max(UIScreen.main.bounds.height * 0.4, 220), 400)
+    }
+
     private var portraitLayout: some View {
         VStack(spacing: 0) {
             playerContent
-                .frame(height: 250)
+                .frame(height: playerHeight)
             instructionNoteCard
             if canComment && !templateService.quickCues.isEmpty {
                 QuickCueBar(

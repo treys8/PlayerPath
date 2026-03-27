@@ -65,10 +65,7 @@ struct AthleteInvitationsBanner: View {
             }
         }
         .sheet(isPresented: $showingInvitations) {
-            AthleteInvitationsSheet(
-                invitations: invitationManager.pendingInvitations,
-                onInvitationsChanged: { }  // Real-time listener handles updates
-            )
+            AthleteInvitationsSheet()
         }
     }
 }
@@ -76,8 +73,7 @@ struct AthleteInvitationsBanner: View {
 // MARK: - Invitations Sheet
 
 struct AthleteInvitationsSheet: View {
-    let invitations: [CoachToAthleteInvitation]
-    let onInvitationsChanged: () -> Void
+    private var invitationManager: AthleteInvitationManager { .shared }
 
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
@@ -85,18 +81,20 @@ struct AthleteInvitationsSheet: View {
 
     @State private var processingInvitationID: String?
     @State private var errorMessage: String?
+    @State private var showingProAlert = false
+    @State private var showingPaywall = false
 
     var body: some View {
         NavigationStack {
             List {
-                if invitations.isEmpty {
+                if invitationManager.pendingInvitations.isEmpty {
                     ContentUnavailableView(
                         "No Pending Invitations",
                         systemImage: "envelope.open",
                         description: Text("You'll see invitations from coaches here")
                     )
                 } else {
-                    ForEach(invitations) { invitation in
+                    ForEach(invitationManager.pendingInvitations) { invitation in
                         CoachInvitationCard(
                             invitation: invitation,
                             isProcessing: processingInvitationID == invitation.id,
@@ -122,10 +120,30 @@ struct AthleteInvitationsSheet: View {
             } message: {
                 Text(errorMessage ?? "")
             }
+            .alert("Pro Feature", isPresented: $showingProAlert) {
+                Button("Maybe Later", role: .cancel) { }
+                Button("Upgrade") { showingPaywall = true }
+            } message: {
+                Text("Accepting coach invitations requires a Pro subscription. Upgrade to Pro to share videos and receive feedback from your coaches.")
+            }
+            .sheet(isPresented: $showingPaywall) {
+                if let user = authManager.localUser {
+                    ImprovedPaywallView(user: user)
+                }
+            }
+            .onChange(of: invitationManager.pendingInvitations.count) { _, newCount in
+                if newCount == 0 && processingInvitationID == nil {
+                    dismiss()
+                }
+            }
         }
     }
 
     private func acceptInvitation(_ invitation: CoachToAthleteInvitation) async {
+        guard authManager.hasCoachingAccess else {
+            showingProAlert = true
+            return
+        }
         guard processingInvitationID == nil else {
             log.warning("ACCEPT blocked: already processing \(processingInvitationID ?? "nil")")
             return
@@ -140,6 +158,9 @@ struct AthleteInvitationsSheet: View {
         processingInvitationID = invitation.id
 
         do {
+            // Ensure Firestore tier is up-to-date (covers just-upgraded scenario)
+            await authManager.syncSubscriptionTierToFirestoreAndWait()
+
             let result = try await AthleteInvitationManager.shared.acceptInvitation(
                 invitation,
                 userID: currentUID,
@@ -147,7 +168,6 @@ struct AthleteInvitationsSheet: View {
             )
             log.info("ACCEPT succeeded for coach: \(result.coachName, privacy: .private)")
             Haptics.success()
-            onInvitationsChanged()
         } catch {
             log.warning("ACCEPT failed: \(error.localizedDescription)")
             errorMessage = AthleteInvitationManager.errorMessage(for: error, action: "accept")
@@ -167,7 +187,6 @@ struct AthleteInvitationsSheet: View {
         do {
             try await AthleteInvitationManager.shared.declineInvitation(invitation)
             Haptics.light()
-            onInvitationsChanged()
         } catch {
             errorMessage = AthleteInvitationManager.errorMessage(for: error, action: "decline")
             Haptics.error()

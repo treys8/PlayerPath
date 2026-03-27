@@ -415,6 +415,22 @@ class VideoCloudManager: ObservableObject {
         let athleteStableId = athlete.firestoreId ?? athlete.id.uuidString
         let athleteName = athlete.name
 
+        // Enforce per-tier cloud storage limit before starting batch
+        if let user = athlete.user {
+            let tier = StoreKitManager.shared.currentTier
+            let limitBytes = Int64(tier.storageLimitGB) * StorageConstants.bytesPerGB
+            let totalBatchSize = clipDataArray.reduce(Int64(0)) { sum, clip in
+                let attrs = try? FileManager.default.attributesOfItem(atPath: clip.filePath)
+                return sum + ((attrs?[.size] as? Int64) ?? 0)
+            }
+            if user.cloudStorageUsedBytes + totalBatchSize > limitBytes {
+                let usedGB = Double(user.cloudStorageUsedBytes) / StorageConstants.bytesPerGBDouble
+                return clips.map { ($0.id, .failure(VideoCloudError.uploadFailed(
+                    String(format: "Storage limit reached (%.1f GB of %d GB used). Upgrade your plan for more storage.", usedGB, tier.storageLimitGB)
+                ))) }
+            }
+        }
+
         return await withTaskGroup(of: (UUID, Result<String, Error>).self) { group in
             var results: [(UUID, Result<String, Error>)] = []
             var activeUploads = 0

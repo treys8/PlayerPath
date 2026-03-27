@@ -48,8 +48,12 @@ extension Notification.Name {
     static let showSubscriptionPaywall = Notification.Name("showSubscriptionPaywall")
     static let videoRecorded = Notification.Name("VideoRecorded")
     static let presentAddPractice = Notification.Name("presentAddPractice")
-    /// Refresh the in-app activity notification list (e.g., after receiving an FCM push).
-    static let refreshActivityNotifications = Notification.Name("refreshActivityNotifications")
+    /// Coach: a session was scheduled for a future date.
+    static let sessionScheduled = Notification.Name("SessionScheduled")
+    /// Coach: a session transitioned to live.
+    static let sessionBecameLive = Notification.Name("SessionBecameLive")
+    /// Coach: a session was ended (moved to reviewing).
+    static let sessionEnded = Notification.Name("SessionEnded")
 }
 
 @inline(__always)

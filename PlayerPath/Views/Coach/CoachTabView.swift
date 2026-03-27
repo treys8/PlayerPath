@@ -51,6 +51,12 @@ struct CoachTabView: View {
                 screenName: newTab.title,
                 screenClass: "CoachTabView"
             )
+            if newTab == .athletes, let coachID = authManager.userID {
+                Task {
+                    await ActivityNotificationService.shared.markFolderNotificationsRead(forUserID: coachID)
+                    await ActivityNotificationService.shared.markInvitationNotificationsRead(forUserID: coachID)
+                }
+            }
         }
         .onChange(of: sharedFolderManager.coachFolders) { _, folders in
             coordinator.resolvePendingNavigation(folders: folders)

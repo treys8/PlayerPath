@@ -34,6 +34,7 @@ class SharedFolderManager {
     var listenerError: String?
 
     private var coachFoldersListener: ListenerRegistration?
+    private var athleteFoldersListener: ListenerRegistration?
 
     private init() {}
     
@@ -333,6 +334,56 @@ class SharedFolderManager {
         try await loadAthleteFolders(athleteID: athleteID)
     }
 
+    // MARK: - Athlete Folder Listener
+
+    /// Starts a real-time Firestore listener for all folders owned by this athlete.
+    /// UI auto-updates when folders are created (e.g. after accepting a coach invitation).
+    func startAthleteFoldersListener(athleteID: String) {
+        guard athleteFoldersListener == nil else { return }
+        isLoading = true
+
+        let db = firestore.db
+        athleteFoldersListener = db.collection(FC.sharedFolders)
+            .whereField("ownerAthleteID", isEqualTo: athleteID)
+            .order(by: "createdAt", descending: true)
+            .limit(to: 50)
+            .addSnapshotListener { [weak self] snapshot, error in
+                guard let self else { return }
+
+                if let error = error as NSError? {
+                    Task { @MainActor in
+                        self.isLoading = false
+                        self.listenerError = "Unable to refresh folders. Showing cached data."
+                        folderLog.warning("Athlete folders listener error: \(error.localizedDescription)")
+                    }
+                    return
+                }
+
+                guard let docs = snapshot?.documents else { return }
+
+                let folders = docs.compactMap { doc -> SharedFolder? in
+                    do {
+                        var folder = try doc.data(as: SharedFolder.self)
+                        folder.id = doc.documentID
+                        return folder
+                    } catch {
+                        folderLog.warning("Failed to decode SharedFolder \(doc.documentID): \(error.localizedDescription)")
+                        return nil
+                    }
+                }
+                Task { @MainActor in
+                    self.isLoading = false
+                    self.listenerError = nil
+                    self.athleteFolders = folders
+                }
+            }
+    }
+
+    func stopAthleteFoldersListener() {
+        athleteFoldersListener?.remove()
+        athleteFoldersListener = nil
+    }
+
     // MARK: - Coach Functions
 
     /// Starts a real-time Firestore listener for all folders shared with this coach.
@@ -518,7 +569,8 @@ class SharedFolderManager {
         athleteName: String? = nil,
         isHighlight: Bool = false,
         clipNote: String? = nil,
-        existingThumbnailPath: String? = nil
+        existingThumbnailPath: String? = nil,
+        progressHandler: ((Double) -> Void)? = nil
     ) async throws -> String {
         // Verify folder exists and user has upload permission before starting expensive upload
         guard let folder = try await firestore.fetchSharedFolder(folderID: folderID) else {
@@ -530,20 +582,35 @@ class SharedFolderManager {
             }
         }
 
-        // First, upload to Firebase Storage using the REAL implementation
+        // Compress a COPY of the video before upload — the original must stay intact
+        // since it's the athlete's local file. Non-fatal: if compression fails, upload the original.
+        var uploadURL = videoURL
+        let tempCopy = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension(videoURL.pathExtension)
+        do {
+            try FileManager.default.copyItem(at: videoURL, to: tempCopy)
+            _ = try await VideoCompressionService.shared.compressForUpload(at: tempCopy)
+            uploadURL = tempCopy
+        } catch {
+            folderLog.warning("Video compression failed, uploading original: \(error.localizedDescription)")
+            try? FileManager.default.removeItem(at: tempCopy)
+        }
+
+        // Upload to Firebase Storage
         let storageURL = try await VideoCloudManager.shared.uploadVideo(
-            localURL: videoURL,
+            localURL: uploadURL,
             fileName: fileName,
             folderID: folderID,
             progressHandler: { progress in
-                // Progress is already published by VideoCloudManager
+                progressHandler?(progress)
             }
         )
 
-        // Get file size
+        // Get file size (use compressed file if available)
         let fileSize: Int64
         do {
-            let attributes = try FileManager.default.attributesOfItem(atPath: videoURL.path)
+            let attributes = try FileManager.default.attributesOfItem(atPath: uploadURL.path)
             fileSize = attributes[.size] as? Int64 ?? 0
         } catch {
             folderLog.warning("Failed to read video file size: \(error.localizedDescription)")
@@ -630,6 +697,10 @@ class SharedFolderManager {
             } catch {
                 folderLog.error("Rollback thumbnail deletion failed for \(fileName): \(error.localizedDescription)")
             }
+            // Clean up compressed temp copy on failure
+            if uploadURL != videoURL {
+                try? FileManager.default.removeItem(at: uploadURL)
+            }
             throw error
         }
 
@@ -644,6 +715,11 @@ class SharedFolderManager {
                 coachIDs: folder.sharedWithCoachIDs,
                 videoFileName: fileName
             )
+        }
+
+        // Clean up compressed temp copy if we made one
+        if uploadURL != videoURL {
+            try? FileManager.default.removeItem(at: uploadURL)
         }
 
         return videoID

@@ -171,6 +171,9 @@ struct UserMainFlow: View {
                 }
                 if let banner = activityNotifService.incomingBanner {
                     ActivityNotificationBanner(notification: banner, onDismiss: {
+                        if let notifID = banner.id, let userID = authManager.userID {
+                            Task { await activityNotifService.markRead(notifID, forUserID: userID) }
+                        }
                         activityNotifService.dismissBanner()
                     }, onTap: {
                         handleActivityNotificationTap(banner)
@@ -270,12 +273,7 @@ struct UserMainFlow: View {
             break
         }
 
-        // Mark as read
-        if let notifID = notification.id, let userID = authManager.userID {
-            Task {
-                await activityNotifService.markRead(notifID, forUserID: userID)
-            }
-        }
+        // Mark-read is handled by the banner's onDismiss closure
     }
 
     // MARK: - NotificationCenter Management

@@ -101,7 +101,7 @@ struct DirectCameraRecorderView: View {
             Text("No athlete profile found. Please create an athlete profile first.")
         }
         .alert("Save Failed", isPresented: $showingSaveFailedError) {
-            Button("OK", role: .cancel) { }
+            Button("OK", role: .cancel) { dismiss() }
         } message: {
             Text("The video could not be saved. Please try recording again.")
         }
@@ -432,7 +432,11 @@ struct DirectCameraRecorderView: View {
 
     private func saveCoachClip(videoURL: URL, athleteID: String, context: CoachSessionContext) {
         guard let folderID = context.session.folderIDs[athleteID],
-              let currentUser = Auth.auth().currentUser else { return }
+              let currentUser = Auth.auth().currentUser else {
+            Haptics.error()
+            showingSaveFailedError = true
+            return
+        }
 
         // Store athleteID before connectivity check so "Try Again" knows the target
         lastSelectedAthleteID = athleteID

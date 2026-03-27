@@ -20,14 +20,6 @@ struct LiveSessionCard: View {
     private var isLive: Bool { session.status == .live }
     private var accentColor: Color { isLive ? .red : .orange }
 
-    private var athleteNamesSummary: String {
-        let names = session.athleteNames.values.sorted()
-        guard names.count > 2 else {
-            return names.joined(separator: " & ")
-        }
-        return "\(names[0]), \(names[1]) +\(names.count - 2)"
-    }
-
     var body: some View {
         HStack(spacing: 14) {
             // Pulsing indicator
@@ -80,7 +72,7 @@ struct LiveSessionCard: View {
                         .foregroundColor(.secondary)
                 }
 
-                Text(athleteNamesSummary)
+                Text(session.athleteNamesSummary)
                     .font(.body)
                     .fontWeight(.semibold)
                     .foregroundColor(.primary)
@@ -94,7 +86,7 @@ struct LiveSessionCard: View {
                             .font(.caption)
                     }
 
-                    if let startedAt = session.startedAt {
+                    if isLive, let startedAt = session.startedAt {
                         HStack(spacing: 4) {
                             Image(systemName: "clock.fill")
                                 .font(.caption2)
@@ -160,6 +152,6 @@ struct LiveSessionCard: View {
         )
         .shadow(color: accentColor.opacity(0.15), radius: 8, x: 0, y: 4)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(isLive ? "Live" : "Review") session with \(session.athleteNames.values.sorted().joined(separator: ", ")). \(session.clipCount) clip\(session.clipCount == 1 ? "" : "s").")
+        .accessibilityLabel("\(isLive ? "Live" : "Review") session with \(session.athleteNamesSummary). \(session.clipCount) clip\(session.clipCount == 1 ? "" : "s").")
     }
 }

@@ -65,6 +65,7 @@ struct AuthenticatedFlow: View {
         .onDisappear {
             ActivityNotificationService.shared.stopListening()
             SharedFolderManager.shared.stopCoachFoldersListener()
+            SharedFolderManager.shared.stopAthleteFoldersListener()
             CoachInvitationManager.shared.stopInvitationsListener()
             AthleteInvitationManager.shared.stopInvitationsListener()
         }
@@ -73,6 +74,7 @@ struct AuthenticatedFlow: View {
                 // User signed out — stop all listeners immediately
                 ActivityNotificationService.shared.stopListening()
                 SharedFolderManager.shared.stopCoachFoldersListener()
+                SharedFolderManager.shared.stopAthleteFoldersListener()
                 CoachInvitationManager.shared.stopInvitationsListener()
                 AthleteInvitationManager.shared.stopInvitationsListener()
             }
@@ -82,6 +84,7 @@ struct AuthenticatedFlow: View {
             case .background:
                 ActivityNotificationService.shared.stopListening()
                 SharedFolderManager.shared.stopCoachFoldersListener()
+                SharedFolderManager.shared.stopAthleteFoldersListener()
                 CoachInvitationManager.shared.stopInvitationsListener()
                 AthleteInvitationManager.shared.stopInvitationsListener()
             case .active:
@@ -94,6 +97,7 @@ struct AuthenticatedFlow: View {
                             CoachInvitationManager.shared.startInvitationsListener(forCoachEmail: email)
                         }
                     } else {
+                        SharedFolderManager.shared.startAthleteFoldersListener(athleteID: firebaseUID)
                         if let email = authManager.currentFirebaseUser?.email?.lowercased() {
                             AthleteInvitationManager.shared.startInvitationsListener(forAthleteEmail: email)
                         }
@@ -125,6 +129,7 @@ struct AuthenticatedFlow: View {
 
             if authManager.userRole == .coach {
                 // Coach-specific listeners
+                UploadQueueManager.shared.configure(modelContext: modelContext)
                 if let coachID = authManager.currentFirebaseUser?.uid {
                     CoachFolderArchiveManager.shared.configure(coachUID: coachID)
                     SharedFolderManager.shared.startCoachFoldersListener(coachID: coachID)
@@ -138,7 +143,10 @@ struct AuthenticatedFlow: View {
                 UploadQueueManager.shared.configure(modelContext: modelContext)
                 QuickActionsManager.shared.setupQuickActions()
 
-                // Start athlete invitation listener so invitations are visible on all tabs
+                // Start athlete listeners so invitations and folders are visible on all tabs
+                if let athleteID = authManager.currentFirebaseUser?.uid {
+                    SharedFolderManager.shared.startAthleteFoldersListener(athleteID: athleteID)
+                }
                 if let athleteEmail = authManager.currentFirebaseUser?.email?.lowercased() {
                     AthleteInvitationManager.shared.startInvitationsListener(forAthleteEmail: athleteEmail)
                 }

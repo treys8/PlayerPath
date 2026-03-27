@@ -240,21 +240,32 @@ struct CoachToAthleteInvitation: Codable, Identifiable {
     var rejectedReason: String?
 }
 
-/// Live instruction session for coaches
+/// Instruction session for coaches (scheduled or live)
 struct CoachSession: Codable, Identifiable, Hashable {
     static func == (lhs: CoachSession, rhs: CoachSession) -> Bool { lhs.id == rhs.id }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
     var id: String?
     let coachID: String
     let coachName: String
-    let athleteIDs: [String]
-    let athleteNames: [String: String]
-    let folderIDs: [String: String]
+    var athleteIDs: [String]
+    var athleteNames: [String: String]
+    var folderIDs: [String: String]
     var status: SessionStatus
     let startedAt: Date?
     var endedAt: Date?
     var clipCount: Int
     var title: String?
+    var scheduledDate: Date?
+    var notes: String?
+
+    var athleteNamesSummary: String {
+        let names = athleteNames.values.sorted()
+        if names.isEmpty { return "No athletes" }
+        guard names.count > 2 else {
+            return names.joined(separator: " & ")
+        }
+        return "\(names[0]), \(names[1]) +\(names.count - 2)"
+    }
 }
 
 /// User profile model

@@ -206,7 +206,7 @@ final class ClipPersistenceService {
         // Check 5: Verify duration matches expected format
         let duration = try await asset.load(.duration)
         let durationSeconds = CMTimeGetSeconds(duration)
-        guard durationSeconds > 0 && durationSeconds.isFinite && durationSeconds < 3600 else { // Max 1 hour
+        guard durationSeconds > 0 && durationSeconds.isFinite && durationSeconds < 14400 else { // Max 4 hours
             throw NSError(domain: "ClipPersistence", code: -5, userInfo: [NSLocalizedDescriptionKey: "Video duration is invalid (\(durationSeconds) seconds)"])
         }
 
@@ -402,9 +402,14 @@ final class ClipPersistenceService {
         videoClip.practiceDate = practice?.date
         videoClip.seasonName = activeSeason?.displayName
 
-        // Insert and save
+        // Insert and save — clean up copied file if save fails to prevent orphans
         context.insert(videoClip)
-        try context.save()
+        do {
+            try context.save()
+        } catch {
+            try? fileManager.removeItem(at: destinationURL)
+            throw error
+        }
 
         // Save to Photos Library if enabled in user preferences
         let preferences: UserPreferences?

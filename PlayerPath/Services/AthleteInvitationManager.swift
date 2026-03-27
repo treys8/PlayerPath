@@ -94,7 +94,7 @@ class AthleteInvitationManager {
     // MARK: - Accept
 
     /// Accepts a coach-to-athlete invitation: validates and accepts via Cloud Function,
-    /// which creates shared folders server-side (any athlete tier). Then creates/updates
+    /// which creates shared folders server-side (requires Pro tier). Then creates/updates
     /// the local Coach record in SwiftData and notifies the coach.
     func acceptInvitation(
         _ invitation: CoachToAthleteInvitation,
@@ -211,6 +211,8 @@ class AthleteInvitationManager {
             return "This invitation has expired. Ask your coach to send a new one."
         case InvitationErrorCode.alreadyProcessed.rawValue:
             return "This invitation has already been processed."
+        case InvitationErrorCode.proRequired.rawValue:
+            return "A Pro subscription is required to accept coach invitations. Upgrade to Pro to connect with your coach."
         default:
             return "Failed to \(action) invitation: \(error.localizedDescription)"
         }

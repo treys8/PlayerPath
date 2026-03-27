@@ -20,6 +20,7 @@ enum InvitationErrorCode: Int {
     case alreadyProcessed = -3
     case selfInvitation = -4
     case expired = -5
+    case proRequired = -6
 }
 
 /// Expiration constant for invitations (30 days)
@@ -199,7 +200,7 @@ extension FirestoreManager {
                 throw NSError(domain: "FirestoreManager", code: errorCode.rawValue,
                               userInfo: [NSLocalizedDescriptionKey: message])
             } else if status == "PERMISSION_DENIED" {
-                throw NSError(domain: "FirestoreManager", code: InvitationErrorCode.invalidInvitation.rawValue,
+                throw NSError(domain: "FirestoreManager", code: InvitationErrorCode.proRequired.rawValue,
                               userInfo: [NSLocalizedDescriptionKey: message])
             } else if status == "RESOURCE_EXHAUSTED" {
                 throw SharedFolderError.coachAthleteLimitReached
