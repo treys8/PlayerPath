@@ -195,7 +195,7 @@ struct CoachProfileView: View {
                         Label("Privacy Policy", systemImage: "hand.raised")
                     }
                     NavigationLink(destination: TermsOfServiceView()) {
-                        Label("Terms of Service", systemImage: "doc.text")
+                        Label("Terms of Use (EULA)", systemImage: "doc.text")
                     }
                 }
 

@@ -106,10 +106,12 @@ struct CoachDashboardView: View {
         .sheet(isPresented: $showingInviteAthlete) {
             InviteAthleteSheet()
         }
-        .sheet(isPresented: $showingStartSession) {
-            StartSessionSheet { _ in
-                // Session created — LiveSessionCard will appear on dashboard
+        .sheet(isPresented: $showingStartSession, onDismiss: {
+            if sessionManager.activeSession != nil && !showingCamera {
+                showingCamera = true
             }
+        }) {
+            StartSessionSheet { _ in }
         }
         .fullScreenCover(isPresented: $showingCamera) {
             if let session = sessionManager.activeSession {
@@ -247,7 +249,7 @@ struct CoachDashboardView: View {
                         title: "Start Session",
                         color: .brandNavy
                     ) {
-                        showingStartSession = true
+                        startSessionAction()
                     }
                 }
 
@@ -451,6 +453,23 @@ struct CoachDashboardView: View {
     }
 
     // MARK: - Session Actions
+
+    /// Starts a session — bypasses the sheet when only 1 uploadable athlete exists.
+    private func startSessionAction() {
+        guard sessionManager.activeSession == nil,
+              let coachID = authManager.userID else { return }
+        let athletes = CoachUploadableAthletesHelper.availableAthletes(coachID: coachID)
+        if athletes.count == 1 {
+            Task {
+                let success = await CoachSessionManager.shared.quickCreateSession(
+                    athletes: athletes, authManager: authManager
+                )
+                if success { showingCamera = true }
+            }
+        } else {
+            showingStartSession = true
+        }
+    }
 
     private func resumeSession(_ session: CoachSession) {
         if session.status == .live {

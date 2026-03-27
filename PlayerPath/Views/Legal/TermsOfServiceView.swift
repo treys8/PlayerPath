@@ -11,7 +11,7 @@ struct TermsOfServiceView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                Text("Terms of Service")
+                Text("Terms of Use (EULA)")
                     .font(.largeTitle)
                     .fontWeight(.bold)
 
@@ -210,7 +210,7 @@ struct TermsOfServiceView: View {
             }
             .padding()
         }
-        .navigationTitle("Terms of Service")
+        .navigationTitle("Terms of Use (EULA)")
         .navigationBarTitleDisplayMode(.inline)
     }
 }

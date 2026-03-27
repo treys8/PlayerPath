@@ -161,7 +161,7 @@ struct WelcomeFlow: View {
                     .padding(.horizontal)
 
                     HStack(spacing: 16) {
-                        Button("Terms of Service") { showingTerms = true }
+                        Button("Terms of Use (EULA)") { showingTerms = true }
                             .font(.caption)
                             .foregroundStyle(.secondary)
                         Button("Privacy Policy") { showingPrivacyPolicy = true }

@@ -166,7 +166,7 @@ struct HelpView: View {
                 } label: {
                     HelpRowLabel(
                         icon: "doc.text.fill",
-                        title: "Terms of Service",
+                        title: "Terms of Use (EULA)",
                         subtitle: "User agreement"
                     )
                 }

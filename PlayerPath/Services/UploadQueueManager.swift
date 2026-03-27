@@ -894,7 +894,9 @@ final class UploadQueueManager {
             _ = try await FirestoreManager.shared.uploadVideoMetadata(
                 fileName: upload.fileName,
                 storageURL: downloadURL,
-                thumbnail: nil,
+                thumbnail: processed.thumbnailURL.map {
+                    ThumbnailMetadata(standardURL: $0, timestamp: 1.0, width: 480, height: 270)
+                },
                 folderID: folderID,
                 uploadedBy: coachID,
                 uploadedByName: coachName,

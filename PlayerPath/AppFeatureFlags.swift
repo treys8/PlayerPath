@@ -15,5 +15,5 @@ enum AppFeatureFlags {
     /// - Coaches & Shared Folders in More tab and Profile
     /// - Share-to-coach buttons on videos
     /// - Pro tier purchase (coach sharing is the main Pro feature)
-    static let isCoachEnabled = true
+    static let isCoachEnabled = false
 }

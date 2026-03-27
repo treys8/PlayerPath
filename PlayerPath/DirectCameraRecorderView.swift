@@ -51,6 +51,7 @@ struct DirectCameraRecorderView: View {
 
     // Coach mode state
     @State private var lastSelectedAthleteID: String?
+    @State private var didAutoSave = false
 
     // Cleanup task
     @State private var saveTask: Task<Void, Never>?
@@ -171,18 +172,30 @@ struct DirectCameraRecorderView: View {
                 }
             )
 
-            // Context badge overlay — below the top controls to avoid overlapping the timer
+            // Context badge overlay — positioned to avoid overlapping ModernCameraView controls
             if isCoachMode {
                 VStack {
-                    liveSessionBadge
-                        .padding(.top, isLandscape ? 16 : 72)
-                    Spacer()
+                    if isLandscape {
+                        Spacer()
+                        liveSessionBadge
+                            .padding(.bottom, 16)
+                    } else {
+                        liveSessionBadge
+                            .padding(.top, 72)
+                        Spacer()
+                    }
                 }
             } else if let game = game, game.isLive {
                 VStack {
-                    liveGameBadge(for: game)
-                        .padding(.top, isLandscape ? 16 : 72)
-                    Spacer()
+                    if isLandscape {
+                        Spacer()
+                        liveGameBadge(for: game)
+                            .padding(.bottom, 16)
+                    } else {
+                        liveGameBadge(for: game)
+                            .padding(.top, 72)
+                        Spacer()
+                    }
                 }
             }
         }
@@ -269,8 +282,18 @@ struct DirectCameraRecorderView: View {
             let finalVideoURL = trimmedVideoURL ?? videoURL
 
             if let ctx = coachContext {
-                // Coach mode: pick which athlete this clip belongs to
-                coachTaggingView(videoURL: finalVideoURL, context: ctx)
+                if ctx.session.athleteIDs.count == 1, let athleteID = ctx.session.athleteIDs.first {
+                    // Single athlete — auto-save without showing picker
+                    Color.black.ignoresSafeArea()
+                        .onAppear {
+                            guard !didAutoSave else { return }
+                            didAutoSave = true
+                            saveCoachClip(videoURL: finalVideoURL, athleteID: athleteID, context: ctx)
+                        }
+                } else {
+                    // Multi-athlete — show athlete picker
+                    coachTaggingView(videoURL: finalVideoURL, context: ctx)
+                }
             } else if practice != nil {
                 PracticeVideoSaveView(
                     videoURL: finalVideoURL,

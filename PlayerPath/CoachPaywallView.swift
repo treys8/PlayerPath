@@ -417,17 +417,37 @@ struct CoachPaywallView: View {
 
     private var termsSection: some View {
         VStack(spacing: 6) {
-            Text("Subscription automatically renews unless cancelled at least 24 hours before the end of the current period. Manage or cancel anytime in Settings > Subscriptions.")
+            if selectedTier != .free && selectedTier != .academy, let product = selectedCoachProduct {
+                Text("\(product.displayName) — \(product.displayPrice) / \(isAnnual ? "1 year" : "1 month")")
+                    .font(.caption)
+                    .fontWeight(.medium)
+                    .foregroundStyle(.primary)
+            }
+            Text("Subscription automatically renews unless cancelled at least 24 hours before the end of the current period. Payment will be charged to your Apple ID account at confirmation of purchase. Manage or cancel anytime in Settings > Subscriptions.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             HStack(spacing: 16) {
-                Button("Terms of Service") { showingTerms = true }
+                Button("Terms of Use (EULA)") { showingTerms = true }
                     .font(.caption).foregroundStyle(Color.brandNavy)
                 Button("Privacy Policy") { showingPrivacyPolicy = true }
                     .font(.caption).foregroundStyle(Color.brandNavy)
             }
         }
         .multilineTextAlignment(.center)
+    }
+
+    private var selectedCoachProduct: Product? {
+        switch selectedTier {
+        case .free, .academy: return nil
+        case .instructor:
+            return isAnnual
+                ? storeManager.coachProduct(for: .instructorAnnual)
+                : storeManager.coachProduct(for: .instructorMonthly)
+        case .proInstructor:
+            return isAnnual
+                ? storeManager.coachProduct(for: .proInstructorAnnual)
+                : storeManager.coachProduct(for: .proInstructorMonthly)
+        }
     }
 
     // MARK: - Purchase Logic

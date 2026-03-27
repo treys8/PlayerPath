@@ -243,7 +243,7 @@ struct ComprehensiveSignInView: View {
             VStack(spacing: 6) {
                 Text("By creating an account, you agree to our").font(.caption).foregroundColor(.secondary)
                 HStack(spacing: 4) {
-                    Button("Terms of Service") { showingTerms = true }.font(.caption).foregroundColor(.brandNavy)
+                    Button("Terms of Use (EULA)") { showingTerms = true }.font(.caption).foregroundColor(.brandNavy)
                     Text("and").font(.caption).foregroundColor(.secondary)
                     Button("Privacy Policy") { showingPrivacyPolicy = true }.font(.caption).foregroundColor(.brandNavy)
                 }

@@ -15,40 +15,14 @@ struct StartSessionSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
-    private var folderManager: SharedFolderManager { .shared }
 
     @State private var selectedAthleteIDs: Set<String> = []
     @State private var isStarting = false
     @State private var errorMessage: String?
 
-    /// Folders the coach has upload permission for
-    private var uploadableFolders: [SharedFolder] {
-        guard let coachID = authManager.userID else { return [] }
-        return folderManager.coachFolders.filter { folder in
-            folder.getPermissions(for: coachID)?.canUpload == true
-        }
-    }
-
-    /// Unique athletes from uploadable folders (deduplicated by ownerAthleteID).
-    /// Prefers the "lessons" folder for sessions; falls back to any uploadable folder.
     private var availableAthletes: [(athleteID: String, athleteName: String, folderID: String)] {
-        // Group folders by athlete, preferring lessons folders for instruction sessions
-        var athleteFolders: [String: SharedFolder] = [:]
-        for folder in uploadableFolders {
-            guard folder.id != nil else { continue }
-            if let existing = athleteFolders[folder.ownerAthleteID] {
-                // Prefer lessons folder over other types
-                if folder.folderType == "lessons" && existing.folderType != "lessons" {
-                    athleteFolders[folder.ownerAthleteID] = folder
-                }
-            } else {
-                athleteFolders[folder.ownerAthleteID] = folder
-            }
-        }
-        return athleteFolders.values.compactMap { folder in
-            guard let folderID = folder.id else { return nil }
-            return (athleteID: folder.ownerAthleteID, athleteName: folder.ownerAthleteName ?? "Athlete", folderID: folderID)
-        }
+        guard let coachID = authManager.userID else { return [] }
+        return CoachUploadableAthletesHelper.availableAthletes(coachID: coachID)
     }
 
     var body: some View {

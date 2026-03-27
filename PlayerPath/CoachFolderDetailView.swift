@@ -36,6 +36,8 @@ struct CoachFolderDetailView: View {
     @State private var reviewingClip: CoachVideoItem?
     @State private var isSharingAll = false
     @State private var shareProgress: (current: Int, total: Int)?
+    @State private var showingQuickRecord = false
+    @State private var showingActiveSessionAlert = false
     private var archiveManager: CoachFolderArchiveManager { .shared }
 
     init(folder: SharedFolder, initialTab: FolderTab = .fromAthlete) {
@@ -86,6 +88,18 @@ struct CoachFolderDetailView: View {
                     onDiscarded: { Task { await viewModel.loadVideos() } }
                 )
             }
+            .fullScreenCover(isPresented: $showingQuickRecord) {
+                if let session = CoachSessionManager.shared.activeSession {
+                    DirectCameraRecorderView(
+                        coachContext: CoachSessionContext(sessionID: session.id ?? "", session: session)
+                    )
+                }
+            }
+            .alert("Session In Progress", isPresented: $showingActiveSessionAlert) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text("Please end your current session before starting a new recording.")
+            }
             .task { await initialLoad() }
             .onChange(of: viewModel.cachedFromAthleteVideos) { _, _ in refreshAvailableTags() }
             .onChange(of: viewModel.cachedFromMeVideos) { _, _ in refreshAvailableTags() }
@@ -128,6 +142,12 @@ struct CoachFolderDetailView: View {
     private var trailingMenu: some View {
         Menu {
             if canUpload {
+                Button {
+                    quickRecord()
+                } label: {
+                    Label("Record Clip", systemImage: "record.circle")
+                }
+
                 Button {
                     showingUploadSheet = true
                 } label: {
@@ -424,6 +444,25 @@ struct CoachFolderDetailView: View {
         }
 
         isRefreshingPermissions = false
+    }
+
+    private func quickRecord() {
+        guard CoachSessionManager.shared.activeSession == nil else {
+            showingActiveSessionAlert = true
+            return
+        }
+        guard let folderID = folder.id else { return }
+        let athlete = (
+            athleteID: folder.ownerAthleteID,
+            athleteName: folder.ownerAthleteName ?? "Athlete",
+            folderID: folderID
+        )
+        Task {
+            let success = await CoachSessionManager.shared.quickCreateSession(
+                athletes: [athlete], authManager: authManager
+            )
+            if success { showingQuickRecord = true }
+        }
     }
 
     private var canUpload: Bool {

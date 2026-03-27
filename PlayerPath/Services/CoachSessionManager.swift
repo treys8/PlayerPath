@@ -75,6 +75,27 @@ class CoachSessionManager {
         return docRef.documentID
     }
 
+    /// Convenience wrapper: resolves coach identity from authManager, creates a session,
+    /// plays a success haptic, and handles errors. Returns `true` on success.
+    func quickCreateSession(
+        athletes: [(athleteID: String, athleteName: String, folderID: String)],
+        authManager: ComprehensiveAuthManager
+    ) async -> Bool {
+        guard let coachID = authManager.userID else { return false }
+        let coachName = authManager.userDisplayName ?? authManager.userEmail ?? "Coach"
+        do {
+            _ = try await createSession(
+                coachID: coachID, coachName: coachName,
+                athletes: athletes, authManager: authManager
+            )
+            Haptics.success()
+            return true
+        } catch {
+            ErrorHandlerService.shared.handle(error, context: "CoachSessionManager.quickCreateSession")
+            return false
+        }
+    }
+
     /// Transitions session from live to reviewing.
     func endSession(sessionID: String) async throws {
         try await db.collection(FC.coachSessions).document(sessionID).updateData([

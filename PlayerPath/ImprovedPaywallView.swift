@@ -429,17 +429,37 @@ struct ImprovedPaywallView: View {
 
     private var termsSection: some View {
         VStack(spacing: 6) {
-            Text("Subscription automatically renews unless cancelled at least 24 hours before the end of the current period. Manage or cancel anytime in Settings > Subscriptions.")
+            if selectedTier != .free, let product = selectedProduct {
+                Text("\(product.displayName) — \(product.displayPrice) / \(isAnnual ? "1 year" : "1 month")")
+                    .font(.caption)
+                    .fontWeight(.medium)
+                    .foregroundStyle(.primary)
+            }
+            Text("Subscription automatically renews unless cancelled at least 24 hours before the end of the current period. Payment will be charged to your Apple ID account at confirmation of purchase. Manage or cancel anytime in Settings > Subscriptions.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             HStack(spacing: 16) {
-                Button("Terms of Service") { showingTerms = true }
+                Button("Terms of Use (EULA)") { showingTerms = true }
                     .font(.caption).foregroundColor(.brandNavy)
                 Button("Privacy Policy") { showingPrivacyPolicy = true }
                     .font(.caption).foregroundColor(.brandNavy)
             }
         }
         .multilineTextAlignment(.center)
+    }
+
+    private var selectedProduct: Product? {
+        switch selectedTier {
+        case .free: return nil
+        case .plus:
+            return isAnnual
+                ? storeManager.product(for: .plusAnnual)
+                : storeManager.product(for: .plusMonthly)
+        case .pro:
+            return isAnnual
+                ? storeManager.product(for: .proAnnual)
+                : storeManager.product(for: .proMonthly)
+        }
     }
 
     // MARK: - Purchase Logic
