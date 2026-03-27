@@ -65,16 +65,13 @@ class CoachInvitationsViewModel {
         isLoading = true
         errorMessage = nil
 
-        async let receivedTask: Result<[CoachInvitation], Error> = {
-            do { return .success(try await SharedFolderManager.shared.checkPendingInvitations(forEmail: email)) }
-            catch { return .failure(error) }
-        }()
-        async let sentTask: Result<[CoachToAthleteInvitation], Error> = {
-            do { return .success(try await FirestoreManager.shared.fetchSentCoachInvitations(forCoachID: coachID)) }
-            catch { return .failure(error) }
-        }()
+        let receivedResult: Result<[CoachInvitation], Error>
+        do { receivedResult = .success(try await SharedFolderManager.shared.checkPendingInvitations(forEmail: email)) }
+        catch { receivedResult = .failure(error) }
 
-        let (receivedResult, sentResult) = await (receivedTask, sentTask)
+        let sentResult: Result<[CoachToAthleteInvitation], Error>
+        do { sentResult = .success(try await FirestoreManager.shared.fetchSentCoachInvitations(forCoachID: coachID)) }
+        catch { sentResult = .failure(error) }
 
         var errors: [String] = []
         switch receivedResult {

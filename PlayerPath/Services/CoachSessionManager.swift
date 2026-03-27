@@ -305,8 +305,9 @@ class CoachSessionManager {
         defer { isLoading = false }
 
         do {
-            // Run both queries in parallel — they're independent reads
-            async let startedSnapshot = db.collection(FC.coachSessions)
+            // Run both queries sequentially — async let can crash the Swift runtime
+            // if the parent task is cancelled mid-flight (asyncLet_finish_after_task_completion)
+            let started = try await db.collection(FC.coachSessions)
                 .whereField("coachID", isEqualTo: coachID)
                 .whereField("status", isNotEqualTo: SessionStatus.scheduled.rawValue)
                 .order(by: "status")
@@ -314,14 +315,12 @@ class CoachSessionManager {
                 .limit(to: 50)
                 .getDocuments()
 
-            async let scheduledSnapshot = db.collection(FC.coachSessions)
+            let scheduled = try await db.collection(FC.coachSessions)
                 .whereField("coachID", isEqualTo: coachID)
                 .whereField("status", isEqualTo: SessionStatus.scheduled.rawValue)
                 .order(by: "scheduledDate", descending: false)
                 .limit(to: 20)
                 .getDocuments()
-
-            let (started, scheduled) = try await (startedSnapshot, scheduledSnapshot)
 
             sessions = started.documents.compactMap { doc in
                 do {

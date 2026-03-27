@@ -212,9 +212,8 @@ struct CoachFolderDetailView: View {
         }
 
         if let lastFetch = lastFetchDate, Date().timeIntervalSince(lastFetch) < 60 { return }
-        async let videosTask: () = viewModel.loadVideos()
-        async let permissionTask: () = verifyPermissionsInBackground()
-        _ = await (videosTask, permissionTask)
+        await viewModel.loadVideos()
+        await verifyPermissionsInBackground()
         lastFetchDate = Date()
     }
 

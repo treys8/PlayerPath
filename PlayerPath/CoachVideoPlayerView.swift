@@ -159,22 +159,17 @@ struct CoachVideoPlayerView: View {
             // Load video first (always needed)
             await viewModel.loadVideo()
 
-            // Load annotations, cues, and drill cards in parallel
-            async let annotationsLoad: () = viewModel.loadAnnotations()
-            async let drillCardsLoad: [DrillCard] = {
-                do { return try await FirestoreManager.shared.fetchDrillCards(forVideo: video.id) }
-                catch {
-                    ErrorHandlerService.shared.handle(error, context: "CoachVideoPlayer.loadDrillCards", showAlert: false)
-                    return []
-                }
-            }()
-            if let coachID = authManager.userID {
-                async let cuesLoad: () = templateService.loadQuickCues(coachID: coachID)
-                _ = await (annotationsLoad, cuesLoad)
-            } else {
-                _ = await annotationsLoad
+            // Load annotations, cues, and drill cards sequentially
+            // (async let can crash the runtime if the view is dismissed mid-flight)
+            await viewModel.loadAnnotations()
+            do {
+                drillCards = try await FirestoreManager.shared.fetchDrillCards(forVideo: video.id)
+            } catch {
+                ErrorHandlerService.shared.handle(error, context: "CoachVideoPlayer.loadDrillCards", showAlert: false)
             }
-            drillCards = await drillCardsLoad
+            if let coachID = authManager.userID {
+                await templateService.loadQuickCues(coachID: coachID)
+            }
         }
         .onChange(of: scenePhase) { oldPhase, newPhase in
             if newPhase != .active {
