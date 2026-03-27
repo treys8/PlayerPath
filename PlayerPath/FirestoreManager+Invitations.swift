@@ -152,52 +152,74 @@ extension FirestoreManager {
         }
     }
 
-    /// Accepts an athlete-to-coach invitation via server-side Cloud Function.
-    /// The server reads permissions from the invitation document to prevent
-    /// client-side privilege escalation.
+    /// Accepts an athlete-to-coach invitation via direct HTTPS call to the Cloud Function.
+    /// Uses URLSession instead of HTTPSCallable.call() — same iOS 26.4 workaround.
     func acceptInvitation(
         invitationID: String,
         coachID: String,
         permissions: FolderPermissions // kept for API compat; server reads from invitation
     ) async throws {
-
-        do {
-            let callable = Functions.functions().httpsCallable("acceptAthleteToCoachInvitation")
-            let result = try await callable.call(["invitationID": invitationID])
-
-            guard let data = result.data as? [String: Any],
-                  data["success"] as? Bool == true else {
-                throw NSError(domain: "FirestoreManager", code: InvitationErrorCode.invalidInvitation.rawValue,
-                              userInfo: [NSLocalizedDescriptionKey: "Unexpected response from server."])
-            }
-            invitationLog.info("Accepted invitation \(invitationID) via Cloud Function")
-
-        } catch let error as NSError {
-            // Map Cloud Function error codes to InvitationErrorCode for consistent client handling
-            if error.domain == FunctionsErrorDomain {
-                let code = FunctionsErrorCode(rawValue: error.code)
-                switch code {
-                case .notFound:
-                    throw NSError(domain: "FirestoreManager", code: InvitationErrorCode.invalidInvitation.rawValue,
-                                  userInfo: [NSLocalizedDescriptionKey: error.localizedDescription])
-                case .failedPrecondition:
-                    // Covers expired and already-processed
-                    let msg = error.localizedDescription
-                    let errorCode = msg.contains("expired") ? InvitationErrorCode.expired : InvitationErrorCode.alreadyProcessed
-                    throw NSError(domain: "FirestoreManager", code: errorCode.rawValue,
-                                  userInfo: [NSLocalizedDescriptionKey: msg])
-                case .permissionDenied:
-                    throw NSError(domain: "FirestoreManager", code: InvitationErrorCode.invalidInvitation.rawValue,
-                                  userInfo: [NSLocalizedDescriptionKey: error.localizedDescription])
-                case .resourceExhausted:
-                    throw SharedFolderError.coachAthleteLimitReached
-                default:
-                    break
-                }
-            }
-            invitationLog.error("Failed to accept invitation \(invitationID): \(error.localizedDescription)")
-            throw error
+        guard let user = Auth.auth().currentUser else {
+            throw NSError(domain: "FirestoreManager", code: -1,
+                          userInfo: [NSLocalizedDescriptionKey: "Not authenticated"])
         }
+        let token = try await user.getIDToken()
+
+        let url = URL(string: "https://us-central1-playerpath-159b2.cloudfunctions.net/acceptAthleteToCoachInvitation")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.timeoutInterval = 30
+
+        let body: [String: Any] = ["data": ["invitationID": invitationID]]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (responseData, response) = try await URLSession.shared.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw NSError(domain: "FirestoreManager", code: -1,
+                          userInfo: [NSLocalizedDescriptionKey: "Invalid response"])
+        }
+
+        guard let json = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any] else {
+            throw NSError(domain: "FirestoreManager", code: -1,
+                          userInfo: [NSLocalizedDescriptionKey: "Invalid response data"])
+        }
+
+        if let errorInfo = json["error"] as? [String: Any] {
+            let message = errorInfo["message"] as? String ?? "Unknown error"
+            let status = errorInfo["status"] as? String ?? ""
+
+            if status == "NOT_FOUND" {
+                throw NSError(domain: "FirestoreManager", code: InvitationErrorCode.invalidInvitation.rawValue,
+                              userInfo: [NSLocalizedDescriptionKey: message])
+            } else if status == "FAILED_PRECONDITION" {
+                let errorCode = message.contains("expired") ? InvitationErrorCode.expired : InvitationErrorCode.alreadyProcessed
+                throw NSError(domain: "FirestoreManager", code: errorCode.rawValue,
+                              userInfo: [NSLocalizedDescriptionKey: message])
+            } else if status == "PERMISSION_DENIED" {
+                throw NSError(domain: "FirestoreManager", code: InvitationErrorCode.invalidInvitation.rawValue,
+                              userInfo: [NSLocalizedDescriptionKey: message])
+            } else if status == "RESOURCE_EXHAUSTED" {
+                throw SharedFolderError.coachAthleteLimitReached
+            }
+            throw NSError(domain: "FirestoreManager", code: httpResponse.statusCode,
+                          userInfo: [NSLocalizedDescriptionKey: message])
+        }
+
+        guard httpResponse.statusCode == 200 else {
+            throw NSError(domain: "FirestoreManager", code: httpResponse.statusCode,
+                          userInfo: [NSLocalizedDescriptionKey: "Server error (\(httpResponse.statusCode))"])
+        }
+
+        guard let result = json["result"] as? [String: Any],
+              result["success"] as? Bool == true else {
+            throw NSError(domain: "FirestoreManager", code: InvitationErrorCode.invalidInvitation.rawValue,
+                          userInfo: [NSLocalizedDescriptionKey: "Unexpected response from server."])
+        }
+
+        invitationLog.info("Accepted invitation \(invitationID) via Cloud Function")
     }
 
     /// Declines an invitation (only if still pending).
@@ -345,51 +367,75 @@ extension FirestoreManager {
         }
     }
 
-    /// Accepts a coach-to-athlete invitation via Cloud Function (server-side validation).
-    /// Validates caller identity, invitation state, expiration, and coach athlete limit.
-    /// Creates shared folders server-side (any athlete tier) and returns folder IDs.
+    /// Accepts a coach-to-athlete invitation via direct HTTPS call to the Cloud Function.
+    /// Uses URLSession instead of HTTPSCallable.call() to work around a Swift concurrency
+    /// runtime crash (asyncLet_finish_after_task_completion / SIGABRT) on iOS 26.4.
+    /// Revert to HTTPSCallable when Firebase SDK ships a fix (tracked: firebase-ios-sdk #15974).
     func acceptCoachToAthleteInvitation(
         invitationID: String,
         athleteUserID: String,
         athleteName: String
     ) async throws -> (gamesFolderID: String?, lessonsFolderID: String?) {
-        let functions = Functions.functions()
-        do {
-            let result = try await functions.httpsCallable("acceptCoachToAthleteInvitation").call([
-                "invitationID": invitationID,
-                "athleteName": athleteName
-            ])
-            invitationLog.info("Accepted coach-to-athlete invitation \(invitationID) via Cloud Function")
+        guard let user = Auth.auth().currentUser else {
+            throw NSError(domain: "FirestoreManager", code: -1,
+                          userInfo: [NSLocalizedDescriptionKey: "Not authenticated"])
+        }
+        let token = try await user.getIDToken()
 
-            // Parse folder IDs from response
-            if let data = result.data as? [String: Any] {
-                let gamesID = data["gamesFolderID"] as? String
-                let lessonsID = data["lessonsFolderID"] as? String
-                return (gamesFolderID: gamesID, lessonsFolderID: lessonsID)
-            }
-            return (nil, nil)
-        } catch {
-            let nsError = error as NSError
-            if nsError.domain == FunctionsErrorDomain {
-                let code = FunctionsErrorCode(rawValue: nsError.code)
-                switch code {
-                case .resourceExhausted:
-                    throw SharedFolderError.coachAthleteLimitReached
-                case .failedPrecondition:
-                    let message = nsError.localizedDescription
-                    if message.contains("expired") {
-                        throw NSError(domain: "FirestoreManager", code: InvitationErrorCode.expired.rawValue,
-                                      userInfo: [NSLocalizedDescriptionKey: message])
-                    } else {
-                        throw NSError(domain: "FirestoreManager", code: InvitationErrorCode.alreadyProcessed.rawValue,
-                                      userInfo: [NSLocalizedDescriptionKey: message])
-                    }
-                default:
-                    throw error
+        let url = URL(string: "https://us-central1-playerpath-159b2.cloudfunctions.net/acceptCoachToAthleteInvitation")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.timeoutInterval = 30
+
+        let body: [String: Any] = ["data": ["invitationID": invitationID, "athleteName": athleteName]]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (responseData, response) = try await URLSession.shared.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw NSError(domain: "FirestoreManager", code: -1,
+                          userInfo: [NSLocalizedDescriptionKey: "Invalid response"])
+        }
+
+        guard let json = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any] else {
+            throw NSError(domain: "FirestoreManager", code: -1,
+                          userInfo: [NSLocalizedDescriptionKey: "Invalid response data"])
+        }
+
+        if let errorInfo = json["error"] as? [String: Any] {
+            let message = errorInfo["message"] as? String ?? "Unknown error"
+            let status = errorInfo["status"] as? String ?? ""
+
+            if status == "RESOURCE_EXHAUSTED" {
+                throw SharedFolderError.coachAthleteLimitReached
+            } else if status == "FAILED_PRECONDITION" {
+                if message.contains("expired") {
+                    throw NSError(domain: "FirestoreManager", code: InvitationErrorCode.expired.rawValue,
+                                  userInfo: [NSLocalizedDescriptionKey: message])
+                } else {
+                    throw NSError(domain: "FirestoreManager", code: InvitationErrorCode.alreadyProcessed.rawValue,
+                                  userInfo: [NSLocalizedDescriptionKey: message])
                 }
             }
-            throw error
+            throw NSError(domain: "FirestoreManager", code: httpResponse.statusCode,
+                          userInfo: [NSLocalizedDescriptionKey: message])
         }
+
+        guard httpResponse.statusCode == 200 else {
+            throw NSError(domain: "FirestoreManager", code: httpResponse.statusCode,
+                          userInfo: [NSLocalizedDescriptionKey: "Server error (\(httpResponse.statusCode))"])
+        }
+
+        invitationLog.info("Accepted coach-to-athlete invitation \(invitationID) via Cloud Function")
+
+        if let result = json["result"] as? [String: Any] {
+            let gamesID = result["gamesFolderID"] as? String
+            let lessonsID = result["lessonsFolderID"] as? String
+            return (gamesFolderID: gamesID, lessonsFolderID: lessonsID)
+        }
+        return (nil, nil)
     }
 
     /// Declines a coach-to-athlete invitation (only if still pending).
