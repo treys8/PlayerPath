@@ -119,7 +119,7 @@ extension FirestoreManager {
                 "hasAthleteTierOverride": hasAthleteTierOverride
             ]
             do {
-                let _ = try await callable.call(payload)
+                let _ = try await Task.detached { try await callable.call(payload) }.value
                 firestoreLog.info("DEBUG sandbox tier sync succeeded via Cloud Function.")
             } catch {
                 firestoreLog.warning("DEBUG sandbox tier sync failed: \(error.localizedDescription)")
@@ -141,7 +141,7 @@ extension FirestoreManager {
             "hasAthleteTierOverride": hasAthleteTierOverride
         ]
 
-        let _ = try await callable.call(payload)
+        let _ = try await Task.detached { try await callable.call(payload) }.value
     }
 
     /// Returns the StoreKit 2 JWS app transaction token for server-side validation.

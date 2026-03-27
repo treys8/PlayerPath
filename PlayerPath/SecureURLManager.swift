@@ -77,8 +77,10 @@ class SecureURLManager {
         ]
 
         do {
+            // Run Cloud Function in a detached task so view-lifecycle cancellation
+            // doesn't crash Firebase's internal async let (asyncLet_finish_after_task_completion)
             let callable = functions.httpsCallable("getSignedVideoURL")
-            let result = try await callable.call(data)
+            let result = try await Task.detached { try await callable.call(data) }.value
 
             guard let response = result.data as? [String: Any],
                   let signedURL = response["signedURL"] as? String,
@@ -137,7 +139,7 @@ class SecureURLManager {
 
         do {
             let callable = functions.httpsCallable("getSignedThumbnailURL")
-            let result = try await callable.call(data)
+            let result = try await Task.detached { try await callable.call(data) }.value
 
             guard let response = result.data as? [String: Any],
                   let signedURL = response["signedURL"] as? String,
@@ -182,7 +184,7 @@ class SecureURLManager {
 
         do {
             let callable = functions.httpsCallable("getBatchSignedVideoURLs")
-            let result = try await callable.call(data)
+            let result = try await Task.detached { try await callable.call(data) }.value
 
             guard let response = result.data as? [String: Any],
                   let urlsData = response["urls"] as? [[String: Any]] else {
@@ -249,7 +251,7 @@ class SecureURLManager {
 
         do {
             let callable = functions.httpsCallable("getPersonalVideoSignedURL")
-            let result = try await callable.call(data)
+            let result = try await Task.detached { try await callable.call(data) }.value
             guard let response = result.data as? [String: Any],
                   let signedURL = response["signedURL"] as? String,
                   let expiresAtString = response["expiresAt"] as? String else {

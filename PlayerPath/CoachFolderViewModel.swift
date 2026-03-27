@@ -74,7 +74,8 @@ class CoachFolderViewModel {
         let newFileNames = videos.map(\.fileName).filter { !prefetchedFileNames.contains($0) }
         guard !newFileNames.isEmpty else { return }
         prefetchedFileNames.formUnion(newFileNames)
-        Task { [weak self] in
+        // Detached so view-lifecycle cancellation can't propagate into Firebase Cloud Functions
+        Task.detached { [weak self] in
             guard self != nil else { return }
             do {
                 _ = try await SecureURLManager.shared.getBatchSecureVideoURLs(
@@ -82,7 +83,7 @@ class CoachFolderViewModel {
                     folderID: folderID
                 )
             } catch {
-                ErrorHandlerService.shared.handle(error, context: "CoachFolderDetail.prefetchURLs", showAlert: false)
+                await ErrorHandlerService.shared.handle(error, context: "CoachFolderDetail.prefetchURLs", showAlert: false)
             }
         }
     }
