@@ -7,7 +7,7 @@
 
 import Foundation
 import FirebaseFirestore
-import FirebaseFunctions
+import FirebaseAuth
 import StoreKit
 import os
 
@@ -112,14 +112,13 @@ extension FirestoreManager {
             // to skip AppTransaction verification while still validating entitlements.
             firestoreLog.info("No App Store receipt (DEBUG). Calling syncSubscriptionTier in sandbox mode.")
             let tokens = await currentEntitlementTokens()
-            let callable = Functions.functions().httpsCallable("syncSubscriptionTier")
             let payload: [String: Any] = [
                 "sandboxMode": true,
                 "transactionTokens": tokens,
                 "hasAthleteTierOverride": hasAthleteTierOverride
             ]
             do {
-                let _ = try await Task.detached { try await callable.call(payload) }.value
+                try await callSyncTierFunction(payload: payload)
                 firestoreLog.info("DEBUG sandbox tier sync succeeded via Cloud Function.")
             } catch {
                 firestoreLog.warning("DEBUG sandbox tier sync failed: \(error.localizedDescription)")
@@ -134,14 +133,35 @@ extension FirestoreManager {
         // can verify each transaction and derive tiers from product IDs.
         let transactionTokens = await currentEntitlementTokens()
 
-        let callable = Functions.functions().httpsCallable("syncSubscriptionTier")
         let payload: [String: Any] = [
             "receiptData": appReceipt,
             "transactionTokens": transactionTokens,
             "hasAthleteTierOverride": hasAthleteTierOverride
         ]
 
-        let _ = try await Task.detached { try await callable.call(payload) }.value
+        try await callSyncTierFunction(payload: payload)
+    }
+
+    /// Calls syncSubscriptionTier via direct URLSession instead of HTTPSCallable.call()
+    /// to avoid Firebase SDK async let crash on iOS 26.
+    private func callSyncTierFunction(payload: [String: Any]) async throws {
+        guard let user = Auth.auth().currentUser else { return }
+        let token = try await user.getIDToken()
+
+        let url = URL(string: "https://us-central1-playerpath-159b2.cloudfunctions.net/syncSubscriptionTier")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.timeoutInterval = 30
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["data": payload])
+
+        let (_, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse,
+              httpResponse.statusCode == 200 else {
+            throw NSError(domain: "FirestoreManager", code: -1,
+                          userInfo: [NSLocalizedDescriptionKey: "Tier sync failed"])
+        }
     }
 
     /// Returns the StoreKit 2 JWS app transaction token for server-side validation.

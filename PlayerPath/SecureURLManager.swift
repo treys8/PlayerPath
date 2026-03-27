@@ -7,60 +7,111 @@
 //
 
 import Foundation
-import FirebaseFunctions
+import FirebaseAuth
 import os
 
-/// Manager for generating secure, expiring URLs for video and thumbnail access
+/// Manager for generating secure, expiring URLs for video and thumbnail access.
+/// Uses direct URLSession calls instead of HTTPSCallable.call() to avoid a Firebase SDK
+/// crash (asyncLet_finish_after_task_completion) where Firebase's internal async let
+/// is interrupted by SwiftUI task cancellation on iOS 26.
 @MainActor
 class SecureURLManager {
     static let shared = SecureURLManager()
-    
-    private let functions = Functions.functions()
+
     private let log = Logger(subsystem: "com.playerpath.app", category: "SecureURLManager")
     private static let isoFormatter = ISO8601DateFormatter()
+    private static let baseURL = "https://us-central1-playerpath-159b2.cloudfunctions.net"
 
     // Cache for signed URLs to avoid repeated function calls
     private var urlCache: [String: CachedURL] = [:]
 
     private init() {}
-    
+
     // MARK: - Cached URL Structure
-    
+
     private struct CachedURL {
         let url: String
         let expiresAt: Date
-        
+
         var isExpired: Bool {
             Date() >= expiresAt
         }
-        
+
         var isExpiringSoon: Bool {
             // Consider expired if less than 5 minutes remaining
             Date().addingTimeInterval(300) >= expiresAt
         }
     }
-    
+
+    // MARK: - Direct HTTPS Helper
+
+    /// Calls a Firebase Cloud Function via direct URLSession POST instead of HTTPSCallable.
+    /// This avoids the Firebase SDK's internal async let crash on iOS 26.
+    private func callCloudFunction(
+        _ functionName: String,
+        data: [String: Any]
+    ) async throws -> [String: Any] {
+        guard let user = Auth.auth().currentUser else {
+            throw SecureURLError.functionCallFailed(
+                NSError(domain: "SecureURLManager", code: -1,
+                        userInfo: [NSLocalizedDescriptionKey: "Not authenticated"])
+            )
+        }
+        let token = try await user.getIDToken()
+
+        let url = URL(string: "\(Self.baseURL)/\(functionName)")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.timeoutInterval = 30
+
+        let body: [String: Any] = ["data": data]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (responseData, response) = try await URLSession.shared.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw SecureURLError.invalidResponse
+        }
+
+        guard let json = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any] else {
+            throw SecureURLError.invalidResponse
+        }
+
+        if let errorInfo = json["error"] as? [String: Any] {
+            let message = errorInfo["message"] as? String ?? "Unknown error"
+            throw SecureURLError.functionCallFailed(
+                NSError(domain: "CloudFunction", code: httpResponse.statusCode,
+                        userInfo: [NSLocalizedDescriptionKey: message])
+            )
+        }
+
+        guard httpResponse.statusCode == 200,
+              let result = json["result"] as? [String: Any] else {
+            throw SecureURLError.functionCallFailed(
+                NSError(domain: "CloudFunction", code: httpResponse.statusCode,
+                        userInfo: [NSLocalizedDescriptionKey: "Server error (\(httpResponse.statusCode))"])
+            )
+        }
+
+        return result
+    }
+
     // MARK: - Public Methods
 
     /// Gets a secure, time-limited URL for a video file
-    /// - Parameters:
-    ///   - fileName: Name of the video file in storage
-    ///   - folderID: Shared folder ID
-    ///   - expirationHours: Hours until URL expires (default: 24)
-    ///   - forceRefresh: Force generation of new URL even if cached
-    /// - Returns: A secure, time-limited download URL
     func getSecureVideoURL(
         fileName: String,
         folderID: String,
         expirationHours: Int = 24,
         forceRefresh: Bool = false
     ) async throws -> String {
-        
+
         let cacheKey = "video_\(folderID)_\(fileName)"
 
         cleanExpiredURLs()
 
-        // Check cache unless force refresh
         if !forceRefresh,
            let cached = urlCache[cacheKey],
            !cached.isExpiringSoon {
@@ -77,13 +128,9 @@ class SecureURLManager {
         ]
 
         do {
-            // Run Cloud Function in a detached task so view-lifecycle cancellation
-            // doesn't crash Firebase's internal async let (asyncLet_finish_after_task_completion)
-            let callable = functions.httpsCallable("getSignedVideoURL")
-            let result = try await Task.detached { try await callable.call(data) }.value
+            let response = try await callCloudFunction("getSignedVideoURL", data: data)
 
-            guard let response = result.data as? [String: Any],
-                  let signedURL = response["signedURL"] as? String,
+            guard let signedURL = response["signedURL"] as? String,
                   let expiresAtString = response["expiresAt"] as? String else {
                 throw SecureURLError.invalidResponse
             }
@@ -102,26 +149,19 @@ class SecureURLManager {
             throw SecureURLError.functionCallFailed(error)
         }
     }
-    
+
     /// Gets a secure, time-limited URL for a thumbnail image
-    /// - Parameters:
-    ///   - videoFileName: Name of the video file (thumbnail name will be derived)
-    ///   - folderID: Shared folder ID
-    ///   - expirationHours: Hours until URL expires (default: 168 = 7 days)
-    ///   - forceRefresh: Force generation of new URL even if cached
-    /// - Returns: A secure, time-limited download URL for the thumbnail
     func getSecureThumbnailURL(
         videoFileName: String,
         folderID: String,
         expirationHours: Int = 168,
         forceRefresh: Bool = false
     ) async throws -> String {
-        
+
         let cacheKey = "thumbnail_\(folderID)_\(videoFileName)"
 
         cleanExpiredURLs()
 
-        // Check cache unless force refresh
         if !forceRefresh,
            let cached = urlCache[cacheKey],
            !cached.isExpiringSoon {
@@ -138,11 +178,9 @@ class SecureURLManager {
         ]
 
         do {
-            let callable = functions.httpsCallable("getSignedThumbnailURL")
-            let result = try await Task.detached { try await callable.call(data) }.value
+            let response = try await callCloudFunction("getSignedThumbnailURL", data: data)
 
-            guard let response = result.data as? [String: Any],
-                  let signedURL = response["signedURL"] as? String,
+            guard let signedURL = response["signedURL"] as? String,
                   let expiresAtString = response["expiresAt"] as? String else {
                 throw SecureURLError.invalidResponse
             }
@@ -161,19 +199,14 @@ class SecureURLManager {
             throw SecureURLError.functionCallFailed(error)
         }
     }
-    
+
     /// Gets secure URLs for multiple videos in batch
-    /// - Parameters:
-    ///   - fileNames: Array of video file names
-    ///   - folderID: Shared folder ID
-    ///   - expirationHours: Hours until URLs expire (default: 24)
-    /// - Returns: Array of tuples with file name and secure URL
     func getBatchSecureVideoURLs(
         fileNames: [String],
         folderID: String,
         expirationHours: Int = 24
     ) async throws -> [(fileName: String, url: String)] {
-        
+
         log.debug("Generating \(fileNames.count) secure video URLs in batch")
 
         let data: [String: Any] = [
@@ -183,11 +216,9 @@ class SecureURLManager {
         ]
 
         do {
-            let callable = functions.httpsCallable("getBatchSignedVideoURLs")
-            let result = try await Task.detached { try await callable.call(data) }.value
+            let response = try await callCloudFunction("getBatchSignedVideoURLs", data: data)
 
-            guard let response = result.data as? [String: Any],
-                  let urlsData = response["urls"] as? [[String: Any]] else {
+            guard let urlsData = response["urls"] as? [[String: Any]] else {
                 throw SecureURLError.invalidResponse
             }
 
@@ -223,9 +254,8 @@ class SecureURLManager {
             throw SecureURLError.functionCallFailed(error)
         }
     }
-    
+
     /// Gets a secure, time-limited URL for a personal athlete video.
-    /// Only the owning user may request their own video URLs.
     func getPersonalVideoURL(
         ownerUID: String,
         fileName: String,
@@ -250,10 +280,8 @@ class SecureURLManager {
         ]
 
         do {
-            let callable = functions.httpsCallable("getPersonalVideoSignedURL")
-            let result = try await Task.detached { try await callable.call(data) }.value
-            guard let response = result.data as? [String: Any],
-                  let signedURL = response["signedURL"] as? String,
+            let response = try await callCloudFunction("getPersonalVideoSignedURL", data: data)
+            guard let signedURL = response["signedURL"] as? String,
                   let expiresAtString = response["expiresAt"] as? String else {
                 throw SecureURLError.invalidResponse
             }
