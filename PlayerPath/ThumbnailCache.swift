@@ -200,8 +200,7 @@ import UIKit
         let screenScale = UITraitCollection.current.displayScale
 
         // 4. Download, save to disk, load into cache
-        // Detached so view-lifecycle cancellation can't crash Firebase's internal async let
-        let task = Task<UIImage, Error>.detached {
+        let task = Task<UIImage, Error> {
             let urlString = try await urlProvider()
             guard let url = URL(string: urlString) else {
                 throw ThumbnailError.downloadFailed

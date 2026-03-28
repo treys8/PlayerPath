@@ -19,7 +19,11 @@ class SecureURLManager {
     static let shared = SecureURLManager()
 
     private let log = Logger(subsystem: "com.playerpath.app", category: "SecureURLManager")
-    private static let isoFormatter = ISO8601DateFormatter()
+    private static let isoFormatter: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
     private static let baseURL = "https://us-central1-playerpath-159b2.cloudfunctions.net"
 
     // Cache for signed URLs to avoid repeated function calls
@@ -72,15 +76,21 @@ class SecureURLManager {
         let (responseData, response) = try await URLSession.shared.data(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse else {
+            log.error("[\(functionName)] No HTTP response")
             throw SecureURLError.invalidResponse
         }
 
+        let rawBody = String(data: responseData, encoding: .utf8) ?? "<non-utf8>"
+        log.debug("[\(functionName)] HTTP \(httpResponse.statusCode) response: \(rawBody, privacy: .public)")
+
         guard let json = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any] else {
+            log.error("[\(functionName)] Failed to parse JSON from response")
             throw SecureURLError.invalidResponse
         }
 
         if let errorInfo = json["error"] as? [String: Any] {
             let message = errorInfo["message"] as? String ?? "Unknown error"
+            log.error("[\(functionName)] Cloud Function error: \(message, privacy: .public)")
             throw SecureURLError.functionCallFailed(
                 NSError(domain: "CloudFunction", code: httpResponse.statusCode,
                         userInfo: [NSLocalizedDescriptionKey: message])
@@ -89,6 +99,7 @@ class SecureURLManager {
 
         guard httpResponse.statusCode == 200,
               let result = json["result"] as? [String: Any] else {
+            log.error("[\(functionName)] Unexpected response: status=\(httpResponse.statusCode), keys=\(Array(json.keys))")
             throw SecureURLError.functionCallFailed(
                 NSError(domain: "CloudFunction", code: httpResponse.statusCode,
                         userInfo: [NSLocalizedDescriptionKey: "Server error (\(httpResponse.statusCode))"])
