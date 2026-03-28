@@ -44,6 +44,7 @@ struct SharedFolder: Codable, Identifiable, Hashable {
     let ownerAthleteID: String
     let ownerAthleteName: String?  // Name of the athlete who owns this folder
     let sharedWithCoachIDs: [String]
+    var sharedWithCoachNames: [String: String]? = nil
     let permissions: [String: [String: Bool]]
     let createdAt: Date?
     let updatedAt: Date?
@@ -146,17 +147,6 @@ struct FirestoreVideoMetadata: Codable, Identifiable {
     var wasUploadedByCoach: Bool {
         uploadedByType == .coach
     }
-}
-
-/// Access log entry for tracking who viewed/downloaded a shared video
-struct VideoAccessLog: Codable, Identifiable {
-    var id: String?
-    let userID: String
-    let userName: String
-    let userRole: String          // "athlete" or "coach"
-    let action: String            // "view" or "download"
-    let folderID: String
-    let timestamp: Date?
 }
 
 /// Type of user who uploaded a video

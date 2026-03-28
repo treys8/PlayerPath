@@ -86,15 +86,6 @@ final class CoachVideoCacheService {
         cacheLog.info("Cleared cache for folder \(folderID)")
     }
 
-    /// Total bytes used by the cache.
-    func cacheSize() -> Int64 {
-        guard let enumerator = FileManager.default.enumerator(at: cacheRoot, includingPropertiesForKeys: [.fileSizeKey]) else { return 0 }
-        var total: Int64 = 0
-        for case let url as URL in enumerator {
-            total += (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize.map(Int64.init)) ?? 0
-        }
-        return total
-    }
 }
 
 enum CoachVideoCacheError: LocalizedError {

@@ -34,7 +34,7 @@ func withRetry<T>(
             }
         }
     }
-    throw lastError!
+    throw lastError ?? NSError(domain: "RetryHelpers", code: -1, userInfo: [NSLocalizedDescriptionKey: "All retry attempts exhausted"])
 }
 
 /// Fire-and-forget retry: silently retries an async operation, discarding errors after exhaustion.

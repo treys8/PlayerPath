@@ -454,32 +454,21 @@ struct AthleteFolderDetailContent: View {
     }
 
     private var folderHeader: some View {
-        VStack(spacing: 12) {
-            HStack(spacing: 16) {
-                Image(systemName: "folder.fill")
-                    .font(.title)
-                    .foregroundColor(.brandNavy)
+        HStack(spacing: 12) {
+            let count = viewModel.videos.count
+            Label("\(count) video\(count == 1 ? "" : "s")", systemImage: "video")
+                .font(.caption)
+                .foregroundColor(.secondary)
 
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(folder.name)
-                        .font(.headline)
+            let coachCount = folder.sharedWithCoachIDs.count
+            Label("\(coachCount) coach\(coachCount == 1 ? "" : "es")", systemImage: "person.fill")
+                .font(.caption)
+                .foregroundColor(.secondary)
 
-                    HStack(spacing: 12) {
-                        Label("\(viewModel.videos.count) videos", systemImage: "video")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-
-                        Label("\(folder.sharedWithCoachIDs.count) coaches", systemImage: "person.fill")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                }
-
-                Spacer()
-            }
-            .padding()
+            Spacer()
         }
-        .background(Color(.secondarySystemBackground))
+        .padding(.horizontal)
+        .padding(.vertical, 8)
     }
 }
 
@@ -510,6 +499,7 @@ struct ManageCoachesView: View {
                     Section {
                         ForEach(folder.sharedWithCoachIDs, id: \.self) { coachID in
                             CoachPermissionRow(
+                                folder: folder,
                                 coachID: coachID,
                                 permissions: folder.getPermissions(for: coachID) ?? .default,
                                 onRemove: {
@@ -599,6 +589,7 @@ struct CoachPermissionRow: View {
         coachDetailsCache.removeAll()
     }
 
+    let folder: SharedFolder
     let coachID: String
     let permissions: FolderPermissions
     let onRemove: () -> Void
@@ -670,6 +661,13 @@ struct CoachPermissionRow: View {
     @MainActor
     private func loadCoachDetails() async {
         guard coachName == nil else { return }
+
+        // Use name stored on the folder document (no network call needed)
+        if let storedName = folder.sharedWithCoachNames?[coachID], !storedName.isEmpty {
+            self.coachName = storedName
+            isLoadingName = false
+            return
+        }
 
         if let cached = Self.coachDetailsCache[coachID],
            Date().timeIntervalSince(cached.fetchedAt) < Self.cacheTTL {

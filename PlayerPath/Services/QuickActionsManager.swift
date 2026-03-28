@@ -119,19 +119,4 @@ final class QuickActionsManager: ObservableObject {
         }
     }
 
-    // MARK: - Clear
-
-    func clearSelectedAction() {
-        selectedQuickAction = nil
-    }
-}
-
-// MARK: - App Delegate Integration
-
-extension QuickActionsManager {
-    /// Call this from SceneDelegate when app launches with a shortcut
-    func handleLaunchShortcut(_ shortcutItem: UIApplicationShortcutItem?) {
-        guard let shortcut = shortcutItem else { return }
-        _ = handleQuickAction(shortcut)
-    }
 }

@@ -79,6 +79,7 @@ struct ContactSupportView: View {
 
             Section("Other Ways to Reach Us") {
                 Link(destination: URL(string: "mailto:playerpath@proton.me") ?? URL(string: "https://playerpath.app")!) {
+                // Force unwrap above is safe — hardcoded valid URL as nil-coalescing fallback
                     HelpRowLabel(
                         icon: "envelope",
                         title: "Email Support",

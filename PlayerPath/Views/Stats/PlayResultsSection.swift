@@ -61,6 +61,7 @@ struct PlayResultData {
 struct PlayResultCard: View {
     let data: PlayResultData
 
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var isAnimating = false
 
     var body: some View {
@@ -86,9 +87,9 @@ struct PlayResultCard: View {
                 .truncationMode(.tail)
                 .minimumScaleFactor(0.8)
         }
-        .frame(height: 70)
+        .frame(height: horizontalSizeClass == .regular ? 85 : 70)
         .frame(maxWidth: .infinity)
-        .padding(8)
+        .padding(horizontalSizeClass == .regular ? 12 : 8)
         .background(
             ZStack {
                 RoundedRectangle(cornerRadius: .cornerLarge, style: .continuous)

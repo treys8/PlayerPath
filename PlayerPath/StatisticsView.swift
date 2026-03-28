@@ -25,6 +25,7 @@ struct StatisticsView: View {
             }
         }
     }
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var activeSheet: ActiveSheet?
     @State private var selectedSeasonFilter: String? = nil // nil = All Seasons (Career)
 
@@ -150,8 +151,10 @@ struct StatisticsView: View {
                 switch item {
                 case .quickEntry(let game):
                     QuickStatisticsEntryView(game: game, athlete: athlete)
+                        .presentationDetents(horizontalSizeClass == .regular ? [.medium, .large] : [.large])
                 case .gameSelection:
                     GameSelectionForStatsView(athlete: athlete)
+                        .presentationDetents(horizontalSizeClass == .regular ? [.medium, .large] : [.large])
                 }
             }
             .sheet(isPresented: $showingShareSheet) {
@@ -280,7 +283,7 @@ struct StatisticsView: View {
                         PitchingStatsSection(statistics: stats)
                     }
                 }
-                .padding()
+                .padding(horizontalSizeClass == .regular ? 32 : 16)
             }
         } else {
             EmptyStatisticsView(

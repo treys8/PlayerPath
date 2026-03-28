@@ -71,27 +71,9 @@ struct SeasonManager {
         return newSeason
     }
 
-    /// Links a game to the athlete's active season.
-    /// - Note: Caller is responsible for calling `modelContext.save()` after this function.
-    static func linkGameToActiveSeason(_ game: Game, for athlete: Athlete, in modelContext: ModelContext) {
-        // Silently skips games already assigned to a season
-        guard game.season == nil else { return }
-        guard game.athlete?.id == athlete.id else {
-            log.error("Game does not belong to athlete — skipping season link")
-            return
-        }
-
-        guard let activeSeason = ensureActiveSeason(for: athlete, in: modelContext) else {
-            log.error("Failed to ensure active season for game linking")
-            return
-        }
-        game.season = activeSeason  // SwiftData handles inverse relationship automatically
-    }
-
     /// Links a practice to the athlete's active season.
     /// - Note: Caller is responsible for calling `modelContext.save()` after this function.
     static func linkPracticeToActiveSeason(_ practice: Practice, for athlete: Athlete, in modelContext: ModelContext) {
-        // Silently skips practices already assigned to a season
         guard practice.season == nil else { return }
         guard practice.athlete?.id == athlete.id else {
             log.error("Practice does not belong to athlete — skipping season link")
@@ -102,24 +84,7 @@ struct SeasonManager {
             log.error("Failed to ensure active season for practice linking")
             return
         }
-        practice.season = activeSeason  // SwiftData handles inverse relationship automatically
-    }
-
-    /// Links a video clip to the athlete's active season.
-    /// - Note: Caller is responsible for calling `modelContext.save()` after this function.
-    static func linkVideoToActiveSeason(_ videoClip: VideoClip, for athlete: Athlete, in modelContext: ModelContext) {
-        // Silently skips clips already assigned to a season
-        guard videoClip.season == nil else { return }
-        guard videoClip.athlete?.id == athlete.id else {
-            log.error("VideoClip does not belong to athlete — skipping season link")
-            return
-        }
-
-        guard let activeSeason = ensureActiveSeason(for: athlete, in: modelContext) else {
-            log.error("Failed to ensure active season for video linking")
-            return
-        }
-        videoClip.season = activeSeason  // SwiftData handles inverse relationship automatically
+        practice.season = activeSeason
     }
 
     /// Generates a season summary report (useful for archive view)

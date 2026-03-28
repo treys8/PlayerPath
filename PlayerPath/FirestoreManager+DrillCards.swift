@@ -109,13 +109,4 @@ extension FirestoreManager {
         }
     }
 
-    func deleteDrillCard(videoID: String, cardID: String) async throws {
-        try await db.collection(FC.videos)
-            .document(videoID)
-            .collection(FC.drillCards)
-            .document(cardID)
-            .delete()
-
-        drillCardLog.info("Deleted drill card \(cardID)")
-    }
 }

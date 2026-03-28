@@ -25,15 +25,6 @@ enum SubscriptionGate {
         return await fullConnectedAthleteCount(coachID: coachID) > limit
     }
 
-    /// How many athlete slots remain for the current coach tier.
-    @MainActor
-    static func coachAthleteSlotsRemaining(coachID: String, authManager: ComprehensiveAuthManager) async -> Int {
-        let limit = authManager.coachAthleteLimit
-        guard limit != Int.max else { return Int.max }
-        let count = await fullConnectedAthleteCount(coachID: coachID)
-        return max(0, limit - count)
-    }
-
     /// Result of a connected athlete count query. `isConfirmed` is true when the
     /// Firestore fetch succeeded, false when falling back to local data only.
     struct AthleteCountResult {
@@ -82,8 +73,4 @@ enum SubscriptionGate {
         return count >= limit
     }
 
-    /// Whether the athlete can create shared folders (requires Pro).
-    static func canAthleteShareFolders(authManager: ComprehensiveAuthManager) -> Bool {
-        authManager.currentTier >= .pro
-    }
 }

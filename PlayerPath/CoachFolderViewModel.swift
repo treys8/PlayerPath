@@ -17,6 +17,8 @@ class CoachFolderViewModel {
 
     var videos: [CoachVideoItem] = []
     var isLoading = false
+    var isLoadingMore = false
+    var hasMoreVideos = false
     var errorMessage: String?
 
     /// Cached filtered arrays — updated whenever `videos` changes
@@ -31,8 +33,10 @@ class CoachFolderViewModel {
     var cachedInstructionVideos: [CoachVideoItem] = []
 
     private var prefetchedFileNames: Set<String> = []
+    private var lastVideoDocument: QueryDocumentSnapshot?
+    private static let pageSize = 30
     // nonisolated(unsafe) required so deinit can call .remove() on the listener
-    private nonisolated(unsafe) var videosListener: ListenerRegistration?
+    nonisolated(unsafe) private var videosListener: ListenerRegistration?
 
     init(folder: SharedFolder) {
         self.folder = folder
@@ -69,6 +73,19 @@ class CoachFolderViewModel {
         updateFilteredVideos()
     }
 
+    /// Appends additional videos from a "Load More" page.
+    private func appendVideos(_ firestoreVideos: [FirestoreVideoMetadata]) {
+        let currentUID = Auth.auth().currentUser?.uid
+        let newItems = firestoreVideos
+            .filter { $0.visibility != "private" || $0.uploadedBy == currentUID }
+            .map { CoachVideoItem(from: $0) }
+        let existingIDs = Set(videos.map(\.id))
+        let deduplicated = newItems.filter { !existingIDs.contains($0.id) }
+        videos.append(contentsOf: deduplicated)
+        videos.sort { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
+        updateFilteredVideos()
+    }
+
     /// Prefetches signed URLs only for videos not already prefetched.
     private func prefetchURLs(folderID: String) {
         let newFileNames = videos.map(\.fileName).filter { !prefetchedFileNames.contains($0) }
@@ -88,16 +105,34 @@ class CoachFolderViewModel {
     }
 
     /// Starts a snapshot listener if one isn't already running.
+    /// The listener sees the newest 30 videos. When it fires, we merge those with
+    /// any additional videos the user loaded via "Load More" so pagination isn't lost.
     private func ensureListening(folderID: String) {
         guard videosListener == nil else { return }
         let listener = FirestoreManager.shared.listenToVideos(forFolder: folderID) { [weak self] firestoreVideos in
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                self.applyVideos(firestoreVideos)
+                self.mergeListenerVideos(firestoreVideos)
                 self.prefetchURLs(folderID: folderID)
             }
         }
         videosListener = listener
+    }
+
+    /// Merges the listener's newest 30 videos with any extra videos loaded via pagination.
+    private func mergeListenerVideos(_ firestoreVideos: [FirestoreVideoMetadata]) {
+        let currentUID = Auth.auth().currentUser?.uid
+        let listenerItems = firestoreVideos
+            .filter { $0.visibility != "private" || $0.uploadedBy == currentUID }
+            .map { CoachVideoItem(from: $0) }
+        let listenerIDs = Set(listenerItems.map(\.id))
+
+        // Keep any paginated videos that aren't in the listener's window
+        let paginatedExtras = videos.filter { !listenerIDs.contains($0.id) }
+
+        videos = (listenerItems + paginatedExtras)
+            .sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
+        updateFilteredVideos()
     }
 
     func loadVideos() async {
@@ -117,9 +152,14 @@ class CoachFolderViewModel {
         }
 
         do {
-            let firestoreVideos = try await FirestoreManager.shared.fetchVideos(forSharedFolder: folderID)
+            let result = try await FirestoreManager.shared.fetchVideoPage(
+                forFolder: folderID,
+                pageSize: Self.pageSize
+            )
             errorMessage = nil
-            applyVideos(firestoreVideos)
+            lastVideoDocument = result.lastDocument
+            hasMoreVideos = result.videos.count >= Self.pageSize
+            applyVideos(result.videos)
             prefetchURLs(folderID: folderID)
 
             // After the first successful load, start listening for real-time updates.
@@ -129,6 +169,26 @@ class CoachFolderViewModel {
 
         } catch {
             errorMessage = "Failed to load videos: \(error.localizedDescription)"
+        }
+    }
+
+    func loadMoreVideos() async {
+        guard hasMoreVideos, !isLoadingMore, let folderID = folder.id else { return }
+        isLoadingMore = true
+        defer { isLoadingMore = false }
+
+        do {
+            let result = try await FirestoreManager.shared.fetchVideoPage(
+                forFolder: folderID,
+                pageSize: Self.pageSize,
+                afterDocument: lastVideoDocument
+            )
+            lastVideoDocument = result.lastDocument
+            hasMoreVideos = result.videos.count >= Self.pageSize
+            appendVideos(result.videos)
+            prefetchURLs(folderID: folderID)
+        } catch {
+            ErrorHandlerService.shared.handle(error, context: "CoachFolderViewModel.loadMoreVideos", showAlert: false)
         }
     }
 }

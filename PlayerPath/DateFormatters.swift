@@ -32,13 +32,6 @@ extension DateFormatter {
         return f
     }()
 
-    /// Full date, no time (e.g., "Wednesday, January 15, 2026")
-    static let fullDate: DateFormatter = {
-        let f = DateFormatter()
-        f.dateStyle = .full
-        return f
-    }()
-
     /// Short date + short time (e.g., "1/15/26, 3:30 PM")
     static let shortDateTime: DateFormatter = {
         let f = DateFormatter()

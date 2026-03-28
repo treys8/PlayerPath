@@ -302,6 +302,7 @@ class SecureURLManager {
             urlCache[cacheKey] = CachedURL(url: signedURL, expiresAt: expiresAt)
             return signedURL
         } catch {
+            log.error("Failed to generate batch thumbnail URLs: \(error.localizedDescription, privacy: .public)")
             throw SecureURLError.functionCallFailed(error)
         }
     }

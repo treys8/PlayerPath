@@ -129,6 +129,7 @@ extension FirestoreManager {
 
             return invitations
         } catch {
+            firestoreLog.error("Failed to fetch pending invitations: \(error.localizedDescription)")
             throw error
         }
     }
@@ -364,6 +365,7 @@ extension FirestoreManager {
 
             return invitations
         } catch {
+            firestoreLog.error("Failed to fetch pending coach invitations: \(error.localizedDescription)")
             throw error
         }
     }
@@ -530,18 +532,6 @@ extension FirestoreManager {
                 return nil
             }
         }
-    }
-
-    /// Updates a coach-to-athlete invitation with the folder created on acceptance
-    func updateCoachToAthleteInvitationWithFolder(
-        invitationID: String,
-        folderID: String,
-        folderName: String
-    ) async throws {
-        try await db.collection(FC.invitations).document(invitationID).updateData([
-            "folderID": folderID,
-            "folderName": folderName
-        ])
     }
 
     /// Returns athlete user IDs from accepted coach-to-athlete invitations for a given coach.

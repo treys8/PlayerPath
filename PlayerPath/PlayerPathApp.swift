@@ -135,27 +135,9 @@ struct PlayerPathApp: App {
                         }
                     }
             }
-                .onOpenURL { url in
-                    appLog.info("OpenURL: \(url.absoluteString)")
-                    if let intent = DeepLinkIntent(url: url) {
-                        Haptics.light()
-                        switch intent {
-                        case .statistics(let athleteId):
-                            navigationCoordinator.selectedAthleteId = athleteId
-                            navigationCoordinator.showStatistics = true
-                        case .recordGame(let gameId):
-                            navigationCoordinator.selectedGameId = gameId
-                            navigationCoordinator.showVideoRecorder = true
-                        case .recordPractice(let practiceId):
-                            navigationCoordinator.selectedPracticeId = practiceId
-                            navigationCoordinator.showVideoRecorder = true
-                        case .invitation(let invitationId):
-                            navigationCoordinator.selectedInvitationId = invitationId
-                            navigationCoordinator.showInvitation = true
-                        }
-                    }
-                }
                 // Note: Notification permission is requested in MainTabView.task, post-onboarding.
+                // Deep link handling (.onOpenURL) lives in PlayerPathMainView where
+                // authManager is available for pre-auth deferral.
         }
         .modelContainer(PlayerPathApp.sharedModelContainer)
     }
@@ -176,6 +158,30 @@ final class NavigationCoordinator {
     var selectedPracticeId: String?
     var selectedInvitationId: String?
 
+    /// Deep link that arrived before the user was authenticated.
+    /// Consumed by AuthenticatedFlow after sign-in completes.
+    var pendingDeepLink: DeepLinkIntent?
+
+    func handle(_ intent: DeepLinkIntent) {
+        Haptics.light()
+        switch intent {
+        case .statistics(let id):
+            selectedAthleteId = id
+            showStatistics = true
+        case .recordGame(let id):
+            selectedGameId = id
+            showVideoRecorder = true
+        case .recordPractice(let id):
+            selectedPracticeId = id
+            showVideoRecorder = true
+        case .invitation(let id):
+            selectedInvitationId = id
+            showInvitation = true
+        case .folder(let id):
+            NotificationCenter.default.post(name: .navigateToCoachFolder, object: id)
+        }
+    }
+
     func resetNavigation() {
         showStatistics = false
         showVideoRecorder = false
@@ -185,6 +191,7 @@ final class NavigationCoordinator {
         selectedGameId = nil
         selectedPracticeId = nil
         selectedInvitationId = nil
+        pendingDeepLink = nil
     }
 }
 
@@ -196,8 +203,7 @@ enum DeepLinkIntent {
     case recordGame(gameId: String)
     case recordPractice(practiceId: String)
     case invitation(invitationId: String)
-    // folder(folderId:) removed — folder navigation UI is not yet implemented.
-    // Folder URLs will fall through to the default nil return and be silently ignored.
+    case folder(folderId: String)
 }
 
 extension DeepLinkIntent {
@@ -226,6 +232,12 @@ extension DeepLinkIntent {
             // Format: playerpath://invitation/{invitationId}
             if pathComponents.count >= 1, !pathComponents[0].isEmpty {
                 self = .invitation(invitationId: pathComponents[0])
+                return
+            }
+        case ("folder", _):
+            // Format: playerpath://folder/{folderId}
+            if pathComponents.count >= 1, !pathComponents[0].isEmpty {
+                self = .folder(folderId: pathComponents[0])
                 return
             }
         default:

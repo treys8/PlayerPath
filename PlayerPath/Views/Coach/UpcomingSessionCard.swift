@@ -64,7 +64,7 @@ struct UpcomingSessionCard: View {
                         if isStarting {
                             ProgressView().tint(.white)
                         } else {
-                            Text("Start")
+                            Text("Go Live")
                         }
                     }
                     .font(.caption)
@@ -74,12 +74,12 @@ struct UpcomingSessionCard: View {
                     .padding(.vertical, 7)
                     .background(
                         LinearGradient(
-                            colors: [.blue, .blue.opacity(0.8)],
+                            colors: [.red, .red.opacity(0.8)],
                             startPoint: .topLeading, endPoint: .bottomTrailing
                         )
                     )
                     .clipShape(Capsule())
-                    .shadow(color: .blue.opacity(0.3), radius: 4, x: 0, y: 2)
+                    .shadow(color: .red.opacity(0.3), radius: 4, x: 0, y: 2)
                 }
                 .disabled(isStarting)
                 .buttonStyle(.borderless)
@@ -104,7 +104,7 @@ struct UpcomingSessionCard: View {
                 Button {
                     onStart()
                 } label: {
-                    Label("Start Now", systemImage: "play.fill")
+                    Label("Go Live", systemImage: "record.circle")
                 }
             }
             if let onCancel {

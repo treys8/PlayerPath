@@ -14,8 +14,8 @@
 
 import SwiftUI
 import SwiftData
-import FirebaseAuth
 import Combine
+import os
 
 // MARK: - Theme Manager
 /// Reads the user's preferred theme from UserDefaults and exposes it
@@ -67,11 +67,14 @@ func postSwitchTab(_ tab: MainTab) {
 }
 
 // MARK: - App Root
+private let mainViewLog = Logger(subsystem: "com.playerpath.app", category: "MainView")
+
 struct PlayerPathMainView: View {
     @StateObject private var authManager = ComprehensiveAuthManager()
     @ObservedObject private var updateManager = AppUpdateManager.shared
     @ObservedObject private var themeManager = ThemeManager.shared
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.navigationCoordinator) private var navigationCoordinator
 
     var body: some View {
         Group {
@@ -117,6 +120,16 @@ struct PlayerPathMainView: View {
                 updateManager.markWhatsNewSeen()
             }
             .interactiveDismissDisabled()
+        }
+        .onOpenURL { url in
+            mainViewLog.info("OpenURL: \(url.absoluteString)")
+            guard let intent = DeepLinkIntent(url: url) else { return }
+            if authManager.isSignedIn {
+                navigationCoordinator.handle(intent)
+            } else {
+                mainViewLog.info("User not signed in — deferring deep link")
+                navigationCoordinator.pendingDeepLink = intent
+            }
         }
         .task {
             // Enforce singleton UserPreferences on every launch (dedup + create if missing)

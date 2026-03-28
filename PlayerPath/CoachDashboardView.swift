@@ -132,12 +132,8 @@ struct CoachDashboardView: View {
         .sheet(isPresented: $showingInviteAthlete) {
             InviteAthleteSheet()
         }
-        .sheet(isPresented: $showingStartSession, onDismiss: {
-            if sessionManager.activeSession != nil && !showingCamera {
-                showingCamera = true
-            }
-        }) {
-            StartSessionSheet { _ in }
+        .sheet(isPresented: $showingStartSession) {
+            StartSessionSheet()
         }
         .fullScreenCover(isPresented: $showingCamera) {
             if let session = sessionManager.activeSession {
@@ -327,20 +323,12 @@ struct CoachDashboardView: View {
                     }
                 } else {
                     QuickActionButton(
-                        icon: "record.circle",
-                        title: "Start Session",
+                        icon: "plus.circle.fill",
+                        title: "New Session",
                         color: .brandNavy
                     ) {
-                        startSessionAction()
+                        showingStartSession = true
                     }
-                }
-
-                QuickActionButton(
-                    icon: "calendar.badge.plus",
-                    title: "Schedule",
-                    color: .blue
-                ) {
-                    showingStartSession = true
                 }
 
                 QuickActionButton(
@@ -543,23 +531,6 @@ struct CoachDashboardView: View {
     }
 
     // MARK: - Session Actions
-
-    /// Starts a session — bypasses the sheet when only 1 uploadable athlete exists.
-    private func startSessionAction() {
-        guard sessionManager.activeSession == nil,
-              let coachID = authManager.userID else { return }
-        let athletes = CoachUploadableAthletesHelper.availableAthletes(coachID: coachID)
-        if athletes.count == 1 {
-            Task {
-                let success = await CoachSessionManager.shared.quickCreateSession(
-                    athletes: athletes, authManager: authManager
-                )
-                if success { showingCamera = true }
-            }
-        } else {
-            showingStartSession = true
-        }
-    }
 
     private func resumeSession(_ session: CoachSession) {
         if session.status == .live {

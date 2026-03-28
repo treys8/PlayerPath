@@ -292,7 +292,7 @@ import UIKit
     // MARK: - Private Helpers
 
     private func sharedThumbnailPath(for cacheKey: String) -> String {
-        let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+        guard let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else { return "" }
         let thumbDir = cacheDir.appendingPathComponent("shared_thumbnails", isDirectory: true)
         let sanitized = cacheKey.replacingOccurrences(of: "/", with: "_")
         return thumbDir.appendingPathComponent("\(sanitized).jpg").path

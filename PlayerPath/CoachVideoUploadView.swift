@@ -358,7 +358,7 @@ class CoachVideoUploadViewModel {
 
         // Copy video to stable Documents path for queue persistence
         let fileName = generateFileName()
-        let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        guard let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
         let coachUploadsDir = documentsURL.appendingPathComponent("coach_pending_uploads", isDirectory: true)
         try? FileManager.default.createDirectory(at: coachUploadsDir, withIntermediateDirectories: true)
         let stablePath = coachUploadsDir.appendingPathComponent(fileName)

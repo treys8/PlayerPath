@@ -10,7 +10,13 @@ import SwiftUI
 struct KeyStatsSection: View {
     let statistics: AthleteStatistics
 
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var isVisible = false
+
+    private var columns: [GridItem] {
+        let count = horizontalSizeClass == .regular ? 4 : 2
+        return Array(repeating: GridItem(.flexible()), count: count)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 15) {
@@ -18,10 +24,7 @@ struct KeyStatsSection: View {
                 .opacity(isVisible ? 1 : 0)
                 .offset(y: isVisible ? 0 : 10)
 
-            LazyVGrid(columns: [
-                GridItem(.flexible()),
-                GridItem(.flexible())
-            ], spacing: 15) {
+            LazyVGrid(columns: columns, spacing: 15) {
                 StatCard(
                     title: "Batting Average",
                     value: StatisticsService.shared.formatBattingAverage(statistics.battingAverage),
@@ -65,6 +68,7 @@ struct StatCard: View {
     let color: Color
     let subtitle: String?
 
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var isAnimating = false
 
     init(title: String, value: String, color: Color, subtitle: String? = nil) {
@@ -105,9 +109,9 @@ struct StatCard: View {
                     .foregroundColor(.secondary)
             }
         }
-        .frame(height: 100)
+        .frame(height: horizontalSizeClass == .regular ? 120 : 100)
         .frame(maxWidth: .infinity)
-        .padding(12)
+        .padding(horizontalSizeClass == .regular ? 16 : 12)
         .background(
             ZStack {
                 // Base background

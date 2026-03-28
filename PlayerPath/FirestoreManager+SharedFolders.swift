@@ -47,6 +47,7 @@ extension FirestoreManager {
             let docRef = try await db.collection(FC.sharedFolders).addDocument(data: folderData)
             return docRef.documentID
         } catch {
+            firestoreLog.error("Failed to create folder: \(error.localizedDescription)")
             errorMessage = "Failed to create folder."
             throw error
         }
@@ -74,6 +75,7 @@ extension FirestoreManager {
 
             return folders
         } catch {
+            firestoreLog.error("Failed to load folders: \(error.localizedDescription)")
             errorMessage = "Failed to load folders."
             throw error
         }
@@ -102,6 +104,7 @@ extension FirestoreManager {
 
             return folders
         } catch {
+            firestoreLog.error("Failed to load coach folders: \(error.localizedDescription)")
             errorMessage = "Failed to load folders."
             throw error
         }
@@ -137,6 +140,7 @@ extension FirestoreManager {
                 return nil
             }
         } catch {
+            firestoreLog.error("Failed to fetch shared folder \(folderID): \(error.localizedDescription)")
             throw error
         }
     }
@@ -196,6 +200,7 @@ extension FirestoreManager {
 
             batch.updateData([
                 "sharedWithCoachIDs": FieldValue.arrayRemove([coachID]),
+                "sharedWithCoachNames.\(coachID)": FieldValue.delete(),
                 "permissions.\(coachID)": FieldValue.delete(),
                 "updatedAt": FieldValue.serverTimestamp()
             ], forDocument: folderRef)
@@ -215,6 +220,7 @@ extension FirestoreManager {
             try await batch.commit()
 
         } catch {
+            firestoreLog.error("Failed to remove coach: \(error.localizedDescription)")
             errorMessage = "Failed to remove coach."
             throw error
         }
@@ -301,19 +307,10 @@ extension FirestoreManager {
             try await db.collection(FC.sharedFolders).document(folderID).delete()
 
         } catch {
+            firestoreLog.error("Failed to delete folder: \(error.localizedDescription)")
             errorMessage = "Failed to delete folder."
             throw error
         }
-    }
-
-    // MARK: - Folder Tags
-
-    /// Updates tags on a shared folder
-    func updateFolderTags(folderID: String, tags: [String]) async throws {
-        try await db.collection(FC.sharedFolders).document(folderID).updateData([
-            "tags": tags,
-            "updatedAt": FieldValue.serverTimestamp()
-        ])
     }
 
     // MARK: - Batch Revocation (Coach Downgrade)
@@ -352,6 +349,7 @@ extension FirestoreManager {
                     let folderRef = db.collection(FC.sharedFolders).document(folderID)
                     batch.updateData([
                         "sharedWithCoachIDs": FieldValue.arrayRemove([coachID]),
+                        "sharedWithCoachNames.\(coachID)": FieldValue.delete(),
                         "permissions.\(coachID)": FieldValue.delete(),
                         "updatedAt": FieldValue.serverTimestamp()
                     ], forDocument: folderRef)

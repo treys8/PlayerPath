@@ -213,11 +213,6 @@ final class SyncCoordinator {
         }
     }
 
-    /// Clears all sync errors
-    func clearErrors() {
-        syncErrors.removeAll()
-    }
-
     /// Deletes all local SwiftData records for the current user.
     /// Called on sign-out and account deletion to prevent data leakage between accounts.
     /// - Parameter fallbackContext: Used when SyncCoordinator hasn't been configured

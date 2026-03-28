@@ -1,6 +1,7 @@
 import Foundation
 import SwiftData
 import FirebaseAuth
+import FirebaseFirestore
 import UIKit
 import os
 
@@ -82,6 +83,18 @@ extension SyncCoordinator {
         for clip in updatedVideos {
             guard let firestoreId = clip.firestoreId else { continue }
             do {
+                // Read-before-write: skip if Firestore doc already matches local state.
+                // 1 read costs ~0.3x a write, so this saves money when data is unchanged
+                // (e.g., after crash/restart where needsSync wasn't cleared).
+                let existingDoc = try? await Firestore.firestore()
+                    .collection(FC.videos).document(firestoreId).getDocument()
+                if let data = existingDoc?.data(),
+                   videoMetadataMatches(data, clip: clip) {
+                    clip.needsSync = false
+                    syncedClips.append(clip)
+                    continue
+                }
+
                 try await VideoCloudManager.shared.updateVideoMetadata(
                     clipId: firestoreId,
                     isHighlight: clip.isHighlight,
@@ -369,5 +382,48 @@ extension SyncCoordinator {
             context.delete(clip)
             ErrorHandlerService.shared.saveContext(context, caller: "SyncCoordinator.downloadVideo.cleanup")
         }
+    }
+
+    // MARK: - Read-Before-Write Helper
+
+    /// Compares Firestore document data against local VideoClip fields.
+    /// Returns true if all mutable metadata fields match (no write needed).
+    private func videoMetadataMatches(_ data: [String: Any], clip: VideoClip) -> Bool {
+        guard data["isHighlight"] as? Bool == clip.isHighlight else { return false }
+
+        let remoteNote = data["note"] as? String
+        if remoteNote != clip.note { return false }
+
+        let remotePlayResult = data["playResult"] as? Int
+        let localPlayResult = clip.playResult?.type.rawValue
+        if remotePlayResult != localPlayResult { return false }
+
+        let remotePitchSpeed = data["pitchSpeed"] as? Double
+        if remotePitchSpeed != clip.pitchSpeed { return false }
+
+        let remotePitchType = data["pitchType"] as? String
+        if remotePitchType != clip.pitchType { return false }
+
+        let remoteGameId = data["gameId"] as? String
+        let localGameId = clip.game.map { $0.firestoreId ?? $0.id.uuidString }
+        if remoteGameId != localGameId { return false }
+
+        let remoteGameOpponent = data["gameOpponent"] as? String
+        let localGameOpponent = clip.gameOpponent ?? clip.game?.opponent
+        if remoteGameOpponent != localGameOpponent { return false }
+
+        let remoteSeasonId = data["seasonId"] as? String
+        let localSeasonId = clip.season.map { $0.firestoreId ?? $0.id.uuidString }
+        if remoteSeasonId != localSeasonId { return false }
+
+        let remoteSeasonName = data["seasonName"] as? String
+        let localSeasonName = clip.seasonName ?? clip.season?.displayName
+        if remoteSeasonName != localSeasonName { return false }
+
+        let remotePracticeId = data["practiceId"] as? String
+        let localPracticeId = clip.practice?.id.uuidString
+        if remotePracticeId != localPracticeId { return false }
+
+        return true
     }
 }

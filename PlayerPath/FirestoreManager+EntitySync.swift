@@ -33,6 +33,7 @@ extension FirestoreManager {
 
             return docRef.documentID
         } catch {
+            firestoreLog.error("Failed to create athlete: \(error.localizedDescription)")
             errorMessage = "Failed to create athlete."
             throw error
         }
@@ -58,6 +59,7 @@ extension FirestoreManager {
                 .setData(updateData, merge: true)
 
         } catch {
+            firestoreLog.error("Failed to update athlete: \(error.localizedDescription)")
             errorMessage = "Failed to update athlete."
             throw error
         }
@@ -91,6 +93,7 @@ extension FirestoreManager {
 
             return athletes
         } catch {
+            firestoreLog.error("Failed to load athletes: \(error.localizedDescription)")
             errorMessage = "Failed to load athletes."
             throw error
         }
@@ -115,6 +118,7 @@ extension FirestoreManager {
                 ])
 
         } catch {
+            firestoreLog.error("Failed to delete athlete: \(error.localizedDescription)")
             errorMessage = "Failed to delete athlete."
             throw error
         }
@@ -142,6 +146,7 @@ extension FirestoreManager {
 
             return docRef.documentID
         } catch {
+            firestoreLog.error("Failed to create season: \(error.localizedDescription)")
             errorMessage = "Failed to create season."
             throw error
         }
@@ -167,6 +172,7 @@ extension FirestoreManager {
                 .setData(updateData, merge: true)
 
         } catch {
+            firestoreLog.error("Failed to update season: \(error.localizedDescription)")
             errorMessage = "Failed to update season."
             throw error
         }
@@ -200,6 +206,7 @@ extension FirestoreManager {
 
             return seasons
         } catch {
+            firestoreLog.error("Failed to fetch seasons: \(error.localizedDescription)")
             errorMessage = "Failed to fetch seasons."
             throw error
         }
@@ -224,6 +231,7 @@ extension FirestoreManager {
                 ])
 
         } catch {
+            firestoreLog.error("Failed to delete season: \(error.localizedDescription)")
             errorMessage = "Failed to delete season."
             throw error
         }
@@ -251,6 +259,7 @@ extension FirestoreManager {
 
             return docRef.documentID
         } catch {
+            firestoreLog.error("Failed to create game: \(error.localizedDescription)")
             errorMessage = "Failed to create game."
             throw error
         }
@@ -276,6 +285,7 @@ extension FirestoreManager {
                 .setData(updateData, merge: true)
 
         } catch {
+            firestoreLog.error("Failed to update game: \(error.localizedDescription)")
             errorMessage = "Failed to update game."
             throw error
         }
@@ -309,6 +319,7 @@ extension FirestoreManager {
 
             return games
         } catch {
+            firestoreLog.error("Failed to fetch games: \(error.localizedDescription)")
             errorMessage = "Failed to fetch games."
             throw error
         }
@@ -333,6 +344,7 @@ extension FirestoreManager {
                 ])
 
         } catch {
+            firestoreLog.error("Failed to delete game: \(error.localizedDescription)")
             errorMessage = "Failed to delete game."
             throw error
         }
@@ -353,6 +365,7 @@ extension FirestoreManager {
                 ])
 
         } catch {
+            firestoreLog.error("Failed to delete video clip metadata: \(error.localizedDescription)")
             errorMessage = "Failed to delete video clip metadata."
             throw error
         }
@@ -380,6 +393,7 @@ extension FirestoreManager {
 
             return docRef.documentID
         } catch {
+            firestoreLog.error("Failed to create practice: \(error.localizedDescription)")
             errorMessage = "Failed to create practice."
             throw error
         }
@@ -405,6 +419,7 @@ extension FirestoreManager {
                 .setData(updateData, merge: true)
 
         } catch {
+            firestoreLog.error("Failed to update practice: \(error.localizedDescription)")
             errorMessage = "Failed to update practice."
             throw error
         }
@@ -438,6 +453,7 @@ extension FirestoreManager {
 
             return practices
         } catch {
+            firestoreLog.error("Failed to load practices: \(error.localizedDescription)")
             errorMessage = "Failed to load practices."
             throw error
         }
@@ -462,6 +478,7 @@ extension FirestoreManager {
                 ])
 
         } catch {
+            firestoreLog.error("Failed to delete practice: \(error.localizedDescription)")
             errorMessage = "Failed to delete practice."
             throw error
         }
@@ -550,23 +567,33 @@ extension FirestoreManager {
     }
 
     func fetchPhotos(uploadedBy ownerUID: String, athleteId: String) async throws -> [FirestorePhoto] {
-        let snapshot = try await db
-            .collection(FC.photos)
+        var allPhotos: [FirestorePhoto] = []
+        var lastDoc: QueryDocumentSnapshot?
+        let baseQuery = db.collection(FC.photos)
             .whereField("uploadedBy", isEqualTo: ownerUID)
             .whereField("athleteId", isEqualTo: athleteId)
             .whereField("isDeleted", isEqualTo: false)
-            .limit(to: 1000)
-            .getDocuments()
-        return snapshot.documents.compactMap { doc -> FirestorePhoto? in
-            do {
-                var photo = try doc.data(as: FirestorePhoto.self)
-                photo.id = doc.documentID
-                return photo
-            } catch {
-                firestoreLog.warning("Failed to decode FirestorePhoto from doc \(doc.documentID): \(error.localizedDescription)")
-                return nil
+            .order(by: "__name__")
+
+        while true {
+            var query = baseQuery.limit(to: 100)
+            if let lastDoc { query = query.start(afterDocument: lastDoc) }
+            let snapshot = try await query.getDocuments()
+            guard !snapshot.documents.isEmpty else { break }
+            lastDoc = snapshot.documents.last
+            let page = snapshot.documents.compactMap { doc -> FirestorePhoto? in
+                do {
+                    var photo = try doc.data(as: FirestorePhoto.self)
+                    photo.id = doc.documentID
+                    return photo
+                } catch {
+                    firestoreLog.warning("Failed to decode FirestorePhoto from doc \(doc.documentID): \(error.localizedDescription)")
+                    return nil
+                }
             }
+            allPhotos.append(contentsOf: page)
         }
+        return allPhotos
     }
 
     // MARK: - Coaches Sync

@@ -104,42 +104,6 @@ class VideoFileManager {
         return thumbnailsDir.appendingPathComponent("thumb_\(UUID().uuidString).jpg")
     }
     
-    static func copyToDocuments(from sourceURL: URL) throws -> URL {
-        let documents = try documentsDirectory()
-
-        // If already within the Documents tree, just return it
-        let documentsPrefix = documents.standardizedFileURL.path.hasSuffix("/") ? documents.standardizedFileURL.path : documents.standardizedFileURL.path + "/"
-        if sourceURL.standardizedFileURL.path.hasPrefix(documentsPrefix) {
-            return sourceURL
-        }
-
-        let ext = sourceURL.pathExtension.isEmpty ? "mov" : sourceURL.pathExtension
-        var destinationURL = try createPermanentVideoURL(extension: ext)
-        var attempts = 0
-        let maxAttempts = 10
-
-        // Try to copy, handling file exists error with retry
-        while attempts < maxAttempts {
-            do {
-                // This will throw if file already exists
-                try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
-                logger.info("Successfully copied video to: \(destinationURL.path, privacy: .public)")
-                return destinationURL
-            } catch let error as NSError where error.domain == NSCocoaErrorDomain && error.code == NSFileWriteFileExistsError {
-                // File exists, try again with new UUID
-                logger.warning("File exists at \(destinationURL.path, privacy: .public), retrying with new name")
-                destinationURL = try createPermanentVideoURL(extension: ext)
-                attempts += 1
-            } catch {
-                logger.error("Failed to copy video: \(String(describing: error), privacy: .public)")
-                throw FileManagerError.copyFailed(error)
-            }
-        }
-
-        logger.error("Failed to find unique filename after \(maxAttempts) attempts")
-        throw FileManagerError.fileAlreadyExists
-    }
-    
     static func cleanup(url: URL) {
         guard FileManager.default.fileExists(atPath: url.path) else { return }
         do {

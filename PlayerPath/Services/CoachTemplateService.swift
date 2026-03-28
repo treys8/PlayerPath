@@ -39,7 +39,7 @@ class CoachTemplateService {
                     cue.id = doc.documentID
                     return cue
                 } catch {
-                    ErrorHandlerService.shared.handle(error, context: "CoachTemplateService.decode(\(doc.documentID))", showAlert: false)
+                    templateLog.warning("Failed to decode QuickCue from doc \(doc.documentID): \(error.localizedDescription)")
                     return nil
                 }
             }

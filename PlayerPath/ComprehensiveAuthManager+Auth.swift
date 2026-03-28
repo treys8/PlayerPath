@@ -97,29 +97,6 @@ extension ComprehensiveAuthManager {
         }
     }
 
-    /// Restores sign-in state from an existing Firebase session without requiring credentials.
-    /// Used by session-based biometric sign-in: biometric proves identity, Firebase token proves session.
-    func restoreFirebaseSession() async {
-        guard let user = Auth.auth().currentUser else {
-            errorMessage = "Your session has expired. Please sign in with your password."
-            return
-        }
-        isLoading = true
-        errorMessage = nil
-        currentFirebaseUser = user
-        await loadUserProfile()
-
-        // Check email verification for non-grandfathered accounts
-        if requiresEmailVerification(user) {
-            needsEmailVerification = true
-            isLoading = false
-            return
-        }
-
-        isSignedIn = true
-        isLoading = false
-    }
-
     func signIn(email: String, password: String) async {
         // Enforce client-side lockout before attempting Firebase auth
         if isSignInLocked {

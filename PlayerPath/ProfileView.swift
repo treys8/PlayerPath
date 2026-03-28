@@ -8,7 +8,6 @@
 import SwiftUI
 import SwiftData
 import UIKit
-import FirebaseAuth
 
 // MARK: - Profile View (Main "More" Tab Root)
 

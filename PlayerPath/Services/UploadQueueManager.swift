@@ -7,7 +7,6 @@
 
 import Foundation
 import SwiftData
-import Combine
 import BackgroundTasks
 import UIKit
 import os
@@ -515,19 +514,6 @@ final class UploadQueueManager {
 
         pendingUploads.removeAll { $0.athleteId == athleteId }
         failedUploads.removeAll { $0.athleteId == athleteId }
-        queueIsDirty = true
-    }
-
-    /// Cancel all queued coach uploads for a specific folder
-    func cancelCoachUploads(forFolderID folderID: String) {
-        let matching = pendingUploads.filter { $0.folderID == folderID }
-        for upload in matching {
-            retryTasks[upload.clipId]?.cancel()
-            retryTasks[upload.clipId] = nil
-        }
-
-        pendingUploads.removeAll { $0.folderID == folderID }
-        failedUploads.removeAll { $0.folderID == folderID }
         queueIsDirty = true
     }
 

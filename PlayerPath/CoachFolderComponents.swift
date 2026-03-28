@@ -16,37 +16,26 @@ struct FolderInfoHeader: View {
     let lastRefreshed: Date?
 
     var body: some View {
-        VStack(spacing: 8) {
-            HStack(spacing: 12) {
-                Image(systemName: "folder.fill")
-                    .font(.title)
-                    .foregroundColor(.brandNavy)
+        HStack(spacing: 12) {
+            Label("\(videoCount) video\(videoCount == 1 ? "" : "s")", systemImage: "video")
+                .font(.caption)
+                .foregroundColor(.secondary)
 
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(folder.name)
-                        .font(.headline)
-
-                    Text("\(videoCount) video\(videoCount == 1 ? "" : "s")")
-                        .font(.caption)
+            if let refreshed = lastRefreshed {
+                HStack(spacing: 4) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.caption2)
+                        .foregroundColor(.brandNavy)
+                    Text("Updated \(refreshed.formatted(.relative(presentation: .named)))")
+                        .font(.caption2)
                         .foregroundColor(.secondary)
-
-                    if let refreshed = lastRefreshed {
-                        HStack(spacing: 4) {
-                            Image(systemName: "checkmark.circle.fill")
-                                .font(.caption2)
-                                .foregroundColor(.brandNavy)
-                            Text("Updated \(refreshed.formatted(.relative(presentation: .named)))")
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
-                        }
-                    }
                 }
-
-                Spacer()
             }
-            .padding()
+
+            Spacer()
         }
-        .background(Color(.secondarySystemBackground))
+        .padding(.horizontal)
+        .padding(.vertical, 8)
     }
 }
 
@@ -56,8 +45,11 @@ struct AllVideosTabView: View {
     let folder: SharedFolder
     let videos: [CoachVideoItem]
     var isLoading: Bool = false
+    var isLoadingMore: Bool = false
+    var hasMoreVideos: Bool = false
     var errorMessage: String? = nil
     let onRefresh: () async -> Void
+    var onLoadMore: (() async -> Void)?
     var onEditTags: ((CoachVideoItem) -> Void)?
 
     var body: some View {
@@ -79,9 +71,28 @@ struct AllVideosTabView: View {
                 )
             } else {
                 ScrollView {
-                    LazyVStack(spacing: 8) {
+                    LazyVStack(spacing: 16) {
                         ForEach(videos) { video in
                             videoNavigationLink(folder: folder, video: video)
+                        }
+
+                        if hasMoreVideos {
+                            Button {
+                                Task { await onLoadMore?() }
+                            } label: {
+                                if isLoadingMore {
+                                    ProgressView()
+                                        .frame(maxWidth: .infinity)
+                                        .padding()
+                                } else {
+                                    Text("Load More Videos")
+                                        .font(.subheadline.weight(.medium))
+                                        .foregroundColor(.accentColor)
+                                        .frame(maxWidth: .infinity)
+                                        .padding()
+                                }
+                            }
+                            .disabled(isLoadingMore)
                         }
                     }
                     .padding()
@@ -94,9 +105,9 @@ struct AllVideosTabView: View {
     @ViewBuilder
     private func videoNavigationLink(folder: SharedFolder, video: CoachVideoItem) -> some View {
         let link = NavigationLink(destination: CoachVideoPlayerView(folder: folder, video: video)) {
-            CoachVideoRow(video: video)
+            CoachVideoCard(video: video)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressableCardButtonStyle())
 
         if let onEditTags {
             link.contextMenu {
@@ -114,40 +125,62 @@ struct AllVideosTabView: View {
 
 // MARK: - Video Row Component
 
-struct CoachVideoRow: View {
+struct CoachVideoCard: View {
     let video: CoachVideoItem
 
     var body: some View {
-        HStack(spacing: 12) {
-            RemoteThumbnailView(
-                urlString: video.thumbnailURL,
-                size: CGSize(width: 120, height: 68),
-                duration: video.duration,
-                annotationCount: video.annotationCount,
-                contextLabel: video.contextLabel,
-                isHighlight: video.isHighlight,
-                hasNotes: video.notes != nil && !(video.notes?.isEmpty ?? true),
-                folderID: video.sharedFolderID,
-                videoFileName: video.fileName
-            )
+        VStack(spacing: 0) {
+            // Thumbnail — 16:9 aspect ratio, full width
+            ZStack {
+                RemoteThumbnailView(
+                    urlString: video.thumbnailURL,
+                    size: CGSize(width: 120, height: 68),
+                    cornerRadius: 0,
+                    duration: video.duration,
+                    annotationCount: video.annotationCount,
+                    contextLabel: video.contextLabel,
+                    isHighlight: video.isHighlight,
+                    hasNotes: video.notes != nil && !(video.notes?.isEmpty ?? true),
+                    fillsContainer: true,
+                    folderID: video.sharedFolderID,
+                    videoFileName: video.fileName
+                )
 
+                // Gradient overlay for contrast (matches VideoClipCard)
+                VStack {
+                    Spacer()
+                    LinearGradient(
+                        colors: [.clear, .black.opacity(0.4)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .frame(height: 40)
+                }
+            }
+            .aspectRatio(16/9, contentMode: .fit)
+            .clipShape(UnevenRoundedRectangle(topLeadingRadius: .cornerLarge, bottomLeadingRadius: 0, bottomTrailingRadius: 0, topTrailingRadius: .cornerLarge))
+
+            // Info section
             VStack(alignment: .leading, spacing: 6) {
-                Text(video.fileName)
+                Text(video.displayTitle)
                     .font(.subheadline)
-                    .fontWeight(.medium)
-                    .lineLimit(2)
+                    .fontWeight(.bold)
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
                     .truncationMode(.tail)
 
-                HStack(spacing: 8) {
-                    Label(video.uploadedByName, systemImage: "person.fill")
+                HStack(spacing: 6) {
+                    Text(video.uploadedByName)
                         .font(.caption)
                         .foregroundColor(.secondary)
+                        .lineLimit(1)
 
                     if let date = video.createdAt {
-                        Text("•")
+                        Text("\u{2022}")
+                            .font(.caption2)
                             .foregroundColor(.secondary)
-                        Text(date.formatted(date: .abbreviated, time: .omitted))
-                            .font(.caption)
+                        Text(date, style: .date)
+                            .font(.caption2)
                             .foregroundColor(.secondary)
                     }
                 }
@@ -171,14 +204,20 @@ struct CoachVideoRow: View {
                     }
                 }
             }
-
-            Spacer()
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(.systemGray6))
         }
-        .padding()
-        .background(Color(.tertiarySystemBackground))
-        .cornerRadius(10)
+        .background(Color(.systemGray6))
+        .clipShape(RoundedRectangle(cornerRadius: .cornerLarge, style: .continuous))
+        .shadow(color: .black.opacity(0.08), radius: 12, x: 0, y: 4)
+        .shadow(color: .black.opacity(0.04), radius: 2, x: 0, y: 1)
     }
 }
+
+/// Backward-compatible alias
+typealias CoachVideoRow = CoachVideoCard
 
 // MARK: - Empty State View
 
@@ -279,7 +318,7 @@ struct GameGroupView: View {
     @State private var isExpanded = true
 
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 12) {
             Button(action: { withAnimation { isExpanded.toggle() } }) {
                 HStack {
                     VStack(alignment: .leading, spacing: 4) {
@@ -305,16 +344,16 @@ struct GameGroupView: View {
                 }
                 .padding()
                 .background(Color(.secondarySystemBackground))
-                .cornerRadius(10)
+                .cornerRadius(.cornerLarge)
             }
             .buttonStyle(.plain)
 
             if isExpanded {
                 ForEach(gameGroup.videos) { video in
                     NavigationLink(destination: CoachVideoPlayerView(folder: folder, video: video)) {
-                        CoachVideoRow(video: video)
+                        CoachVideoCard(video: video)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(PressableCardButtonStyle())
                 }
             }
         }
@@ -393,7 +432,7 @@ struct PracticeGroupView: View {
     @State private var isExpanded = true
 
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 12) {
             Button(action: { withAnimation { isExpanded.toggle() } }) {
                 HStack {
                     VStack(alignment: .leading, spacing: 4) {
@@ -419,16 +458,16 @@ struct PracticeGroupView: View {
                 }
                 .padding()
                 .background(Color(.secondarySystemBackground))
-                .cornerRadius(10)
+                .cornerRadius(.cornerLarge)
             }
             .buttonStyle(.plain)
 
             if isExpanded {
                 ForEach(practiceGroup.videos) { video in
                     NavigationLink(destination: CoachVideoPlayerView(folder: folder, video: video)) {
-                        CoachVideoRow(video: video)
+                        CoachVideoCard(video: video)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(PressableCardButtonStyle())
                 }
             }
         }

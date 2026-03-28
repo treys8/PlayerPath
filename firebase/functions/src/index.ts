@@ -1267,8 +1267,10 @@ export const acceptAthleteToCoachInvitation = functions.https.onCall(async (data
       const folderSnap = await transaction.get(folderRef);
       if (folderSnap.exists) {
         const permissions = inv.permissions || { canUpload: false, canComment: true, canDelete: false };
+        const coachDisplayName = coachDoc.data()?.displayName || coachEmail?.split('@')[0] || 'Coach';
         transaction.update(folderRef, {
           sharedWithCoachIDs: admin.firestore.FieldValue.arrayUnion(coachID),
+          [`sharedWithCoachNames.${coachID}`]: coachDisplayName,
           [`permissions.${coachID}`]: permissions,
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
@@ -1473,11 +1475,13 @@ export const acceptCoachToAthleteInvitation = functions.https.onCall(async (data
   // Uses the athlete's self-chosen name from the client, falling back to the name
   // the coach typed when creating the invitation.
   const name = clientAthleteName || invData.athleteName || 'Athlete';
+  const coachDisplayName = coachDoc.data()?.displayName || invData.coachName || invData.coachEmail?.split('@')[0] || 'Coach';
   const defaultPerms = { canUpload: true, canComment: true, canDelete: false };
   const folderBase = {
     ownerAthleteID: athleteUserID,
     ownerAthleteName: name,
     sharedWithCoachIDs: [coachID],
+    sharedWithCoachNames: { [coachID]: coachDisplayName },
     permissions: { [coachID]: defaultPerms },
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -1565,6 +1569,10 @@ export const resendInvitationEmail = functions.https.onCall(async (data, context
       : invitation.athleteID === context.auth.uid;
     if (!isOwner) {
       throw new functions.https.HttpsError('permission-denied', 'Not authorized');
+    }
+
+    if (invitation.status !== 'pending') {
+      throw new functions.https.HttpsError('failed-precondition', 'Can only resend emails for pending invitations');
     }
 
     const deepLink = `playerpath://invitation/${invitationId}`;

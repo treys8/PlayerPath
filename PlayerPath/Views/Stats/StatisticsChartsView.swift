@@ -12,13 +12,14 @@ struct StatisticsChartsView: View {
     let athlete: Athlete
     var initialSeason: Season?
 
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var selectedMetric: StatMetric = .battingAverage
     @State private var selectedTimeframe: Timeframe = .game
     @State private var selectedSeason: Season?
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 24) {
+            VStack(spacing: horizontalSizeClass == .regular ? 32 : 24) {
                 // Metric Selector
                 metricSelectorView
 
@@ -225,7 +226,7 @@ struct StatisticsChartsView: View {
                 }
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(chartAccessibilityLabel)
-                .frame(height: 250)
+                .frame(height: horizontalSizeClass == .regular ? 380 : 250)
             }
 
             // Trend Indicator
@@ -254,7 +255,7 @@ struct StatisticsChartsView: View {
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
         }
-        .frame(height: 250)
+        .frame(height: horizontalSizeClass == .regular ? 380 : 250)
         .frame(maxWidth: .infinity)
     }
 
@@ -276,7 +277,7 @@ struct StatisticsChartsView: View {
             Text("Summary")
                 .font(.headline)
 
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: horizontalSizeClass == .regular ? 4 : 2), spacing: 12) {
                 if let stats = relevantStatistics {
                     SummaryCard(title: "High", value: formatValue(stats.max, for: selectedMetric), color: .green)
                     SummaryCard(title: "Low", value: formatValue(stats.min, for: selectedMetric), color: .orange)
@@ -356,11 +357,11 @@ struct StatisticsChartsView: View {
                     BarMark(x: .value("Type", "HR"), y: .value("Count", hits.homeRuns))
                         .foregroundStyle(Color.red)
                 }
-                .frame(height: 200)
+                .frame(height: horizontalSizeClass == .regular ? 300 : 200)
             } else {
                 Text("No hit data available")
                     .foregroundColor(.secondary)
-                    .frame(height: 200)
+                    .frame(height: horizontalSizeClass == .regular ? 300 : 200)
             }
         }
     }
@@ -617,7 +618,8 @@ struct StatisticsChartsView: View {
         guard count > 0 else { return "\(metricName) chart, no data" }
 
         let values = chartData.map { $0.value }
-        let latest = formatValue(values.last!, for: selectedMetric)
+        guard let lastValue = values.last else { return "\(metricName) chart, no data" }
+        let latest = formatValue(lastValue, for: selectedMetric)
         let trendText: String
         if let trend = calculateTrend() {
             switch trend {

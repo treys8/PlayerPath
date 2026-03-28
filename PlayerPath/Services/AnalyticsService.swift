@@ -180,22 +180,6 @@ final class AnalyticsService {
         ])
     }
 
-    // MARK: - Statistics Events
-
-    func trackStatsViewed(athleteID: String, viewType: String) {
-        logEvent(.statsViewed, parameters: [
-            "athlete_id": athleteID,
-            "view_type": viewType // "overall", "season", "game"
-        ])
-    }
-
-    func trackStatsExported(athleteID: String, format: String) {
-        logEvent(.statsExported, parameters: [
-            "athlete_id": athleteID,
-            "format": format // "csv", "pdf"
-        ])
-    }
-
     // MARK: - Practice Events
 
     func trackPracticeCreated(practiceID: String, seasonID: String?) {
@@ -208,29 +192,6 @@ final class AnalyticsService {
     func trackPracticeNoteAdded(practiceID: String) {
         logEvent(.practiceNoteAdded, parameters: [
             "practice_id": practiceID
-        ])
-    }
-
-    // MARK: - Sync Events
-
-    func trackSyncStarted(entityType: String) {
-        logEvent(.syncStarted, parameters: [
-            "entity_type": entityType
-        ])
-    }
-
-    func trackSyncCompleted(entityType: String, itemCount: Int, duration: TimeInterval) {
-        logEvent(.syncCompleted, parameters: [
-            "entity_type": entityType,
-            "item_count": itemCount,
-            "duration_seconds": Int(duration)
-        ])
-    }
-
-    func trackSyncFailed(entityType: String, errorMessage: String) {
-        logEvent(.syncFailed, parameters: [
-            "entity_type": entityType,
-            "error_message": errorMessage
         ])
     }
 
@@ -249,25 +210,7 @@ final class AnalyticsService {
         ])
     }
 
-    func trackSubscriptionCancelled(planType: String) {
-        logEvent(.subscriptionCancelled, parameters: [
-            "plan_type": planType
-        ])
-    }
-
     // MARK: - Help & Support Events
-
-    func trackHelpArticleViewed(articleTitle: String) {
-        logEvent(.helpArticleViewed, parameters: [
-            "article_title": articleTitle
-        ])
-    }
-
-    func trackFAQItemViewed(question: String) {
-        logEvent(.faqItemViewed, parameters: [
-            "question": question
-        ])
-    }
 
     func trackSupportContactSubmitted(category: String) {
         logEvent(.supportContactSubmitted, parameters: [
@@ -313,13 +256,6 @@ final class AnalyticsService {
         ])
 
         Crashlytics.crashlytics().record(error: error)
-    }
-
-    func trackNetworkError(statusCode: Int, endpoint: String) {
-        logEvent(.networkError, parameters: [
-            "status_code": statusCode,
-            "endpoint": endpoint
-        ])
     }
 
     // MARK: - Screen Tracking

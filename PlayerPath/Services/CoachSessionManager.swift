@@ -9,6 +9,9 @@
 import SwiftUI
 import FirebaseFirestore
 import FirebaseAuth
+import os
+
+private let sessionLog = Logger(subsystem: "com.playerpath.app", category: "CoachSessions")
 
 @MainActor
 @Observable
@@ -47,69 +50,6 @@ class CoachSessionManager {
 
     // MARK: - Session Lifecycle
 
-    /// Creates a new live session and returns its ID.
-    /// Validates that the selected athletes don't exceed the coach's tier limit.
-    func createSession(
-        coachID: String,
-        coachName: String,
-        athletes: [(athleteID: String, athleteName: String, folderID: String)],
-        authManager: ComprehensiveAuthManager
-    ) async throws -> String {
-        try await enforceAthleteLimit(coachID: coachID, authManager: authManager)
-
-        let (athleteIDs, athleteNames, folderIDs) = athleteData(from: athletes)
-
-        let data: [String: Any] = [
-            "coachID": coachID,
-            "coachName": coachName,
-            "athleteIDs": athleteIDs,
-            "athleteNames": athleteNames,
-            "folderIDs": folderIDs,
-            "status": SessionStatus.live.rawValue,
-            "startedAt": FieldValue.serverTimestamp(),
-            "clipCount": 0
-        ]
-
-        let docRef = try await db.collection(FC.coachSessions).addDocument(data: data)
-
-        let session = CoachSession(
-            id: docRef.documentID,
-            coachID: coachID,
-            coachName: coachName,
-            athleteIDs: athleteIDs,
-            athleteNames: athleteNames,
-            folderIDs: folderIDs,
-            status: .live,
-            startedAt: Date(),
-            clipCount: 0
-        )
-        activeSession = session
-        sessions.insert(session, at: 0)
-
-        return docRef.documentID
-    }
-
-    /// Convenience wrapper: resolves coach identity from authManager, creates a session,
-    /// plays a success haptic, and handles errors. Returns `true` on success.
-    func quickCreateSession(
-        athletes: [(athleteID: String, athleteName: String, folderID: String)],
-        authManager: ComprehensiveAuthManager
-    ) async -> Bool {
-        guard let coachID = authManager.userID else { return false }
-        let coachName = authManager.userDisplayName ?? authManager.userEmail ?? "Coach"
-        do {
-            _ = try await createSession(
-                coachID: coachID, coachName: coachName,
-                athletes: athletes, authManager: authManager
-            )
-            Haptics.success()
-            return true
-        } catch {
-            ErrorHandlerService.shared.handle(error, context: "CoachSessionManager.quickCreateSession")
-            return false
-        }
-    }
-
     /// Transitions session from live to reviewing.
     func endSession(sessionID: String) async throws {
         try await db.collection(FC.coachSessions).document(sessionID).updateData([
@@ -147,7 +87,7 @@ class CoachSessionManager {
         do {
             try await endSession(sessionID: sessionID)
         } catch {
-            ErrorHandlerService.shared.handle(error, context: "CoachSessionManager.endSessionIfActive", showAlert: false)
+            sessionLog.error("Failed to end session: \(error.localizedDescription)")
         }
     }
 
@@ -159,20 +99,21 @@ class CoachSessionManager {
             do {
                 try await completeSession(sessionID: sessionID)
             } catch {
-                ErrorHandlerService.shared.handle(error, context: "CoachSessionManager.cleanupAbandoned", showAlert: false)
+                sessionLog.error("Failed to cleanup abandoned session: \(error.localizedDescription)")
             }
         }
     }
 
     // MARK: - Scheduled Sessions
 
-    /// Creates a scheduled session for a future date.
-    /// Validates athlete limit to prevent scheduling beyond the coach's tier.
+    /// Creates a session. If `scheduledDate` is provided, it's shown on the card;
+    /// otherwise the session is ready to go live immediately.
+    /// Validates athlete limit to prevent creating beyond the coach's tier.
     func scheduleSession(
         coachID: String,
         coachName: String,
         athletes: [(athleteID: String, athleteName: String, folderID: String)],
-        scheduledDate: Date,
+        scheduledDate: Date? = nil,
         notes: String?,
         authManager: ComprehensiveAuthManager
     ) async throws -> String {
@@ -187,9 +128,11 @@ class CoachSessionManager {
             "athleteNames": athleteNames,
             "folderIDs": folderIDs,
             "status": SessionStatus.scheduled.rawValue,
-            "scheduledDate": Timestamp(date: scheduledDate),
             "clipCount": 0
         ]
+        if let scheduledDate {
+            data["scheduledDate"] = Timestamp(date: scheduledDate)
+        }
         if let notes, !notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             data["notes"] = notes
         }
@@ -244,44 +187,6 @@ class CoachSessionManager {
         scheduledSessions.removeAll { $0.id == sessionID }
     }
 
-    /// Updates a scheduled session's date, athletes, or notes.
-    func editScheduledSession(
-        sessionID: String,
-        newDate: Date? = nil,
-        newAthletes: [(athleteID: String, athleteName: String, folderID: String)]? = nil,
-        newNotes: String? = nil
-    ) async throws {
-        var updates: [String: Any] = [:]
-
-        if let newDate {
-            updates["scheduledDate"] = Timestamp(date: newDate)
-        }
-        if let newAthletes {
-            let (ids, names, folders) = athleteData(from: newAthletes)
-            updates["athleteIDs"] = ids
-            updates["athleteNames"] = names
-            updates["folderIDs"] = folders
-        }
-        if let newNotes {
-            updates["notes"] = newNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? FieldValue.delete() : newNotes
-        }
-
-        guard !updates.isEmpty else { return }
-        try await db.collection(FC.coachSessions).document(sessionID).updateData(updates)
-
-        if let idx = scheduledSessions.firstIndex(where: { $0.id == sessionID }) {
-            if let newDate { scheduledSessions[idx].scheduledDate = newDate }
-            if let newAthletes {
-                let (ids, names, folders) = athleteData(from: newAthletes)
-                scheduledSessions[idx].athleteIDs = ids
-                scheduledSessions[idx].athleteNames = names
-                scheduledSessions[idx].folderIDs = folders
-            }
-            if let newNotes { scheduledSessions[idx].notes = newNotes }
-            scheduledSessions.sort { ($0.scheduledDate ?? .distantFuture) < ($1.scheduledDate ?? .distantFuture) }
-        }
-    }
-
     /// Increments the clip count for the active session.
     func incrementClipCount(sessionID: String) async {
         do {
@@ -293,7 +198,7 @@ class CoachSessionManager {
                 sessions[idx].clipCount += 1
             }
         } catch {
-            ErrorHandlerService.shared.handle(error, context: "CoachSessionManager.incrementClipCount", showAlert: false)
+            sessionLog.error("Failed to increment clip count: \(error.localizedDescription)")
         }
     }
 
@@ -328,7 +233,7 @@ class CoachSessionManager {
                     session.id = doc.documentID
                     return session
                 } catch {
-                    ErrorHandlerService.shared.handle(error, context: "CoachSessionManager.decode(\(doc.documentID))", showAlert: false)
+                    sessionLog.error("Failed to decode session \(doc.documentID): \(error.localizedDescription)")
                     return nil
                 }
             }
@@ -339,7 +244,7 @@ class CoachSessionManager {
                     session.id = doc.documentID
                     return session
                 } catch {
-                    ErrorHandlerService.shared.handle(error, context: "CoachSessionManager.decodeScheduled(\(doc.documentID))", showAlert: false)
+                    sessionLog.error("Failed to decode scheduled session \(doc.documentID): \(error.localizedDescription)")
                     return nil
                 }
             }
@@ -350,18 +255,8 @@ class CoachSessionManager {
             // Auto-end abandoned sessions (live for > 24 hours)
             await cleanupAbandonedSessions()
         } catch {
-            ErrorHandlerService.shared.handle(error, context: "CoachSessionManager.fetchSessions", showAlert: false)
+            sessionLog.error("Failed to fetch sessions: \(error.localizedDescription)")
         }
-    }
-
-    /// Fetches all clips for a session.
-    func fetchSessionClips(sessionID: String) async throws -> [FirestoreVideoMetadata] {
-        try await FirestoreManager.shared.fetchVideosBySession(sessionID: sessionID)
-    }
-
-    /// Clears the active session reference (e.g., after completing).
-    func clearActiveSession() {
-        activeSession = nil
     }
 
     // MARK: - Clip Upload
@@ -380,16 +275,12 @@ class CoachSessionManager {
             let sessionDoc = try await db.collection(FC.coachSessions).document(sessionID).getDocument()
             let status = sessionDoc.data()?["status"] as? String
             if status != SessionStatus.live.rawValue && status != SessionStatus.reviewing.rawValue {
-                ErrorHandlerService.shared.handle(
-                    CoachSessionError.sessionNotActive,
-                    context: "CoachSessionManager.uploadClip.sessionCheck",
-                    showAlert: false
-                )
+                sessionLog.warning("Session not active during clip upload — enqueuing anyway")
                 // Don't abort — the clip is recorded locally. Enqueue it anyway so it's not lost.
             }
         } catch {
             // Network failure checking session status — proceed with upload anyway
-            ErrorHandlerService.shared.handle(error, context: "CoachSessionManager.uploadClip.sessionCheck", showAlert: false)
+            sessionLog.error("Failed to check session status: \(error.localizedDescription)")
         }
 
         let dateStr = Date().formatted(.iso8601.year().month().day())
@@ -397,7 +288,7 @@ class CoachSessionManager {
 
         // Move the video to a stable Documents path so it survives app backgrounding.
         // The queue will read from this path later.
-        let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        guard let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
         let coachUploadsDir = documentsURL.appendingPathComponent("coach_pending_uploads", isDirectory: true)
         try? FileManager.default.createDirectory(at: coachUploadsDir, withIntermediateDirectories: true)
         let stablePath = coachUploadsDir.appendingPathComponent(fileName)
@@ -409,7 +300,7 @@ class CoachSessionManager {
             }
             try FileManager.default.copyItem(at: videoURL, to: stablePath)
         } catch {
-            ErrorHandlerService.shared.handle(error, context: "CoachSessionManager.copyForQueue", showAlert: false)
+            sessionLog.error("Failed to copy clip for upload queue: \(error.localizedDescription)")
             return
         }
 

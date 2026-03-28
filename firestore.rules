@@ -26,11 +26,15 @@ service cloud.firestore {
       return user != null && user.subscriptionTier in ["pro"];
     }
 
-    // Checks if the requesting user is a coach with a subscription tier.
+    // Checks if the requesting user is a coach with a valid subscription tier.
     // Requires role == 'coach' to prevent athletes from impersonating coaches.
+    // Whitelist prevents arbitrary strings from granting access.
     function hasCoachTier() {
       let user = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
-      return user != null && user.role == 'coach' && user.coachSubscriptionTier != null;
+      return user != null && user.role == 'coach'
+             && user.coachSubscriptionTier in [
+                  'coach_free', 'coach_instructor', 'coach_pro_instructor', 'coach_academy'
+                ];
     }
 
     // Checks if the requesting user is the owner of a shared folder.
@@ -94,18 +98,22 @@ service cloud.firestore {
           && request.resource.data.name == resource.data.name
           // Only allowed fields: sharedWithCoachIDs, permissions, updatedAt
           && request.resource.data.diff(resource.data).affectedKeys()
-             .hasOnly(['sharedWithCoachIDs', 'permissions', 'updatedAt']);
+             .hasOnly(['sharedWithCoachIDs', 'sharedWithCoachNames', 'permissions', 'updatedAt']);
     }
 
     // Checks if a coach is ONLY incrementing or decrementing videoCount on a folder
     // they already have access to. Used to allow batched video create/delete operations.
+    // Delta is bounded to ±10 to prevent abuse (single batch won't exceed this).
     function isCoachUpdatingVideoCount() {
       return request.auth.uid in resource.data.sharedWithCoachIDs
           && request.resource.data.ownerAthleteID == resource.data.ownerAthleteID
           && request.resource.data.name == resource.data.name
           && request.resource.data.sharedWithCoachIDs == resource.data.sharedWithCoachIDs
           && request.resource.data.diff(resource.data).affectedKeys()
-             .hasOnly(['videoCount', 'updatedAt']);
+             .hasOnly(['videoCount', 'updatedAt'])
+          && request.resource.data.videoCount >= 0
+          && request.resource.data.videoCount <= resource.data.videoCount + 10
+          && request.resource.data.videoCount >= resource.data.videoCount - 10;
     }
 
     // Helper to get the parent video's data (used by comments/annotations subcollections)
@@ -278,10 +286,12 @@ service cloud.firestore {
       ) && (!('visibility' in request.resource.data) || request.resource.data.visibility in ['shared', 'private']);
 
       // Only the uploader can update their own video.
-      // uploadedBy is immutable; all other fields are user-controlled.
+      // uploadedBy and sharedFolderID are immutable — prevents moving a video
+      // into a folder the uploader doesn't own.
       allow update: if isAuthenticated()
                     && resource.data.uploadedBy == request.auth.uid
-                    && request.resource.data.uploadedBy == resource.data.uploadedBy;
+                    && request.resource.data.uploadedBy == resource.data.uploadedBy
+                    && (!('sharedFolderID' in resource.data) || request.resource.data.sharedFolderID == resource.data.sharedFolderID);
 
       // Delete: uploader can delete their own videos; folder members with delete permission
       allow delete: if isAuthenticated() && (
@@ -385,8 +395,11 @@ service cloud.firestore {
                          'invitation_accepted', 'access_revoked', 'access_lapsed'
                        ];
 
-      // Only the recipient can mark notifications as read
-      allow update: if isAuthenticated() && isOwner(userID);
+      // Only the recipient can update, and only to mark as read.
+      // Prevents rewriting sender, type, title, body, etc.
+      allow update: if isAuthenticated() && isOwner(userID)
+                    && request.resource.data.diff(resource.data).affectedKeys()
+                       .hasOnly(['isRead']);
 
       // Only the recipient can delete notifications
       allow delete: if isAuthenticated() && isOwner(userID);
@@ -411,15 +424,22 @@ service cloud.firestore {
       // Immutable after creation (email tracking is server-side)
       allow update: if false;
 
-      // Only the creating athlete can delete
+      // The creating party (athlete or coach) can delete their own revocation
       allow delete: if isAuthenticated()
-                    && resource.data.athleteID == request.auth.uid;
+                    && (resource.data.athleteID == request.auth.uid
+                        || resource.data.coachID == request.auth.uid);
     }
 
     // ========================================================================
     // ========================================================================
     // COACH TEMPLATES (Quick Cues)
     // ========================================================================
+
+    // Parent document for coach templates (may be auto-created by Firestore)
+    match /coachTemplates/{coachID} {
+      allow read:   if isAuthenticated() && isOwner(coachID);
+      allow write:  if false; // Managed implicitly; no direct writes needed
+    }
 
     match /coachTemplates/{coachID}/quickCues/{cueID} {
       // Only the owning coach can read/write their quick cues
@@ -447,9 +467,10 @@ service cloud.firestore {
                     && ('sharedFolderID' in getVideoData(videoID)
                         && canAccessFolder(getVideoData(videoID).sharedFolderID));
 
-      // Only the creating coach can update/delete
+      // Only the creating coach can update/delete; coachID is immutable
       allow update: if isAuthenticated()
-                    && resource.data.coachID == request.auth.uid;
+                    && resource.data.coachID == request.auth.uid
+                    && request.resource.data.coachID == resource.data.coachID;
       allow delete: if isAuthenticated()
                     && resource.data.coachID == request.auth.uid;
     }
@@ -541,7 +562,9 @@ service cloud.firestore {
       // Sender can cancel; recipient can accept/decline — only while not expired.
       // Field-level restrictions prevent privilege escalation (e.g. swapping folderID).
       // Role-based: senders can only cancel; recipients can accept/decline.
+      // Status must currently be 'pending' — prevents re-accepting cancelled/declined invitations.
       allow update: if isAuthenticated()
+                    && resource.data.status == 'pending'
                     && isInvitationNotExpired(resource.data.expiresAt)
                     // Email-tracking fields (emailSent, emailSentAt, emailError,
                     // emailResentAt) are omitted — those are written by Cloud Functions

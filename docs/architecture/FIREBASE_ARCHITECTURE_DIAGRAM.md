@@ -1,453 +1,294 @@
 # Firebase Architecture Diagram
 
-**Project:** PlayerPath Baseball App  
-**Purpose:** Visual guide to data flow and security rules
+**Last Updated:** March 27, 2026
+
+Visual guide to Firestore collections, Firebase Storage structure, Cloud Functions, and security rules.
 
 ---
 
-## 🏗️ Firestore Collections Structure
+## Firestore Collections Structure
 
 ```
-📦 Firestore Database
-│
-├── 📁 users/{userID}
-│   ├── email: String
-│   ├── role: "athlete" | "coach"
-│   ├── isPremium: Boolean
-│   ├── displayName: String
-│   ├── createdAt: Timestamp
-│   └── updatedAt: Timestamp
-│
-├── 📁 sharedFolders/{folderID}
-│   ├── name: String
-│   ├── ownerAthleteID: String
-│   ├── sharedWithCoachIDs: [String]
-│   ├── permissions: {
-│   │   coachID1: {
-│   │       canUpload: Boolean,
-│   │       canComment: Boolean,
-│   │       canDelete: Boolean
-│   │   }
-│   │}
-│   ├── videoCount: Number
-│   ├── createdAt: Timestamp
-│   └── updatedAt: Timestamp
-│
-├── 📁 videos/{videoID}
-│   ├── fileName: String
-│   ├── firebaseStorageURL: String
-│   ├── thumbnailURL: String?
-│   ├── uploadedBy: String (userID)
-│   ├── uploadedByName: String
-│   ├── sharedFolderID: String
-│   ├── fileSize: Number
-│   ├── duration: Number?
-│   ├── isHighlight: Boolean
-│   ├── createdAt: Timestamp
-│   │
-│   └── 📁 annotations (subcollection)
-│       ├── {annotationID}
-│       │   ├── userID: String
-│       │   ├── userName: String
-│       │   ├── timestamp: Number (seconds)
-│       │   ├── text: String
-│       │   ├── isCoachComment: Boolean
-│       │   └── createdAt: Timestamp
-│       └── ...
-│
-└── 📁 invitations/{invitationID}
-    ├── athleteID: String
-    ├── athleteName: String
-    ├── coachEmail: String
-    ├── folderID: String
-    ├── folderName: String
-    ├── status: "pending" | "accepted" | "declined"
-    ├── sentAt: Timestamp
-    └── expiresAt: Timestamp
-```
-
----
-
-## 📦 Firebase Storage Structure
-
-```
-📦 Firebase Storage
-│
-└── videos/
-    └── sharedFolders/
-        ├── {folderID}/
-        │   ├── {videoID}.mov
-        │   ├── {videoID}_thumbnail.jpg
-        │   ├── {videoID2}.mov
-        │   └── {videoID2}_thumbnail.jpg
-        └── {folderID2}/
-            └── ...
-```
-
----
-
-## 🔒 Security Rules Logic
-
-### Firestore Rules Flow
-
-```
-                    ┌─────────────────────┐
-                    │   Request Arrives   │
-                    └──────────┬──────────┘
-                               ↓
-                    ┌──────────────────────┐
-                    │  Is User Authenticated? │
-                    └──────────┬──────────┘
-                               ↓ Yes
-                    ┌──────────────────────┐
-                    │  Check User Role     │
-                    │  from /users/{uid}   │
-                    └──────────┬──────────┘
-                               ↓
-        ┌──────────────────────┴──────────────────────┐
-        ↓                                              ↓
-┌───────────────┐                              ┌──────────────┐
-│  Role: Athlete│                              │ Role: Coach  │
-└───────┬───────┘                              └──────┬───────┘
-        ↓                                              ↓
-  ┌────────────────┐                          ┌─────────────────┐
-  │ Can Create     │                          │ Cannot Create   │
-  │ Shared Folders │                          │ Shared Folders  │
-  │ (if Premium)   │                          │                 │
-  └────────────────┘                          └─────────────────┘
-        ↓                                              ↓
-  ┌────────────────┐                          ┌─────────────────┐
-  │ Can Manage     │                          │ Can View Shared │
-  │ Own Folders    │                          │ Folders Only    │
-  └────────────────┘                          └─────────────────┘
-```
-
-### Shared Folder Access Check
-
-```
-Request to Access Folder
-        ↓
-┌──────────────────────────────┐
-│ Is user ownerAthleteID?      │
-└────────┬─────────────────────┘
-         ↓ No
-┌──────────────────────────────┐
-│ Is user in sharedWithCoachIDs?│
-└────────┬─────────────────────┘
-         ↓ Yes
-┌──────────────────────────────┐
-│ ✅ Access Granted            │
-└──────────────────────────────┘
-```
-
-### Video Upload Permission Check
-
-```
-Request to Upload Video
-        ↓
-┌──────────────────────────────┐
-│ Get Folder Document          │
-└────────┬─────────────────────┘
-         ↓
-┌──────────────────────────────┐
-│ Is user folder owner?        │
-└────────┬─────────────────────┘
-         ↓ No
-┌──────────────────────────────┐
-│ Is user in sharedWithCoachIDs?│
-└────────┬─────────────────────┘
-         ↓ Yes
-┌──────────────────────────────┐
-│ Check permissions.canUpload  │
-└────────┬─────────────────────┘
-         ↓ true
-┌──────────────────────────────┐
-│ ✅ Upload Allowed            │
-└──────────────────────────────┘
+Firestore Database
+|
+|-- users/{userID}
+|   |-- email: String
+|   |-- role: "athlete" | "coach"
+|   |-- displayName: String
+|   |-- subscriptionTier: String (free/plus/pro)
+|   |-- coachSubscriptionTier: String (free/instructor/proInstructor/academy)
+|   |-- tierExpirationDate: Timestamp?
+|   |-- coachTierExpirationDate: Timestamp?
+|   |-- cloudStorageUsedBytes: Number
+|   |-- createdAt: Timestamp
+|   |-- updatedAt: Timestamp
+|   |
+|   |-- athletes/{athleteID}
+|   |   |-- name, sport, position, jerseyNumber, etc.
+|   |   |-- firestoreId, version, needsSync, isDeletedRemotely
+|   |   |-- createdAt, updatedAt
+|   |
+|   |-- seasons/{seasonID}
+|   |   |-- name, sport, year, startDate, endDate, isActive
+|   |   |-- athleteID, firestoreId, version
+|   |
+|   |-- games/{gameID}
+|   |   |-- opponent, date, location, isHome, score, opponentScore
+|   |   |-- liveStartDate, seasonID, athleteID
+|   |   |-- firestoreId, version, needsSync
+|   |
+|   |-- practices/{practiceID}
+|       |-- date, location, practiceType (general/batting/fielding/bullpen/team)
+|       |-- athleteID, seasonID, firestoreId, version
+|       |
+|       |-- notes/{noteID}
+|           |-- text, createdAt, firestoreId, version
+|
+|-- sharedFolders/{folderID}
+|   |-- name: String
+|   |-- ownerAthleteID: String
+|   |-- ownerUserID: String
+|   |-- sharedWithCoachIDs: [String]
+|   |-- permissions: { coachID: { canUpload, canComment, canDelete } }
+|   |-- folderType: "games" | "lessons"
+|   |-- tags: [String]
+|   |-- videoCount: Number
+|   |-- createdAt: Timestamp
+|   |-- updatedAt: Timestamp
+|
+|-- videos/{videoID}
+|   |-- fileName: String
+|   |-- firebaseStorageURL: String
+|   |-- thumbnailURL: String?
+|   |-- thumbnail: { standardURL, highQualityURL, timestamp, dimensions }
+|   |-- uploadedBy: String (userID)
+|   |-- uploadedByName: String
+|   |-- uploadedByType: "athlete" | "coach"
+|   |-- sharedFolderID: String
+|   |-- sessionID: String?
+|   |-- fileSize: Number
+|   |-- duration: Number?
+|   |-- isHighlight: Boolean
+|   |-- visibility: String? (nil = coach-private, "shared" = visible)
+|   |-- isOrphaned: Boolean
+|   |-- orphanedAt: Timestamp?
+|   |-- viewCount: Number
+|   |-- annotationCount: Number
+|   |-- tags: [String]
+|   |-- drillType: String?
+|   |-- createdAt: Timestamp
+|   |
+|   |-- comments/{commentID}
+|   |   |-- userID, userName, authorRole ("athlete"/"coach")
+|   |   |-- text, createdAt
+|   |
+|   |-- annotations/{annotationID}
+|   |   |-- userID, userName
+|   |   |-- text, timestamp (seconds)
+|   |   |-- category (mechanics/timing/approach/positive/correction)
+|   |   |-- templateID?, type (note/drill_card/drawing)
+|   |   |-- isCoachComment: Boolean
+|   |   |-- createdAt
+|   |
+|   |-- drillCards/{drillCardID}
+|   |   |-- rating, categories, notes
+|   |   |-- templateID?, createdAt
+|   |
+|   |-- access_logs/{logID}
+|       |-- userID, action (view/download), timestamp
+|
+|-- invitations/{invitationID}
+|   |-- athleteID, athleteName
+|   |-- coachEmail
+|   |-- folderID, folderName
+|   |-- status: "pending" | "accepted" | "declined" | "cancelled" | "rejectedLimit"
+|   |-- sentAt: Timestamp
+|   |-- expiresAt: Timestamp (30-day window)
+|   |-- type: "athleteToCoach" | "coachToAthlete"
+|
+|-- coachSessions/{sessionID}
+|   |-- coachID, coachName
+|   |-- athleteIDs: [String]
+|   |-- athleteNames: { athleteID: name }
+|   |-- folderIDs: { athleteID: folderID }
+|   |-- status: "scheduled" | "live" | "reviewing" | "completed"
+|   |-- startedAt, endedAt, clipCount
+|   |-- title?, scheduledDate?, notes?
+|
+|-- coachTemplates/{coachID}
+|   |-- quickCues/{cueID}
+|       |-- text, category, sortOrder, createdAt
+|
+|-- notifications/{userID}
+|   |-- items/{itemID}
+|       |-- type (newVideo/coachComment/invitation_received/invitation_accepted/access_revoked/access_lapsed)
+|       |-- title, body, metadata
+|       |-- isRead: Boolean
+|       |-- createdAt
+|
+|-- photos/{photoID}
+|   |-- athleteID, cloudURL, thumbnailURL
+|   |-- tags, firestoreId, version
+|
+|-- appConfig/current
+|   |-- minimumVersion, latestVersion
+|   |-- whatsNewItems, featureFlags
+|
+|-- pendingDeletions/{id}
+|   |-- storagePaths, status, createdAt
+|
+|-- coach_access_revocations/{id}
+|   |-- coachID, folderID, revokedAt, reason
+|
+|-- emailRateLimits/{userID}
+    |-- count, windowStart (10 emails/hour)
 ```
 
 ---
 
-## 🔄 User Flows
-
-### Flow 1: Athlete Creates Shared Folder
+## Firebase Storage Structure
 
 ```
-Athlete Opens App
-        ↓
-┌──────────────────────────────┐
-│ Navigates to Profile/Coaches │
-└────────┬─────────────────────┘
-         ↓
-┌──────────────────────────────┐
-│ Taps "Create Coach Folder"   │
-└────────┬─────────────────────┘
-         ↓
-┌──────────────────────────────┐
-│ Check: isPremium == true?    │
-└────────┬─────────────────────┘
-         ↓ Yes
-┌──────────────────────────────┐
-│ Enters Folder Name           │
-│ e.g., "Coach Smith Folder"   │
-└────────┬─────────────────────┘
-         ↓
-┌──────────────────────────────┐
-│ Sets Permissions:            │
-│ ☑ Can Upload                 │
-│ ☑ Can Comment                │
-│ ☐ Can Delete                 │
-└────────┬─────────────────────┘
-         ↓
-┌──────────────────────────────┐
-│ Enters Coach Email           │
-│ coach@example.com            │
-└────────┬─────────────────────┘
-         ↓
-┌──────────────────────────────┐
-│ FirestoreManager             │
-│ .createSharedFolder()        │
-└────────┬─────────────────────┘
-         ↓
-┌──────────────────────────────┐
-│ FirestoreManager             │
-│ .createInvitation()          │
-└────────┬─────────────────────┘
-         ↓
-┌──────────────────────────────┐
-│ ✅ Invitation Sent           │
-│ (Email notification optional)│
-└──────────────────────────────┘
-```
-
-### Flow 2: Coach Accepts Invitation
-
-```
-Coach Opens App (First Time)
-        ↓
-┌──────────────────────────────┐
-│ Signs Up with Email          │
-│ coach@example.com            │
-└────────┬─────────────────────┘
-         ↓
-┌──────────────────────────────┐
-│ ComprehensiveAuthManager     │
-│ .signUpAsCoach()             │
-└────────┬─────────────────────┘
-         ↓
-┌──────────────────────────────┐
-│ User Profile Created         │
-│ role: "coach"                │
-└────────┬─────────────────────┘
-         ↓
-┌──────────────────────────────┐
-│ Sees CoachOnboardingFlow     │
-│ "Welcome, Coach!"            │
-└────────┬─────────────────────┘
-         ↓
-┌──────────────────────────────┐
-│ SharedFolderManager          │
-│ .checkPendingInvitations()   │
-└────────┬─────────────────────┘
-         ↓
-┌──────────────────────────────┐
-│ Shows Pending Invitations    │
-│ "Test Athlete invited you"   │
-└────────┬─────────────────────┘
-         ↓
-┌──────────────────────────────┐
-│ Coach Taps "Accept"          │
-└────────┬─────────────────────┘
-         ↓
-┌──────────────────────────────┐
-│ FirestoreManager             │
-│ .acceptInvitation()          │
-│ ↓ calls                      │
-│ .addCoachToFolder()          │
-└────────┬─────────────────────┘
-         ↓
-┌──────────────────────────────┐
-│ Coach Added to:              │
-│ folder.sharedWithCoachIDs    │
-│ folder.permissions[coachID]  │
-└────────┬─────────────────────┘
-         ↓
-┌──────────────────────────────┐
-│ ✅ Coach Can Now Access      │
-│ Folder & Videos              │
-└──────────────────────────────┘
-```
-
-### Flow 3: Coach Uploads Video to Shared Folder
-
-```
-Coach Opens Shared Folder
-        ↓
-┌──────────────────────────────┐
-│ Taps "Upload Video"          │
-└────────┬─────────────────────┘
-         ↓
-┌──────────────────────────────┐
-│ Records or Selects Video     │
-└────────┬─────────────────────┘
-         ↓
-┌──────────────────────────────┐
-│ VideoCloudManager            │
-│ .uploadVideo()               │
-│ → Firebase Storage           │
-│   /videos/sharedFolders/     │
-│   {folderID}/{videoID}.mov   │
-└────────┬─────────────────────┘
-         ↓
-┌──────────────────────────────┐
-│ Gets Download URL            │
-└────────┬─────────────────────┘
-         ↓
-┌──────────────────────────────┐
-│ FirestoreManager             │
-│ .uploadVideoMetadata()       │
-│ → Creates /videos/{videoID}  │
-└────────┬─────────────────────┘
-         ↓
-┌──────────────────────────────┐
-│ Security Rule Checks:        │
-│ 1. canUploadToFolder()?      │
-│ 2. uploadedBy == coachID?    │
-└────────┬─────────────────────┘
-         ↓ Pass
-┌──────────────────────────────┐
-│ ✅ Video Saved               │
-│ Athlete Gets Notification    │
-└──────────────────────────────┘
+Firebase Storage
+|
+|-- athletes/{athleteID}/
+|   |-- videos/{clipID}/{fileName}.mov
+|   |-- photos/{photoID}/{fileName}.jpg
+|
+|-- shared_folders/{folderID}/
+|   |-- {fileName}.mov
+|   |-- thumbnails/
+|       |-- {fileName}_thumbnail.jpg
+|
+|-- profile_images/{userID}/
+    |-- profile.jpg
 ```
 
 ---
 
-## 🔐 Permission Matrix
+## Cloud Functions (14 total)
+
+### Firestore Triggers
+
+| Function | Trigger | Purpose |
+|----------|---------|---------|
+| `onNewSharedVideo` | Video created in shared folder | Notify coaches/athletes |
+| `onNewComment` | Comment added to video | Notify video uploader |
+| `onNewDrillCard` | Drill card added to video | Notify athlete |
+| `sendInvitationEmail` | Invitation created | Email via SendGrid (both directions) |
+| `sendCoachAccessRevokedEmail` | Access revoked | Email notification |
+| `enforceAthleteLimit` | Athlete created | Enforce tier-based athlete count |
+| `enforceCoachAthleteLimit` | Coach folder accepted | Enforce coach athlete limits |
+| `enforceCoachAthleteLimitOnAccept` | Invitation accepted | Prevent over-limit accept |
+| `dailyStorageCleanup` | Scheduled (daily) | Clean pending deletions |
+| `enforceStorageQuota` | Video uploaded | Enforce per-user storage quota |
+
+### Callable Functions (HTTPS)
+
+| Function | Parameters | Purpose |
+|----------|-----------|---------|
+| `acceptAthleteToCoachInvitation` | invitationID | Accept athlete's coach invite (server-side folder creation) |
+| `acceptCoachToAthleteInvitation` | invitationID | Accept coach's athlete invite |
+| `resendInvitationEmail` | invitationID | Resend invitation email |
+| `getSignedVideoURL` | folderID, fileName, expirationHours | Signed download URL (24hr default) |
+| `getSignedThumbnailURL` | folderID, videoFileName, expirationHours | Signed thumbnail URL (7-day default) |
+| `getBatchSignedVideoURLs` | folderID, fileNames[], expirationHours | Batch signed URLs (max 50) |
+| `getPersonalVideoSignedURL` | athleteID, fileName | Personal video download URL |
+| `syncSubscriptionTier` | receipt data | Sync App Store receipt to Firestore |
+
+---
+
+## Security Rules Summary
+
+### Tier-Based Gating
+
+- Pro tier athletes required to create shared folders
+- Active coach tier required to access shared folder content as coach
+- Free athletes can only have personal videos
+
+### Permission Model
+
+Three folder permissions: `canUpload`, `canComment`, `canDelete`
 
 | Action | Athlete (Owner) | Coach (w/ Upload) | Coach (View Only) |
 |--------|----------------|-------------------|-------------------|
-| View Folder | ✅ | ✅ | ✅ |
-| Upload Video | ✅ | ✅ | ❌ |
-| Delete Own Video | ✅ | ✅ | ✅ |
-| Delete Other's Video | ✅ | ❌* | ❌ |
-| Add Comment | ✅ | ✅ | ✅ |
-| Delete Own Comment | ✅ | ✅ | ✅ |
-| Delete Other's Comment | ✅ | ❌ | ❌ |
-| Modify Folder Settings | ✅ | ❌ | ❌ |
-| Delete Folder | ✅ | ❌ | ❌ |
+| View Folder | Yes | Yes | Yes |
+| Upload Video | Yes | Yes | No |
+| Delete Own Video | Yes | Yes | Yes |
+| Delete Other's Video | Yes | Only with canDelete | No |
+| Add Comment | Yes | Yes | Yes |
+| Delete Own Comment | Yes | Yes | Yes |
+| Delete Other's Comment | Yes | No | No |
+| Modify Folder Settings | Yes | No | No |
+| Delete Folder | Yes | No | No |
 
-*Unless `canDelete` permission is granted
+### Invitation Security
+
+- 30-day expiration window with ~3-day buffer for clock skew
+- Enforced at acceptance/decline time, not read time
+- Status transitions are one-way (pending -> accepted/declined/cancelled)
+
+### Immutable Fields
+
+- User role and subscription tiers (Cloud Function exclusive)
+- Video uploader identity after creation
+- Invitation type and sender
 
 ---
 
-## 📊 Data Relationships
+## FirestoreManager Extensions
+
+| Extension File | Key Methods |
+|---------------|-------------|
+| `+SharedFolders` | createSharedFolder, fetchSharedFolders (athlete/coach), verifyFolderAccess, deleteSharedFolder, batchRevokeCoachAccess, updateFolderTags |
+| `+VideoMetadata` | uploadVideoMetadata, fetchVideos (folder/session), listenToVideos, uploadThumbnail(s), publishPrivateVideo, deleteCoachPrivateVideo, updateVideoTags, logVideoAccess |
+| `+Annotations` | addAnnotation, fetchAnnotations, deleteAnnotation |
+| `+Invitations` | createInvitation, acceptInvitation, declineInvitation, createCoachToAthleteInvitation, acceptCoachToAthleteInvitation, fetchPendingInvitations, cancelInvitation |
+| `+UserProfile` | fetchUserProfile, updateUserProfile, syncSubscriptionTiers, deleteUserProfile, fetchCoachInfo |
+| `+EntitySync` | CRUD for Athletes, Seasons, Games, Practices, PracticeNotes, Photos, Coaches (31+ methods) |
+| `+DrillCards` | createDrillCard, updateDrillCard, fetchDrillCards, deleteDrillCard |
+
+---
+
+## Data Relationships
 
 ```
 User (Athlete)
-    ↓ owns
-SharedFolder
-    ↓ shared with
-User (Coach) ←─┐
-    ↓          │
-    ↓ has      │
-Permissions    │
-    ↓          │
-    ↓ uploads  │
-Video          │
-    ↓          │
-    ↓ belongs to
-SharedFolder ──┘
-    ↓ contains
-Annotations
+  |-- owns --> SharedFolder(s)
+  |                |-- shared with --> User (Coach)
+  |                |-- contains --> Video(s)
+  |                |                    |-- comments/
+  |                |                    |-- annotations/
+  |                |                    |-- drillCards/
+  |                |                    |-- access_logs/
+  |                |-- linked to --> CoachSession(s)
+  |
+  |-- has --> Athlete(s)
+                |-- Season(s)
+                      |-- Game(s) --> VideoClip(s) --> PlayResult(s)
+                      |-- Practice(s) --> PracticeNote(s)
 ```
 
 ---
 
-## 🧪 Testing Scenarios
+## Deployment
 
-### Test 1: Unauthorized Access
-```
-1. Create shared folder as Athlete A
-2. Invite Coach X
-3. Try to access folder as Coach Y (not invited)
-Expected: ❌ Permission Denied
-```
+```bash
+# Deploy all
+firebase deploy
 
-### Test 2: Upload Permission
-```
-1. Create shared folder as Athlete A
-2. Invite Coach X with canUpload: false
-3. Coach X tries to upload video
-Expected: ❌ Permission Denied
-```
+# Deploy specific
+firebase deploy --only firestore:rules
+firebase deploy --only storage:rules
+firebase deploy --only functions
 
-### Test 3: Delete Permission
-```
-1. Coach X uploads video to shared folder
-2. Coach Y tries to delete Coach X's video
-Expected: ❌ Permission Denied
+# View function logs
+firebase functions:log
+
+# Check function status
+firebase functions:list
 ```
 
-### Test 4: Owner Override
-```
-1. Coach X uploads video to shared folder
-2. Athlete A (owner) deletes Coach X's video
-Expected: ✅ Success
-```
-
----
-
-## 🔍 Firestore Indexes
-
-These indexes may be auto-created by Firebase:
-
-1. **sharedFolders**
-   - `ownerAthleteID` + `createdAt` (descending)
-   - `sharedWithCoachIDs` (array) + `updatedAt` (descending)
-
-2. **videos**
-   - `sharedFolderID` + `createdAt` (descending)
-   - `uploadedBy` + `createdAt` (descending)
-
-3. **invitations**
-   - `coachEmail` + `status`
-   - `athleteID` + `status`
-
-Firebase will prompt you to create these if needed.
-
----
-
-## 📱 Real-Time Updates
-
-### Annotations Listener
-```swift
-// In SwiftUI View
-.onAppear {
-    annotationsListener = FirestoreManager.shared.listenToAnnotations(
-        videoID: videoID
-    ) { annotations in
-        self.annotations = annotations
-    }
-}
-.onDisappear {
-    annotationsListener?.remove()
-}
-```
-
-This enables real-time comments while watching videos together!
-
----
-
-## 🎯 Summary
-
-- **4 Collections:** users, sharedFolders, videos, invitations
-- **1 Subcollection:** videos/{id}/annotations
-- **2 User Roles:** athlete, coach
-- **3 Permission Levels:** canUpload, canComment, canDelete
-- **Security Rules:** 200+ lines protecting data
-- **Storage Rules:** Protected file access by folder
-
----
-
-**Ready to implement?** Start with `PHASE_1_QUICK_START.md`
+**Config file:** `GoogleService-Info.plist`
+**Security rules:** `firestore.rules` (~500 lines)
+**Cloud Functions:** `firebase/functions/src/index.ts` (Node.js + SendGrid)

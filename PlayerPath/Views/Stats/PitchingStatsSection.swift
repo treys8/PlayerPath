@@ -12,7 +12,13 @@ import SwiftUI
 struct PitchingStatsSection: View {
     let statistics: AthleteStatistics
 
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var isVisible = false
+
+    private var columns: [GridItem] {
+        let count = horizontalSizeClass == .regular ? 3 : 2
+        return Array(repeating: GridItem(.flexible()), count: count)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 15) {
@@ -20,10 +26,7 @@ struct PitchingStatsSection: View {
                 .opacity(isVisible ? 1 : 0)
                 .offset(y: isVisible ? 0 : 10)
 
-            LazyVGrid(columns: [
-                GridItem(.flexible()),
-                GridItem(.flexible())
-            ], spacing: 15) {
+            LazyVGrid(columns: columns, spacing: 15) {
                 StatCard(
                     title: "Total Pitches",
                     value: "\(statistics.totalPitches)",

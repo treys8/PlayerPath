@@ -235,10 +235,9 @@ struct ManualStatisticsEntryView: View {
             }
         }
 
-        do {
-            try modelContext.save()
+        if ErrorHandlerService.shared.saveContext(modelContext, caller: "ManualStatisticsEntryView.save") {
             dismiss()
-        } catch {
+        } else {
             alertMessage = "Failed to save statistics. Please try again."
             showingValidationAlert = true
         }
@@ -253,6 +252,9 @@ struct StatEntryRow: View {
     let color: Color
     var field: ManualStatisticsEntryView.StatField? = nil
     var focusedField: FocusState<ManualStatisticsEntryView.StatField?>.Binding? = nil
+
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    private var fieldWidth: CGFloat { horizontalSizeClass == .regular ? 100 : 60 }
 
     var body: some View {
         HStack {
@@ -269,13 +271,13 @@ struct StatEntryRow: View {
                     .focused(focusedField, equals: field)
                     .keyboardType(.numberPad)
                     .textFieldStyle(.roundedBorder)
-                    .frame(width: 60)
+                    .frame(width: fieldWidth)
                     .multilineTextAlignment(.center)
             } else {
                 TextField("0", text: $value)
                     .keyboardType(.numberPad)
                     .textFieldStyle(.roundedBorder)
-                    .frame(width: 60)
+                    .frame(width: fieldWidth)
                     .multilineTextAlignment(.center)
             }
         }

@@ -227,14 +227,4 @@ extension VideoCloudManager {
         return videos
     }
 
-    /// Marks a video as deleted in Firestore (soft delete for sync)
-    func markVideoDeletedInFirestore(_ clipId: UUID) async throws {
-        let db = Firestore.firestore()
-
-        try await db.collection(FC.videos).document(clipId.uuidString).updateData([
-            "isDeleted": true,
-            "deletedAt": Timestamp(date: Date())
-        ])
-    }
-
 }

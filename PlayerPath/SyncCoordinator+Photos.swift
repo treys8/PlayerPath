@@ -151,7 +151,7 @@ extension SyncCoordinator {
                                 image.draw(in: CGRect(origin: origin, size: newSize))
                             }
                             if let thumbData = thumb.jpegData(compressionQuality: 0.7) {
-                                let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+                                guard let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
                                 let thumbDir = documentsURL.appendingPathComponent("PhotoThumbnails", isDirectory: true)
                                 do {
                                     try FileManager.default.createDirectory(at: thumbDir, withIntermediateDirectories: true)

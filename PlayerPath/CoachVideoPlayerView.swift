@@ -54,7 +54,7 @@ struct CoachVideoPlayerView: View {
                 portraitLayout
             }
         }
-        .navigationTitle(video.fileName)
+        .navigationTitle(video.displayTitle)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
@@ -481,7 +481,7 @@ struct NotesTabView: View {
                     Text("No notes yet")
                         .font(.headline)
                     
-                    Text("Add notes and feedback at specific timestamps in the video.")
+                    Text("Add notes and feedback for this video.")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)

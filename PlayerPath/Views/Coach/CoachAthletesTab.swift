@@ -100,7 +100,7 @@ struct CoachAthletesTab: View {
             }
         }
         .sheet(isPresented: $showingStartSession) {
-            StartSessionSheet(onSessionStarted: { _ in }, onInviteAthlete: {
+            StartSessionSheet(onInviteAthlete: {
                 showingInviteAthlete = true
             })
         }

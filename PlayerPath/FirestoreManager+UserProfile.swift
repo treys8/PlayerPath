@@ -74,6 +74,7 @@ extension FirestoreManager {
         do {
             try await db.collection(FC.users).document(userID).setData(userData, merge: true)
         } catch {
+            firestoreLog.error("Failed to update profile: \(error.localizedDescription)")
             errorMessage = "Failed to update profile."
             throw error
         }
@@ -407,6 +408,7 @@ extension FirestoreManager {
                 for folderDoc in coachFoldersSnap.documents {
                     try await folderDoc.reference.updateData([
                         "sharedWithCoachIDs": FieldValue.arrayRemove([userID]),
+                        "sharedWithCoachNames.\(userID)": FieldValue.delete(),
                         "permissions.\(userID)": FieldValue.delete(),
                         "updatedAt": FieldValue.serverTimestamp()
                     ])
@@ -424,7 +426,7 @@ extension FirestoreManager {
                 .whereField("uploadedBy", isEqualTo: userID)
             var lastDoc: QueryDocumentSnapshot?
             while true {
-                var pageQuery = uploadedVideosQuery.limit(to: 400)
+                var pageQuery = uploadedVideosQuery.order(by: "__name__").limit(to: 400)
                 if let lastDoc { pageQuery = pageQuery.start(afterDocument: lastDoc) }
                 let snap = try await pageQuery.getDocuments()
                 guard !snap.documents.isEmpty else { break }
@@ -447,7 +449,7 @@ extension FirestoreManager {
             let photosQuery = db.collection(FC.photos)
                 .whereField("uploadedBy", isEqualTo: userID)
             while true {
-                let snap = try await photosQuery.limit(to: 400).getDocuments()
+                let snap = try await photosQuery.order(by: "__name__").limit(to: 400).getDocuments()
                 guard !snap.documents.isEmpty else { break }
                 let batch = db.batch()
                 snap.documents.forEach { batch.deleteDocument($0.reference) }
@@ -462,7 +464,7 @@ extension FirestoreManager {
             // Fetch and delete athlete documents for this user (paginated — deleted docs fall out of query)
             let athletesBaseQuery = db.collection(FC.users).document(userID).collection(FC.athletes)
             while true {
-                let athletesSnap = try await athletesBaseQuery.limit(to: 50).getDocuments()
+                let athletesSnap = try await athletesBaseQuery.order(by: "__name__").limit(to: 50).getDocuments()
                 guard !athletesSnap.documents.isEmpty else { break }
 
                 for athleteDoc in athletesSnap.documents {
@@ -471,7 +473,7 @@ extension FirestoreManager {
                     // Delete coaches subcollection
                     let coachesQuery = athleteRef.collection(FC.coaches)
                     while true {
-                        let snap = try await coachesQuery.limit(to: 400).getDocuments()
+                        let snap = try await coachesQuery.order(by: "__name__").limit(to: 400).getDocuments()
                         guard !snap.documents.isEmpty else { break }
                         let batch = db.batch()
                         snap.documents.forEach { batch.deleteDocument($0.reference) }
@@ -557,6 +559,7 @@ extension FirestoreManager {
             try await db.collection(FC.users).document(userID).delete()
         } catch {
             // Profile deletion is critical — if this fails, throw
+            firestoreLog.error("Failed to delete user profile for \(userID): \(error.localizedDescription)")
             errorMessage = "Failed to delete user profile."
             throw error
         }

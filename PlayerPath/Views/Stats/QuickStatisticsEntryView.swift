@@ -16,6 +16,7 @@ struct QuickStatisticsEntryView: View {
     let game: Game
     let athlete: Athlete?
 
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var playResultType: PlayResultType = .single
     @State private var numberOfPlays: String = "1"
     @State private var showingAlert = false
@@ -68,7 +69,7 @@ struct QuickStatisticsEntryView: View {
                         TextField("1", text: $numberOfPlays)
                             .keyboardType(.numberPad)
                             .textFieldStyle(.roundedBorder)
-                            .frame(width: 80)
+                            .frame(width: horizontalSizeClass == .regular ? 120 : 80)
                             .focused($isPlaysFieldFocused)
                     }
                 }

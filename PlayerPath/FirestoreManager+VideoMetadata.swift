@@ -147,6 +147,7 @@ extension FirestoreManager {
 
             return videoRef.documentID
         } catch {
+            firestoreLog.error("Failed to save video: \(error.localizedDescription)")
             errorMessage = "Failed to save video."
             throw error
         }
@@ -177,13 +178,16 @@ extension FirestoreManager {
         )
     }
 
-    /// Fetches all videos in a shared folder, filtering out private videos from other users
-    func fetchVideos(forFolder folderID: String) async throws -> [FirestoreVideoMetadata] {
+    /// Fetches videos in a shared folder, filtering out private videos from other users.
+    /// - Parameters:
+    ///   - folderID: The shared folder ID
+    ///   - pageSize: Maximum videos to fetch (default 30 for UI, pass higher for deletion)
+    func fetchVideos(forFolder folderID: String, pageSize: Int = 30) async throws -> [FirestoreVideoMetadata] {
         do {
             let snapshot = try await db.collection(FC.videos)
                 .whereField("sharedFolderID", isEqualTo: folderID)
                 .order(by: "createdAt", descending: true)
-                .limit(to: 100)
+                .limit(to: pageSize)
                 .getDocuments()
 
             let currentUID = Auth.auth().currentUser?.uid
@@ -208,9 +212,39 @@ extension FirestoreManager {
 
             return videos
         } catch {
+            firestoreLog.error("Failed to load videos: \(error.localizedDescription)")
             errorMessage = "Failed to load videos."
             throw error
         }
+    }
+
+    /// Fetches a page of videos with cursor for "Load More" pagination.
+    func fetchVideoPage(
+        forFolder folderID: String,
+        pageSize: Int = 30,
+        afterDocument: QueryDocumentSnapshot? = nil
+    ) async throws -> (videos: [FirestoreVideoMetadata], lastDocument: QueryDocumentSnapshot?) {
+        var query = db.collection(FC.videos)
+            .whereField("sharedFolderID", isEqualTo: folderID)
+            .order(by: "createdAt", descending: true)
+            .limit(to: pageSize)
+        if let afterDocument { query = query.start(afterDocument: afterDocument) }
+
+        let snapshot = try await query.getDocuments()
+        let currentUID = Auth.auth().currentUser?.uid
+        let videos = snapshot.documents.compactMap { doc -> FirestoreVideoMetadata? in
+            do {
+                var video = try doc.data(as: FirestoreVideoMetadata.self)
+                video.id = doc.documentID
+                if video.visibility == "private" && video.uploadedBy != currentUID { return nil }
+                if let status = video.uploadStatus, status != "completed" { return nil }
+                return video
+            } catch {
+                firestoreLog.warning("Failed to decode FirestoreVideoMetadata from doc \(doc.documentID): \(error.localizedDescription)")
+                return nil
+            }
+        }
+        return (videos: videos, lastDocument: snapshot.documents.last)
     }
 
     /// Fetches a single video's metadata by document ID (point-read — 1 read regardless of folder size)
@@ -227,6 +261,7 @@ extension FirestoreManager {
                 return nil
             }
         } catch {
+            firestoreLog.error("Failed to fetch video \(videoID): \(error.localizedDescription)")
             throw error
         }
     }
@@ -269,6 +304,7 @@ extension FirestoreManager {
             try await batch.commit()
 
         } catch {
+            firestoreLog.error("Failed to delete video: \(error.localizedDescription)")
             errorMessage = "Failed to delete video."
             throw error
         }
@@ -292,7 +328,7 @@ extension FirestoreManager {
         return db.collection(FC.videos)
             .whereField("sharedFolderID", isEqualTo: folderID)
             .order(by: "createdAt", descending: true)
-            .limit(to: 100)
+            .limit(to: 30)
             .addSnapshotListener { snapshot, error in
                 if let error {
                     firestoreLog.warning("Video listener error for folder \(folderID): \(error.localizedDescription)")
@@ -320,6 +356,11 @@ extension FirestoreManager {
                 }
                 onChange(videos)
             }
+    }
+
+    enum ThumbnailQuality: String {
+        case standard = "standard"
+        case high = "high"
     }
 
     // MARK: - Thumbnail Management
@@ -360,6 +401,7 @@ extension FirestoreManager {
 
             return thumbnailURL
         } catch {
+            firestoreLog.error("Failed to upload thumbnail: \(error.localizedDescription)")
             errorMessage = "Failed to upload thumbnail."
             throw error
         }
@@ -367,86 +409,6 @@ extension FirestoreManager {
 
     /// Uploads multiple thumbnails (standard and high quality) for highlights
     /// - Parameters:
-    ///   - standardURL: Local file URL of standard quality thumbnail
-    ///   - highQualityURL: Local file URL of high quality thumbnail (optional)
-    ///   - videoFileName: The video file name
-    ///   - folderID: Shared folder ID
-    ///   - timestamp: Time in video where thumbnail was captured
-    /// - Returns: Complete ThumbnailMetadata object with all URLs
-    func uploadThumbnails(
-        standardURL: URL,
-        highQualityURL: URL?,
-        videoFileName: String,
-        folderID: String,
-        timestamp: Double? = nil
-    ) async throws -> ThumbnailMetadata {
-        // Upload standard quality thumbnail
-        let standardDownloadURL = try await uploadThumbnail(
-            localURL: standardURL,
-            videoFileName: videoFileName,
-            folderID: folderID,
-            quality: .standard
-        )
-
-        // Upload high quality thumbnail if provided
-        var highQualityDownloadURL: String?
-        if let highQualityURL = highQualityURL {
-            highQualityDownloadURL = try await uploadThumbnail(
-                localURL: highQualityURL,
-                videoFileName: videoFileName,
-                folderID: folderID,
-                quality: .high
-            )
-        }
-
-        return ThumbnailMetadata(
-            standardURL: standardDownloadURL,
-            highQualityURL: highQualityDownloadURL,
-            timestamp: timestamp
-        )
-    }
-
-    enum ThumbnailQuality: String {
-        case standard = "standard"
-        case high = "high"
-    }
-
-    /// Creates video metadata with additional context (convenience method)
-    func createVideoMetadata(
-        folderID: String,
-        metadata: [String: Any]
-    ) async throws -> String {
-
-        // Allowlist prevents arbitrary fields from being written to Firestore
-        let allowedFields: Set<String> = [
-            "fileName", "firebaseStorageURL", "uploadedBy", "uploadedByName",
-            "sharedFolderID", "fileSize", "duration", "videoType", "isHighlight",
-            "thumbnail", "thumbnailURL", "gameOpponent", "gameDate", "practiceDate",
-            "instructionDate", "notes", "playResult", "athleteName", "seasonID",
-            "uploadedByType", "visibility"
-        ]
-        var safeMetadata = metadata.filter { allowedFields.contains($0.key) }
-        safeMetadata["sharedFolderID"] = folderID
-        safeMetadata["createdAt"] = FieldValue.serverTimestamp()
-
-        do {
-            // Batch: create video doc + increment folder count atomically
-            let batch = db.batch()
-            let videoRef = db.collection(FC.videos).document()
-            batch.setData(safeMetadata, forDocument: videoRef)
-            batch.updateData([
-                "videoCount": FieldValue.increment(Int64(1)),
-                "updatedAt": FieldValue.serverTimestamp()
-            ], forDocument: db.collection(FC.sharedFolders).document(folderID))
-            try await batch.commit()
-
-            return videoRef.documentID
-        } catch {
-            errorMessage = "Failed to save video."
-            throw error
-        }
-    }
-
     // MARK: - Session Videos
 
     /// Fetches all videos for a given session, ordered by creation time.
@@ -470,35 +432,6 @@ extension FirestoreManager {
                 return video
             } catch {
                 firestoreLog.warning("Failed to decode video \(doc.documentID): \(error.localizedDescription)")
-                return nil
-            }
-        }
-    }
-
-    // MARK: - Coach Private Videos
-
-    /// Fetches private coach videos, optionally filtered by shared folder.
-    func fetchCoachPrivateVideos(coachID: String, sharedFolderID: String? = nil) async throws -> [FirestoreVideoMetadata] {
-        var query = db.collection(FC.videos)
-            .whereField("uploadedBy", isEqualTo: coachID)
-            .whereField("visibility", isEqualTo: "private")
-
-        if let sharedFolderID {
-            query = query.whereField("sharedFolderID", isEqualTo: sharedFolderID)
-        }
-
-        let snapshot = try await query
-            .order(by: "createdAt", descending: true)
-            .limit(to: 100)
-            .getDocuments()
-
-        return snapshot.documents.compactMap { doc in
-            do {
-                var video = try doc.data(as: FirestoreVideoMetadata.self)
-                video.id = doc.documentID
-                return video
-            } catch {
-                firestoreLog.warning("Failed to decode FirestoreVideoMetadata from doc \(doc.documentID): \(error.localizedDescription)")
                 return nil
             }
         }

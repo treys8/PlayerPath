@@ -52,11 +52,6 @@ final class ClipCommentService {
     /// In-memory cache keyed by clipId to avoid redundant Firestore fetches.
     private var cache: [String: [ClipComment]] = [:]
 
-    /// Returns cached comments for a clip, or nil if not yet fetched.
-    func cachedComments(for clipId: String) -> [ClipComment]? {
-        cache[clipId]
-    }
-
     /// Clears the cache for a specific clip (e.g. after posting a new comment).
     func invalidateCache(for clipId: String) {
         cache[clipId] = nil

@@ -160,16 +160,6 @@ extension VideoCloudManager {
         }
     }
 
-    /// Convenience: Gets download URL for a video file
-    func getVideoDownloadURL(fileName: String, folderID: String) async throws -> String {
-        return try await getSecureDownloadURL(fileName: fileName, folderID: folderID, isThumbnail: false)
-    }
-
-    /// Convenience: Gets download URL for a thumbnail file
-    func getThumbnailDownloadURL(videoFileName: String, folderID: String) async throws -> String {
-        return try await getSecureDownloadURL(fileName: videoFileName, folderID: folderID, isThumbnail: true)
-    }
-
     // MARK: - Shared Folder Delete
 
     /// Deletes a video from Firebase Storage for a shared folder

@@ -99,33 +99,6 @@ struct StorageManager {
         }
     }
     
-    static func shouldWarnAboutLowStorage() -> Bool {
-        guard let info = getStorageInfo() else {
-            return false
-        }
-        return info.isLowStorage
-    }
-    
-    static func shouldBlockRecordingDueToStorage() -> Bool {
-        guard let info = getStorageInfo() else {
-            return false
-        }
-        return info.isCriticallyLowStorage
-    }
-    
-    static func getLowStorageMessage() -> String {
-        guard let info = getStorageInfo() else {
-            return "Unable to determine available storage space."
-        }
-
-        if info.isCriticallyLowStorage {
-            return "Your device has critically low storage (\(info.formattedAvailableSpace) remaining). Please free up space before recording."
-        } else if info.isLowStorage {
-            return "Your device is running low on storage space (\(info.formattedAvailableSpace) remaining). Recording may fail or produce poor quality video. Consider freeing up space before recording."
-        } else {
-            return "You have \(info.formattedAvailableSpace) of storage available."
-        }
-    }
 
     // MARK: - App Storage Usage
 

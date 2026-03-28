@@ -42,6 +42,14 @@ final class StatisticsService {
 
         guard let stats = athlete.statistics else { return }
 
+        // Snapshot key fields before recalc to detect no-op saves
+        let oldAtBats = stats.atBats
+        let oldHits = stats.hits
+        let oldTotalGames = stats.totalGames
+        let oldStrikeouts = stats.strikeouts
+        let oldWalks = stats.walks
+        let oldTotalPitches = stats.totalPitches
+
         stats.resetAllCounts()
 
         // Get all completed games for this athlete
@@ -85,7 +93,17 @@ final class StatisticsService {
             }
         }
 
-        stats.updatedAt = Date()
+        // Check if anything actually changed before touching updatedAt / saving
+        let statsChanged = stats.atBats != oldAtBats
+            || stats.hits != oldHits
+            || stats.totalGames != oldTotalGames
+            || stats.strikeouts != oldStrikeouts
+            || stats.walks != oldWalks
+            || stats.totalPitches != oldTotalPitches
+
+        if statsChanged {
+            stats.updatedAt = Date()
+        }
 
         statsLog.info("Recalculated - BA: \(stats.battingAverage.formatted(.number.precision(.fractionLength(3)))), OBP: \(stats.onBasePercentage.formatted(.number.precision(.fractionLength(3)))), OPS: \(stats.ops.formatted(.number.precision(.fractionLength(3))))")
 
@@ -103,7 +121,7 @@ final class StatisticsService {
             }
         }
 
-        if !skipSave {
+        if !skipSave && context.hasChanges {
             try context.save()
         }
     }
@@ -191,6 +209,10 @@ final class StatisticsService {
 
         guard let stats = game.gameStats else { return }
 
+        let oldHits = stats.hits
+        let oldAtBats = stats.atBats
+        let oldTotalPitches = stats.totalPitches
+
         stats.resetAllCounts()
 
         // Get all videos for this game and sum up play results
@@ -249,7 +271,9 @@ final class StatisticsService {
             }
         }
 
-        try context.save()
+        if stats.hits != oldHits || stats.atBats != oldAtBats || stats.totalPitches != oldTotalPitches {
+            if context.hasChanges { try context.save() }
+        }
 
         statsLog.info("Game stats - Hits: \(stats.hits), AB: \(stats.atBats), BA: \(stats.battingAverage.formatted(.number.precision(.fractionLength(3))))")
     }
@@ -327,22 +351,4 @@ final class StatisticsService {
         return value.formatted(.number.precision(.fractionLength(3)))
     }
 
-    // MARK: - Statistics Summary
-
-    /// Generate a text summary of athlete statistics
-    func generateStatisticsSummary(for athlete: Athlete) -> String {
-        guard let stats = athlete.statistics else {
-            return "No statistics available"
-        }
-
-        return """
-        Games: \(stats.totalGames)
-        Batting Average: \(formatBattingAverage(stats.battingAverage))
-        OBP: \(formatPercentage(stats.onBasePercentage))
-        SLG: \(formatPercentage(stats.sluggingPercentage))
-        OPS: \(formatOPS(stats.ops))
-        Hits: \(stats.hits)/\(stats.atBats) (\(stats.singles)-\(stats.doubles)-\(stats.triples)-\(stats.homeRuns))
-        Walks: \(stats.walks), Strikeouts: \(stats.strikeouts)
-        """
-    }
 }

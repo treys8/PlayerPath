@@ -32,12 +32,23 @@ struct CoachVideoItem: Identifiable, Equatable {
     let visibility: String?
 
     var contextLabel: String? {
-        if let opponent = gameOpponent {
-            return "Game vs \(opponent)"
-        } else if let _ = practiceDate {
-            return "Instruction"
+        if gameOpponent != nil {
+            return "Game"
+        } else if practiceDate != nil {
+            return "Lesson"
         }
         return nil
+    }
+
+    /// Human-readable title for display instead of raw UUID filenames.
+    var displayTitle: String {
+        if let opponent = gameOpponent {
+            return "Game vs \(opponent)"
+        }
+        if videoType == "instruction" || practiceDate != nil {
+            return "Lesson"
+        }
+        return "Video Clip"
     }
 
     init(from metadata: FirestoreVideoMetadata) {

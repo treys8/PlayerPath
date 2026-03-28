@@ -185,12 +185,10 @@ struct PracticeDetailView: View {
                 modelContext.delete(note)
             }
 
-            do {
-                try modelContext.save()
+            if ErrorHandlerService.shared.saveContext(modelContext, caller: "PracticeDetailView.deleteNotes") {
                 Haptics.success()
-            } catch {
+            } else {
                 Haptics.error()
-                log.error("Failed to delete notes: \(error.localizedDescription)")
             }
         }
 
@@ -212,12 +210,10 @@ struct PracticeDetailView: View {
         let practiceFirestoreId = practice.firestoreId
 
         modelContext.delete(note)
-        do {
-            try modelContext.save()
+        if ErrorHandlerService.shared.saveContext(modelContext, caller: "PracticeDetailView.deleteNote") {
             Haptics.success()
-        } catch {
+        } else {
             Haptics.error()
-            log.error("Failed to delete note: \(error.localizedDescription)")
         }
 
         // Sync deletion to Firestore
@@ -236,18 +232,13 @@ struct PracticeDetailView: View {
         withAnimation {
             clip.delete(in: modelContext)
 
-            do {
-                try modelContext.save()
-
+            if ErrorHandlerService.shared.saveContext(modelContext, caller: "PracticeDetailView.deleteVideo") {
                 if let athlete = practiceAthlete {
-                    try StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: modelContext)
+                    try? StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: modelContext)
                 }
-
                 Haptics.success()
-                log.info("Successfully deleted video from practice")
-            } catch {
+            } else {
                 Haptics.error()
-                log.error("Failed to delete video: \(error.localizedDescription)")
             }
         }
     }
@@ -271,20 +262,14 @@ struct PracticeDetailView: View {
 
         practice.delete(in: modelContext)
 
-        do {
-            try modelContext.save()
-
-            // Recalculate athlete statistics to reflect the removed play results
+        if ErrorHandlerService.shared.saveContext(modelContext, caller: "PracticeDetailView.deletePractice") {
             if let athlete = practiceAthlete {
-                try StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: modelContext)
+                try? StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: modelContext)
             }
-
             Haptics.success()
-            log.info("Successfully deleted practice")
             dismiss()
-        } catch {
+        } else {
             Haptics.error()
-            log.error("Failed to delete practice: \(error.localizedDescription)")
         }
     }
 }

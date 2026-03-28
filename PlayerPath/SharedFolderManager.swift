@@ -33,7 +33,6 @@ class SharedFolderManager {
     /// Views can display a "data may be stale" indicator when this is non-nil.
     var listenerError: String?
 
-    private var coachFoldersListener: ListenerRegistration?
     private var athleteFoldersListener: ListenerRegistration?
 
     private init() {}
@@ -263,7 +262,7 @@ class SharedFolderManager {
 
         // 3. Delete all videos and their storage files
         do {
-            let videos = try await firestore.fetchVideos(forFolder: folderID)
+            let videos = try await firestore.fetchVideos(forFolder: folderID, pageSize: 500)
 
             for video in videos {
                 do {
@@ -303,35 +302,6 @@ class SharedFolderManager {
                 showAlert: false
             )
         }
-    }
-
-    /// Revokes all coach access from every folder owned by an athlete.
-    /// Called when the 7-day coaching add-on grace period expires.
-    func revokeAllCoachAccess(forAthleteID athleteID: String) async throws {
-
-        let folders = try await firestore.fetchSharedFolders(forAthlete: athleteID)
-
-        for folder in folders {
-            guard let folderID = folder.id, !folder.sharedWithCoachIDs.isEmpty else { continue }
-
-            for coachID in folder.sharedWithCoachIDs {
-                do {
-                    try await firestore.removeCoachFromFolder(folderID: folderID, coachID: coachID)
-                    await notifyCoachAccessRevoked(
-                        coachID: coachID,
-                        coachEmail: "",
-                        folderID: folderID,
-                        folderName: folder.name,
-                        athleteID: athleteID
-                    )
-                } catch {
-                    folderLog.error("Failed to remove coach \(coachID) from folder \(folderID): \(error.localizedDescription)")
-                }
-            }
-        }
-
-        // Refresh local folders list
-        try await loadAthleteFolders(athleteID: athleteID)
     }
 
     // MARK: - Athlete Folder Listener
@@ -386,70 +356,8 @@ class SharedFolderManager {
 
     // MARK: - Coach Functions
 
-    /// Starts a real-time Firestore listener for all folders shared with this coach.
-    /// Replaces the one-shot loadCoachFolders fetch — UI auto-updates when folders change.
-    func startCoachFoldersListener(coachID: String) {
-        // Skip if listener is already active for this coach
-        guard coachFoldersListener == nil else { return }
-        isLoading = true
-
-        let db = firestore.db
-        coachFoldersListener = db.collection(FC.sharedFolders)
-            .whereField("sharedWithCoachIDs", arrayContains: coachID)
-            .order(by: "updatedAt", descending: true)
-            .limit(to: 100)
-            .addSnapshotListener { [weak self] snapshot, error in
-                guard let self else { return }
-
-                if let error = error as NSError? {
-                    Task { @MainActor in
-                        self.isLoading = false
-                        // Permission denied (code 7) means coach access was revoked
-                        if error.code == 7 {
-                            // Clear cached videos for all previously accessible folders
-                            for folder in self.coachFolders {
-                                if let folderID = folder.id {
-                                    CoachVideoCacheService.shared.clearCache(forFolderID: folderID)
-                                }
-                            }
-                            self.coachFolders = []
-                            self.stopCoachFoldersListener()
-                            self.listenerError = "Your access to shared folders has been revoked."
-                        } else {
-                            // Transient error — keep cached data visible
-                            self.listenerError = "Unable to refresh folders. Showing cached data."
-                        }
-                    }
-                    return
-                }
-
-                guard let docs = snapshot?.documents else { return }
-
-                let folders = docs.compactMap { doc -> SharedFolder? in
-                    do {
-                        var folder = try doc.data(as: SharedFolder.self)
-                        folder.id = doc.documentID
-                        return folder
-                    } catch {
-                        folderLog.warning("Failed to decode SharedFolder \(doc.documentID): \(error.localizedDescription)")
-                        return nil
-                    }
-                }
-                Task { @MainActor in
-                    self.isLoading = false
-                    self.listenerError = nil
-                    self.coachFolders = folders
-                }
-            }
-    }
-
-    func stopCoachFoldersListener() {
-        coachFoldersListener?.remove()
-        coachFoldersListener = nil
-        listenerError = nil
-    }
-
-    /// Loads all folders shared with a coach (one-shot fetch, kept for backward compatibility)
+    /// Loads all folders shared with a coach (one-shot fetch).
+    /// Views should use .refreshable to let users trigger a reload.
     func loadCoachFolders(coachID: String) async throws {
         let folders = try await firestore.fetchSharedFolders(forCoach: coachID)
         coachFolders = folders
@@ -508,8 +416,8 @@ class SharedFolderManager {
         )
         folderLog.info("acceptInvitation: Cloud Function succeeded for \(invitationID)")
 
-        // The real-time listener (startCoachFoldersListener) will automatically
-        // pick up the new folder — no one-shot fetch needed here.
+        // Refresh coach folders so the new folder appears in the UI
+        try? await loadCoachFolders(coachID: coachID)
 
         // Notify the athlete that their coach accepted
         let coachName = Auth.auth().currentUser?.displayName
@@ -749,45 +657,6 @@ class SharedFolderManager {
 
         // Then delete metadata from Firestore
         try await firestore.deleteVideo(videoID: videoID, folderID: folderID)
-    }
-    
-    // MARK: - Annotations
-    
-    /// Adds a comment to a video
-    func addComment(
-        to videoID: String,
-        text: String,
-        atTimestamp timestamp: Double,
-        byUser userID: String,
-        userName: String,
-        isCoach: Bool
-    ) async throws -> String {
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw SharedFolderError.emptyComment
-        }
-        
-        return try await firestore.addAnnotation(
-            videoID: videoID,
-            userID: userID,
-            userName: userName,
-            timestamp: timestamp,
-            text: text.trimmingCharacters(in: .whitespacesAndNewlines),
-            isCoachComment: isCoach
-        )
-    }
-    
-    /// Loads all comments for a video
-    func loadComments(forVideo videoID: String) async throws -> [VideoAnnotation] {
-        return try await firestore.fetchAnnotations(forVideo: videoID)
-    }
-    
-    /// Deletes a comment (user can only delete their own)
-    /// SECURITY: Ownership is NOT enforced client-side. A Firestore security rule
-    /// must enforce `request.auth.uid == resource.data.userID` on annotation deletes.
-    /// Without this rule, any authenticated user who knows the annotationID can delete
-    /// any other user's comment (privilege escalation). See firestore.rules.
-    func deleteComment(videoID: String, annotationID: String, userID: String) async throws {
-        try await firestore.deleteAnnotation(videoID: videoID, annotationID: annotationID)
     }
     
     // MARK: - Permissions Helper

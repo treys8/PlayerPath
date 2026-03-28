@@ -3,10 +3,11 @@
 //  PlayerPath
 //
 //  Review sheet for a single coach clip in the Needs Review tab.
-//  Lets the coach add notes, then share or discard the clip.
+//  Lets the coach watch the clip, add notes, then share or discard.
 //
 
 import SwiftUI
+import AVKit
 
 struct ClipReviewSheet: View {
     let video: CoachVideoItem
@@ -21,6 +22,11 @@ struct ClipReviewSheet: View {
     @State private var showingDiscardConfirmation = false
     @State private var errorMessage: String?
 
+    // Video playback
+    @State private var player: AVPlayer?
+    @State private var isLoadingVideo = true
+    @State private var videoError: String?
+
     private var folderID: String { folder.id ?? "" }
 
     init(video: CoachVideoItem, folder: SharedFolder, onShared: (() -> Void)? = nil, onDiscarded: (() -> Void)? = nil) {
@@ -33,25 +39,45 @@ struct ClipReviewSheet: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section("Instruction Notes") {
-                    TextField("What should the athlete focus on?", text: $notes, axis: .vertical)
-                        .lineLimit(3...8)
-                }
+            VStack(spacing: 0) {
+                ScrollView {
+                    VStack(spacing: 16) {
+                        // Video player
+                        videoPlayerSection
 
-                if let duration = video.duration, duration > 0 {
-                    Section("Info") {
-                        LabeledContent("Duration", value: duration.formattedTimestamp)
-                        if let createdAt = video.createdAt {
-                            LabeledContent("Recorded", value: createdAt.formatted(date: .abbreviated, time: .shortened))
+                        // Notes
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Instruction Notes")
+                                .font(.subheadline)
+                                .fontWeight(.semibold)
+                                .foregroundColor(.secondary)
+
+                            TextField("What should the athlete focus on?", text: $notes, axis: .vertical)
+                                .lineLimit(4...8)
+                                .textFieldStyle(.roundedBorder)
                         }
-                        if let fileSize = video.fileSize, fileSize > 0 {
-                            LabeledContent("Size", value: ByteCountFormatter.string(fromByteCount: fileSize, countStyle: .file))
+                        .padding(.horizontal)
+
+                        // Info
+                        if video.createdAt != nil || (video.fileSize ?? 0) > 0 {
+                            VStack(spacing: 0) {
+                                if let createdAt = video.createdAt {
+                                    infoRow(label: "Recorded", value: createdAt.formatted(date: .abbreviated, time: .shortened))
+                                }
+                                if let fileSize = video.fileSize, fileSize > 0 {
+                                    if video.createdAt != nil { Divider().padding(.leading) }
+                                    infoRow(label: "Size", value: ByteCountFormatter.string(fromByteCount: fileSize, countStyle: .file))
+                                }
+                            }
+                            .background(Color(.secondarySystemGroupedBackground))
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                            .padding(.horizontal)
                         }
                     }
                 }
 
-                Section {
+                // Actions pinned to bottom
+                VStack(spacing: 12) {
                     Button {
                         shareClip()
                     } label: {
@@ -59,20 +85,38 @@ struct ClipReviewSheet: View {
                             if isPublishing {
                                 ProgressView()
                                     .controlSize(.small)
+                                    .tint(.white)
                             }
                             Label("Share with Athlete", systemImage: "paperplane.fill")
+                                .fontWeight(.semibold)
                         }
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 50)
+                        .background(Color.brandNavy)
+                        .foregroundColor(.white)
+                        .cornerRadius(12)
                     }
                     .disabled(isPublishing || isDiscarding)
 
                     Button(role: .destructive) {
                         showingDiscardConfirmation = true
                     } label: {
-                        Label("Discard Clip", systemImage: "trash")
+                        HStack {
+                            if isDiscarding {
+                                ProgressView()
+                                    .controlSize(.small)
+                            }
+                            Label("Discard Clip", systemImage: "trash")
+                        }
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 44)
                     }
                     .disabled(isPublishing || isDiscarding)
                 }
+                .padding(.horizontal)
+                .padding(.bottom, 8)
             }
+            .background(Color(.systemGroupedBackground))
             .navigationTitle("Review Clip")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -94,7 +138,117 @@ struct ClipReviewSheet: View {
             } message: {
                 Text(errorMessage ?? "")
             }
+            .task {
+                await loadVideo()
+            }
+            .onDisappear {
+                player?.pause()
+                player = nil
+            }
         }
+    }
+
+    // MARK: - Video Player
+
+    @ViewBuilder
+    private var videoPlayerSection: some View {
+        ZStack {
+            Color.black
+
+            if isLoadingVideo {
+                ProgressView("Loading video...")
+                    .tint(.white)
+                    .foregroundColor(.white)
+            } else if let videoError {
+                VStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.title2)
+                        .foregroundColor(.orange)
+                    Text(videoError)
+                        .font(.caption)
+                        .foregroundColor(.white)
+                        .multilineTextAlignment(.center)
+                    Button("Retry") {
+                        Task { await loadVideo() }
+                    }
+                    .font(.caption)
+                    .foregroundColor(.blue)
+                }
+                .padding()
+            } else if let player {
+                EnhancedVideoPlayer(player: player, preloadedDuration: video.duration)
+            }
+        }
+        .aspectRatio(4/3, contentMode: .fit)
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .padding(.horizontal)
+        .padding(.top, 8)
+    }
+
+    // MARK: - Info Row
+
+    private func infoRow(label: String, value: String) -> some View {
+        HStack {
+            Text(label)
+                .foregroundColor(.primary)
+            Spacer()
+            Text(value)
+                .foregroundColor(.secondary)
+        }
+        .font(.subheadline)
+        .padding(.horizontal)
+        .padding(.vertical, 10)
+    }
+
+    // MARK: - Video Loading
+
+    @MainActor
+    private func loadVideo() async {
+        isLoadingVideo = true
+        videoError = nil
+
+        let cache = CoachVideoCacheService.shared
+        let playbackURL: URL
+
+        // Check cache first
+        if let cachedURL = cache.cachedURL(folderID: folderID, fileName: video.fileName) {
+            playbackURL = cachedURL
+        } else {
+            // Fetch signed URL
+            let signedURLString: String
+            do {
+                signedURLString = try await SecureURLManager.shared.getSecureVideoURL(
+                    fileName: video.fileName,
+                    folderID: folderID
+                )
+            } catch {
+                ErrorHandlerService.shared.handle(error, context: "ClipReviewSheet.loadVideo", showAlert: false)
+                videoError = "Unable to load video. Check your connection."
+                isLoadingVideo = false
+                return
+            }
+
+            // Download and cache
+            do {
+                playbackURL = try await cache.downloadAndCache(
+                    signedURLString: signedURLString,
+                    folderID: folderID,
+                    fileName: video.fileName
+                )
+            } catch {
+                // Fall back to streaming if download fails
+                if let url = URL(string: signedURLString) {
+                    playbackURL = url
+                } else {
+                    videoError = "Unable to load video."
+                    isLoadingVideo = false
+                    return
+                }
+            }
+        }
+
+        player = AVPlayer(url: playbackURL)
+        isLoadingVideo = false
     }
 
     // MARK: - Actions

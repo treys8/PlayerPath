@@ -501,8 +501,10 @@ private struct AVPlayerLayerView: UIViewRepresentable {
     private class PlayerUIView: UIView {
         override class var layerClass: AnyClass { AVPlayerLayer.self }
         var playerLayer: AVPlayerLayer {
-            // layerClass is overridden above — this cast should always succeed.
-            return layer as! AVPlayerLayer
+            guard let playerLayer = layer as? AVPlayerLayer else {
+                fatalError("Expected AVPlayerLayer but got \(type(of: layer)) — layerClass override missing")
+            }
+            return playerLayer
         }
     }
 }

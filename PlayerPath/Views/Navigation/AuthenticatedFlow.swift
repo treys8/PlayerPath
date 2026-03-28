@@ -15,6 +15,7 @@ private let log = Logger(subsystem: "com.playerpath.app", category: "Authenticat
 struct AuthenticatedFlow: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.navigationCoordinator) private var navigationCoordinator
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @Query private var users: [User]
     @Query(sort: \OnboardingProgress.createdAt, order: .forward) private var onboardingProgress: [OnboardingProgress]
@@ -64,42 +65,33 @@ struct AuthenticatedFlow: View {
         }
         .onDisappear {
             ActivityNotificationService.shared.stopListening()
-            SharedFolderManager.shared.stopCoachFoldersListener()
             SharedFolderManager.shared.stopAthleteFoldersListener()
-            CoachInvitationManager.shared.stopInvitationsListener()
-            AthleteInvitationManager.shared.stopInvitationsListener()
         }
         .onChange(of: authManager.isSignedIn) { oldValue, newValue in
             if oldValue == true && newValue == false {
-                // User signed out — stop all listeners immediately
+                // User signed out — stop remaining listeners immediately
                 ActivityNotificationService.shared.stopListening()
-                SharedFolderManager.shared.stopCoachFoldersListener()
                 SharedFolderManager.shared.stopAthleteFoldersListener()
-                CoachInvitationManager.shared.stopInvitationsListener()
-                AthleteInvitationManager.shared.stopInvitationsListener()
             }
         }
         .onChange(of: scenePhase) { _, newPhase in
             switch newPhase {
             case .background:
                 ActivityNotificationService.shared.stopListening()
-                SharedFolderManager.shared.stopCoachFoldersListener()
                 SharedFolderManager.shared.stopAthleteFoldersListener()
-                CoachInvitationManager.shared.stopInvitationsListener()
-                AthleteInvitationManager.shared.stopInvitationsListener()
             case .active:
-                // Re-start listeners if user is authenticated
+                // Refresh data if user is authenticated
                 if let firebaseUID = authManager.currentFirebaseUser?.uid {
                     ActivityNotificationService.shared.startListening(forUserID: firebaseUID)
                     if authManager.userRole == .coach {
-                        SharedFolderManager.shared.startCoachFoldersListener(coachID: firebaseUID)
+                        Task { try? await SharedFolderManager.shared.loadCoachFolders(coachID: firebaseUID) }
                         if let email = authManager.currentFirebaseUser?.email?.lowercased() {
-                            CoachInvitationManager.shared.startInvitationsListener(forCoachEmail: email)
+                            Task { await CoachInvitationManager.shared.checkPendingInvitations(forCoachEmail: email) }
                         }
                     } else {
                         SharedFolderManager.shared.startAthleteFoldersListener(athleteID: firebaseUID)
                         if let email = authManager.currentFirebaseUser?.email?.lowercased() {
-                            AthleteInvitationManager.shared.startInvitationsListener(forAthleteEmail: email)
+                            Task { _ = await AthleteInvitationManager.shared.fetchPendingInvitations(forEmail: email) }
                         }
                     }
                     // Refresh tier from Firestore to catch changes from other devices
@@ -128,14 +120,14 @@ struct AuthenticatedFlow: View {
             }
 
             if authManager.userRole == .coach {
-                // Coach-specific listeners
+                // Coach-specific setup
                 UploadQueueManager.shared.configure(modelContext: modelContext)
                 if let coachID = authManager.currentFirebaseUser?.uid {
                     CoachFolderArchiveManager.shared.configure(coachUID: coachID)
-                    SharedFolderManager.shared.startCoachFoldersListener(coachID: coachID)
+                    Task { try? await SharedFolderManager.shared.loadCoachFolders(coachID: coachID) }
                 }
                 if let coachEmail = authManager.currentFirebaseUser?.email?.lowercased() {
-                    CoachInvitationManager.shared.startInvitationsListener(forCoachEmail: coachEmail)
+                    Task { await CoachInvitationManager.shared.checkPendingInvitations(forCoachEmail: coachEmail) }
                 }
             } else {
                 // Athlete-specific services — coaches don't have athletes/videos to sync
@@ -143,12 +135,12 @@ struct AuthenticatedFlow: View {
                 UploadQueueManager.shared.configure(modelContext: modelContext)
                 QuickActionsManager.shared.setupQuickActions()
 
-                // Start athlete listeners so invitations and folders are visible on all tabs
+                // Start athlete folder listener (real-time) + fetch invitations (one-shot)
                 if let athleteID = authManager.currentFirebaseUser?.uid {
                     SharedFolderManager.shared.startAthleteFoldersListener(athleteID: athleteID)
                 }
                 if let athleteEmail = authManager.currentFirebaseUser?.email?.lowercased() {
-                    AthleteInvitationManager.shared.startInvitationsListener(forAthleteEmail: athleteEmail)
+                    Task { _ = await AthleteInvitationManager.shared.fetchPendingInvitations(forEmail: athleteEmail) }
                 }
 
                 // Run migration, recovery, and sync in background
@@ -174,9 +166,18 @@ struct AuthenticatedFlow: View {
                     }
                 }
             }
+
+            // Consume any deep link that arrived before authentication completed.
+            // Brief delay lets the view hierarchy (CoachTabView, MainTabView) appear
+            // and register notification observers before we dispatch.
+            if let pending = navigationCoordinator.pendingDeepLink {
+                try? await Task.sleep(for: .milliseconds(500))
+                navigationCoordinator.pendingDeepLink = nil
+                navigationCoordinator.handle(pending)
+            }
         }
     }
-    
+
     // Single source of truth: UserDefaults via authManager (device-local, always available).
     // SwiftData OnboardingProgress is kept for backward compatibility but not used for routing.
     private var hasCompletedOnboarding: Bool {

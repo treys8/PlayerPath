@@ -37,22 +37,6 @@ extension String {
         return first.uppercased() + self.dropFirst()
     }
     
-    /// Remove all whitespace
-    var removingWhitespace: String {
-        self.replacingOccurrences(of: " ", with: "")
-    }
-    
-    /// Phone number formatting (simple US format)
-    var formattedPhoneNumber: String {
-        let digits = self.filter { $0.isNumber }
-        guard digits.count == 10 else { return self }
-        
-        let areaCode = String(digits.prefix(3))
-        let middle = String(digits.dropFirst(3).prefix(3))
-        let last = String(digits.suffix(4))
-        
-        return "(\(areaCode)) \(middle)-\(last)"
-    }
 }
 
 // MARK: - Localized Strings

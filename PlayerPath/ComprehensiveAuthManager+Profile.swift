@@ -50,6 +50,7 @@ extension ComprehensiveAuthManager {
                 self.localUser = newUser
             }
         } catch {
+            authLog.error("Failed to load user profile: \(error.localizedDescription)")
             self.errorMessage = "Failed to load user profile"
         }
     }

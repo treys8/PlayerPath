@@ -208,13 +208,6 @@ final class PushNotificationService: NSObject, ObservableObject {
         }
     }
     
-    /// Request authorization (if needed) and register for remote notifications in one step.
-    /// - Returns: true if authorization is granted and registration was attempted.
-    func ensureAuthorizationAndRegister() async -> Bool {
-        // requestAuthorization() already calls registerForRemoteNotifications() when granted
-        return await requestAuthorization()
-    }
-    
     /// If notifications are denied, open Settings; otherwise, no-op. Returns true if Settings was opened.
     @discardableResult
     func openSettingsIfDenied() -> Bool {
@@ -329,13 +322,6 @@ final class PushNotificationService: NSObject, ObservableObject {
         logger.info("Cancelled notifications: \(identifiers)")
     }
     
-    /// Cancel all notifications
-    func cancelAllNotifications() {
-        notificationCenter.removeAllPendingNotificationRequests()
-        notificationCenter.removeAllDeliveredNotifications()
-        logger.info("Cancelled all notifications")
-    }
-    
     // MARK: - Specific Notification Types
     
     /// Schedule game reminder notification
@@ -366,36 +352,6 @@ final class PushNotificationService: NSObject, ObservableObject {
         
         if success {
             logger.info("Scheduled game reminder for \(opponent)")
-        }
-    }
-    
-    /// Schedule practice reminder notification
-    func schedulePracticeReminder(
-        practiceId: String,
-        practiceDate: Date,
-        reminderMinutes: Int = 15
-    ) async {
-        guard canScheduleNotifications else { return }
-        
-        let reminderDate = practiceDate.addingTimeInterval(-TimeInterval(reminderMinutes * 60))
-        guard reminderDate > Date() else { return }
-        
-        let trigger = UNCalendarNotificationTrigger(
-            dateMatching: Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: reminderDate),
-            repeats: false
-        )
-        
-        let success = await scheduleLocalNotification(
-            identifier: "practice_reminder_\(practiceId)",
-            title: "Practice Starting Soon! 🏃‍♂️",
-            body: "Your practice starts in \(reminderMinutes) minutes. Don't forget to record key moments!",
-            categoryIdentifier: "PRACTICE_REMINDER",
-            userInfo: ["practiceId": practiceId, "type": "practice_reminder"],
-            trigger: trigger
-        )
-        
-        if success {
-            logger.info("Scheduled practice reminder")
         }
     }
     
@@ -706,20 +662,6 @@ final class PushNotificationService: NSObject, ObservableObject {
         }
     }
     
-    /// Check if specific notification types are enabled
-    func checkNotificationSettings() async -> NotificationSettings {
-        let settings = await notificationCenter.notificationSettings()
-        
-        return NotificationSettings(
-            authorizationStatus: settings.authorizationStatus,
-            soundSetting: settings.soundSetting,
-            badgeSetting: settings.badgeSetting,
-            alertSetting: settings.alertSetting,
-            criticalAlertSetting: settings.criticalAlertSetting,
-            providesAppNotificationSettings: settings.providesAppNotificationSettings,
-            alertStyle: settings.alertStyle
-        )
-    }
 }
 
 // MARK: - UNUserNotificationCenterDelegate

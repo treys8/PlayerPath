@@ -185,35 +185,7 @@ final class OnboardingManager: ObservableObject {
         UserDefaults.standard.removeObject(forKey: key(BaseKeys.hasSeenWelcomeTutorial))
     }
 
-    func resetTips() {
-        dismissedTips.removeAll()
-        UserDefaults.standard.removeObject(forKey: key(BaseKeys.dismissedTips))
-    }
-
     // MARK: - Tutorial Flow
-
-    func startTutorial(_ tutorial: Tutorial) {
-        currentTutorialStep = tutorial.steps.first
-    }
-
-    func nextTutorialStep() {
-        guard let current = currentTutorialStep,
-              let tutorial = Tutorial.allCases.first(where: { $0.steps.contains(current) }),
-              let currentIndex = tutorial.steps.firstIndex(of: current) else {
-            return
-        }
-
-        let nextIndex = currentIndex + 1
-        if nextIndex < tutorial.steps.count {
-            currentTutorialStep = tutorial.steps[nextIndex]
-        } else {
-            completeTutorial()
-        }
-    }
-
-    func skipTutorial() {
-        currentTutorialStep = nil
-    }
 
     func completeTutorial() {
         currentTutorialStep = nil
@@ -245,36 +217,6 @@ final class OnboardingManager: ObservableObject {
         OnboardingMilestone.allCases.first { !hasMilestoneCompleted($0) }
     }
 
-    // MARK: - Reset (for testing)
-
-    func resetAllOnboarding() {
-        hasCompletedInitialOnboarding = false
-        hasSeenWelcomeTutorial = false
-        hasRecordedFirstVideo = false
-        hasCreatedFirstGame = false
-        hasCreatedFirstPractice = false
-        hasViewedStats = false
-        hasUsedSearch = false
-        hasExportedData = false
-        hasUsedQuickActions = false
-        hasInvitedCoach = false
-        hasSeenCoachAnnouncement = false
-        dismissedTips.removeAll()
-        currentTutorialStep = nil
-
-        UserDefaults.standard.removeObject(forKey: key(BaseKeys.hasCompletedInitialOnboarding))
-        UserDefaults.standard.removeObject(forKey: key(BaseKeys.hasSeenWelcomeTutorial))
-        UserDefaults.standard.removeObject(forKey: key(BaseKeys.hasRecordedFirstVideo))
-        UserDefaults.standard.removeObject(forKey: key(BaseKeys.hasCreatedFirstGame))
-        UserDefaults.standard.removeObject(forKey: key(BaseKeys.hasCreatedFirstPractice))
-        UserDefaults.standard.removeObject(forKey: key(BaseKeys.hasViewedStats))
-        UserDefaults.standard.removeObject(forKey: key(BaseKeys.hasUsedSearch))
-        UserDefaults.standard.removeObject(forKey: key(BaseKeys.hasExportedData))
-        UserDefaults.standard.removeObject(forKey: key(BaseKeys.hasUsedQuickActions))
-        UserDefaults.standard.removeObject(forKey: key(BaseKeys.hasInvitedCoach))
-        UserDefaults.standard.removeObject(forKey: key(BaseKeys.hasSeenCoachAnnouncement))
-        UserDefaults.standard.removeObject(forKey: key(BaseKeys.dismissedTips))
-    }
 }
 
 // MARK: - Models

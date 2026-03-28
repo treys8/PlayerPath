@@ -51,6 +51,7 @@ extension FirestoreManager {
 
             return docRef.documentID
         } catch {
+            firestoreLog.error("Failed to add comment: \(error.localizedDescription)")
             errorMessage = "Failed to add comment."
             throw error
         }
@@ -63,7 +64,7 @@ extension FirestoreManager {
                 .document(videoID)
                 .collection(FC.annotations)
                 .order(by: "timestamp")
-                .limit(to: 200)
+                .limit(to: 50)
                 .getDocuments()
 
             let annotations = snapshot.documents.compactMap { doc -> VideoAnnotation? in
@@ -77,8 +78,13 @@ extension FirestoreManager {
                 }
             }
 
+            if annotations.count >= 50 {
+                firestoreLog.warning("Annotations for video \(videoID) hit 50 limit — some may be missing")
+            }
+
             return annotations
         } catch {
+            firestoreLog.error("Failed to fetch annotations for video: \(error.localizedDescription)")
             throw error
         }
     }
@@ -138,6 +144,7 @@ extension FirestoreManager {
             }
 
         } catch {
+            firestoreLog.error("Failed to delete comment: \(error.localizedDescription)")
             errorMessage = "Failed to delete comment."
             throw error
         }

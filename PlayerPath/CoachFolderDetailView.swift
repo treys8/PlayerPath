@@ -256,14 +256,18 @@ struct CoachFolderDetailView: View {
             Group {
                 switch selectedTab {
                 case .fromAthlete:
-                    AllVideosTabView(folder: folder, videos: filterByTag(viewModel.cachedFromAthleteVideos), isLoading: viewModel.isLoading, errorMessage: viewModel.errorMessage, onRefresh: {
+                    AllVideosTabView(folder: folder, videos: filterByTag(viewModel.cachedFromAthleteVideos), isLoading: viewModel.isLoading, isLoadingMore: viewModel.isLoadingMore, hasMoreVideos: viewModel.hasMoreVideos, errorMessage: viewModel.errorMessage, onRefresh: {
                         await viewModel.loadVideos()
+                    }, onLoadMore: {
+                        await viewModel.loadMoreVideos()
                     }, onEditTags: nil)
                 case .needsReview:
                     needsReviewContent
                 case .fromMe:
-                    AllVideosTabView(folder: folder, videos: filterByTag(viewModel.cachedFromMeVideos), isLoading: viewModel.isLoading, errorMessage: viewModel.errorMessage, onRefresh: {
+                    AllVideosTabView(folder: folder, videos: filterByTag(viewModel.cachedFromMeVideos), isLoading: viewModel.isLoading, isLoadingMore: viewModel.isLoadingMore, hasMoreVideos: viewModel.hasMoreVideos, errorMessage: viewModel.errorMessage, onRefresh: {
                         await viewModel.loadVideos()
+                    }, onLoadMore: {
+                        await viewModel.loadMoreVideos()
                     }, onEditTags: { video in
                         editingVideoTags = video
                         editingTags = video.tags
@@ -324,14 +328,14 @@ struct CoachFolderDetailView: View {
                 }
 
                 ScrollView {
-                    LazyVStack(spacing: 12) {
+                    LazyVStack(spacing: 16) {
                         ForEach(clips) { clip in
                             Button {
                                 reviewingClip = clip
                             } label: {
-                                CoachVideoRow(video: clip)
+                                CoachVideoCard(video: clip)
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(PressableCardButtonStyle())
                         }
                     }
                     .padding()
@@ -459,17 +463,30 @@ struct CoachFolderDetailView: View {
                 return
             }
         }
-        guard let folderID = folder.id else { return }
+        guard let folderID = folder.id,
+              let coachID = authManager.userID else { return }
+        let coachName = authManager.userDisplayName ?? authManager.userEmail ?? "Coach"
         let athlete = (
             athleteID: folder.ownerAthleteID,
             athleteName: folder.ownerAthleteName ?? "Athlete",
             folderID: folderID
         )
         Task {
-            let success = await CoachSessionManager.shared.quickCreateSession(
-                athletes: [athlete], authManager: authManager
-            )
-            if success { showingQuickRecord = true }
+            do {
+                let sessionID = try await CoachSessionManager.shared.scheduleSession(
+                    coachID: coachID,
+                    coachName: coachName,
+                    athletes: [athlete],
+                    scheduledDate: nil,
+                    notes: nil,
+                    authManager: authManager
+                )
+                try await CoachSessionManager.shared.startScheduledSession(sessionID: sessionID)
+                Haptics.success()
+                showingQuickRecord = true
+            } catch {
+                ErrorHandlerService.shared.handle(error, context: "CoachFolderDetail.quickRecord", showAlert: false)
+            }
         }
     }
 

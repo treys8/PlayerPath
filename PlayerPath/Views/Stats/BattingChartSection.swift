@@ -11,6 +11,7 @@ import Charts
 struct BattingChartSection: View {
     let statistics: AthleteStatistics
 
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var isVisible = false
 
     private var chartData: [PlayTypeData] {
@@ -52,9 +53,9 @@ struct BattingChartSection: View {
                 }
                 .chartXScale(domain: 0...max(1, chartData.map(\.count).max() ?? 1))
                 .chartXAxis(.hidden)
-                .frame(height: 140)
-                .padding(.vertical, 12)
-                .padding(.horizontal, 16)
+                .frame(height: horizontalSizeClass == .regular ? 220 : 140)
+                .padding(.vertical, horizontalSizeClass == .regular ? 16 : 12)
+                .padding(.horizontal, horizontalSizeClass == .regular ? 24 : 16)
                 .background(
                     RoundedRectangle(cornerRadius: .cornerXLarge, style: .continuous)
                         .fill(Color(uiColor: .secondarySystemGroupedBackground))
@@ -71,7 +72,7 @@ struct BattingChartSection: View {
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                 }
-                .frame(height: 100)
+                .frame(height: horizontalSizeClass == .regular ? 140 : 100)
                 .frame(maxWidth: .infinity)
                 .background(
                     RoundedRectangle(cornerRadius: .cornerXLarge, style: .continuous)

@@ -9,7 +9,6 @@
 import Foundation
 import SwiftData
 import FirebaseAuth
-import FirebaseFirestore
 import os
 
 private let invitationLog = Logger(subsystem: "com.playerpath.app", category: "AthleteInvitations")
@@ -23,8 +22,6 @@ class AthleteInvitationManager {
     var pendingCount: Int { pendingInvitations.count }
     var listenerError: String?
 
-    private var invitationsListener: ListenerRegistration?
-
     private init() {}
 
     // MARK: - Result Type
@@ -35,50 +32,7 @@ class AthleteInvitationManager {
         let lessonsFolderID: String?
     }
 
-    // MARK: - Real-Time Listener
-
-    func startInvitationsListener(forAthleteEmail email: String) {
-        guard invitationsListener == nil else { return }
-        let db = FirestoreManager.shared.db
-        invitationsListener = db.collection(FC.invitations)
-            .whereField("type", isEqualTo: "coach_to_athlete")
-            .whereField("athleteEmail", isEqualTo: email.lowercased())
-            .whereField("status", isEqualTo: "pending")
-            .whereField("expiresAt", isGreaterThan: Timestamp(date: Date()))
-            .limit(to: 50)
-            .addSnapshotListener { [weak self] snapshot, error in
-                guard let self else { return }
-                if error != nil {
-                    Task { @MainActor in
-                        self.listenerError = "Unable to refresh invitations."
-                    }
-                    return
-                }
-                let invitations = snapshot?.documents.compactMap { doc -> CoachToAthleteInvitation? in
-                    do {
-                        var inv = try doc.data(as: CoachToAthleteInvitation.self)
-                        inv.id = doc.documentID
-                        return inv
-                    } catch {
-                        invitationLog.warning("Failed to decode invitation \(doc.documentID): \(error.localizedDescription)")
-                        return nil
-                    }
-                } ?? []
-                Task { @MainActor in
-                    self.listenerError = nil
-                    self.pendingInvitations = invitations
-                }
-            }
-    }
-
-    func stopInvitationsListener() {
-        invitationsListener?.remove()
-        invitationsListener = nil
-        listenerError = nil
-        pendingInvitations = []
-    }
-
-    // MARK: - Fetch (one-shot fallback)
+    // MARK: - Fetch
 
     func fetchPendingInvitations(forEmail email: String) async -> [CoachToAthleteInvitation] {
         do {
