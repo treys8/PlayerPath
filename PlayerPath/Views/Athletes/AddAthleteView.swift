@@ -203,12 +203,9 @@ struct AddAthleteView: View {
                 isNameFieldFocused = true
             }
         }
-        .alert("Success! 🎉", isPresented: $showingSuccessAlert) {
-            Button("Continue") {
-                dismiss()
-            }
-        } message: {
-            Text(successMessage)
+        .toast(isPresenting: $showingSuccessAlert, message: "Athlete Added")
+        .onChange(of: showingSuccessAlert) { _, new in
+            if !new { dismiss() }
         }
         .alert("Unable to Save Athlete", isPresented: $showingValidationError) {
             Button("OK") { }

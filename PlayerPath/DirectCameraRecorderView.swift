@@ -105,7 +105,7 @@ struct DirectCameraRecorderView: View {
         } message: {
             Text("The video could not be saved. Please try recording again.")
         }
-        .alert("Error", isPresented: errorBinding) {
+        .alert("Recording Error", isPresented: errorBinding) {
             Button("OK", role: .cancel) {
                 ErrorHandlerService.shared.dismissError()
                 dismiss()

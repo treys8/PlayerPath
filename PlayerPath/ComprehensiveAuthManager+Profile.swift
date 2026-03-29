@@ -38,6 +38,14 @@ extension ComprehensiveAuthManager {
                     needsSave = true
                     authLog.debug("Stored Firebase Auth UID: \(firebaseUser.uid, privacy: .private)")
                 }
+                // If local username is the email fallback but Firebase Auth has a real name, update it
+                if let displayName = firebaseUser.displayName,
+                   !displayName.isEmpty,
+                   existingUser.username == existingUser.email || existingUser.username.isEmpty {
+                    existingUser.username = displayName
+                    needsSave = true
+                    authLog.debug("Synced display name from Firebase Auth to SwiftData")
+                }
                 if needsSave { try context.save() }
                 self.localUser = existingUser
             } else {
@@ -142,6 +150,13 @@ extension ComprehensiveAuthManager {
                 }
 
                 hasLoadedProfile = true
+
+                // Check if user needs to set a display name
+                let firebaseName = currentFirebaseUser?.displayName ?? ""
+                let firestoreName = profile.displayName ?? ""
+                let hasRealName = (!firebaseName.isEmpty && firebaseName != "User")
+                                  || (!firestoreName.isEmpty && firestoreName != "User")
+                needsDisplayName = !hasRealName
 
                 // Only sync to Firestore after StoreKit's initial entitlement
                 // resolution completes. On a second device, StoreKit may not have

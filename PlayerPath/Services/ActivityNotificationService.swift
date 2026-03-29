@@ -448,6 +448,7 @@ final class ActivityNotificationService: ObservableObject {
         folderID: String,
         folderName: String,
         athleteName: String,
+        athleteID: String,
         coachUserID: String
     ) async {
         let data: [String: Any] = [
@@ -455,7 +456,7 @@ final class ActivityNotificationService: ObservableObject {
             "title": "Athlete Subscription Lapsed",
             "body": "\(athleteName)'s subscription has changed. Shared folders may be temporarily unavailable.",
             "senderName": athleteName,
-            "senderID": "",
+            "senderID": athleteID,
             "targetID": folderID,
             "targetType": ActivityNotification.TargetType.folder.rawValue,
             "isRead": false,

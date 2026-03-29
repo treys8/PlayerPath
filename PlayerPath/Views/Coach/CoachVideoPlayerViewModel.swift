@@ -165,11 +165,12 @@ class CoachVideoPlayerViewModel {
             guard let user = Auth.auth().currentUser,
                   let userName = user.displayName else { return }
             let userID = user.uid
+            let isOwner = userID == folder.ownerAthleteID
             await FirestoreManager.shared.logVideoAccess(
                 videoID: video.id,
                 userID: userID,
                 userName: userName,
-                userRole: "coach",
+                userRole: isOwner ? "athlete" : "coach",
                 action: "view",
                 folderID: folderID
             )
@@ -384,11 +385,12 @@ class CoachVideoPlayerViewModel {
 
             // Log download action
             if let user = Auth.auth().currentUser {
+                let isOwner = user.uid == folder.ownerAthleteID
                 await FirestoreManager.shared.logVideoAccess(
                     videoID: video.id,
                     userID: user.uid,
-                    userName: user.displayName ?? "Coach",
-                    userRole: "coach",
+                    userName: user.displayName ?? (isOwner ? "Athlete" : "Coach"),
+                    userRole: isOwner ? "athlete" : "coach",
                     action: "download",
                     folderID: folderID
                 )

@@ -53,7 +53,7 @@ struct ImprovedPaywallView: View {
             }
             .sheet(isPresented: $showingTerms) { TermsOfServiceView() }
             .sheet(isPresented: $showingPrivacyPolicy) { PrivacyPolicyView() }
-            .alert("Error", isPresented: Binding(
+            .alert("Purchase Failed", isPresented: Binding(
                 get: { storeManager.error != nil },
                 set: { if !$0 { storeManager.clearError() } }
             )) {

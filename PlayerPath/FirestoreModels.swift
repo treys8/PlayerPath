@@ -262,6 +262,7 @@ struct CoachSession: Codable, Identifiable, Hashable {
 struct UserProfile: Codable, Identifiable {
     var id: String?
     let email: String
+    let displayName: String?
     let role: String
     let subscriptionTier: String?
     let coachSubscriptionTier: String?

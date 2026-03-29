@@ -469,10 +469,15 @@ class CameraViewModel: NSObject, ObservableObject {
 
     @MainActor
     func startRecording() {
-        guard !isRecording, let output = movieFileOutput else { return }
+        guard !isRecording, !stoppingRecording, let output = movieFileOutput else { return }
+
+        // Set immediately to prevent double-tap race condition —
+        // the delegate callback that normally sets this fires asynchronously
+        isRecording = true
 
         // Check storage
         guard hasEnoughStorage() else {
+            isRecording = false
             handleError("Not enough storage space available", isFatal: false)
             return
         }

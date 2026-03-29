@@ -73,6 +73,10 @@ final class ComprehensiveAuthManager: ObservableObject {
         currentFirebaseUser?.displayName
     }
 
+    /// True when the user has no meaningful display name set (empty, "User", or nil).
+    /// UI should prompt for name entry.
+    @Published var needsDisplayName: Bool = false
+
     var userID: String? {
         currentFirebaseUser?.uid
     }

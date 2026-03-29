@@ -130,7 +130,7 @@ struct ClipReviewSheet: View {
             } message: {
                 Text("This clip will be permanently deleted.")
             }
-            .alert("Error", isPresented: .init(
+            .alert("Unable to Save Clip", isPresented: .init(
                 get: { errorMessage != nil },
                 set: { if !$0 { errorMessage = nil } }
             )) {

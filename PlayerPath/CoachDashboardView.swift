@@ -26,6 +26,7 @@ struct CoachDashboardView: View {
     @State private var showingCancelConfirmation = false
     @State private var sessionToCancel: CoachSession?
     private var archiveManager: CoachFolderArchiveManager { .shared }
+    private var reviewQueue: ReviewQueueViewModel { .shared }
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var cachedRecentFolders: [SharedFolder] = []
@@ -54,6 +55,9 @@ struct CoachDashboardView: View {
 
                     // Live session card (top priority)
                     liveSessionSection
+
+                    // Review queue (clips awaiting review across all folders)
+                    reviewQueueSection
 
                     // Upcoming scheduled sessions
                     upcomingSessionsSection
@@ -159,6 +163,7 @@ struct CoachDashboardView: View {
         .task {
             updateCachedValues()
             guard let coachID = authManager.userID else { return }
+            reviewQueue.startListening(coachUID: coachID)
             await refreshAthleteLimit(coachID: coachID)
             if sessionManager.sessions.isEmpty {
                 await sessionManager.fetchSessions(coachID: coachID)
@@ -181,7 +186,7 @@ struct CoachDashboardView: View {
     private var liveSessionSection: some View {
         if let session = sessionManager.activeSession {
             let isLive = session.status == .live
-            let headerColor: Color = isLive ? .red : .orange
+            let headerColor: Color = isLive ? .red : .brandNavy
 
             VStack(spacing: 12) {
                 HStack {
@@ -189,12 +194,12 @@ struct CoachDashboardView: View {
                         Circle()
                             .fill(headerColor)
                             .frame(width: 8, height: 8)
-                            .opacity(headerPulse ? 0.4 : 1.0)
-                            .shadow(color: headerColor.opacity(0.8), radius: headerPulse ? 4 : 2)
-                            .animation(reduceMotion ? nil : .easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: headerPulse)
-                            .onAppear { headerPulse = true }
+                            .opacity(isLive && headerPulse ? 0.4 : 1.0)
+                            .shadow(color: headerColor.opacity(0.8), radius: isLive && headerPulse ? 4 : 2)
+                            .animation(isLive && !reduceMotion ? .easeInOut(duration: 0.8).repeatForever(autoreverses: true) : nil, value: headerPulse)
+                            .onAppear { if isLive { headerPulse = true } }
 
-                        Text(isLive ? "Live Now" : "In Review")
+                        Text(isLive ? "Live Now" : "Session Ended")
                             .font(.title3)
                             .fontWeight(.bold)
                             .foregroundStyle(
@@ -246,6 +251,35 @@ struct CoachDashboardView: View {
                     }
                 }
             }
+        }
+    }
+
+    // MARK: - Review Queue
+
+    @ViewBuilder
+    private var reviewQueueSection: some View {
+        if reviewQueue.totalCount > 0 {
+            ReviewQueueCard(
+                groups: reviewQueue.groupedClips,
+                totalCount: reviewQueue.totalCount,
+                onReviewAll: {
+                    // Navigate to the first athlete's folder
+                    if let firstGroup = reviewQueue.groupedClips.first {
+                        coordinator.navigateToFolder(
+                            firstGroup.folderID,
+                            folders: sharedFolderManager.coachFolders,
+                            initialTab: .needsReview
+                        )
+                    }
+                },
+                onNavigateToFolder: { folderID in
+                    coordinator.navigateToFolder(
+                        folderID,
+                        folders: sharedFolderManager.coachFolders,
+                        initialTab: .needsReview
+                    )
+                }
+            )
         }
     }
 

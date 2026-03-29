@@ -158,12 +158,9 @@ struct ResetPasswordSheet: View {
                 resetEmail = email
                 emailFocused = true
             }
-            .alert("Email Sent", isPresented: $showingSuccess) {
-                Button("OK") {
-                    dismiss()
-                }
-            } message: {
-                Text("Check your email for a password reset link.")
+            .toast(isPresenting: $showingSuccess, message: "Reset Email Sent")
+            .onChange(of: showingSuccess) { _, new in
+                if !new { dismiss() }
             }
         }
     }

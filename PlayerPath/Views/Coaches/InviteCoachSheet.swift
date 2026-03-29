@@ -199,12 +199,9 @@ struct InviteCoachSheet: View {
                     }
                 }
             }
-            .alert("Invitation Sent!", isPresented: $showingSuccess) {
-                Button("Done") {
-                    dismiss()
-                }
-            } message: {
-                Text("An invitation has been sent to \(coachEmail). They'll receive an email with instructions to connect with \(athlete.name).")
+            .toast(isPresenting: $showingSuccess, message: "Invitation Sent")
+            .onChange(of: showingSuccess) { _, new in
+                if !new { dismiss() }
             }
         }
     }

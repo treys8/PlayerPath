@@ -34,6 +34,7 @@ class SharedFolderManager {
     var listenerError: String?
 
     private var athleteFoldersListener: ListenerRegistration?
+    private var coachFoldersListener: ListenerRegistration?
 
     private init() {}
     
@@ -352,6 +353,56 @@ class SharedFolderManager {
     func stopAthleteFoldersListener() {
         athleteFoldersListener?.remove()
         athleteFoldersListener = nil
+    }
+
+    // MARK: - Coach Folder Listener
+
+    /// Starts a real-time Firestore listener for all folders shared with this coach.
+    /// UI auto-updates when athletes share new folders or upload videos.
+    func startCoachFoldersListener(coachID: String) {
+        guard coachFoldersListener == nil else { return }
+        isLoading = true
+
+        let db = firestore.db
+        coachFoldersListener = db.collection(FC.sharedFolders)
+            .whereField("sharedWithCoachIDs", arrayContains: coachID)
+            .order(by: "updatedAt", descending: true)
+            .limit(to: 50)
+            .addSnapshotListener { [weak self] snapshot, error in
+                guard let self else { return }
+
+                if let error = error as NSError? {
+                    Task { @MainActor in
+                        self.isLoading = false
+                        self.listenerError = "Unable to refresh folders. Showing cached data."
+                        folderLog.warning("Coach folders listener error: \(error.localizedDescription)")
+                    }
+                    return
+                }
+
+                guard let docs = snapshot?.documents else { return }
+
+                let folders = docs.compactMap { doc -> SharedFolder? in
+                    do {
+                        var folder = try doc.data(as: SharedFolder.self)
+                        folder.id = doc.documentID
+                        return folder
+                    } catch {
+                        folderLog.warning("Failed to decode SharedFolder \(doc.documentID): \(error.localizedDescription)")
+                        return nil
+                    }
+                }
+                Task { @MainActor in
+                    self.isLoading = false
+                    self.listenerError = nil
+                    self.coachFolders = folders
+                }
+            }
+    }
+
+    func stopCoachFoldersListener() {
+        coachFoldersListener?.remove()
+        coachFoldersListener = nil
     }
 
     // MARK: - Coach Functions

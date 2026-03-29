@@ -546,18 +546,23 @@ extension FirestoreManager {
         ]
 
         do {
-            // Write access log entry
+            // Write access log entry (subcollection — any folder member can write)
             try await db.collection(FC.videos).document(videoID)
                 .collection("access_logs").addDocument(data: logData)
+        } catch {
+            // Non-fatal — don't block playback for audit logging
+            firestoreLog.warning("Failed to log video access for \(videoID): \(error.localizedDescription)")
+        }
 
-            // Atomically increment view count and update last viewed timestamp
+        do {
+            // Increment view count — only succeeds for the video uploader per security rules
             try await db.collection(FC.videos).document(videoID).updateData([
                 "viewCount": FieldValue.increment(Int64(1)),
                 "lastViewedAt": FieldValue.serverTimestamp()
             ])
         } catch {
-            // Non-fatal — don't block playback for audit logging
-            firestoreLog.warning("Failed to log video access for \(videoID): \(error.localizedDescription)")
+            // Expected to fail when viewer is not the uploader (security rules)
+            firestoreLog.debug("viewCount update skipped for \(videoID) (viewer is not uploader)")
         }
     }
 }

@@ -81,7 +81,6 @@ struct AthleteInvitationsSheet: View {
 
     @State private var processingInvitationID: String?
     @State private var errorMessage: String?
-    @State private var showingProAlert = false
     @State private var showingPaywall = false
 
     var body: some View {
@@ -112,19 +111,13 @@ struct AthleteInvitationsSheet: View {
                     Button("Done") { dismiss() }
                 }
             }
-            .alert("Error", isPresented: .init(
+            .alert("Invitation Error", isPresented: .init(
                 get: { errorMessage != nil },
                 set: { if !$0 { errorMessage = nil } }
             )) {
                 Button("OK", role: .cancel) { }
             } message: {
                 Text(errorMessage ?? "")
-            }
-            .alert("Pro Feature", isPresented: $showingProAlert) {
-                Button("Maybe Later", role: .cancel) { }
-                Button("Upgrade") { showingPaywall = true }
-            } message: {
-                Text("Accepting coach invitations requires a Pro subscription. Upgrade to Pro to share videos and receive feedback from your coaches.")
             }
             .sheet(isPresented: $showingPaywall) {
                 if let user = authManager.localUser {
@@ -141,7 +134,7 @@ struct AthleteInvitationsSheet: View {
 
     private func acceptInvitation(_ invitation: CoachToAthleteInvitation) async {
         guard authManager.hasCoachingAccess else {
-            showingProAlert = true
+            showingPaywall = true
             return
         }
         guard processingInvitationID == nil else {

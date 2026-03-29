@@ -342,6 +342,7 @@ extension ComprehensiveAuthManager {
 
             // Stop active Firestore listeners and background sync for this user
             ActivityNotificationService.shared.stopListening()
+            ReviewQueueViewModel.shared.stopListening()
             SyncCoordinator.shared.stopPeriodicSync()
 
             // Clear local SwiftData and local video/photo files to prevent data leakage

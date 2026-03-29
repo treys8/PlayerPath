@@ -303,7 +303,7 @@ struct VideoClipsView: View {
         .onChange(of: athlete.videoClips?.count) { _, _ in
             viewModel.update(videos: athlete.videoClips ?? [])
         }
-        .alert("Something Went Wrong", isPresented: $showingError) {
+        .alert("Unable to Load Videos", isPresented: $showingError) {
             Button("OK", role: .cancel) { }
         } message: {
             Text(errorMessage ?? "An unexpected error occurred. Please try again.")

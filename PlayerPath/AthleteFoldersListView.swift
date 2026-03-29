@@ -59,7 +59,7 @@ struct AthleteFoldersListView: View {
                 CreateFolderView()
             }
         }
-        .alert("Error", isPresented: $showingError) {
+        .alert("Folder Error", isPresented: $showingError) {
             Button("OK", role: .cancel) { }
         } message: {
             Text(errorMessage)
@@ -503,6 +503,7 @@ struct ManageCoachesView: View {
                                 coachID: coachID,
                                 permissions: folder.getPermissions(for: coachID) ?? .default,
                                 onRemove: {
+                                    Haptics.warning()
                                     coachToRemove = coachID
                                     showingRemoveConfirmation = true
                                 }
@@ -538,6 +539,7 @@ struct ManageCoachesView: View {
                     coachToRemove = nil
                 }
                 Button("Remove", role: .destructive) {
+                    Haptics.heavy()
                     if let coachID = coachToRemove,
                        let folderID = folder.id {
                         Task {
@@ -569,7 +571,7 @@ struct ManageCoachesView: View {
             } message: {
                 Text("This coach will no longer have access to this folder and its videos.")
             }
-            .alert("Error", isPresented: $showingError) {
+            .alert("Folder Error", isPresented: $showingError) {
                 Button("OK", role: .cancel) { }
             } message: {
                 Text(errorMessage)

@@ -194,6 +194,9 @@ struct PhotosView: View {
             }
             .padding(.horizontal, 2)
         }
+        .refreshable {
+            updatePhotosCache()
+        }
     }
 
     // MARK: - Empty State

@@ -99,16 +99,7 @@ struct ContactSupportView: View {
                 }
             }
         }
-        .alert("Message Sent", isPresented: $showingAlert) {
-            Button("OK") {
-                // Clear form
-                subject = ""
-                message = ""
-                selectedCategory = .general
-            }
-        } message: {
-            Text(alertMessage)
-        }
+        .toast(isPresenting: $showingAlert, message: "Message Sent")
     }
 
     private func sendSupportEmail() {
@@ -138,12 +129,11 @@ struct ContactSupportView: View {
         if let emailURL = coded.flatMap({ URL(string: $0) }) {
             if UIApplication.shared.canOpenURL(emailURL) {
                 UIApplication.shared.open(emailURL)
-                alertMessage = "Your email app will open with a pre-filled message."
-                showingAlert = true
-            } else {
-                alertMessage = "Please send an email to playerpath@proton.me with your question."
-                showingAlert = true
             }
+            subject = ""
+            message = ""
+            selectedCategory = .general
+            showingAlert = true
         }
     }
 }

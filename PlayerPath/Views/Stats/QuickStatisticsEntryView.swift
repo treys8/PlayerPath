@@ -21,6 +21,7 @@ struct QuickStatisticsEntryView: View {
     @State private var numberOfPlays: String = "1"
     @State private var showingAlert = false
     @State private var alertMessage = ""
+    @State private var showingSuccessToast = false
     @FocusState private var isPlaysFieldFocused: Bool
 
     var body: some View {
@@ -128,12 +129,14 @@ struct QuickStatisticsEntryView: View {
                 }
             }
         }
-        .alert("Statistics Recorded", isPresented: $showingAlert) {
-            Button("OK") {
-                dismiss()
-            }
+        .alert("Unable to Record Statistics", isPresented: $showingAlert) {
+            Button("OK", role: .cancel) { }
         } message: {
             Text(alertMessage)
+        }
+        .toast(isPresenting: $showingSuccessToast, message: "Statistics Recorded")
+        .onChange(of: showingSuccessToast) { _, new in
+            if !new { dismiss() }
         }
     }
 
@@ -192,8 +195,7 @@ struct QuickStatisticsEntryView: View {
 
         do {
             try modelContext.save()
-            alertMessage = "Recorded \(playCount) \(pluralizedPlayType(playResultType, count: playCount)) for \(game.opponent)"
-            showingAlert = true
+            showingSuccessToast = true
         } catch {
             alertMessage = "Failed to save statistics. Please try again."
             showingAlert = true

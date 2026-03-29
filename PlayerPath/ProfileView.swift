@@ -45,7 +45,9 @@ struct ProfileView: View {
             userProfileSection
             athletesSection
             settingsSection
+            legalSection
             accountSection
+            appVersionSection
         }
         .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search settings...")
         .tabRootNavigationBar(title: ProfileStrings.title)
@@ -274,6 +276,32 @@ struct ProfileView: View {
                     AboutView()
                 } label: {
                     Label("About PlayerPath", systemImage: "info.circle")
+                }
+            )
+        ))
+
+        items.append(SearchResult(
+            title: "Privacy Policy",
+            icon: "hand.raised",
+            keywords: ["privacy", "policy", "legal", "data"],
+            link: AnyView(
+                NavigationLink {
+                    PrivacyPolicyView()
+                } label: {
+                    Label("Privacy Policy", systemImage: "hand.raised")
+                }
+            )
+        ))
+
+        items.append(SearchResult(
+            title: "Terms of Use",
+            icon: "doc.text",
+            keywords: ["terms", "eula", "legal", "use"],
+            link: AnyView(
+                NavigationLink {
+                    TermsOfServiceView()
+                } label: {
+                    Label("Terms of Use (EULA)", systemImage: "doc.text")
                 }
             )
         ))
@@ -546,6 +574,37 @@ struct ProfileView: View {
                 }
             }
         }
+    }
+
+    private var legalSection: some View {
+        Section("Legal") {
+            NavigationLink {
+                PrivacyPolicyView()
+            } label: {
+                Label("Privacy Policy", systemImage: "hand.raised")
+            }
+
+            NavigationLink {
+                TermsOfServiceView()
+            } label: {
+                Label("Terms of Use (EULA)", systemImage: "doc.text")
+            }
+        }
+    }
+
+    private var appVersionSection: some View {
+        Section {
+            HStack {
+                Text("Version")
+                Spacer()
+                Text(appVersion)
+                    .foregroundColor(.secondary)
+            }
+        }
+    }
+
+    private var appVersion: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "Unknown"
     }
 
     private var accountSection: some View {

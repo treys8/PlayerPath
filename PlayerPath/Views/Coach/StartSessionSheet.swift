@@ -44,7 +44,7 @@ struct StartSessionSheet: View {
                         .disabled(isCreating)
                 }
             }
-            .alert("Error", isPresented: .init(
+            .alert("Unable to Start Session", isPresented: .init(
                 get: { errorMessage != nil },
                 set: { if !$0 { errorMessage = nil } }
             )) {

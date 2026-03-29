@@ -102,6 +102,7 @@ struct AthleteManagementView: View {
                 }
                 .onDelete { offsets in
                     if let index = offsets.first, index < sortedAthletes.count {
+                        Haptics.warning()
                         athletePendingDelete = sortedAthletes[index]
                         showingDeleteAthleteAlert = true
                     }
@@ -135,6 +136,7 @@ struct AthleteManagementView: View {
         .alert("Delete Athlete", isPresented: $showingDeleteAthleteAlert) {
             Button("Cancel", role: .cancel) { athletePendingDelete = nil }
             Button("Delete", role: .destructive) {
+                Haptics.heavy()
                 if let athlete = athletePendingDelete {
                     delete(athlete: athlete)
                 }

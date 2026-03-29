@@ -17,7 +17,6 @@ struct CoachesView: View {
 
     @State private var showingAddCoach = false
     @State private var showingInviteCoach = false
-    @State private var showingPremiumAlert = false
     @State private var showingPaywall = false
     @State private var coachToDelete: Coach?
     @State private var showingDeleteConfirmation = false
@@ -54,7 +53,7 @@ struct CoachesView: View {
                             showingInviteCoach = true
                         } else {
                             Haptics.warning()
-                            showingPremiumAlert = true
+                            showingPaywall = true
                         }
                     },
                     hasCoachingAccess: authManager.hasCoachingAccess
@@ -99,12 +98,14 @@ struct CoachesView: View {
                             }
                             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                 Button(role: .destructive) {
+                                    Haptics.warning()
                                     coachToDelete = coach
                                     showingDeleteConfirmation = true
                                 } label: {
                                     Label("Remove", systemImage: "trash")
                                 }
                                 Button {
+                                    Haptics.warning()
                                     coachToReport = coach
                                     showingReportConfirmation = true
                                 } label: {
@@ -147,7 +148,7 @@ struct CoachesView: View {
                             showingInviteCoach = true
                         } else {
                             Haptics.warning()
-                            showingPremiumAlert = true
+                            showingPaywall = true
                         }
                     } label: {
                         Label("Invite Coach to Share", systemImage: "paperplane")
@@ -168,19 +169,12 @@ struct CoachesView: View {
                 ImprovedPaywallView(user: user)
             }
         }
-        .alert("Pro Feature", isPresented: $showingPremiumAlert) {
-            Button("Maybe Later", role: .cancel) { }
-            Button("Upgrade") {
-                showingPaywall = true
-            }
-        } message: {
-            Text("Inviting coaches to share videos requires a Pro subscription. Upgrade to Pro to share your game videos and receive feedback from your coaches.")
-        }
         .alert("Delete Coach", isPresented: $showingDeleteConfirmation, presenting: coachToDelete) { coach in
             Button("Cancel", role: .cancel) {
                 coachToDelete = nil
             }
             Button("Delete", role: .destructive) {
+                Haptics.heavy()
                 deleteCoach(coach)
                 coachToDelete = nil
             }
@@ -192,6 +186,7 @@ struct CoachesView: View {
                 coachToReport = nil
             }
             Button("Report", role: .destructive) {
+                Haptics.heavy()
                 reportCoach(coach)
                 coachToReport = nil
             }
@@ -222,7 +217,7 @@ struct CoachesView: View {
             return
         }
         guard authManager.hasCoachingAccess else {
-            showingPremiumAlert = true
+            showingPaywall = true
             Haptics.warning()
             return
         }

@@ -12,6 +12,7 @@ import FirebaseAuth
 struct EditAccountView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @State private var username: String
     @State private var email: String
     let user: User
@@ -146,6 +147,16 @@ struct EditAccountView: View {
         // Firebase Auth reflects the change. loadUserProfile() syncs email on next sign-in.
         if !emailChanged {
             user.email = trimmedEmail
+        }
+
+        // Sync display name to Firebase Auth + Firestore
+        if trimmedUsername != authManager.userDisplayName {
+            do {
+                try await authManager.updateDisplayName(trimmedUsername)
+            } catch {
+                ErrorHandlerService.shared.handle(error, context: "EditAccountView.updateDisplayName", showAlert: false)
+                // Non-blocking — local save still proceeds
+            }
         }
 
         do {

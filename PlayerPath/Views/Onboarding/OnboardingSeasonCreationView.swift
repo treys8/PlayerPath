@@ -233,7 +233,7 @@ struct OnboardingSeasonCreationView: View {
             .scrollDismissesKeyboard(.interactively)
             .toolbar(.hidden, for: .navigationBar)
         }
-        .alert("Error", isPresented: $showingError) {
+        .alert("Unable to Create Season", isPresented: $showingError) {
             Button("OK", role: .cancel) { }
         } message: {
             Text(errorMessage)

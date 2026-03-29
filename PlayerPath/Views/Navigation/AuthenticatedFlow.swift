@@ -22,8 +22,9 @@ struct AuthenticatedFlow: View {
     
     @State private var currentUser: User?
     @State private var isLoading = true
+    @State private var showNamePrompt = false
+    @State private var namePromptText = ""
 
-    
     var body: some View {
         Group {
             if isLoading {
@@ -63,15 +64,46 @@ struct AuthenticatedFlow: View {
                 )
             }
         }
+        .alert("What's your name?", isPresented: $showNamePrompt) {
+            TextField("Your name", text: $namePromptText)
+            Button("Save") {
+                let name = namePromptText.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !name.isEmpty else { return }
+                Task {
+                    do {
+                        try await authManager.updateDisplayName(name)
+                    } catch {
+                        ErrorHandlerService.shared.handle(error, context: "AuthenticatedFlow.namePrompt", showAlert: false)
+                    }
+                    if let user = currentUser {
+                        user.username = name
+                        try? modelContext.save()
+                    }
+                    authManager.needsDisplayName = false
+                }
+            }
+            Button("Later", role: .cancel) {
+                authManager.needsDisplayName = false
+            }
+        } message: {
+            Text("Enter your name so athletes and coaches can identify you.")
+        }
+        .onChange(of: authManager.needsDisplayName) { _, needsName in
+            if needsName && hasCompletedOnboarding && !isLoading {
+                showNamePrompt = true
+            }
+        }
         .onDisappear {
             ActivityNotificationService.shared.stopListening()
             SharedFolderManager.shared.stopAthleteFoldersListener()
+            SharedFolderManager.shared.stopCoachFoldersListener()
         }
         .onChange(of: authManager.isSignedIn) { oldValue, newValue in
             if oldValue == true && newValue == false {
                 // User signed out — stop remaining listeners immediately
                 ActivityNotificationService.shared.stopListening()
                 SharedFolderManager.shared.stopAthleteFoldersListener()
+                SharedFolderManager.shared.stopCoachFoldersListener()
             }
         }
         .onChange(of: scenePhase) { _, newPhase in
@@ -79,12 +111,13 @@ struct AuthenticatedFlow: View {
             case .background:
                 ActivityNotificationService.shared.stopListening()
                 SharedFolderManager.shared.stopAthleteFoldersListener()
+                SharedFolderManager.shared.stopCoachFoldersListener()
             case .active:
                 // Refresh data if user is authenticated
                 if let firebaseUID = authManager.currentFirebaseUser?.uid {
                     ActivityNotificationService.shared.startListening(forUserID: firebaseUID)
                     if authManager.userRole == .coach {
-                        Task { try? await SharedFolderManager.shared.loadCoachFolders(coachID: firebaseUID) }
+                        SharedFolderManager.shared.startCoachFoldersListener(coachID: firebaseUID)
                         if let email = authManager.currentFirebaseUser?.email?.lowercased() {
                             Task { await CoachInvitationManager.shared.checkPendingInvitations(forCoachEmail: email) }
                         }
@@ -124,7 +157,7 @@ struct AuthenticatedFlow: View {
                 UploadQueueManager.shared.configure(modelContext: modelContext)
                 if let coachID = authManager.currentFirebaseUser?.uid {
                     CoachFolderArchiveManager.shared.configure(coachUID: coachID)
-                    Task { try? await SharedFolderManager.shared.loadCoachFolders(coachID: coachID) }
+                    SharedFolderManager.shared.startCoachFoldersListener(coachID: coachID)
                 }
                 if let coachEmail = authManager.currentFirebaseUser?.email?.lowercased() {
                     Task { await CoachInvitationManager.shared.checkPendingInvitations(forCoachEmail: coachEmail) }

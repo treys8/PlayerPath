@@ -116,6 +116,7 @@ struct GameDetailView: View {
 
                     if game.isLive {
                         Button(role: .destructive) {
+                            Haptics.warning()
                             showingEndGame = true
                         } label: {
                             Label("End Game", systemImage: "stop.circle")
@@ -151,6 +152,7 @@ struct GameDetailView: View {
 
                 if !game.isLive {
                     Button(role: .destructive) {
+                        Haptics.warning()
                         showingDeleteConfirmation = true
                     } label: {
                         Label("Delete Game", systemImage: "trash")
@@ -254,7 +256,7 @@ struct GameDetailView: View {
                     // Game State Actions
                     if !game.isComplete {
                         if game.isLive {
-                            Button(action: { showingEndGame = true }) {
+                            Button(action: { Haptics.warning(); showingEndGame = true }) {
                                 Label("End Game", systemImage: "stop.circle")
                             }
                         } else {
@@ -301,6 +303,7 @@ struct GameDetailView: View {
         .alert("End Game", isPresented: $showingEndGame) {
             Button("Cancel", role: .cancel) { }
             Button("End", role: .destructive) {
+                Haptics.heavy()
                 endGame()
             }
         } message: {
@@ -309,6 +312,7 @@ struct GameDetailView: View {
         .alert("Delete Game", isPresented: $showingDeleteConfirmation) {
             Button("Cancel", role: .cancel) { }
             Button("Delete", role: .destructive) {
+                Haptics.heavy()
                 deleteGame()
             }
         } message: {

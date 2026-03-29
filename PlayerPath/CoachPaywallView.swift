@@ -45,7 +45,7 @@ struct CoachPaywallView: View {
             }
             .sheet(isPresented: $showingTerms) { TermsOfServiceView() }
             .sheet(isPresented: $showingPrivacyPolicy) { PrivacyPolicyView() }
-            .alert("Error", isPresented: Binding(
+            .alert("Purchase Failed", isPresented: Binding(
                 get: { storeManager.error != nil },
                 set: { if !$0 { storeManager.clearError() } }
             )) {
@@ -58,11 +58,7 @@ struct CoachPaywallView: View {
             } message: {
                 Text("Your purchase is awaiting approval. Once approved, your subscription will activate automatically.")
             }
-            .alert("Email Copied", isPresented: $showingEmailCopied) {
-                Button("OK", role: .cancel) {}
-            } message: {
-                Text("support@playerpath.app has been copied to your clipboard.")
-            }
+            .toast(isPresenting: $showingEmailCopied, message: "Email Copied")
             .overlay {
                 if isPurchasing { LoadingOverlay(message: "Processing purchase...") }
             }

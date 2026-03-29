@@ -214,6 +214,13 @@ struct DashboardView: View {
             .padding(.vertical)
         }
         .refreshable {
+            if user.firebaseAuthUid != nil {
+                do {
+                    try await SyncCoordinator.shared.syncAll(for: user)
+                } catch {
+                    ErrorHandlerService.shared.handle(error, context: "DashboardView.refreshable", showAlert: false)
+                }
+            }
             await viewModel.refresh()
         }
     }

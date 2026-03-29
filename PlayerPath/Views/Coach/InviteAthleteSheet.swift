@@ -216,12 +216,9 @@ struct InviteAthleteSheet: View {
                 )
             }
             .sheet(isPresented: $showingPaywall) { CoachPaywallView() }
-            .alert("Invitation Sent!", isPresented: $showingSuccess) {
-                Button("Done") {
-                    dismiss()
-                }
-            } message: {
-                Text("An invitation has been sent to \(athleteEmail). They'll receive an email with instructions to connect.")
+            .toast(isPresenting: $showingSuccess, message: "Invitation Sent")
+            .onChange(of: showingSuccess) { _, new in
+                if !new { dismiss() }
             }
         }
     }

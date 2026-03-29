@@ -114,6 +114,7 @@ struct PhotoDetailView: View {
                     Divider()
 
                     Button(role: .destructive) {
+                        Haptics.warning()
                         showingDeleteConfirmation = true
                     } label: {
                         Label("Delete Photo", systemImage: "trash")
@@ -129,6 +130,7 @@ struct PhotoDetailView: View {
         }
         .alert("Delete Photo?", isPresented: $showingDeleteConfirmation) {
             Button("Delete", role: .destructive) {
+                Haptics.heavy()
                 onDelete()
                 dismiss()
             }
@@ -147,23 +149,7 @@ struct PhotoDetailView: View {
         .sheet(isPresented: $showingTagSheet) {
             PhotoTagSheet(photo: photo)
         }
-        .overlay {
-            if showingSavedToast {
-                VStack {
-                    Spacer()
-                    Label("Saved to Camera Roll", systemImage: "checkmark.circle.fill")
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 10)
-                        .background(.ultraThinMaterial, in: Capsule())
-                        .padding(.bottom, 100)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
-                .animation(.easeInOut, value: showingSavedToast)
-            }
-        }
+        .toast(isPresenting: $showingSavedToast, message: "Saved to Camera Roll")
         .alert("Cannot Save Photo", isPresented: Binding(
             get: { saveError != nil },
             set: { if !$0 { saveError = nil } }
@@ -249,8 +235,6 @@ struct PhotoDetailView: View {
                 Task { @MainActor in
                     if success {
                         showingSavedToast = true
-                        try? await Task.sleep(for: .seconds(2))
-                        showingSavedToast = false
                     } else {
                         saveError = error?.localizedDescription ?? "Failed to save photo."
                     }

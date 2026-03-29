@@ -76,6 +76,21 @@ struct NotificationSettingsView: View {
                 Text("Weekly summary delivers every Sunday at 6 PM.")
             }
             .disabled(authorizationStatus == .denied)
+
+            if athleteId == nil {
+                Section {
+                    NavigationLink {
+                        CoachReviewReminderSettingsView()
+                    } label: {
+                        Label("Review Reminders", systemImage: "bell.badge")
+                    }
+                } header: {
+                    Text("Coach Notifications")
+                } footer: {
+                    Text("Daily reminder to review session clips.")
+                }
+                .disabled(authorizationStatus == .denied)
+            }
         }
         .navigationTitle("Notifications")
         .navigationBarTitleDisplayMode(.inline)

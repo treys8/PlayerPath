@@ -268,11 +268,7 @@ struct VideoPlayerView: View {
                 player?.pause()
             }
         }
-        .alert("Saved to Photos", isPresented: $showingSaveSuccess) {
-            Button("OK") { }
-        } message: {
-            Text("Video has been saved to your Photos library.")
-        }
+        .toast(isPresenting: $showingSaveSuccess, message: "Saved to Photos")
         .alert("Save Failed", isPresented: Binding(
             get: { saveErrorMessage != nil },
             set: { if !$0 { saveErrorMessage = nil } }

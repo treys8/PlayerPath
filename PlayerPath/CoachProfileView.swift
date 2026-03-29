@@ -7,6 +7,7 @@
 //
 
 import SwiftUI
+import FirebaseAuth
 
 struct CoachProfileView: View {
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
@@ -171,34 +172,42 @@ struct CoachProfileView: View {
 
                 // Settings Section
                 Section("Settings") {
+                    NavigationLink(destination: UserPreferencesView()) {
+                        Label("App Preferences", systemImage: "slider.horizontal.3")
+                    }
+
+                    NavigationLink(destination: BiometricSettingsView()) {
+                        Label("Face ID / Touch ID", systemImage: "faceid")
+                    }
+
+                    NavigationLink(destination: VideoRecordingSettingsView()) {
+                        Label("Video Recording", systemImage: "video.fill")
+                    }
+
                     NavigationLink(destination: NotificationSettingsView(athleteId: nil)) {
                         Label("Notifications", systemImage: "bell")
                     }
+
                     NavigationLink(destination: CoachReviewReminderSettingsView()) {
                         Label("Review Reminders", systemImage: "bell.badge")
                     }
-                    NavigationLink(destination: ChangePasswordView(email: authManager.userEmail ?? "")) {
-                        Label("Change Password", systemImage: "lock")
+
+                    let provider = Auth.auth().currentUser?.providerData.first?.providerID ?? "email"
+                    if provider != "apple.com" {
+                        NavigationLink(destination: ChangePasswordView(email: authManager.userEmail ?? "")) {
+                            Label("Change Password", systemImage: "lock")
+                        }
                     }
                 }
 
-                // Help & Support Section
+                // Help & Support
                 Section("Help & Support") {
-                    NavigationLink(destination: FAQView()) {
-                        Label("FAQ", systemImage: "questionmark.circle")
+                    NavigationLink(destination: HelpSupportView()) {
+                        Label("Help & Support", systemImage: "questionmark.circle")
                     }
-                    NavigationLink(destination: ContactSupportView()) {
-                        Label("Contact Support", systemImage: "envelope")
-                    }
-                }
 
-                // Legal Section
-                Section("Legal") {
-                    NavigationLink(destination: PrivacyPolicyView()) {
-                        Label("Privacy Policy", systemImage: "hand.raised")
-                    }
-                    NavigationLink(destination: TermsOfServiceView()) {
-                        Label("Terms of Use (EULA)", systemImage: "doc.text")
+                    NavigationLink(destination: AboutView()) {
+                        Label("About PlayerPath", systemImage: "info.circle")
                     }
                 }
 

@@ -637,6 +637,28 @@ final class UploadQueueManager {
                     let usedGB = Double(user.cloudStorageUsedBytes) / StorageConstants.bytesPerGBDouble
                     throw UploadError.storageLimitExceeded(usedGB: usedGB, limitGB: tier.storageLimitGB)
                 }
+
+                // Warn when approaching storage limit (80%+)
+                let usageRatio = Double(projectedUsage) / Double(limitBytes)
+                if usageRatio >= 0.8 {
+                    let lastWarning = UserDefaults.standard.object(forKey: "lastStorageWarningDate") as? Date
+                    let shouldWarn = lastWarning == nil || Date().timeIntervalSince(lastWarning!) > 86400
+                    if shouldWarn {
+                        UserDefaults.standard.set(Date(), forKey: "lastStorageWarningDate")
+                        let pct = Int(usageRatio * 100)
+                        Task { @MainActor in
+                            _ = await PushNotificationService.shared.scheduleLocalNotification(
+                                identifier: "storage_warning",
+                                title: "Storage Almost Full",
+                                body: "You've used \(pct)% of your \(tier.storageLimitGB) GB cloud storage. Upgrade your plan for more space.",
+                                categoryIdentifier: "CLOUD_BACKUP",
+                                userInfo: ["type": "storage_warning"],
+                                trigger: UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
+                            )
+                        }
+                    }
+                }
+
                 // Reserve space now; released on failure or kept on success
                 user.cloudStorageUsedBytes += fileSize
                 reservedBytes = fileSize

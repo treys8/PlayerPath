@@ -292,6 +292,9 @@ struct HighlightsView: View {
                 }
             }
         }
+        .refreshable {
+            viewModel.update(videoClips: athlete?.videoClips ?? [])
+        }
     }
 
     private func toggleGroupExpansion(_ groupID: UUID) {

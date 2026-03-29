@@ -72,6 +72,7 @@ struct SeasonManagementView: View {
             if athlete.activeSeason != nil {
                 Section {
                     Button {
+                        Haptics.warning()
                         seasonToArchive = athlete.activeSeason
                         showingArchiveConfirmation = true
                     } label: {
@@ -131,18 +132,19 @@ struct SeasonManagementView: View {
                 seasonToArchive = nil
             }
             Button("End Season", role: .destructive) {
+                Haptics.heavy()
                 archiveSeason(season)
                 seasonToArchive = nil
             }
         } message: { season in
             Text("Are you sure you want to end \(season.displayName)? This will archive all games, practices, and videos for this season. You can still view them later in season history.")
         }
-        .alert("Error", isPresented: $showingError) {
+        .alert("Unable to Update Season", isPresented: $showingError) {
             Button("OK", role: .cancel) { }
         } message: {
             Text(errorMessage)
         }
-        .alert("Success", isPresented: $showingSuccess) {
+        .alert("Season Archived", isPresented: $showingSuccess) {
             Button("OK", role: .cancel) { }
         } message: {
             Text(successMessage)
@@ -456,7 +458,7 @@ struct CreateSeasonView: View {
                     .disabled(seasonName.isEmpty)
                 }
             }
-            .alert("Error", isPresented: $showingError) {
+            .alert("Unable to Create Season", isPresented: $showingError) {
                 Button("OK", role: .cancel) { }
             } message: {
                 Text(errorMessage)
@@ -573,6 +575,7 @@ struct SeasonDetailView: View {
     @State private var errorMessage = ""
     @State private var selectedFilter: SeasonContentFilter = .all
     @State private var showingSuccess = false
+    @State private var successTitle = "Success"
     @State private var successMessage = ""
 
     // Cached stats - updated via relationships
@@ -688,6 +691,7 @@ struct SeasonDetailView: View {
 
                 if season.isActive {
                     Button {
+                        Haptics.warning()
                         showingEndSeasonConfirmation = true
                     } label: {
                         Label("End Season", systemImage: "checkmark.circle")
@@ -702,6 +706,7 @@ struct SeasonDetailView: View {
                 }
 
                 Button(role: .destructive) {
+                    Haptics.warning()
                     showingDeleteConfirmation = true
                 } label: {
                     Label("Delete Season", systemImage: "trash")
@@ -720,6 +725,7 @@ struct SeasonDetailView: View {
         .alert("Delete Season", isPresented: $showingDeleteConfirmation) {
             Button("Cancel", role: .cancel) { }
             Button("Delete", role: .destructive) {
+                Haptics.heavy()
                 deleteSeason()
             }
         } message: {
@@ -728,6 +734,7 @@ struct SeasonDetailView: View {
         .alert("End Season", isPresented: $showingEndSeasonConfirmation) {
             Button("Cancel", role: .cancel) { }
             Button("End Season", role: .destructive) {
+                Haptics.heavy()
                 endSeason()
             }
         } message: {
@@ -745,12 +752,12 @@ struct SeasonDetailView: View {
                 Text("This will make \(season.displayName) the active season.")
             }
         }
-        .alert("Error", isPresented: $showingError) {
+        .alert("Unable to Update Season", isPresented: $showingError) {
             Button("OK", role: .cancel) { }
         } message: {
             Text(errorMessage)
         }
-        .alert("Success", isPresented: $showingSuccess) {
+        .alert(successTitle, isPresented: $showingSuccess) {
             Button("OK", role: .cancel) { }
         } message: {
             Text(successMessage)
@@ -1009,6 +1016,7 @@ struct SeasonDetailView: View {
                     isProcessing = false
                 }
                 Haptics.medium()
+                successTitle = "Season Archived"
                 successMessage = "\(season.displayName) has been ended and archived."
                 showingSuccess = true
             } catch {
@@ -1070,6 +1078,7 @@ struct SeasonDetailView: View {
                     isProcessing = false
                 }
                 Haptics.medium()
+                successTitle = "Season Renamed"
                 successMessage = "Season renamed to \"\(trimmedName)\"."
                 showingSuccess = true
             } catch {
@@ -1126,6 +1135,7 @@ struct SeasonDetailView: View {
                 isProcessing = false
             }
             Haptics.medium()
+            successTitle = "Season Reactivated"
             successMessage = "\(season.displayName) is now active."
             showingSuccess = true
         } catch {

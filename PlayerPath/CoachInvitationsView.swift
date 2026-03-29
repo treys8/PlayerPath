@@ -53,7 +53,7 @@ struct CoachInvitationsView: View {
             await loadInvitations()
             lastFetchDate = Date()
         }
-        .alert("Error", isPresented: $showingError) {
+        .alert("Invitation Failed", isPresented: $showingError) {
             Button("OK") {
                 viewModel.errorMessage = nil
             }

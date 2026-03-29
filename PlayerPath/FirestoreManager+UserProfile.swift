@@ -34,6 +34,7 @@ extension FirestoreManager {
             let profile = UserProfile(
                 id: doc.documentID,
                 email: email,
+                displayName: data["displayName"] as? String,
                 role: role,
                 subscriptionTier: data["subscriptionTier"] as? String,
                 coachSubscriptionTier: data["coachSubscriptionTier"] as? String,

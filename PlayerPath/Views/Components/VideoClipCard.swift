@@ -241,16 +241,12 @@ struct VideoClipCard: View {
         .sheet(isPresented: $showingShareToFolder) {
             ShareToCoachFolderView(clip: video)
         }
-        .alert("Something Went Wrong", isPresented: $showingError) {
+        .alert("Video Action Failed", isPresented: $showingError) {
             Button("OK", role: .cancel) { }
         } message: {
             Text(errorMessage ?? "An unexpected error occurred. Please try again.")
         }
-        .alert("Saved to Photos", isPresented: $showingSaveSuccess) {
-            Button("OK") { }
-        } message: {
-            Text("Video has been saved to your Photos library.")
-        }
+        .toast(isPresenting: $showingSaveSuccess, message: "Saved to Photos")
         .overlay {
             if isSavingToPhotos {
                 ZStack {

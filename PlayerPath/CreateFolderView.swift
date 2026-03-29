@@ -68,17 +68,14 @@ struct CreateFolderView: View {
                     .disabled(!isValid || isCreating)
                 }
             }
-            .alert("Error", isPresented: $showingError) {
+            .alert("Unable to Create Folder", isPresented: $showingError) {
                 Button("OK", role: .cancel) { }
             } message: {
                 Text(errorMessage)
             }
-            .alert("Success!", isPresented: $showingSuccess) {
-                Button("Done") {
-                    dismiss()
-                }
-            } message: {
-                Text("Folder created and invitation sent to \(coachEmail)")
+            .toast(isPresenting: $showingSuccess, message: "Folder Created")
+            .onChange(of: showingSuccess) { _, new in
+                if !new { dismiss() }
             }
         }
     }
@@ -307,17 +304,14 @@ struct InviteCoachView: View {
                     .disabled(!isValid || isSending)
                 }
             }
-            .alert("Error", isPresented: $showingError) {
+            .alert("Unable to Send Invitation", isPresented: $showingError) {
                 Button("OK", role: .cancel) { }
             } message: {
                 Text(errorMessage)
             }
-            .alert("Invitation Sent!", isPresented: $showingSuccess) {
-                Button("Done") {
-                    dismiss()
-                }
-            } message: {
-                Text("\(coachEmail) will receive an invitation to access this folder.")
+            .toast(isPresenting: $showingSuccess, message: "Invitation Sent")
+            .onChange(of: showingSuccess) { _, new in
+                if !new { dismiss() }
             }
         }
     }

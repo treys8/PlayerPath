@@ -178,6 +178,7 @@ struct CoachDetailView: View {
         .alert("Remove Coach", isPresented: $showingDeleteConfirmation) {
             Button("Cancel", role: .cancel) { }
             Button("Remove", role: .destructive) {
+                Haptics.heavy()
                 deleteCoach()
             }
         } message: {

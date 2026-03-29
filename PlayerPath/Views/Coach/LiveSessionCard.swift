@@ -18,7 +18,7 @@ struct LiveSessionCard: View {
     @Environment(\.scenePhase) private var scenePhase
 
     private var isLive: Bool { session.status == .live }
-    private var accentColor: Color { isLive ? .red : .orange }
+    private var accentColor: Color { isLive ? .red : .brandNavy }
 
     var body: some View {
         HStack(spacing: 14) {
@@ -39,14 +39,14 @@ struct LiveSessionCard: View {
                     .frame(width: 36, height: 36)
                     .animation(reduceMotion ? nil : .easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: isPulsing)
 
-                Image(systemName: "record.circle")
+                Image(systemName: isLive ? "record.circle" : "checkmark.circle")
                     .font(.system(size: 18, weight: .semibold))
                     .foregroundColor(accentColor)
                     .symbolRenderingMode(.hierarchical)
             }
-            .onAppear { if !reduceMotion { isPulsing = true } }
+            .onAppear { if isLive && !reduceMotion { isPulsing = true } }
             .onChange(of: scenePhase) { _, newPhase in
-                isPulsing = newPhase == .active && !reduceMotion
+                isPulsing = isLive && newPhase == .active && !reduceMotion
             }
 
             // Session info
@@ -57,7 +57,7 @@ struct LiveSessionCard: View {
                             .fill(accentColor)
                             .frame(width: 6, height: 6)
                             .opacity(isPulsing ? 0.5 : 1.0)
-                        Text(isLive ? "LIVE" : "REVIEW")
+                        Text(isLive ? "LIVE" : "SESSION ENDED")
                             .font(.caption2)
                             .fontWeight(.black)
                             .foregroundColor(accentColor)
@@ -66,10 +66,12 @@ struct LiveSessionCard: View {
                     .padding(.vertical, 3)
                     .background(Capsule().fill(accentColor.opacity(0.12)))
 
-                    Text("SESSION")
-                        .font(.caption2)
-                        .fontWeight(.semibold)
-                        .foregroundColor(.secondary)
+                    if isLive {
+                        Text("SESSION")
+                            .font(.caption2)
+                            .fontWeight(.semibold)
+                            .foregroundColor(.secondary)
+                    }
                 }
 
                 Text(session.athleteNamesSummary)
@@ -152,6 +154,6 @@ struct LiveSessionCard: View {
         )
         .shadow(color: accentColor.opacity(0.15), radius: 8, x: 0, y: 4)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(isLive ? "Live" : "Review") session with \(session.athleteNamesSummary). \(session.clipCount) clip\(session.clipCount == 1 ? "" : "s").")
+        .accessibilityLabel("\(isLive ? "Live" : "Ended") session with \(session.athleteNamesSummary). \(session.clipCount) clip\(session.clipCount == 1 ? "" : "s").")
     }
 }

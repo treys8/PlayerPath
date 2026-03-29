@@ -35,7 +35,7 @@ class CoachFolderViewModel {
     private var prefetchedFileNames: Set<String> = []
     private var lastVideoDocument: QueryDocumentSnapshot?
     private static let pageSize = 30
-    // nonisolated(unsafe) required so deinit can call .remove() on the listener
+    // nonisolated(unsafe) so deinit can call .remove() on the listener
     nonisolated(unsafe) private var videosListener: ListenerRegistration?
 
     init(folder: SharedFolder) {

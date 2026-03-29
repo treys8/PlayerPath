@@ -96,7 +96,7 @@ struct QuickCueManager: View {
                     Button("Done") { dismiss() }
                 }
             }
-            .alert("Error", isPresented: $showingError) {
+            .alert("Unable to Save Cue", isPresented: $showingError) {
                 Button("OK", role: .cancel) { }
             } message: {
                 Text(errorMessage ?? "An unexpected error occurred.")

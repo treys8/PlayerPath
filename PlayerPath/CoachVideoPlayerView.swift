@@ -95,11 +95,7 @@ struct CoachVideoPlayerView: View {
                 }
             }
         }
-        .alert("Video Saved", isPresented: $viewModel.didSaveSuccessfully) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text("Video has been saved to your Camera Roll.")
-        }
+        .toast(isPresenting: $viewModel.didSaveSuccessfully, message: "Video Saved")
         .alert("Save Failed", isPresented: .init(
             get: { viewModel.saveError != nil },
             set: { if !$0 { viewModel.saveError = nil } }
@@ -589,12 +585,13 @@ struct NoteCardView: View {
         .contextMenu {
             if canDelete {
                 Button(role: .destructive) {
+                    Haptics.warning()
                     showingDeleteAlert = true
                 } label: {
                     Label("Delete", systemImage: "trash")
                 }
             } else {
-                Button(role: .destructive) {
+                Button {
                     showingReportAlert = true
                 } label: {
                     Label("Report Comment", systemImage: "flag")
@@ -603,6 +600,7 @@ struct NoteCardView: View {
         }
         .alert("Delete Note", isPresented: $showingDeleteAlert) {
             Button("Delete", role: .destructive) {
+                Haptics.heavy()
                 onDelete()
             }
             Button("Cancel", role: .cancel) {}

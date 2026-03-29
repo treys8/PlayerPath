@@ -64,6 +64,7 @@ final class AthleteDowngradeManager {
     private func notifyCoachesOfLapsedStatus() async {
         let folders = SharedFolderManager.shared.athleteFolders
         let athleteName = Auth.auth().currentUser?.displayName ?? "An athlete"
+        let athleteUID = Auth.auth().currentUser?.uid ?? ""
 
         for folder in folders {
             let coachIDs = folder.sharedWithCoachIDs
@@ -72,6 +73,7 @@ final class AthleteDowngradeManager {
                     folderID: folder.id ?? "",
                     folderName: folder.name,
                     athleteName: athleteName,
+                    athleteID: athleteUID,
                     coachUserID: coachID
                 )
             }

@@ -179,7 +179,7 @@ struct ManualStatisticsEntryView: View {
                 }
             }
         }
-        .alert("Error", isPresented: $showingValidationAlert) {
+        .alert("Validation Error", isPresented: $showingValidationAlert) {
             Button("OK") { }
         } message: {
             Text(alertMessage)

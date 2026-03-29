@@ -161,7 +161,7 @@ struct AddCoachView: View {
                     .disabled(!isValid || emailError != nil || phoneError != nil || isSaving)
                 }
             }
-            .alert("Error", isPresented: $showingError) {
+            .alert("Unable to Add Coach", isPresented: $showingError) {
                 Button("OK", role: .cancel) { }
             } message: {
                 Text(errorMessage)
