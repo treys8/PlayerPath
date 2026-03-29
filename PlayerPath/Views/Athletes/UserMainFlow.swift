@@ -262,8 +262,14 @@ struct UserMainFlow: View {
 
     private func handleActivityNotificationTap(_ notification: ActivityNotification) {
         switch notification.type {
-        case .invitationAccepted, .coachComment, .newVideo:
-            // Navigate to the More tab where Shared Folders lives
+        case .coachComment, .newVideo:
+            // Deep link to the specific shared folder if we have a folderID
+            if let folderID = notification.folderID {
+                NotificationCenter.default.post(name: .navigateToSharedFolder, object: folderID)
+            } else {
+                postSwitchTab(.more)
+            }
+        case .invitationAccepted:
             postSwitchTab(.more)
         case .invitationReceived:
             // Athlete shouldn't normally receive this (coaches do), but handle gracefully

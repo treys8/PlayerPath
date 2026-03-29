@@ -40,6 +40,8 @@ extension Notification.Name {
     static let navigateToMoreHighlights = Notification.Name("navigateToMoreHighlights")
     /// Coach: navigate to a specific shared folder. Post with `object: folderID` (String).
     static let navigateToCoachFolder = Notification.Name("navigateToCoachFolder")
+    /// Athlete: navigate to a specific shared folder. Post with `object: folderID` (String).
+    static let navigateToSharedFolder = Notification.Name("navigateToSharedFolder")
     /// Coach: open the invitations view.
     static let openCoachInvitations = Notification.Name("openCoachInvitations")
     /// Coach: switch to a specific coach tab. Post with `object: CoachTab.rawValue` (Int).

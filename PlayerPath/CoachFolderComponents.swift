@@ -48,6 +48,7 @@ struct AllVideosTabView: View {
     var isLoadingMore: Bool = false
     var hasMoreVideos: Bool = false
     var errorMessage: String? = nil
+    var unreadVideoIDs: Set<String> = []
     let onRefresh: () async -> Void
     var onLoadMore: (() async -> Void)?
     var onEditTags: ((CoachVideoItem) -> Void)?
@@ -105,7 +106,7 @@ struct AllVideosTabView: View {
     @ViewBuilder
     private func videoNavigationLink(folder: SharedFolder, video: CoachVideoItem) -> some View {
         let link = NavigationLink(destination: CoachVideoPlayerView(folder: folder, video: video)) {
-            CoachVideoCard(video: video)
+            CoachVideoCard(video: video, isUnread: unreadVideoIDs.contains(video.id))
         }
         .buttonStyle(PressableCardButtonStyle())
 
@@ -127,6 +128,7 @@ struct AllVideosTabView: View {
 
 struct CoachVideoCard: View {
     let video: CoachVideoItem
+    var isUnread: Bool = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -155,6 +157,24 @@ struct CoachVideoCard: View {
                         endPoint: .bottom
                     )
                     .frame(height: 40)
+                }
+                // Unread feedback indicator
+                if isUnread {
+                    VStack {
+                        HStack {
+                            Text("New")
+                                .font(.caption2)
+                                .fontWeight(.bold)
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color.red)
+                                .clipShape(Capsule())
+                                .padding(8)
+                            Spacer()
+                        }
+                        Spacer()
+                    }
                 }
             }
             .aspectRatio(16/9, contentMode: .fit)
@@ -252,6 +272,7 @@ struct GamesTabView: View {
     let videos: [CoachVideoItem]
     var isLoading: Bool = false
     var errorMessage: String? = nil
+    var unreadVideoIDs: Set<String> = []
     let onRefresh: () async -> Void
 
     @State private var cachedGameGroups: [GameGroup] = []
@@ -277,7 +298,7 @@ struct GamesTabView: View {
                 ScrollView {
                     LazyVStack(spacing: 12) {
                         ForEach(cachedGameGroups) { group in
-                            GameGroupView(folder: folder, gameGroup: group)
+                            GameGroupView(folder: folder, gameGroup: group, unreadVideoIDs: unreadVideoIDs)
                         }
                     }
                     .padding()
@@ -314,6 +335,7 @@ struct GameGroup: Identifiable {
 struct GameGroupView: View {
     let folder: SharedFolder
     let gameGroup: GameGroup
+    var unreadVideoIDs: Set<String> = []
 
     @State private var isExpanded = true
 
@@ -351,7 +373,7 @@ struct GameGroupView: View {
             if isExpanded {
                 ForEach(gameGroup.videos) { video in
                     NavigationLink(destination: CoachVideoPlayerView(folder: folder, video: video)) {
-                        CoachVideoCard(video: video)
+                        CoachVideoCard(video: video, isUnread: unreadVideoIDs.contains(video.id))
                     }
                     .buttonStyle(PressableCardButtonStyle())
                 }
@@ -367,6 +389,7 @@ struct InstructionTabView: View {
     let videos: [CoachVideoItem]
     var isLoading: Bool = false
     var errorMessage: String? = nil
+    var unreadVideoIDs: Set<String> = []
     let onRefresh: () async -> Void
 
     @State private var cachedPracticeGroups: [PracticeGroup] = []
@@ -392,7 +415,7 @@ struct InstructionTabView: View {
                 ScrollView {
                     LazyVStack(spacing: 12) {
                         ForEach(cachedPracticeGroups) { group in
-                            PracticeGroupView(folder: folder, practiceGroup: group)
+                            PracticeGroupView(folder: folder, practiceGroup: group, unreadVideoIDs: unreadVideoIDs)
                         }
                     }
                     .padding()
@@ -428,6 +451,7 @@ struct PracticeGroup: Identifiable {
 struct PracticeGroupView: View {
     let folder: SharedFolder
     let practiceGroup: PracticeGroup
+    var unreadVideoIDs: Set<String> = []
 
     @State private var isExpanded = true
 
@@ -465,7 +489,7 @@ struct PracticeGroupView: View {
             if isExpanded {
                 ForEach(practiceGroup.videos) { video in
                     NavigationLink(destination: CoachVideoPlayerView(folder: folder, video: video)) {
-                        CoachVideoCard(video: video)
+                        CoachVideoCard(video: video, isUnread: unreadVideoIDs.contains(video.id))
                     }
                     .buttonStyle(PressableCardButtonStyle())
                 }

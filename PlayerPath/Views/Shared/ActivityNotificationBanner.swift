@@ -108,6 +108,7 @@ struct ActivityNotificationBanner: View {
             senderID: "coach123",
             targetID: "video123",
             targetType: .video,
+            folderID: "folder123",
             isRead: false,
             createdAt: Date()
         ),

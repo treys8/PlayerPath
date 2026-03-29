@@ -28,6 +28,7 @@ struct ActivityNotification: Identifiable, Codable {
     let senderID: String
     let targetID: String?
     let targetType: TargetType?
+    let folderID: String?
     var isRead: Bool
     let createdAt: Date?
 
@@ -59,6 +60,10 @@ final class ActivityNotificationService: ObservableObject {
     @Published private(set) var unreadVideoCount: Int = 0
     /// Unread count for folder-targeted video notifications (coach card badge).
     @Published private(set) var unreadFolderVideoCount: Int = 0
+    /// Unread coach feedback grouped by folderID.
+    @Published private(set) var unreadCountByFolder: [String: Int] = [:]
+    /// Set of videoIDs that have unread coach feedback.
+    @Published private(set) var unreadVideoIDs: Set<String> = []
     @Published private(set) var recentNotifications: [ActivityNotification] = []
     /// Most-recently-arrived notification, used to drive the in-app banner.
     @Published private(set) var incomingBanner: ActivityNotification?
@@ -127,6 +132,17 @@ final class ActivityNotificationService: ObservableObject {
                     self.unreadFolderVideoCount = unread.filter {
                         ($0.type == .newVideo || $0.type == .coachComment) && $0.targetType == .folder
                     }.count
+
+                    // Per-folder unread counts and per-video unread set
+                    let feedbackUnread = unread.filter { $0.type == .coachComment }
+                    var folderCounts: [String: Int] = [:]
+                    var videoIDs: Set<String> = []
+                    for n in feedbackUnread {
+                        if let fid = n.folderID { folderCounts[fid, default: 0] += 1 }
+                        if let vid = n.targetID, n.targetType == .video { videoIDs.insert(vid) }
+                    }
+                    self.unreadCountByFolder = folderCounts
+                    self.unreadVideoIDs = videoIDs
 
                     // Surface in-app banner for any genuinely new (unseen) notification
                     let currentIDs = Set(notifications.compactMap { $0.id })
@@ -226,6 +242,25 @@ final class ActivityNotificationService: ObservableObject {
         }
     }
 
+    func markFolderRead(folderID: String, forUserID userID: String) async {
+        let folderUnread = recentNotifications.filter {
+            !$0.isRead && $0.folderID == folderID
+        }
+        guard !folderUnread.isEmpty else { return }
+
+        let batch = db.batch()
+        for n in folderUnread {
+            guard let id = n.id else { continue }
+            let ref = db.collection(FC.notifications).document(userID).collection(FC.items).document(id)
+            batch.updateData(["isRead": true], forDocument: ref)
+        }
+        do {
+            try await batch.commit()
+        } catch {
+            log.error("Failed to mark folder \(folderID) notifications read: \(error.localizedDescription)")
+        }
+    }
+
     func markRead(_ notifID: String, forUserID userID: String) async {
         do {
             try await db.collection(FC.notifications)
@@ -282,6 +317,7 @@ final class ActivityNotificationService: ObservableObject {
             "senderID": coachID,
             "targetID": videoID,
             "targetType": ActivityNotification.TargetType.video.rawValue,
+            "folderID": folderID,
             "isRead": false,
             "createdAt": FieldValue.serverTimestamp()
         ]
@@ -393,6 +429,7 @@ final class ActivityNotificationService: ObservableObject {
             "senderID": coachID,
             "targetID": videoID,
             "targetType": ActivityNotification.TargetType.video.rawValue,
+            "folderID": folderID,
             "isRead": false,
             "createdAt": FieldValue.serverTimestamp()
         ]

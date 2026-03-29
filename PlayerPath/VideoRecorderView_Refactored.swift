@@ -115,6 +115,7 @@ struct VideoRecorderView_Refactored: View {
                                     completion()
                                     uploadFlowShowingPlayResult = false
                                     showingTrimmer = false
+                                    PlayerPathAppDelegate.orientationLock = .allButUpsideDown
                                     dismiss()
                                 }
                             },
@@ -142,6 +143,7 @@ struct VideoRecorderView_Refactored: View {
                                 saveVideoWithResult(videoURL: finalVideoURL, playResult: result, pitchSpeed: pitchSpeed, pitchType: pitchType, role: role) {
                                     uploadFlowShowingPlayResult = false
                                     showingTrimmer = false
+                                    PlayerPathAppDelegate.orientationLock = .allButUpsideDown
                                     dismiss()
                                 }
                             },
@@ -165,12 +167,12 @@ struct VideoRecorderView_Refactored: View {
                         videoURL: videoURL,
                         onSave: { trimmedURL in
                             trimmedVideoURL = trimmedURL
-                            if practice != nil { lockPortrait() }
+                            lockPortrait()
                             uploadFlowShowingPlayResult = true
                         },
                         onSkip: {
                             trimmedVideoURL = nil
-                            if practice != nil { lockPortrait() }
+                            lockPortrait()
                             uploadFlowShowingPlayResult = true
                         },
                         onCancel: {

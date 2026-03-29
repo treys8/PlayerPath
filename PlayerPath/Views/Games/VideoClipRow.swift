@@ -13,6 +13,7 @@ struct VideoClipRow: View {
     let hasCoachingAccess: Bool
     @State private var showingVideoPlayer = false
     @State private var showingShareToFolder = false
+    @State private var showingMoveSheet = false
     @State private var thumbnailImage: UIImage?
     @State private var isLoadingThumbnail = false
     @Environment(\.modelContext) private var modelContext
@@ -98,6 +99,12 @@ struct VideoClipRow: View {
                     Label("Share to Coach Folder", systemImage: hasCoachingAccess ? "folder.badge.person.fill" : "lock.fill")
                 }
             }
+
+            Button {
+                showingMoveSheet = true
+            } label: {
+                Label("Move to Athlete", systemImage: "arrow.right.arrow.left")
+            }
         }
         .task {
             await loadThumbnail()
@@ -107,6 +114,9 @@ struct VideoClipRow: View {
         }
         .sheet(isPresented: $showingShareToFolder) {
             ShareToCoachFolderView(clip: clip)
+        }
+        .sheet(isPresented: $showingMoveSheet) {
+            MoveClipSheet(clip: clip)
         }
     }
 

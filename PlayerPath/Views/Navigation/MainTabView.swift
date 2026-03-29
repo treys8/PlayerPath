@@ -46,6 +46,7 @@ struct MainTabView: View {
 
     enum MoreDestination: Hashable {
         case practice, highlights, seasons, photos, coaches, sharedFolders
+        case sharedFolder(String) // navigate to a specific folder by ID
     }
     
     // NotificationCenter observer management using StateObject for lifecycle safety
@@ -178,12 +179,8 @@ struct MainTabView: View {
                 default: screenName = "Unknown"
                 }
                 AnalyticsService.shared.trackScreenView(screenName: screenName, screenClass: "MainTabView")
-                // Mark activity notifications read when entering Videos tab
-                if newValue == MainTab.videos.rawValue, let firebaseUID = authManager.userID {
-                    Task {
-                        await ActivityNotificationService.shared.markAllRead(forUserID: firebaseUID)
-                    }
-                }
+                // Coach feedback notifications are now cleared per-folder when the athlete
+                // opens a specific shared folder, so we no longer mark everything read here.
                 // Reset when leaving Videos tab
                 if newValue != MainTab.videos.rawValue {
                     hideFloatingRecordButton = false
@@ -324,6 +321,18 @@ struct MainTabView: View {
                 morePath = path
                 selectedTab = MainTab.more.rawValue
                 Haptics.light()
+            }
+        }
+
+        notificationManager.observe(name: Notification.Name.navigateToSharedFolder) { note in
+            MainActor.assumeIsolated {
+                if let folderID = note.object as? String {
+                    var path = NavigationPath()
+                    path.append(MoreDestination.sharedFolder(folderID))
+                    morePath = path
+                    selectedTab = MainTab.more.rawValue
+                    Haptics.light()
+                }
             }
         }
     }
@@ -480,6 +489,8 @@ struct MainTabView: View {
                                             .padding(.vertical, 2)
                                             .background(Capsule().fill(.orange.opacity(0.12)))
                                     }
+                                    Spacer()
+                                    SharedFoldersBadge()
                                 }
                             } icon: {
                                 Image(systemName: "folder.badge.person.crop")
@@ -505,6 +516,12 @@ struct MainTabView: View {
                     CoachesView(athlete: selectedAthlete).id(selectedAthlete.id).proRequired()
                 case .sharedFolders:
                     AthleteFoldersListView(userID: authManager.userID)
+                case .sharedFolder(let folderID):
+                    if let folder = SharedFolderManager.shared.athleteFolders.first(where: { $0.id == folderID }) {
+                        AthleteFolderDetailView(folder: folder)
+                    } else {
+                        AthleteFoldersListView(userID: authManager.userID)
+                    }
                 }
             }
         }
@@ -628,16 +645,20 @@ struct MainTabView: View {
     }
 }
 
-/// Isolates the badge observation so that changes to unreadVideoCount
+/// Isolates the badge observation so that changes to unread count
 /// only invalidate this modifier's body — not the entire MainTabView.
-/// Only counts video-related notifications (newVideo, coachComment),
-/// not invitations or access-revoked which belong on other tabs.
+/// Only counts newVideo notifications — coach feedback badges now
+/// live on the Shared Folders list and individual video cards.
 private struct UnreadBadgeModifier: ViewModifier {
     @ObservedObject private var activityNotifService = ActivityNotificationService.shared
 
+    private var newVideoCount: Int {
+        activityNotifService.recentNotifications.filter { !$0.isRead && $0.type == .newVideo }.count
+    }
+
     func body(content: Content) -> some View {
         content
-            .badge(activityNotifService.unreadVideoCount > 0 ? activityNotifService.unreadVideoCount : 0)
+            .badge(newVideoCount > 0 ? newVideoCount : 0)
     }
 }
 
@@ -648,5 +669,27 @@ private struct InvitationBadgeModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .badge(invitationManager.pendingCount > 0 ? invitationManager.pendingCount : 0)
+    }
+}
+
+/// Shows total unread coach feedback count on the Shared Folders row in the More tab.
+private struct SharedFoldersBadge: View {
+    @ObservedObject private var activityNotifService = ActivityNotificationService.shared
+
+    private var totalUnread: Int {
+        activityNotifService.unreadCountByFolder.values.reduce(0, +)
+    }
+
+    var body: some View {
+        if totalUnread > 0 {
+            Text("\(totalUnread)")
+                .font(.caption2)
+                .fontWeight(.bold)
+                .foregroundColor(.white)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Color.red)
+                .clipShape(Capsule())
+        }
     }
 }

@@ -219,7 +219,13 @@ struct AthleteFoldersListView: View {
 
 struct FolderRow: View {
     let folder: SharedFolder
-    
+    @ObservedObject private var activityNotifService = ActivityNotificationService.shared
+
+    private var unreadCount: Int {
+        guard let folderID = folder.id else { return 0 }
+        return activityNotifService.unreadCountByFolder[folderID] ?? 0
+    }
+
     var body: some View {
         HStack(spacing: 16) {
             // Folder icon
@@ -229,29 +235,41 @@ struct FolderRow: View {
                 .frame(width: 44, height: 44)
                 .background(Color.brandNavy.opacity(0.1))
                 .clipShape(RoundedRectangle(cornerRadius: 8))
-            
+
             // Folder info
             VStack(alignment: .leading, spacing: 4) {
                 Text(folder.name)
                     .font(.headline)
-                
+
                 HStack(spacing: 12) {
                     // Video count
                     Label("\(folder.videoCount ?? 0)", systemImage: "video")
                         .font(.caption)
                         .foregroundColor(.secondary)
-                    
+
                     // Coach count
                     if !folder.sharedWithCoachIDs.isEmpty {
                         Label("\(folder.sharedWithCoachIDs.count)", systemImage: "person.fill")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
-                    
+
                 }
             }
-            
+
             Spacer()
+
+            // Unread feedback badge
+            if unreadCount > 0 {
+                Text("\(unreadCount)")
+                    .font(.caption2)
+                    .fontWeight(.bold)
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Color.red)
+                    .clipShape(Capsule())
+            }
         }
         .padding(.vertical, 4)
     }
@@ -289,6 +307,7 @@ struct AthleteFolderDetailContent: View {
     let athleteID: String
 
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
+    @ObservedObject private var activityNotifService = ActivityNotificationService.shared
     @State private var viewModel: CoachFolderViewModel
     private var folderManager: SharedFolderManager { .shared }
 
@@ -350,15 +369,15 @@ struct AthleteFolderDetailContent: View {
                 Group {
                     switch selectedTab {
                     case .games:
-                        GamesTabView(folder: folder, videos: viewModel.cachedGameVideos) {
+                        GamesTabView(folder: folder, videos: viewModel.cachedGameVideos, unreadVideoIDs: activityNotifService.unreadVideoIDs) {
                             await viewModel.loadVideos()
                         }
                     case .instruction:
-                        InstructionTabView(folder: folder, videos: viewModel.cachedInstructionVideos) {
+                        InstructionTabView(folder: folder, videos: viewModel.cachedInstructionVideos, unreadVideoIDs: activityNotifService.unreadVideoIDs) {
                             await viewModel.loadVideos()
                         }
                     case .all:
-                        AllVideosTabView(folder: folder, videos: viewModel.videos) {
+                        AllVideosTabView(folder: folder, videos: viewModel.videos, unreadVideoIDs: activityNotifService.unreadVideoIDs) {
                             await viewModel.loadVideos()
                         }
                     }
@@ -410,6 +429,11 @@ struct AthleteFolderDetailContent: View {
             if let lastFetch = lastFetchDate, Date().timeIntervalSince(lastFetch) < 60 { return }
             await viewModel.loadVideos()
             lastFetchDate = Date()
+
+            // Mark this folder's coach feedback notifications as read
+            if let folderID = folder.id, let userID = authManager.userID {
+                await activityNotifService.markFolderRead(folderID: folderID, forUserID: userID)
+            }
         }
         .refreshable {
             await viewModel.loadVideos()

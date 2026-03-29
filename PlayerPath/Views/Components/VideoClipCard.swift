@@ -22,6 +22,7 @@ struct VideoClipCard: View {
     @State private var showingError = false
     @State private var showingSaveSuccess = false
     @State private var showingShareToFolder = false
+    @State private var showingMoveSheet = false
     private let uploadManager = UploadQueueManager.shared
     @State private var isPressed = false
     @State private var isSavingToPhotos = false
@@ -232,6 +233,14 @@ struct VideoClipCard: View {
 
             Divider()
 
+            Button {
+                showingMoveSheet = true
+            } label: {
+                Label("Move to Athlete", systemImage: "arrow.right.arrow.left")
+            }
+
+            Divider()
+
             Button(role: .destructive) {
                 onDelete()
             } label: {
@@ -240,6 +249,9 @@ struct VideoClipCard: View {
         }
         .sheet(isPresented: $showingShareToFolder) {
             ShareToCoachFolderView(clip: video)
+        }
+        .sheet(isPresented: $showingMoveSheet) {
+            MoveClipSheet(clip: video)
         }
         .alert("Video Action Failed", isPresented: $showingError) {
             Button("OK", role: .cancel) { }
