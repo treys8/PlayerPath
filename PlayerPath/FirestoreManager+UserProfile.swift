@@ -86,14 +86,10 @@ extension FirestoreManager {
     /// receipt server-side before writing. This prevents clients from bypassing
     /// StoreKit by writing tier values directly to Firestore.
     func syncSubscriptionTiers(
-        userID: String,
-        hasAthleteTierOverride: Bool = false
+        userID: String
     ) async {
         do {
-            try await syncSubscriptionTiersWithThrow(
-                userID: userID,
-                hasAthleteTierOverride: hasAthleteTierOverride
-            )
+            try await syncSubscriptionTiersWithThrow(userID: userID)
         } catch {
             firestoreLog.warning("Failed to sync subscription tier: \(error.localizedDescription)")
         }
@@ -101,23 +97,21 @@ extension FirestoreManager {
 
     /// Throwing variant for use with retry logic.
     /// The server derives tiers from verified Transaction JWS tokens —
-    /// the client no longer sends tier strings.
+    /// the client no longer sends tier strings. Comped tier preservation
+    /// is handled server-side by comparing Firestore state.
     func syncSubscriptionTiersWithThrow(
-        userID: String,
-        hasAthleteTierOverride: Bool = false
+        userID: String
     ) async throws {
         // Obtain the AppTransaction JWS (app-level authenticity proof)
         guard let appReceipt = await appStoreReceipt() else {
             #if DEBUG
             // In sandbox/Xcode testing, AppTransaction is unavailable but individual
-            // Transaction JWS tokens still work. Call the Cloud Function in sandboxMode
-            // to skip AppTransaction verification while still validating entitlements.
-            firestoreLog.info("No App Store receipt (DEBUG). Calling syncSubscriptionTier in sandbox mode.")
+            // Transaction JWS tokens still work. The server auto-detects sandbox mode
+            // when no receipt is provided.
+            firestoreLog.info("No App Store receipt (DEBUG). Calling syncSubscriptionTier without receipt.")
             let tokens = await currentEntitlementTokens()
             let payload: [String: Any] = [
-                "sandboxMode": true,
-                "transactionTokens": tokens,
-                "hasAthleteTierOverride": hasAthleteTierOverride
+                "transactionTokens": tokens
             ]
             do {
                 try await callSyncTierFunction(payload: payload)
@@ -137,8 +131,7 @@ extension FirestoreManager {
 
         let payload: [String: Any] = [
             "receiptData": appReceipt,
-            "transactionTokens": transactionTokens,
-            "hasAthleteTierOverride": hasAthleteTierOverride
+            "transactionTokens": transactionTokens
         ]
 
         try await callSyncTierFunction(payload: payload)

@@ -141,12 +141,10 @@ extension ComprehensiveAuthManager {
                 // Athlete tier can be comped via Firestore — if Firestore holds a higher
                 // tier than StoreKit resolved, treat it as a manual grant and override.
                 // This mirrors the coach Academy pattern for athlete tiers.
+                // Comp preservation is handled server-side in syncSubscriptionTier.
                 if profile.tier > currentTier {
                     currentTier = profile.tier
-                    hasAthleteTierOverride = true
-                    authLog.debug("Comped athlete tier applied from Firestore override: \(profile.tier.displayName)")
-                } else {
-                    hasAthleteTierOverride = false
+                    authLog.debug("Comped athlete tier applied from Firestore: \(profile.tier.displayName)")
                 }
 
                 hasLoadedProfile = true

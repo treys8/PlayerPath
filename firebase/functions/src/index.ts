@@ -974,6 +974,24 @@ export const sendCoachAccessRevokedEmail = functions.firestore
     const revocation = snap.data();
     const revocationId = context.params.revocationId;
 
+    // Decrement the coach's atomic athlete counter (mirrors the increment in acceptance functions).
+    // This runs on every revocation doc creation — both athlete-initiated removal and coach downgrade.
+    // Only decrement if the counter exists (> 0) to avoid going negative during migration
+    // from pre-counter connections.
+    if (revocation.coachID) {
+      try {
+        const coachDoc = await admin.firestore().collection('users').doc(revocation.coachID).get();
+        const currentCount = coachDoc.data()?.coachAthleteCount;
+        if (typeof currentCount === 'number' && currentCount > 0) {
+          await admin.firestore().collection('users').doc(revocation.coachID).update({
+            coachAthleteCount: admin.firestore.FieldValue.increment(-1),
+          });
+        }
+      } catch (e) {
+        console.warn(`Failed to decrement coachAthleteCount for ${revocation.coachID}:`, e);
+      }
+    }
+
     // Rate limit the revoking user
     const revokerUID = revocation.athleteID || revocation.revokedBy;
     if (revokerUID && !(await checkEmailRateLimit(revokerUID))) {
@@ -1196,7 +1214,8 @@ export const acceptAthleteToCoachInvitation = functions.https.onCall(async (data
   const coachEmail = context.auth.token.email?.toLowerCase();
   const db = admin.firestore();
 
-  // Pre-check: verify the coach is not at their athlete limit
+  // Pre-check: fast-path rejection if coach is clearly over limit (avoids transaction overhead).
+  // The authoritative check happens inside the transaction below.
   const coachDoc = await db.collection('users').doc(coachID).get();
   const coachTier = coachDoc.data()?.coachSubscriptionTier || 'coach_free';
   const limit = getCoachAthleteLimit(coachTier);
@@ -1234,10 +1253,14 @@ export const acceptAthleteToCoachInvitation = functions.https.onCall(async (data
     );
   }
 
-  // Transaction: validate and accept
+  // Transaction: validate and accept with atomic limit check.
+  // Reading the coach doc inside the transaction serializes concurrent acceptances
+  // for the same coach — Firestore retries on conflict, ensuring limit integrity.
   await db.runTransaction(async (transaction) => {
     const invRef = db.collection('invitations').doc(invitationID);
+    const coachRef = db.collection('users').doc(coachID);
     const invSnap = await transaction.get(invRef);
+    const coachSnap = await transaction.get(coachRef);
 
     if (!invSnap.exists) {
       throw new functions.https.HttpsError('not-found', 'Invitation not found');
@@ -1259,6 +1282,28 @@ export const acceptAthleteToCoachInvitation = functions.https.onCall(async (data
 
     if (inv.coachEmail?.toLowerCase() !== coachEmail) {
       throw new functions.https.HttpsError('permission-denied', 'You are not the intended recipient of this invitation.');
+    }
+
+    // Atomic limit check inside transaction. coachAthleteCount is maintained by
+    // acceptance/revocation functions. Falls back to pre-check count for migration.
+    const invAthleteID = inv.athleteID || inv.athleteUserID;
+    const isNewConnection = invAthleteID && !connectedAthletes.has(invAthleteID);
+    if (isNewConnection) {
+      const currentCount = coachSnap.data()?.coachAthleteCount ?? connectedAthletes.size;
+      if (currentCount >= limit) {
+        transaction.update(invRef, {
+          status: 'rejected_limit',
+          rejectedReason: 'Coach athlete limit reached',
+          rejectedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        throw new functions.https.HttpsError(
+          'resource-exhausted',
+          'You have reached your athlete limit. Upgrade your plan to accept more athletes.'
+        );
+      }
+      transaction.update(coachRef, {
+        coachAthleteCount: admin.firestore.FieldValue.increment(1),
+      });
     }
 
     // If invitation has a legacy folderID, join the existing folder
@@ -1399,7 +1444,8 @@ export const acceptCoachToAthleteInvitation = functions.https.onCall(async (data
     );
   }
 
-  // Check coach athlete limit
+  // Pre-check: fast-path rejection if coach is clearly over limit (avoids transaction overhead).
+  // The authoritative check happens inside the transaction below.
   const coachDoc = await db.collection('users').doc(coachID).get();
   const coachTier = coachDoc.data()?.coachSubscriptionTier || 'coach_free';
   const limit = getCoachAthleteLimit(coachTier);
@@ -1420,7 +1466,6 @@ export const acceptCoachToAthleteInvitation = functions.https.onCall(async (data
   }
 
   if (!connectedAthletes.has(athleteUserID) && connectedAthletes.size >= limit) {
-    // Update invitation status before throwing so client UI shows "rejected" instead of "pending"
     await db.collection('invitations').doc(invitationID).update({
       status: 'rejected_limit',
       rejectedReason: 'Coach athlete limit reached',
@@ -1432,10 +1477,14 @@ export const acceptCoachToAthleteInvitation = functions.https.onCall(async (data
     );
   }
 
-  // Transaction: validate and accept
+  // Transaction: validate and accept with atomic limit check.
+  // Reading the coach doc inside the transaction serializes concurrent acceptances
+  // for the same coach — Firestore retries on conflict, ensuring limit integrity.
   await db.runTransaction(async (transaction) => {
     const invRef = db.collection('invitations').doc(invitationID);
+    const coachRef = db.collection('users').doc(coachID);
     const freshSnap = await transaction.get(invRef);
+    const coachSnap = await transaction.get(coachRef);
 
     if (!freshSnap.exists) {
       throw new functions.https.HttpsError('not-found', 'Invitation not found');
@@ -1455,13 +1504,57 @@ export const acceptCoachToAthleteInvitation = functions.https.onCall(async (data
       throw new functions.https.HttpsError('failed-precondition', 'This invitation has expired.');
     }
 
-    // Allow acceptance if the caller's email matches the invitation target OR if the
-    // caller uses Apple Sign In "Hide My Email" (private relay). Apple relay emails
-    // end with @privaterelay.appleid.com and won't match the real email the coach used.
+    // Verify the caller is the intended recipient by matching emails.
+    // Apple "Hide My Email" uses @privaterelay.appleid.com which won't match the
+    // real email the coach typed. For relay users, resolve the real email from
+    // Firebase Auth provider data or the user's Firestore profile.
     const invEmail = inv.athleteEmail?.toLowerCase();
-    const isAppleRelay = athleteEmail?.endsWith('@privaterelay.appleid.com');
-    if (invEmail !== athleteEmail && !isAppleRelay) {
+    let emailMatch = (invEmail === athleteEmail);
+
+    if (!emailMatch && athleteEmail?.endsWith('@privaterelay.appleid.com')) {
+      try {
+        const userRecord = await admin.auth().getUser(athleteUserID);
+        const realEmails = userRecord.providerData
+          .map(p => p.email?.toLowerCase())
+          .filter((e): e is string => !!e);
+        emailMatch = realEmails.some(e => e === invEmail);
+
+        if (!emailMatch) {
+          const userDoc = await db.collection('users').doc(athleteUserID).get();
+          const profileEmail = userDoc.data()?.email?.toLowerCase();
+          if (profileEmail && profileEmail === invEmail) {
+            emailMatch = true;
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to resolve Apple relay email:', e);
+        emailMatch = false;
+      }
+    }
+
+    if (!emailMatch) {
       throw new functions.https.HttpsError('permission-denied', 'You are not the intended recipient of this invitation.');
+    }
+
+    // Atomic limit check inside transaction. coachAthleteCount is maintained by
+    // acceptance/revocation functions. Falls back to pre-check count for migration.
+    const isNewConnection = !connectedAthletes.has(athleteUserID);
+    if (isNewConnection) {
+      const currentCount = coachSnap.data()?.coachAthleteCount ?? connectedAthletes.size;
+      if (currentCount >= limit) {
+        transaction.update(invRef, {
+          status: 'rejected_limit',
+          rejectedReason: 'Coach athlete limit reached',
+          rejectedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        throw new functions.https.HttpsError(
+          'resource-exhausted',
+          'This coach has reached their athlete limit. The invitation cannot be accepted.'
+        );
+      }
+      transaction.update(coachRef, {
+        coachAthleteCount: admin.firestore.FieldValue.increment(1),
+      });
     }
 
     transaction.update(invRef, {
@@ -1972,8 +2065,9 @@ async function resolveTransactionTiers(
  * The client sends:
  *   - receiptData: base64-encoded AppTransaction JWS (app-level authenticity proof)
  *   - transactionTokens: array of JWS strings from Transaction.currentEntitlements
- *   - hasAthleteTierOverride: if true and resolved tier is "free", preserve Firestore comp
  *
+ * Comped tier preservation is handled server-side: if the resolved tier is "free"
+ * but the user's Firestore tier is higher, the higher tier is preserved (manual comp).
  * Legacy clients that omit transactionTokens will be rejected.
  */
 export const syncSubscriptionTier = functions.https.onCall(async (data, context) => {
@@ -1982,7 +2076,7 @@ export const syncSubscriptionTier = functions.https.onCall(async (data, context)
   }
 
   const uid = context.auth.uid;
-  const { receiptData, transactionTokens, hasAthleteTierOverride, sandboxMode } = data;
+  const { receiptData, transactionTokens } = data;
 
   if (!Array.isArray(transactionTokens)) {
     throw new functions.https.HttpsError(
@@ -1997,17 +2091,14 @@ export const syncSubscriptionTier = functions.https.onCall(async (data, context)
   let activeVerifier: SignedDataVerifier = verifiers.production;
 
   // --- Step 1: Verify AppTransaction (proves the app binary is legitimate) ---
-  // In sandbox/Xcode testing, AppTransaction is unavailable. When sandboxMode is
-  // true and no receiptData is provided, skip AppTransaction verification but
-  // still verify individual transaction JWS tokens in Step 2.
-  if (sandboxMode && (!receiptData || typeof receiptData !== 'string')) {
-    console.log('⚠️ Sandbox mode: skipping AppTransaction verification (no receipt).');
+  // Always try production first, then sandbox (TestFlight uses sandbox-signed tokens).
+  // If no receiptData is provided, skip AppTransaction verification — this handles
+  // sandbox/Xcode testing where AppTransaction is unavailable. Individual transaction
+  // JWS tokens are still verified in Step 2.
+  if (!receiptData || typeof receiptData !== 'string') {
+    console.log('⚠️ No AppTransaction receipt — skipping app verification, using sandbox verifier.');
     activeVerifier = verifiers.sandbox;
   } else {
-    if (!receiptData || typeof receiptData !== 'string') {
-      throw new functions.https.HttpsError('invalid-argument', 'Receipt data is required');
-    }
-    // Try production first, then sandbox (TestFlight uses sandbox-signed tokens)
     let verified = false;
     for (const [envName, verifier] of [['production', verifiers.production], ['sandbox', verifiers.sandbox]] as const) {
       try {
@@ -2039,17 +2130,30 @@ export const syncSubscriptionTier = functions.https.onCall(async (data, context)
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
   };
 
+  // Read current Firestore state to detect manual comps (server-side detection).
+  // athleteTierSource tracks who last wrote the tier: 'storekit' (this function)
+  // or absent/other (admin SDK comp). When a subscription expires, athleteTier
+  // resolves to 'free' but currentAthleteTier is still 'pro' — we need tierSource
+  // to distinguish "admin comp" from "expired subscription".
+  const userDoc = await admin.firestore().collection('users').doc(uid).get();
+  const currentAthleteTier = userDoc.data()?.subscriptionTier ?? 'free';
+  const athleteTierSource = userDoc.data()?.athleteTierSource;
+  const currentCoachTier = userDoc.data()?.coachSubscriptionTier ?? 'coach_free';
+
   // Preserve manually-granted (comped) athlete tier when server resolves "free"
-  if (athleteTier !== 'free' || !hasAthleteTierOverride) {
+  if (athleteTier !== 'free') {
     updateData.subscriptionTier = athleteTier;
+    updateData.athleteTierSource = 'storekit';
+  } else if (currentAthleteTier === 'free' || athleteTierSource === 'storekit') {
+    // Either already free, or last tier was written by StoreKit (subscription expired)
+    updateData.subscriptionTier = 'free';
+    updateData.athleteTierSource = 'storekit';
   }
+  // else: currentAthleteTier > free AND tierSource !== 'storekit' = admin comp, preserve it
 
   // Preserve manually-granted coach tier (e.g. "coach_academy") when server
   // resolves a lower or free tier. Always keep the HIGHER of the two values.
   if (coachTier !== 'coach_free') {
-    // Read current Firestore value to avoid overwriting a higher manual grant
-    const userDoc = await admin.firestore().collection('users').doc(uid).get();
-    const currentCoachTier = userDoc.data()?.coachSubscriptionTier ?? 'coach_free';
     const currentRank = COACH_TIER_RANK[currentCoachTier] ?? 0;
     const newRank = COACH_TIER_RANK[coachTier] ?? 0;
     if (newRank >= currentRank) {

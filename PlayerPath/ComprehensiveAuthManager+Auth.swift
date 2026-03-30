@@ -47,7 +47,6 @@ extension ComprehensiveAuthManager {
                     self?.hasCompletedOnboarding = false
                     self?.currentTier = .free
                     self?.currentCoachTier = .free
-                    self?.hasAthleteTierOverride = false
                     self?.clearPersistedUserDefaults()
                     authLog.debug("Cleared all user data on sign out")
                 } else if self?.isHandlingSignIn == true || self?.needsEmailVerification == true {
@@ -332,7 +331,6 @@ extension ComprehensiveAuthManager {
             localUser = nil
             currentTier = .free
             currentCoachTier = .free
-            hasAthleteTierOverride = false
             hasLoadedProfile = false
 
             // Clear persisted role and onboarding completion (both in memory and UserDefaults).

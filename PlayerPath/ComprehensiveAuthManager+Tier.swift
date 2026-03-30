@@ -2,7 +2,9 @@
 //  ComprehensiveAuthManager+Tier.swift
 //  PlayerPath
 //
-//  Subscription tier sync: StoreKit ↔ Firestore, comped tier overrides.
+//  Subscription tier sync: StoreKit ↔ Firestore, comped tier detection.
+//  Comped tier preservation is handled server-side in the syncSubscriptionTier
+//  Cloud Function — the client no longer tracks an override flag.
 //
 
 import Combine
@@ -18,29 +20,24 @@ extension ComprehensiveAuthManager {
     /// Sets up Combine subscribers to keep athlete and coach tiers in sync with StoreKitManager.
     func setupStoreKitSubscribers() {
         // Keep athlete tier in sync with StoreKitManager.
-        // If Firestore granted a comped tier (hasAthleteTierOverride), only accept
-        // StoreKit updates that are equal or higher — don't downgrade a comp.
+        // If StoreKit resolves higher, always accept. If StoreKit resolves lower
+        // and the profile has loaded with a higher Firestore tier, don't downgrade
+        // locally — the server preserves admin comps, and refreshTierFromFirestore()
+        // will reconcile on the next foreground entry.
         StoreKitManager.shared.$currentTier
             .removeDuplicates()
             .receive(on: RunLoop.main)
             .sink { [weak self] tier in
                 guard let self else { return }
-                if self.hasAthleteTierOverride && tier < self.currentTier {
-                    // StoreKit resolved lower than the Firestore comp — keep the comp
-                    #if DEBUG
-                    print("⏭️ StoreKit tier \(tier.rawValue) lower than comped tier \(self.currentTier.rawValue) — keeping comp")
-                    #endif
-                } else {
-                    let hadOverride = self.hasAthleteTierOverride
+                if tier >= self.currentTier {
                     self.currentTier = tier
-                    // If StoreKit now meets or exceeds the comped tier, clear the override
-                    if hadOverride { self.hasAthleteTierOverride = false }
+                } else if !self.hasLoadedProfile {
+                    // Profile hasn't loaded yet — no Firestore comp to protect
+                    self.currentTier = tier
                 }
-                // Don't sync until profile has loaded — otherwise a "free" StoreKit
-                // tier overwrites a Firestore-comped "pro" before the override is applied.
-                // Also wait for StoreKit's initial entitlement resolution to complete —
-                // on a second device, transactions may not have synced yet and would
-                // incorrectly overwrite the Firestore tier with .free.
+                // else: StoreKit resolved lower than a Firestore-loaded tier — don't
+                // downgrade locally. The server sync will reconcile (it tracks tierSource
+                // to distinguish comps from expired subscriptions).
                 guard self.hasLoadedProfile, StoreKitManager.shared.hasResolvedEntitlements else { return }
                 self.syncSubscriptionTierToFirestore()
                 // Keep SwiftData User model in sync so user.tier doesn't go stale
@@ -94,12 +91,10 @@ extension ComprehensiveAuthManager {
 
     func syncSubscriptionTierToFirestore() {
         guard let userID = currentFirebaseUser?.uid else { return }
-        let hasOverride = hasAthleteTierOverride
         Task {
             await retryAsync(maxAttempts: 3) {
                 try await FirestoreManager.shared.syncSubscriptionTiersWithThrow(
-                    userID: userID,
-                    hasAthleteTierOverride: hasOverride
+                    userID: userID
                 )
             }
         }
@@ -109,11 +104,9 @@ extension ComprehensiveAuthManager {
     /// having the latest subscription tier (e.g. accepting coach invitations after upgrade).
     func syncSubscriptionTierToFirestoreAndWait() async {
         guard let userID = currentFirebaseUser?.uid else { return }
-        let hasOverride = hasAthleteTierOverride
         await retryAsync(maxAttempts: 3) {
             try await FirestoreManager.shared.syncSubscriptionTiersWithThrow(
-                userID: userID,
-                hasAthleteTierOverride: hasOverride
+                userID: userID
             )
         }
     }
@@ -133,7 +126,6 @@ extension ComprehensiveAuthManager {
 
     /// Refreshes the subscription tier from Firestore to pick up changes
     /// made on other devices, via Cloud Function, or admin revocation.
-    /// Handles both upgrades (apply comp) and downgrades (revoke comp).
     func refreshTierFromFirestore() async {
         guard let userID = currentFirebaseUser?.uid else { return }
         do {
@@ -141,13 +133,10 @@ extension ComprehensiveAuthManager {
             if let tierStr = profile.subscriptionTier,
                let firestoreTier = SubscriptionTier(rawValue: tierStr) {
                 if firestoreTier > currentTier {
-                    // Firestore has a higher tier (comp granted) — apply it
+                    // Firestore has a higher tier (comp granted or purchase on another device)
                     currentTier = firestoreTier
-                    hasAthleteTierOverride = true
-                } else if firestoreTier < currentTier && hasAthleteTierOverride {
-                    // Firestore has a lower tier AND we had an override — comp was revoked.
-                    // Fall back to whatever StoreKit resolves.
-                    hasAthleteTierOverride = false
+                } else if firestoreTier < currentTier {
+                    // Firestore has a lower tier — fall back to whatever StoreKit resolves
                     currentTier = StoreKitManager.shared.currentTier
                 }
             }

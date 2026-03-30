@@ -85,12 +85,6 @@ final class ComprehensiveAuthManager: ObservableObject {
     // Can be overridden by Firestore for comped users (see loadUserProfile).
     @Published var currentTier: SubscriptionTier = .free
 
-    /// True when the athlete tier was manually granted via Firestore (not StoreKit).
-    /// Used to prevent syncSubscriptionTiers from overwriting the comped value.
-    /// NOT persisted to UserDefaults (security: tamper-resistant). Re-derived from
-    /// Firestore profile on every app launch via loadUserProfile().
-    var hasAthleteTierOverride: Bool = false
-
     /// True after the first loadUserProfile() completes. Prevents the StoreKit
     /// publisher from syncing a "free" tier to Firestore before we've had a chance
     /// to apply any comped tier overrides from the Firestore profile.
@@ -144,14 +138,11 @@ final class ComprehensiveAuthManager: ObservableObject {
         // the same session. Persisting it is dangerous: if the app is killed during
         // signup, a stale true value permanently prevents loadUserProfile() from
         // running on subsequent launches, leaving the user with a default .athlete role.
-        // hasAthleteTierOverride is NOT restored from UserDefaults (security).
-        // It will be re-derived from Firestore profile in loadUserProfile().
         // On cold launch, StoreKit tier applies until Firestore loads.
         #if DEBUG
         if hasCompletedOnboarding {
             print("💾 Restored hasCompletedOnboarding from UserDefaults: true")
         }
-        // hasAthleteTierOverride is no longer persisted — derived from Firestore on load
         #endif
 
         setupStoreKitSubscribers()
@@ -209,7 +200,7 @@ final class ComprehensiveAuthManager: ObservableObject {
     func clearPersistedUserDefaults() {
         UserDefaults.standard.removeObject(forKey: AuthConstants.UserDefaultsKeys.userRole)
         UserDefaults.standard.removeObject(forKey: AuthConstants.UserDefaultsKeys.hasCompletedOnboarding)
-        UserDefaults.standard.removeObject(forKey: AuthConstants.UserDefaultsKeys.hasAthleteTierOverride)
+        // hasAthleteTierOverride removed — comp detection is now server-side
     }
 
     // MARK: - Email Verification Grandfathering
