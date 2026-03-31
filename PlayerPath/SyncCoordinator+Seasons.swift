@@ -123,10 +123,16 @@ extension SyncCoordinator {
             }
 
             if let local = localSeason {
-                // Only merge if remote is newer AND local has no pending changes.
-                // If needsSync is true, local edits haven't uploaded yet — don't overwrite them.
-                if (remoteSeason.updatedAt ?? Date.distantPast) > (local.lastSyncDate ?? Date.distantPast)
-                    && !local.needsSync {
+                let remoteIsNewer = (remoteSeason.updatedAt ?? Date.distantPast) > (local.lastSyncDate ?? Date.distantPast)
+
+                if remoteIsNewer && local.needsSync {
+                    syncLog.warning("Sync conflict on season '\(local.name)': local has pending changes, skipping remote update")
+                    appendSyncError(SyncError(
+                        type: .conflictResolution,
+                        entityId: local.id.uuidString,
+                        message: "Season '\(local.name)' modified on both devices — local changes kept"
+                    ))
+                } else if remoteIsNewer {
                     // Only write properties that actually changed to avoid
                     // dirtying the object and triggering unnecessary @Query updates.
                     var changed = false

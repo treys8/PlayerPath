@@ -107,8 +107,26 @@ Playback: `VideoPlayerView.swift` with `PlayResultOverlayView` for tagging and c
 
 ### Subscription Tiers
 
-Athlete tiers: Free (1 athlete, 2GB) → Plus (3 athletes, 25GB) → Pro (5 athletes, 100GB + coach sharing)
-Coach tiers: Free (2 athletes) → Instructor (10) → Pro Instructor (30) → Academy (unlimited, manual Firestore grant)
+**Player tiers:**
+
+| | Free | Plus | Pro |
+|---|---|---|---|
+| Athletes | 1 | 3 | 5 |
+| Storage | 2GB | 25GB | 100GB |
+| Monthly | — | $5.99 | $12.99 |
+| Annual | — | $57.99 | $124.99 |
+
+Pro includes coach sharing. Plus+ includes auto highlights, stats export, season comparison.
+
+**Coach tiers:**
+
+| | Free | Instructor | Pro Instructor | Academy |
+|---|---|---|---|---|
+| Athletes | 2 | 10 | 30 | Unlimited |
+| Monthly | — | $9.99 | $19.99 | Contact Us |
+| Annual | — | $95.99 | $191.99 | Contact Us |
+
+Academy is manually granted via Firestore — no StoreKit product exists for it.
 
 Product IDs and feature gates are in `SubscriptionModels.swift`. StoreKit configuration file: `PlayerPathStoreKit.storekit`.
 

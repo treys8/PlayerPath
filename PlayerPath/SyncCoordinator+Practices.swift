@@ -150,11 +150,18 @@ extension SyncCoordinator {
             }
 
             if let local = localPractice {
-                // Practice exists locally - check if remote is newer AND no pending local changes
                 let remoteUpdatedAt = remoteData.updatedAt ?? Date.distantPast
                 let localSyncDate = local.lastSyncDate ?? Date.distantPast
+                let remoteIsNewer = remoteUpdatedAt > localSyncDate
 
-                if remoteUpdatedAt > localSyncDate && !local.needsSync {
+                if remoteIsNewer && local.needsSync {
+                    syncLog.warning("Sync conflict on practice (\(local.date?.formatted(.dateTime.month().day()) ?? "undated")): local has pending changes, skipping remote update")
+                    appendSyncError(SyncError(
+                        type: .conflictResolution,
+                        entityId: local.id.uuidString,
+                        message: "Practice modified on both devices — local changes kept"
+                    ))
+                } else if remoteIsNewer {
                     local.date = remoteData.date
                     local.practiceType = remoteData.practiceType ?? local.practiceType
                     local.lastSyncDate = Date()

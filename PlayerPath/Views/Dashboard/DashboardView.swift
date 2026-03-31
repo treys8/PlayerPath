@@ -135,6 +135,12 @@ struct DashboardView: View {
                 } label: {
                     AthletePickerLabel(name: athlete.name, initials: athleteInitials)
                 }
+                .tooltip(
+                    "switch_athlete",
+                    text: "Tap here to switch between athletes",
+                    arrowEdge: .top,
+                    showWhen: (user.athletes ?? []).count > 1
+                )
             }
         }
         .task {
@@ -338,6 +344,7 @@ struct DashboardView: View {
                 DashboardFeatureCard(icon: "baseball.diamond.bases", title: "Games", subtitle: "\(viewModel.totalGames) Total", color: .brandNavy) {
                     postSwitchTab(.games)
                 }
+                .tooltip(TipID.dashboardGamesCard, text: "Start here — create a game for your next matchup", arrowEdge: .bottom, showWhen: viewModel.totalGames == 0)
                 DashboardFeatureCard(icon: "video", title: "Video Clips", subtitle: "\(viewModel.totalVideos) Recorded", color: .brandNavy) {
                     postSwitchTab(.videos)
                 }

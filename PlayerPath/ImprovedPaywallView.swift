@@ -2,7 +2,7 @@
 //  ImprovedPaywallView.swift
 //  PlayerPath
 //
-//  3-tier paywall (Free / Plus $3.99 / Pro $7.99) + Coaching Add-On ($7/mo)
+//  3-tier paywall (Free / Plus $5.99 / Pro $12.99)
 //
 
 import SwiftUI

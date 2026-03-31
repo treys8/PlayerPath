@@ -272,25 +272,10 @@ struct HighlightsView: View {
                             .padding(8)
                         }
                     }
+                    .onAppear { viewModel.onItemAppear(clip) }
                 }
             }
             .padding()
-
-            if viewModel.hasMore {
-                Button {
-                    Haptics.light()
-                    viewModel.loadMore()
-                } label: {
-                    HStack(spacing: 6) {
-                        Text("Load More")
-                        Image(systemName: "arrow.down.circle")
-                    }
-                    .font(.subheadline).fontWeight(.medium)
-                    .foregroundColor(.brandNavy)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-                }
-            }
         }
         .refreshable {
             viewModel.update(videoClips: athlete?.videoClips ?? [])

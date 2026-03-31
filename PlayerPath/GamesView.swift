@@ -294,28 +294,18 @@ struct GamesView: View {
                     NavigationLink(destination: GameDetailView(game: game)) {
                         GameRow(game: game)
                     }
+                    .onAppear {
+                        if game.id == cachedCompletedGames.last?.id,
+                           viewModelHolder.viewModel?.hasMoreCompleted == true {
+                            viewModelHolder.viewModel?.loadMoreCompleted()
+                            updateFilteredGames()
+                        }
+                    }
                 }
                 .onDelete { indexSet in
                     if let index = indexSet.first, index < cachedCompletedGames.count {
                         gameToDelete = cachedCompletedGames[index]
                         showingDeleteGameConfirmation = true
-                    }
-                }
-
-                if viewModelHolder.viewModel?.hasMoreCompleted == true {
-                    Button {
-                        Haptics.light()
-                        viewModelHolder.viewModel?.loadMoreCompleted()
-                        updateFilteredGames()
-                    } label: {
-                        HStack(spacing: 6) {
-                            Text("Load More")
-                            Image(systemName: "arrow.down.circle")
-                        }
-                        .font(.subheadline).fontWeight(.medium)
-                        .foregroundColor(.brandNavy)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
                     }
                 }
             }
@@ -346,6 +336,7 @@ struct GamesView: View {
                     EmptyGamesView {
                         handleAddGame()
                     }
+                    .tooltip(TipID.gamesAddButton, text: "Create your first game to start tracking at-bats", arrowEdge: .bottom)
                 }
             } else {
                 List {

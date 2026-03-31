@@ -106,6 +106,15 @@ final class HighlightsViewModel {
         highlights = Array(allFilteredHighlights.prefix(displayLimit))
     }
 
+    /// Call from `.onAppear` on each grid item. Loads the next page when the
+    /// user scrolls within 10 items of the current display limit.
+    func onItemAppear(_ clip: VideoClip) {
+        guard hasMore,
+              let index = highlights.firstIndex(where: { $0.id == clip.id }),
+              index >= displayLimit - 10 else { return }
+        loadMore()
+    }
+
     private func recomputeGroupedHighlights(expandedGroups: Set<UUID>) {
         let clips = highlights
 

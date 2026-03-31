@@ -147,7 +147,14 @@ extension SyncCoordinator {
                 let remoteUpdatedAt = remoteData.updatedAt ?? Date.distantPast
                 let localUpdatedAt = local.lastSyncDate ?? Date.distantPast
 
-                if remoteUpdatedAt > localUpdatedAt && !local.needsSync {
+                if remoteUpdatedAt > localUpdatedAt && local.needsSync {
+                    syncLog.warning("Sync conflict on athlete '\(local.name)': local has pending changes, skipping remote update")
+                    appendSyncError(SyncError(
+                        type: .conflictResolution,
+                        entityId: local.id.uuidString,
+                        message: "Athlete '\(local.name)' modified on both devices — local changes kept"
+                    ))
+                } else if remoteUpdatedAt > localUpdatedAt && !local.needsSync {
                     // Only write properties that actually changed to avoid
                     // dirtying the object and triggering unnecessary @Query updates.
                     var changed = false
@@ -161,9 +168,6 @@ extension SyncCoordinator {
                     if changed {
                         local.lastSyncDate = Date()
                     }
-
-                } else if local.needsSync {
-                    // Will be resolved in resolveConflicts()
                 }
 
             } else {

@@ -17,6 +17,7 @@ struct MainTabView: View {
     @State private var showingSeasons = false
     @State private var showingCoaches = false
     @State private var showingCoachVideos = false
+    @State private var showingWelcomeTutorial = false
     @Environment(\.modelContext) private var modelContext
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
@@ -148,9 +149,9 @@ struct MainTabView: View {
                     await scheduleWeeklySummaryWithStats()
                 }
 
-                // Mark welcome tutorial complete (tutorial removed)
+                // Show connected walkthrough for new users
                 if !onboardingManager.hasSeenWelcomeTutorial {
-                    onboardingManager.markMilestoneComplete(.welcomeTutorial)
+                    showingWelcomeTutorial = true
                 }
 
                 // Evaluate athlete downgrade state
@@ -223,6 +224,12 @@ struct MainTabView: View {
                 }
             }
             .addKeyboardShortcuts()
+            .sheet(isPresented: $showingWelcomeTutorial) {
+                WelcomeTutorialView(
+                    athleteName: selectedAthlete.name,
+                    userEmail: authManager.userEmail ?? ""
+                )
+            }
             .sheet(isPresented: $showingPaywall) {
                 ImprovedPaywallView(user: user)
             }
@@ -525,6 +532,7 @@ struct MainTabView: View {
                 }
             }
         }
+        .modifier(MoreTabBadgeModifier())
         .tabItem {
             Label("More", systemImage: "ellipsis.circle.fill")
         }
@@ -669,6 +677,20 @@ private struct InvitationBadgeModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .badge(invitationManager.pendingCount > 0 ? invitationManager.pendingCount : 0)
+    }
+}
+
+/// Shows unread coach feedback count as a badge on the More tab itself.
+private struct MoreTabBadgeModifier: ViewModifier {
+    @ObservedObject private var activityNotifService = ActivityNotificationService.shared
+
+    private var totalUnread: Int {
+        activityNotifService.unreadCountByFolder.values.reduce(0, +)
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .badge(totalUnread > 0 ? totalUnread : 0)
     }
 }
 

@@ -60,7 +60,8 @@ extension FirestoreManager {
             "createdAt": FieldValue.serverTimestamp(),
             "fileSize": fileSize,
             "videoType": videoType,
-            "isHighlight": isHighlight ?? (videoType == "highlight")
+            "isHighlight": isHighlight ?? (videoType == "highlight"),
+            "uploadStatus": "completed"
         ]
         if let duration {
             videoData["duration"] = duration
@@ -323,7 +324,8 @@ extension FirestoreManager {
     /// Returns the `ListenerRegistration` so the caller can remove it on cleanup.
     func listenToVideos(
         forFolder folderID: String,
-        onChange: @escaping ([FirestoreVideoMetadata]) -> Void
+        onChange: @escaping ([FirestoreVideoMetadata]) -> Void,
+        onError: ((Error) -> Void)? = nil
     ) -> ListenerRegistration {
         return db.collection(FC.videos)
             .whereField("sharedFolderID", isEqualTo: folderID)
@@ -332,6 +334,7 @@ extension FirestoreManager {
             .addSnapshotListener { snapshot, error in
                 if let error {
                     firestoreLog.warning("Video listener error for folder \(folderID): \(error.localizedDescription)")
+                    onError?(error)
                     return
                 }
                 guard let docs = snapshot?.documents else { return }

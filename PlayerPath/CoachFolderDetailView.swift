@@ -15,6 +15,7 @@ struct CoachFolderDetailView: View {
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @Environment(\.dismiss) private var dismiss
     @Environment(CoachNavigationCoordinator.self) private var coordinator
+    @ObservedObject private var activityNotifService = ActivityNotificationService.shared
     @State private var viewModel: CoachFolderViewModel
     @State private var selectedTab: FolderTab
     @State private var showingUploadSheet = false
@@ -215,6 +216,11 @@ struct CoachFolderDetailView: View {
         await viewModel.loadVideos()
         await verifyPermissionsInBackground()
         lastFetchDate = Date()
+
+        // Mark this folder's notifications as read
+        if let folderID = folder.id, let userID = authManager.userID {
+            await activityNotifService.markFolderRead(folderID: folderID, forUserID: userID)
+        }
     }
 
     // MARK: - Folder Content
@@ -256,7 +262,7 @@ struct CoachFolderDetailView: View {
             Group {
                 switch selectedTab {
                 case .fromAthlete:
-                    AllVideosTabView(folder: folder, videos: filterByTag(viewModel.cachedFromAthleteVideos), isLoading: viewModel.isLoading, isLoadingMore: viewModel.isLoadingMore, hasMoreVideos: viewModel.hasMoreVideos, errorMessage: viewModel.errorMessage, onRefresh: {
+                    AllVideosTabView(folder: folder, videos: filterByTag(viewModel.cachedFromAthleteVideos), isLoading: viewModel.isLoading, isLoadingMore: viewModel.isLoadingMore, hasMoreVideos: viewModel.hasMoreVideos, errorMessage: viewModel.errorMessage, unreadVideoIDs: activityNotifService.unreadVideoIDs, onRefresh: {
                         await viewModel.loadVideos()
                     }, onLoadMore: {
                         await viewModel.loadMoreVideos()
@@ -264,7 +270,7 @@ struct CoachFolderDetailView: View {
                 case .needsReview:
                     needsReviewContent
                 case .fromMe:
-                    AllVideosTabView(folder: folder, videos: filterByTag(viewModel.cachedFromMeVideos), isLoading: viewModel.isLoading, isLoadingMore: viewModel.isLoadingMore, hasMoreVideos: viewModel.hasMoreVideos, errorMessage: viewModel.errorMessage, onRefresh: {
+                    AllVideosTabView(folder: folder, videos: filterByTag(viewModel.cachedFromMeVideos), isLoading: viewModel.isLoading, isLoadingMore: viewModel.isLoadingMore, hasMoreVideos: viewModel.hasMoreVideos, errorMessage: viewModel.errorMessage, unreadVideoIDs: activityNotifService.unreadVideoIDs, onRefresh: {
                         await viewModel.loadVideos()
                     }, onLoadMore: {
                         await viewModel.loadMoreVideos()

@@ -293,6 +293,7 @@ struct StatisticsView: View {
                 },
                 showGameSelection: { activeSheet = .gameSelection }
             )
+            .tooltip(TipID.statsEmpty, text: "Stats are calculated automatically from your tagged plays", arrowEdge: .bottom, showWhen: !(athlete?.games ?? []).isEmpty)
         }
     }
 }

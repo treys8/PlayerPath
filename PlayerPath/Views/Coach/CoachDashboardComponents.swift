@@ -92,6 +92,7 @@ struct AthleteSection: View {
 struct CoachFolderRowView: View {
     let folder: SharedFolder
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
+    @ObservedObject private var activityNotifService = ActivityNotificationService.shared
 
     private var folderIcon: String {
         switch folder.folderType {
@@ -143,6 +144,19 @@ struct CoachFolderRowView: View {
             }
 
             Spacer()
+
+            if let folderID = folder.id,
+               let count = activityNotifService.unreadCountByFolder[folderID],
+               count > 0 {
+                Text("\(count)")
+                    .font(.caption2)
+                    .fontWeight(.bold)
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Color.red)
+                    .clipShape(Capsule())
+            }
 
             Image(systemName: "chevron.right")
                 .font(.caption)

@@ -166,6 +166,11 @@ struct CoachVideoPlayerView: View {
             if let coachID = authManager.userID {
                 await templateService.loadQuickCues(coachID: coachID)
             }
+
+            // Mark this video's notifications as read (athlete viewing coach feedback)
+            if let userID = authManager.userID {
+                await ActivityNotificationService.shared.markVideoRead(videoID: video.id, forUserID: userID)
+            }
         }
         .onChange(of: scenePhase) { oldPhase, newPhase in
             if newPhase != .active {

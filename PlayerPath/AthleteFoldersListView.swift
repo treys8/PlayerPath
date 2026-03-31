@@ -325,22 +325,7 @@ struct AthleteFolderDetailContent: View {
         }
     }
 
-    enum AthleteVideoTab: String, CaseIterable {
-        case games = "Games"
-        case instruction = "Instruction"
-        case all = "All Videos"
-
-        var icon: String {
-            switch self {
-            case .games: return "figure.baseball"
-            case .instruction: return "figure.run"
-            case .all: return "video"
-            }
-        }
-    }
-
     @State private var activeSheet: SheetType?
-    @State private var selectedTab: AthleteVideoTab = .all
     @State private var lastFetchDate: Date?
 
     init(folder: SharedFolder, athleteID: String) {
@@ -354,33 +339,14 @@ struct AthleteFolderDetailContent: View {
             // Header with folder info
             folderHeader
 
-            // Tab picker for Games / Instruction / All
-            Picker("View", selection: $selectedTab) {
-                ForEach(AthleteVideoTab.allCases, id: \.self) { tab in
-                    Label(tab.rawValue, systemImage: tab.icon)
-                        .tag(tab)
-                }
-            }
-            .pickerStyle(.segmented)
-            .padding()
-
             // Content: gated behind Pro tier for non-Pro athletes
             if authManager.hasCoachingAccess {
-                Group {
-                    switch selectedTab {
-                    case .games:
-                        GamesTabView(folder: folder, videos: viewModel.cachedGameVideos, unreadVideoIDs: activityNotifService.unreadVideoIDs) {
-                            await viewModel.loadVideos()
-                        }
-                    case .instruction:
-                        InstructionTabView(folder: folder, videos: viewModel.cachedInstructionVideos, unreadVideoIDs: activityNotifService.unreadVideoIDs) {
-                            await viewModel.loadVideos()
-                        }
-                    case .all:
-                        AllVideosTabView(folder: folder, videos: viewModel.videos, unreadVideoIDs: activityNotifService.unreadVideoIDs) {
-                            await viewModel.loadVideos()
-                        }
-                    }
+                AthleteVideoListView(
+                    folder: folder,
+                    videos: viewModel.videos,
+                    unreadVideoIDs: activityNotifService.unreadVideoIDs
+                ) {
+                    await viewModel.loadVideos()
                 }
             } else {
                 proUpgradeOverlay
@@ -422,18 +388,13 @@ struct AthleteFolderDetailContent: View {
             case .manageCoaches:
                 ManageCoachesView(folder: folder)
             case .uploadVideo:
-                CoachVideoUploadView(folder: folder, defaultContext: selectedTab == .games ? .game : .instruction)
+                CoachVideoUploadView(folder: folder, defaultContext: .instruction)
             }
         }
         .task {
             if let lastFetch = lastFetchDate, Date().timeIntervalSince(lastFetch) < 60 { return }
             await viewModel.loadVideos()
             lastFetchDate = Date()
-
-            // Mark this folder's coach feedback notifications as read
-            if let folderID = folder.id, let userID = authManager.userID {
-                await activityNotifService.markFolderRead(folderID: folderID, forUserID: userID)
-            }
         }
         .refreshable {
             await viewModel.loadVideos()

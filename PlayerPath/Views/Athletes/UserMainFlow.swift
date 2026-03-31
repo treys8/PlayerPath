@@ -232,6 +232,10 @@ struct UserMainFlow: View {
                     selectedAthlete = only
                 }
             }
+            // Ensure SyncCoordinator knows which athlete to prioritise on launch
+            if let athlete = selectedAthlete ?? athletesForUser.first {
+                SyncCoordinator.shared.activeAthleteID = athlete.id.uuidString
+            }
             hasRestoredSelection = true
 
             // Show coach announcement for existing athletes after coach features are enabled
@@ -244,9 +248,11 @@ struct UserMainFlow: View {
             // Persist athlete selection
             if let athlete = newValue {
                 lastSelectedAthleteID = athlete.id.uuidString
+                SyncCoordinator.shared.activeAthleteID = athlete.id.uuidString
                 log.debug("Saved athlete selection: \(athlete.name) (ID: \(athlete.id, privacy: .private))")
             } else {
                 lastSelectedAthleteID = nil
+                SyncCoordinator.shared.activeAthleteID = nil
             }
         }
         .onChange(of: quickActionsManager.selectedQuickAction) { _, newAction in

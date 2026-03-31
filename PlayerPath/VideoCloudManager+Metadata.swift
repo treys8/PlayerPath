@@ -59,7 +59,8 @@ extension VideoCloudManager {
             "updatedAt": Timestamp(date: Date()),
             "fileSize": fileSize,
             "isDeleted": false,
-            "uploadedBy": ownerUID
+            "uploadedBy": ownerUID,
+            "uploadStatus": "completed"
         ]
 
         // Optional fields

@@ -134,9 +134,16 @@ extension SyncCoordinator {
             }
 
             if let local = localGame {
-                // Only merge if remote is newer AND local has no pending changes.
-                if (remoteGame.updatedAt ?? Date.distantPast) > (local.lastSyncDate ?? Date.distantPast)
-                    && !local.needsSync {
+                let remoteIsNewer = (remoteGame.updatedAt ?? Date.distantPast) > (local.lastSyncDate ?? Date.distantPast)
+
+                if remoteIsNewer && local.needsSync {
+                    syncLog.warning("Sync conflict on game vs '\(local.opponent)': local has pending changes, skipping remote update")
+                    appendSyncError(SyncError(
+                        type: .conflictResolution,
+                        entityId: local.id.uuidString,
+                        message: "Game vs '\(local.opponent)' modified on both devices — local changes kept"
+                    ))
+                } else if remoteIsNewer {
                     // Only write properties that actually changed to avoid
                     // dirtying the object and triggering unnecessary @Query updates.
                     var changed = false

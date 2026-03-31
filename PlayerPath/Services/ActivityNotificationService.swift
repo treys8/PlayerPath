@@ -134,11 +134,13 @@ final class ActivityNotificationService: ObservableObject {
                     }.count
 
                     // Per-folder unread counts and per-video unread set
-                    let feedbackUnread = unread.filter { $0.type == .coachComment }
+                    // Includes coachComment (folderID field) and newVideo (targetID is folderID)
+                    let videoRelatedUnread = unread.filter { $0.type == .coachComment || $0.type == .newVideo }
                     var folderCounts: [String: Int] = [:]
                     var videoIDs: Set<String> = []
-                    for n in feedbackUnread {
-                        if let fid = n.folderID { folderCounts[fid, default: 0] += 1 }
+                    for n in videoRelatedUnread {
+                        let fid = n.folderID ?? (n.targetType == .folder ? n.targetID : nil)
+                        if let fid { folderCounts[fid, default: 0] += 1 }
                         if let vid = n.targetID, n.targetType == .video { videoIDs.insert(vid) }
                     }
                     self.unreadCountByFolder = folderCounts
@@ -244,7 +246,7 @@ final class ActivityNotificationService: ObservableObject {
 
     func markFolderRead(folderID: String, forUserID userID: String) async {
         let folderUnread = recentNotifications.filter {
-            !$0.isRead && $0.folderID == folderID
+            !$0.isRead && ($0.folderID == folderID || ($0.targetID == folderID && $0.targetType == .folder))
         }
         guard !folderUnread.isEmpty else { return }
 
@@ -258,6 +260,25 @@ final class ActivityNotificationService: ObservableObject {
             try await batch.commit()
         } catch {
             log.error("Failed to mark folder \(folderID) notifications read: \(error.localizedDescription)")
+        }
+    }
+
+    func markVideoRead(videoID: String, forUserID userID: String) async {
+        let videoUnread = recentNotifications.filter {
+            !$0.isRead && $0.targetID == videoID && $0.targetType == .video
+        }
+        guard !videoUnread.isEmpty else { return }
+
+        let batch = db.batch()
+        for n in videoUnread {
+            guard let id = n.id else { continue }
+            let ref = db.collection(FC.notifications).document(userID).collection(FC.items).document(id)
+            batch.updateData(["isRead": true], forDocument: ref)
+        }
+        do {
+            try await batch.commit()
+        } catch {
+            log.error("Failed to mark video \(videoID) notifications read: \(error.localizedDescription)")
         }
     }
 

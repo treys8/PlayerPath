@@ -515,6 +515,7 @@ struct VideoClipsView: View {
                 showingRecorder = true
             }
         )
+        .tooltip(TipID.videosRecord, text: "Videos you record during games will show up here", arrowEdge: .bottom, showWhen: !(athlete.games ?? []).isEmpty)
     }
 
     private var uploadStatusFilterPicker: some View {
@@ -604,6 +605,7 @@ struct VideoClipsView: View {
                             }
                         )
                         .onAppear {
+                            viewModel.onItemAppear(video)
                             if let index = viewModel.filteredVideoIndex[video.id] {
                                 prefetchNearbyThumbnails(for: index, in: viewModel.filteredVideos)
                             }
@@ -612,22 +614,6 @@ struct VideoClipsView: View {
                 }
                 .padding(.vertical)
                 .padding(.horizontal, horizontalSizeClass == .regular ? 32 : 16)
-
-                if viewModel.hasMore {
-                    Button {
-                        Haptics.light()
-                        viewModel.loadMore()
-                    } label: {
-                        HStack(spacing: 6) {
-                            Text("Load More")
-                            Image(systemName: "arrow.down.circle")
-                        }
-                        .font(.subheadline).fontWeight(.medium)
-                        .foregroundColor(.brandNavy)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                    }
-                }
             }
         }
         .refreshable {

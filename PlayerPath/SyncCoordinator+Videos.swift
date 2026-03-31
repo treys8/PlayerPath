@@ -10,22 +10,25 @@ private let syncLog = Logger(subsystem: "com.playerpath.app", category: "Sync")
 extension SyncCoordinator {
     // MARK: - Videos Sync (Cross-Device)
 
-    /// Syncs video metadata for all athletes
-    /// Note: Video files are uploaded to Storage via UploadQueueManager
-    /// This syncs the Firestore metadata for cross-device discovery
-    /// - Parameter user: The SwiftData User to sync videos for
-    func syncVideos(for user: User) async throws {
+    /// Syncs video metadata for athletes. Video files are uploaded to Storage
+    /// via UploadQueueManager; this syncs the Firestore metadata for cross-device discovery.
+    /// - Parameters:
+    ///   - user: The SwiftData User to sync videos for
+    ///   - activeOnly: When true, only downloads videos for the active athlete
+    ///     (set via `SyncCoordinator.activeAthleteID`). Uploads always cover all
+    ///     athletes since only dirty clips are processed.
+    func syncVideos(for user: User, activeOnly: Bool = false) async throws {
         guard let context = modelContext else {
             return
         }
 
 
         do {
-            // Step 1: Upload local video metadata that isn't synced yet
+            // Step 1: Upload local video metadata that isn't synced yet (all athletes — cheap)
             try await uploadLocalVideoMetadata(user, context: context)
 
             // Step 2: Download remote videos from Firestore
-            try await downloadRemoteVideos(user, context: context)
+            try await downloadRemoteVideos(user, context: context, activeOnly: activeOnly)
 
 
         } catch {
@@ -128,9 +131,18 @@ extension SyncCoordinator {
         }
     }
 
-    func downloadRemoteVideos(_ user: User, context: ModelContext) async throws {
-        let athletes = user.athletes ?? []
+    func downloadRemoteVideos(_ user: User, context: ModelContext, activeOnly: Bool = false) async throws {
+        var athletes = user.athletes ?? []
+
+        // When doing an active-athlete-only sync, restrict the download to just
+        // that athlete. Non-active athletes are covered by the periodic full sync.
+        if activeOnly, let activeID = activeAthleteID {
+            athletes = athletes.filter { $0.id.uuidString == activeID }
+        }
+
         var athletesWithNewClips: [Athlete] = []
+        /// Game IDs that received new or updated clips — only these need stats recalculation.
+        var gamesWithNewClips: Set<UUID> = []
 
         for athlete in athletes {
             // Get video metadata from Firestore
@@ -169,9 +181,19 @@ extension SyncCoordinator {
             // Merge updates into existing clips where remote is newer and local has no pending changes
             for remoteVideo in remoteVideos {
                 if remoteVideo.isDeleted { continue }
-                guard let localClip = localClipsByID[remoteVideo.id],
-                      remoteVideo.updatedAt > (localClip.lastSyncDate ?? .distantPast),
-                      !localClip.needsSync else { continue }
+                guard let localClip = localClipsByID[remoteVideo.id] else { continue }
+                let remoteIsNewer = remoteVideo.updatedAt > (localClip.lastSyncDate ?? .distantPast)
+                guard remoteIsNewer else { continue }
+
+                if localClip.needsSync {
+                    syncLog.warning("Sync conflict on video '\(localClip.fileName)': local has pending changes, skipping remote update")
+                    appendSyncError(SyncError(
+                        type: .conflictResolution,
+                        entityId: localClip.id.uuidString,
+                        message: "Video '\(localClip.fileName)' modified on both devices — local changes kept"
+                    ))
+                    continue
+                }
 
                 localClip.isHighlight = remoteVideo.isHighlight
                 localClip.note = remoteVideo.note
@@ -256,6 +278,7 @@ extension SyncCoordinator {
                 } else if let gameOpponent = remoteVideo.gameOpponent {
                     newClip.game = allLocalGames.first { $0.opponent == gameOpponent }
                 }
+                if let game = newClip.game { gamesWithNewClips.insert(game.id) }
                 if let seasonId = remoteVideo.seasonId {
                     newClip.season = allLocalSeasons.first { $0.id.uuidString == seasonId || $0.firestoreId == seasonId }
                 }
@@ -286,18 +309,20 @@ extension SyncCoordinator {
 
         if context.hasChanges { try context.save() }
 
-        // Rebuild derived statistics for athletes that received new clips.
+        // Rebuild derived statistics only for games that actually received new clips.
         // GameStatistics and AthleteStatistics are not stored in Firestore — they are
         // computed from VideoClip.playResult relationships. After downloading clips we
         // must reconstruct them so stats are correct on a new device or after reinstall.
         for athlete in athletesWithNewClips {
-            for game in athlete.games ?? [] {
+            let affectedGames = (athlete.games ?? []).filter { gamesWithNewClips.contains($0.id) }
+            for game in affectedGames {
                 do {
                     try StatisticsService.shared.recalculateGameStatistics(for: game, context: context)
                 } catch {
                     syncLog.error("Failed to recalculate game stats for '\(game.opponent)': \(error.localizedDescription)")
                 }
             }
+            // Athlete-level stats aggregate across all games — one call per athlete is acceptable.
             do {
                 try StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: context)
             } catch {

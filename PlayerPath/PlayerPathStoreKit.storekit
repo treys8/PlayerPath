@@ -75,7 +75,7 @@
         {
           "adHocOffers" : [],
           "codeOffers" : [],
-          "displayPrice" : "4.99",
+          "displayPrice" : "5.99",
           "familyShareable" : false,
           "groupNumber" : 1,
           "internalID" : "6800000001",
@@ -96,14 +96,14 @@
         {
           "adHocOffers" : [],
           "codeOffers" : [],
-          "displayPrice" : "34.99",
+          "displayPrice" : "57.99",
           "familyShareable" : false,
           "groupNumber" : 1,
           "internalID" : "6800000002",
           "introductoryOffer" : null,
           "localizations" : [
             {
-              "description" : "Advanced stats, export reports, and auto highlights. Save ~42%.",
+              "description" : "Advanced stats, export reports, and auto highlights. Save ~20%.",
               "displayName" : "PlayerPath Plus (Annual)",
               "locale" : "en_US"
             }
@@ -117,7 +117,7 @@
         {
           "adHocOffers" : [],
           "codeOffers" : [],
-          "displayPrice" : "9.99",
+          "displayPrice" : "12.99",
           "familyShareable" : false,
           "groupNumber" : 2,
           "internalID" : "6800000003",
@@ -138,14 +138,14 @@
         {
           "adHocOffers" : [],
           "codeOffers" : [],
-          "displayPrice" : "69.99",
+          "displayPrice" : "124.99",
           "familyShareable" : false,
           "groupNumber" : 2,
           "internalID" : "6800000004",
           "introductoryOffer" : null,
           "localizations" : [
             {
-              "description" : "Everything in Plus: up to 5 athletes, 100 GB storage, season comparison, and coach sharing. Save ~42%.",
+              "description" : "Everything in Plus: up to 5 athletes, 100 GB storage, season comparison, and coach sharing. Save ~20%.",
               "displayName" : "PlayerPath Pro (Annual)",
               "locale" : "en_US"
             }
@@ -193,14 +193,14 @@
         {
           "adHocOffers" : [],
           "codeOffers" : [],
-          "displayPrice" : "89.99",
+          "displayPrice" : "95.99",
           "familyShareable" : false,
           "groupNumber" : 1,
           "internalID" : "6800000006",
           "introductoryOffer" : null,
           "localizations" : [
             {
-              "description" : "Coach up to 10 athletes. Save 25% vs monthly.",
+              "description" : "Coach up to 10 athletes. Save ~20% vs monthly.",
               "displayName" : "Instructor (Annual)",
               "locale" : "en_US"
             }
@@ -235,14 +235,14 @@
         {
           "adHocOffers" : [],
           "codeOffers" : [],
-          "displayPrice" : "179.99",
+          "displayPrice" : "191.99",
           "familyShareable" : false,
           "groupNumber" : 2,
           "internalID" : "6800000008",
           "introductoryOffer" : null,
           "localizations" : [
             {
-              "description" : "Coach up to 30 athletes. Save 25% vs monthly.",
+              "description" : "Coach up to 30 athletes. Save ~20% vs monthly.",
               "displayName" : "Pro Instructor (Annual)",
               "locale" : "en_US"
             }

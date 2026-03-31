@@ -66,9 +66,12 @@ final class AthleteDowngradeManager {
         let athleteName = Auth.auth().currentUser?.displayName ?? "An athlete"
         let athleteUID = Auth.auth().currentUser?.uid ?? ""
 
+        // Collect unique coach IDs across all folders to avoid duplicate notifications
+        var notifiedCoachIDs = Set<String>()
         for folder in folders {
-            let coachIDs = folder.sharedWithCoachIDs
-            for coachID in coachIDs {
+            for coachID in folder.sharedWithCoachIDs {
+                guard !notifiedCoachIDs.contains(coachID) else { continue }
+                notifiedCoachIDs.insert(coachID)
                 await ActivityNotificationService.shared.postAccessLapsedNotification(
                     folderID: folder.id ?? "",
                     folderName: folder.name,

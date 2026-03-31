@@ -124,6 +124,15 @@ final class VideoClipsViewModel {
         filteredVideoIndex = indexMap
     }
 
+    /// Call from `.onAppear` on each grid item. Loads the next page when the
+    /// user scrolls within 10 items of the current display limit.
+    func onItemAppear(_ video: VideoClip) {
+        guard hasMore,
+              let index = filteredVideoIndex[video.id],
+              index >= displayLimit - 10 else { return }
+        loadMore()
+    }
+
     // MARK: - Private
 
     private func updateAvailableSeasons() {

@@ -384,22 +384,19 @@ struct CoachDashboardView: View {
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 12) {
-                    ForEach(cachedRecentFolders.prefix(5)) { folder in
+                    ForEach(recentAthleteCards.prefix(5), id: \.athleteID) { card in
                         Button {
-                            coordinator.navigateToFolder(
-                                folder.id ?? "",
-                                folders: sharedFolderManager.coachFolders
-                            )
+                            coordinator.selectedTab = .athletes
                         } label: {
                             VStack(alignment: .leading, spacing: 8) {
-                                Image(systemName: recentFolderIcon(folder))
+                                Image(systemName: "figure.baseball")
                                     .font(.title2)
-                                    .foregroundColor(recentFolderColor(folder))
+                                    .foregroundColor(.brandNavy)
                                     .frame(width: 40, height: 40)
-                                    .background(recentFolderColor(folder).opacity(0.1))
+                                    .background(Color.brandNavy.opacity(0.1))
                                     .clipShape(Circle())
 
-                                Text(folder.name)
+                                Text(card.athleteName)
                                     .font(.subheadline)
                                     .fontWeight(.medium)
                                     .foregroundColor(.primary)
@@ -407,10 +404,19 @@ struct CoachDashboardView: View {
 
                                 HStack(spacing: 4) {
                                     Image(systemName: "video")
-                                    Text("\(folder.videoCount ?? 0)")
+                                    Text("\(card.totalVideos)")
                                 }
                                 .font(.caption)
                                 .foregroundColor(.secondary)
+
+                                if card.unreadCount > 0 {
+                                    HStack(spacing: 3) {
+                                        Circle().fill(Color.red).frame(width: 6, height: 6)
+                                        Text("\(card.unreadCount) new")
+                                            .font(.caption2)
+                                            .foregroundColor(.red)
+                                    }
+                                }
                             }
                             .frame(width: 120)
                             .padding()
@@ -422,6 +428,33 @@ struct CoachDashboardView: View {
                 }
             }
         }
+    }
+
+    private struct RecentAthleteCard {
+        let athleteID: String
+        let athleteName: String
+        let totalVideos: Int
+        let unreadCount: Int
+        let mostRecentUpdate: Date
+    }
+
+    private var recentAthleteCards: [RecentAthleteCard] {
+        let grouped = Dictionary(grouping: cachedRecentFolders) { $0.ownerAthleteID }
+        return grouped.map { athleteID, folders in
+            let name = folders.first?.ownerAthleteName ?? "Athlete"
+            let videos = folders.reduce(0) { $0 + ($1.videoCount ?? 0) }
+            let unread = folders.reduce(0) { total, folder in
+                total + (activityNotifService.unreadCountByFolder[folder.id ?? ""] ?? 0)
+            }
+            let mostRecent = folders.compactMap(\.updatedAt).max() ?? .distantPast
+            return RecentAthleteCard(
+                athleteID: athleteID,
+                athleteName: name,
+                totalVideos: videos,
+                unreadCount: unread,
+                mostRecentUpdate: mostRecent
+            )
+        }.sorted { $0.mostRecentUpdate > $1.mostRecentUpdate }
     }
 
     // MARK: - Summary

@@ -32,10 +32,22 @@ final class SyncCoordinator {
     var lastSyncDate: Date?
     var syncErrors: [SyncError] = []
 
+    // MARK: - Active Athlete Scoping
+
+    /// UUID string of the currently selected athlete. Set by UserMainFlow on
+    /// selection change. Periodic (5-min) syncs only download videos for this
+    /// athlete; full syncs (every 30 min, pull-to-refresh, launch) cover all.
+    var activeAthleteID: String?
+
     // MARK: - Properties
 
     var modelContext: ModelContext?
     private var timer: Timer?
+    /// Interval between full syncs that cover every athlete (30 minutes).
+    private let fullSyncInterval: TimeInterval = 1800
+    /// Tracks when the last full (all-athlete) sync completed so the periodic
+    /// timer knows when to escalate from active-only to full sync.
+    private var lastFullSyncDate: Date?
     /// Active background video/photo download tasks keyed by a local UUID so they
     /// can self-remove on completion and be bulk-cancelled on sign-out.
     var pendingDownloadTasks: [UUID: Task<Void, Never>] = [:]
@@ -157,6 +169,45 @@ final class SyncCoordinator {
         )
     }
 
+    // MARK: - Active-Athlete Sync
+
+    /// Lightweight sync that uploads all dirty local data but only downloads
+    /// videos for the active athlete. Notes, photos, and coaches are deferred
+    /// to the next full sync. Used by the 5-minute periodic timer between full
+    /// syncs to minimise Firestore reads and battery usage.
+    func syncActiveAthlete(for user: User) async throws {
+        guard !isSyncing else { return }
+        isSyncing = true
+        defer { isSyncing = false }
+
+        let syncTask = Task { @MainActor in
+            // Upload paths are cheap — only dirty items are processed, so run
+            // them for ALL athletes to keep local changes flowing to Firestore.
+            await self.isolatedSync("Athletes")  { try await self.syncAthletes(for: user) }
+            await self.isolatedSync("Seasons")   { try await self.syncSeasons(for: user) }
+            await self.isolatedSync("Games")     { try await self.syncGames(for: user) }
+            await self.isolatedSync("Practices") { try await self.syncPractices(for: user) }
+
+            // Video download is the expensive per-athlete query — scope it.
+            await self.isolatedSync("Videos")    { try await self.syncVideos(for: user, activeOnly: true) }
+        }
+
+        let timeoutTask = Task {
+            try await Task.sleep(for: .seconds(120))
+            syncTask.cancel()
+        }
+
+        await syncTask.value
+        timeoutTask.cancel()
+
+        if syncTask.isCancelled {
+            syncLog.warning("syncActiveAthlete timed out after 120 seconds")
+            appendSyncError(SyncError(type: .syncFailed, entityId: "activeSync", message: "Active-athlete sync timed out"))
+        }
+
+        lastSyncDate = Date()
+    }
+
     // MARK: - Background Sync
 
     private func startPeriodicSync() {
@@ -172,14 +223,21 @@ final class SyncCoordinator {
     private func syncInBackground() async {
         guard let context = modelContext else { return }
 
-        // Get current user from SwiftData
         guard let user = getCurrentUser(context: context) else {
             return
         }
 
+        // Escalate to a full sync when enough time has passed (or on first run).
+        let needsFullSync = lastFullSyncDate == nil
+            || Date().timeIntervalSince(lastFullSyncDate!) > fullSyncInterval
+
         do {
-            // Sync all entities in dependency order
-            try await syncAll(for: user)
+            if needsFullSync {
+                try await syncAll(for: user)
+                lastFullSyncDate = Date()
+            } else {
+                try await syncActiveAthlete(for: user)
+            }
         } catch {
             syncLog.error("Background sync failed: \(error.localizedDescription)")
             syncErrors.append(SyncError(

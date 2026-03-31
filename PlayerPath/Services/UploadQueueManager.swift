@@ -9,6 +9,7 @@ import Foundation
 import SwiftData
 import BackgroundTasks
 import UIKit
+import FirebaseFirestore
 import os
 
 private let uploadLog = Logger(subsystem: "com.playerpath.app", category: "UploadQueue")
@@ -479,6 +480,9 @@ final class UploadQueueManager {
         }
         retryTasks.removeAll()
 
+        // Cancel any scheduled background upload task
+        BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: Self.backgroundTaskIdentifier)
+
         // Clear in-memory queues
         pendingUploads.removeAll()
         failedUploads.removeAll()
@@ -665,6 +669,28 @@ final class UploadQueueManager {
                 quotaUser = user
             }
 
+            // Recover from crash: if Firestore already has a completed document for this
+            // clip (app crashed after Firestore write but before local SwiftData save),
+            // skip the re-upload and just restore local state.
+            let clipDocId = clip.id.uuidString
+            if let existingDoc = try? await Firestore.firestore()
+                .collection(FC.videos).document(clipDocId).getDocument(),
+               let data = existingDoc.data(),
+               let existingURL = data["downloadURL"] as? String,
+               data["uploadStatus"] as? String == "completed" {
+                clip.cloudURL = existingURL
+                clip.isUploaded = true
+                clip.lastSyncDate = Date()
+                // Keep reservedBytes set so the outer catch block rolls back quota
+                // if context.save() fails below.
+                try context.save()
+                reservedBytes = 0 // Quota committed only after successful save
+                progressTask?.cancel()
+                activeUploads.removeValue(forKey: upload.clipId)
+                uploadLog.info("Recovered already-uploaded clip \(clipDocId) from Firestore — skipped re-upload")
+                return
+            }
+
             // NOTE: Athlete uploads go through VideoCloudManager.uploadVideo(clip, athlete:)
             // which reads the file path from the VideoClip model. Compression would require
             // either a copy or changing that API — skipped here to avoid destroying the
@@ -709,7 +735,11 @@ final class UploadQueueManager {
                 do {
                     try await cloudManager.deleteAthleteVideo(fileName: upload.fileName)
                 } catch {
-                    uploadLog.error("Failed to rollback Storage file '\(upload.fileName)' after Firestore failure: \(error.localizedDescription)")
+                    // Rollback delete also failed — file is orphaned in Storage.
+                    // TODO: Add a Cloud Function + Firestore "pending_cleanup" collection
+                    // to periodically sweep orphaned Storage files. Until then, the log
+                    // entry below is the only record of the orphan.
+                    uploadLog.error("ORPHANED Storage file '\(upload.fileName)' — rollback delete failed after Firestore write failure: \(error.localizedDescription)")
                 }
 
                 // Release reserved storage quota and zero out so the outer catch
@@ -825,6 +855,19 @@ final class UploadQueueManager {
                 // Max retries reached, move to failed
                 failedUploads.append(updatedUpload)
                 queueIsDirty = true
+
+                // Notify user — they may not check the upload UI
+                let failedClipId = updatedUpload.clipId.uuidString
+                Task { @MainActor in
+                    _ = await PushNotificationService.shared.scheduleLocalNotification(
+                        identifier: "upload_failed_\(failedClipId)",
+                        title: "Upload Failed",
+                        body: "A video couldn't be uploaded after multiple attempts. Tap to retry.",
+                        categoryIdentifier: "CLOUD_BACKUP",
+                        userInfo: ["type": "upload_failed", "clipId": failedClipId],
+                        trigger: UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
+                    )
+                }
             }
         }
     }

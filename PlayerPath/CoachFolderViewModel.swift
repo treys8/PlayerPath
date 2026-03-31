@@ -20,6 +20,9 @@ class CoachFolderViewModel {
     var isLoadingMore = false
     var hasMoreVideos = false
     var errorMessage: String?
+    /// Set when the real-time listener encounters an error; views can show a
+    /// "showing cached data" banner when non-nil.
+    var listenerError: String?
 
     /// Cached filtered arrays — updated whenever `videos` changes
     // Coach tabs
@@ -109,13 +112,22 @@ class CoachFolderViewModel {
     /// any additional videos the user loaded via "Load More" so pagination isn't lost.
     private func ensureListening(folderID: String) {
         guard videosListener == nil else { return }
-        let listener = FirestoreManager.shared.listenToVideos(forFolder: folderID) { [weak self] firestoreVideos in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                self.mergeListenerVideos(firestoreVideos)
-                self.prefetchURLs(folderID: folderID)
+        let listener = FirestoreManager.shared.listenToVideos(
+            forFolder: folderID,
+            onChange: { [weak self] firestoreVideos in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    self.listenerError = nil
+                    self.mergeListenerVideos(firestoreVideos)
+                    self.prefetchURLs(folderID: folderID)
+                }
+            },
+            onError: { [weak self] _ in
+                Task { @MainActor in
+                    self?.listenerError = "Unable to refresh videos. Showing cached data."
+                }
             }
-        }
+        )
         videosListener = listener
     }
 

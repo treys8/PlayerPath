@@ -294,6 +294,14 @@ enum OnboardingMilestone: String, CaseIterable {
     }
 }
 
+enum TipID {
+    static let gamesAddButton = "tip_games_add"
+    static let gameDetailStartGame = "tip_game_detail_start"
+    static let videosRecord = "tip_videos_record"
+    static let statsEmpty = "tip_stats_empty"
+    static let dashboardGamesCard = "tip_dashboard_games_card"
+}
+
 enum Tutorial: CaseIterable {
     case welcome
     case videoRecording
