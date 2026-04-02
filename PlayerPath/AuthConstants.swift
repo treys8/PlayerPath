@@ -10,8 +10,8 @@ import Foundation
 
 enum AuthConstants {
     // MARK: - Email & Support
-    static let supportEmail = "support@playerpath.app"
-    static let contactEmail = "contact@playerpath.app"
+    static let supportEmail = "support@playerpath.net"
+    static let contactEmail = "contact@playerpath.net"
 
     // MARK: - Error Messages
     enum ErrorMessages {

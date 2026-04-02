@@ -304,11 +304,11 @@ struct CoachPaywallView: View {
             if selectedTier == .academy {
                 // Academy: Contact Us CTA
                 Button {
-                    if let url = URL(string: "mailto:support@playerpath.app?subject=Academy%20Plan%20Inquiry"),
+                    if let url = URL(string: "mailto:\(AuthConstants.supportEmail)?subject=Academy%20Plan%20Inquiry"),
                        UIApplication.shared.canOpenURL(url) {
                         UIApplication.shared.open(url)
                     } else {
-                        UIPasteboard.general.string = "support@playerpath.app"
+                        UIPasteboard.general.string = AuthConstants.supportEmail
                         showingEmailCopied = true
                     }
                 } label: {

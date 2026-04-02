@@ -3,12 +3,12 @@
 //  PlayerPath
 //
 //  Created by Assistant on 11/21/25.
-//  Detailed view of a shared folder with From Athlete / Needs Review / From Me tabs
+//  Detailed view of a shared folder. Games folders show a flat video list; lessons folders show Review / Shared tabs.
 //
 
 import SwiftUI
 
-/// Shows the contents of a shared folder with From Athlete / Needs Review / From Me tabs
+/// Shows the contents of a shared folder. Games folders display a flat video list; lessons folders use Review / Shared tabs.
 struct CoachFolderDetailView: View {
     let folder: SharedFolder
 
@@ -41,25 +41,21 @@ struct CoachFolderDetailView: View {
     @State private var showingActiveSessionAlert = false
     private var archiveManager: CoachFolderArchiveManager { .shared }
 
-    init(folder: SharedFolder, initialTab: FolderTab = .fromAthlete) {
+    init(folder: SharedFolder, initialTab: FolderTab = .review) {
         self.folder = folder
         _viewModel = State(initialValue: CoachFolderViewModel(folder: folder))
         _verifiedFolder = State(initialValue: folder)
         _selectedTab = State(initialValue: initialTab)
     }
 
+    /// Tabs only used for lessons folders. Games folders show a flat list.
     enum FolderTab: String, CaseIterable {
-        case fromAthlete = "From Athlete"
-        case needsReview = "Review"
-        case fromMe = "From Me"
+        case review = "Review"
+        case shared = "Shared"
+    }
 
-        var icon: String {
-            switch self {
-            case .fromAthlete: return "figure.baseball"
-            case .needsReview: return "exclamationmark.circle"
-            case .fromMe: return "arrow.up.circle"
-            }
-        }
+    private var isLessonsFolder: Bool {
+        folder.folderType == "lessons"
     }
 
     var body: some View {
@@ -104,9 +100,9 @@ struct CoachFolderDetailView: View {
                 Text("Please end your current session before starting a new recording.")
             }
             .task { await initialLoad() }
-            .onChange(of: viewModel.cachedFromAthleteVideos) { _, _ in refreshAvailableTags() }
-            .onChange(of: viewModel.cachedFromMeVideos) { _, _ in refreshAvailableTags() }
-            .onChange(of: viewModel.cachedNeedsReviewVideos) { _, _ in refreshAvailableTags() }
+            .onChange(of: viewModel.cachedAllVideos) { _, _ in refreshAvailableTags() }
+            .onChange(of: viewModel.cachedSharedVideos) { _, _ in refreshAvailableTags() }
+            .onChange(of: viewModel.cachedReviewVideos) { _, _ in refreshAvailableTags() }
             .disabled(isLeaving)
             .overlay { leavingOverlay }
     }
@@ -144,7 +140,7 @@ struct CoachFolderDetailView: View {
 
     private var trailingMenu: some View {
         Menu {
-            if canUpload {
+            if isLessonsFolder && canUpload {
                 Button {
                     quickRecord()
                 } label: {
@@ -239,17 +235,18 @@ struct CoachFolderDetailView: View {
 
             FolderInfoHeader(folder: folder, videoCount: viewModel.videos.count, lastRefreshed: lastRefreshed)
 
-            Picker("View", selection: $selectedTab) {
-                ForEach(FolderTab.allCases, id: \.self) { tab in
-                    Label(tab.rawValue, systemImage: tab.icon)
-                        .tag(tab)
+            if isLessonsFolder {
+                Picker("View", selection: $selectedTab) {
+                    ForEach(FolderTab.allCases, id: \.self) { tab in
+                        Text(tab.rawValue).tag(tab)
+                    }
                 }
-            }
-            .pickerStyle(.segmented)
-            .padding()
-            .onChange(of: selectedTab) { _, _ in
-                selectedTagFilter = nil
-                refreshAvailableTags()
+                .pickerStyle(.segmented)
+                .padding()
+                .onChange(of: selectedTab) { _, _ in
+                    selectedTagFilter = nil
+                    refreshAvailableTags()
+                }
             }
 
             if !cachedAvailableTags.isEmpty {
@@ -260,36 +257,39 @@ struct CoachFolderDetailView: View {
             }
 
             Group {
-                switch selectedTab {
-                case .fromAthlete:
-                    AllVideosTabView(folder: folder, videos: filterByTag(viewModel.cachedFromAthleteVideos), isLoading: viewModel.isLoading, isLoadingMore: viewModel.isLoadingMore, hasMoreVideos: viewModel.hasMoreVideos, errorMessage: viewModel.errorMessage, unreadVideoIDs: activityNotifService.unreadVideoIDs, onRefresh: {
+                if isLessonsFolder {
+                    switch selectedTab {
+                    case .review:
+                        reviewContent
+                    case .shared:
+                        AllVideosTabView(folder: folder, videos: filterByTag(viewModel.cachedSharedVideos), isLoading: viewModel.isLoading, isLoadingMore: viewModel.isLoadingMore, hasMoreVideos: viewModel.hasMoreVideos, errorMessage: viewModel.errorMessage, unreadVideoIDs: activityNotifService.unreadVideoIDs, onRefresh: {
+                            await viewModel.loadVideos()
+                        }, onLoadMore: {
+                            await viewModel.loadMoreVideos()
+                        }, onEditTags: { video in
+                            editingVideoTags = video
+                            editingTags = video.tags
+                            editingDrillType = video.drillType
+                            showingTagEditor = true
+                        })
+                    }
+                } else {
+                    // Games folder: flat list of all videos
+                    AllVideosTabView(folder: folder, videos: filterByTag(viewModel.cachedAllVideos), isLoading: viewModel.isLoading, isLoadingMore: viewModel.isLoadingMore, hasMoreVideos: viewModel.hasMoreVideos, errorMessage: viewModel.errorMessage, unreadVideoIDs: activityNotifService.unreadVideoIDs, onRefresh: {
                         await viewModel.loadVideos()
                     }, onLoadMore: {
                         await viewModel.loadMoreVideos()
                     }, onEditTags: nil)
-                case .needsReview:
-                    needsReviewContent
-                case .fromMe:
-                    AllVideosTabView(folder: folder, videos: filterByTag(viewModel.cachedFromMeVideos), isLoading: viewModel.isLoading, isLoadingMore: viewModel.isLoadingMore, hasMoreVideos: viewModel.hasMoreVideos, errorMessage: viewModel.errorMessage, unreadVideoIDs: activityNotifService.unreadVideoIDs, onRefresh: {
-                        await viewModel.loadVideos()
-                    }, onLoadMore: {
-                        await viewModel.loadMoreVideos()
-                    }, onEditTags: { video in
-                        editingVideoTags = video
-                        editingTags = video.tags
-                        editingDrillType = video.drillType
-                        showingTagEditor = true
-                    })
                 }
             }
         }
     }
 
-    // MARK: - Needs Review
+    // MARK: - Review (Lessons)
 
     @ViewBuilder
-    private var needsReviewContent: some View {
-        let clips = viewModel.cachedNeedsReviewVideos
+    private var reviewContent: some View {
+        let clips = viewModel.cachedReviewVideos
         if viewModel.isLoading && clips.isEmpty {
             VStack { Spacer(); ProgressView("Loading clips..."); Spacer() }
         } else if clips.isEmpty {
@@ -354,7 +354,7 @@ struct CoachFolderDetailView: View {
     }
 
     private func shareAllReviewClips() {
-        let clips = viewModel.cachedNeedsReviewVideos
+        let clips = viewModel.cachedReviewVideos
         guard !clips.isEmpty, let folderID = folder.id else { return }
         isSharingAll = true
         shareProgress = (current: 0, total: clips.count)
@@ -506,10 +506,13 @@ struct CoachFolderDetailView: View {
 
     private func refreshAvailableTags() {
         let visibleVideos: [CoachVideoItem]
-        switch selectedTab {
-        case .fromAthlete: visibleVideos = viewModel.cachedFromAthleteVideos
-        case .needsReview: visibleVideos = viewModel.cachedNeedsReviewVideos
-        case .fromMe: visibleVideos = viewModel.cachedFromMeVideos
+        if isLessonsFolder {
+            switch selectedTab {
+            case .review: visibleVideos = viewModel.cachedReviewVideos
+            case .shared: visibleVideos = viewModel.cachedSharedVideos
+            }
+        } else {
+            visibleVideos = viewModel.cachedAllVideos
         }
         cachedAvailableTags = Array(Set(visibleVideos.flatMap(\.tags))).sorted()
     }

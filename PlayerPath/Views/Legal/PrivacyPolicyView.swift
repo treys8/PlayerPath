@@ -143,7 +143,7 @@ struct PrivacyPolicyView: View {
                     content: """
                     If you have questions about this privacy policy or your data, please contact us at:
 
-                    Email: playerpath@proton.me
+                    Email: support@playerpath.net
 
                     For data deletion requests, use the "Delete Account" option in the app or email us at the address above.
                     """

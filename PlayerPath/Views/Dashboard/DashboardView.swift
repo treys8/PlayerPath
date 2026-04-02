@@ -26,6 +26,7 @@ struct DashboardView: View {
     @State private var showingPhotos = false
     @State private var isCheckingPermissions = false
     @State private var isEndingGame: Set<UUID> = []
+    @State private var showGamesCardTip = false
 
     // Cached computed values to avoid recalculation during body evaluation
     @State private var seasonRecommendation: SeasonManager.SeasonRecommendation = .ok
@@ -137,9 +138,8 @@ struct DashboardView: View {
                 }
                 .tooltip(
                     "switch_athlete",
-                    text: "Tap here to switch between athletes",
-                    arrowEdge: .top,
-                    showWhen: (user.athletes ?? []).count > 1
+                    text: "Your athlete profiles live here",
+                    arrowEdge: .top
                 )
             }
         }
@@ -151,6 +151,15 @@ struct DashboardView: View {
                 pulseAnimation = true
             }
             updateCachedStats()
+        }
+        .task(id: "gamesCardTip") {
+            let games = viewModel.totalGames
+            guard games == 0, OnboardingManager.shared.shouldShowTip(TipID.dashboardGamesCard) else { return }
+            try? await Task.sleep(for: .seconds(0.6))
+            guard !Task.isCancelled else { return }
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
+                showGamesCardTip = true
+            }
         }
         .onChange(of: athlete.statistics?.updatedAt) { _, _ in
             updateCachedStats()
@@ -340,11 +349,25 @@ struct DashboardView: View {
                 }
             }
 
+            if showGamesCardTip {
+                TooltipBubble(
+                    "Start here — create a game for your next matchup",
+                    arrowEdge: .bottom
+                ) {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                        showGamesCardTip = false
+                    }
+                    OnboardingManager.shared.dismissTip(TipID.dashboardGamesCard)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.leading, 20)
+                .transition(.scale(scale: 0.85, anchor: .bottom).combined(with: .opacity))
+            }
+
             LazyVGrid(columns: managementColumns, spacing: 16) {
                 DashboardFeatureCard(icon: "baseball.diamond.bases", title: "Games", subtitle: "\(viewModel.totalGames) Total", color: .brandNavy) {
                     postSwitchTab(.games)
                 }
-                .tooltip(TipID.dashboardGamesCard, text: "Start here — create a game for your next matchup", arrowEdge: .bottom, showWhen: viewModel.totalGames == 0)
                 DashboardFeatureCard(icon: "video", title: "Video Clips", subtitle: "\(viewModel.totalVideos) Recorded", color: .brandNavy) {
                     postSwitchTab(.videos)
                 }

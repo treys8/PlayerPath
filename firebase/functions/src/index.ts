@@ -239,6 +239,43 @@ export const onNewSharedVideo = functions.firestore
   });
 
 /**
+ * When a private video is published (visibility changes from "private" to "shared"),
+ * send an FCM push to the folder owner (athlete). This covers coach session clips
+ * that are shared after review — the onCreate trigger skips private videos.
+ */
+export const onVideoPublished = functions.firestore
+  .document('videos/{videoId}')
+  .onUpdate(async (change) => {
+    const before = change.before.data();
+    const after = change.after.data();
+
+    // Only fire when visibility transitions from private to non-private
+    if (before.visibility === 'private' && after.visibility !== 'private') {
+      const folderID = after.sharedFolderID;
+      if (!folderID) return;
+
+      // Only notify for coach uploads — athlete uploads are already handled by onCreate
+      if (after.uploadedByType !== 'coach') return;
+
+      const folderDoc = await admin.firestore().collection('sharedFolders').doc(folderID).get();
+      if (!folderDoc.exists) return;
+      const folder = folderDoc.data()!;
+
+      const coachName = after.uploadedByName || 'Your coach';
+      const athleteID = folder.ownerAthleteID;
+      if (!athleteID) return;
+
+      await sendPushNotification(
+        athleteID,
+        'New Session Video',
+        `${coachName} shared a lesson clip with you`,
+        { type: 'new_video', folderID },
+        'COACH_VIDEO'
+      );
+    }
+  });
+
+/**
  * When a comment is added to a video, notify the video uploader.
  */
 export const onNewComment = functions.firestore
@@ -253,7 +290,7 @@ export const onNewComment = functions.firestore
 
     // Don't notify if the commenter is the video uploader, or if uploader is unknown
     if (!video.uploadedBy) return;
-    if (comment.authorID === video.uploadedBy) return;
+    if (comment.authorId === video.uploadedBy) return;
 
     const commenterName = comment.authorName || 'Someone';
     const preview = (comment.text || '').substring(0, 80);

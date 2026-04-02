@@ -395,6 +395,11 @@ struct AthleteFolderDetailContent: View {
             if let lastFetch = lastFetchDate, Date().timeIntervalSince(lastFetch) < 60 { return }
             await viewModel.loadVideos()
             lastFetchDate = Date()
+
+            // Mark this folder's notifications as read
+            if let folderID = folder.id {
+                await activityNotifService.markFolderRead(folderID: folderID, forUserID: athleteID)
+            }
         }
         .refreshable {
             await viewModel.loadVideos()

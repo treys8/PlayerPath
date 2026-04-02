@@ -203,7 +203,7 @@ struct CoachesView: View {
     private func reportCoach(_ coach: Coach) {
         let subject = "Coach Report: \(coach.name)"
         let body = "I would like to report the following coach for inappropriate behavior:\n\nCoach Name: \(coach.name)\nCoach Email: \(coach.email)\n\nDetails:\n[Please describe the issue here]"
-        let mailto = "mailto:support@playerpath.app?subject=\(subject)&body=\(body)"
+        let mailto = "mailto:\(AuthConstants.supportEmail)?subject=\(subject)&body=\(body)"
             .addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
         if let url = URL(string: mailto) {
             UIApplication.shared.open(url)

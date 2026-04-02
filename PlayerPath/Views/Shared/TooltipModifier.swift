@@ -29,6 +29,7 @@ struct TooltipModifier: ViewModifier {
                         }
                         onboardingManager.dismissTip(tipID)
                     }
+                    .fixedSize()
                     // Shift tooltip outside the target's bounds using alignment guides
                     .alignmentGuide(.top) { d in
                         arrowEdge == .bottom ? d.height + 4 : d[.top]

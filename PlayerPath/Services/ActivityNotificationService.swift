@@ -206,6 +206,23 @@ final class ActivityNotificationService: ObservableObject {
         }
     }
 
+    func markNewVideoNotificationsRead(forUserID userID: String) async {
+        let videoUnread = recentNotifications.filter { !$0.isRead && $0.type == .newVideo }
+        guard !videoUnread.isEmpty else { return }
+
+        let batch = db.batch()
+        for n in videoUnread {
+            guard let id = n.id else { continue }
+            let ref = db.collection(FC.notifications).document(userID).collection(FC.items).document(id)
+            batch.updateData(["isRead": true], forDocument: ref)
+        }
+        do {
+            try await batch.commit()
+        } catch {
+            log.error("Failed to mark new-video notifications read: \(error.localizedDescription)")
+        }
+    }
+
     func markFolderNotificationsRead(forUserID userID: String) async {
         let folderUnread = recentNotifications.filter {
             !$0.isRead && ($0.type == .newVideo || $0.type == .coachComment) && $0.targetType == .folder

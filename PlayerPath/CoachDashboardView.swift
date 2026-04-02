@@ -268,7 +268,7 @@ struct CoachDashboardView: View {
                         coordinator.navigateToFolder(
                             firstGroup.folderID,
                             folders: sharedFolderManager.coachFolders,
-                            initialTab: .needsReview
+                            initialTab: .review
                         )
                     }
                 },
@@ -276,7 +276,7 @@ struct CoachDashboardView: View {
                     coordinator.navigateToFolder(
                         folderID,
                         folders: sharedFolderManager.coachFolders,
-                        initialTab: .needsReview
+                        initialTab: .review
                     )
                 }
             )
@@ -609,7 +609,7 @@ struct CoachDashboardView: View {
             coordinator.navigateToFolder(
                 folderID,
                 folders: sharedFolderManager.coachFolders,
-                initialTab: .needsReview
+                initialTab: .review
             )
         } else {
             // Multi-athlete — go to Athletes tab so coach can pick which folder

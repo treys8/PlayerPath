@@ -51,9 +51,13 @@ struct CoachTabView: View {
                 screenName: newTab.title,
                 screenClass: "CoachTabView"
             )
-            if newTab == .athletes, let coachID = authManager.userID {
+            if let coachID = authManager.userID {
                 Task {
-                    await ActivityNotificationService.shared.markInvitationNotificationsRead(forUserID: coachID)
+                    if newTab == .dashboard {
+                        await ActivityNotificationService.shared.markAllRead(forUserID: coachID)
+                    } else if newTab == .athletes {
+                        await ActivityNotificationService.shared.markInvitationNotificationsRead(forUserID: coachID)
+                    }
                 }
             }
         }

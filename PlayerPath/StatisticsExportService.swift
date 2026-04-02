@@ -241,7 +241,7 @@ final class StatisticsExportService {
 
             // Footer
             let footerFont = UIFont.systemFont(ofSize: 9)
-            let footerText = "Generated with PlayerPath • playerpath.app"
+            let footerText = "Generated with PlayerPath • playerpath.net"
             let footerRect = CGRect(x: margin, y: pageHeight - margin, width: contentWidth, height: 15)
             footerText.draw(in: footerRect, withAttributes: [
                 .font: footerFont,

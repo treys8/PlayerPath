@@ -180,8 +180,12 @@ struct MainTabView: View {
                 default: screenName = "Unknown"
                 }
                 AnalyticsService.shared.trackScreenView(screenName: screenName, screenClass: "MainTabView")
-                // Coach feedback notifications are now cleared per-folder when the athlete
-                // opens a specific shared folder, so we no longer mark everything read here.
+                // Mark new-video notifications read when athlete opens Videos tab
+                if newValue == MainTab.videos.rawValue, let userID = authManager.userID {
+                    Task {
+                        await ActivityNotificationService.shared.markNewVideoNotificationsRead(forUserID: userID)
+                    }
+                }
                 // Reset when leaving Videos tab
                 if newValue != MainTab.videos.rawValue {
                     hideFloatingRecordButton = false
@@ -522,12 +526,12 @@ struct MainTabView: View {
                 case .coaches:
                     CoachesView(athlete: selectedAthlete).id(selectedAthlete.id).proRequired()
                 case .sharedFolders:
-                    AthleteFoldersListView(userID: authManager.userID)
+                    AthleteFoldersListView(userID: authManager.userID).proRequired()
                 case .sharedFolder(let folderID):
                     if let folder = SharedFolderManager.shared.athleteFolders.first(where: { $0.id == folderID }) {
-                        AthleteFolderDetailView(folder: folder)
+                        AthleteFolderDetailView(folder: folder).proRequired()
                     } else {
-                        AthleteFoldersListView(userID: authManager.userID)
+                        AthleteFoldersListView(userID: authManager.userID).proRequired()
                     }
                 }
             }

@@ -27,6 +27,7 @@ struct InvitationDetailView: View {
     @State private var isLoading = true
     @State private var errorMessage: String?
     @State private var isAccepting = false
+    @State private var showingPaywall = false
 
     var body: some View {
         NavigationStack {
@@ -51,6 +52,11 @@ struct InvitationDetailView: View {
                 }
             }
             .task { await loadInvitation() }
+            .sheet(isPresented: $showingPaywall) {
+                if let user = authManager.localUser {
+                    ImprovedPaywallView(user: user)
+                }
+            }
         }
     }
 
@@ -291,6 +297,11 @@ struct InvitationDetailView: View {
     private func acceptCoachToAthlete(_ invitation: CoachToAthleteInvitation) async {
         if let expiresAt = invitation.expiresAt, expiresAt < Date() {
             errorMessage = "This invitation has expired. Ask your coach to send a new one."
+            return
+        }
+
+        guard authManager.hasCoachingAccess else {
+            showingPaywall = true
             return
         }
 

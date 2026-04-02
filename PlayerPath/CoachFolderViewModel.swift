@@ -25,12 +25,13 @@ class CoachFolderViewModel {
     var listenerError: String?
 
     /// Cached filtered arrays — updated whenever `videos` changes
-    // Coach tabs
-    var cachedFromAthleteVideos: [CoachVideoItem] = []
-    var cachedNeedsReviewVideos: [CoachVideoItem] = []
-    var cachedFromMeVideos: [CoachVideoItem] = []
+    // Games folder: all visible videos (uploaded by athlete)
+    var cachedAllVideos: [CoachVideoItem] = []
+    // Lessons folder: coach's private clips pending review vs shared clips
+    var cachedReviewVideos: [CoachVideoItem] = []
+    var cachedSharedVideos: [CoachVideoItem] = []
 
-    var needsReviewCount: Int { cachedNeedsReviewVideos.count }
+    var reviewCount: Int { cachedReviewVideos.count }
     // Athlete tabs (used by AthleteFoldersListView)
     var cachedGameVideos: [CoachVideoItem] = []
     var cachedInstructionVideos: [CoachVideoItem] = []
@@ -55,10 +56,12 @@ class CoachFolderViewModel {
         let myUID = currentUserID ?? ""
         let sharedVideos = videos.filter { $0.visibility != "private" }
 
-        // Coach: From Athlete / Needs Review / From Me
-        cachedFromAthleteVideos = sharedVideos.filter { $0.uploadedBy != myUID }
-        cachedNeedsReviewVideos = videos.filter { $0.visibility == "private" && $0.uploadedBy == myUID }
-        cachedFromMeVideos = sharedVideos.filter { $0.uploadedBy == myUID }
+        // Games folder: all visible videos (athlete uploads)
+        cachedAllVideos = sharedVideos
+
+        // Lessons folder: Review (coach's private drafts) / Shared (coach's published clips)
+        cachedReviewVideos = videos.filter { $0.visibility == "private" && $0.uploadedBy == myUID }
+        cachedSharedVideos = sharedVideos.filter { $0.uploadedBy == myUID }
 
         // Athlete: Games / Instruction (mutually exclusive — games take priority)
         cachedGameVideos = sharedVideos.filter { $0.videoType == "game" || $0.gameOpponent != nil }

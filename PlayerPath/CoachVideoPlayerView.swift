@@ -617,7 +617,7 @@ struct NoteCardView: View {
             Button("Report", role: .destructive) {
                 let subject = "Inappropriate Comment Report"
                 let body = "I would like to report the following comment as inappropriate:\n\nComment by: \(note.userName)\nComment: \(note.text)\n\nDetails:\n[Please describe the issue here]"
-                let mailto = "mailto:support@playerpath.app?subject=\(subject)&body=\(body)"
+                let mailto = "mailto:\(AuthConstants.supportEmail)?subject=\(subject)&body=\(body)"
                     .addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
                 if let url = URL(string: mailto) {
                     UIApplication.shared.open(url)

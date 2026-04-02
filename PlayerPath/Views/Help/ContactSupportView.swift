@@ -78,12 +78,12 @@ struct ContactSupportView: View {
             }
 
             Section("Other Ways to Reach Us") {
-                Link(destination: URL(string: "mailto:playerpath@proton.me") ?? URL(string: "https://playerpath.app")!) {
+                Link(destination: URL(string: "mailto:\(AuthConstants.supportEmail)") ?? URL(string: "https://playerpath.net")!) {
                 // Force unwrap above is safe — hardcoded valid URL as nil-coalescing fallback
                     HelpRowLabel(
                         icon: "envelope",
                         title: "Email Support",
-                        subtitle: "playerpath@proton.me"
+                        subtitle: AuthConstants.supportEmail
                     )
                 }
 
@@ -121,7 +121,7 @@ struct ContactSupportView: View {
         """
 
         let emailSubject = subject
-        let emailTo = "playerpath@proton.me"
+        let emailTo = AuthConstants.supportEmail
 
         let coded = "mailto:\(emailTo)?subject=\(emailSubject)&body=\(emailBody)"
             .addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)

@@ -147,6 +147,22 @@ extension ComprehensiveAuthManager {
                     authLog.debug("Comped athlete tier applied from Firestore: \(profile.tier.displayName)")
                 }
 
+                // Sync Firebase Auth email to Firestore if they differ
+                // (e.g. after a verified email change via sendEmailVerification(beforeUpdatingEmail:))
+                if email.lowercased() != profile.email.lowercased() {
+                    authLog.info("Email mismatch: Auth=\(email, privacy: .private), Firestore=\(profile.email, privacy: .private) — syncing to Firestore")
+                    do {
+                        try await FirestoreManager.shared.updateUserProfile(
+                            userID: userID,
+                            email: email.lowercased(),
+                            role: profile.userRole,
+                            profileData: ["email": email.lowercased()]
+                        )
+                    } catch {
+                        authLog.warning("Failed to sync email to Firestore: \(error.localizedDescription)")
+                    }
+                }
+
                 hasLoadedProfile = true
 
                 // Check if user needs to set a display name
