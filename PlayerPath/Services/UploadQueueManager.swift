@@ -786,7 +786,7 @@ final class UploadQueueManager {
 
             // Notify user of successful upload if enabled
             if uploadPrefs?.enableUploadNotifications ?? true {
-                await PushNotificationService.shared.notifyUploadComplete(thumbnailPath: clip.thumbnailPath)
+                await PushNotificationService.shared.notifyUploadComplete(thumbnailPath: clip.resolvedThumbnailPath)
             }
 
             // Stop progress monitoring

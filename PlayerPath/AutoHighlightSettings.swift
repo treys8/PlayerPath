@@ -48,8 +48,8 @@ final class AutoHighlightSettings: ObservableObject {
             defaults.set(true,  forKey: Key.includeTriples.rawValue)
             defaults.set(true,  forKey: Key.includeHomeRuns.rawValue)
             defaults.set(true,  forKey: Key.includePitcherStrikeouts.rawValue)
-            defaults.set(false, forKey: Key.includePitcherGroundOuts.rawValue)
-            defaults.set(false, forKey: Key.includePitcherFlyOuts.rawValue)
+            defaults.set(true,  forKey: Key.includePitcherGroundOuts.rawValue)
+            defaults.set(true,  forKey: Key.includePitcherFlyOuts.rawValue)
             defaults.set(true,  forKey: Key.defaultsSet.rawValue)
         }
 
@@ -77,7 +77,7 @@ final class AutoHighlightSettings: ObservableObject {
         case (.batter, .double):     return includeDoubles
         case (.batter, .triple):     return includeTriples
         case (.batter, .homeRun):    return includeHomeRuns
-        case (.pitcher, .strikeout): return includePitcherStrikeouts
+        case (.pitcher, .strikeout), (.pitcher, .pitchingStrikeout): return includePitcherStrikeouts
         case (.pitcher, .groundOut): return includePitcherGroundOuts
         case (.pitcher, .flyOut):    return includePitcherFlyOuts
         default:                     return false

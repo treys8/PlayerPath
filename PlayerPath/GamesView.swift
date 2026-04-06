@@ -336,7 +336,6 @@ struct GamesView: View {
                     EmptyGamesView {
                         handleAddGame()
                     }
-                    .tooltip(TipID.gamesAddButton, text: "Create your first game to start tracking at-bats", arrowEdge: .bottom)
                 }
             } else {
                 List {

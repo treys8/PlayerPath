@@ -248,7 +248,9 @@ final class ClipPersistenceService {
         try jpegData.write(to: thumbnailURL)
         #endif
 
-        return thumbnailURL.path
+        // Store as a path relative to Documents so the reference survives app
+        // reinstalls / backup restores (which change the sandbox container path).
+        return VideoClip.toRelativePath(thumbnailURL.path)
     }
 
     func saveClip(
@@ -320,8 +322,10 @@ final class ClipPersistenceService {
         do {
             try await verifyVideoPlayability(asset: asset, url: destinationURL)
         } catch {
-            // Delete corrupted file
-            try? fileManager.removeItem(at: destinationURL)
+            // Only remove the file we just copied in. If destinationURL was an
+            // existing file already inside Documents/Clips (sourceNeedsDeletion == false),
+            // do NOT delete it — that would destroy the user's original video.
+            if sourceNeedsDeletion { try? fileManager.removeItem(at: destinationURL) }
             throw ClipPersistenceError.corruptedVideo(destinationURL, underlying: error)
         }
 
@@ -367,7 +371,7 @@ final class ClipPersistenceService {
                     context.insert(gameStats)
                 }
                 if let gameStats = game.gameStats {
-                    gameStats.addPlayResult(playResultType)
+                    gameStats.addPlayResult(playResultType, pitchType: pitchType, pitchSpeed: pitchSpeed)
                 }
             } else {
                 // For practice/standalone videos: Update athlete statistics directly
@@ -378,7 +382,7 @@ final class ClipPersistenceService {
                     context.insert(stats)
                 }
                 if let statistics = athlete.statistics {
-                    statistics.addPlayResult(playResultType)
+                    statistics.addPlayResult(playResultType, pitchType: pitchType, pitchSpeed: pitchSpeed)
                 }
             }
         }

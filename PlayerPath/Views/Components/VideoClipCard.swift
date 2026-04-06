@@ -99,12 +99,23 @@ struct VideoClipCard: View {
                 VStack(alignment: .leading, spacing: 6) {
                         // Headline: play result > fallback
                         if let result = video.playResult {
-                            Text(result.type.displayName)
-                                .font(.subheadline)
-                                .fontWeight(.bold)
-                                .foregroundColor(.primary)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
+                            HStack(spacing: 6) {
+                                Text(result.type.displayName)
+                                    .font(.subheadline)
+                                    .fontWeight(.bold)
+                                    .foregroundColor(.primary)
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                                if let speed = video.pitchSpeed, speed > 0 {
+                                    Text("\(Int(speed)) mph")
+                                        .font(.caption2)
+                                        .fontWeight(.semibold)
+                                        .foregroundColor(.white)
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 2)
+                                        .background(.orange, in: Capsule())
+                                }
+                            }
                         } else {
                             Text("Video Clip")
                                 .font(.subheadline)
@@ -227,7 +238,7 @@ struct VideoClipCard: View {
                 Button {
                     showingShareToFolder = true
                 } label: {
-                    Label("Share to Coach Folder", systemImage: hasCoachingAccess ? "folder.badge.person.fill" : "lock.fill")
+                    Label("Share to Coach Folder", systemImage: hasCoachingAccess ? "folder.badge.person.crop" : "lock.fill")
                 }
             }
 

@@ -274,12 +274,31 @@ enum SchemaV14: VersionedSchema {
     static var models: [any PersistentModel.Type] { SchemaV1.models }
 }
 
+// MARK: - Schema V15 (Fastball velocity tracking)
+//
+//  Changes from V14:
+//    • AthleteStatistics.fastballPitchCount (Int = 0) added
+//    • AthleteStatistics.fastballSpeedTotal (Double = 0) added
+//    • AthleteStatistics.offspeedPitchCount (Int = 0) added
+//    • AthleteStatistics.offspeedSpeedTotal (Double = 0) added
+//    • GameStatistics.fastballPitchCount (Int = 0) added
+//    • GameStatistics.fastballSpeedTotal (Double = 0) added
+//    • GameStatistics.offspeedPitchCount (Int = 0) added
+//    • GameStatistics.offspeedSpeedTotal (Double = 0) added
+//
+//  All additions have defaults → lightweight migration.
+
+enum SchemaV15: VersionedSchema {
+    static var versionIdentifier = Schema.Version(15, 0, 0)
+    static var models: [any PersistentModel.Type] { SchemaV1.models }
+}
+
 // MARK: - Migration Plan
 
 enum PlayerPathMigrationPlan: SchemaMigrationPlan {
     /// All schema versions in chronological order (oldest first).
     static var schemas: [any VersionedSchema.Type] {
-        [SchemaV1.self, SchemaV2.self, SchemaV3.self, SchemaV4.self, SchemaV5.self, SchemaV6.self, SchemaV7.self, SchemaV8.self, SchemaV9.self, SchemaV10.self, SchemaV11.self, SchemaV12.self, SchemaV13.self, SchemaV14.self]
+        [SchemaV1.self, SchemaV2.self, SchemaV3.self, SchemaV4.self, SchemaV5.self, SchemaV6.self, SchemaV7.self, SchemaV8.self, SchemaV9.self, SchemaV10.self, SchemaV11.self, SchemaV12.self, SchemaV13.self, SchemaV14.self, SchemaV15.self]
     }
 
     /// Migration stages between consecutive versions.
@@ -297,7 +316,8 @@ enum PlayerPathMigrationPlan: SchemaMigrationPlan {
             .lightweight(fromVersion: SchemaV10.self, toVersion: SchemaV11.self),
             .lightweight(fromVersion: SchemaV11.self, toVersion: SchemaV12.self),
             .lightweight(fromVersion: SchemaV12.self, toVersion: SchemaV13.self),
-            .lightweight(fromVersion: SchemaV13.self, toVersion: SchemaV14.self)
+            .lightweight(fromVersion: SchemaV13.self, toVersion: SchemaV14.self),
+            .lightweight(fromVersion: SchemaV14.self, toVersion: SchemaV15.self)
         ]
     }
 }

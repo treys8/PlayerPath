@@ -11,13 +11,28 @@ import SwiftUI
 
 struct PitchingStatsSection: View {
     let statistics: AthleteStatistics
+    let athlete: Athlete?
 
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var isVisible = false
+    @State private var showingFastballSpeeds = false
+    @State private var showingOffspeedSpeeds = false
 
     private var columns: [GridItem] {
         let count = horizontalSizeClass == .regular ? 3 : 2
         return Array(repeating: GridItem(.flexible()), count: count)
+    }
+
+    private var avgFBSubtitle: String {
+        let count = statistics.fastballPitchCount
+        guard count > 0 else { return "No fastballs yet" }
+        return "\(count) fastball\(count == 1 ? "" : "s")"
+    }
+
+    private var avgOffspeedSubtitle: String {
+        let count = statistics.offspeedPitchCount
+        guard count > 0 else { return "No off-speed yet" }
+        return "\(count) off-speed"
     }
 
     var body: some View {
@@ -34,12 +49,39 @@ struct PitchingStatsSection: View {
                     subtitle: nil
                 )
 
-                StatCard(
-                    title: "Strike %",
-                    value: String(format: "%.1f%%", statistics.strikePercentage * 100),
-                    color: .green,
-                    subtitle: "\(statistics.strikes)/\(statistics.totalPitches)"
-                )
+                Button {
+                    if athlete != nil {
+                        showingFastballSpeeds = true
+                    }
+                } label: {
+                    StatCard(
+                        title: "Avg FB Speed",
+                        value: statistics.fastballPitchCount > 0
+                            ? String(format: "%.1f", statistics.averageFastballSpeed)
+                            : "—",
+                        color: .green,
+                        subtitle: avgFBSubtitle
+                    )
+                }
+                .buttonStyle(.plain)
+                .disabled(athlete == nil)
+
+                Button {
+                    if athlete != nil {
+                        showingOffspeedSpeeds = true
+                    }
+                } label: {
+                    StatCard(
+                        title: "Avg Off-Speed",
+                        value: statistics.offspeedPitchCount > 0
+                            ? String(format: "%.1f", statistics.averageOffspeedSpeed)
+                            : "—",
+                        color: .orange,
+                        subtitle: avgOffspeedSubtitle
+                    )
+                }
+                .buttonStyle(.plain)
+                .disabled(athlete == nil)
             }
 
             VStack(spacing: 0) {
@@ -61,6 +103,16 @@ struct PitchingStatsSection: View {
         .onAppear {
             withAnimation(.easeOut(duration: 0.4).delay(0.4)) {
                 isVisible = true
+            }
+        }
+        .sheet(isPresented: $showingFastballSpeeds) {
+            if let athlete {
+                PitchSpeedsView(athlete: athlete, pitchType: "fastball")
+            }
+        }
+        .sheet(isPresented: $showingOffspeedSpeeds) {
+            if let athlete {
+                PitchSpeedsView(athlete: athlete, pitchType: "offspeed")
             }
         }
     }

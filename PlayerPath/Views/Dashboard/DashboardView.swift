@@ -7,6 +7,7 @@
 
 import SwiftUI
 import SwiftData
+import TipKit
 import UIKit
 
 struct DashboardView: View {
@@ -26,7 +27,8 @@ struct DashboardView: View {
     @State private var showingPhotos = false
     @State private var isCheckingPermissions = false
     @State private var isEndingGame: Set<UUID> = []
-    @State private var showGamesCardTip = false
+    private let gamesCardTip = DashboardGamesCardTip()
+    private let athletePickerTip = AthletePickerTip()
 
     // Cached computed values to avoid recalculation during body evaluation
     @State private var seasonRecommendation: SeasonManager.SeasonRecommendation = .ok
@@ -136,11 +138,7 @@ struct DashboardView: View {
                 } label: {
                     AthletePickerLabel(name: athlete.name, initials: athleteInitials)
                 }
-                .tooltip(
-                    "switch_athlete",
-                    text: "Your athlete profiles live here",
-                    arrowEdge: .top
-                )
+                .popoverTip(athletePickerTip, arrowEdge: .top)
             }
         }
         .task {
@@ -151,15 +149,10 @@ struct DashboardView: View {
                 pulseAnimation = true
             }
             updateCachedStats()
+            DashboardGamesCardTip.gamesCount = viewModel.totalGames
         }
-        .task(id: "gamesCardTip") {
-            let games = viewModel.totalGames
-            guard games == 0, OnboardingManager.shared.shouldShowTip(TipID.dashboardGamesCard) else { return }
-            try? await Task.sleep(for: .seconds(0.6))
-            guard !Task.isCancelled else { return }
-            withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
-                showGamesCardTip = true
-            }
+        .onChange(of: viewModel.totalGames) { _, newValue in
+            DashboardGamesCardTip.gamesCount = newValue
         }
         .onChange(of: athlete.statistics?.updatedAt) { _, _ in
             updateCachedStats()
@@ -349,25 +342,11 @@ struct DashboardView: View {
                 }
             }
 
-            if showGamesCardTip {
-                TooltipBubble(
-                    "Start here — create a game for your next matchup",
-                    arrowEdge: .bottom
-                ) {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                        showGamesCardTip = false
-                    }
-                    OnboardingManager.shared.dismissTip(TipID.dashboardGamesCard)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.leading, 20)
-                .transition(.scale(scale: 0.85, anchor: .bottom).combined(with: .opacity))
-            }
-
             LazyVGrid(columns: managementColumns, spacing: 16) {
                 DashboardFeatureCard(icon: "baseball.diamond.bases", title: "Games", subtitle: "\(viewModel.totalGames) Total", color: .brandNavy) {
                     postSwitchTab(.games)
                 }
+                .popoverTip(gamesCardTip, arrowEdge: .top)
                 DashboardFeatureCard(icon: "video", title: "Video Clips", subtitle: "\(viewModel.totalVideos) Recorded", color: .brandNavy) {
                     postSwitchTab(.videos)
                 }

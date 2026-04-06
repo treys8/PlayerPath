@@ -10,6 +10,7 @@ import SwiftData
 import AVKit
 import PhotosUI
 import Photos
+import TipKit
 
 struct VideoClipsView: View {
     let athlete: Athlete
@@ -515,7 +516,10 @@ struct VideoClipsView: View {
                 showingRecorder = true
             }
         )
-        .tooltip(TipID.videosRecord, text: "Videos you record during games will show up here", arrowEdge: .bottom, showWhen: !(athlete.games ?? []).isEmpty)
+        .popoverTip(VideoClipsRecordTip(), arrowEdge: .top)
+        .onAppear {
+            VideoClipsRecordTip.hasGames = !(athlete.games ?? []).isEmpty
+        }
     }
 
     private var uploadStatusFilterPicker: some View {

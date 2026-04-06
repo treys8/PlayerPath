@@ -80,6 +80,10 @@ final class StatisticsService {
                 stats.wildPitches += gameStats.wildPitches
                 stats.pitchingStrikeouts += gameStats.pitchingStrikeouts
                 stats.pitchingWalks += gameStats.pitchingWalks
+                stats.fastballPitchCount += gameStats.fastballPitchCount
+                stats.fastballSpeedTotal += gameStats.fastballSpeedTotal
+                stats.offspeedPitchCount += gameStats.offspeedPitchCount
+                stats.offspeedSpeedTotal += gameStats.offspeedSpeedTotal
             }
         }
 
@@ -89,7 +93,10 @@ final class StatisticsService {
 
         for video in practiceVideos {
             if let playResult = video.playResult {
-                addPlayResultToStats(playResult.type, stats: stats)
+                addPlayResultToStats(playResult.type, stats: stats, pitchType: video.pitchType, pitchSpeed: video.pitchSpeed)
+            } else {
+                // Clip has a pitch speed but no tagged play result — still contribute to velocity aggregates.
+                stats.applyPitchVelocity(pitchType: video.pitchType, pitchSpeed: video.pitchSpeed)
             }
         }
 
@@ -173,6 +180,10 @@ final class StatisticsService {
                 stats.wildPitches += gameStats.wildPitches
                 stats.pitchingStrikeouts += gameStats.pitchingStrikeouts
                 stats.pitchingWalks += gameStats.pitchingWalks
+                stats.fastballPitchCount += gameStats.fastballPitchCount
+                stats.fastballSpeedTotal += gameStats.fastballSpeedTotal
+                stats.offspeedPitchCount += gameStats.offspeedPitchCount
+                stats.offspeedSpeedTotal += gameStats.offspeedSpeedTotal
             }
         }
 
@@ -182,7 +193,9 @@ final class StatisticsService {
 
         for video in practiceVideos {
             if let playResult = video.playResult {
-                addPlayResultToStats(playResult.type, stats: stats)
+                addPlayResultToStats(playResult.type, stats: stats, pitchType: video.pitchType, pitchSpeed: video.pitchSpeed)
+            } else {
+                stats.applyPitchVelocity(pitchType: video.pitchType, pitchSpeed: video.pitchSpeed)
             }
         }
 
@@ -220,54 +233,10 @@ final class StatisticsService {
 
         for video in videos {
             if let playResult = video.playResult {
-                let type = playResult.type
-
-                if type.countsAsAtBat {
-                    stats.atBats += 1
-                }
-
-                switch type {
-                case .single:
-                    stats.hits += 1
-                    stats.singles += 1
-                case .double:
-                    stats.hits += 1
-                    stats.doubles += 1
-                case .triple:
-                    stats.hits += 1
-                    stats.triples += 1
-                case .homeRun:
-                    stats.hits += 1
-                    stats.homeRuns += 1
-                case .walk:
-                    stats.walks += 1
-                case .strikeout:
-                    stats.strikeouts += 1
-                case .groundOut:
-                    stats.groundOuts += 1
-                case .flyOut:
-                    stats.flyOuts += 1
-                case .hitByPitch:
-                    stats.totalPitches += 1
-                    stats.hitByPitches += 1
-                case .ball:
-                    stats.totalPitches += 1
-                    stats.balls += 1
-                case .strike:
-                    stats.totalPitches += 1
-                    stats.strikes += 1
-                case .wildPitch:
-                    stats.totalPitches += 1
-                    stats.wildPitches += 1
-                case .batterHitByPitch:
-                    stats.hitByPitches += 1
-                case .pitchingStrikeout:
-                    stats.totalPitches += 1
-                    stats.pitchingStrikeouts += 1
-                case .pitchingWalk:
-                    stats.totalPitches += 1
-                    stats.pitchingWalks += 1
-                }
+                stats.applyPlayResult(playResult.type, pitchType: video.pitchType, pitchSpeed: video.pitchSpeed)
+            } else {
+                // Clip has a pitch speed but no tagged play result — still contribute to velocity aggregates.
+                stats.applyPitchVelocity(pitchType: video.pitchType, pitchSpeed: video.pitchSpeed)
             }
         }
 
@@ -280,53 +249,8 @@ final class StatisticsService {
 
     // MARK: - Helper Methods
 
-    private func addPlayResultToStats(_ type: PlayResultType, stats: AthleteStatistics) {
-        if type.countsAsAtBat {
-            stats.atBats += 1
-        }
-
-        switch type {
-        case .single:
-            stats.hits += 1
-            stats.singles += 1
-        case .double:
-            stats.hits += 1
-            stats.doubles += 1
-        case .triple:
-            stats.hits += 1
-            stats.triples += 1
-        case .homeRun:
-            stats.hits += 1
-            stats.homeRuns += 1
-        case .walk:
-            stats.walks += 1
-        case .strikeout:
-            stats.strikeouts += 1
-        case .groundOut:
-            stats.groundOuts += 1
-        case .flyOut:
-            stats.flyOuts += 1
-        case .ball:
-            stats.totalPitches += 1
-            stats.balls += 1
-        case .strike:
-            stats.totalPitches += 1
-            stats.strikes += 1
-        case .hitByPitch:
-            stats.totalPitches += 1
-            stats.hitByPitches += 1
-        case .wildPitch:
-            stats.totalPitches += 1
-            stats.wildPitches += 1
-        case .batterHitByPitch:
-            stats.hitByPitches += 1
-        case .pitchingStrikeout:
-            stats.totalPitches += 1
-            stats.pitchingStrikeouts += 1
-        case .pitchingWalk:
-            stats.totalPitches += 1
-            stats.pitchingWalks += 1
-        }
+    private func addPlayResultToStats(_ type: PlayResultType, stats: AthleteStatistics, pitchType: String? = nil, pitchSpeed: Double? = nil) {
+        stats.applyPlayResult(type, pitchType: pitchType, pitchSpeed: pitchSpeed)
     }
 
     // MARK: - Statistics Formatting
@@ -341,9 +265,9 @@ final class StatisticsService {
         return String(format: ".%03d", thousandths)
     }
 
-    /// Format percentage with 3 decimal places (.XXX)
+    /// Format percentage in baseball style (.XXX) — same convention as batting average
     func formatPercentage(_ value: Double) -> String {
-        return value.formatted(.number.precision(.fractionLength(3)))
+        return formatBattingAverage(value)
     }
 
     /// Format OPS with 3 decimal places (X.XXX)

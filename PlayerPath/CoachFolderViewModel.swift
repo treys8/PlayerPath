@@ -39,7 +39,10 @@ class CoachFolderViewModel {
     private var prefetchedFileNames: Set<String> = []
     private var lastVideoDocument: QueryDocumentSnapshot?
     private static let pageSize = 30
-    // nonisolated(unsafe) so deinit can call .remove() on the listener
+    // @ObservationIgnored so the @Observable macro doesn't wrap this in
+    // @ObservationTracked, which would make the nonisolated(unsafe) marker
+    // invalid. nonisolated(unsafe) lets deinit call .remove() on the listener.
+    @ObservationIgnored
     nonisolated(unsafe) private var videosListener: ListenerRegistration?
 
     init(folder: SharedFolder) {

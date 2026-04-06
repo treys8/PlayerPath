@@ -126,8 +126,43 @@ final class VideoClip {
         URL(fileURLWithPath: resolvedFilePath)
     }
 
+    /// Invalidates the cached resolved file path. Call this after replacing
+    /// the local file in place (e.g., re-trim) so consumers re-verify the path.
+    func _invalidateResolvedPathCache() {
+        _cachedResolvedPath = nil
+    }
+
     var isAvailableOffline: Bool {
         return FileManager.default.fileExists(atPath: resolvedFilePath)
+    }
+
+    /// Resolves `thumbnailPath` to an absolute path. New clips store a path relative
+    /// to the Documents directory (survives sandbox relocation); legacy clips may have
+    /// an absolute path from before the fix — those are returned as-is if the file
+    /// still exists, or recovered from Documents/Thumbnails by filename.
+    var resolvedThumbnailPath: String? {
+        guard let thumbnailPath, !thumbnailPath.isEmpty else { return nil }
+        // Relative path — resolve against Documents
+        if !thumbnailPath.hasPrefix("/") {
+            guard let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
+                return thumbnailPath
+            }
+            return docs.appendingPathComponent(thumbnailPath).path
+        }
+        // Legacy absolute path — use as-is if file exists
+        if FileManager.default.fileExists(atPath: thumbnailPath) {
+            return thumbnailPath
+        }
+        // Absolute but missing (sandbox moved) — try recovering from filename
+        guard let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
+            return thumbnailPath
+        }
+        let fileName = (thumbnailPath as NSString).lastPathComponent
+        let recovered = docs.appendingPathComponent("Thumbnails").appendingPathComponent(fileName).path
+        if FileManager.default.fileExists(atPath: recovered) {
+            return recovered
+        }
+        return thumbnailPath
     }
 
     // MARK: - Firestore Conversion
@@ -173,9 +208,11 @@ final class VideoClip {
 
     /// Properly delete video clip with all associated files and data
     @MainActor func delete(in context: ModelContext) {
-        // Capture paths and file size before any deletion to avoid races
+        // Capture paths and file size before any deletion to avoid races.
+        // Thumbnail path may be stored relative (new clips) or absolute (legacy) —
+        // use the resolver so the file deletion targets an actual filesystem path.
         let absolutePath = resolvedFilePath
-        let capturedThumbPath = thumbnailPath
+        let capturedThumbPath = resolvedThumbnailPath
         let capturedFileSize: Int64
         if isUploaded {
             do {

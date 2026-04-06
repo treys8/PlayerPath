@@ -8,6 +8,7 @@
 import SwiftUI
 import SwiftData
 import Charts
+import TipKit
 
 struct StatisticsView: View {
     let athlete: Athlete?
@@ -280,7 +281,7 @@ struct StatisticsView: View {
 
                     // Pitching Statistics (only if athlete has pitching data)
                     if stats.hasPitchingData {
-                        PitchingStatsSection(statistics: stats)
+                        PitchingStatsSection(statistics: stats, athlete: athlete)
                     }
                 }
                 .padding(horizontalSizeClass == .regular ? 32 : 16)
@@ -293,7 +294,9 @@ struct StatisticsView: View {
                 },
                 showGameSelection: { activeSheet = .gameSelection }
             )
-            .tooltip(TipID.statsEmpty, text: "Stats are calculated automatically from your tagged plays", arrowEdge: .bottom, showWhen: !(athlete?.games ?? []).isEmpty)
+            .onAppear {
+                EmptyStatsTip.hasGames = !(athlete?.games ?? []).isEmpty
+            }
         }
     }
 }

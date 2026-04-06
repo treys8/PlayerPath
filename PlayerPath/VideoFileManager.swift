@@ -243,7 +243,10 @@ class VideoFileManager {
             try imageData.write(to: thumbnailURL)
             logger.info("Successfully saved thumbnail to: \(thumbnailURL.path, privacy: .public)")
 
-            return .success(thumbnailURL.path)
+            // Return a path relative to Documents so callers that persist the result
+            // on a VideoClip survive sandbox relocation on update/reinstall.
+            // Absolute-path consumers (cloud upload) resolve via ThumbnailCache / VideoClip.resolvedThumbnailPath.
+            return .success(VideoClip.toRelativePath(thumbnailURL.path))
             
         } catch is CancellationError {
             logger.info("Thumbnail generation was cancelled")

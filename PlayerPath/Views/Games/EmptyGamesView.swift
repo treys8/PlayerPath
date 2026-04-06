@@ -6,12 +6,14 @@
 //
 
 import SwiftUI
+import TipKit
 
 struct EmptyGamesView: View {
     let onAddGame: () -> Void
 
     @State private var isAnimating = false
     @State private var floatOffset: CGFloat = 0
+    private let tip = EmptyGamesTip()
 
     var body: some View {
         ZStack {
@@ -96,6 +98,7 @@ struct EmptyGamesView: View {
                 .buttonStyle(PremiumButtonStyle())
                 .opacity(isAnimating ? 1.0 : 0.0)
                 .offset(y: isAnimating ? 0 : 20)
+                .popoverTip(tip, arrowEdge: .top)
             }
             .padding(.horizontal, 40)
         }

@@ -246,7 +246,7 @@ struct PhotoDetailView: View {
 
 // MARK: - Caption Edit Sheet
 
-private struct CaptionEditSheet: View {
+struct CaptionEditSheet: View {
     @Binding var captionText: String
     let onSave: () -> Void
     @Environment(\.dismiss) private var dismiss

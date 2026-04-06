@@ -84,12 +84,11 @@ extension ComprehensiveAuthManager {
 
                     self?.isSignedIn = true
 
-                    // Firestore rules compare request.auth.token.email (original case)
-                    // against stored lowercased emails. If Apple Sign In preserves
-                    // mixed-case, invitation reads will fail with permission denied.
-                    // Known Firestore limitation: rules have no toLower() function.
+                    // Apple Sign In can provide mixed-case emails (e.g. Trey@Gmail.com).
+                    // Security rules use getUserEmail() (profile lookup) instead of
+                    // request.auth.token.email to avoid case-sensitivity mismatches.
                     if let email = user?.email, email != email.lowercased() {
-                        authLog.warning("Firebase Auth email is not lowercase: \(email, privacy: .private) — invitation queries may fail for this user")
+                        authLog.info("Firebase Auth email is not lowercase: \(email, privacy: .private) — handled via profile email lookup in security rules")
                     }
                 }
             }

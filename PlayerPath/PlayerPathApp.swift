@@ -12,6 +12,7 @@ import Combine
 import LocalAuthentication
 import FirebaseCore
 import FirebaseFirestore
+import TipKit
 import os
 
 private let appLog = Logger(subsystem: "com.playerpath.app", category: "App")
@@ -55,14 +56,14 @@ struct PlayerPathApp: App {
     /// inside each VersionedSchema enum per Apple's WWDC pattern.
     static let sharedModelContainer: ModelContainer = {
         do {
-            return try ModelContainer(for: Schema(SchemaV13.models))
+            return try ModelContainer(for: Schema(SchemaV15.models))
         } catch {
             // Last resort: try an in-memory container so the app can launch and show
             // an error instead of crash-looping. If even that fails, we have no choice
             // but to terminate.
             do {
                 let config = ModelConfiguration(isStoredInMemoryOnly: true)
-                return try ModelContainer(for: Schema(SchemaV13.models), configurations: [config])
+                return try ModelContainer(for: Schema(SchemaV15.models), configurations: [config])
             } catch {
                 // Intentional fatalError: the app cannot function without a ModelContainer.
                 fatalError("Could not create even an in-memory ModelContainer: \(error)")
@@ -73,7 +74,18 @@ struct PlayerPathApp: App {
     // Firebase is configured in PlayerPathAppDelegate.didFinishLaunchingWithOptions
     // (which runs before App.init) so that App Check is set up before FirebaseApp.configure().
     // Do NOT add a duplicate FirebaseApp.configure() here.
-    
+
+    init() {
+        do {
+            try Tips.configure([
+                .displayFrequency(.immediate),
+                .datastoreLocation(.applicationDefault)
+            ])
+        } catch {
+            appLog.error("Failed to configure TipKit: \(error.localizedDescription)")
+        }
+    }
+
     var body: some Scene {
         WindowGroup {
             ScenePhaseSaveHandler(scenePhase: scenePhase) {

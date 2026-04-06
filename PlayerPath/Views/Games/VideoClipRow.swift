@@ -52,10 +52,21 @@ struct VideoClipRow: View {
 
                 VStack(alignment: .leading, spacing: 4) {
                     if let playResult = clip.playResult {
-                        Text(playResult.type.displayName)
-                            .font(.subheadline)
-                            .fontWeight(.semibold)
-                            .foregroundColor(.primary)
+                        HStack(spacing: 6) {
+                            Text(playResult.type.displayName)
+                                .font(.subheadline)
+                                .fontWeight(.semibold)
+                                .foregroundColor(.primary)
+                            if let speed = clip.pitchSpeed, speed > 0 {
+                                Text("\(Int(speed)) mph")
+                                    .font(.caption2)
+                                    .fontWeight(.semibold)
+                                    .foregroundColor(.white)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(.orange, in: Capsule())
+                            }
+                        }
                     } else {
                         Text("Unrecorded Play")
                             .font(.subheadline)
@@ -96,7 +107,7 @@ struct VideoClipRow: View {
                 Button {
                     showingShareToFolder = true
                 } label: {
-                    Label("Share to Coach Folder", systemImage: hasCoachingAccess ? "folder.badge.person.fill" : "lock.fill")
+                    Label("Share to Coach Folder", systemImage: hasCoachingAccess ? "folder.badge.person.crop" : "lock.fill")
                 }
             }
 

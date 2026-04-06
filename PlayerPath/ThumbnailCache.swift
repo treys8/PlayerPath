@@ -45,11 +45,23 @@ import UIKit
     
     // MARK: - Public API
     
+    /// Normalize a stored thumbnail path to an absolute filesystem path.
+    /// Accepts both legacy absolute paths and new paths stored relative to Documents.
+    /// Callers may pass either form — this resolver makes the cache transparent to the storage convention.
+    static func resolveLocalPath(_ path: String) -> String {
+        if path.hasPrefix("/") { return path }
+        guard let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
+            return path
+        }
+        return docs.appendingPathComponent(path).path
+    }
+
     /// Load a thumbnail from cache or disk (deduplicates concurrent requests)
     /// - Parameters:
-    ///   - path: File path to the thumbnail
+    ///   - path: File path to the thumbnail (absolute or relative to Documents)
     ///   - targetSize: Optional target size for downsampling (reduces memory usage)
-    func loadThumbnail(at path: String, targetSize: CGSize? = nil) async throws -> UIImage {
+    func loadThumbnail(at rawPath: String, targetSize: CGSize? = nil) async throws -> UIImage {
+        let path = Self.resolveLocalPath(rawPath)
         let key = path as NSString
 
         // Check memory cache first (NSCache is thread-safe)
@@ -126,9 +138,9 @@ import UIKit
     /// - Parameters:
     ///   - path: File path to the thumbnail
     ///   - targetSize: Optional target size for downsampling
-    func preloadThumbnail(at path: String, targetSize: CGSize? = nil) async {
+    func preloadThumbnail(at rawPath: String, targetSize: CGSize? = nil) async {
         do {
-            _ = try await loadThumbnail(at: path, targetSize: targetSize)
+            _ = try await loadThumbnail(at: rawPath, targetSize: targetSize)
         } catch {
             // Silently fail for preloading
         }
@@ -151,7 +163,8 @@ import UIKit
     }
     
     /// Remove a specific thumbnail from cache
-    func removeThumbnail(at path: String) {
+    func removeThumbnail(at rawPath: String) {
+        let path = Self.resolveLocalPath(rawPath)
         let key = path as NSString
         cache.removeObject(forKey: key)
         loadingTasks[path]?.cancel()

@@ -308,7 +308,7 @@ Product IDs and feature gates in `SubscriptionModels.swift`. StoreKit config: `P
 |-----------|-------|-----------|
 | Coach/ | 26 | CoachTabView, CoachAthletesTab, StartSessionSheet, LiveSessionCard, ClipReviewSheet, DrillCardView, tier management views |
 | Stats/ | 11 | StatisticsChartsView, BattingChartSection, PitchingStatsSection, CareerSeasonComparisonSection |
-| Components/ | 11 | EnhancedVideoPlayer, ClipCommentSection, VideoClipCard, GameLinkerView, RemoteThumbnailView, VideoTrimmerSheet |
+| Components/ | 10 | EnhancedVideoPlayer, ClipCommentSection, VideoClipCard, GameLinkerView, RemoteThumbnailView |
 | Shared/ | 11 | Design system: EmptyStateView, ErrorView, ModernTextField, SkeletonLoadingView, ScaleButtonStyle, StatusChip |
 | Profile/ | 11 | SettingsView, SubscriptionView, AccountDeletionView, DataExportView, StorageSettingsView |
 | Dashboard/ | 8 | DashboardView, DashboardStatCard, LiveGameCard, QuickActionButton |

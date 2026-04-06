@@ -39,8 +39,8 @@ final class CoachVideoProcessingService {
                 videoFileName: fileName,
                 folderID: folderID
             )
-            // Clean up local thumbnail file
-            try? FileManager.default.removeItem(atPath: thumbPath)
+            // Clean up local thumbnail file — thumbPath is stored relative, resolve for deletion.
+            try? FileManager.default.removeItem(atPath: ThumbnailCache.resolveLocalPath(thumbPath))
         }
 
         processingLog.info("Processed video \(fileName): duration=\(duration)s, thumbnail=\(thumbnailDownloadURL != nil ? "yes" : "no")")
@@ -73,7 +73,8 @@ final class CoachVideoProcessingService {
     }
 
     private func uploadThumbnail(localPath: String, videoFileName: String, folderID: String) async -> String? {
-        let localURL = URL(fileURLWithPath: localPath)
+        // generateThumbnail now returns a path relative to Documents — resolve before upload.
+        let localURL = URL(fileURLWithPath: ThumbnailCache.resolveLocalPath(localPath))
         do {
             let downloadURL = try await VideoCloudManager.shared.uploadThumbnail(
                 thumbnailURL: localURL,

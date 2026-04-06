@@ -58,6 +58,14 @@ service cloud.firestore {
           || (perms != null && permission == "delete"   && perms.canDelete  == true);
     }
 
+    // Returns the requesting user's stored email from their profile.
+    // Profile emails are always lowercased at write time, so this avoids
+    // case-sensitivity mismatches with request.auth.token.email (which
+    // Apple Sign In can return in mixed case, e.g. "Trey@Gmail.com").
+    function getUserEmail() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.email;
+    }
+
     function isInvitationNotExpired(expiresAt) {
       return request.time < expiresAt;
     }
@@ -559,9 +567,9 @@ service cloud.firestore {
       // that causes "insufficient permissions" on list queries.
       allow read: if isAuthenticated() && (
         resource.data.athleteID == request.auth.uid ||
-        (resource.data.coachEmail == request.auth.token.email && request.auth.token.email_verified == true) ||
+        (resource.data.coachEmail == getUserEmail() && request.auth.token.email_verified == true) ||
         resource.data.coachID == request.auth.uid ||
-        (resource.data.athleteEmail == request.auth.token.email && request.auth.token.email_verified == true)
+        (resource.data.athleteEmail == getUserEmail() && request.auth.token.email_verified == true)
       );
 
       // Athlete-to-coach invitation: athlete creates, must have Pro tier
@@ -581,9 +589,11 @@ service cloud.firestore {
                        && hasProTier())
                       ||
                       // Coach-to-athlete: coach is the sender, validate sender identity
+                      // coachEmail is compared against the stored profile email (both lowercased)
+                      // instead of request.auth.token.email to avoid Apple Sign In case mismatch
                       (request.resource.data.type == "coach_to_athlete"
                        && request.resource.data.coachID == request.auth.uid
-                       && request.resource.data.coachEmail == request.auth.token.email
+                       && request.resource.data.coachEmail == getUserEmail()
                        && request.resource.data.keys().hasAll(['coachID', 'coachEmail', 'athleteEmail', 'athleteName'])
                        && hasCoachTier())
                     );
@@ -615,7 +625,7 @@ service cloud.firestore {
                        && request.resource.data.status in ['cancelled']) ||
                       //   Coach (recipient) can accept or decline
                       (resource.data.type == "athlete_to_coach"
-                       && resource.data.coachEmail == request.auth.token.email
+                       && resource.data.coachEmail == getUserEmail()
                        && request.auth.token.email_verified == true
                        && request.resource.data.status in ['accepted', 'declined']) ||
                       // Coach-to-athlete flow:
@@ -625,7 +635,7 @@ service cloud.firestore {
                        && request.resource.data.status in ['cancelled']) ||
                       //   Athlete (recipient) can accept or decline
                       (resource.data.type == "coach_to_athlete"
-                       && resource.data.athleteEmail == request.auth.token.email
+                       && resource.data.athleteEmail == getUserEmail()
                        && request.auth.token.email_verified == true
                        && request.resource.data.status in ['accepted', 'declined'])
                     );

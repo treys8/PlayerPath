@@ -116,7 +116,7 @@ struct PracticeVideoClipRow: View {
                 Button {
                     showingShareToFolder = true
                 } label: {
-                    Label("Share to Coach Folder", systemImage: hasCoachingAccess ? "folder.badge.person.fill" : "lock.fill")
+                    Label("Share to Coach Folder", systemImage: hasCoachingAccess ? "folder.badge.person.crop" : "lock.fill")
                 }
             }
         }

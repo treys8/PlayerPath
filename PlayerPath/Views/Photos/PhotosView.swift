@@ -49,8 +49,8 @@ struct PhotosView: View {
     }
 
     private var columns: [GridItem] {
-        let count = horizontalSizeClass == .regular ? 5 : 3
-        return Array(repeating: GridItem(.flexible(), spacing: 2), count: count)
+        let count = horizontalSizeClass == .regular ? 3 : 2
+        return Array(repeating: GridItem(.flexible(), spacing: 10), count: count)
     }
 
     enum PhotoFilter: String, CaseIterable {
@@ -178,7 +178,7 @@ struct PhotosView: View {
 
     private var photosGrid: some View {
         ScrollView {
-            LazyVGrid(columns: columns, spacing: 2) {
+            LazyVGrid(columns: columns, spacing: 10) {
                 ForEach(cachedPhotos) { photo in
                     NavigationLink {
                         PhotoDetailView(photo: photo) {
@@ -192,7 +192,7 @@ struct PhotosView: View {
                     .buttonStyle(.plain)
                 }
             }
-            .padding(.horizontal, 2)
+            .padding(.horizontal, 10)
         }
         .refreshable {
             updatePhotosCache()

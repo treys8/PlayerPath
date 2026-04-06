@@ -24,6 +24,11 @@ struct EnhancedVideoPlayer: View {
     @State private var playbackSpeed: PlaybackSpeed = .normal
     @State private var showControls = true
     @State private var timeObserver: Any?
+    /// The AVPlayer that `timeObserver` was added to. Tracked separately from
+    /// `player` because SwiftUI can recreate this struct with a different
+    /// `player` while preserving `@State`. Removing an observer on the wrong
+    /// player throws NSInvalidArgumentException and crashes the app.
+    @State private var observedPlayer: AVPlayer?
     @State private var hideControlsTask: Task<Void, Never>?
     @State private var isAtEnd = false
     @State private var shouldResumeOnActive = false
@@ -123,22 +128,10 @@ struct EnhancedVideoPlayer: View {
             shouldResumeOnActive = isPlaying
             player.pause()
             isPlaying = false
-            if let observer = timeObserver {
-                player.removeTimeObserver(observer)
-                timeObserver = nil
-            }
-        } else {
-            if timeObserver == nil {
-                let interval = CMTime(seconds: 0.5, preferredTimescale: 600)
-                timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { time in
-                    if !isDragging { currentTime = CMTimeGetSeconds(time) }
-                }
-            }
-            if shouldResumeOnActive {
-                player.play()
-                isPlaying = true
-                shouldResumeOnActive = false
-            }
+        } else if shouldResumeOnActive {
+            player.play()
+            isPlaying = true
+            shouldResumeOnActive = false
         }
     }
 
@@ -397,6 +390,15 @@ struct EnhancedVideoPlayer: View {
             }
         }
 
+        // If a prior observer is lingering on a different AVPlayer (because
+        // SwiftUI recycled this struct with a new player), tear it down from
+        // the correct player before adding a fresh one.
+        if let oldObserver = timeObserver, let oldPlayer = observedPlayer, oldPlayer !== player {
+            oldPlayer.removeTimeObserver(oldObserver)
+            timeObserver = nil
+            observedPlayer = nil
+        }
+
         // Add time observer (guard against double-add if onAppear fires twice)
         if timeObserver == nil {
             let interval = CMTime(seconds: 0.5, preferredTimescale: 600)
@@ -405,6 +407,7 @@ struct EnhancedVideoPlayer: View {
                     currentTime = CMTimeGetSeconds(time)
                 }
             }
+            observedPlayer = player
         }
     }
 
@@ -414,8 +417,11 @@ struct EnhancedVideoPlayer: View {
         durationTask?.cancel()
         durationTask = nil
         if let observer = timeObserver {
-            player.removeTimeObserver(observer)
+            // Always remove from the player the observer was added to —
+            // NOT `self.player`, which may have been swapped under us.
+            observedPlayer?.removeTimeObserver(observer)
             timeObserver = nil
+            observedPlayer = nil
         }
         hideControlsTask?.cancel()
     }

@@ -330,7 +330,7 @@ struct DataExportView: View {
                 "id": video.id.uuidString,
                 "createdAt": Self.isoFormatter.string(from: video.createdAt ?? Date()),
                 "filePath": video.resolvedFilePath,
-                "thumbnailPath": video.thumbnailPath,
+                "thumbnailPath": video.resolvedThumbnailPath ?? "",
                 "playResult": video.playResult?.type.displayName ?? ""
             ]
         }

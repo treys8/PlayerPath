@@ -62,7 +62,10 @@ class ReviewQueueViewModel {
         .sorted { $0.athleteName.localizedCaseInsensitiveCompare($1.athleteName) == .orderedAscending }
     }
 
-    // nonisolated(unsafe) so deinit can call .remove() on the listener
+    // @ObservationIgnored so the @Observable macro doesn't wrap this in
+    // @ObservationTracked, which would make the nonisolated(unsafe) marker
+    // invalid. nonisolated(unsafe) lets deinit call .remove() on the listener.
+    @ObservationIgnored
     nonisolated(unsafe) private var listener: ListenerRegistration?
     private var listeningCoachUID: String?
 

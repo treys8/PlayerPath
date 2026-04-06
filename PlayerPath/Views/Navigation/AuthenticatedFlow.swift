@@ -30,8 +30,6 @@ struct AuthenticatedFlow: View {
             if isLoading {
                 LoadingView(title: "Setting up your profile...", subtitle: "This will only take a moment")
             } else if let user = currentUser {
-                let _ = log.debug("AuthenticatedFlow - isNewUser: \(authManager.isNewUser), hasCompletedOnboarding: \(hasCompletedOnboarding), userRole: \(authManager.userRole.rawValue)")
-                
                 // Show onboarding whenever it hasn't been completed. isNewUser alone is not
                 // sufficient — a user who signs out mid-onboarding has isNewUser reset to false
                 // but still needs to finish onboarding. hasCompletedOnboarding is backed by

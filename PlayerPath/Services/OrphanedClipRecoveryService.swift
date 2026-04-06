@@ -233,7 +233,9 @@ final class OrphanedClipRecoveryService {
             .appendingPathComponent("Thumbnails")
             .appendingPathComponent("\(baseName)_thumb.jpg")
 
-        return fileManager.fileExists(atPath: thumbnailURL.path) ? thumbnailURL.path : nil
+        guard fileManager.fileExists(atPath: thumbnailURL.path) else { return nil }
+        // Store relative so the path survives sandbox relocation.
+        return VideoClip.toRelativePath(thumbnailURL.path)
     }
 
     private func clipsDirectoryURL() -> URL? {

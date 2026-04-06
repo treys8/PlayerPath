@@ -10,7 +10,7 @@ import SwiftData
 
 // MARK: - Statistics Models
 @Model
-final class AthleteStatistics {
+final class AthleteStatistics: PlayResultAccumulator {
     var id: UUID = UUID()
     var athlete: Athlete?
     var season: Season?  // Inverse relationship for Season.seasonStatistics
@@ -36,6 +36,11 @@ final class AthleteStatistics {
     var wildPitches: Int = 0
     var pitchingStrikeouts: Int = 0
     var pitchingWalks: Int = 0
+    // Pitch velocity tracking — populated from VideoClip.pitchType
+    var fastballPitchCount: Int = 0
+    var fastballSpeedTotal: Double = 0
+    var offspeedPitchCount: Int = 0
+    var offspeedSpeedTotal: Double = 0
     var updatedAt: Date?
 
     func resetAllCounts() {
@@ -44,6 +49,8 @@ final class AthleteStatistics {
         groundOuts = 0; flyOuts = 0; totalGames = 0; totalPitches = 0
         balls = 0; strikes = 0; hitByPitches = 0; wildPitches = 0
         pitchingStrikeouts = 0; pitchingWalks = 0
+        fastballPitchCount = 0; fastballSpeedTotal = 0
+        offspeedPitchCount = 0; offspeedSpeedTotal = 0
     }
 
     var battingAverage: Double {
@@ -67,9 +74,14 @@ final class AthleteStatistics {
         return onBasePercentage + sluggingPercentage
     }
 
-    var strikePercentage: Double {
-        guard totalPitches > 0 else { return 0.0 }
-        return Double(strikes) / Double(totalPitches)
+    var averageFastballSpeed: Double {
+        guard fastballPitchCount > 0 else { return 0.0 }
+        return fastballSpeedTotal / Double(fastballPitchCount)
+    }
+
+    var averageOffspeedSpeed: Double {
+        guard offspeedPitchCount > 0 else { return 0.0 }
+        return offspeedSpeedTotal / Double(offspeedPitchCount)
     }
 
     var hasPitchingData: Bool {
@@ -81,55 +93,8 @@ final class AthleteStatistics {
         self.updatedAt = Date()
     }
 
-    func addPlayResult(_ playResult: PlayResultType) {
-        // Update at-bats (only if this result counts as an at-bat)
-        if playResult.countsAsAtBat {
-            self.atBats += 1
-        }
-
-        // Update specific result counts
-        switch playResult {
-        case .single:
-            self.hits += 1
-            self.singles += 1
-        case .double:
-            self.hits += 1
-            self.doubles += 1
-        case .triple:
-            self.hits += 1
-            self.triples += 1
-        case .homeRun:
-            self.hits += 1
-            self.homeRuns += 1
-        case .walk:
-            self.walks += 1
-        case .strikeout:
-            self.strikeouts += 1
-        case .groundOut:
-            self.groundOuts += 1
-        case .flyOut:
-            self.flyOuts += 1
-        case .ball:
-            self.totalPitches += 1
-            self.balls += 1
-        case .strike:
-            self.totalPitches += 1
-            self.strikes += 1
-        case .hitByPitch:
-            self.totalPitches += 1
-            self.hitByPitches += 1
-        case .wildPitch:
-            self.totalPitches += 1
-            self.wildPitches += 1
-        case .batterHitByPitch:
-            self.hitByPitches += 1
-        case .pitchingStrikeout:
-            self.totalPitches += 1
-            self.pitchingStrikeouts += 1
-        case .pitchingWalk:
-            self.totalPitches += 1
-            self.pitchingWalks += 1
-        }
+    func addPlayResult(_ playResult: PlayResultType, pitchType: String? = nil, pitchSpeed: Double? = nil) {
+        applyPlayResult(playResult, pitchType: pitchType, pitchSpeed: pitchSpeed)
         self.updatedAt = Date()
     }
 
@@ -164,7 +129,7 @@ final class AthleteStatistics {
 }
 
 @Model
-final class GameStatistics {
+final class GameStatistics: PlayResultAccumulator {
     var id: UUID = UUID()
     var game: Game?
     var atBats: Int = 0
@@ -186,6 +151,11 @@ final class GameStatistics {
     var wildPitches: Int = 0
     var pitchingStrikeouts: Int = 0
     var pitchingWalks: Int = 0
+    // Pitch velocity tracking — populated from VideoClip.pitchType
+    var fastballPitchCount: Int = 0
+    var fastballSpeedTotal: Double = 0
+    var offspeedPitchCount: Int = 0
+    var offspeedSpeedTotal: Double = 0
     var createdAt: Date?
 
     func resetAllCounts() {
@@ -194,6 +164,18 @@ final class GameStatistics {
         groundOuts = 0; flyOuts = 0; hitByPitches = 0
         totalPitches = 0; balls = 0; strikes = 0; wildPitches = 0
         pitchingStrikeouts = 0; pitchingWalks = 0
+        fastballPitchCount = 0; fastballSpeedTotal = 0
+        offspeedPitchCount = 0; offspeedSpeedTotal = 0
+    }
+
+    var averageFastballSpeed: Double {
+        guard fastballPitchCount > 0 else { return 0.0 }
+        return fastballSpeedTotal / Double(fastballPitchCount)
+    }
+
+    var averageOffspeedSpeed: Double {
+        guard offspeedPitchCount > 0 else { return 0.0 }
+        return offspeedSpeedTotal / Double(offspeedPitchCount)
     }
 
     // MARK: - Computed Statistics
@@ -222,55 +204,8 @@ final class GameStatistics {
         self.createdAt = Date()
     }
 
-    func addPlayResult(_ playResult: PlayResultType) {
-        // Update at-bats (only if this result counts as an at-bat)
-        if playResult.countsAsAtBat {
-            self.atBats += 1
-        }
-
-        // Update specific result counts
-        switch playResult {
-        case .single:
-            self.hits += 1
-            self.singles += 1
-        case .double:
-            self.hits += 1
-            self.doubles += 1
-        case .triple:
-            self.hits += 1
-            self.triples += 1
-        case .homeRun:
-            self.hits += 1
-            self.homeRuns += 1
-        case .walk:
-            self.walks += 1
-        case .strikeout:
-            self.strikeouts += 1
-        case .groundOut:
-            self.groundOuts += 1
-        case .flyOut:
-            self.flyOuts += 1
-        case .hitByPitch:
-            self.totalPitches += 1
-            self.hitByPitches += 1
-        case .ball:
-            self.totalPitches += 1
-            self.balls += 1
-        case .strike:
-            self.totalPitches += 1
-            self.strikes += 1
-        case .wildPitch:
-            self.totalPitches += 1
-            self.wildPitches += 1
-        case .batterHitByPitch:
-            self.hitByPitches += 1
-        case .pitchingStrikeout:
-            self.totalPitches += 1
-            self.pitchingStrikeouts += 1
-        case .pitchingWalk:
-            self.totalPitches += 1
-            self.pitchingWalks += 1
-        }
+    func addPlayResult(_ playResult: PlayResultType, pitchType: String? = nil, pitchSpeed: Double? = nil) {
+        applyPlayResult(playResult, pitchType: pitchType, pitchSpeed: pitchSpeed)
     }
 
     func addManualStatistic(singles: Int = 0, doubles: Int = 0, triples: Int = 0, homeRuns: Int = 0,

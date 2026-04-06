@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import TipKit
 
 struct EmptyStatisticsView: View {
     let isQuickEntryEnabled: Bool
@@ -15,6 +16,7 @@ struct EmptyStatisticsView: View {
 
     @State private var isAnimating = false
     @State private var floatOffset: CGFloat = 0
+    private let tip = EmptyStatsTip()
 
     var body: some View {
         ZStack {
@@ -172,6 +174,7 @@ struct EmptyStatisticsView: View {
                 }
                 .opacity(isAnimating ? 1.0 : 0.0)
                 .offset(y: isAnimating ? 0 : 20)
+                .popoverTip(tip, arrowEdge: .top)
             }
             .padding(.horizontal, 40)
         }

@@ -519,6 +519,10 @@ struct PreUploadTrimmerView: View {
     let onSkip: () -> Void
     let onCancel: () -> Void
     var onDiscard: (() -> Void)? = nil
+    /// When true, hides the "Use Full Video" button. Used by the re-trim flow
+    /// in `RetrimSavedClipFlow` where that action doesn't make sense (the user
+    /// already has the full clip saved and is editing it).
+    var hideSkipButton: Bool = false
 
     @State private var player: AVPlayer?
     @State private var startTime: Double = 0
@@ -652,6 +656,19 @@ struct PreUploadTrimmerView: View {
             .opacity(showContent ? 1 : 0)
             .offset(y: showContent ? 0 : 20)
 
+            // Play/pause preview control
+            Button {
+                togglePlayback()
+            } label: {
+                Image(systemName: isPlaying ? "pause.circle.fill" : "play.circle.fill")
+                    .font(.system(size: 40))
+                    .foregroundColor(.white)
+                    .shadow(color: .black.opacity(0.3), radius: 4, x: 0, y: 2)
+            }
+            .accessibilityLabel(isPlaying ? "Pause preview" : "Play preview")
+            .opacity(showContent ? 1 : 0)
+            .offset(y: showContent ? 0 : 20)
+
             // Time indicators
             HStack {
                 TrimTimeBadge(label: "START", time: formatTime(startTime), color: .green)
@@ -709,7 +726,6 @@ struct PreUploadTrimmerView: View {
             // Action buttons
             VStack(spacing: 10) {
                 Button {
-                    Haptics.success()
                     Task { await exportTrimmedVideo() }
                 } label: {
                     HStack(spacing: 8) {
@@ -741,29 +757,31 @@ struct PreUploadTrimmerView: View {
                 .disabled(isExporting || endTime - startTime < 0.5)
                 .opacity(isExporting || endTime - startTime < 0.5 ? 0.6 : 1)
 
-                Button {
-                    Haptics.light()
-                    onSkip()
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: "film")
-                            .font(.body.weight(.semibold))
-                        Text("Use Full Video")
-                            .font(.body.weight(.semibold))
+                if !hideSkipButton {
+                    Button {
+                        Haptics.light()
+                        onSkip()
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "film")
+                                .font(.body.weight(.semibold))
+                            Text("Use Full Video")
+                                .font(.body.weight(.semibold))
+                        }
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                        .background(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .fill(Color.white.opacity(0.15))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .strokeBorder(LinearGradient.glassBorder, lineWidth: 1)
+                        )
                     }
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 16)
-                    .background(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .fill(Color.white.opacity(0.15))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .strokeBorder(LinearGradient.glassBorder, lineWidth: 1)
-                    )
+                    .disabled(isExporting)
                 }
-                .disabled(isExporting)
 
                 if let onDiscard {
                     Button {
@@ -823,10 +841,20 @@ struct PreUploadTrimmerView: View {
         player = newPlayer
         newPlayer.play()
 
-        // Add time observer for playback position
+        // Add time observer for playback position. Also enforces the trim
+        // end: when playback crosses endTime, loop back to startTime so the
+        // user previews only the range they've selected.
         let interval = CMTime(seconds: 0.1, preferredTimescale: 600)
         timeObserver = newPlayer.addPeriodicTimeObserver(forInterval: interval, queue: .main) { time in
-            currentTime = time.seconds
+            let seconds = time.seconds
+            currentTime = seconds
+            // Only enforce the end point during active playback. When the user
+            // is paused (e.g. scrubbing the end slider), leave the current
+            // time alone so they can see the exact frame at their chosen end.
+            if isPlaying, endTime > 0, seconds >= endTime - 0.05 {
+                player?.seek(to: CMTime(seconds: startTime, preferredTimescale: 600))
+                player?.play()
+            }
         }
 
         // Loop video at end
@@ -867,6 +895,22 @@ struct PreUploadTrimmerView: View {
         isPlaying = false
     }
 
+    private func togglePlayback() {
+        guard let player = player else { return }
+        if isPlaying {
+            player.pause()
+            isPlaying = false
+        } else {
+            // If we're at or past endTime, rewind to startTime before resuming.
+            if currentTime >= endTime - 0.05 {
+                player.seek(to: CMTime(seconds: startTime, preferredTimescale: 600))
+            }
+            player.play()
+            isPlaying = true
+        }
+        Haptics.light()
+    }
+
     private func cleanup() {
         // Fix W: Cancel the duration-loading task before tearing down the player.
         durationTask?.cancel()
@@ -886,122 +930,21 @@ struct PreUploadTrimmerView: View {
     private func exportTrimmedVideo() async {
         isExporting = true
         exportError = nil
-
-        let asset = AVURLAsset(url: videoURL)
-        guard let session = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetHighestQuality) else {
-            exportError = "Export session could not be created."
-            isExporting = false
-            return
-        }
-
-        let outputURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("trimmed_\(UUID().uuidString).mp4")
-
-        let start = CMTime(seconds: startTime, preferredTimescale: 600)
-        let end = CMTime(seconds: endTime, preferredTimescale: 600)
-        session.timeRange = CMTimeRangeFromTimeToTime(start: start, end: end)
-        session.outputURL = outputURL
-        session.outputFileType = .mp4
-
-        // Bake the preferredTransform into the export when the video needs rotation
-        // (e.g. iPhone portrait recordings stored with a 90° transform).
-        // For already-correct-orientation videos (identity transform) we skip the
-        // composition entirely so AVFoundation can preserve slow-motion time mappings
-        // and other track-level metadata automatically.
-        if let videoTrack = try? await asset.loadTracks(withMediaType: .video).first {
-            var transform: CGAffineTransform?
-            var naturalSize: CGSize?
-            var nominalFrameRate: Float?
-            var assetDuration: CMTime?
-            do {
-                transform = try await videoTrack.load(.preferredTransform)
-                naturalSize = try await videoTrack.load(.naturalSize)
-                nominalFrameRate = try await videoTrack.load(.nominalFrameRate)
-                assetDuration = try await asset.load(.duration)
-            } catch {
-                recorderLog.warning("Failed to load video track properties for export: \(error.localizedDescription)")
-            }
-
-            if let transform, let naturalSize, let assetDuration {
-                // Only apply a video composition when the track has a rotation transform.
-                // Identity-transform videos export correctly without one.
-                let needsRotation = transform.b != 0 || transform.c != 0
-                if needsRotation {
-                    let size = naturalSize.applying(transform)
-                    let renderSize = CGSize(width: abs(size.width), height: abs(size.height))
-                    // Use the source track's actual frame rate instead of hardcoding 30 fps,
-                    // so 60fps and slow-motion (120/240fps) videos export at their native rate.
-                    let fps = Int32((nominalFrameRate ?? 30).rounded())
-                    let frameDuration = CMTime(value: 1, timescale: CMTimeScale(max(fps, 1)))
-                    let timeRange = CMTimeRangeMake(start: .zero, duration: assetDuration)
-
-                    if #available(iOS 26.0, *) {
-                        var layerConfig = AVVideoCompositionLayerInstruction.Configuration(assetTrack: videoTrack)
-                        layerConfig.setTransform(transform, at: .zero)
-                        let layerInstruction = AVVideoCompositionLayerInstruction(configuration: layerConfig)
-                        let instructionConfig = AVVideoCompositionInstruction.Configuration(
-                            layerInstructions: [layerInstruction],
-                            timeRange: timeRange
-                        )
-                        let instruction = AVVideoCompositionInstruction(configuration: instructionConfig)
-                        let compConfig = AVVideoComposition.Configuration(
-                            frameDuration: frameDuration,
-                            instructions: [instruction],
-                            renderSize: renderSize
-                        )
-                        session.videoComposition = AVVideoComposition(configuration: compConfig)
-                    } else {
-                        let composition = AVMutableVideoComposition()
-                        composition.renderSize = renderSize
-                        composition.frameDuration = frameDuration
-                        let instruction = AVMutableVideoCompositionInstruction()
-                        instruction.timeRange = timeRange
-                        let layerInstruction = AVMutableVideoCompositionLayerInstruction(assetTrack: videoTrack)
-                        layerInstruction.setTransform(transform, at: .zero)
-                        instruction.layerInstructions = [layerInstruction]
-                        composition.instructions = [instruction]
-                        session.videoComposition = composition
-                    }
-                }
-            }
-        }
-
-        if #available(iOS 18.0, *) {
-            do {
-                try await session.export(to: outputURL, as: .mp4)
-                await MainActor.run {
-                    isExporting = false
-                    Haptics.success()
-                    onSave(outputURL)
-                }
-            } catch {
-                await MainActor.run {
-                    try? FileManager.default.removeItem(at: outputURL)
-                    isExporting = false
-                    exportError = error.localizedDescription
-                }
-            }
-        } else {
-            await session.export()
+        do {
+            let outputURL = try await VideoTrimExporter.export(
+                sourceURL: videoURL,
+                startTime: startTime,
+                endTime: endTime
+            )
             await MainActor.run {
-                switch session.status {
-                case .completed:
-                    isExporting = false
-                    Haptics.success()
-                    onSave(outputURL)
-                case .failed:
-                    try? FileManager.default.removeItem(at: outputURL)
-                    isExporting = false
-                    exportError = session.error?.localizedDescription ?? "Export failed"
-                case .cancelled:
-                    try? FileManager.default.removeItem(at: outputURL)
-                    isExporting = false
-                    exportError = "Export was cancelled"
-                default:
-                    try? FileManager.default.removeItem(at: outputURL)
-                    isExporting = false
-                    exportError = "Export ended with unknown status"
-                }
+                isExporting = false
+                Haptics.success()
+                onSave(outputURL)
+            }
+        } catch {
+            await MainActor.run {
+                isExporting = false
+                exportError = error.localizedDescription
             }
         }
     }

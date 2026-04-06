@@ -5,7 +5,6 @@
 //  Extracted from VideoClipsView.swift to be the canonical implementation.
 //  Supporting views extracted to:
 //  - PlayResultEditorView.swift
-//  - VideoTrimmerSheet.swift
 //  - GameLinkerView.swift
 //
 
@@ -23,7 +22,7 @@ struct VideoPlayerView: View {
     @State private var isLoading = true
     @State private var hasAppeared = false
     @State private var shouldResumeOnActive = false
-    @State private var showingTrimmer = false
+    @State private var showingRetrimFlow = false
     @State private var showingPlayResultEditor = false
     @State private var showingGameLinker = false
     @State private var showingShareToFolder = false
@@ -164,14 +163,16 @@ struct VideoPlayerView: View {
                         }
                         .accessibilityLabel(clip.isHighlight ? "Remove this video from highlights" : "Add this video to highlights")
 
-                        Divider()
-
-                        Button {
-                            showingTrimmer = true
-                        } label: {
-                            Text("Trim Clip")
+                        if clip.isUploaded && clip.athlete != nil {
+                            Divider()
+                            Button {
+                                showingRetrimFlow = true
+                            } label: {
+                                Label("Trim Clip", systemImage: "scissors")
+                            }
+                            .accessibilityLabel("Trim this video")
                         }
-                        .accessibilityLabel("Trim this video")
+
                         Divider()
                         Button {
                             saveToPhotos()
@@ -196,7 +197,7 @@ struct VideoPlayerView: View {
                             Button {
                                 showingShareToFolder = true
                             } label: {
-                                Label("Share to Coach Folder", systemImage: authManager.hasCoachingAccess ? "folder.badge.person.fill" : "lock.fill")
+                                Label("Share to Coach Folder", systemImage: authManager.hasCoachingAccess ? "folder.badge.person.crop" : "lock.fill")
                             }
                         }
                     } label: {
@@ -224,6 +225,11 @@ struct VideoPlayerView: View {
                 setupTask = Task { await setupPlayer() }
             }
         }
+        .onChange(of: clip.version) { _, _ in
+            // Re-trim bumps version — reload the player so the new file is picked up.
+            setupTask?.cancel()
+            setupTask = Task { await setupPlayer() }
+        }
         .onDisappear {
             setupTask?.cancel()
             setupTask = nil
@@ -234,17 +240,6 @@ struct VideoPlayerView: View {
             isLoading = true
             hasAppeared = false
         }
-        .sheet(isPresented: $showingTrimmer) {
-            if let player = player {
-                VideoTrimmerSheet(player: player, sourceURL: clip.resolvedFileURL) { outputURL in
-                    // Reload player with trimmed clip
-                    Task { await reloadPlayer(with: outputURL) }
-                }
-            } else {
-                Text("Player unavailable")
-                    .padding()
-            }
-        }
         .sheet(isPresented: $showingPlayResultEditor) {
             PlayResultEditorView(clip: clip, modelContext: modelContext)
         }
@@ -253,6 +248,11 @@ struct VideoPlayerView: View {
         }
         .sheet(isPresented: $showingShareToFolder) {
             ShareToCoachFolderView(clip: clip)
+        }
+        .fullScreenCover(isPresented: $showingRetrimFlow) {
+            if let athlete = clip.athlete {
+                RetrimSavedClipFlow(clip: clip, athlete: athlete)
+            }
         }
         .onChange(of: scenePhase) { _, phase in
             switch phase {
@@ -488,14 +488,6 @@ struct VideoPlayerView: View {
         }
     }
 
-    private func reloadPlayer(with url: URL) async {
-        await MainActor.run {
-            isLoading = true
-            isPlayerReady = false
-            errorMessage = ""
-        }
-        await loadPlayer(from: url, isLocal: true)
-    }
 }
 
 #Preview {

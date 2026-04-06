@@ -175,7 +175,8 @@ struct VideoPicker: UIViewControllerRepresentable {
                     // Clean up on save failure
                     VideoFileManager.cleanup(url: destinationURL)
                     if let thumbPath = thumbnailPath {
-                        try? FileManager.default.removeItem(atPath: thumbPath)
+                        // thumbnailPath is stored relative — resolve for filesystem deletion.
+                        try? FileManager.default.removeItem(atPath: ThumbnailCache.resolveLocalPath(thumbPath))
                     }
                     parent.onImportComplete()
                     parent.onError("Failed to save video: \(error.localizedDescription)")

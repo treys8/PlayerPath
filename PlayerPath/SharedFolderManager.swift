@@ -322,7 +322,8 @@ class SharedFolderManager {
                 guard let self else { return }
 
                 if let error = error as NSError? {
-                    Task { @MainActor in
+                    Task { @MainActor [weak self] in
+                        guard let self else { return }
                         self.isLoading = false
                         self.listenerError = "Unable to refresh folders. Showing cached data."
                         folderLog.warning("Athlete folders listener error: \(error.localizedDescription)")
@@ -342,7 +343,8 @@ class SharedFolderManager {
                         return nil
                     }
                 }
-                Task { @MainActor in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
                     self.isLoading = false
                     self.listenerError = nil
                     self.athleteFolders = folders
@@ -372,7 +374,8 @@ class SharedFolderManager {
                 guard let self else { return }
 
                 if let error = error as NSError? {
-                    Task { @MainActor in
+                    Task { @MainActor [weak self] in
+                        guard let self else { return }
                         self.isLoading = false
                         self.listenerError = "Unable to refresh folders. Showing cached data."
                         folderLog.warning("Coach folders listener error: \(error.localizedDescription)")
@@ -392,7 +395,8 @@ class SharedFolderManager {
                         return nil
                     }
                 }
-                Task { @MainActor in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
                     self.isLoading = false
                     self.listenerError = nil
                     self.coachFolders = folders
@@ -594,12 +598,19 @@ class SharedFolderManager {
         var localThumbPath: String?
         var shouldCleanupThumb = false
 
-        if let existingThumbnailPath, FileManager.default.fileExists(atPath: existingThumbnailPath) {
-            localThumbPath = existingThumbnailPath
-        } else {
+        // existingThumbnailPath may be stored as a relative path (new clips) or
+        // absolute (legacy). Resolve before filesystem checks.
+        if let existingThumbnailPath {
+            let resolved = ThumbnailCache.resolveLocalPath(existingThumbnailPath)
+            if FileManager.default.fileExists(atPath: resolved) {
+                localThumbPath = resolved
+            }
+        }
+        if localThumbPath == nil {
             let thumbResult = await VideoFileManager.generateThumbnail(from: videoURL)
             if case .success(let generated) = thumbResult {
-                localThumbPath = generated
+                // generateThumbnail now returns a relative path — resolve for file I/O.
+                localThumbPath = ThumbnailCache.resolveLocalPath(generated)
                 shouldCleanupThumb = true
             } else if case .failure(let error) = thumbResult {
                 folderLog.warning("Failed to generate thumbnail: \(error.localizedDescription)")

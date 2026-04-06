@@ -7,6 +7,7 @@
 
 import SwiftUI
 import SwiftData
+import ImageIO
 
 struct GameDetailView: View {
     let game: Game
@@ -19,10 +20,15 @@ struct GameDetailView: View {
     @State private var showingDeleteConfirmation = false
     @State private var showingManualStats = false
     @State private var showingEditGame = false
+    @State private var showingPhotoCamera = false
     @State private var gameService: GameService? = nil
 
     var videoClips: [VideoClip] {
         (game.videoClips ?? []).sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
+    }
+
+    var gamePhotos: [Photo] {
+        (game.photos ?? []).sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
     }
 
     var body: some View {
@@ -145,6 +151,10 @@ struct GameDetailView: View {
                     Label("Edit Game", systemImage: "pencil")
                 }
 
+                Button(action: { showingPhotoCamera = true }) {
+                    Label("Add Photo", systemImage: "camera")
+                }
+
                 // Manual Statistics Entry
                 Button(action: { showingManualStats = true }) {
                     Label("Enter Statistics", systemImage: "chart.bar.doc.horizontal")
@@ -169,6 +179,25 @@ struct GameDetailView: View {
                 } else {
                     ForEach(videoClips) { clip in
                         VideoClipRow(clip: clip, hasCoachingAccess: authManager.hasCoachingAccess)
+                    }
+                }
+            }
+
+            // Photos Section
+            Section("Photos (\(gamePhotos.count))") {
+                if gamePhotos.isEmpty {
+                    Text("No photos yet")
+                        .foregroundColor(.secondary)
+                        .font(.subheadline)
+                } else {
+                    ForEach(gamePhotos) { photo in
+                        NavigationLink {
+                            PhotoDetailView(photo: photo) {
+                                deleteGamePhoto(photo)
+                            }
+                        } label: {
+                            GamePhotoRow(photo: photo)
+                        }
                     }
                 }
             }
@@ -274,6 +303,10 @@ struct GameDetailView: View {
                         }
                     }
 
+                    Button(action: { showingPhotoCamera = true }) {
+                        Label("Add Photo", systemImage: "camera")
+                    }
+
                     Divider()
 
                     // Edit Game Details
@@ -342,6 +375,12 @@ struct GameDetailView: View {
         .sheet(isPresented: $showingEditGame) {
             EditGameSheet(game: game)
         }
+        .fullScreenCover(isPresented: $showingPhotoCamera) {
+            ImagePicker(sourceType: .camera, allowsEditing: false) { image in
+                saveGamePhoto(image)
+            }
+            .ignoresSafeArea()
+        }
         .onAppear {
             if gameService == nil { gameService = GameService(modelContext: modelContext) }
         }
@@ -367,6 +406,98 @@ struct GameDetailView: View {
         Task {
             await gameService?.deleteGameDeep(game)
             dismiss()
+        }
+    }
+
+    private func saveGamePhoto(_ image: UIImage) {
+        guard let athlete = game.athlete else { return }
+        Task {
+            do {
+                _ = try await PhotoPersistenceService().savePhoto(
+                    image: image,
+                    context: modelContext,
+                    athlete: athlete,
+                    game: game
+                )
+                Haptics.success()
+            } catch {
+                ErrorHandlerService.shared.handle(error, context: "GameDetail.savePhoto", showAlert: false)
+            }
+        }
+    }
+
+    private func deleteGamePhoto(_ photo: Photo) {
+        PhotoPersistenceService().deletePhoto(photo, context: modelContext)
+        Haptics.light()
+    }
+}
+
+// MARK: - Game Photo Row
+
+private struct GamePhotoRow: View {
+    let photo: Photo
+
+    @State private var thumbnail: UIImage?
+
+    var body: some View {
+        HStack(spacing: 12) {
+            // Thumbnail
+            Group {
+                if let thumbnail {
+                    Image(uiImage: thumbnail)
+                        .resizable()
+                        .scaledToFill()
+                } else {
+                    Rectangle()
+                        .fill(Color(.systemGray5))
+                        .overlay {
+                            Image(systemName: "photo")
+                                .foregroundColor(.secondary)
+                        }
+                }
+            }
+            .frame(width: 72, height: 72)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+
+            // Info
+            VStack(alignment: .leading, spacing: 4) {
+                Text(photo.caption ?? "Photo")
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+
+                if let date = photo.createdAt {
+                    Text(date, style: .date)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+
+            Spacer()
+        }
+        .task {
+            await loadThumbnail()
+        }
+    }
+
+    private func loadThumbnail() async {
+        if let thumbPath = photo.resolvedThumbnailPath {
+            if let image = try? await ThumbnailCache.shared.loadThumbnail(at: thumbPath, targetSize: .thumbnailSmall) {
+                thumbnail = image
+                return
+            }
+        }
+        let url = URL(fileURLWithPath: photo.resolvedFilePath) as CFURL
+        if let source = CGImageSourceCreateWithURL(url, nil) {
+            let options: [CFString: Any] = [
+                kCGImageSourceThumbnailMaxPixelSize: 150,
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true
+            ]
+            if let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) {
+                thumbnail = UIImage(cgImage: cgImage)
+            }
         }
     }
 }

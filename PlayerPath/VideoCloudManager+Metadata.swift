@@ -23,7 +23,9 @@ extension VideoCloudManager {
         let clipIsHighlight = videoClip.isHighlight
         let clipCreatedAt = videoClip.createdAt ?? Date()
         let clipDuration = videoClip.duration
-        let clipThumbnailPath = videoClip.thumbnailPath
+        // Resolve in case the path was stored relative to Documents — downstream
+        // file I/O (fileExists + URL(fileURLWithPath:) for upload) requires absolute.
+        let clipThumbnailPath = videoClip.resolvedThumbnailPath
         let clipNote = videoClip.note
         let clipPitchSpeed = videoClip.pitchSpeed
         let clipPitchType = videoClip.pitchType
@@ -153,6 +155,54 @@ extension VideoCloudManager {
         data["seasonName"] = seasonName ?? NSNull()
         data["practiceId"] = practiceId ?? NSNull()
         data["practiceDate"] = practiceDate.map { Timestamp(date: $0) } ?? NSNull()
+        try await db.collection(FC.videos).document(clipId).updateData(data)
+    }
+
+    /// Merges file-level fields (downloadURL, fileSize, duration, thumbnail)
+    /// into an existing video Firestore document. Used by the re-trim flow
+    /// in `ClipTrimService` — unlike `saveVideoMetadataToFirestore` this uses
+    /// `updateData` (merge) so it does NOT clobber annotationCount,
+    /// sharedFolderID, notes, tags, or any other fields set elsewhere.
+    func updateVideoFileFields(
+        clip: VideoClip,
+        downloadURL: String,
+        fileSize: Int64,
+        duration: Double
+    ) async throws {
+        let clipId = clip.id.uuidString
+        let clipFileName = clip.fileName
+        let clipThumbnailPath = clip.thumbnailPath
+        let athleteStableId = clip.athlete?.firestoreId ?? clip.athlete?.id.uuidString ?? ""
+        let clipVersion = clip.version
+
+        // Re-upload the thumbnail first so Firestore points at the new frame.
+        var thumbnailURL: String? = nil
+        if let thumbnailPath = clipThumbnailPath,
+           FileManager.default.fileExists(atPath: thumbnailPath) {
+            do {
+                thumbnailURL = try await uploadAthleteVideoThumbnail(
+                    thumbnailURL: URL(fileURLWithPath: thumbnailPath),
+                    videoFileName: clipFileName,
+                    athleteStableId: athleteStableId
+                )
+            } catch {
+                // Non-fatal — Firestore keeps the old thumbnail URL.
+                videoCloudLog.warning("Re-trim thumbnail upload failed: \(error.localizedDescription)")
+            }
+        }
+
+        let db = Firestore.firestore()
+        var data: [String: Any] = [
+            "downloadURL": downloadURL,
+            "fileSize": fileSize,
+            "duration": duration,
+            "version": clipVersion,
+            "updatedAt": Timestamp(date: Date())
+        ]
+        if let thumbnailURL {
+            data["thumbnailURL"] = thumbnailURL
+            data["thumbnail"] = ["standardURL": thumbnailURL]
+        }
         try await db.collection(FC.videos).document(clipId).updateData(data)
     }
 
