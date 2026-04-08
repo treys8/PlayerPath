@@ -12,6 +12,7 @@ struct NotificationSettingsView: View {
     let athleteId: String?
 
     @AppStorage("notif_gameReminders") private var gameReminders = true
+    @AppStorage("notif_gameReminderMinutes") private var gameReminderMinutes = 30
     @AppStorage("notif_weeklyStats") private var weeklyStats = true
     @AppStorage("notif_uploads") private var uploadNotifications = true
     @Environment(\.modelContext) private var modelContext
@@ -24,7 +25,7 @@ struct NotificationSettingsView: View {
             // Permission status
             permissionStatusSection
 
-            Section("Game Notifications") {
+            Section {
                 Toggle("Game Reminders", isOn: $gameReminders)
                     .onChange(of: gameReminders) { _, enabled in
                         let prefs = UserPreferences.shared(in: modelContext)
@@ -41,6 +42,21 @@ struct NotificationSettingsView: View {
                             }
                         }
                     }
+
+                if gameReminders {
+                    Picker("Remind Me", selection: $gameReminderMinutes) {
+                        Text("5 minutes before").tag(5)
+                        Text("15 minutes before").tag(15)
+                        Text("30 minutes before").tag(30)
+                        Text("1 hour before").tag(60)
+                    }
+                    .onChange(of: gameReminderMinutes) { _, minutes in
+                        let prefs = UserPreferences.shared(in: modelContext)
+                        prefs.gameReminderMinutes = minutes
+                    }
+                }
+            } header: {
+                Text("Game Notifications")
             }
             .disabled(authorizationStatus == .denied)
 

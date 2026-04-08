@@ -21,4 +21,8 @@ struct AthletePickerTip: Tip {
     var image: Image? {
         Image(systemName: "person.2.fill")
     }
+
+    var options: [TipOption] {
+        MaxDisplayCount(1)
+    }
 }

@@ -14,6 +14,7 @@ struct CoachLimitPaywallSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var isPurchasing = false
     @State private var connectedCount = 0
+    @State private var hasLoadedCount = false
 
     var body: some View {
         NavigationStack {
@@ -31,16 +32,21 @@ struct CoachLimitPaywallSheet: View {
                     .fontWeight(.bold)
 
                 // Status
-                HStack(spacing: 4) {
-                    Text("\(connectedCount)")
-                        .fontWeight(.bold)
-                        .foregroundColor(.orange)
-                    Text("athletes connected")
-                    Text("·")
-                    Text("\(authManager.coachAthleteLimit) allowed")
-                        .foregroundColor(.secondary)
+                if hasLoadedCount {
+                    HStack(spacing: 4) {
+                        Text("\(connectedCount)")
+                            .fontWeight(.bold)
+                            .foregroundColor(.orange)
+                        Text("athletes connected")
+                        Text("·")
+                        Text("\(authManager.coachAthleteLimit) allowed")
+                            .foregroundColor(.secondary)
+                    }
+                    .font(.subheadline)
+                } else {
+                    ProgressView()
+                        .controlSize(.small)
                 }
-                .font(.subheadline)
 
                 Text("Your \(authManager.currentCoachTier.displayName) plan allows \(authManager.coachAthleteLimit) athletes. Upgrade to connect with more.")
                     .font(.subheadline)
@@ -99,6 +105,7 @@ struct CoachLimitPaywallSheet: View {
             .task {
                 if let coachID = authManager.userID {
                     connectedCount = await SubscriptionGate.fullConnectedAthleteCount(coachID: coachID)
+                    hasLoadedCount = true
                 }
             }
         }

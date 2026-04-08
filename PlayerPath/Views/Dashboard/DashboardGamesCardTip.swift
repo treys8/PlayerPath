@@ -29,4 +29,8 @@ struct DashboardGamesCardTip: Tip {
     var rules: [Rule] {
         #Rule(Self.$gamesCount) { $0 == 0 }
     }
+
+    var options: [TipOption] {
+        MaxDisplayCount(1)
+    }
 }

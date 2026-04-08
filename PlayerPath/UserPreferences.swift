@@ -52,6 +52,7 @@ final class UserPreferences {
     // MARK: - Notification Preferences
     var enableUploadNotifications: Bool = true { didSet { markAsModified() } }
     var enableGameReminders: Bool = true { didSet { markAsModified() } }
+    var gameReminderMinutes: Int = 30 { didSet { markAsModified() } }
 
     // MARK: - Sync metadata
     var lastModified: Date = Date()

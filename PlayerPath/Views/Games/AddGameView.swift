@@ -142,14 +142,17 @@ struct AddGameView: View {
                 case .success(let createdGame):
                     log.info("Game created successfully")
                     // Schedule a reminder if the game is in the future and reminders are enabled
-                    if (try? modelContext.fetch(FetchDescriptor<UserPreferences>()).first)?.enableGameReminders ?? true,
+                    let prefs = try? modelContext.fetch(FetchDescriptor<UserPreferences>()).first
+                    let reminderMinutes = prefs?.gameReminderMinutes ?? 30
+                    if prefs?.enableGameReminders ?? true,
                        let gameDate = createdGame.date,
-                       gameDate > Date().addingTimeInterval(60 * 60) {
+                       gameDate > Date().addingTimeInterval(TimeInterval(reminderMinutes * 60)) {
                         Task {
                             await PushNotificationService.shared.scheduleGameReminder(
                                 gameId: createdGame.id.uuidString,
                                 opponent: trimmedOpponent,
-                                scheduledTime: gameDate
+                                scheduledTime: gameDate,
+                                reminderMinutes: reminderMinutes
                             )
                         }
                     }
@@ -197,14 +200,17 @@ struct AddGameView: View {
                 case .success(let createdGame):
                     // Success - dismiss
                     // Schedule a reminder if the game is in the future and reminders are enabled
-                    if (try? modelContext.fetch(FetchDescriptor<UserPreferences>()).first)?.enableGameReminders ?? true,
+                    let prefs = try? modelContext.fetch(FetchDescriptor<UserPreferences>()).first
+                    let reminderMinutes = prefs?.gameReminderMinutes ?? 30
+                    if prefs?.enableGameReminders ?? true,
                        let gameDate = createdGame.date,
-                       gameDate > Date().addingTimeInterval(60 * 60) {
+                       gameDate > Date().addingTimeInterval(TimeInterval(reminderMinutes * 60)) {
                         Task {
                             await PushNotificationService.shared.scheduleGameReminder(
                                 gameId: createdGame.id.uuidString,
                                 opponent: trimmedOpponent,
-                                scheduledTime: gameDate
+                                scheduledTime: gameDate,
+                                reminderMinutes: reminderMinutes
                             )
                         }
                     }

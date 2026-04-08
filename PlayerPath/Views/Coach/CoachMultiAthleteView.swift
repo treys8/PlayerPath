@@ -32,8 +32,20 @@ struct CoachMultiAthleteView: View {
     var body: some View {
         List {
             if athleteGroups.isEmpty {
-                Text("No athletes connected yet.")
-                    .foregroundColor(.secondary)
+                VStack(spacing: 12) {
+                    Image(systemName: "figure.baseball")
+                        .font(.system(size: 40))
+                        .foregroundColor(.brandNavy.opacity(0.4))
+                    Text("No Athletes Yet")
+                        .font(.headline)
+                    Text("Athletes will appear here once they accept your invitation.")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 40)
+                .listRowBackground(Color.clear)
             } else {
                 ForEach(athleteGroups) { athlete in
                     AthleteComparisonRow(data: athlete)
@@ -86,7 +98,7 @@ private struct AthleteComparisonRow: View {
                 }
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 8)
     }
 }
 

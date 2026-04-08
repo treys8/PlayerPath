@@ -24,7 +24,7 @@ struct DrillCardSummaryView: View {
                         ForEach(1...5, id: \.self) { star in
                             Image(systemName: star <= overall ? "star.fill" : "star")
                                 .font(.caption2)
-                                .foregroundColor(star <= overall ? .yellow : .gray.opacity(0.3))
+                                .foregroundColor(star <= overall ? ratingColor(overall) : .gray.opacity(0.3))
                         }
                     }
                 }
@@ -63,7 +63,7 @@ struct DrillCardSummaryView: View {
                         Text(notes)
                             .font(.caption2)
                             .foregroundColor(.secondary)
-                            .lineLimit(1)
+                            .lineLimit(2)
                     }
                 }
             }

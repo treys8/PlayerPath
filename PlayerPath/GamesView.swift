@@ -500,21 +500,24 @@ struct GamesView: View {
                 showError(errorMessage)
             },
             onSuccess: { createdGame in
-                let remindersEnabled: Bool
+                let prefs: UserPreferences?
                 do {
-                    remindersEnabled = try modelContext.fetch(FetchDescriptor<UserPreferences>()).first?.enableGameReminders ?? true
+                    prefs = try modelContext.fetch(FetchDescriptor<UserPreferences>()).first
                 } catch {
                     ErrorHandlerService.shared.handle(error, context: "GamesView.fetchGameReminderPrefs", showAlert: false)
-                    remindersEnabled = true
+                    prefs = nil
                 }
+                let remindersEnabled = prefs?.enableGameReminders ?? true
+                let reminderMinutes = prefs?.gameReminderMinutes ?? 30
                 guard remindersEnabled,
                       let gameDate = createdGame.date,
-                      gameDate > Date().addingTimeInterval(60 * 60) else { return }
+                      gameDate > Date().addingTimeInterval(TimeInterval(reminderMinutes * 60)) else { return }
                 Task {
                     await PushNotificationService.shared.scheduleGameReminder(
                         gameId: createdGame.id.uuidString,
                         opponent: opponent,
-                        scheduledTime: gameDate
+                        scheduledTime: gameDate,
+                        reminderMinutes: reminderMinutes
                     )
                 }
             }

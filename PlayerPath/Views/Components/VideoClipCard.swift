@@ -98,29 +98,46 @@ struct VideoClipCard: View {
                 // Info section
                 VStack(alignment: .leading, spacing: 6) {
                         // Headline: play result > fallback
-                        if let result = video.playResult {
-                            HStack(spacing: 6) {
-                                Text(result.type.displayName)
+                        HStack {
+                            if let result = video.playResult {
+                                HStack(spacing: 6) {
+                                    Text(result.type.displayName)
+                                        .font(.subheadline)
+                                        .fontWeight(.bold)
+                                        .foregroundColor(.primary)
+                                        .lineLimit(1)
+                                        .truncationMode(.tail)
+                                    if let speed = video.pitchSpeed, speed > 0 {
+                                        Text("\(Int(speed)) mph")
+                                            .font(.caption2)
+                                            .fontWeight(.semibold)
+                                            .foregroundColor(.white)
+                                            .padding(.horizontal, 6)
+                                            .padding(.vertical, 2)
+                                            .background(.orange, in: Capsule())
+                                    }
+                                }
+                            } else {
+                                Text("Video Clip")
                                     .font(.subheadline)
-                                    .fontWeight(.bold)
+                                    .fontWeight(.semibold)
                                     .foregroundColor(.primary)
-                                    .lineLimit(1)
-                                    .truncationMode(.tail)
-                                if let speed = video.pitchSpeed, speed > 0 {
-                                    Text("\(Int(speed)) mph")
-                                        .font(.caption2)
+                            }
+
+                            Spacer()
+
+                            if !isSelectionMode {
+                                Menu {
+                                    videoMenuItems
+                                } label: {
+                                    Image(systemName: "ellipsis")
+                                        .font(.subheadline)
                                         .fontWeight(.semibold)
-                                        .foregroundColor(.white)
-                                        .padding(.horizontal, 6)
-                                        .padding(.vertical, 2)
-                                        .background(.orange, in: Capsule())
+                                        .foregroundColor(.secondary)
+                                        .frame(width: 28, height: 28)
+                                        .contentShape(Rectangle())
                                 }
                             }
-                        } else {
-                            Text("Video Clip")
-                                .font(.subheadline)
-                                .fontWeight(.semibold)
-                                .foregroundColor(.primary)
                         }
 
                         // Secondary: game/practice context + season badge
@@ -173,90 +190,7 @@ struct VideoClipCard: View {
         .buttonStyle(PressableCardButtonStyle())
         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isSelected)
         .contextMenu {
-            Button {
-                Haptics.light()
-                onPlay()
-            } label: {
-                Label("Play", systemImage: "play.fill")
-            }
-
-            Button {
-                Haptics.light()
-                video.isHighlight.toggle()
-                video.needsSync = true
-                Task {
-                    do {
-                        try modelContext.save()
-                    } catch {
-                        errorMessage = "Could not update highlight status. Please try again."
-                        showingError = true
-                    }
-                }
-            } label: {
-                Label(
-                    video.isHighlight ? "Remove from Highlights" : "Add to Highlights",
-                    systemImage: video.isHighlight ? "star.slash" : "star.fill"
-                )
-            }
-
-            if FileManager.default.fileExists(atPath: video.resolvedFilePath) {
-                ShareLink(item: video.resolvedFileURL) {
-                    Label("Share", systemImage: "square.and.arrow.up")
-                }
-
-                Button {
-                    saveToPhotos()
-                } label: {
-                    Label("Save to Photos", systemImage: "square.and.arrow.down")
-                }
-            }
-
-            Divider()
-
-            // Upload controls
-            if video.isUploaded {
-                Label("Uploaded to Cloud", systemImage: "checkmark.icloud")
-                    .foregroundColor(.green)
-            } else if let athlete = video.athlete {
-                Button {
-                    Haptics.light()
-                    UploadQueueManager.shared.enqueue(video, athlete: athlete, priority: .high)
-                } label: {
-                    if UploadQueueManager.shared.activeUploads[video.id] != nil {
-                        Label("Uploading...", systemImage: "icloud.and.arrow.up")
-                    } else if UploadQueueManager.shared.pendingUploads.contains(where: { $0.clipId == video.id }) {
-                        Label("Queued for Upload", systemImage: "clock.arrow.circlepath")
-                    } else {
-                        Label("Upload to Cloud", systemImage: "icloud.and.arrow.up")
-                    }
-                }
-            }
-
-            if AppFeatureFlags.isCoachEnabled {
-                Divider()
-
-                Button {
-                    showingShareToFolder = true
-                } label: {
-                    Label("Share to Coach Folder", systemImage: hasCoachingAccess ? "folder.badge.person.crop" : "lock.fill")
-                }
-            }
-
-            Divider()
-
-            Button {
-                showingMoveSheet = true
-            } label: {
-                Label("Move to Athlete", systemImage: "arrow.right.arrow.left")
-            }
-
-            Divider()
-
-            Button(role: .destructive) {
-                onDelete()
-            } label: {
-                Label("Delete", systemImage: "trash")
-            }
+            videoMenuItems
         }
         .sheet(isPresented: $showingShareToFolder) {
             ShareToCoachFolderView(clip: video)
@@ -285,6 +219,96 @@ struct VideoClipCard: View {
                 }
                 .allowsHitTesting(false)
             }
+        }
+    }
+
+    // MARK: - Menu Items
+
+    @ViewBuilder
+    private var videoMenuItems: some View {
+        Button {
+            Haptics.light()
+            onPlay()
+        } label: {
+            Label("Play", systemImage: "play.fill")
+        }
+
+        Button {
+            Haptics.light()
+            video.isHighlight.toggle()
+            video.needsSync = true
+            Task {
+                do {
+                    try modelContext.save()
+                } catch {
+                    errorMessage = "Could not update highlight status. Please try again."
+                    showingError = true
+                }
+            }
+        } label: {
+            Label(
+                video.isHighlight ? "Remove from Highlights" : "Add to Highlights",
+                systemImage: video.isHighlight ? "star.slash" : "star.fill"
+            )
+        }
+
+        if FileManager.default.fileExists(atPath: video.resolvedFilePath) {
+            ShareLink(item: video.resolvedFileURL) {
+                Label("Share", systemImage: "square.and.arrow.up")
+            }
+
+            Button {
+                saveToPhotos()
+            } label: {
+                Label("Save to Photos", systemImage: "square.and.arrow.down")
+            }
+        }
+
+        Divider()
+
+        // Upload controls
+        if video.isUploaded {
+            Label("Uploaded to Cloud", systemImage: "checkmark.icloud")
+                .foregroundColor(.green)
+        } else if let athlete = video.athlete {
+            Button {
+                Haptics.light()
+                UploadQueueManager.shared.enqueue(video, athlete: athlete, priority: .high)
+            } label: {
+                if UploadQueueManager.shared.activeUploads[video.id] != nil {
+                    Label("Uploading...", systemImage: "icloud.and.arrow.up")
+                } else if UploadQueueManager.shared.pendingUploads.contains(where: { $0.clipId == video.id }) {
+                    Label("Queued for Upload", systemImage: "clock.arrow.circlepath")
+                } else {
+                    Label("Upload to Cloud", systemImage: "icloud.and.arrow.up")
+                }
+            }
+        }
+
+        if AppFeatureFlags.isCoachEnabled {
+            Divider()
+
+            Button {
+                showingShareToFolder = true
+            } label: {
+                Label("Share to Coach Folder", systemImage: hasCoachingAccess ? "folder.badge.person.crop" : "lock.fill")
+            }
+        }
+
+        Divider()
+
+        Button {
+            showingMoveSheet = true
+        } label: {
+            Label("Move to Athlete", systemImage: "arrow.right.arrow.left")
+        }
+
+        Divider()
+
+        Button(role: .destructive) {
+            onDelete()
+        } label: {
+            Label("Delete", systemImage: "trash")
         }
     }
 

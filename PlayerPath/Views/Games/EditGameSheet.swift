@@ -138,13 +138,16 @@ struct EditGameSheet: View {
                 try modelContext.save()
 
                 // Reschedule game reminder if date changed
-                if dateChanged && (try? modelContext.fetch(FetchDescriptor<UserPreferences>()).first)?.enableGameReminders ?? true {
+                let prefs = try? modelContext.fetch(FetchDescriptor<UserPreferences>()).first
+                let reminderMinutes = prefs?.gameReminderMinutes ?? 30
+                if dateChanged && (prefs?.enableGameReminders ?? true) {
                     PushNotificationService.shared.cancelNotifications(withIdentifiers: ["game_reminder_\(gameId)"])
-                    if date > Date().addingTimeInterval(60 * 60) {
+                    if date > Date().addingTimeInterval(TimeInterval(reminderMinutes * 60)) {
                         await PushNotificationService.shared.scheduleGameReminder(
                             gameId: gameId,
                             opponent: newOpponent,
-                            scheduledTime: date
+                            scheduledTime: date,
+                            reminderMinutes: reminderMinutes
                         )
                     }
                 }

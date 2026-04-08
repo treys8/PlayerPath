@@ -99,21 +99,8 @@ struct CoachDashboardView: View {
 
             } // end else (loading check)
 
-            // In-app notification banner
-            if let banner = activityNotifService.incomingBanner {
-                ActivityNotificationBanner(notification: banner, onDismiss: {
-                    if let notifID = banner.id, let coachID = authManager.userID {
-                        Task { await activityNotifService.markRead(notifID, forUserID: coachID) }
-                    }
-                    activityNotifService.dismissBanner()
-                }, onTap: {
-                    handleNotificationTap(banner)
-                })
-                .padding(.top, 12)
-                .transition(.move(edge: .top).combined(with: .opacity))
-                .animation(.spring(response: 0.4, dampingFraction: 0.8), value: banner.id)
-                .zIndex(100)
-            }
+            // In-app notification banner is handled by UserMainFlow's overlay
+            // to avoid duplicate banners.
         }
         .navigationTitle(authManager.userDisplayName ?? "Dashboard")
         .alert("Cancel Session?", isPresented: $showingCancelConfirmation) {
@@ -665,41 +652,6 @@ struct CoachDashboardView: View {
         }
     }
 
-    private func recentFolderIcon(_ folder: SharedFolder) -> String {
-        switch folder.folderType {
-        case "games":   return "baseball.fill"
-        case "lessons": return "video.badge.checkmark"
-        default:        return "figure.baseball"
-        }
-    }
-
-    private func recentFolderColor(_ folder: SharedFolder) -> Color {
-        switch folder.folderType {
-        case "lessons": return .green
-        default:        return .brandNavy
-        }
-    }
-
-    private func handleNotificationTap(_ notification: ActivityNotification) {
-        switch notification.type {
-        case .newVideo:
-            if let folderID = notification.targetID {
-                coordinator.navigateToFolder(folderID, folders: sharedFolderManager.coachFolders)
-            }
-        case .invitationReceived:
-            coordinator.navigateToInvitations()
-        case .invitationAccepted:
-            if notification.targetType == .folder, let folderID = notification.targetID {
-                coordinator.navigateToFolder(folderID, folders: sharedFolderManager.coachFolders)
-            } else {
-                coordinator.navigateToInvitations()
-            }
-        case .accessRevoked, .accessLapsed:
-            coordinator.selectedTab = .athletes
-        case .coachComment:
-            break
-        }
-    }
 }
 
 // MARK: - Summary Card

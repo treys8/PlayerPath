@@ -40,6 +40,9 @@ struct VideoClipsView: View {
     // Delete guard
     @State private var isDeleting = false
 
+    // Tips
+    private let recordTip = VideoClipsRecordTip()
+
     // Debounce for search-driven filtering
     @State private var filterDebounceTask: Task<Void, Never>?
 
@@ -516,7 +519,7 @@ struct VideoClipsView: View {
                 showingRecorder = true
             }
         )
-        .popoverTip(VideoClipsRecordTip(), arrowEdge: .top)
+        .popoverTip(recordTip, arrowEdge: .top)
         .onAppear {
             VideoClipsRecordTip.hasGames = !(athlete.games ?? []).isEmpty
         }
@@ -608,6 +611,7 @@ struct VideoClipsView: View {
                                 toggleSelection(for: video)
                             }
                         )
+                        .videoClipOptionsTip(isFirst: video.id == viewModel.filteredVideos.first?.id)
                         .onAppear {
                             viewModel.onItemAppear(video)
                             if let index = viewModel.filteredVideoIndex[video.id] {

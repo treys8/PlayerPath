@@ -19,89 +19,96 @@ struct VideoClipRow: View {
     @Environment(\.modelContext) private var modelContext
 
     var body: some View {
-        Button(action: { showingVideoPlayer = true }) {
-            HStack(spacing: 14) {
-                // Square thumbnail — no overlays
-                Group {
-                    if let thumbnail = thumbnailImage {
-                        Image(uiImage: thumbnail)
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                            .frame(width: 72, height: 72)
-                            .clipped()
-                    } else {
-                        Rectangle()
-                            .fill(Color.gray.opacity(0.2))
-                            .frame(width: 72, height: 72)
-                            .overlay(
-                                Group {
-                                    if isLoadingThumbnail {
-                                        ProgressView()
-                                            .progressViewStyle(CircularProgressViewStyle(tint: .gray))
-                                            .scaleEffect(0.7)
-                                    } else {
-                                        Image(systemName: "video.fill")
-                                            .foregroundColor(.gray)
-                                            .font(.title3)
+        VStack(alignment: .leading, spacing: 6) {
+            Button(action: { showingVideoPlayer = true }) {
+                HStack(spacing: 14) {
+                    // Square thumbnail — no overlays
+                    Group {
+                        if let thumbnail = thumbnailImage {
+                            Image(uiImage: thumbnail)
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                                .frame(width: 72, height: 72)
+                                .clipped()
+                        } else {
+                            Rectangle()
+                                .fill(Color.gray.opacity(0.2))
+                                .frame(width: 72, height: 72)
+                                .overlay(
+                                    Group {
+                                        if isLoadingThumbnail {
+                                            ProgressView()
+                                                .progressViewStyle(CircularProgressViewStyle(tint: .gray))
+                                                .scaleEffect(0.7)
+                                        } else {
+                                            Image(systemName: "video.fill")
+                                                .foregroundColor(.gray)
+                                                .font(.title3)
+                                        }
                                     }
-                                }
-                            )
-                    }
-                }
-                .cornerRadius(10)
-
-                VStack(alignment: .leading, spacing: 4) {
-                    if let playResult = clip.playResult {
-                        HStack(spacing: 6) {
-                            Text(playResult.type.displayName)
-                                .font(.subheadline)
-                                .fontWeight(.semibold)
-                                .foregroundColor(.primary)
-                            if let speed = clip.pitchSpeed, speed > 0 {
-                                Text("\(Int(speed)) mph")
-                                    .font(.caption2)
-                                    .fontWeight(.semibold)
-                                    .foregroundColor(.white)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
-                                    .background(.orange, in: Capsule())
-                            }
+                                )
                         }
-                    } else {
-                        Text("Unrecorded Play")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
+                    }
+                    .cornerRadius(10)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        if let playResult = clip.playResult {
+                            HStack(spacing: 6) {
+                                Text(playResult.type.displayName)
+                                    .font(.subheadline)
+                                    .fontWeight(.semibold)
+                                    .foregroundColor(.primary)
+                                if let speed = clip.pitchSpeed, speed > 0 {
+                                    Text("\(Int(speed)) mph")
+                                        .font(.caption2)
+                                        .fontWeight(.semibold)
+                                        .foregroundColor(.white)
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 2)
+                                        .background(.orange, in: Capsule())
+                                }
+                            }
+                        } else {
+                            Text("Unrecorded Play")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                        }
+
+                        if let createdAt = clip.createdAt {
+                            Text(createdAt, formatter: DateFormatter.shortTime)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        } else {
+                            Text("Unknown Time")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
                     }
 
-                    if let createdAt = clip.createdAt {
-                        Text(createdAt, formatter: DateFormatter.shortTime)
+                    Spacer()
+
+                    if clip.isHighlight {
+                        Image(systemName: "star.fill")
+                            .foregroundColor(.yellow)
                             .font(.caption)
-                            .foregroundColor(.secondary)
-                    } else {
-                        Text("Unknown Time")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
                     }
-                }
 
-                Spacer()
-
-                if clip.isHighlight {
-                    Image(systemName: "star.fill")
-                        .foregroundColor(.yellow)
+                    Image(systemName: "chevron.right")
+                        .foregroundColor(.gray)
                         .font(.caption)
                 }
-
-                Image(systemName: "chevron.right")
-                    .foregroundColor(.gray)
-                    .font(.caption)
             }
-            .padding(.vertical, 10)
+            .buttonStyle(PlainButtonStyle())
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(clip.playResult?.type.displayName ?? "Unrecorded Play")
+            .accessibilityHint("Opens the video")
+
+            // Coach comment thread
+            if let clipId = clip.firestoreId {
+                ClipCommentSection(clipId: clipId)
+            }
         }
-        .buttonStyle(PlainButtonStyle())
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(clip.playResult?.type.displayName ?? "Unrecorded Play")
-        .accessibilityHint("Opens the video")
+        .padding(.vertical, 10)
         .contextMenu {
             if AppFeatureFlags.isCoachEnabled {
                 Button {

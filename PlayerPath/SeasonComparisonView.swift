@@ -76,6 +76,23 @@ struct SeasonComparisonView: View {
                                         formatValue: { "\(Int($0))" }
                                     )
 
+                                    // Pitching Trends (only if any selected season has pitching data)
+                                    if seasonsToCompare.contains(where: { $0.seasonStatistics?.hasPitchingData == true }) {
+                                        TrendChartSection(
+                                            title: "Pitching Strikeouts",
+                                            seasons: seasonsToCompare,
+                                            getValue: { Double($0.seasonStatistics?.pitchingStrikeouts ?? 0) },
+                                            formatValue: { "\(Int($0))" }
+                                        )
+
+                                        TrendChartSection(
+                                            title: "Total Pitches",
+                                            seasons: seasonsToCompare,
+                                            getValue: { Double($0.seasonStatistics?.totalPitches ?? 0) },
+                                            formatValue: { "\(Int($0))" }
+                                        )
+                                    }
+
                                     // Detailed Comparison Table
                                     DetailedComparisonTable(seasons: seasonsToCompare)
                                 }
@@ -381,6 +398,37 @@ struct DetailedComparisonTable: View {
                     ComparisonRow(label: "Strikeouts", seasons: seasons) { $0.seasonStatistics?.strikeouts ?? 0 }
                     ComparisonRow(label: "OBP", seasons: seasons) { formatThreeDecimal($0.seasonStatistics?.onBasePercentage ?? 0.0) }
                     ComparisonRow(label: "SLG", seasons: seasons) { formatBattingAverage($0.seasonStatistics?.sluggingPercentage ?? 0.0) }
+
+                    // Pitching rows (only if any selected season has pitching data)
+                    if seasons.contains(where: { $0.seasonStatistics?.hasPitchingData == true }) {
+                        HStack(spacing: 0) {
+                            Text("Pitching")
+                                .font(.caption)
+                                .fontWeight(.semibold)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 10)
+                                .background(Color.orange.opacity(0.1))
+                        }
+
+                        Divider()
+
+                        ComparisonRow(label: "Total Pitches", seasons: seasons) { $0.seasonStatistics?.totalPitches ?? 0 }
+                        ComparisonRow(label: "Strikes", seasons: seasons) { $0.seasonStatistics?.strikes ?? 0 }
+                        ComparisonRow(label: "Balls", seasons: seasons) { $0.seasonStatistics?.balls ?? 0 }
+                        ComparisonRow(label: "P-Strikeouts", seasons: seasons) { $0.seasonStatistics?.pitchingStrikeouts ?? 0 }
+                        ComparisonRow(label: "P-Walks", seasons: seasons) { $0.seasonStatistics?.pitchingWalks ?? 0 }
+                        ComparisonRow(label: "Wild Pitches", seasons: seasons) { $0.seasonStatistics?.wildPitches ?? 0 }
+                        ComparisonRow(label: "HBP", seasons: seasons) { $0.seasonStatistics?.hitByPitches ?? 0 }
+                        ComparisonRow(label: "Avg FB Speed", seasons: seasons) {
+                            let speed = $0.seasonStatistics?.averageFastballSpeed ?? 0.0
+                            return speed > 0 ? String(format: "%.1f", speed) : "—"
+                        }
+                        ComparisonRow(label: "Avg OS Speed", seasons: seasons) {
+                            let speed = $0.seasonStatistics?.averageOffspeedSpeed ?? 0.0
+                            return speed > 0 ? String(format: "%.1f", speed) : "—"
+                        }
+                    }
                 }
             }
         }

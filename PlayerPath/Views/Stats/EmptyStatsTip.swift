@@ -29,4 +29,8 @@ struct EmptyStatsTip: Tip {
     var rules: [Rule] {
         #Rule(Self.$hasGames) { $0 == true }
     }
+
+    var options: [TipOption] {
+        MaxDisplayCount(1)
+    }
 }

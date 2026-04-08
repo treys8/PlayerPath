@@ -267,22 +267,35 @@ struct UserMainFlow: View {
     // MARK: - Activity Notification Tap Handling
 
     private func handleActivityNotificationTap(_ notification: ActivityNotification) {
+        let isCoach = authManager.userRole == .coach
+
         switch notification.type {
         case .coachComment, .newVideo:
-            // Deep link to the specific shared folder if we have a folderID
             if let folderID = notification.folderID {
-                NotificationCenter.default.post(name: .navigateToSharedFolder, object: folderID)
+                if isCoach {
+                    NotificationCenter.default.post(name: .navigateToCoachFolder, object: folderID)
+                } else {
+                    NotificationCenter.default.post(name: .navigateToSharedFolder, object: folderID)
+                }
             } else {
                 postSwitchTab(.more)
             }
         case .invitationAccepted:
-            postSwitchTab(.more)
+            if isCoach, let folderID = notification.targetID, notification.targetType == .folder {
+                NotificationCenter.default.post(name: .navigateToCoachFolder, object: folderID)
+            } else {
+                postSwitchTab(.more)
+            }
         case .invitationReceived:
-            // Athlete shouldn't normally receive this (coaches do), but handle gracefully
-            postSwitchTab(.more)
+            if isCoach {
+                NotificationCenter.default.post(name: .openCoachInvitations, object: nil)
+            } else {
+                postSwitchTab(.more)
+            }
         case .accessRevoked, .accessLapsed:
-            // Informational only — no navigation target
-            break
+            if isCoach {
+                NotificationCenter.default.post(name: .switchCoachTab, object: CoachTab.athletes.rawValue)
+            }
         }
 
         // Mark-read is handled by the banner's onDismiss closure

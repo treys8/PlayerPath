@@ -242,6 +242,28 @@ final class ActivityNotificationService: ObservableObject {
         }
     }
 
+    /// Marks only dashboard-level notifications as read (invitations + access events),
+    /// leaving folder/video notifications unread for the Athletes tab.
+    func markDashboardNotificationsRead(forUserID userID: String) async {
+        let dashboardTypes: Set<ActivityNotification.NotificationType> = [
+            .invitationReceived, .invitationAccepted, .accessRevoked, .accessLapsed
+        ]
+        let unread = recentNotifications.filter { !$0.isRead && dashboardTypes.contains($0.type) }
+        guard !unread.isEmpty else { return }
+
+        let batch = db.batch()
+        for n in unread {
+            guard let id = n.id else { continue }
+            let ref = db.collection(FC.notifications).document(userID).collection(FC.items).document(id)
+            batch.updateData(["isRead": true], forDocument: ref)
+        }
+        do {
+            try await batch.commit()
+        } catch {
+            log.error("Failed to mark dashboard notifications read: \(error.localizedDescription)")
+        }
+    }
+
     func markInvitationNotificationsRead(forUserID userID: String) async {
         let invitationUnread = recentNotifications.filter {
             !$0.isRead && ($0.type == .invitationAccepted || $0.type == .invitationReceived)

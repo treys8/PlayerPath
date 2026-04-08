@@ -23,4 +23,8 @@ struct EmptyGamesTip: Tip {
     var image: Image? {
         Image(systemName: "baseball.diamond.bases")
     }
+
+    var options: [TipOption] {
+        MaxDisplayCount(1)
+    }
 }
