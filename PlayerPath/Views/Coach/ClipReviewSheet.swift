@@ -55,6 +55,17 @@ struct ClipReviewSheet: View {
                             TextField("What should the athlete focus on?", text: $notes, axis: .vertical)
                                 .lineLimit(4...8)
                                 .textFieldStyle(.roundedBorder)
+                                .onChange(of: notes) { _, new in
+                                    if new.count > CoachNoteLimits.plainNoteCharLimit {
+                                        notes = String(new.prefix(CoachNoteLimits.plainNoteCharLimit))
+                                    }
+                                }
+                            HStack {
+                                Spacer()
+                                Text("\(notes.count)/\(CoachNoteLimits.plainNoteCharLimit)")
+                                    .font(.caption2)
+                                    .foregroundColor(notes.count >= CoachNoteLimits.plainNoteCharLimit ? .red : .secondary)
+                            }
                         }
                         .padding(.horizontal)
 

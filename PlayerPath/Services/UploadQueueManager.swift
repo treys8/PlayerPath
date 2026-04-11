@@ -610,6 +610,11 @@ final class UploadQueueManager {
         var reservedBytes: Int64 = 0
         weak var quotaUser: User?
 
+        // Metadata-first state: tracks whether we own a pending Firestore doc
+        // that needs cleanup (mark-as-failed) if the upload fails before completion.
+        var pendingDocNeedsCleanup = false
+        var clipIdForCleanup: UUID?
+
         do {
             // Coach uploads follow a separate path — no local VideoClip or Athlete
             if upload.isCoachUpload {
@@ -669,15 +674,17 @@ final class UploadQueueManager {
                 quotaUser = user
             }
 
-            // Recover from crash: if Firestore already has a completed document for this
-            // clip (app crashed after Firestore write but before local SwiftData save),
-            // skip the re-upload and just restore local state.
+            // Crash recovery: if a previous attempt fully succeeded (Storage upload
+            // AND markAthleteVideoCompleted) but the local SwiftData save crashed
+            // before persisting, the doc exists with status "completed". Restore
+            // local state and return without re-uploading.
             let clipDocId = clip.id.uuidString
             if let existingDoc = try? await Firestore.firestore()
                 .collection(FC.videos).document(clipDocId).getDocument(),
                let data = existingDoc.data(),
+               data["uploadStatus"] as? String == "completed",
                let existingURL = data["downloadURL"] as? String,
-               data["uploadStatus"] as? String == "completed" {
+               !existingURL.isEmpty {
                 clip.cloudURL = existingURL
                 clip.isUploaded = true
                 clip.lastSyncDate = Date()
@@ -690,6 +697,19 @@ final class UploadQueueManager {
                 uploadLog.info("Recovered already-uploaded clip \(clipDocId) from Firestore — skipped re-upload")
                 return
             }
+
+            // METADATA-FIRST: create-or-overwrite the pending doc before uploading
+            // bytes. setData with the deterministic clipId.uuidString as the doc
+            // ID means a retry of a previously-failed (or interrupted) upload
+            // overwrites the prior doc in place — picking up any user edits to
+            // metadata fields between attempts. createdAt resets on each retry,
+            // which slightly extends the 24h sweep horizon but is bounded by
+            // maxRetries. If anything below fails, the doc is marked "failed" so
+            // the daily maintenance sweep can clean up both the doc and any
+            // partial Storage file.
+            try await VideoCloudManager.shared.createPendingAthleteVideoMetadata(clip, athlete: athlete)
+            pendingDocNeedsCleanup = true
+            clipIdForCleanup = clip.id
 
             // NOTE: Athlete uploads go through VideoCloudManager.uploadVideo(clip, athlete:)
             // which reads the file path from the VideoClip model. Compression would require
@@ -726,33 +746,10 @@ final class UploadQueueManager {
                 return result
             }
 
-            // Save metadata to Firestore BEFORE marking local state as uploaded.
-            // This ensures we never have isUploaded=true without valid Firestore metadata.
-            do {
-                try await cloudManager.saveVideoMetadataToFirestore(clip, athlete: athlete, downloadURL: cloudURL)
-            } catch {
-                // Firestore write failed — rollback the Storage file to prevent orphans
-                do {
-                    try await cloudManager.deleteAthleteVideo(fileName: upload.fileName)
-                } catch {
-                    // Rollback delete also failed — file is orphaned in Storage.
-                    // TODO: Add a Cloud Function + Firestore "pending_cleanup" collection
-                    // to periodically sweep orphaned Storage files. Until then, the log
-                    // entry below is the only record of the orphan.
-                    uploadLog.error("ORPHANED Storage file '\(upload.fileName)' — rollback delete failed after Firestore write failure: \(error.localizedDescription)")
-                }
-
-                // Release reserved storage quota and zero out so the outer catch
-                // block doesn't double-release via reservedBytes
-                if let user = athlete.user {
-                    user.cloudStorageUsedBytes = max(0, user.cloudStorageUsedBytes - reservedBytes)
-                }
-                reservedBytes = 0
-                clip.needsSync = true
-                ErrorHandlerService.shared.saveContext(context, caller: "UploadQueue.rollbackReservedStorage")
-
-                throw error
-            }
+            // Flip the pending doc to completed. The outer catch handles
+            // mark-as-failed + Storage cleanup if this throws.
+            try await cloudManager.markAthleteVideoCompleted(clip, athlete: athlete, downloadURL: cloudURL)
+            pendingDocNeedsCleanup = false // Doc is now completed; no cleanup needed.
 
             // Both Storage upload and Firestore write succeeded — now persist local state
             clip.cloudURL = cloudURL
@@ -812,6 +809,17 @@ final class UploadQueueManager {
                 quotaUser?.cloudStorageUsedBytes -= reservedBytes
             }
 
+            // Metadata-first cleanup: mark the pending doc as failed (so the
+            // daily maintenance sweep can clean it up promptly) and best-effort
+            // delete any partial Storage file. The 24h sweep is the safety net
+            // if either of these also fails.
+            if pendingDocNeedsCleanup, let cleanupClipId = clipIdForCleanup {
+                await VideoCloudManager.shared.markAthleteVideoFailed(
+                    clipId: cleanupClipId,
+                    reason: error.localizedDescription
+                )
+                try? await VideoCloudManager.shared.deleteAthleteVideo(fileName: upload.fileName)
+            }
 
             // If the clip or athlete was deleted, don't retry — move straight to failed
             if let uploadError = error as? UploadError, case .entityNotFound = uploadError {
@@ -895,81 +903,88 @@ final class UploadQueueManager {
             throw UploadError.uploadFailed("Local video file not found")
         }
 
-        // Compress video before upload to reduce bandwidth and storage costs.
-        // Non-fatal: if compression fails, upload the original file.
-        // Safe to compress in-place here — localURL is a staging copy in coach_pending_uploads/.
-        do {
-            _ = try await VideoCompressionService.shared.compressForUpload(at: localURL)
-        } catch {
-            uploadLog.warning("Coach video compression failed, uploading original: \(error.localizedDescription)")
-        }
-
-        let cloudManager = VideoCloudManager.shared
-
-        // Upload video to shared folder Storage path with 10-minute timeout
-        let downloadURL = try await withThrowingTaskGroup(of: String.self) { group in
-            group.addTask {
-                try await cloudManager.uploadVideo(
-                    localURL: localURL,
-                    fileName: upload.fileName,
-                    folderID: folderID,
-                    progressHandler: { [weak self] progress in
-                        Task { @MainActor [weak self] in
-                            self?.activeUploads[upload.clipId] = progress
-                        }
-                    }
-                )
-            }
-            group.addTask {
-                try await Task.sleep(for: .seconds(600))
-                throw UploadError.uploadFailed("Coach upload timed out after 10 minutes")
-            }
-            guard let result = try await group.next() else {
-                throw UploadError.uploadFailed("No upload result received")
-            }
-            group.cancelAll()
-            return result
-        }
-
-        // Process video: extract duration + generate/upload thumbnail
-        let processed = await CoachVideoProcessingService.shared.process(
-            videoURL: localURL,
+        // METADATA-FIRST: create the Firestore doc as "pending" before any bytes
+        // are uploaded. The doc serves as a tombstone — if anything below fails,
+        // we mark it "failed" and the daily maintenance sweep cleans both the
+        // doc and any partial Storage file.
+        let videoID = try await FirestoreManager.shared.createPendingVideoMetadata(
             fileName: upload.fileName,
-            folderID: folderID
+            folderID: folderID,
+            uploadedBy: coachID,
+            uploadedByName: coachName,
+            videoType: upload.videoType ?? "instruction",
+            gameContext: upload.videoType == "game" ? GameContext(
+                opponent: upload.gameOpponent ?? "",
+                date: upload.gameDate ?? Date(),
+                notes: nil
+            ) : nil,
+            uploadedByType: .coach,
+            visibility: "private",
+            sessionID: upload.sessionID
         )
 
-        let fileSize = FileManager.default.fileSize(atPath: upload.filePath)
-
-        // Write metadata to Firestore
         do {
-            _ = try await FirestoreManager.shared.uploadVideoMetadata(
+            // Compress video before upload to reduce bandwidth and storage costs.
+            // Non-fatal: if compression fails, upload the original file.
+            // Safe to compress in-place here — localURL is a staging copy in coach_pending_uploads/.
+            do {
+                _ = try await VideoCompressionService.shared.compressForUpload(at: localURL)
+            } catch {
+                uploadLog.warning("Coach video compression failed, uploading original: \(error.localizedDescription)")
+            }
+
+            let cloudManager = VideoCloudManager.shared
+
+            // Upload video to shared folder Storage path with 10-minute timeout
+            let downloadURL = try await withThrowingTaskGroup(of: String.self) { group in
+                group.addTask {
+                    try await cloudManager.uploadVideo(
+                        localURL: localURL,
+                        fileName: upload.fileName,
+                        folderID: folderID,
+                        progressHandler: { [weak self] progress in
+                            Task { @MainActor [weak self] in
+                                self?.activeUploads[upload.clipId] = progress
+                            }
+                        }
+                    )
+                }
+                group.addTask {
+                    try await Task.sleep(for: .seconds(600))
+                    throw UploadError.uploadFailed("Coach upload timed out after 10 minutes")
+                }
+                guard let result = try await group.next() else {
+                    throw UploadError.uploadFailed("No upload result received")
+                }
+                group.cancelAll()
+                return result
+            }
+
+            // Process video: extract duration + generate/upload thumbnail
+            let processed = await CoachVideoProcessingService.shared.process(
+                videoURL: localURL,
                 fileName: upload.fileName,
+                folderID: folderID
+            )
+
+            let fileSize = FileManager.default.fileSize(atPath: upload.filePath)
+
+            // Flip the pending doc to completed.
+            try await FirestoreManager.shared.markVideoCompleted(
+                videoID: videoID,
                 storageURL: downloadURL,
                 thumbnail: processed.thumbnailURL.map {
                     ThumbnailMetadata(standardURL: $0, timestamp: 1.0, width: 480, height: 270)
                 },
-                folderID: folderID,
-                uploadedBy: coachID,
-                uploadedByName: coachName,
                 fileSize: fileSize,
                 duration: processed.duration,
-                videoType: upload.videoType ?? "instruction",
-                gameContext: upload.videoType == "game" ? GameContext(
-                    opponent: upload.gameOpponent ?? "",
-                    date: upload.gameDate ?? Date(),
-                    notes: nil
-                ) : nil,
-                uploadedByType: .coach,
-                visibility: "private",
-                sessionID: upload.sessionID
+                folderID: folderID,
+                visibility: "private"
             )
         } catch {
-            // Rollback Storage file on metadata failure
-            do {
-                try await cloudManager.deleteVideo(fileName: upload.fileName, folderID: folderID)
-            } catch {
-                uploadLog.error("Failed to rollback Storage file '\(upload.fileName)' after metadata failure: \(error.localizedDescription)")
-            }
+            uploadLog.error("Coach upload failed for \(upload.fileName) (\(videoID)): \(error.localizedDescription)")
+            await FirestoreManager.shared.markVideoFailed(videoID: videoID, reason: error.localizedDescription)
+            try? await VideoCloudManager.shared.deleteVideo(fileName: upload.fileName, folderID: folderID)
             throw error
         }
 

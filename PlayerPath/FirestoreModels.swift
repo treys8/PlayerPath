@@ -116,7 +116,18 @@ struct FirestoreVideoMetadata: Codable, Identifiable {
     let gameOpponent: String?
     let gameDate: Date?
     let practiceDate: Date?
-    let notes: String?
+    let notes: String? // Athlete-authored context attached at share time
+
+    // Coach-authored plain note (separate from athlete `notes`)
+    var coachNote: String? = nil
+    var coachNoteAuthorID: String? = nil
+    var coachNoteAuthorName: String? = nil
+    var coachNoteUpdatedAt: Date? = nil
+
+    // Per-coach review state. Presence of a coach UID in this map means
+    // "this coach has marked the clip reviewed" — set implicitly when the
+    // coach saves a coachNote, or explicitly via the Mark as Reviewed button.
+    var reviewedBy: [String: Date]? = nil
 
     // Tags and categorization
     var tags: [String]? = nil

@@ -124,6 +124,154 @@ extension VideoCloudManager {
         try await db.collection(FC.videos).document(clipId.uuidString).setData(data)
     }
 
+    /// Creates a pending Firestore video metadata doc for an athlete personal
+    /// upload, BEFORE the Storage upload begins. The doc serves as a tombstone:
+    /// if the Storage upload or `markAthleteVideoCompleted` fails, the daily
+    /// maintenance Cloud Function sweeps both the doc and any partial Storage
+    /// file after 24 hours. Read paths already filter out non-completed docs.
+    ///
+    /// Uses `clipId.uuidString` as the doc ID so the existing crash-recovery
+    /// branch in `UploadQueueManager.processUpload` can detect a pending doc
+    /// from a previous app session and resume the upload.
+    func createPendingAthleteVideoMetadata(_ videoClip: VideoClip, athlete: Athlete) async throws {
+        let clipId = videoClip.id
+        let clipFileName = videoClip.fileName
+        let clipIsHighlight = videoClip.isHighlight
+        let clipCreatedAt = videoClip.createdAt ?? Date()
+        let clipDuration = videoClip.duration
+        let clipNote = videoClip.note
+        let clipPitchSpeed = videoClip.pitchSpeed
+        let clipPitchType = videoClip.pitchType
+        let playResultType = videoClip.playResult?.type
+        let gameId = videoClip.game.map { $0.firestoreId ?? $0.id.uuidString }
+        let gameOpponent = videoClip.gameOpponent ?? videoClip.game?.opponent
+        let gameDate = videoClip.gameDate ?? videoClip.game?.date
+        let practiceDate = videoClip.practiceDate ?? videoClip.practice?.date
+        let practiceId = videoClip.practice?.id
+        let seasonId = videoClip.season.map { $0.firestoreId ?? $0.id.uuidString }
+        let seasonName = videoClip.seasonName ?? videoClip.season?.displayName
+        let athleteStableId = athlete.firestoreId ?? athlete.id.uuidString
+        let athleteName = athlete.name
+
+        let fileSize = FileManager.default.fileSize(atPath: videoClip.resolvedFilePath)
+
+        let db = Firestore.firestore()
+
+        guard let ownerUID = Auth.auth().currentUser?.uid else {
+            throw VideoCloudError.uploadFailed("User session expired — please sign in again to upload")
+        }
+
+        var data: [String: Any] = [
+            "id": clipId.uuidString,
+            "athleteId": athleteStableId,
+            "athleteName": athleteName,
+            "fileName": clipFileName,
+            // Empty downloadURL is allowed by firestore.rules:274 for pending docs.
+            "downloadURL": "",
+            "isHighlight": clipIsHighlight,
+            "createdAt": Timestamp(date: clipCreatedAt),
+            "updatedAt": Timestamp(date: Date()),
+            "fileSize": fileSize,
+            "isDeleted": false,
+            "uploadedBy": ownerUID,
+            "uploadStatus": "pending"
+        ]
+
+        if let duration = clipDuration {
+            data["duration"] = duration
+        }
+        if let playResult = playResultType {
+            data["playResult"] = playResult.rawValue
+            data["playResultName"] = playResult.displayName
+        }
+        if let opponent = gameOpponent {
+            data["gameOpponent"] = opponent
+        }
+        if let gameDate = gameDate {
+            data["gameDate"] = Timestamp(date: gameDate)
+        }
+        if let gameId = gameId {
+            data["gameId"] = gameId
+        }
+        if let practiceId = practiceId {
+            data["practiceId"] = practiceId.uuidString
+        }
+        if let practiceDate = practiceDate {
+            data["practiceDate"] = Timestamp(date: practiceDate)
+        }
+        if let seasonId = seasonId {
+            data["seasonId"] = seasonId
+        }
+        if let seasonName = seasonName {
+            data["seasonName"] = seasonName
+        }
+        if let note = clipNote {
+            data["note"] = note
+        }
+        if let pitchSpeed = clipPitchSpeed {
+            data["pitchSpeed"] = pitchSpeed
+        }
+        if let pitchType = clipPitchType {
+            data["pitchType"] = pitchType
+        }
+
+        try await db.collection(FC.videos).document(clipId.uuidString).setData(data)
+    }
+
+    /// Marks a pending athlete video as completed after a successful Storage
+    /// upload. Uploads the thumbnail (if a local one exists) and writes the
+    /// downloadURL + thumbnailURL onto the existing pending doc.
+    func markAthleteVideoCompleted(_ videoClip: VideoClip, athlete: Athlete, downloadURL: String) async throws {
+        let clipId = videoClip.id
+        let clipFileName = videoClip.fileName
+        let clipThumbnailPath = videoClip.resolvedThumbnailPath
+        let athleteStableId = athlete.firestoreId ?? athlete.id.uuidString
+
+        // Refresh fileSize in case the local file changed (e.g., re-trim).
+        let fileSize = FileManager.default.fileSize(atPath: videoClip.resolvedFilePath)
+
+        var partial: [String: Any] = [
+            "downloadURL": downloadURL,
+            "uploadStatus": "completed",
+            "fileSize": fileSize,
+            "updatedAt": Timestamp(date: Date())
+        ]
+
+        // Upload thumbnail to Storage if a local one exists, then merge URL.
+        if let thumbnailPath = clipThumbnailPath,
+           FileManager.default.fileExists(atPath: thumbnailPath) {
+            do {
+                let thumbnailURL = URL(fileURLWithPath: thumbnailPath)
+                let cloudThumbnailURL = try await uploadAthleteVideoThumbnail(
+                    thumbnailURL: thumbnailURL,
+                    videoFileName: clipFileName,
+                    athleteStableId: athleteStableId
+                )
+                partial["thumbnailURL"] = cloudThumbnailURL
+            } catch {
+                videoCloudLog.warning("Failed to upload thumbnail for \(clipFileName): \(error.localizedDescription)")
+            }
+        }
+
+        let db = Firestore.firestore()
+        try await db.collection(FC.videos).document(clipId.uuidString).updateData(partial)
+    }
+
+    /// Marks a pending athlete video as failed so the daily maintenance sweep
+    /// can clean it up promptly. Never throws.
+    func markAthleteVideoFailed(clipId: UUID, reason: String?) async {
+        let db = Firestore.firestore()
+        do {
+            try await db.collection(FC.videos).document(clipId.uuidString).updateData([
+                "uploadStatus": "failed",
+                "failureReason": reason ?? NSNull(),
+                "updatedAt": Timestamp(date: Date())
+            ])
+        } catch {
+            videoCloudLog.error("Failed to mark athlete video failed (\(clipId)): \(error.localizedDescription)")
+        }
+    }
+
     /// Updates only the note field on an existing video document in Firestore.
     func updateVideoNote(clipId: String, note: String?) async throws {
         let db = Firestore.firestore()

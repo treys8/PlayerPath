@@ -186,6 +186,17 @@ struct ShareToCoachFolderView: View {
                 TextField("Add context for your coach…", text: $notes, axis: .vertical)
                     .focused($notesFocused)
                     .lineLimit(3...6)
+                    .onChange(of: notes) { _, new in
+                        if new.count > CoachNoteLimits.plainNoteCharLimit {
+                            notes = String(new.prefix(CoachNoteLimits.plainNoteCharLimit))
+                        }
+                    }
+                HStack {
+                    Spacer()
+                    Text("\(notes.count)/\(CoachNoteLimits.plainNoteCharLimit)")
+                        .font(.caption2)
+                        .foregroundColor(notes.count >= CoachNoteLimits.plainNoteCharLimit ? .red : .secondary)
+                }
             } header: {
                 Text("Notes (Optional)")
             } footer: {

@@ -16,10 +16,13 @@ struct CoachVideoPlayerView: View {
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @State private var viewModel: CoachVideoPlayerViewModel
     @State private var showingAddNote = false
-    @State private var selectedTab: VideoTab = .notes
+    @State private var showingCoachNoteEditor = false
+    @State private var selectedTab: VideoTab = .feedback
     @State private var showingSpeedPicker = false
     @State private var showingQuickCueManager = false
     @State private var showingDrillCardEditor = false
+    @State private var isMarkingReviewed = false
+    @State private var markReviewedError: String?
     @State private var drillCards: [DrillCard] = []
     private var templateService: CoachTemplateService { .shared }
     @Environment(\.verticalSizeClass) private var vSizeClass
@@ -33,13 +36,13 @@ struct CoachVideoPlayerView: View {
     }
     
     enum VideoTab: String, CaseIterable {
-        case notes = "Notes"
+        case feedback = "Feedback"
         case drillCard = "Drill Card"
         case info = "Info"
 
         var icon: String {
             switch self {
-            case .notes: return "bubble.left.fill"
+            case .feedback: return "bubble.left.fill"
             case .drillCard: return "clipboard.fill"
             case .info: return "info.circle.fill"
             }
@@ -59,6 +62,19 @@ struct CoachVideoPlayerView: View {
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 HStack(spacing: 12) {
+                    // Mark as Reviewed button — only for folder coaches who
+                    // haven't yet reviewed this clip.
+                    if canEditCoachNote, !viewModel.isReviewed(by: authManager.userID ?? "") {
+                        Button {
+                            markReviewed()
+                        } label: {
+                            Image(systemName: "checkmark.circle")
+                                .foregroundColor(.brandNavy)
+                        }
+                        .disabled(isMarkingReviewed)
+                        .accessibilityLabel("Mark as reviewed")
+                    }
+
                     // Save to device button
                     Button {
                         Task { await viewModel.saveToPhotos() }
@@ -104,6 +120,14 @@ struct CoachVideoPlayerView: View {
         } message: {
             Text(viewModel.saveError ?? "An unknown error occurred.")
         }
+        .alert("Couldn't Mark Reviewed", isPresented: .init(
+            get: { markReviewedError != nil },
+            set: { if !$0 { markReviewedError = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(markReviewedError ?? "")
+        }
         .confirmationDialog("Playback Speed", isPresented: $showingSpeedPicker) {
             ForEach([0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0], id: \.self) { rate in
                 Button(rate == 1.0 ? "1x (Normal)" : "\(String(format: "%gx", rate))") {
@@ -122,6 +146,15 @@ struct CoachVideoPlayerView: View {
                     }
                 }
             )
+        }
+        .sheet(isPresented: $showingCoachNoteEditor) {
+            CoachNoteEditorSheet(
+                initialText: viewModel.coachNoteText ?? ""
+            ) { newText in
+                guard let userID = authManager.userID else { return }
+                let userName = authManager.userDisplayName ?? authManager.userEmail ?? "Coach"
+                try await viewModel.updateCoachNote(text: newText, authorID: userID, authorName: userName)
+            }
         }
         .sheet(isPresented: $showingQuickCueManager) {
             if let coachID = authManager.userID {
@@ -195,7 +228,8 @@ struct CoachVideoPlayerView: View {
         VStack(spacing: 0) {
             playerContent
                 .frame(height: playerHeight)
-            instructionNoteCard
+            athleteNoteCard
+            coachNoteCard
             if canComment && !templateService.quickCues.isEmpty {
                 QuickCueBar(
                     cues: templateService.quickCues,
@@ -220,8 +254,12 @@ struct CoachVideoPlayerView: View {
                 }
             }
             Divider()
-            annotationPanel
-                .frame(width: 320)
+            VStack(spacing: 0) {
+                athleteNoteCard
+                coachNoteCard
+                annotationPanel
+            }
+            .frame(width: 320)
         }
     }
 
@@ -311,7 +349,7 @@ struct CoachVideoPlayerView: View {
 
             Group {
                 switch selectedTab {
-                case .notes:
+                case .feedback:
                     NotesTabView(
                         notes: viewModel.annotations,
                         isLoading: viewModel.isLoadingAnnotations,
@@ -338,16 +376,17 @@ struct CoachVideoPlayerView: View {
         }
     }
 
-    /// Shows the coach's instruction note prominently below the video player.
+    /// Athlete-authored context attached at share time. Suppressed for legacy
+    /// instruction clips whose `notes` field actually holds a coach note —
+    /// those render via `coachNoteCard` instead.
     @ViewBuilder
-    private var instructionNoteCard: some View {
-        if let notes = video.notes, !notes.isEmpty,
-           video.videoType == "instruction" || video.videoType == "practice" {
+    private var athleteNoteCard: some View {
+        if let notes = video.notes, !notes.isEmpty, video.uploadedByType != .coach {
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
-                    Image(systemName: "person.fill.checkmark")
+                    Image(systemName: "person.fill")
                         .font(.caption)
-                        .foregroundColor(.brandNavy)
+                        .foregroundColor(.secondary)
                     Text(video.uploadedByName)
                         .font(.subheadline)
                         .fontWeight(.medium)
@@ -363,11 +402,79 @@ struct CoachVideoPlayerView: View {
                     .foregroundColor(.primary)
             }
             .padding()
+            .background(Color(.secondarySystemBackground))
+            .cornerRadius(10)
+            .padding(.horizontal)
+            .padding(.vertical, 6)
+        }
+    }
+
+    /// Coach-authored plain note. Visible when a coach note exists, or when the
+    /// current viewer is a folder coach (in which case it shows an "add" affordance).
+    @ViewBuilder
+    private var coachNoteCard: some View {
+        let hasNote = !(viewModel.coachNoteText ?? "").isEmpty
+        if hasNote || canEditCoachNote {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
+                    Image(systemName: "person.fill.checkmark")
+                        .font(.caption)
+                        .foregroundColor(.brandNavy)
+                    Text(viewModel.coachNoteAuthorName ?? "Coach")
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                        .foregroundColor(.brandNavy)
+                    Text("COACH")
+                        .font(.caption2)
+                        .fontWeight(.bold)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.brandNavy.opacity(0.2))
+                        .foregroundColor(.brandNavy)
+                        .cornerRadius(4)
+                    Spacer()
+                    if let date = viewModel.coachNoteUpdatedAt {
+                        Text(date.formatted(date: .abbreviated, time: .omitted))
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    if canEditCoachNote {
+                        Button {
+                            showingCoachNoteEditor = true
+                        } label: {
+                            Image(systemName: hasNote ? "pencil" : "plus.circle.fill")
+                                .font(.subheadline)
+                                .foregroundColor(.brandNavy)
+                        }
+                        .accessibilityLabel(hasNote ? "Edit coach note" : "Add coach note")
+                    }
+                }
+                if hasNote {
+                    Text(viewModel.coachNoteText ?? "")
+                        .font(.subheadline)
+                        .foregroundColor(.primary)
+                } else {
+                    Text("Tap + to leave a plain-text note for the athlete.")
+                        .font(.subheadline)
+                        .italic()
+                        .foregroundColor(.secondary)
+                }
+            }
+            .padding()
             .background(Color.brandNavy.opacity(0.08))
             .cornerRadius(10)
             .padding(.horizontal)
             .padding(.vertical, 6)
         }
+    }
+
+    /// Coaches with comment permission can author/edit the coach note.
+    /// The folder owner (athlete) cannot — the coach note is coach-only.
+    private var canEditCoachNote: Bool {
+        guard let userID = authManager.userID else { return false }
+        guard userID != folder.ownerAthleteID else { return false }
+        guard folder.sharedWithCoachIDs.contains(userID) else { return false }
+        return folder.getPermissions(for: userID)?.canComment ?? false
     }
 
     private var canComment: Bool {
@@ -376,6 +483,19 @@ struct CoachVideoPlayerView: View {
         return folder.getPermissions(for: userID)?.canComment ?? false
     }
     
+    private func markReviewed() {
+        guard let coachID = authManager.userID else { return }
+        isMarkingReviewed = true
+        Task {
+            do {
+                try await viewModel.markReviewed(coachID: coachID)
+            } catch {
+                markReviewedError = error.localizedDescription
+            }
+            isMarkingReviewed = false
+        }
+    }
+
     private func addNote(text: String, timestamp: Double, category: AnnotationCategory? = nil) async {
         guard let userID = authManager.userID,
               let userName = authManager.userDisplayName ?? authManager.userEmail else {
@@ -442,7 +562,7 @@ struct NotesTabView: View {
             // Add note button
             if canComment {
                 Button(action: onAddNote) {
-                    Label("Add Note", systemImage: "plus.circle.fill")
+                    Label("Add Feedback", systemImage: "plus.circle.fill")
                         .font(.headline)
                         .frame(maxWidth: .infinity)
                         .padding()
@@ -455,7 +575,7 @@ struct NotesTabView: View {
             
             // Notes list
             if isLoading {
-                ProgressView("Loading notes...")
+                ProgressView("Loading feedback...")
                     .frame(maxHeight: .infinity)
             } else if let error = errorMessage, notes.isEmpty {
                 VStack(spacing: 16) {
@@ -463,7 +583,7 @@ struct NotesTabView: View {
                         .font(.system(size: 50))
                         .foregroundColor(.orange.opacity(0.7))
 
-                    Text("Failed to Load Notes")
+                    Text("Failed to Load Feedback")
                         .font(.headline)
 
                     Text(error)
@@ -479,10 +599,10 @@ struct NotesTabView: View {
                         .font(.system(size: 50))
                         .foregroundColor(.gray.opacity(0.5))
                     
-                    Text("No notes yet")
+                    Text("No feedback yet")
                         .font(.headline)
-                    
-                    Text("Add notes and feedback for this video.")
+
+                    Text("Add timestamped feedback markers for this video.")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)

@@ -1,28 +1,31 @@
 //
-//  ReviewQueueCard.swift
+//  NeedsReviewQueueCard.swift
 //  PlayerPath
 //
-//  Dashboard card showing aggregated unreviewed clips across all folders.
-//  Styled as a calm "to-do queue" with navy tones instead of orange/red alarms.
+//  Dashboard card showing aggregated athlete-shared clips that the coach
+//  hasn't yet reviewed. Sibling of ReviewQueueCard ("My Drafts") — same
+//  visual structure, different data source and accent color.
 //
 
 import SwiftUI
 
-struct ReviewQueueCard: View {
+struct NeedsReviewQueueCard: View {
     let groups: [AthleteClipGroup]
     let totalCount: Int
     let onReviewAll: () -> Void
     let onNavigateToFolder: (String) -> Void
+
+    private var accent: Color { .orange }
 
     var body: some View {
         VStack(spacing: 12) {
             // Header
             HStack {
                 HStack(spacing: 6) {
-                    Image(systemName: "square.and.pencil")
+                    Image(systemName: "tray.full.fill")
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(.brandNavy)
-                    Text("My Drafts")
+                        .foregroundColor(accent)
+                    Text("Needs Your Review")
                         .font(.title3)
                         .fontWeight(.bold)
                         .fontDesign(.rounded)
@@ -33,10 +36,10 @@ struct ReviewQueueCard: View {
                 Text("\(totalCount) clip\(totalCount == 1 ? "" : "s")")
                     .font(.caption2)
                     .fontWeight(.bold)
-                    .foregroundColor(.brandNavy)
+                    .foregroundColor(accent)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 3)
-                    .background(Capsule().fill(Color.brandNavy.opacity(0.12)))
+                    .background(Capsule().fill(accent.opacity(0.15)))
             }
 
             // Athlete rows
@@ -51,14 +54,14 @@ struct ReviewQueueCard: View {
                 }
             }
 
-            // Review Clips button
+            // CTA
             Button(action: onReviewAll) {
                 Label("Review Clips", systemImage: "eye")
                     .font(.subheadline)
                     .fontWeight(.semibold)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 10)
-                    .background(Color.brandNavy)
+                    .background(accent)
                     .foregroundColor(.white)
                     .cornerRadius(10)
             }
@@ -68,27 +71,25 @@ struct ReviewQueueCard: View {
             RoundedRectangle(cornerRadius: .cornerXLarge)
                 .fill(
                     LinearGradient(
-                        colors: [Color.brandNavy.opacity(0.08), Color.brandNavy.opacity(0.03)],
+                        colors: [accent.opacity(0.10), accent.opacity(0.03)],
                         startPoint: .topLeading, endPoint: .bottomTrailing
                     )
                 )
         )
         .overlay(
             RoundedRectangle(cornerRadius: .cornerXLarge)
-                .stroke(Color.brandNavy.opacity(0.2), lineWidth: 1.5)
+                .stroke(accent.opacity(0.25), lineWidth: 1.5)
         )
         .shadow(color: .black.opacity(0.06), radius: 8, x: 0, y: 4)
     }
-
-    // MARK: - Athlete Row
 
     private func athleteRow(_ group: AthleteClipGroup) -> some View {
         HStack(spacing: 10) {
             Image(systemName: "figure.baseball")
                 .font(.caption)
-                .foregroundColor(.brandNavy)
+                .foregroundColor(accent)
                 .frame(width: 28, height: 28)
-                .background(Color.brandNavy.opacity(0.1))
+                .background(accent.opacity(0.12))
                 .clipShape(Circle())
 
             VStack(alignment: .leading, spacing: 2) {
@@ -98,14 +99,13 @@ struct ReviewQueueCard: View {
                     .foregroundColor(.primary)
                     .lineLimit(1)
 
-                Text("\(group.clips.count) clip\(group.clips.count == 1 ? "" : "s") to review")
+                Text("\(group.clips.count) clip\(group.clips.count == 1 ? "" : "s") waiting")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
 
             Spacer()
 
-            // Small thumbnail previews (max 3)
             HStack(spacing: -8) {
                 ForEach(Array(group.clips.prefix(3).enumerated()), id: \.element.id) { index, clip in
                     RemoteThumbnailView(

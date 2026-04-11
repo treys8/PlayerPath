@@ -126,10 +126,9 @@ struct ContactSupportView: View {
         let coded = "mailto:\(emailTo)?subject=\(emailSubject)&body=\(emailBody)"
             .addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)
 
-        if let emailURL = coded.flatMap({ URL(string: $0) }) {
-            if UIApplication.shared.canOpenURL(emailURL) {
-                UIApplication.shared.open(emailURL)
-            }
+        if let emailURL = coded.flatMap({ URL(string: $0) }),
+           UIApplication.shared.canOpenURL(emailURL) {
+            UIApplication.shared.open(emailURL)
             subject = ""
             message = ""
             selectedCategory = .general

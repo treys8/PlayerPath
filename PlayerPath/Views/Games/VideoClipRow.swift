@@ -59,12 +59,14 @@ struct VideoClipRow: View {
                                     .fontWeight(.semibold)
                                     .foregroundColor(.primary)
                                 if let speed = clip.pitchSpeed, speed > 0 {
-                                    Text("\(Int(speed)) mph")
+                                    Text("\(Int(speed)) MPH")
                                         .font(.caption2)
                                         .fontWeight(.semibold)
                                         .foregroundColor(.white)
-                                        .padding(.horizontal, 6)
-                                        .padding(.vertical, 2)
+                                        .lineLimit(1)
+                                        .fixedSize(horizontal: true, vertical: false)
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 3)
                                         .background(.orange, in: Capsule())
                                 }
                             }

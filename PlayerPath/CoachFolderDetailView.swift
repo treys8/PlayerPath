@@ -3,12 +3,12 @@
 //  PlayerPath
 //
 //  Created by Assistant on 11/21/25.
-//  Detailed view of a shared folder. Games folders show a flat video list; lessons folders show Review / Shared tabs.
+//  Detailed view of a shared folder. Games folders show a flat video list; lessons folders show My Drafts / Shared tabs.
 //
 
 import SwiftUI
 
-/// Shows the contents of a shared folder. Games folders display a flat video list; lessons folders use Review / Shared tabs.
+/// Shows the contents of a shared folder. Games folders display a flat video list; lessons folders use My Drafts / Shared tabs.
 struct CoachFolderDetailView: View {
     let folder: SharedFolder
 
@@ -39,6 +39,7 @@ struct CoachFolderDetailView: View {
     @State private var shareProgress: (current: Int, total: Int)?
     @State private var showingQuickRecord = false
     @State private var showingActiveSessionAlert = false
+    @State private var gamesFilter: GamesFolderFilter = .needsReview
     private var archiveManager: CoachFolderArchiveManager { .shared }
 
     init(folder: SharedFolder, initialTab: FolderTab = .review) {
@@ -50,8 +51,15 @@ struct CoachFolderDetailView: View {
 
     /// Tabs only used for lessons folders. Games folders show a flat list.
     enum FolderTab: String, CaseIterable {
-        case review = "Review"
+        case review = "My Drafts"
         case shared = "Shared"
+    }
+
+    /// Segmented filter shown above the games folder list. Defaults to
+    /// `.needsReview` so coaches land on their queue rather than the backlog.
+    enum GamesFolderFilter: String, CaseIterable {
+        case needsReview = "Needs My Review"
+        case all = "All Clips"
     }
 
     private var isLessonsFolder: Bool {
@@ -247,6 +255,18 @@ struct CoachFolderDetailView: View {
                     selectedTagFilter = nil
                     refreshAvailableTags()
                 }
+            } else {
+                Picker("Filter", selection: $gamesFilter) {
+                    ForEach(GamesFolderFilter.allCases, id: \.self) { filter in
+                        Text(filter.rawValue).tag(filter)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .padding()
+                .onChange(of: gamesFilter) { _, _ in
+                    selectedTagFilter = nil
+                    refreshAvailableTags()
+                }
             }
 
             if !cachedAvailableTags.isEmpty {
@@ -274,12 +294,23 @@ struct CoachFolderDetailView: View {
                         })
                     }
                 } else {
-                    // Games folder: flat list of all videos
-                    AllVideosTabView(folder: folder, videos: filterByTag(viewModel.cachedAllVideos), isLoading: viewModel.isLoading, isLoadingMore: viewModel.isLoadingMore, hasMoreVideos: viewModel.hasMoreVideos, errorMessage: viewModel.errorMessage, unreadVideoIDs: activityNotifService.unreadVideoIDs, onRefresh: {
-                        await viewModel.loadVideos()
-                    }, onLoadMore: {
-                        await viewModel.loadMoreVideos()
-                    }, onEditTags: nil)
+                    // Games folder: flat list, filtered by gamesFilter
+                    let sourceVideos = (gamesFilter == .needsReview)
+                        ? viewModel.cachedNeedsReviewVideos
+                        : viewModel.cachedAllVideos
+                    if gamesFilter == .needsReview && sourceVideos.isEmpty && !viewModel.isLoading {
+                        EmptyFolderView(
+                            icon: "checkmark.circle.fill",
+                            title: "All Caught Up",
+                            message: "No clips waiting for your review in this folder."
+                        )
+                    } else {
+                        AllVideosTabView(folder: folder, videos: filterByTag(sourceVideos), isLoading: viewModel.isLoading, isLoadingMore: viewModel.isLoadingMore, hasMoreVideos: viewModel.hasMoreVideos, errorMessage: viewModel.errorMessage, unreadVideoIDs: activityNotifService.unreadVideoIDs, onRefresh: {
+                            await viewModel.loadVideos()
+                        }, onLoadMore: {
+                            await viewModel.loadMoreVideos()
+                        }, onEditTags: nil)
+                    }
                 }
             }
         }

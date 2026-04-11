@@ -50,6 +50,13 @@ struct VideoClipsView: View {
     @State private var clipToTag: VideoClip?
     @State private var isAwaitingImportedClip = false
 
+    // Bulk import from Photos (Plus+)
+    @State private var showingBulkPicker = false
+    @State private var bulkPickerItems: [PhotosPickerItem] = []
+    @State private var pendingImportItems: [PhotosPickerItem] = []
+    @State private var showingBulkImportSheet = false
+    @State private var showingBulkImportPaywall = false
+
     // Check if filters are active
     private var hasActiveFilters: Bool {
         viewModel.selectedSeasonFilter != nil ||
@@ -185,6 +192,13 @@ struct VideoClipsView: View {
                         Label("Upload from Library", systemImage: "square.and.arrow.up")
                     }
 
+                    Button {
+                        Haptics.light()
+                        handleBulkImportTap()
+                    } label: {
+                        Label("Import from Photos", systemImage: "square.and.arrow.down.on.square")
+                    }
+
                     if !(athlete.videoClips?.isEmpty ?? true) {
                         Button {
                             Haptics.light()
@@ -260,6 +274,43 @@ struct VideoClipsView: View {
         }
         .sheet(item: $clipToTag) { clip in
             ImportTaggingSheet(clip: clip, athlete: athlete)
+        }
+        .photosPicker(
+            isPresented: $showingBulkPicker,
+            selection: $bulkPickerItems,
+            maxSelectionCount: 20,
+            matching: .videos,
+            preferredItemEncoding: .compatible
+        )
+        .onChange(of: bulkPickerItems) { _, newItems in
+            guard !newItems.isEmpty else { return }
+            pendingImportItems = newItems
+            bulkPickerItems = []
+            showingBulkImportSheet = true
+        }
+        .sheet(isPresented: $showingBulkImportSheet) {
+            BulkVideoImportSheet(items: pendingImportItems, athlete: athlete) { succeeded, failed, stoppedForQuota, wasCancelled in
+                let message: String
+                if stoppedForQuota {
+                    message = succeeded > 0 ? "\(succeeded) imported — storage full" : "Storage full — nothing imported"
+                } else if wasCancelled {
+                    message = succeeded > 0 ? "Cancelled — \(succeeded) imported" : "Import cancelled"
+                } else if failed == 0 && succeeded > 0 {
+                    message = succeeded == 1 ? "1 video imported" : "\(succeeded) videos imported"
+                } else if succeeded == 0 {
+                    message = "Import failed"
+                } else {
+                    message = "\(succeeded) imported, \(failed) failed"
+                }
+                showBulkToast(message)
+                pendingImportItems = []
+            }
+            .presentationDetents([.medium])
+        }
+        .sheet(isPresented: $showingBulkImportPaywall) {
+            if let user = authManager.localUser {
+                ImprovedPaywallView(user: user)
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .videoRecorded)) { notification in
             // Capture the most recently imported clip when it has no game context
@@ -451,6 +502,15 @@ struct VideoClipsView: View {
             isSelectionMode = false
             selectedVideos.removeAll()
         }
+    }
+
+    private func handleBulkImportTap() {
+        guard authManager.currentTier >= .plus else {
+            showingBulkImportPaywall = true
+            return
+        }
+        bulkPickerItems = []
+        showingBulkPicker = true
     }
 
     private func bulkUploadSelected() {

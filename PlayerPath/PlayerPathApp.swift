@@ -9,7 +9,6 @@ import SwiftUI
 import SwiftData
 import UserNotifications
 import Combine
-import LocalAuthentication
 import FirebaseCore
 import FirebaseFirestore
 import TipKit
@@ -94,27 +93,19 @@ struct PlayerPathApp: App {
                     .onReceive(NotificationCenter.default.publisher(for: .navigateToStatistics)) { (notification: Notification) in
                         if let athleteId = notification.object as? String {
                             appLog.debug("Received navigateToStatistics for id: \(athleteId)")
-                            Haptics.light()
-                            navigationCoordinator.selectedAthleteId = athleteId
-                            navigationCoordinator.showStatistics = true
-                            // Handlers in views should call navigationCoordinator.resetNavigation() after navigating.
+                            navigationCoordinator.navigateToStatistics(athleteId: athleteId)
                         }
                     }
                     .onReceive(NotificationCenter.default.publisher(for: .startRecordingForGame)) { (notification: Notification) in
                         if let gameId = notification.object as? String {
                             appLog.debug("Received startRecordingForGame for id: \(gameId)")
-                            Haptics.light()
-                            navigationCoordinator.selectedGameId = gameId
-                            navigationCoordinator.showVideoRecorder = true
-                            // Handlers in views should call navigationCoordinator.resetNavigation() after navigating.
+                            navigationCoordinator.navigateToRecordGame(gameId: gameId)
                         }
                     }
                     .onReceive(NotificationCenter.default.publisher(for: .startRecordingForPractice)) { (notification: Notification) in
                         if let practiceId = notification.object as? String {
                             appLog.debug("Received startRecordingForPractice for id: \(practiceId)")
-                            Haptics.light()
-                            navigationCoordinator.selectedPracticeId = practiceId
-                            navigationCoordinator.showVideoRecorder = true
+                            navigationCoordinator.navigateToRecordPractice(practiceId: practiceId)
                         }
                     }
                     // Fix AF: Add observers for the three notification names that
@@ -174,22 +165,42 @@ final class NavigationCoordinator {
     /// Consumed by AuthenticatedFlow after sign-in completes.
     var pendingDeepLink: DeepLinkIntent?
 
-    func handle(_ intent: DeepLinkIntent) {
+    func navigateToStatistics(athleteId: String) {
         Haptics.light()
+        selectedAthleteId = athleteId
+        showStatistics = true
+    }
+
+    func navigateToRecordGame(gameId: String) {
+        Haptics.light()
+        selectedGameId = gameId
+        showVideoRecorder = true
+    }
+
+    func navigateToRecordPractice(practiceId: String) {
+        Haptics.light()
+        selectedPracticeId = practiceId
+        showVideoRecorder = true
+    }
+
+    func navigateToInvitation(invitationId: String) {
+        Haptics.light()
+        selectedInvitationId = invitationId
+        showInvitation = true
+    }
+
+    func handle(_ intent: DeepLinkIntent) {
         switch intent {
         case .statistics(let id):
-            selectedAthleteId = id
-            showStatistics = true
+            navigateToStatistics(athleteId: id)
         case .recordGame(let id):
-            selectedGameId = id
-            showVideoRecorder = true
+            navigateToRecordGame(gameId: id)
         case .recordPractice(let id):
-            selectedPracticeId = id
-            showVideoRecorder = true
+            navigateToRecordPractice(practiceId: id)
         case .invitation(let id):
-            selectedInvitationId = id
-            showInvitation = true
+            navigateToInvitation(invitationId: id)
         case .folder(let id):
+            Haptics.light()
             NotificationCenter.default.post(name: .navigateToCoachFolder, object: id)
         }
     }
@@ -268,28 +279,12 @@ struct ScenePhaseSaveHandler<Content: View>: View {
 
     @Environment(\.modelContext) private var modelContext
     @State private var lastSavedPhase: ScenePhase?
-    @State private var isLocked = false
-    @State private var showLockScreen = false
-
-    private var biometricManager: BiometricAuthenticationManager { .shared }
 
     var body: some View {
-        ZStack {
-            content()
-
-            if showLockScreen {
-                BiometricLockScreen(onUnlock: {
-                    withAnimation(.easeOut(duration: 0.25)) {
-                        showLockScreen = false
-                        isLocked = false
-                    }
-                })
-                .transition(.opacity)
+        content()
+            .onChange(of: scenePhase) { oldValue, newValue in
+                handleScenePhaseChange(from: oldValue, to: newValue)
             }
-        }
-        .onChange(of: scenePhase) { oldValue, newValue in
-            handleScenePhaseChange(from: oldValue, to: newValue)
-        }
     }
 
     private func handleScenePhaseChange(from oldPhase: ScenePhase, to newPhase: ScenePhase) {
@@ -298,9 +293,6 @@ struct ScenePhaseSaveHandler<Content: View>: View {
         switch newPhase {
         case .active:
             appLog.info("App became active")
-
-            // Biometric unlock is handled by BiometricLockScreen.onAppear
-            // (no duplicate prompt needed here)
 
             // Refresh entitlements each time the app returns to foreground to catch
             // renewals, expirations, or revocations that occurred in the background.
@@ -329,11 +321,6 @@ struct ScenePhaseSaveHandler<Content: View>: View {
         case .background:
             appLog.info("App moved to background — saving data")
             saveModelContext()
-            // Lock the app if biometric is enabled
-            if biometricManager.isBiometricEnabled {
-                isLocked = true
-                showLockScreen = true
-            }
             lastSavedPhase = .background
 
         @unknown default:
@@ -354,95 +341,6 @@ struct ScenePhaseSaveHandler<Content: View>: View {
         } catch {
             appLog.warning("Failed to save model context: \(error.localizedDescription)")
             // Log the error but don't crash the app
-        }
-    }
-}
-
-// MARK: - Biometric Lock Screen
-
-private struct BiometricLockScreen: View {
-    let onUnlock: () -> Void
-    @State private var authFailed = false
-    @State private var isAuthenticating = false
-    @Environment(\.scenePhase) private var scenePhase
-
-    private var biometricManager: BiometricAuthenticationManager { .shared }
-
-    var body: some View {
-        ZStack {
-            Color(.systemBackground)
-                .ignoresSafeArea()
-
-            VStack(spacing: 24) {
-                Image(systemName: biometricManager.biometricType == .faceID ? "faceid" : "touchid")
-                    .font(.system(size: 64))
-                    .foregroundColor(.brandNavy)
-
-                Text("PlayerPath is Locked")
-                    .font(.title2)
-                    .fontWeight(.bold)
-
-                Text("Authenticate with \(biometricManager.biometricTypeName) to continue")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-
-                if authFailed {
-                    VStack(spacing: 12) {
-                        Button {
-                            authenticate()
-                        } label: {
-                            HStack(spacing: 8) {
-                                Image(systemName: biometricManager.biometricType == .faceID ? "faceid" : "touchid")
-                                Text("Try Again")
-                                    .fontWeight(.semibold)
-                            }
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 50)
-                            .background(Color.brandNavy)
-                            .foregroundColor(.white)
-                            .cornerRadius(12)
-                        }
-
-                        Button {
-                            // Disable biometric and unlock. The user will need to
-                            // re-enable Face ID/Touch ID in settings if they want it again.
-                            biometricManager.disableBiometric()
-                            onUnlock()
-                        } label: {
-                            Text("Disable \(biometricManager.biometricTypeName)")
-                                .font(.subheadline)
-                                .foregroundColor(.red)
-                        }
-                    }
-                    .padding(.horizontal, 40)
-                }
-            }
-            .padding()
-        }
-        .onAppear {
-            authenticate()
-        }
-        .onChange(of: scenePhase) { _, newPhase in
-            // Re-trigger biometric when app returns to foreground
-            if newPhase == .active && !isAuthenticating {
-                authenticate()
-            }
-        }
-    }
-
-    private func authenticate() {
-        guard !isAuthenticating else { return }
-        isAuthenticating = true
-        authFailed = false
-        Task {
-            let email = await biometricManager.authenticateWithSessionBiometric()
-            isAuthenticating = false
-            if email != nil {
-                onUnlock()
-            } else {
-                authFailed = true
-            }
         }
     }
 }

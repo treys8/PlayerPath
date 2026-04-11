@@ -26,10 +26,22 @@ struct CoachVideoItem: Identifiable, Equatable {
     let gameDate: Date?
     let practiceDate: Date?
     let notes: String?
+    let coachNote: String?
+    let coachNoteAuthorID: String?
+    let coachNoteAuthorName: String?
+    let coachNoteUpdatedAt: Date?
+    let reviewedBy: [String: Date]?
+    let uploadedByType: UploadedByType?
     let annotationCount: Int?
     let tags: [String]
     let drillType: String?
     let visibility: String?
+
+    /// True iff the given coach has marked this clip reviewed (or had it
+    /// auto-marked by saving a coachNote).
+    func isReviewed(by coachID: String) -> Bool {
+        reviewedBy?[coachID] != nil
+    }
 
     var contextLabel: String? {
         if gameOpponent != nil {
@@ -70,6 +82,12 @@ struct CoachVideoItem: Identifiable, Equatable {
         self.gameDate = metadata.gameDate
         self.practiceDate = metadata.practiceDate
         self.notes = metadata.notes
+        self.coachNote = metadata.coachNote
+        self.coachNoteAuthorID = metadata.coachNoteAuthorID
+        self.coachNoteAuthorName = metadata.coachNoteAuthorName
+        self.coachNoteUpdatedAt = metadata.coachNoteUpdatedAt
+        self.reviewedBy = metadata.reviewedBy
+        self.uploadedByType = metadata.uploadedByType
         self.annotationCount = metadata.annotationCount
         self.tags = metadata.tags ?? []
         self.drillType = metadata.drillType

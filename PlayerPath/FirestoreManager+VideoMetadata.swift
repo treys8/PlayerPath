@@ -15,29 +15,24 @@ extension FirestoreManager {
 
     // MARK: - Video Metadata
 
-    /// Uploads video metadata to Firestore after file upload to Storage
-    /// - Parameters:
-    ///   - fileName: Name of the video file
-    ///   - storageURL: Firebase Storage URL for the video
-    ///   - thumbnail: Structured thumbnail metadata (supports multiple qualities)
-    ///   - folderID: Shared folder ID
-    ///   - uploadedBy: User ID of uploader
-    ///   - uploadedByName: Display name of uploader
-    ///   - fileSize: File size in bytes
-    ///   - duration: Video duration in seconds
-    ///   - videoType: Type of video ("game", "practice", "highlight")
-    ///   - gameContext: Optional game-specific metadata
-    ///   - practiceContext: Optional practice-specific metadata
-    /// - Returns: Document ID of created video metadata
-    func uploadVideoMetadata(
+    /// Creates a Firestore video metadata document in the "pending" state, before
+    /// the Storage upload begins. Returns the document ID so the caller can mark
+    /// it completed (or failed) once the bytes finish uploading.
+    ///
+    /// The pending doc serves as a durable tombstone — if the Storage upload or
+    /// the subsequent `markVideoCompleted` call fails, the daily maintenance
+    /// Cloud Function will sweep both the Firestore doc and any partial Storage
+    /// file after 24 hours. Read paths (`fetchVideos`, `fetchVideoPage`,
+    /// `listenToVideos`) already filter out non-completed docs, so pending docs
+    /// never surface in any UI.
+    ///
+    /// The folder `videoCount` is NOT incremented here — that happens in
+    /// `markVideoCompleted` so the count always reflects what coaches can see.
+    func createPendingVideoMetadata(
         fileName: String,
-        storageURL: String,
-        thumbnail: ThumbnailMetadata?,
         folderID: String,
         uploadedBy: String,
         uploadedByName: String,
-        fileSize: Int64,
-        duration: Double?,
         videoType: String = "game",
         gameContext: GameContext? = nil,
         practiceContext: PracticeContext? = nil,
@@ -53,23 +48,20 @@ extension FirestoreManager {
     ) async throws -> String {
         var videoData: [String: Any] = [
             "fileName": fileName,
-            "firebaseStorageURL": storageURL,
+            // Empty URL is allowed by firestore.rules:274 for pending docs.
+            "firebaseStorageURL": "",
             "uploadedBy": uploadedBy,
             "uploadedByName": uploadedByName,
             "sharedFolderID": folderID,
             "createdAt": FieldValue.serverTimestamp(),
-            "fileSize": fileSize,
             "videoType": videoType,
             "isHighlight": isHighlight ?? (videoType == "highlight"),
-            "uploadStatus": "completed"
+            "uploadStatus": "pending",
+            "visibility": visibility
         ]
-        if let duration {
-            videoData["duration"] = duration
-        }
         if let uploadedByType {
             videoData["uploadedByType"] = uploadedByType.rawValue
         }
-        videoData["visibility"] = visibility
         if let sessionID {
             videoData["sessionID"] = sessionID
         }
@@ -88,8 +80,53 @@ extension FirestoreManager {
         if let athleteName {
             videoData["athleteName"] = athleteName
         }
+        if let game = gameContext {
+            videoData["gameOpponent"] = game.opponent
+            videoData["gameDate"] = game.date
+            if let notes = game.notes {
+                videoData["notes"] = notes
+            }
+        }
+        if let practice = practiceContext {
+            videoData["practiceDate"] = practice.date
+            if let notes = practice.notes {
+                videoData["notes"] = notes
+            }
+        }
 
-        // Add structured thumbnail data
+        do {
+            let videoRef = db.collection(FC.videos).document()
+            try await videoRef.setData(videoData)
+            return videoRef.documentID
+        } catch {
+            firestoreLog.error("Failed to create pending video metadata: \(error.localizedDescription)")
+            errorMessage = "Failed to start video upload."
+            throw error
+        }
+    }
+
+    /// Marks a pending video as completed after a successful Storage upload.
+    /// For shared videos this is the atomic point where the parent folder's
+    /// `videoCount` increments — pending docs are filtered from reads, so the
+    /// count must reflect only what's visible.
+    func markVideoCompleted(
+        videoID: String,
+        storageURL: String,
+        thumbnail: ThumbnailMetadata?,
+        fileSize: Int64,
+        duration: Double?,
+        folderID: String,
+        visibility: String
+    ) async throws {
+        var partial: [String: Any] = [
+            "firebaseStorageURL": storageURL,
+            "uploadStatus": "completed",
+            "fileSize": fileSize,
+            "updatedAt": FieldValue.serverTimestamp()
+        ]
+        if let duration {
+            partial["duration"] = duration
+        }
         if let thumbnail = thumbnail {
             var thumbnailDict: [String: Any] = [
                 "standardURL": thumbnail.standardURL
@@ -106,77 +143,45 @@ extension FirestoreManager {
             if let height = thumbnail.height {
                 thumbnailDict["height"] = height
             }
-            videoData["thumbnail"] = thumbnailDict
-
+            partial["thumbnail"] = thumbnailDict
             // Keep legacy field for backward compatibility
-            videoData["thumbnailURL"] = thumbnail.standardURL
-        }
-
-        // Add game-specific context
-        if let game = gameContext {
-            videoData["gameOpponent"] = game.opponent
-            videoData["gameDate"] = game.date
-            if let notes = game.notes {
-                videoData["notes"] = notes
-            }
-        }
-
-        // Add practice-specific context
-        if let practice = practiceContext {
-            videoData["practiceDate"] = practice.date
-            if let notes = practice.notes {
-                videoData["notes"] = notes
-            }
+            partial["thumbnailURL"] = thumbnail.standardURL
         }
 
         do {
-            let videoRef = db.collection(FC.videos).document()
-
+            let videoRef = db.collection(FC.videos).document(videoID)
             if visibility == "private" {
-                // Private video: create doc only, don't touch folder count
-                try await videoRef.setData(videoData)
+                try await videoRef.updateData(partial)
             } else {
-                // Shared video: batch create doc + increment folder count
                 let batch = db.batch()
-                batch.setData(videoData, forDocument: videoRef)
+                batch.updateData(partial, forDocument: videoRef)
                 batch.updateData([
                     "videoCount": FieldValue.increment(Int64(1)),
                     "updatedAt": FieldValue.serverTimestamp()
                 ], forDocument: db.collection(FC.sharedFolders).document(folderID))
                 try await batch.commit()
             }
-
-            return videoRef.documentID
         } catch {
-            firestoreLog.error("Failed to save video: \(error.localizedDescription)")
-            errorMessage = "Failed to save video."
+            firestoreLog.error("Failed to mark video completed (\(videoID)): \(error.localizedDescription)")
+            errorMessage = "Failed to finalize video upload."
             throw error
         }
     }
 
-    /// Legacy method for backward compatibility - use uploadVideoMetadata with ThumbnailMetadata instead
-    @available(*, deprecated, message: "Use uploadVideoMetadata with ThumbnailMetadata parameter")
-    func uploadVideoMetadata(
-        fileName: String,
-        storageURL: String,
-        thumbnailURL: String?,
-        folderID: String,
-        uploadedBy: String,
-        uploadedByName: String,
-        fileSize: Int64,
-        duration: Double?
-    ) async throws -> String {
-        let thumbnail = thumbnailURL.map { ThumbnailMetadata(standardURL: $0) }
-        return try await uploadVideoMetadata(
-            fileName: fileName,
-            storageURL: storageURL,
-            thumbnail: thumbnail,
-            folderID: folderID,
-            uploadedBy: uploadedBy,
-            uploadedByName: uploadedByName,
-            fileSize: fileSize,
-            duration: duration
-        )
+    /// Marks a pending video as failed so the daily maintenance sweep can clean
+    /// it up promptly. Never throws — callers are already in a failure path and
+    /// shouldn't have to handle errors here. The 24h sweep is the safety net if
+    /// this update itself fails.
+    func markVideoFailed(videoID: String, reason: String?) async {
+        do {
+            try await db.collection(FC.videos).document(videoID).updateData([
+                "uploadStatus": "failed",
+                "failureReason": reason ?? NSNull(),
+                "updatedAt": FieldValue.serverTimestamp()
+            ])
+        } catch {
+            firestoreLog.error("Failed to mark video failed (\(videoID)): \(error.localizedDescription)")
+        }
     }
 
     /// Fetches videos in a shared folder, filtering out private videos from other users.
@@ -470,7 +475,16 @@ extension FirestoreManager {
                 "visibility": "shared",
                 "updatedAt": FieldValue.serverTimestamp()
             ]
-            if let notes, !notes.isEmpty { updateData["notes"] = notes }
+            // Instruction clips are coach-authored — note text lands in the
+            // coachNote family, not the athlete-owned `notes` field.
+            if let notes, !notes.isEmpty {
+                let uploadedBy = videoDoc.data()?["uploadedBy"] as? String ?? ""
+                let uploadedByName = videoDoc.data()?["uploadedByName"] as? String ?? ""
+                updateData["coachNote"] = notes
+                updateData["coachNoteAuthorID"] = uploadedBy
+                updateData["coachNoteAuthorName"] = uploadedByName
+                updateData["coachNoteUpdatedAt"] = FieldValue.serverTimestamp()
+            }
             if let tags, !tags.isEmpty { updateData["tags"] = tags }
             if let drillType { updateData["drillType"] = drillType }
 
@@ -485,6 +499,52 @@ extension FirestoreManager {
 
             return nil
         }
+    }
+
+    /// Writes (or clears) a coach-authored plain note on a video. Pass `text: nil`
+    /// or an empty string to delete the note. Folder coaches can call this on any
+    /// video in a folder they have access to; rules clamp the writable field set
+    /// to the coachNote family.
+    func setCoachNote(
+        videoID: String,
+        text: String?,
+        authorID: String,
+        authorName: String
+    ) async throws {
+        let videoRef = db.collection(FC.videos).document(videoID)
+        let trimmed = text?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        var updateData: [String: Any] = [
+            "updatedAt": FieldValue.serverTimestamp()
+        ]
+
+        if let trimmed, !trimmed.isEmpty {
+            updateData["coachNote"] = trimmed
+            updateData["coachNoteAuthorID"] = authorID
+            updateData["coachNoteAuthorName"] = authorName
+            updateData["coachNoteUpdatedAt"] = FieldValue.serverTimestamp()
+            // Saving a coach note implicitly marks the clip reviewed for this coach.
+            // Once reviewed, stay reviewed — clearing the note does NOT undo this.
+            updateData["reviewedBy.\(authorID)"] = FieldValue.serverTimestamp()
+        } else {
+            updateData["coachNote"] = FieldValue.delete()
+            updateData["coachNoteAuthorID"] = FieldValue.delete()
+            updateData["coachNoteAuthorName"] = FieldValue.delete()
+            updateData["coachNoteUpdatedAt"] = FieldValue.delete()
+        }
+
+        try await videoRef.updateData(updateData)
+    }
+
+    /// Marks a video as reviewed by the given coach. Idempotent — calling
+    /// twice just refreshes the timestamp. Used by the explicit "Mark as
+    /// Reviewed" button on the player view.
+    func markVideoReviewedByCoach(videoID: String, coachID: String) async throws {
+        let videoRef = db.collection(FC.videos).document(videoID)
+        try await videoRef.updateData([
+            "reviewedBy.\(coachID)": FieldValue.serverTimestamp(),
+            "updatedAt": FieldValue.serverTimestamp()
+        ])
     }
 
     /// Deletes a private coach video (Firestore doc + Storage file + thumbnail).
@@ -528,44 +588,4 @@ extension FirestoreManager {
         try await db.collection(FC.videos).document(videoID).updateData(data)
     }
 
-    // MARK: - Video Access Logging
-
-    /// Logs a video access event and increments the view counter.
-    func logVideoAccess(
-        videoID: String,
-        userID: String,
-        userName: String,
-        userRole: String,
-        action: String,
-        folderID: String
-    ) async {
-        let logData: [String: Any] = [
-            "userID": userID,
-            "userName": userName,
-            "userRole": userRole,
-            "action": action,
-            "folderID": folderID,
-            "timestamp": FieldValue.serverTimestamp()
-        ]
-
-        do {
-            // Write access log entry (subcollection — any folder member can write)
-            try await db.collection(FC.videos).document(videoID)
-                .collection("access_logs").addDocument(data: logData)
-        } catch {
-            // Non-fatal — don't block playback for audit logging
-            firestoreLog.warning("Failed to log video access for \(videoID): \(error.localizedDescription)")
-        }
-
-        do {
-            // Increment view count — only succeeds for the video uploader per security rules
-            try await db.collection(FC.videos).document(videoID).updateData([
-                "viewCount": FieldValue.increment(Int64(1)),
-                "lastViewedAt": FieldValue.serverTimestamp()
-            ])
-        } catch {
-            // Expected to fail when viewer is not the uploader (security rules)
-            firestoreLog.debug("viewCount update skipped for \(videoID) (viewer is not uploader)")
-        }
-    }
 }

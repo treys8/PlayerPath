@@ -49,7 +49,9 @@ final class VideoRecordingSettings {
         }
     }
     
-    /// Whether to enable slow-motion recording
+    /// Whether to enable slow-motion recording.
+    /// Callers should prefer `setSlowMotionEnabled(_:)` so frame rate is updated atomically;
+    /// mutating this flag directly only persists the flag without touching `frameRate`.
     var slowMotionEnabled: Bool {
         didSet {
             saveSettings()
@@ -164,8 +166,30 @@ final class VideoRecordingSettings {
         UserDefaults.standard.set(stabilizationMode.rawValue, forKey: Keys.stabilizationMode)
     }
     
+    // MARK: - Slow Motion
+
+    /// Enables or disables slow motion, updating `frameRate` atomically.
+    /// Writing both properties from the UI layer (rather than via a sibling-mutating
+    /// `didSet`) avoids nested `withMutation` calls on `@Observable`, which were
+    /// dropping the visual update when the toggle was switched off.
+    func setSlowMotionEnabled(_ enabled: Bool) {
+        if enabled {
+            let compatible = compatibleFrameRates(for: quality)
+            guard let slowMoRate = compatible.first(where: { $0.fps >= 120 }) else {
+                return
+            }
+            frameRate = slowMoRate
+            slowMotionEnabled = true
+        } else {
+            if frameRate.fps >= 120 {
+                frameRate = .fps30
+            }
+            slowMotionEnabled = false
+        }
+    }
+
     // MARK: - Reset to Defaults
-    
+
     func resetToDefaults() {
         quality = .high1080p
         format = .hevc
@@ -190,10 +214,9 @@ final class VideoRecordingSettings {
         return baseSize * formatMultiplier * frameRateMultiplier
     }
     
-    /// Whether the current settings support slow-motion recording
+    /// Whether slow-motion is available at the current quality level
     var supportsSlowMotion: Bool {
-        // Slow-motion requires high frame rates
-        return frameRate.fps >= 120
+        return compatibleFrameRates(for: quality).contains(where: { $0.fps >= 120 })
     }
     
     /// Human-readable description of current settings

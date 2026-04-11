@@ -338,7 +338,6 @@ extension ComprehensiveAuthManager {
     /// - Firebase Auth account
     /// - Firestore user profile and related data
     /// - Firebase Storage files (videos, thumbnails)
-    /// - Local biometric credentials
     func deleteAccount() async throws {
         guard let user = currentFirebaseUser else {
             throw NSError(domain: "ComprehensiveAuthManager", code: -1, userInfo: [NSLocalizedDescriptionKey: "No user signed in"])
@@ -378,17 +377,14 @@ extension ComprehensiveAuthManager {
                 // Continue with deletion even if Firestore deletion fails
             }
 
-            // Step 3: Clear biometric credentials
-            BiometricAuthenticationManager.shared.disableBiometric()
-
-            // Step 4: Cancel any in-flight uploads and clear local data
+            // Step 3: Cancel any in-flight uploads and clear local data
             UploadQueueManager.shared.clearAllQueues()
             SyncCoordinator.shared.clearLocalData(fallbackContext: modelContext)
 
-            // Step 5: Delete Firebase Auth account
+            // Step 4: Delete Firebase Auth account
             try await user.delete()
 
-            // Step 6: Clear local state
+            // Step 5: Clear local state
             currentFirebaseUser = nil
             isSignedIn = false
             userProfile = nil

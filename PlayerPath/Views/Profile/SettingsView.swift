@@ -52,12 +52,6 @@ struct SettingsView: View {
                 } label: {
                     Label("App Preferences", systemImage: "slider.horizontal.3")
                 }
-
-                NavigationLink {
-                    BiometricSettingsView()
-                } label: {
-                    Label("Face ID / Touch ID", systemImage: "faceid")
-                }
             }
 
             let provider = Auth.auth().currentUser?.providerData.first?.providerID ?? "email"

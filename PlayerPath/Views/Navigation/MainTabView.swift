@@ -242,8 +242,22 @@ struct MainTabView: View {
             }
     }
     
+    /// Navigate to a More tab destination in a single transaction to avoid
+    /// multiple NavigationRequestObserver updates per frame.
+    private func navigateToMore(_ destination: MoreDestination) {
+        var path = NavigationPath()
+        path.append(destination)
+        var transaction = Transaction()
+        transaction.disablesAnimations = false
+        withTransaction(transaction) {
+            morePath = path
+            selectedTab = MainTab.more.rawValue
+        }
+        Haptics.light()
+    }
+
     // MARK: - NotificationCenter Management
-    
+
     private func setupNotificationObservers() {
         // Clean up any existing observers first (safety)
         notificationManager.cleanup()
@@ -314,35 +328,21 @@ struct MainTabView: View {
         }
 
         notificationManager.observe(name: Notification.Name.navigateToMorePractice) { _ in
-            MainActor.assumeIsolated {
-                // Build the path with the destination BEFORE switching tabs
-                // to avoid a flash of the More root view.
-                var path = NavigationPath()
-                path.append(MoreDestination.practice)
-                morePath = path
-                selectedTab = MainTab.more.rawValue
-                Haptics.light()
+            MainActor.assumeIsolated { [self] in
+                navigateToMore(.practice)
             }
         }
 
         notificationManager.observe(name: Notification.Name.navigateToMoreHighlights) { _ in
-            MainActor.assumeIsolated {
-                var path = NavigationPath()
-                path.append(MoreDestination.highlights)
-                morePath = path
-                selectedTab = MainTab.more.rawValue
-                Haptics.light()
+            MainActor.assumeIsolated { [self] in
+                navigateToMore(.highlights)
             }
         }
 
         notificationManager.observe(name: Notification.Name.navigateToSharedFolder) { note in
-            MainActor.assumeIsolated {
+            MainActor.assumeIsolated { [self] in
                 if let folderID = note.object as? String {
-                    var path = NavigationPath()
-                    path.append(MoreDestination.sharedFolder(folderID))
-                    morePath = path
-                    selectedTab = MainTab.more.rawValue
-                    Haptics.light()
+                    navigateToMore(.sharedFolder(folderID))
                 }
             }
         }

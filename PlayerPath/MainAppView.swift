@@ -132,6 +132,9 @@ struct PlayerPathMainView: View {
             }
         }
         .task {
+            // One-shot cleanup: drop the legacy biometric flag from removed Face ID feature
+            UserDefaults.standard.removeObject(forKey: "biometric_enabled")
+
             // Enforce singleton UserPreferences on every launch (dedup + create if missing)
             let prefs = UserPreferences.shared(in: modelContext)
 

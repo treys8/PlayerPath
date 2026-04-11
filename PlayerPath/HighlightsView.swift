@@ -563,6 +563,8 @@ struct HighlightsView: View {
             var failedCount = 0
             for clip in clips {
                 guard clip.needsUpload else { continue }
+                // Skip clips already being uploaded (e.g. by UploadQueueManager)
+                guard VideoCloudManager.shared.isUploading[clip.id] != true else { continue }
 
                 do {
                     let cloudURL = try await VideoCloudManager.shared.uploadVideo(clip, athlete: athlete)

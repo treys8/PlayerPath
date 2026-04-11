@@ -172,21 +172,9 @@ class SharedFolderManager {
         // 3. End any active coach session for this folder
         await CoachSessionManager.shared.endSessionIfActive(forFolderID: folderID)
 
-        // 4. Refresh folders list
-        if let currentUserID = Auth.auth().currentUser?.uid {
-            try await loadAthleteFolders(athleteID: currentUserID)
-        }
-
-    }
-
-    /// Legacy method for backward compatibility
-    func removeCoach(coachID: String, fromFolder folderID: String) async throws {
-        try await firestore.removeCoachFromFolder(folderID: folderID, coachID: coachID)
-
-        // Refresh folders list if needed
-        if let currentUserID = Auth.auth().currentUser?.uid {
-            try await loadAthleteFolders(athleteID: currentUserID)
-        }
+        // 4. Refresh folders list — use the folder owner's athleteID, not the auth UID
+        // (they differ for parent accounts managing multiple athletes)
+        try await loadAthleteFolders(athleteID: athleteID)
     }
 
     /// Sends notification to coach that their access was revoked
@@ -233,8 +221,9 @@ class SharedFolderManager {
         // 0. End any active coach sessions for this folder
         await CoachSessionManager.shared.endSessionIfActive(forFolderID: folderID)
 
-        // 1. Get folder details before deletion
-        guard let folder = athleteFolders.first(where: { $0.id == folderID }) else {
+        // 1. Fetch fresh folder data — the local cache may be stale if a coach was
+        // added from another device since the last listener snapshot
+        guard let folder = try await firestore.fetchSharedFolder(folderID: folderID) else {
             throw SharedFolderError.folderNotFound
         }
 
@@ -331,7 +320,12 @@ class SharedFolderManager {
                     return
                 }
 
-                guard let docs = snapshot?.documents else { return }
+                guard let docs = snapshot?.documents else {
+                    Task { @MainActor [weak self] in
+                        self?.isLoading = false
+                    }
+                    return
+                }
 
                 let folders = docs.compactMap { doc -> SharedFolder? in
                     do {
@@ -383,7 +377,12 @@ class SharedFolderManager {
                     return
                 }
 
-                guard let docs = snapshot?.documents else { return }
+                guard let docs = snapshot?.documents else {
+                    Task { @MainActor [weak self] in
+                        self?.isLoading = false
+                    }
+                    return
+                }
 
                 let folders = docs.compactMap { doc -> SharedFolder? in
                     do {
@@ -407,6 +406,18 @@ class SharedFolderManager {
     func stopCoachFoldersListener() {
         coachFoldersListener?.remove()
         coachFoldersListener = nil
+    }
+
+    /// Clears all in-memory state and stops listeners. Call on sign-out to
+    /// prevent the next user from briefly seeing the previous user's folders.
+    func clearAllData() {
+        stopAthleteFoldersListener()
+        stopCoachFoldersListener()
+        athleteFolders = []
+        coachFolders = []
+        isLoading = false
+        errorMessage = nil
+        listenerError = nil
     }
 
     // MARK: - Coach Functions
@@ -545,132 +556,146 @@ class SharedFolderManager {
             }
         }
 
-        // Compress a COPY of the video before upload — the original must stay intact
-        // since it's the athlete's local file. Non-fatal: if compression fails, upload the original.
-        var uploadURL = videoURL
-        let tempCopy = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString)
-            .appendingPathExtension(videoURL.pathExtension)
-        do {
-            try FileManager.default.copyItem(at: videoURL, to: tempCopy)
-            _ = try await VideoCompressionService.shared.compressForUpload(at: tempCopy)
-            uploadURL = tempCopy
-        } catch {
-            folderLog.warning("Video compression failed, uploading original: \(error.localizedDescription)")
-            try? FileManager.default.removeItem(at: tempCopy)
-        }
-
-        // Upload to Firebase Storage
-        let storageURL = try await VideoCloudManager.shared.uploadVideo(
-            localURL: uploadURL,
+        // METADATA-FIRST: create the Firestore doc as "pending" before any bytes
+        // are uploaded. The doc serves as a tombstone — if anything below fails,
+        // we mark it "failed" and the daily maintenance sweep cleans both the
+        // doc and any partial Storage file. Read paths already filter out
+        // non-completed docs, so this is invisible to the UI until completion.
+        let videoID = try await firestore.createPendingVideoMetadata(
             fileName: fileName,
             folderID: folderID,
-            progressHandler: { progress in
-                progressHandler?(progress)
-            }
+            uploadedBy: uploadedBy,
+            uploadedByName: uploadedByName,
+            videoType: videoType,
+            gameContext: gameContext,
+            practiceContext: practiceContext,
+            visibility: "shared",
+            playResult: playResult,
+            pitchSpeed: pitchSpeed,
+            pitchType: pitchType,
+            seasonName: seasonName,
+            athleteName: athleteName,
+            isHighlight: isHighlight
         )
 
-        // Get file size (use compressed file if available)
-        let fileSize: Int64
         do {
-            let attributes = try FileManager.default.attributesOfItem(atPath: uploadURL.path)
-            fileSize = attributes[.size] as? Int64 ?? 0
-        } catch {
-            folderLog.warning("Failed to read video file size: \(error.localizedDescription)")
-            fileSize = 0
-        }
-
-        // Get video duration from AVAsset
-        var duration: Double?
-        do {
-            let asset = AVURLAsset(url: videoURL)
-            let durationCM = try await asset.load(.duration)
-            let seconds = CMTimeGetSeconds(durationCM)
-            if seconds.isFinite && seconds > 0 {
-                duration = seconds
-            }
-        } catch {
-            folderLog.warning("Failed to get video duration: \(error.localizedDescription)")
-        }
-
-        // Upload thumbnail — reuse existing local thumbnail if available, otherwise generate
-        var thumbnail: ThumbnailMetadata?
-        var localThumbPath: String?
-        var shouldCleanupThumb = false
-
-        // existingThumbnailPath may be stored as a relative path (new clips) or
-        // absolute (legacy). Resolve before filesystem checks.
-        if let existingThumbnailPath {
-            let resolved = ThumbnailCache.resolveLocalPath(existingThumbnailPath)
-            if FileManager.default.fileExists(atPath: resolved) {
-                localThumbPath = resolved
-            }
-        }
-        if localThumbPath == nil {
-            let thumbResult = await VideoFileManager.generateThumbnail(from: videoURL)
-            if case .success(let generated) = thumbResult {
-                // generateThumbnail now returns a relative path — resolve for file I/O.
-                localThumbPath = ThumbnailCache.resolveLocalPath(generated)
-                shouldCleanupThumb = true
-            } else if case .failure(let error) = thumbResult {
-                folderLog.warning("Failed to generate thumbnail: \(error.localizedDescription)")
-            }
-        }
-
-        if let localThumbPath {
+            // Compress a COPY of the video before upload — the original must stay intact
+            // since it's the athlete's local file. Non-fatal: if compression fails, upload the original.
+            var uploadURL = videoURL
+            let tempCopy = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString)
+                .appendingPathExtension(videoURL.pathExtension)
             do {
-                let thumbnailURL = try await firestore.uploadThumbnail(
-                    localURL: URL(fileURLWithPath: localThumbPath),
-                    videoFileName: fileName,
-                    folderID: folderID
-                )
-                thumbnail = ThumbnailMetadata(standardURL: thumbnailURL)
+                try FileManager.default.copyItem(at: videoURL, to: tempCopy)
+                _ = try await VideoCompressionService.shared.compressForUpload(at: tempCopy)
+                uploadURL = tempCopy
             } catch {
-                folderLog.warning("Failed to upload thumbnail: \(error.localizedDescription)")
+                folderLog.warning("Video compression failed, uploading original: \(error.localizedDescription)")
+                try? FileManager.default.removeItem(at: tempCopy)
             }
-            if shouldCleanupThumb {
-                try? FileManager.default.removeItem(atPath: localThumbPath)
-            }
-        }
 
-        // Upload metadata to Firestore — rollback Storage upload on failure
-        let videoID: String
-        do {
-            videoID = try await firestore.uploadVideoMetadata(
+            // Always clean up the compressed copy when we exit — runs on success,
+            // upload failure, and metadata failure paths alike.
+            defer {
+                if uploadURL != videoURL {
+                    try? FileManager.default.removeItem(at: uploadURL)
+                }
+            }
+
+            // Upload to Firebase Storage
+            let storageURL = try await VideoCloudManager.shared.uploadVideo(
+                localURL: uploadURL,
                 fileName: fileName,
+                folderID: folderID,
+                progressHandler: { progress in
+                    progressHandler?(progress)
+                }
+            )
+
+            // Get file size (use compressed file if available)
+            let fileSize: Int64
+            do {
+                let attributes = try FileManager.default.attributesOfItem(atPath: uploadURL.path)
+                fileSize = attributes[.size] as? Int64 ?? 0
+            } catch {
+                folderLog.warning("Failed to read video file size: \(error.localizedDescription)")
+                fileSize = 0
+            }
+
+            // Get video duration from AVAsset
+            var duration: Double?
+            do {
+                let asset = AVURLAsset(url: videoURL)
+                let durationCM = try await asset.load(.duration)
+                let seconds = CMTimeGetSeconds(durationCM)
+                if seconds.isFinite && seconds > 0 {
+                    duration = seconds
+                }
+            } catch {
+                folderLog.warning("Failed to get video duration: \(error.localizedDescription)")
+            }
+
+            // Upload thumbnail — reuse existing local thumbnail if available, otherwise generate
+            var thumbnail: ThumbnailMetadata?
+            var localThumbPath: String?
+            var shouldCleanupThumb = false
+
+            // existingThumbnailPath may be stored as a relative path (new clips) or
+            // absolute (legacy). Resolve before filesystem checks.
+            if let existingThumbnailPath {
+                let resolved = ThumbnailCache.resolveLocalPath(existingThumbnailPath)
+                if FileManager.default.fileExists(atPath: resolved) {
+                    localThumbPath = resolved
+                }
+            }
+            if localThumbPath == nil {
+                let thumbResult = await VideoFileManager.generateThumbnail(from: videoURL)
+                if case .success(let generated) = thumbResult {
+                    // generateThumbnail now returns a relative path — resolve for file I/O.
+                    localThumbPath = ThumbnailCache.resolveLocalPath(generated)
+                    shouldCleanupThumb = true
+                } else if case .failure(let error) = thumbResult {
+                    folderLog.warning("Failed to generate thumbnail: \(error.localizedDescription)")
+                }
+            }
+
+            if let localThumbPath {
+                do {
+                    let thumbnailURL = try await firestore.uploadThumbnail(
+                        localURL: URL(fileURLWithPath: localThumbPath),
+                        videoFileName: fileName,
+                        folderID: folderID
+                    )
+                    thumbnail = ThumbnailMetadata(standardURL: thumbnailURL)
+                } catch {
+                    folderLog.warning("Failed to upload thumbnail: \(error.localizedDescription)")
+                }
+                if shouldCleanupThumb {
+                    try? FileManager.default.removeItem(atPath: localThumbPath)
+                }
+            }
+
+            // Flip the pending doc to completed. This is the atomic point where the
+            // folder's videoCount increments — pending docs are filtered from reads,
+            // so the count must reflect only what's visible.
+            try await firestore.markVideoCompleted(
+                videoID: videoID,
                 storageURL: storageURL,
                 thumbnail: thumbnail,
-                folderID: folderID,
-                uploadedBy: uploadedBy,
-                uploadedByName: uploadedByName,
                 fileSize: fileSize,
                 duration: duration,
-                videoType: videoType,
-                gameContext: gameContext,
-                practiceContext: practiceContext,
-                playResult: playResult,
-                pitchSpeed: pitchSpeed,
-                pitchType: pitchType,
-                seasonName: seasonName,
-                athleteName: athleteName,
-                isHighlight: isHighlight
+                folderID: folderID,
+                visibility: "shared"
             )
         } catch {
-            folderLog.error("Metadata write failed, rolling back Storage upload for \(fileName)")
-            do {
-                try await VideoCloudManager.shared.deleteVideo(fileName: fileName, folderID: folderID)
-            } catch {
-                folderLog.error("Rollback video deletion failed for \(fileName): \(error.localizedDescription)")
-            }
-            do {
-                try await VideoCloudManager.shared.deleteThumbnail(videoFileName: fileName, folderID: folderID)
-            } catch {
-                folderLog.error("Rollback thumbnail deletion failed for \(fileName): \(error.localizedDescription)")
-            }
-            // Clean up compressed temp copy on failure
-            if uploadURL != videoURL {
-                try? FileManager.default.removeItem(at: uploadURL)
-            }
+            // Anything between createPendingVideoMetadata and markVideoCompleted
+            // failed. Mark the doc as failed (for fast cleanup) and best-effort
+            // delete any Storage bytes that may have made it up. The 24h sweep in
+            // dailyMaintenance is the safety net.
+            folderLog.error("Upload failed for \(fileName) (\(videoID)): \(error.localizedDescription)")
+            await firestore.markVideoFailed(videoID: videoID, reason: error.localizedDescription)
+            try? await VideoCloudManager.shared.deleteVideo(fileName: fileName, folderID: folderID)
+            try? await VideoCloudManager.shared.deleteThumbnail(videoFileName: fileName, folderID: folderID)
             throw error
         }
 
@@ -685,11 +710,6 @@ class SharedFolderManager {
                 coachIDs: folder.sharedWithCoachIDs,
                 videoFileName: fileName
             )
-        }
-
-        // Clean up compressed temp copy if we made one
-        if uploadURL != videoURL {
-            try? FileManager.default.removeItem(at: uploadURL)
         }
 
         return videoID

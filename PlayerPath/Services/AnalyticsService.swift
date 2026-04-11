@@ -132,6 +132,13 @@ final class AnalyticsService {
         ])
     }
 
+    func trackVideosBulkImported(count: Int, totalSizeBytes: Int64) {
+        logEvent(.videosBulkImported, parameters: [
+            "count": count,
+            "total_size_mb": Int(totalSizeBytes / 1_048_576)
+        ])
+    }
+
     // MARK: - Game Events
 
     func trackGameCreated(gameID: String, opponent: String, isLive: Bool) {
@@ -306,6 +313,7 @@ enum AnalyticsEvent: String {
     case videoTagged = "video_tagged"
     case videoUploaded = "video_uploaded"
     case videoDeleted = "video_deleted"
+    case videosBulkImported = "videos_bulk_imported"
 
     // Games
     case gameCreated = "game_created"

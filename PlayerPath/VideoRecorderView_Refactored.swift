@@ -268,11 +268,30 @@ struct VideoRecorderView_Refactored: View {
             switch result {
             case .success(let videoURL):
                 recordedVideoURL = videoURL
+
+                let duration = await getVideoDuration(videoURL)
+                let autoShowTrimmer = UserDefaults.standard.bool(forKey: "autoShowTrimmer")
+                let skipShortClips = UserDefaults.standard.bool(forKey: "skipTrimmerForShortClips")
+
+                if !autoShowTrimmer && duration < 15 && skipShortClips {
+                    // Skip trimmer — go straight to tagging
+                    uploadFlowShowingPlayResult = true
+                }
                 showingTrimmer = true
                 Haptics.medium()
             case .failure:
                 break
             }
+        }
+    }
+
+    private func getVideoDuration(_ url: URL) async -> Double {
+        let asset = AVURLAsset(url: url)
+        do {
+            let duration = try await asset.load(.duration)
+            return CMTimeGetSeconds(duration)
+        } catch {
+            return 0
         }
     }
     

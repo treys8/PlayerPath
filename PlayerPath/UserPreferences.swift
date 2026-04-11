@@ -18,7 +18,6 @@ final class UserPreferences {
     private(set) var id: UUID = UUID()
 
     // MARK: - Video Recording Preferences
-    var defaultVideoQuality: VideoQuality? { didSet { markAsModified() } }
     var autoUploadMode: AutoUploadMode? { didSet { markAsModified() } }
     var saveToPhotosLibrary: Bool = false { didSet { markAsModified() } }
     var enableHapticFeedback: Bool = true { didSet { markAsModified() } }
@@ -59,7 +58,6 @@ final class UserPreferences {
 
     // MARK: - Init
     init() {
-        self.defaultVideoQuality = .high
         self.autoUploadMode = .wifiOnly
         self.preferredTheme = .system
         self.lastModified = Date()
@@ -129,31 +127,6 @@ enum AutoUploadMode: String, CaseIterable, Codable {
         case .off: return "icloud.slash"
         case .wifiOnly: return "wifi"
         case .always: return "icloud.and.arrow.up"
-        }
-    }
-}
-
-/// Represents capture/export quality; raw values are stable storage keys, not UI strings.
-enum VideoQuality: String, CaseIterable, Codable {
-    // Stable storage values independent of UI strings
-    case low = "low"
-    case medium = "medium"
-    case high = "high"
-
-    // UI-facing text
-    var displayName: String {
-        switch self {
-        case .low: return "Low (720p)"
-        case .medium: return "Medium (1080p)"
-        case .high: return "High (4K)"
-        }
-    }
-
-    var resolution: String {
-        switch self {
-        case .low: return "720p"
-        case .medium: return "1080p"
-        case .high: return "4K"
         }
     }
 }

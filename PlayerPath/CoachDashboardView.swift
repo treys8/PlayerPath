@@ -27,6 +27,7 @@ struct CoachDashboardView: View {
     @State private var sessionToCancel: CoachSession?
     private var archiveManager: CoachFolderArchiveManager { .shared }
     private var reviewQueue: ReviewQueueViewModel { .shared }
+    private var needsReviewQueue: NeedsReviewQueueViewModel { .shared }
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var cachedRecentFolders: [SharedFolder] = []
@@ -56,8 +57,11 @@ struct CoachDashboardView: View {
                     // Live session card (top priority)
                     liveSessionSection
 
-                    // Review queue (clips awaiting review across all folders)
+                    // My Drafts queue (coach's own private clips awaiting publish)
                     reviewQueueSection
+
+                    // Athlete clips waiting for the coach's feedback
+                    needsReviewQueueSection
 
                     // Upcoming scheduled sessions
                     upcomingSessionsSection
@@ -151,6 +155,10 @@ struct CoachDashboardView: View {
             updateCachedValues()
             guard let coachID = authManager.userID else { return }
             reviewQueue.startListening(coachUID: coachID)
+            await needsReviewQueue.refresh(
+                coachUID: coachID,
+                folders: sharedFolderManager.coachFolders
+            )
             await refreshAthleteLimit(coachID: coachID)
             if sessionManager.sessions.isEmpty {
                 await sessionManager.fetchSessions(coachID: coachID)
@@ -158,8 +166,30 @@ struct CoachDashboardView: View {
         }
         .onAppear {
             AnalyticsService.shared.trackScreenView(screenName: "Coach Dashboard", screenClass: "CoachDashboardView")
+            // Refresh the needs-review queue every time the dashboard appears.
+            // This catches the case where a coach marked a clip reviewed in
+            // the player view and returns here — the fetch-based VM has no
+            // listener, so it would otherwise show a stale count.
+            Task {
+                guard let coachID = authManager.userID else { return }
+                await needsReviewQueue.refresh(
+                    coachUID: coachID,
+                    folders: sharedFolderManager.coachFolders
+                )
+            }
         }
-        .onChange(of: sharedFolderManager.coachFolders) { _, _ in updateCachedValues() }
+        .onChange(of: sharedFolderManager.coachFolders) { _, _ in
+            updateCachedValues()
+            // Refresh the needs-review queue when the folder set changes
+            // (new athlete added, folder removed, etc.).
+            Task {
+                guard let coachID = authManager.userID else { return }
+                await needsReviewQueue.refresh(
+                    coachUID: coachID,
+                    folders: sharedFolderManager.coachFolders
+                )
+            }
+        }
         .onChange(of: archiveManager.archivedFolderIDs) { _, _ in updateCachedValues() }
         .onChange(of: sessionManager.sessions) { _, _ in updateCachedValues() }
         .onChange(of: sessionManager.scheduledSessions) { _, _ in updateCachedValues() }
@@ -241,7 +271,7 @@ struct CoachDashboardView: View {
         }
     }
 
-    // MARK: - Review Queue
+    // MARK: - My Drafts (coach's private clips)
 
     @ViewBuilder
     private var reviewQueueSection: some View {
@@ -264,6 +294,34 @@ struct CoachDashboardView: View {
                         folderID,
                         folders: sharedFolderManager.coachFolders,
                         initialTab: .review
+                    )
+                }
+            )
+        }
+    }
+
+    // MARK: - Needs My Review (athlete clips awaiting feedback)
+
+    @ViewBuilder
+    private var needsReviewQueueSection: some View {
+        if needsReviewQueue.totalCount > 0 {
+            NeedsReviewQueueCard(
+                groups: needsReviewQueue.groupedClips,
+                totalCount: needsReviewQueue.totalCount,
+                onReviewAll: {
+                    if let firstGroup = needsReviewQueue.groupedClips.first {
+                        coordinator.navigateToFolder(
+                            firstGroup.folderID,
+                            folders: sharedFolderManager.coachFolders,
+                            initialTab: nil
+                        )
+                    }
+                },
+                onNavigateToFolder: { folderID in
+                    coordinator.navigateToFolder(
+                        folderID,
+                        folders: sharedFolderManager.coachFolders,
+                        initialTab: nil
                     )
                 }
             )

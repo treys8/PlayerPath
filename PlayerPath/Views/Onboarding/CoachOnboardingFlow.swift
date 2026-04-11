@@ -86,19 +86,7 @@ private struct CoachWelcomePage: View {
     @State private var appeared = false
 
     var body: some View {
-        ZStack {
-            // Background gradient
-            LinearGradient(
-                colors: [
-                    Color(red: 0.04, green: 0.18, blue: 0.12),
-                    Color(red: 0.06, green: 0.08, blue: 0.12)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .ignoresSafeArea()
-
-            VStack(spacing: 0) {
+        VStack(spacing: 0) {
                 Spacer()
 
                 // Icon
@@ -145,12 +133,12 @@ private struct CoachWelcomePage: View {
                 VStack(spacing: 10) {
                     Text("Welcome, Coach")
                         .font(.system(size: 36, weight: .bold))
-                        .foregroundColor(.white)
+                        .foregroundColor(.primary)
                         .multilineTextAlignment(.center)
 
                     Text("PlayerPath gives you everything you need\nto guide your athletes forward.")
                         .font(.body)
-                        .foregroundColor(.white.opacity(0.65))
+                        .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
                         .lineSpacing(4)
                 }
@@ -174,21 +162,21 @@ private struct CoachWelcomePage: View {
                         Text("Signed in as Coach")
                             .font(.subheadline)
                             .fontWeight(.semibold)
-                            .foregroundColor(.white)
+                            .foregroundColor(.primary)
                         Text(coachEmail)
                             .font(.caption)
-                            .foregroundColor(.white.opacity(0.55))
+                            .foregroundColor(.secondary)
                             .lineLimit(1)
                             .truncationMode(.tail)
                     }
                     Spacer()
                 }
                 .padding(16)
-                .background(Color.white.opacity(0.08))
+                .background(Color(.secondarySystemBackground))
                 .clipShape(RoundedRectangle(cornerRadius: 14))
                 .overlay(
                     RoundedRectangle(cornerRadius: 14)
-                        .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                        .stroke(Color(.separator), lineWidth: 1)
                 )
                 .padding(.horizontal, 24)
                 .offset(y: appeared ? 0 : 20)
@@ -226,7 +214,6 @@ private struct CoachWelcomePage: View {
                 .offset(y: appeared ? 0 : 20)
                 .opacity(appeared ? 1 : 0)
                 .animation(.spring(response: 0.5, dampingFraction: 0.8).delay(0.4), value: appeared)
-            }
         }
         .onAppear { appeared = true }
     }
@@ -247,29 +234,18 @@ private struct CoachHowItWorksPage: View {
     ]
 
     var body: some View {
-        ZStack {
-            LinearGradient(
-                colors: [
-                    Color(red: 0.04, green: 0.06, blue: 0.18),
-                    Color(red: 0.06, green: 0.08, blue: 0.12)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .ignoresSafeArea()
-
-            VStack(spacing: 0) {
+        VStack(spacing: 0) {
                 Spacer().frame(height: 60)
 
                 // Header
                 VStack(spacing: 8) {
                     Text("How It Works")
                         .font(.system(size: 30, weight: .bold))
-                        .foregroundColor(.white)
+                        .foregroundColor(.primary)
 
                     Text("Athletes invite you — you coach.")
                         .font(.subheadline)
-                        .foregroundColor(.white.opacity(0.55))
+                        .foregroundColor(.secondary)
                 }
                 .offset(y: appeared ? 0 : 16)
                 .opacity(appeared ? 1 : 0)
@@ -293,7 +269,7 @@ private struct CoachHowItWorksPage: View {
                                 }
                                 if index < steps.count - 1 {
                                     Rectangle()
-                                        .fill(Color.white.opacity(0.12))
+                                        .fill(Color(.separator))
                                         .frame(width: 1.5, height: 28)
                                 }
                             }
@@ -302,10 +278,10 @@ private struct CoachHowItWorksPage: View {
                                 Text(step.title)
                                     .font(.subheadline)
                                     .fontWeight(.semibold)
-                                    .foregroundColor(.white)
+                                    .foregroundColor(.primary)
                                 Text(step.detail)
                                     .font(.caption)
-                                    .foregroundColor(.white.opacity(0.55))
+                                    .foregroundColor(.secondary)
                                     .lineSpacing(2)
                                 if index < steps.count - 1 {
                                     Spacer().frame(height: 20)
@@ -334,7 +310,7 @@ private struct CoachHowItWorksPage: View {
                         .font(.subheadline)
                     Text("Athletes can invite you, or you can invite athletes directly from your Dashboard. All invitations appear under My Athletes.")
                         .font(.caption)
-                        .foregroundColor(.white.opacity(0.65))
+                        .foregroundColor(.secondary)
                         .lineSpacing(2)
                 }
                 .padding(14)
@@ -380,7 +356,6 @@ private struct CoachHowItWorksPage: View {
                 .offset(y: appeared ? 0 : 16)
                 .opacity(appeared ? 1 : 0)
                 .animation(.spring(response: 0.5, dampingFraction: 0.8).delay(0.55), value: appeared)
-            }
         }
         .onAppear { appeared = true }
     }
@@ -401,18 +376,7 @@ private struct CoachReadyPage: View {
     ]
 
     var body: some View {
-        ZStack {
-            LinearGradient(
-                colors: [
-                    Color(red: 0.05, green: 0.15, blue: 0.08),
-                    Color(red: 0.04, green: 0.07, blue: 0.12)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .ignoresSafeArea()
-
-            VStack(spacing: 0) {
+        VStack(spacing: 0) {
                 Spacer()
 
                 // Badge + Title
@@ -451,11 +415,11 @@ private struct CoachReadyPage: View {
                     VStack(spacing: 8) {
                         Text("You're All Set")
                             .font(.system(size: 32, weight: .bold))
-                            .foregroundColor(.white)
+                            .foregroundColor(.primary)
 
                         Text("Here's what to do when you\nopen your Dashboard:")
                             .font(.subheadline)
-                            .foregroundColor(.white.opacity(0.55))
+                            .foregroundColor(.secondary)
                             .multilineTextAlignment(.center)
                             .lineSpacing(3)
                     }
@@ -479,16 +443,16 @@ private struct CoachReadyPage: View {
 
                             Text(item.text)
                                 .font(.subheadline)
-                                .foregroundColor(.white.opacity(0.85))
+                                .foregroundColor(.primary)
 
                             Spacer()
                         }
                         .padding(14)
-                        .background(Color.white.opacity(0.06))
+                        .background(Color(.secondarySystemBackground))
                         .clipShape(RoundedRectangle(cornerRadius: 12))
                         .overlay(
                             RoundedRectangle(cornerRadius: 12)
-                                .stroke(Color.white.opacity(0.1), lineWidth: 1)
+                                .stroke(Color(.separator), lineWidth: 1)
                         )
                         .offset(y: appeared ? 0 : 20)
                         .opacity(appeared ? 1 : 0)
@@ -531,7 +495,6 @@ private struct CoachReadyPage: View {
                 .offset(y: appeared ? 0 : 16)
                 .opacity(appeared ? 1 : 0)
                 .animation(.spring(response: 0.5, dampingFraction: 0.8).delay(0.55), value: appeared)
-            }
         }
         .onAppear { appeared = true }
     }

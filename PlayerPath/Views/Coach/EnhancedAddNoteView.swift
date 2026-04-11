@@ -86,15 +86,15 @@ struct EnhancedAddNoteView: View {
                     }
                 }
 
-                // Note text
-                Section("Note") {
+                // Feedback text
+                Section("Feedback") {
                     TextEditor(text: $noteText)
                         .frame(minHeight: 100)
                         .focused($isTextEditorFocused)
                 }
             }
             .scrollDismissesKeyboard(.interactively)
-            .navigationTitle("Add Note")
+            .navigationTitle("Add Feedback")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

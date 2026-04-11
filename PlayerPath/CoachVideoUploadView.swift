@@ -19,6 +19,8 @@ struct CoachVideoUploadView: View {
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @State private var viewModel: CoachVideoUploadViewModel
     @State private var showingDiscardConfirmation = false
+    @State private var pendingRecordedURL: URL?
+    @State private var showingTrimmer = false
     @FocusState private var focusedField: UploadField?
     enum UploadField: Hashable { case opponent, notes }
 
@@ -172,14 +174,50 @@ struct CoachVideoUploadView: View {
             .fullScreenCover(isPresented: $viewModel.showingCamera) {
                 ModernCameraView(
                     onVideoRecorded: { url in
-                        viewModel.selectedVideoURL = url
+                        // Close the camera first so only one fullScreenCover is
+                        // on screen, then decide whether to route through the
+                        // trimmer based on the user's workflow preferences.
                         viewModel.showingCamera = false
+                        Task { await routeRecordedVideo(url) }
                     },
                     onCancel: {
                         viewModel.showingCamera = false
                     }
                 )
                 .ignoresSafeArea()
+            }
+            .fullScreenCover(isPresented: $showingTrimmer) {
+                if let url = pendingRecordedURL {
+                    PreUploadTrimmerView(
+                        videoURL: url,
+                        onSave: { trimmedURL in
+                            // Register the trimmer's output so it's cleaned up
+                            // after the upload copies it to the stable path.
+                            viewModel.registerTempFile(trimmedURL)
+                            viewModel.selectedVideoURL = trimmedURL
+                            pendingRecordedURL = nil
+                            showingTrimmer = false
+                        },
+                        onSkip: {
+                            // No new temp file — `url` is already tracked from
+                            // `routeVideoThroughTrimmerIfNeeded`.
+                            viewModel.selectedVideoURL = url
+                            pendingRecordedURL = nil
+                            showingTrimmer = false
+                        },
+                        onCancel: {
+                            // clearSelection() now tears down both pickerTempURL
+                            // and every auxiliary temp (including `url`), and
+                            // resets the picker state so the user can pick or
+                            // record the same source again — SwiftUI's
+                            // PhotosPicker won't re-fire onChange for an
+                            // unchanged selection.
+                            viewModel.clearSelection()
+                            pendingRecordedURL = nil
+                            showingTrimmer = false
+                        }
+                    )
+                }
             }
             .overlay {
                 if viewModel.uploadComplete {
@@ -203,7 +241,9 @@ struct CoachVideoUploadView: View {
             .animation(.easeIn(duration: 0.2), value: viewModel.uploadComplete)
             .onChange(of: viewModel.selectedPhotoItem) { _, newItem in
                 Task {
-                    await viewModel.loadVideo(from: newItem)
+                    if let url = await viewModel.loadVideo(from: newItem) {
+                        await routePickedVideo(url)
+                    }
                 }
             }
             .onChange(of: viewModel.uploadComplete) { _, complete in
@@ -216,7 +256,13 @@ struct CoachVideoUploadView: View {
             }
             .interactiveDismissDisabled(hasUnsavedChanges)
             .confirmationDialog("Discard video?", isPresented: $showingDiscardConfirmation, titleVisibility: .visible) {
-                Button("Discard", role: .destructive) { dismiss() }
+                Button("Discard", role: .destructive) {
+                    // Tear down temp files before dismissing — otherwise raw
+                    // recording output and trimmer exports would linger in
+                    // the temp directory with no other owner.
+                    viewModel.clearSelection()
+                    dismiss()
+                }
                 Button("Cancel", role: .cancel) {}
             } message: {
                 Text("Your selected video and details will be lost.")
@@ -224,6 +270,61 @@ struct CoachVideoUploadView: View {
         }
     }
     
+    /// Applies the user's Recording Workflow preferences to a freshly recorded
+    /// clip — either skips straight to the upload form or pushes the clip
+    /// through the trimmer first, matching `DirectCameraRecorderView`'s behavior.
+    private func routeRecordedVideo(_ url: URL) async {
+        // Let the camera fullScreenCover finish its dismiss animation before
+        // presenting a second fullScreenCover on top of the form. SwiftUI
+        // drops stacked cover presentations if they overlap in time.
+        try? await Task.sleep(for: .milliseconds(400))
+        await routeVideoThroughTrimmerIfNeeded(url)
+    }
+
+    /// Same workflow-based routing used for photo-picker imports. No dismiss
+    /// delay is needed because the picker closes before `.onChange` fires.
+    private func routePickedVideo(_ url: URL) async {
+        await routeVideoThroughTrimmerIfNeeded(url)
+    }
+
+    private func routeVideoThroughTrimmerIfNeeded(_ url: URL) async {
+        // Track the incoming file as an auxiliary temp so it's removed when
+        // the upload finishes or the selection is discarded. Covers both the
+        // recorded raw file and the picker temp (picker originals are also
+        // tracked via `pickerTempURL`; the duplicate is a safe no-op).
+        viewModel.registerTempFile(url)
+
+        let duration = await getVideoDuration(url)
+        let autoShowTrimmer = UserDefaults.standard.bool(forKey: "autoShowTrimmer")
+        let skipShortClips = UserDefaults.standard.bool(forKey: "skipTrimmerForShortClips")
+
+        let shouldSkip: Bool
+        if autoShowTrimmer {
+            shouldSkip = false
+        } else if duration < 15 && skipShortClips {
+            shouldSkip = true
+        } else {
+            shouldSkip = false
+        }
+
+        if shouldSkip {
+            viewModel.selectedVideoURL = url
+        } else {
+            pendingRecordedURL = url
+            showingTrimmer = true
+        }
+    }
+
+    private func getVideoDuration(_ url: URL) async -> Double {
+        let asset = AVURLAsset(url: url)
+        do {
+            let duration = try await asset.load(.duration)
+            return CMTimeGetSeconds(duration)
+        } catch {
+            return 0
+        }
+    }
+
     private var uploadHintMessage: String {
         if viewModel.selectedVideoURL == nil {
             return "Select a video to upload"
@@ -280,9 +381,33 @@ class CoachVideoUploadViewModel {
     
     private var pickerTempURL: URL?
 
+    /// Temp files produced during the upload session — raw camera output,
+    /// trimmer exporter output, etc. These are separate from `pickerTempURL`
+    /// (which is cleaned on the next pick) and must be removed when the
+    /// upload enqueues, the selection is discarded, or the view is dismissed.
+    /// Marked `@ObservationIgnored` because SwiftUI never reads this directly.
+    @ObservationIgnored private var auxiliaryTempFiles: [URL] = []
+
     init(folder: SharedFolder, defaultContext: VideoContext = .instruction) {
         self.folder = folder
         self.videoContext = defaultContext
+    }
+
+    /// Registers a temp file for cleanup when the upload finishes or the
+    /// selection is discarded. Deduplicates by file path so callers can safely
+    /// register the same URL twice.
+    func registerTempFile(_ url: URL) {
+        guard !auxiliaryTempFiles.contains(where: { $0.path == url.path }) else { return }
+        auxiliaryTempFiles.append(url)
+    }
+
+    /// Removes every registered auxiliary temp file from disk. Safe to call
+    /// multiple times — missing files are silently skipped.
+    func cleanupAuxiliaryFiles() {
+        for url in auxiliaryTempFiles where FileManager.default.fileExists(atPath: url.path) {
+            try? FileManager.default.removeItem(at: url)
+        }
+        auxiliaryTempFiles.removeAll()
     }
 
     var canUpload: Bool {
@@ -298,12 +423,16 @@ class CoachVideoUploadViewModel {
             Task.detached { try? FileManager.default.removeItem(at: url) }
             pickerTempURL = nil
         }
+        cleanupAuxiliaryFiles()
         selectedVideoURL = nil
         selectedPhotoItem = nil
     }
     
-    func loadVideo(from item: PhotosPickerItem?) async {
-        guard let item = item else { return }
+    /// Loads a video from the photo picker into a stable temp URL and returns
+    /// it. The caller decides whether to assign it to `selectedVideoURL`
+    /// directly or route it through the trimmer first.
+    func loadVideo(from item: PhotosPickerItem?) async -> URL? {
+        guard let item = item else { return nil }
 
         // Clean up any previous picker temp file before loading a new one
         if let existing = pickerTempURL {
@@ -314,12 +443,13 @@ class CoachVideoUploadViewModel {
         do {
             guard let movie = try await item.loadTransferable(type: VideoPickerTransferable.self) else {
                 errorMessage = "Failed to load video"
-                return
+                return nil
             }
             pickerTempURL = movie.url
-            selectedVideoURL = movie.url
+            return movie.url
         } catch {
             errorMessage = "Failed to load video: \(error.localizedDescription)"
+            return nil
         }
     }
     
@@ -387,11 +517,14 @@ class CoachVideoUploadViewModel {
             gameDate: contextDate
         )
 
-        // Clean up picker temp file
+        // Clean up picker temp file + any raw/trimmed temp files the view
+        // registered during routing. The stable-path copy above is owned by
+        // the queue; everything else is ephemeral and can go now.
         if let url = pickerTempURL {
             try? FileManager.default.removeItem(at: url)
             pickerTempURL = nil
         }
+        cleanupAuxiliaryFiles()
 
         // Monitor queue progress — must match the deterministic UUID used by UploadQueueManager
         let clipId = UploadQueueManager.stableUUID(from: "\(folderID)|\(fileName)")

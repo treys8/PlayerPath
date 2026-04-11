@@ -341,12 +341,10 @@ extension ComprehensiveAuthManager {
             ActivityNotificationService.shared.stopListening()
             ReviewQueueViewModel.shared.stopListening()
             SyncCoordinator.shared.stopPeriodicSync()
+            SharedFolderManager.shared.clearAllData()
 
             // Clear local SwiftData and local video/photo files to prevent data leakage
             SyncCoordinator.shared.clearLocalData(fallbackContext: modelContext)
-
-            // Clear biometric credentials on logout for security
-            BiometricAuthenticationManager.shared.disableBiometric()
 
             // Clear signed URL cache so another user can't access previous user's URLs
             SecureURLManager.shared.clearCache()

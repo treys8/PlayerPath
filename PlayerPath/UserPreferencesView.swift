@@ -11,16 +11,25 @@ import UIKit
 
 struct UserPreferencesView: View {
     @Environment(\.modelContext) private var modelContext
+    @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @State private var viewModel = UserPreferencesViewModel()
+
+    private var isCoach: Bool { authManager.userRole == .coach }
 
     var body: some View {
         NavigationStack {
             Group {
                 if let prefs = viewModel.preferences {
                     Form {
-                        videoRecordingSection(preferences: prefs)
+                        if !isCoach {
+                            videoRecordingSection(preferences: prefs)
+                        } else {
+                            generalSection(preferences: prefs)
+                        }
                         uiPreferencesSection(preferences: prefs)
-                        cloudSyncSection(preferences: prefs)
+                        if !isCoach {
+                            cloudSyncSection(preferences: prefs)
+                        }
                         privacyAnalyticsSection(preferences: prefs)
                     }
                 } else {
@@ -65,25 +74,6 @@ struct UserPreferencesView: View {
 
     private func videoRecordingSection(preferences: UserPreferences) -> some View {
         Section {
-            Picker("Video Quality", selection: Binding<VideoQuality>(
-                get: { viewModel.preferences?.defaultVideoQuality ?? VideoQuality.medium },
-                set: { newQuality in
-                    viewModel.update(\.defaultVideoQuality, to: newQuality)
-                    // Sync to the actual recording settings singleton so the camera uses it
-                    let recordingQuality: RecordingQuality
-                    switch newQuality {
-                    case .low:    recordingQuality = .medium720p
-                    case .medium: recordingQuality = .high1080p
-                    case .high:   recordingQuality = .ultra4K
-                    }
-                    VideoRecordingSettings.shared.quality = recordingQuality
-                }
-            )) {
-                ForEach(VideoQuality.allCases, id: \.self) { quality in
-                    Text(quality.displayName).tag(quality)
-                }
-            }
-
             Picker("Auto-Upload Videos", selection: Binding<AutoUploadMode>(
                 get: { viewModel.preferences?.autoUploadMode ?? .off },
                 set: { viewModel.update(\.autoUploadMode, to: $0) }
@@ -111,6 +101,20 @@ struct UserPreferencesView: View {
             if let mode = viewModel.preferences?.autoUploadMode {
                 Text(mode.description)
             }
+        }
+    }
+
+    private func generalSection(preferences: UserPreferences) -> some View {
+        Section {
+            Toggle("Haptic Feedback", isOn: Binding(
+                get: { viewModel.preferences?.enableHapticFeedback ?? true },
+                set: {
+                    viewModel.update(\.enableHapticFeedback, to: $0)
+                    UserDefaults.standard.set($0, forKey: "hapticFeedbackEnabled")
+                }
+            ))
+        } header: {
+            Text("General")
         }
     }
 

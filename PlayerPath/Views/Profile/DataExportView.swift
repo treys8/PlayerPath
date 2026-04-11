@@ -22,6 +22,8 @@ struct DataExportView: View {
     @State private var showError = false
     @State private var errorMessage = ""
 
+    private var isCoach: Bool { authManager.userRole == .coach }
+
     var body: some View {
         List {
             Section {
@@ -34,20 +36,31 @@ struct DataExportView: View {
                         .font(.title2)
                         .fontWeight(.bold)
 
-                    Text("Download a complete copy of all your PlayerPath data in JSON format. This includes athletes, seasons, games, statistics, and video metadata.")
+                    Text(isCoach
+                         ? "Download a complete copy of your coaching data in JSON format. This includes shared folders, video metadata, annotations, and comments."
+                         : "Download a complete copy of all your PlayerPath data in JSON format. This includes athletes, seasons, games, statistics, and video metadata.")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                 }
                 .padding(.vertical, 8)
             }
 
-            Section("What's Included") {
-                ExportDataRow(icon: "person.fill", title: "Athlete Profiles", description: "Names and profile information")
-                ExportDataRow(icon: "calendar", title: "Seasons", description: "All season data and settings")
-                ExportDataRow(icon: "baseball.diamond.bases", title: "Games", description: "Game details and results")
-                ExportDataRow(icon: "chart.bar.fill", title: "Statistics", description: "All calculated statistics")
-                ExportDataRow(icon: "video", title: "Video Metadata", description: "Video tags and timestamps (files not included)")
-                ExportDataRow(icon: "figure.run", title: "Practice Sessions", description: "Practice logs and notes")
+            if isCoach {
+                Section("What's Included") {
+                    ExportDataRow(icon: "folder.fill", title: "Shared Folders", description: "Folders shared with athletes")
+                    ExportDataRow(icon: "video", title: "Video Metadata", description: "Video details and tags (files not included)")
+                    ExportDataRow(icon: "pencil.and.outline", title: "Annotations", description: "Your annotations on videos")
+                    ExportDataRow(icon: "text.bubble", title: "Comments", description: "Your comments on videos")
+                }
+            } else {
+                Section("What's Included") {
+                    ExportDataRow(icon: "person.fill", title: "Athlete Profiles", description: "Names and profile information")
+                    ExportDataRow(icon: "calendar", title: "Seasons", description: "All season data and settings")
+                    ExportDataRow(icon: "baseball.diamond.bases", title: "Games", description: "Game details and results")
+                    ExportDataRow(icon: "chart.bar.fill", title: "Statistics", description: "All calculated statistics")
+                    ExportDataRow(icon: "video", title: "Video Metadata", description: "Video tags and timestamps (files not included)")
+                    ExportDataRow(icon: "figure.run", title: "Practice Sessions", description: "Practice logs and notes")
+                }
             }
 
             Section {
@@ -102,7 +115,7 @@ struct DataExportView: View {
                 AnalyticsService.shared.trackDataExportRequested(userID: userID)
             }
 
-            let exportDict = try await gatherAllData()
+            let exportDict = try await isCoach ? gatherCoachData() : gatherAllData()
             let jsonData = try JSONSerialization.data(withJSONObject: exportDict, options: .prettyPrinted)
             let dataString = String(data: jsonData, encoding: .utf8)
             exportedData = dataString
@@ -340,6 +353,98 @@ struct DataExportView: View {
             "exportedAt": Self.isoFormatter.string(from: Date()),
             "appVersion": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown",
             "format": "PlayerPath JSON v1"
+        ]
+
+        return exportData
+    }
+
+    private func gatherCoachData() async throws -> [String: Any] {
+        guard let coachID = authManager.userID else {
+            throw ExportError.exportFailed("User not found")
+        }
+
+        var exportData: [String: Any] = [:]
+
+        // User Info
+        exportData["user"] = [
+            "id": coachID,
+            "email": authManager.userEmail ?? "",
+            "name": authManager.userDisplayName ?? "",
+            "role": "coach"
+        ]
+
+        // Shared Folders
+        let folders = try await FirestoreManager.shared.fetchSharedFolders(forCoach: coachID)
+        exportData["sharedFolders"] = folders.map { folder in
+            [
+                "id": folder.id ?? "",
+                "name": folder.name,
+                "athleteID": folder.ownerAthleteID,
+                "athleteName": folder.ownerAthleteName ?? "",
+                "videoCount": folder.videoCount ?? 0,
+                "folderType": folder.folderType ?? "",
+                "createdAt": folder.createdAt.map { Self.isoFormatter.string(from: $0) } ?? ""
+            ] as [String: Any]
+        }
+
+        // Videos and their annotations/comments
+        var allVideos: [[String: Any]] = []
+        var allAnnotations: [[String: Any]] = []
+        var allComments: [[String: Any]] = []
+
+        for folder in folders {
+            guard let folderID = folder.id else { continue }
+            let videos = (try? await FirestoreManager.shared.fetchVideos(forSharedFolder: folderID)) ?? []
+
+            for video in videos {
+                guard let videoID = video.id else { continue }
+                allVideos.append([
+                    "id": videoID,
+                    "fileName": video.fileName,
+                    "folderID": folderID,
+                    "uploadedBy": video.uploadedBy,
+                    "uploadedByName": video.uploadedByName,
+                    "tags": video.tags ?? [],
+                    "notes": video.notes ?? "",
+                    "createdAt": video.createdAt.map { Self.isoFormatter.string(from: $0) } ?? ""
+                ] as [String: Any])
+
+                // Annotations by this coach
+                let annotations = (try? await FirestoreManager.shared.fetchAnnotations(forVideo: videoID)) ?? []
+                for annotation in annotations where annotation.userID == coachID {
+                    allAnnotations.append([
+                        "id": annotation.id ?? "",
+                        "videoID": videoID,
+                        "text": annotation.text,
+                        "timestamp": annotation.timestamp,
+                        "category": annotation.category ?? "",
+                        "createdAt": annotation.createdAt.map { Self.isoFormatter.string(from: $0) } ?? ""
+                    ] as [String: Any])
+                }
+
+                // Comments by this coach
+                let comments = (try? await ClipCommentService.shared.fetchComments(clipId: videoID)) ?? []
+                for comment in comments where comment.authorId == coachID {
+                    allComments.append([
+                        "id": comment.id ?? "",
+                        "videoID": videoID,
+                        "text": comment.text,
+                        "category": comment.category ?? "",
+                        "createdAt": comment.createdAt.map { Self.isoFormatter.string(from: $0) } ?? ""
+                    ] as [String: Any])
+                }
+            }
+        }
+
+        exportData["videos"] = allVideos
+        exportData["annotations"] = allAnnotations
+        exportData["comments"] = allComments
+
+        // Export Metadata
+        exportData["exportMetadata"] = [
+            "exportedAt": Self.isoFormatter.string(from: Date()),
+            "appVersion": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown",
+            "format": "PlayerPath Coach JSON v1"
         ]
 
         return exportData

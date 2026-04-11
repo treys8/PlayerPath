@@ -28,6 +28,18 @@ class CoachVideoPlayerViewModel {
     var videoDuration: Double?
     var shouldResumeOnActive = false
 
+    // Local override for the coach note so the player UI re-renders after edits
+    // without refetching the parent CoachVideoItem.
+    var coachNoteText: String?
+    var coachNoteAuthorName: String?
+    var coachNoteUpdatedAt: Date?
+
+    // Local override for the per-coach reviewed timestamp. Non-nil = the
+    // current coach has reviewed this clip in *this view session*; falls back
+    // to `video.reviewedBy[coachID]` for the persisted state. Updated locally
+    // after a save so the toolbar button hides immediately without a refetch.
+    var reviewedAt: Date?
+
     // Download & save state
     var isDownloading = false
     var downloadProgress: Double = 0
@@ -46,6 +58,18 @@ class CoachVideoPlayerViewModel {
     init(video: CoachVideoItem, folder: SharedFolder) {
         self.video = video
         self.folder = folder
+        // Seed coach-note state from metadata, with a read-side fallback for
+        // legacy instruction clips whose note still lives in the `notes` field.
+        if let note = video.coachNote, !note.isEmpty {
+            self.coachNoteText = note
+            self.coachNoteAuthorName = video.coachNoteAuthorName ?? video.uploadedByName
+            self.coachNoteUpdatedAt = video.coachNoteUpdatedAt ?? video.createdAt
+        } else if video.uploadedByType == .coach,
+                  let legacy = video.notes, !legacy.isEmpty {
+            self.coachNoteText = legacy
+            self.coachNoteAuthorName = video.uploadedByName
+            self.coachNoteUpdatedAt = video.createdAt
+        }
     }
 
     deinit {
@@ -160,21 +184,6 @@ class CoachVideoPlayerViewModel {
             }
         }
 
-        // Log video access (fire-and-forget, don't block playback)
-        Task {
-            guard let user = Auth.auth().currentUser,
-                  let userName = user.displayName else { return }
-            let userID = user.uid
-            let isOwner = userID == folder.ownerAthleteID
-            await FirestoreManager.shared.logVideoAccess(
-                videoID: video.id,
-                userID: userID,
-                userName: userName,
-                userRole: isOwner ? "athlete" : "coach",
-                action: "view",
-                folderID: folderID
-            )
-        }
     }
 
     // MARK: - Annotations
@@ -198,7 +207,7 @@ class CoachVideoPlayerViewModel {
             if nsError.domain == "FIRFirestoreErrorDomain" && nsError.code == 7 {
                 annotations = []
             } else {
-                errorMessage = "Failed to load notes: \(error.localizedDescription)"
+                errorMessage = "Failed to load feedback: \(error.localizedDescription)"
             }
         }
 
@@ -263,9 +272,86 @@ class CoachVideoPlayerViewModel {
             }
 
         } catch {
-            errorMessage = "Failed to add note: \(error.localizedDescription)"
+            errorMessage = "Failed to add feedback: \(error.localizedDescription)"
             ErrorHandlerService.shared.handle(error, context: "CoachVideoPlayerViewModel.addAnnotation", showAlert: false)
         }
+    }
+
+    /// Persists a coach-authored plain note (or clears it when `text` is nil/empty)
+    /// and updates local state so the player card re-renders without a refetch.
+    /// Throws on failure so callers can surface the error inline.
+    func updateCoachNote(text: String?, authorID: String, authorName: String) async throws {
+        let videoID = video.id
+        guard !videoID.isEmpty else { return }
+
+        do {
+            try await FirestoreManager.shared.setCoachNote(
+                videoID: videoID,
+                text: text,
+                authorID: authorID,
+                authorName: authorName
+            )
+        } catch {
+            ErrorHandlerService.shared.handle(error, context: "CoachVideoPlayerViewModel.updateCoachNote", showAlert: false)
+            throw error
+        }
+
+        let trimmed = text?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let trimmed, !trimmed.isEmpty {
+            coachNoteText = trimmed
+            coachNoteAuthorName = authorName
+            coachNoteUpdatedAt = Date()
+            // setCoachNote in FirestoreManager also writes reviewedBy.{authorID}
+            // — mirror that locally so the Mark as Reviewed button hides
+            // immediately without a refetch.
+            reviewedAt = Date()
+
+            // Notify the folder owner that a coach left a plain note. Reuses the
+            // existing coachComment notification path so the in-app banner +
+            // folder badge + per-video "New" badge all light up the same way as
+            // a timestamped feedback marker.
+            await ActivityNotificationService.shared.postCoachCommentNotification(
+                videoFileName: video.fileName,
+                folderID: folder.id ?? "",
+                videoID: video.id,
+                coachID: authorID,
+                coachName: authorName,
+                athleteID: folder.ownerAthleteID,
+                notePreview: trimmed
+            )
+        } else {
+            coachNoteText = nil
+            coachNoteAuthorName = nil
+            coachNoteUpdatedAt = nil
+            // Clearing the note does NOT undo the reviewed state — once
+            // reviewed, stay reviewed.
+        }
+        Haptics.success()
+    }
+
+    /// Returns true iff `coachID` has reviewed this clip — either locally in
+    /// this view session, or persisted in `video.reviewedBy`.
+    func isReviewed(by coachID: String) -> Bool {
+        if reviewedAt != nil { return true }
+        return video.isReviewed(by: coachID)
+    }
+
+    /// Explicitly mark the clip reviewed by the current coach. Throws so the
+    /// caller can surface the error inline.
+    func markReviewed(coachID: String) async throws {
+        let videoID = video.id
+        guard !videoID.isEmpty else { return }
+        do {
+            try await FirestoreManager.shared.markVideoReviewedByCoach(
+                videoID: videoID,
+                coachID: coachID
+            )
+        } catch {
+            ErrorHandlerService.shared.handle(error, context: "CoachVideoPlayerViewModel.markReviewed", showAlert: false)
+            throw error
+        }
+        reviewedAt = Date()
+        Haptics.success()
     }
 
     func deleteAnnotation(_ annotation: VideoAnnotation) async {
@@ -278,7 +364,7 @@ class CoachVideoPlayerViewModel {
             annotations.removeAll { $0.id == annotationID }
             Haptics.success()
         } catch {
-            errorMessage = "Failed to delete note: \(error.localizedDescription)"
+            errorMessage = "Failed to delete feedback: \(error.localizedDescription)"
             ErrorHandlerService.shared.handle(error, context: "CoachVideoPlayerViewModel.deleteAnnotation", showAlert: false)
         }
     }
@@ -382,19 +468,6 @@ class CoachVideoPlayerViewModel {
             }
             didSaveSuccessfully = true
             Haptics.success()
-
-            // Log download action
-            if let user = Auth.auth().currentUser {
-                let isOwner = user.uid == folder.ownerAthleteID
-                await FirestoreManager.shared.logVideoAccess(
-                    videoID: video.id,
-                    userID: user.uid,
-                    userName: user.displayName ?? (isOwner ? "Athlete" : "Coach"),
-                    userRole: isOwner ? "athlete" : "coach",
-                    action: "download",
-                    folderID: folderID
-                )
-            }
         } catch {
             saveError = "Failed to save video: \(error.localizedDescription)"
         }

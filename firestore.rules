@@ -291,6 +291,21 @@ service cloud.firestore {
                     && (!('sharedFolderID' in resource.data) || request.resource.data.sharedFolderID == resource.data.sharedFolderID)
                     && (!('sharedFolderID' in resource.data) || canAccessFolder(resource.data.sharedFolderID));
 
+      // Folder coaches with an active coach tier can write a plain coach note
+      // and/or mark a clip reviewed on any video in a folder they belong to
+      // (e.g. an athlete-uploaded game clip). The hasOnly() clamp prevents
+      // touching any other field. Both setCoachNote (which writes coachNote*
+      // + reviewedBy in one update) and markVideoReviewedByCoach (which writes
+      // only reviewedBy) flow through this branch. Dot-path updates like
+      // `reviewedBy.{uid}` show up in affectedKeys() as just `reviewedBy`.
+      allow update: if isAuthenticated()
+                    && hasCoachTier()
+                    && 'sharedFolderID' in resource.data
+                    && canAccessFolder(resource.data.sharedFolderID)
+                    && request.resource.data.diff(resource.data).affectedKeys()
+                         .hasOnly(['coachNote', 'coachNoteAuthorID', 'coachNoteAuthorName',
+                                   'coachNoteUpdatedAt', 'reviewedBy', 'updatedAt']);
+
       // Delete: uploader can delete their own videos; folder members with delete permission
       allow delete: if isAuthenticated() && (
         resource.data.uploadedBy == request.auth.uid ||

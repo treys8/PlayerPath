@@ -12,12 +12,22 @@ import SwiftData
 
 /// View for configuring video recording settings including quality, format, frame rate, and slow-motion
 struct VideoRecordingSettingsView: View {
+    /// Controls which cloud-upload options are shown. Coaches only see settings
+    /// that actually affect their upload path (cellular policy); the athlete-only
+    /// auto-upload gate, highlights filter, and file-size cap are hidden because
+    /// they are not honored by `UploadQueueManager.enqueueCoachUpload`.
+    let role: UserRole
+
     // Access singleton directly - don't create a copy with @State
     @State private var settings = VideoRecordingSettings.shared
     @State private var showingResetConfirmation = false
     @State private var showingUnsupportedAlert = false
     @State private var unsupportedMessage = ""
     @State private var lastSaveTime: Date?
+
+    init(role: UserRole = .athlete) {
+        self.role = role
+    }
 
     @AppStorage("autoShowTrimmer") private var autoShowTrimmer = false
     @AppStorage("skipTrimmerForShortClips") private var skipTrimmerForShortClips = true
@@ -143,7 +153,10 @@ struct VideoRecordingSettingsView: View {
     
     private var slowMotionSection: some View {
         Section {
-            Toggle(isOn: $settings.slowMotionEnabled) {
+            Toggle(isOn: Binding(
+                get: { settings.slowMotionEnabled },
+                set: { settings.setSlowMotionEnabled($0) }
+            )) {
                 HStack {
                     Image(systemName: "slowmo")
                         .foregroundStyle(.purple)
@@ -173,7 +186,7 @@ struct VideoRecordingSettingsView: View {
             Text("Slow-Motion")
         } footer: {
             if !settings.supportsSlowMotion {
-                Text("Slow-motion requires a frame rate of 120 fps or higher. Select a higher frame rate to enable this feature.")
+                Text("Slow-motion is not available at \(settings.quality.displayName). Select a lower resolution to enable this feature.")
             }
         }
     }
@@ -204,69 +217,61 @@ struct VideoRecordingSettingsView: View {
     private var cloudUploadSection: some View {
         Section {
             if let prefs = preferences {
-                Toggle(isOn: Binding(
-                    get: { prefs.autoUploadToCloud },
-                    set: { prefs.autoUploadToCloud = $0; ErrorHandlerService.shared.saveContext(modelContext, caller: "RecordingSettings.autoUpload") }
-                )) {
-                    HStack {
-                        Image(systemName: prefs.autoUploadToCloud ? "icloud.and.arrow.up.fill" : "icloud.slash.fill")
-                            .foregroundColor(prefs.autoUploadToCloud ? .brandNavy : .secondary)
-                        Text("Auto-Upload to Cloud")
-                    }
-                }
-
-                if prefs.autoUploadToCloud {
+                if role == .athlete {
                     Toggle(isOn: Binding(
-                        get: { prefs.syncHighlightsOnly },
-                        set: { prefs.syncHighlightsOnly = $0; ErrorHandlerService.shared.saveContext(modelContext, caller: "RecordingSettings.highlightsOnly") }
+                        get: { prefs.autoUploadToCloud },
+                        set: { prefs.autoUploadToCloud = $0; ErrorHandlerService.shared.saveContext(modelContext, caller: "RecordingSettings.autoUpload") }
                     )) {
                         HStack {
-                            Image(systemName: "star.fill")
-                                .foregroundStyle(prefs.syncHighlightsOnly ? .yellow : .secondary)
-                            Text("Highlights Only")
+                            Image(systemName: prefs.autoUploadToCloud ? "icloud.and.arrow.up.fill" : "icloud.slash.fill")
+                                .foregroundColor(prefs.autoUploadToCloud ? .brandNavy : .secondary)
+                            Text("Auto-Upload to Cloud")
                         }
                     }
 
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Max File Size: \(prefs.maxVideoFileSize) MB")
-                            .font(.subheadline)
-
-                        Slider(
-                            value: Binding(
-                                get: { Double(prefs.maxVideoFileSize) },
-                                set: { prefs.maxVideoFileSize = Int($0); ErrorHandlerService.shared.saveContext(modelContext, caller: "RecordingSettings.maxFileSize") }
-                            ),
-                            in: 50...2000,
-                            step: 50
-                        )
-
-                        HStack {
-                            Text("50 MB")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Spacer()
-                            Text("2 GB")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                    if prefs.autoUploadToCloud {
+                        Toggle(isOn: Binding(
+                            get: { prefs.syncHighlightsOnly },
+                            set: { prefs.syncHighlightsOnly = $0; ErrorHandlerService.shared.saveContext(modelContext, caller: "RecordingSettings.highlightsOnly") }
+                        )) {
+                            HStack {
+                                Image(systemName: "star.fill")
+                                    .foregroundStyle(prefs.syncHighlightsOnly ? .yellow : .secondary)
+                                Text("Highlights Only")
+                            }
                         }
-                    }
-                    .padding(.vertical, 4)
 
-                    Toggle(isOn: Binding(
-                        get: { prefs.allowCellularUploads },
-                        set: { prefs.allowCellularUploads = $0; ErrorHandlerService.shared.saveContext(modelContext, caller: "RecordingSettings.cellularUploads") }
-                    )) {
-                        HStack {
-                            Image(systemName: prefs.allowCellularUploads ? "antenna.radiowaves.left.and.right" : "wifi")
-                                .foregroundColor(prefs.allowCellularUploads ? .orange : .brandNavy)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Allow Cellular Uploads")
-                                Text("May use significant mobile data")
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Max File Size: \(prefs.maxVideoFileSize) MB")
+                                .font(.subheadline)
+
+                            Slider(
+                                value: Binding(
+                                    get: { Double(prefs.maxVideoFileSize) },
+                                    set: { prefs.maxVideoFileSize = Int($0); ErrorHandlerService.shared.saveContext(modelContext, caller: "RecordingSettings.maxFileSize") }
+                                ),
+                                in: 50...2000,
+                                step: 50
+                            )
+
+                            HStack {
+                                Text("50 MB")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                Spacer()
+                                Text("2 GB")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
                         }
+                        .padding(.vertical, 4)
+
+                        cellularToggle(for: prefs)
                     }
+                } else {
+                    // Coach: only the cellular toggle applies — the other three
+                    // options are athlete-only and have no effect on coach uploads.
+                    cellularToggle(for: prefs)
                 }
             } else {
                 Text("Loading preferences...")
@@ -275,17 +280,47 @@ struct VideoRecordingSettingsView: View {
         } header: {
             Text("Cloud Upload")
         } footer: {
-            if let prefs = preferences, prefs.autoUploadToCloud {
-                if prefs.allowCellularUploads {
-                    Text("Videos will upload automatically on WiFi and cellular. ⚠️ This may use significant mobile data.")
-                } else if prefs.syncHighlightsOnly {
-                    Text("Only highlight videos will upload automatically when connected to WiFi.")
-                } else {
-                    Text("All videos will upload automatically when connected to WiFi.")
+            cloudUploadFooter
+        }
+    }
+
+    @ViewBuilder
+    private func cellularToggle(for prefs: UserPreferences) -> some View {
+        Toggle(isOn: Binding(
+            get: { prefs.allowCellularUploads },
+            set: { prefs.allowCellularUploads = $0; ErrorHandlerService.shared.saveContext(modelContext, caller: "RecordingSettings.cellularUploads") }
+        )) {
+            HStack {
+                Image(systemName: prefs.allowCellularUploads ? "antenna.radiowaves.left.and.right" : "wifi")
+                    .foregroundColor(prefs.allowCellularUploads ? .orange : .brandNavy)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Allow Cellular Uploads")
+                    Text("May use significant mobile data")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
-            } else {
-                Text("Videos will only be stored locally on this device. Enable auto-upload to backup videos to the cloud and share with coaches.")
             }
+        }
+    }
+
+    @ViewBuilder
+    private var cloudUploadFooter: some View {
+        if role == .coach {
+            if preferences?.allowCellularUploads == true {
+                Text("Clips you upload to athlete folders will use Wi-Fi and cellular. ⚠️ This may use significant mobile data.")
+            } else {
+                Text("Clips you upload to athlete folders will only transfer when connected to Wi-Fi.")
+            }
+        } else if let prefs = preferences, prefs.autoUploadToCloud {
+            if prefs.allowCellularUploads {
+                Text("Videos will upload automatically on WiFi and cellular. ⚠️ This may use significant mobile data.")
+            } else if prefs.syncHighlightsOnly {
+                Text("Only highlight videos will upload automatically when connected to WiFi.")
+            } else {
+                Text("All videos will upload automatically when connected to WiFi.")
+            }
+        } else {
+            Text("Videos will only be stored locally on this device. Enable auto-upload to backup videos to the cloud and share with coaches.")
         }
     }
 
@@ -406,7 +441,7 @@ struct VideoRecordingSettingsView: View {
         }
         
         settings.quality = quality
-        
+
         // Adjust frame rate if incompatible with new quality
         if !settings.isFrameRateSupported(settings.frameRate, for: quality) {
             // Auto-select highest compatible frame rate
@@ -415,23 +450,18 @@ struct VideoRecordingSettingsView: View {
                 settings.frameRate = highestCompatible
             }
         }
-        
-        // Disable slow-motion if no longer supported
-        if !settings.supportsSlowMotion {
-            settings.slowMotionEnabled = false
-        }
-        
+
+        // Resync slow-mo flag to whatever frame rate we ended up on.
+        settings.slowMotionEnabled = settings.frameRate.supportsSlowMotion
+
         Haptics.light()
     }
     
     private func selectFrameRate(_ frameRate: FrameRate) {
         settings.frameRate = frameRate
-        
-        // Disable slow-motion if new frame rate doesn't support it
-        if !settings.supportsSlowMotion {
-            settings.slowMotionEnabled = false
-        }
-        
+        // Keep the slow-mo flag in sync with the chosen frame rate so the toggle,
+        // badge, and summary row always match what the camera will actually record.
+        settings.slowMotionEnabled = frameRate.supportsSlowMotion
         Haptics.light()
     }
     

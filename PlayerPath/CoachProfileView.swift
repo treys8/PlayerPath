@@ -176,11 +176,7 @@ struct CoachProfileView: View {
                         Label("App Preferences", systemImage: "slider.horizontal.3")
                     }
 
-                    NavigationLink(destination: BiometricSettingsView()) {
-                        Label("Face ID / Touch ID", systemImage: "faceid")
-                    }
-
-                    NavigationLink(destination: VideoRecordingSettingsView()) {
+                    NavigationLink(destination: VideoRecordingSettingsView(role: .coach)) {
                         Label("Video Recording", systemImage: "video.fill")
                     }
 

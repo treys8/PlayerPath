@@ -54,14 +54,6 @@ enum AuthConstants {
         static let userRole = "userRole"
         static let hasCompletedOnboarding = "hasCompletedOnboarding"
         static let hasAthleteTierOverride = "hasAthleteTierOverride"
-        static let biometricEnabled = "biometric_enabled"
-    }
-
-    // MARK: - Biometric
-    enum Biometric {
-        static let faceIDName = "Face ID"
-        static let touchIDName = "Touch ID"
-        static let genericBiometricName = "Biometric"
     }
 
     // MARK: - Roles
