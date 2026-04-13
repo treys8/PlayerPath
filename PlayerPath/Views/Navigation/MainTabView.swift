@@ -168,7 +168,7 @@ struct MainTabView: View {
                 // Weekly summary body is baked in at schedule time — refresh on
                 // every foreground so stats stay current across the week.
                 if phase == .active {
-                    Task { await WeeklySummaryScheduler.scheduleAll(for: user) }
+                    Task(operation: { await WeeklySummaryScheduler.scheduleAll(for: user) })
                 }
             }
             .onChange(of: selectedTab) { _, newValue in
@@ -354,16 +354,18 @@ struct MainTabView: View {
         }
 
         // Refresh the baked-in weekly-summary body whenever the underlying
-        // stats change. Each handler cancel+adds the pending notification,
+        // stats change. Each call cancel+adds the pending notification,
         // which is cheap and idempotent.
-        let refreshWeekly: @Sendable (Notification) -> Void = { [user] _ in
-            MainActor.assumeIsolated {
-                Task { await WeeklySummaryScheduler.scheduleAll(for: user) }
-            }
+        nonisolated(unsafe) let user = user
+        notificationManager.observe(name: Notification.Name.gameCreated) { _ in
+            Task { @MainActor in await WeeklySummaryScheduler.scheduleAll(for: user) }
         }
-        notificationManager.observe(name: Notification.Name.gameCreated, using: refreshWeekly)
-        notificationManager.observe(name: Notification.Name.gameEnded, using: refreshWeekly)
-        notificationManager.observe(name: Notification.Name.videoRecorded, using: refreshWeekly)
+        notificationManager.observe(name: Notification.Name.gameEnded) { _ in
+            Task { @MainActor in await WeeklySummaryScheduler.scheduleAll(for: user) }
+        }
+        notificationManager.observe(name: Notification.Name.videoRecorded) { _ in
+            Task { @MainActor in await WeeklySummaryScheduler.scheduleAll(for: user) }
+        }
     }
     
     @ViewBuilder
