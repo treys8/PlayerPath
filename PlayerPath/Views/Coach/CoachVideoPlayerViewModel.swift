@@ -11,6 +11,7 @@ import AVKit
 import CoreMedia
 import Photos
 import FirebaseAuth
+import PencilKit
 
 @MainActor
 @Observable
@@ -47,9 +48,20 @@ class CoachVideoPlayerViewModel {
     var didSaveSuccessfully = false
     var saveError: String?
 
+    // Filmstrip scrubber state
+    var filmstripThumbnails: [FilmstripThumbnail] = []
+    var isGeneratingFilmstrip = false
+    var observedPlaybackTime: Double = 0
+
+    // Telestration state
+    var activeDrawingOverlay: Data?
+    var videoNaturalSize: CGSize?
+
     private var durationTask: Task<Void, Never>?
+    private var filmstripTask: Task<Void, Never>?
     private var statusObservation: NSKeyValueObservation?
     private var timeObserver: Any?
+    private var filmstripTimeObserver: Any?
 
     var currentPlaybackTime: Double {
         player?.currentTime().seconds ?? 0.0
@@ -77,7 +89,11 @@ class CoachVideoPlayerViewModel {
         // on the main thread, so assumeIsolated is safe here.
         MainActor.assumeIsolated {
             durationTask?.cancel()
+            filmstripTask?.cancel()
             if let observer = timeObserver {
+                player?.removeTimeObserver(observer)
+            }
+            if let observer = filmstripTimeObserver {
                 player?.removeTimeObserver(observer)
             }
             statusObservation?.invalidate()
@@ -415,11 +431,181 @@ class CoachVideoPlayerViewModel {
         player?.play()
     }
 
+    /// Seeks to a precise timestamp without auto-playing. Used by the filmstrip
+    /// for frame inspection and telestration frame selection.
+    func seekToTimestampPaused(_ timestamp: Double) {
+        let time = CMTime(seconds: timestamp, preferredTimescale: 600)
+        player?.seek(to: time, toleranceBefore: .zero, toleranceAfter: .zero)
+        player?.pause()
+    }
+
     func setPlaybackRate(_ rate: Double) {
         playbackRate = rate
         if player?.timeControlStatus == .playing {
             player?.rate = Float(rate)
         }
+    }
+
+    // MARK: - Filmstrip
+
+    /// Generates frame thumbnails for the filmstrip scrubber.
+    /// Loads duration from the asset if not already available.
+    func generateFilmstrip() {
+        guard let currentItem = player?.currentItem else { return }
+        let asset = currentItem.asset
+
+        filmstripTask?.cancel()
+        isGeneratingFilmstrip = true
+
+        let generator = FilmstripGenerator()
+        filmstripTask = Task {
+            // Ensure duration is available — it may not be loaded yet
+            // if generateFilmstrip runs before startTimeObserver fires.
+            var duration = videoDuration ?? 0
+            if duration <= 0 {
+                do {
+                    let loaded = try await asset.load(.duration)
+                    duration = loaded.seconds
+                    if !Task.isCancelled {
+                        videoDuration = duration
+                    }
+                } catch {
+                    isGeneratingFilmstrip = false
+                    return
+                }
+            }
+            guard duration > 0, !Task.isCancelled else {
+                isGeneratingFilmstrip = false
+                return
+            }
+
+            await generator.generateThumbnails(
+                for: asset,
+                duration: duration,
+                onProgress: { [weak self] thumbnails in
+                    self?.filmstripThumbnails = thumbnails
+                }
+            )
+            if !Task.isCancelled {
+                isGeneratingFilmstrip = false
+            }
+        }
+    }
+
+    /// Starts a high-frequency time observer (0.1s) for filmstrip tracking.
+    /// Call when the filmstrip becomes visible; pair with `stopFilmstripTimeObserver`.
+    func startFilmstripTimeObserver() {
+        guard let player, filmstripTimeObserver == nil else { return }
+
+        let interval = CMTime(seconds: 0.1, preferredTimescale: 600)
+        filmstripTimeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
+            guard let self else { return }
+            MainActor.assumeIsolated {
+                let newTime = time.seconds
+                // Throttle: only update if changed by more than 0.05s
+                if abs(newTime - self.observedPlaybackTime) > 0.05 {
+                    self.observedPlaybackTime = newTime
+                }
+            }
+        }
+    }
+
+    /// Removes the filmstrip time observer. Call when the filmstrip is hidden.
+    func stopFilmstripTimeObserver() {
+        if let observer = filmstripTimeObserver {
+            player?.removeTimeObserver(observer)
+            filmstripTimeObserver = nil
+        }
+    }
+
+    /// Loads the video's natural size for aspect-ratio–correct telestration canvas.
+    func loadVideoNaturalSize() async {
+        guard let asset = player?.currentItem?.asset else { return }
+        do {
+            let tracks = try await asset.loadTracks(withMediaType: .video)
+            if let track = tracks.first {
+                let size = try await track.load(.naturalSize)
+                let transform = try await track.load(.preferredTransform)
+                let transformed = size.applying(transform)
+                videoNaturalSize = CGSize(
+                    width: abs(transformed.width),
+                    height: abs(transformed.height)
+                )
+            }
+        } catch {
+            // Fall back to 16:9 if we can't determine
+            videoNaturalSize = CGSize(width: 16, height: 9)
+        }
+    }
+
+    // MARK: - Telestration
+
+    /// Saves a PencilKit drawing as a "drawing" annotation at the given timestamp.
+    /// Returns `true` on success so the caller can dismiss the overlay.
+    @discardableResult
+    func addDrawingAnnotation(
+        drawing: PKDrawing,
+        timestamp: Double,
+        userID: String,
+        userName: String
+    ) async -> Bool {
+        // Enforce size limit (~200KB pre-encoding) before encoding to base64
+        let rawData = drawing.dataRepresentation()
+        guard rawData.count <= 200_000 else {
+            errorMessage = "Drawing is too complex. Try simplifying and saving again."
+            return false
+        }
+
+        let base64 = rawData.base64EncodedString()
+
+        do {
+            let videoID = video.id
+            guard !videoID.isEmpty else { return false }
+
+            let annotation = try await FirestoreManager.shared.createAnnotation(
+                videoID: videoID,
+                text: "Drawing annotation",
+                timestamp: timestamp,
+                userID: userID,
+                userName: userName,
+                isCoachComment: true,
+                type: "drawing",
+                drawingData: base64
+            )
+
+            annotations.append(annotation)
+            annotations.sort { $0.timestamp < $1.timestamp }
+            Haptics.success()
+
+            // Notify the folder owner that the coach left a drawing
+            await ActivityNotificationService.shared.postCoachCommentNotification(
+                videoFileName: video.fileName,
+                folderID: folder.id ?? "",
+                videoID: videoID,
+                coachID: userID,
+                coachName: userName,
+                athleteID: folder.ownerAthleteID,
+                notePreview: "Drawing annotation"
+            )
+            return true
+        } catch {
+            errorMessage = "Failed to save drawing: \(error.localizedDescription)"
+            ErrorHandlerService.shared.handle(error, context: "CoachVideoPlayerViewModel.addDrawingAnnotation", showAlert: false)
+            return false
+        }
+    }
+
+    /// Shows a saved drawing overlay on the video. Seeks to the annotation's
+    /// timestamp and pauses playback.
+    func showDrawingOverlay(for annotation: VideoAnnotation) {
+        guard let data = annotation.drawingPKData else { return }
+        seekToTimestampPaused(annotation.timestamp)
+        activeDrawingOverlay = data
+    }
+
+    /// Dismisses the drawing overlay.
+    func dismissDrawingOverlay() {
+        activeDrawingOverlay = nil
     }
 
     // MARK: - Save to Photos

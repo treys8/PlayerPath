@@ -10,7 +10,12 @@ import SwiftUI
 
 struct CoachAthletesTab: View {
     private var sharedFolderManager: SharedFolderManager { .shared }
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
+
+    private var isRegularWidth: Bool {
+        horizontalSizeClass == .regular
+    }
     private var invitationManager: CoachInvitationManager { .shared }
     private var archiveManager: CoachFolderArchiveManager { .shared }
     @State private var searchText = ""
@@ -181,7 +186,8 @@ struct CoachAthletesTab: View {
                     }
                 }
             }
-            .padding()
+            .padding(.vertical)
+            .padding(.horizontal, isRegularWidth ? 32 : 16)
         }
     }
 

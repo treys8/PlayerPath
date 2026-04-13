@@ -22,7 +22,9 @@ extension FirestoreManager {
         text: String,
         isCoachComment: Bool,
         category: String? = nil,
-        templateID: String? = nil
+        templateID: String? = nil,
+        type: String? = nil,
+        drawingData: String? = nil
     ) async throws -> String {
         var annotationData: [String: Any] = [
             "userID": userID,
@@ -34,6 +36,8 @@ extension FirestoreManager {
         ]
         if let category { annotationData["category"] = category }
         if let templateID { annotationData["templateID"] = templateID }
+        if let type { annotationData["type"] = type }
+        if let drawingData { annotationData["drawingData"] = drawingData }
 
         do {
             let docRef = try await db.collection(FC.videos)
@@ -159,7 +163,9 @@ extension FirestoreManager {
         userName: String,
         isCoachComment: Bool,
         category: String? = nil,
-        templateID: String? = nil
+        templateID: String? = nil,
+        type: String? = nil,
+        drawingData: String? = nil
     ) async throws -> VideoAnnotation {
         let annotationID = try await addAnnotation(
             videoID: videoID,
@@ -169,7 +175,9 @@ extension FirestoreManager {
             text: text,
             isCoachComment: isCoachComment,
             category: category,
-            templateID: templateID
+            templateID: templateID,
+            type: type,
+            drawingData: drawingData
         )
 
         return VideoAnnotation(
@@ -181,7 +189,9 @@ extension FirestoreManager {
             createdAt: Date(),
             isCoachComment: isCoachComment,
             category: category,
-            templateID: templateID
+            templateID: templateID,
+            type: type,
+            drawingData: drawingData
         )
     }
 }

@@ -8,6 +8,7 @@
 
 import SwiftUI
 import AVKit
+import PencilKit
 
 struct CoachVideoPlayerView: View {
     let folder: SharedFolder
@@ -23,11 +24,14 @@ struct CoachVideoPlayerView: View {
     @State private var showingDrillCardEditor = false
     @State private var isMarkingReviewed = false
     @State private var markReviewedError: String?
+    @State private var showingTelestration = false
     @State private var drillCards: [DrillCard] = []
     private var templateService: CoachTemplateService { .shared }
     @Environment(\.verticalSizeClass) private var vSizeClass
+    @Environment(\.horizontalSizeClass) private var hSizeClass
     @Environment(\.scenePhase) private var scenePhase
-    private var isLandscape: Bool { vSizeClass == .compact }
+    private var isWideLayout: Bool { hSizeClass == .regular || vSizeClass == .compact }
+    private var isIPad: Bool { hSizeClass == .regular }
     
     init(folder: SharedFolder, video: CoachVideoItem) {
         self.folder = folder
@@ -51,10 +55,10 @@ struct CoachVideoPlayerView: View {
     
     var body: some View {
         Group {
-            if isLandscape {
-                landscapeLayout
+            if isWideLayout {
+                wideLayout
             } else {
-                portraitLayout
+                narrowLayout
             }
         }
         .navigationTitle(video.displayTitle)
@@ -75,6 +79,19 @@ struct CoachVideoPlayerView: View {
                         .accessibilityLabel("Mark as reviewed")
                     }
 
+                    // Telestration draw button (coaches only)
+                    if canEditCoachNote {
+                        Button {
+                            viewModel.player?.pause()
+                            showingTelestration = true
+                        } label: {
+                            Image(systemName: "pencil.tip")
+                                .foregroundColor(.brandNavy)
+                        }
+                        .disabled(!viewModel.isPlayerReady)
+                        .accessibilityLabel("Draw on video frame")
+                    }
+
                     // Save to device button
                     Button {
                         Task { await viewModel.saveToPhotos() }
@@ -89,25 +106,27 @@ struct CoachVideoPlayerView: View {
                     .disabled(viewModel.isSaving || !viewModel.isPlayerReady)
                     .accessibilityLabel("Save video to device")
 
-                    // Playback speed button
-                    Button {
-                        showingSpeedPicker = true
-                    } label: {
-                        Text(viewModel.playbackRate == 1.0
-                             ? "1x"
-                             : viewModel.playbackRate < 1.0
-                                 ? String(format: "%.2gx", viewModel.playbackRate)
-                                 : String(format: "%.4gx", viewModel.playbackRate))
-                            .font(.subheadline)
-                            .fontWeight(.semibold)
-                            .monospacedDigit()
-                            .foregroundColor(.brandNavy)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(Color.brandNavy.opacity(0.12))
-                            .clipShape(Capsule())
+                    // Playback speed button (hidden on iPad — uses inline sidebar control)
+                    if !isIPad {
+                        Button {
+                            showingSpeedPicker = true
+                        } label: {
+                            Text(viewModel.playbackRate == 1.0
+                                 ? "1x"
+                                 : viewModel.playbackRate < 1.0
+                                     ? String(format: "%.2gx", viewModel.playbackRate)
+                                     : String(format: "%.4gx", viewModel.playbackRate))
+                                .font(.subheadline)
+                                .fontWeight(.semibold)
+                                .monospacedDigit()
+                                .foregroundColor(.brandNavy)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(Color.brandNavy.opacity(0.12))
+                                .clipShape(Capsule())
+                        }
+                        .accessibilityLabel("Playback speed: \(viewModel.playbackRate)x")
                     }
-                    .accessibilityLabel("Playback speed: \(viewModel.playbackRate)x")
                 }
             }
         }
@@ -188,6 +207,10 @@ struct CoachVideoPlayerView: View {
             // Load video first (always needed)
             await viewModel.loadVideo()
 
+            // Generate filmstrip and load video natural size after player is ready
+            await viewModel.loadVideoNaturalSize()
+            viewModel.generateFilmstrip()
+
             // Load annotations, cues, and drill cards sequentially
             // (async let can crash the runtime if the view is dismissed mid-flight)
             await viewModel.loadAnnotations()
@@ -224,7 +247,31 @@ struct CoachVideoPlayerView: View {
         min(max(UIScreen.main.bounds.height * 0.4, 220), 400)
     }
 
-    private var portraitLayout: some View {
+    private var videoAspectRatio: CGFloat {
+        if let size = viewModel.videoNaturalSize, size.height > 0 {
+            return size.width / size.height
+        }
+        return 16.0 / 9.0
+    }
+
+    @ViewBuilder
+    private var filmstripSection: some View {
+        if !viewModel.filmstripThumbnails.isEmpty || viewModel.isGeneratingFilmstrip {
+            FilmstripScrubberView(
+                thumbnails: viewModel.filmstripThumbnails,
+                currentTime: viewModel.observedPlaybackTime,
+                duration: viewModel.videoDuration ?? 0,
+                onSeek: { timestamp in
+                    viewModel.seekToTimestampPaused(timestamp)
+                },
+                isLoading: viewModel.isGeneratingFilmstrip
+            )
+            .onAppear { viewModel.startFilmstripTimeObserver() }
+            .onDisappear { viewModel.stopFilmstripTimeObserver() }
+        }
+    }
+
+    private var narrowLayout: some View {
         VStack(spacing: 0) {
             playerContent
                 .frame(height: playerHeight)
@@ -241,11 +288,14 @@ struct CoachVideoPlayerView: View {
         }
     }
 
-    private var landscapeLayout: some View {
+    private var wideLayout: some View {
         HStack(spacing: 0) {
+            // Video area
             VStack(spacing: 0) {
                 playerContent
-                if canComment && !templateService.quickCues.isEmpty {
+                filmstripSection
+                // On iPhone landscape, quick cues stay below the video
+                if !isIPad, canComment, !templateService.quickCues.isEmpty {
                     QuickCueBar(
                         cues: templateService.quickCues,
                         onTap: { cue in quickCueTapped(cue) },
@@ -254,12 +304,26 @@ struct CoachVideoPlayerView: View {
                 }
             }
             Divider()
-            VStack(spacing: 0) {
-                athleteNoteCard
-                coachNoteCard
-                annotationPanel
-            }
-            .frame(width: 320)
+            // Sidebar
+            CoachVideoSidebar(
+                showSpeedControl: isIPad,
+                playbackRate: viewModel.playbackRate,
+                onRateChanged: { viewModel.setPlaybackRate($0) },
+                athleteNote: { athleteNoteCard },
+                coachNote: { coachNoteCard },
+                quickCues: {
+                    // On iPad, quick cues move into the sidebar
+                    if isIPad, canComment, !templateService.quickCues.isEmpty {
+                        QuickCueBar(
+                            cues: templateService.quickCues,
+                            onTap: { cue in quickCueTapped(cue) },
+                            onManage: { showingQuickCueManager = true }
+                        )
+                    }
+                },
+                annotationPanel: { annotationPanel }
+            )
+            .frame(width: isIPad ? 360 : 320)
         }
     }
 
@@ -268,6 +332,7 @@ struct CoachVideoPlayerView: View {
         if let player = viewModel.player, viewModel.isPlayerReady {
             ZStack(alignment: .bottom) {
                 VideoPlayer(player: player)
+                    .allowsHitTesting(!showingTelestration && viewModel.activeDrawingOverlay == nil)
                     .onAppear {
                         player.play()
                         viewModel.startTimeObserver()
@@ -275,10 +340,12 @@ struct CoachVideoPlayerView: View {
                     .onDisappear {
                         player.pause()
                         viewModel.stopTimeObserver()
+                        viewModel.stopFilmstripTimeObserver()
                     }
 
                 // Annotation markers overlay
-                if !viewModel.annotations.isEmpty,
+                if !showingTelestration, viewModel.activeDrawingOverlay == nil,
+                   !viewModel.annotations.isEmpty,
                    let duration = viewModel.videoDuration, duration > 0 {
                     GeometryReader { geometry in
                         ZStack(alignment: .bottomLeading) {
@@ -293,6 +360,40 @@ struct CoachVideoPlayerView: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
                     }
                     .allowsHitTesting(false)
+                }
+
+                // Telestration drawing canvas overlay
+                if showingTelestration {
+                    TelestrationOverlayView(
+                        timestamp: viewModel.currentPlaybackTime,
+                        videoAspectRatio: videoAspectRatio,
+                        onSave: { drawing, timestamp in
+                            guard let userID = authManager.userID,
+                                  let userName = authManager.userDisplayName ?? authManager.userEmail else { return false }
+                            let saved = await viewModel.addDrawingAnnotation(
+                                drawing: drawing,
+                                timestamp: timestamp,
+                                userID: userID,
+                                userName: userName
+                            )
+                            if saved {
+                                showingTelestration = false
+                            }
+                            return saved
+                        },
+                        onCancel: {
+                            showingTelestration = false
+                        }
+                    )
+                }
+
+                // Read-only drawing annotation overlay
+                if let drawingData = viewModel.activeDrawingOverlay {
+                    DrawingAnnotationOverlay(
+                        drawingData: drawingData,
+                        videoAspectRatio: videoAspectRatio,
+                        onDismiss: { viewModel.dismissDrawingOverlay() }
+                    )
                 }
             }
         } else if viewModel.isLoading {
@@ -360,6 +461,9 @@ struct CoachVideoPlayerView: View {
                         },
                         onSeekToTimestamp: { timestamp in
                             viewModel.seekToTimestamp(timestamp)
+                        },
+                        onShowDrawing: { annotation in
+                            viewModel.showDrawingOverlay(for: annotation)
                         },
                         canComment: canComment
                     )
@@ -553,6 +657,7 @@ struct NotesTabView: View {
     let onAddNote: () -> Void
     let onDeleteNote: (VideoAnnotation) -> Void
     let onSeekToTimestamp: (Double) -> Void
+    var onShowDrawing: ((VideoAnnotation) -> Void)?
     let canComment: Bool
 
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
@@ -620,7 +725,11 @@ struct NotesTabView: View {
                                     onDeleteNote(note)
                                 },
                                 onSeek: {
-                                    onSeekToTimestamp(note.timestamp)
+                                    if note.isDrawing, let onShowDrawing {
+                                        onShowDrawing(note)
+                                    } else {
+                                        onSeekToTimestamp(note.timestamp)
+                                    }
                                     Haptics.light()
                                 }
                             )
@@ -680,10 +789,21 @@ struct NoteCardView: View {
             }
             .foregroundColor(.secondary)
 
-            // Note text
-            Text(note.text)
-                .font(.subheadline)
-                .fixedSize(horizontal: false, vertical: true)
+            // Note text or drawing indicator
+            if note.isDrawing {
+                HStack(spacing: 6) {
+                    Image(systemName: "pencil.tip")
+                        .font(.subheadline)
+                        .foregroundColor(.brandNavy)
+                    Text("Tap to view drawing")
+                        .font(.subheadline)
+                        .foregroundColor(.brandNavy)
+                }
+            } else {
+                Text(note.text)
+                    .font(.subheadline)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
             // Timestamp
             if let createdAt = note.createdAt {

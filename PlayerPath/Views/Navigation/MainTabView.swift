@@ -20,6 +20,7 @@ struct MainTabView: View {
     @State private var showingWelcomeTutorial = false
     @Environment(\.modelContext) private var modelContext
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.scenePhase) private var scenePhase
 
     // More tab programmatic navigation
     @State private var morePath = NavigationPath()
@@ -144,10 +145,8 @@ struct MainTabView: View {
                 if PushNotificationService.shared.authorizationStatus == .notDetermined {
                     _ = await PushNotificationService.shared.requestAuthorization()
                 }
-                // Schedule weekly summary notification with real stats
-                if UserDefaults.standard.object(forKey: "notif_weeklyStats") as? Bool ?? true {
-                    await scheduleWeeklySummaryWithStats()
-                }
+                // Schedule weekly summary notification with real stats for every athlete
+                await WeeklySummaryScheduler.scheduleAll(for: user)
 
                 // Show connected walkthrough for new users
                 if !onboardingManager.hasSeenWelcomeTutorial {
@@ -164,6 +163,13 @@ struct MainTabView: View {
             }
             .onChange(of: authManager.currentTier) { _, newTier in
                 athleteDowngradeManager.evaluate(tier: newTier)
+            }
+            .onChange(of: scenePhase) { _, phase in
+                // Weekly summary body is baked in at schedule time — refresh on
+                // every foreground so stats stay current across the week.
+                if phase == .active {
+                    Task { await WeeklySummaryScheduler.scheduleAll(for: user) }
+                }
             }
             .onChange(of: selectedTab) { _, newValue in
                 saveSelectedTab(newValue)
@@ -346,6 +352,18 @@ struct MainTabView: View {
                 }
             }
         }
+
+        // Refresh the baked-in weekly-summary body whenever the underlying
+        // stats change. Each handler cancel+adds the pending notification,
+        // which is cheap and idempotent.
+        let refreshWeekly: @Sendable (Notification) -> Void = { [user] _ in
+            MainActor.assumeIsolated {
+                Task { await WeeklySummaryScheduler.scheduleAll(for: user) }
+            }
+        }
+        notificationManager.observe(name: Notification.Name.gameCreated, using: refreshWeekly)
+        notificationManager.observe(name: Notification.Name.gameEnded, using: refreshWeekly)
+        notificationManager.observe(name: Notification.Name.videoRecorded, using: refreshWeekly)
     }
     
     @ViewBuilder
@@ -632,29 +650,6 @@ struct MainTabView: View {
         }
     }
 
-    /// Compute this week's stats from the athlete's data and schedule
-    /// a one-shot weekly summary notification for next Sunday.
-    /// Pre-extracts lightweight Date values so model objects aren't held across the await.
-    private func scheduleWeeklySummaryWithStats() async {
-        let athleteIdString = selectedAthlete.id.uuidString
-        let gameDates = (selectedAthlete.games ?? []).compactMap(\.date)
-        let videoDates = (selectedAthlete.videoClips ?? []).compactMap(\.createdAt)
-        let avg = selectedAthlete.statistics?.battingAverage
-
-        let calendar = Calendar.current
-        let now = Date()
-        let startOfWeek = calendar.date(from: calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: now)) ?? now
-
-        let gamesThisWeek = gameDates.filter { $0 >= startOfWeek }.count
-        let videosThisWeek = videoDates.filter { $0 >= startOfWeek }.count
-
-        await PushNotificationService.shared.scheduleWeeklySummary(
-            athleteId: athleteIdString,
-            gamesThisWeek: gamesThisWeek,
-            videosThisWeek: videosThisWeek,
-            battingAverage: avg
-        )
-    }
 }
 
 /// Isolates the badge observation so that changes to unread count

@@ -187,6 +187,29 @@ class CoachSessionManager {
         scheduledSessions.removeAll { $0.id == sessionID }
     }
 
+    /// Updates the session's notes field. Pass nil or empty to clear.
+    func updateSessionNotes(sessionID: String, notes: String?) async throws {
+        let trimmed = notes?.trimmingCharacters(in: .whitespacesAndNewlines)
+        var updateData: [String: Any] = [:]
+        if let trimmed, !trimmed.isEmpty {
+            updateData["notes"] = trimmed
+        } else {
+            updateData["notes"] = FieldValue.delete()
+        }
+        try await db.collection(FC.coachSessions).document(sessionID).updateData(updateData)
+
+        // Update local state
+        if let idx = scheduledSessions.firstIndex(where: { $0.id == sessionID }) {
+            scheduledSessions[idx].notes = trimmed
+        }
+        if let idx = sessions.firstIndex(where: { $0.id == sessionID }) {
+            sessions[idx].notes = trimmed
+        }
+        if activeSession?.id == sessionID {
+            activeSession?.notes = trimmed
+        }
+    }
+
     /// Increments the clip count for the active session.
     func incrementClipCount(sessionID: String) async {
         do {

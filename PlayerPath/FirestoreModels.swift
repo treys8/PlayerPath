@@ -185,6 +185,7 @@ struct VideoAnnotation: Codable, Identifiable {
     var category: String? = nil
     var templateID: String? = nil
     var type: String? = nil // "note" (default), "drill_card", "drawing"
+    var drawingData: String? = nil // base64-encoded PKDrawing data (telestration)
 
     var annotationCategory: AnnotationCategory? {
         guard let category else { return nil }

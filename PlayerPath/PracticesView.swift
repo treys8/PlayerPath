@@ -37,6 +37,7 @@ extension Practice {
 struct PracticesView: View {
     let athlete: Athlete?
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var viewModel = PracticesViewModel()
     @State private var navigateToPractice: Practice?
 
@@ -214,6 +215,8 @@ struct PracticesView: View {
 
     var body: some View {
         practicesContent
+        .frame(maxWidth: horizontalSizeClass == .regular ? 700 : .infinity)
+        .frame(maxWidth: .infinity)
         .task {
             viewModel.update(practices: athlete?.practices ?? [])
         }

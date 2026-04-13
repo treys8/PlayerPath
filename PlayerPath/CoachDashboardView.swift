@@ -25,10 +25,20 @@ struct CoachDashboardView: View {
     @State private var startingScheduledSessionID: String?
     @State private var showingCancelConfirmation = false
     @State private var sessionToCancel: CoachSession?
+    @State private var editingSessionNotes: CoachSession?
     private var archiveManager: CoachFolderArchiveManager { .shared }
     private var reviewQueue: ReviewQueueViewModel { .shared }
     private var needsReviewQueue: NeedsReviewQueueViewModel { .shared }
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var isRegularWidth: Bool {
+        horizontalSizeClass == .regular
+    }
+
+    private var dashboardHorizontalPadding: CGFloat {
+        isRegularWidth ? 32 : 16
+    }
 
     @State private var cachedRecentFolders: [SharedFolder] = []
     @State private var cachedThisWeekSessionCount = 0
@@ -95,7 +105,8 @@ struct CoachDashboardView: View {
                         }
                     }
                 }
-                .padding()
+                .padding(.vertical)
+                .padding(.horizontal, dashboardHorizontalPadding)
             }
             .refreshable {
                 await reloadData()
@@ -129,6 +140,19 @@ struct CoachDashboardView: View {
         }
         .sheet(isPresented: $showingStartSession) {
             StartSessionSheet()
+        }
+        .sheet(item: $editingSessionNotes) { session in
+            if let sessionID = session.id {
+                SessionNotesEditorSheet(
+                    initialNotes: session.notes ?? "",
+                    onSave: { notes in
+                        try await CoachSessionManager.shared.updateSessionNotes(
+                            sessionID: sessionID,
+                            notes: notes
+                        )
+                    }
+                )
+            }
         }
         .fullScreenCover(isPresented: $showingCamera) {
             if let session = sessionManager.activeSession {
@@ -232,7 +256,8 @@ struct CoachDashboardView: View {
                 LiveSessionCard(
                     session: session,
                     isEnding: isEndingSession,
-                    onEnd: { endActiveSession(session) }
+                    onEnd: { endActiveSession(session) },
+                    onEditNotes: { editingSessionNotes = session }
                 )
                 .contentShape(Rectangle())
                 .onTapGesture { resumeSession(session) }
@@ -361,7 +386,8 @@ struct CoachDashboardView: View {
                         onCancel: {
                             sessionToCancel = session
                             showingCancelConfirmation = true
-                        }
+                        },
+                        onEditNotes: { editingSessionNotes = session }
                     )
                 }
             }
@@ -427,52 +453,66 @@ struct CoachDashboardView: View {
         VStack(alignment: .leading, spacing: 12) {
             DashboardSectionHeader(title: "Recent Athletes", icon: "clock.fill", color: .brandNavy)
 
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 12) {
+            if isRegularWidth {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 140, maximum: 180), spacing: 12)], spacing: 12) {
                     ForEach(recentAthleteCards.prefix(5), id: \.athleteID) { card in
-                        Button {
-                            coordinator.selectedTab = .athletes
-                        } label: {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Image(systemName: "figure.baseball")
-                                    .font(.title2)
-                                    .foregroundColor(.brandNavy)
-                                    .frame(width: 40, height: 40)
-                                    .background(Color.brandNavy.opacity(0.1))
-                                    .clipShape(Circle())
-
-                                Text(card.athleteName)
-                                    .font(.subheadline)
-                                    .fontWeight(.medium)
-                                    .foregroundColor(.primary)
-                                    .lineLimit(1)
-
-                                HStack(spacing: 4) {
-                                    Image(systemName: "video")
-                                    Text("\(card.totalVideos)")
-                                }
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-
-                                if card.unreadCount > 0 {
-                                    HStack(spacing: 3) {
-                                        Circle().fill(Color.red).frame(width: 6, height: 6)
-                                        Text("\(card.unreadCount) new")
-                                            .font(.caption2)
-                                            .foregroundColor(.red)
-                                    }
-                                }
-                            }
-                            .frame(width: 120)
-                            .padding()
-                            .background(Color(.secondarySystemBackground))
-                            .cornerRadius(12)
+                        recentAthleteCardView(card, fixedWidth: false)
+                    }
+                }
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 12) {
+                        ForEach(recentAthleteCards.prefix(5), id: \.athleteID) { card in
+                            recentAthleteCardView(card, fixedWidth: true)
                         }
-                        .buttonStyle(.plain)
                     }
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private func recentAthleteCardView(_ card: RecentAthleteCard, fixedWidth: Bool) -> some View {
+        Button {
+            coordinator.selectedTab = .athletes
+        } label: {
+            VStack(alignment: .leading, spacing: 8) {
+                Image(systemName: "figure.baseball")
+                    .font(.title2)
+                    .foregroundColor(.brandNavy)
+                    .frame(width: 40, height: 40)
+                    .background(Color.brandNavy.opacity(0.1))
+                    .clipShape(Circle())
+
+                Text(card.athleteName)
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+
+                HStack(spacing: 4) {
+                    Image(systemName: "video")
+                    Text("\(card.totalVideos)")
+                }
+                .font(.caption)
+                .foregroundColor(.secondary)
+
+                if card.unreadCount > 0 {
+                    HStack(spacing: 3) {
+                        Circle().fill(Color.red).frame(width: 6, height: 6)
+                        Text("\(card.unreadCount) new")
+                            .font(.caption2)
+                            .foregroundColor(.red)
+                    }
+                }
+            }
+            .frame(width: fixedWidth ? 120 : nil)
+            .frame(maxWidth: fixedWidth ? nil : .infinity, alignment: .leading)
+            .padding()
+            .background(Color(.secondarySystemBackground))
+            .cornerRadius(12)
+        }
+        .buttonStyle(.plain)
     }
 
     private struct RecentAthleteCard {

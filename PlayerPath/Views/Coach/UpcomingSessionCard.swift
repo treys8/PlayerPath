@@ -13,6 +13,7 @@ struct UpcomingSessionCard: View {
     var isStarting: Bool = false
     var onStart: (() -> Void)?
     var onCancel: (() -> Void)?
+    var onEditNotes: (() -> Void)?
 
     var body: some View {
         HStack(spacing: 14) {
@@ -46,10 +47,33 @@ struct UpcomingSessionCard: View {
                 }
 
                 if let notes = session.notes, !notes.isEmpty {
-                    Text(notes)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
+                    Button {
+                        onEditNotes?()
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text(notes)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                            Image(systemName: "pencil")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                } else if onEditNotes != nil {
+                    Button {
+                        onEditNotes?()
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "note.text.badge.plus")
+                                .font(.caption2)
+                            Text("Add notes")
+                                .font(.caption)
+                        }
+                        .foregroundColor(.blue.opacity(0.7))
+                    }
+                    .buttonStyle(.plain)
                 }
             }
 
@@ -105,6 +129,13 @@ struct UpcomingSessionCard: View {
                     onStart()
                 } label: {
                     Label("Go Live", systemImage: "record.circle")
+                }
+            }
+            if let onEditNotes {
+                Button {
+                    onEditNotes()
+                } label: {
+                    Label("Edit Notes", systemImage: "note.text")
                 }
             }
             if let onCancel {

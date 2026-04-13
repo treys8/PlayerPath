@@ -365,7 +365,10 @@ service cloud.firestore {
                       && 'sharedFolderID' in getVideoData(videoID)
                       && hasPermission(getVideoData(videoID).sharedFolderID, "comment")
                       && (isFolderOwner(getVideoData(videoID).sharedFolderID)
-                          || hasCoachTier());
+                          || hasCoachTier())
+                      // Limit drawingData size to ~300KB to prevent abuse
+                      && (!('drawingData' in request.resource.data)
+                          || request.resource.data.drawingData.size() < 300000);
 
         // Users can edit their own annotations, userID must remain unchanged
         allow update: if isAuthenticated()

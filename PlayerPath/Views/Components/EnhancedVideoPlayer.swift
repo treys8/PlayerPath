@@ -33,8 +33,10 @@ struct EnhancedVideoPlayer: View {
     @State private var isAtEnd = false
     @State private var shouldResumeOnActive = false
     @Environment(\.verticalSizeClass) private var vSizeClass
+    @Environment(\.horizontalSizeClass) private var hSizeClass
     @Environment(\.scenePhase) private var scenePhase
     private var isLandscape: Bool { vSizeClass == .compact }
+    private var isWideLayout: Bool { hSizeClass == .regular || vSizeClass == .compact }
 
     // Zoom
     @State private var zoomScale: CGFloat = 1.0
@@ -44,7 +46,7 @@ struct EnhancedVideoPlayer: View {
 
     var body: some View {
         GeometryReader { geometry in
-            ZStack {
+            ZStack(alignment: .bottom) {
                 VideoPlayerRepresentable(player: player)
                     .scaleEffect(zoomScale, anchor: .center)
                     .offset(panOffset)
@@ -52,7 +54,25 @@ struct EnhancedVideoPlayer: View {
                 gestureLayer(geometry: geometry)
 
                 if showControls {
-                    controlsOverlay.transition(.opacity)
+                    bottomControlsBar
+                        .transition(.opacity)
+                }
+            }
+            .frame(width: geometry.size.width, height: geometry.size.height)
+            .overlay(alignment: .topTrailing) {
+                if isLandscape, let onClose, showControls {
+                    Button {
+                        onClose()
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.title2)
+                            .symbolRenderingMode(.hierarchical)
+                            .foregroundStyle(.white)
+                            .shadow(color: .black.opacity(0.5), radius: 4)
+                    }
+                    .accessibilityLabel("Close video player")
+                    .padding(16)
+                    .transition(.opacity)
                 }
             }
         }
@@ -137,33 +157,12 @@ struct EnhancedVideoPlayer: View {
 
     // MARK: - Controls Overlay
 
-    private var controlsOverlay: some View {
-        ZStack(alignment: .topTrailing) {
-            // Close button in landscape (nav bar is hidden)
-            if isLandscape, let onClose {
-                Button {
-                    onClose()
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.title2)
-                        .symbolRenderingMode(.hierarchical)
-                        .foregroundStyle(.white)
-                        .shadow(color: .black.opacity(0.5), radius: 4)
-                }
-                .accessibilityLabel("Close video player")
-                .padding(16)
-                .zIndex(1)
-            }
-
-            VStack {
-                Spacer()
-
-                if isLandscape {
-                    landscapeControls
-                } else {
-                    portraitControls
-                }
-            }
+    @ViewBuilder
+    private var bottomControlsBar: some View {
+        if isWideLayout {
+            landscapeControls
+        } else {
+            portraitControls
         }
     }
 
@@ -188,14 +187,13 @@ struct EnhancedVideoPlayer: View {
             HStack(spacing: 0) {
                 // Speed picker on the left
                 speedControlsCompact
-                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                Spacer()
 
                 // Playback controls centered
                 playbackControlsView
 
-                // Spacer to balance
-                Color.clear
-                    .frame(maxWidth: .infinity)
+                Spacer()
             }
         }
         .padding(.horizontal, 20)
@@ -251,14 +249,14 @@ struct EnhancedVideoPlayer: View {
     // MARK: - Playback Controls
 
     private var playbackControlsView: some View {
-        HStack(spacing: isLandscape ? 24 : 32) {
+        HStack(spacing: isWideLayout ? 24 : 32) {
             // Frame backward
             Button {
                 stepBackward()
                 showControlsTemporarily()
             } label: {
                 Image(systemName: "backward.frame.fill")
-                    .font(isLandscape ? .body : .title2)
+                    .font(isWideLayout ? .body : .title2)
                     .foregroundColor(.white)
             }
             .accessibilityLabel("Step back one frame")
@@ -269,7 +267,7 @@ struct EnhancedVideoPlayer: View {
                 showControlsTemporarily()
             } label: {
                 Image(systemName: "gobackward.5")
-                    .font(isLandscape ? .title3 : .title)
+                    .font(isWideLayout ? .title3 : .title)
                     .foregroundColor(.white)
             }
             .accessibilityLabel("Skip back 5 seconds")
@@ -280,7 +278,7 @@ struct EnhancedVideoPlayer: View {
                 showControlsTemporarily()
             } label: {
                 Image(systemName: playPauseIcon)
-                    .font(.system(size: isLandscape ? 40 : 50))
+                    .font(.system(size: isWideLayout ? 40 : 50))
                     .foregroundColor(.white)
                     .contentTransition(.symbolEffect(.replace))
             }
@@ -292,7 +290,7 @@ struct EnhancedVideoPlayer: View {
                 showControlsTemporarily()
             } label: {
                 Image(systemName: "goforward.5")
-                    .font(isLandscape ? .title3 : .title)
+                    .font(isWideLayout ? .title3 : .title)
                     .foregroundColor(.white)
             }
             .accessibilityLabel("Skip forward 5 seconds")
@@ -303,7 +301,7 @@ struct EnhancedVideoPlayer: View {
                 showControlsTemporarily()
             } label: {
                 Image(systemName: "forward.frame.fill")
-                    .font(isLandscape ? .body : .title2)
+                    .font(isWideLayout ? .body : .title2)
                     .foregroundColor(.white)
             }
             .accessibilityLabel("Step forward one frame")

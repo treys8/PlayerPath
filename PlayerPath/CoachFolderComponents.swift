@@ -53,6 +53,16 @@ struct AllVideosTabView: View {
     var onLoadMore: (() async -> Void)?
     var onEditTags: ((CoachVideoItem) -> Void)?
 
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+    private var videoGridColumns: [GridItem] {
+        if horizontalSizeClass == .regular {
+            return [GridItem(.adaptive(minimum: 280, maximum: 380), spacing: 16)]
+        } else {
+            return [GridItem(.flexible())]
+        }
+    }
+
     var body: some View {
         Group {
             if isLoading && videos.isEmpty {
@@ -72,7 +82,7 @@ struct AllVideosTabView: View {
                 )
             } else {
                 ScrollView {
-                    LazyVStack(spacing: 16) {
+                    LazyVGrid(columns: videoGridColumns, spacing: 16) {
                         ForEach(videos) { video in
                             videoNavigationLink(folder: folder, video: video)
                         }
@@ -96,7 +106,8 @@ struct AllVideosTabView: View {
                             .disabled(isLoadingMore)
                         }
                     }
-                    .padding()
+                    .padding(.vertical)
+                    .padding(.horizontal, horizontalSizeClass == .regular ? 32 : 16)
                 }
                 .refreshable { await onRefresh() }
             }
@@ -275,6 +286,7 @@ struct GamesTabView: View {
     var unreadVideoIDs: Set<String> = []
     let onRefresh: () async -> Void
 
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var cachedGameGroups: [GameGroup] = []
 
     var body: some View {
@@ -301,7 +313,8 @@ struct GamesTabView: View {
                             GameGroupView(folder: folder, gameGroup: group, unreadVideoIDs: unreadVideoIDs)
                         }
                     }
-                    .padding()
+                    .padding(.vertical)
+                    .padding(.horizontal, horizontalSizeClass == .regular ? 32 : 16)
                 }
                 .refreshable { await onRefresh() }
             }
@@ -337,7 +350,16 @@ struct GameGroupView: View {
     let gameGroup: GameGroup
     var unreadVideoIDs: Set<String> = []
 
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var isExpanded = true
+
+    private var videoGridColumns: [GridItem] {
+        if horizontalSizeClass == .regular {
+            return [GridItem(.adaptive(minimum: 280, maximum: 380), spacing: 16)]
+        } else {
+            return [GridItem(.flexible())]
+        }
+    }
 
     var body: some View {
         VStack(spacing: 12) {
@@ -371,11 +393,13 @@ struct GameGroupView: View {
             .buttonStyle(.plain)
 
             if isExpanded {
-                ForEach(gameGroup.videos) { video in
-                    NavigationLink(destination: CoachVideoPlayerView(folder: folder, video: video)) {
-                        CoachVideoCard(video: video, isUnread: unreadVideoIDs.contains(video.id))
+                LazyVGrid(columns: videoGridColumns, spacing: 16) {
+                    ForEach(gameGroup.videos) { video in
+                        NavigationLink(destination: CoachVideoPlayerView(folder: folder, video: video)) {
+                            CoachVideoCard(video: video, isUnread: unreadVideoIDs.contains(video.id))
+                        }
+                        .buttonStyle(PressableCardButtonStyle())
                     }
-                    .buttonStyle(PressableCardButtonStyle())
                 }
             }
         }
@@ -392,6 +416,7 @@ struct InstructionTabView: View {
     var unreadVideoIDs: Set<String> = []
     let onRefresh: () async -> Void
 
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var cachedPracticeGroups: [PracticeGroup] = []
 
     var body: some View {
@@ -418,7 +443,8 @@ struct InstructionTabView: View {
                             PracticeGroupView(folder: folder, practiceGroup: group, unreadVideoIDs: unreadVideoIDs)
                         }
                     }
-                    .padding()
+                    .padding(.vertical)
+                    .padding(.horizontal, horizontalSizeClass == .regular ? 32 : 16)
                 }
                 .refreshable { await onRefresh() }
             }
@@ -453,7 +479,16 @@ struct PracticeGroupView: View {
     let practiceGroup: PracticeGroup
     var unreadVideoIDs: Set<String> = []
 
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var isExpanded = true
+
+    private var videoGridColumns: [GridItem] {
+        if horizontalSizeClass == .regular {
+            return [GridItem(.adaptive(minimum: 280, maximum: 380), spacing: 16)]
+        } else {
+            return [GridItem(.flexible())]
+        }
+    }
 
     var body: some View {
         VStack(spacing: 12) {
@@ -487,11 +522,13 @@ struct PracticeGroupView: View {
             .buttonStyle(.plain)
 
             if isExpanded {
-                ForEach(practiceGroup.videos) { video in
-                    NavigationLink(destination: CoachVideoPlayerView(folder: folder, video: video)) {
-                        CoachVideoCard(video: video, isUnread: unreadVideoIDs.contains(video.id))
+                LazyVGrid(columns: videoGridColumns, spacing: 16) {
+                    ForEach(practiceGroup.videos) { video in
+                        NavigationLink(destination: CoachVideoPlayerView(folder: folder, video: video)) {
+                            CoachVideoCard(video: video, isUnread: unreadVideoIDs.contains(video.id))
+                        }
+                        .buttonStyle(PressableCardButtonStyle())
                     }
-                    .buttonStyle(PressableCardButtonStyle())
                 }
             }
         }

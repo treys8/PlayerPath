@@ -13,6 +13,7 @@ import Combine
 struct GamesView: View {
     let athlete: Athlete?
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     // Query games for the current athlete only — avoids loading all games across athletes
     private let athleteID: UUID?
@@ -350,6 +351,8 @@ struct GamesView: View {
 
     var body: some View {
         mainContent
+            .frame(maxWidth: horizontalSizeClass == .regular ? 700 : .infinity)
+            .frame(maxWidth: .infinity)
             .navigationTitle("Games")
             .navigationBarTitleDisplayMode(.large)
             .searchable(text: $searchText, prompt: "Search by opponent or date")

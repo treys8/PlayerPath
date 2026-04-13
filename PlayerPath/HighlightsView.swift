@@ -14,6 +14,7 @@ struct HighlightsView: View {
     let currentTier: SubscriptionTier
     let hasCoachingAccess: Bool
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @ObservedObject private var autoHighlightSettings = AutoHighlightSettings.shared
     @State private var selectedClip: VideoClip?
     @State private var showingVideoPlayer = false
@@ -208,7 +209,7 @@ struct HighlightsView: View {
         ScrollView {
             LazyVGrid(
                 columns: [
-                    GridItem(.adaptive(minimum: 160, maximum: 220), spacing: 16, alignment: .top)
+                    GridItem(.adaptive(minimum: horizontalSizeClass == .regular ? 200 : 160, maximum: horizontalSizeClass == .regular ? 280 : 220), spacing: 16, alignment: .top)
                 ],
                 spacing: 16
             ) {
@@ -275,7 +276,8 @@ struct HighlightsView: View {
                     .onAppear { viewModel.onItemAppear(clip) }
                 }
             }
-            .padding()
+            .padding(.vertical)
+            .padding(.horizontal, horizontalSizeClass == .regular ? 32 : 16)
         }
         .refreshable {
             viewModel.update(videoClips: athlete?.videoClips ?? [])

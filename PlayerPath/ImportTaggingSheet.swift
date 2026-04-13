@@ -466,18 +466,14 @@ struct ImportTaggingSheet: View {
             )
         }
 
-        Task {
-            do {
-                try modelContext.save()
-                Haptics.success()
-                // Notify dashboard to refresh
-                NotificationCenter.default.post(name: .videoRecorded, object: clip)
-                dismiss()
-            } catch {
-                isSaving = false
-                saveErrorMessage = "Failed to save: \(error.localizedDescription)"
-                ErrorHandlerService.shared.handle(error, context: "ImportTaggingSheet.saveClip", showAlert: false)
-            }
+        let saved = ErrorHandlerService.shared.saveContext(modelContext, caller: "ImportTaggingSheet.saveTagging")
+        if saved {
+            Haptics.success()
+            NotificationCenter.default.post(name: .videoRecorded, object: clip)
+            dismiss()
+        } else {
+            isSaving = false
+            saveErrorMessage = "Failed to save. Please try again."
         }
     }
 
@@ -513,12 +509,22 @@ struct ImportTaggingSheet: View {
             gameStats.hitByPitches = max(0, gameStats.hitByPitches - 1)
         case .hitByPitch:
             gameStats.hitByPitches = max(0, gameStats.hitByPitches - 1)
+            gameStats.totalPitches = max(0, gameStats.totalPitches - 1)
         case .pitchingStrikeout:
             gameStats.pitchingStrikeouts = max(0, gameStats.pitchingStrikeouts - 1)
+            gameStats.totalPitches = max(0, gameStats.totalPitches - 1)
         case .pitchingWalk:
             gameStats.pitchingWalks = max(0, gameStats.pitchingWalks - 1)
-        case .ball, .strike, .wildPitch:
-            break
+            gameStats.totalPitches = max(0, gameStats.totalPitches - 1)
+        case .ball:
+            gameStats.balls = max(0, gameStats.balls - 1)
+            gameStats.totalPitches = max(0, gameStats.totalPitches - 1)
+        case .strike:
+            gameStats.strikes = max(0, gameStats.strikes - 1)
+            gameStats.totalPitches = max(0, gameStats.totalPitches - 1)
+        case .wildPitch:
+            gameStats.wildPitches = max(0, gameStats.wildPitches - 1)
+            gameStats.totalPitches = max(0, gameStats.totalPitches - 1)
         }
     }
 }

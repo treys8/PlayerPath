@@ -76,9 +76,14 @@ struct NotificationSettingsView: View {
             Section {
                 Toggle("Weekly Statistics", isOn: $weeklyStats)
                     .onChange(of: weeklyStats) { _, enabled in
-                        if enabled, let athleteId {
-                            Task { await PushNotificationService.shared.scheduleWeeklySummary(athleteId: athleteId) }
-                        } else if !enabled, let athleteId {
+                        guard let athleteId else { return }
+                        if enabled {
+                            Task { @MainActor in
+                                if let athlete = findAthlete(id: athleteId) {
+                                    await WeeklySummaryScheduler.schedule(for: athlete)
+                                }
+                            }
+                        } else {
                             Task { @MainActor in
                                 PushNotificationService.shared.cancelNotifications(
                                     withIdentifiers: ["weekly_summary_\(athleteId)"]
@@ -112,9 +117,9 @@ struct NotificationSettingsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task {
             await refreshAuthorizationStatus()
-            // Ensure weekly summary is scheduled if enabled
-            if weeklyStats, let athleteId {
-                await PushNotificationService.shared.scheduleWeeklySummary(athleteId: athleteId)
+            // Ensure weekly summary is scheduled with real stats if enabled
+            if weeklyStats, let athleteId, let athlete = findAthlete(id: athleteId) {
+                await WeeklySummaryScheduler.schedule(for: athlete)
             }
         }
         .onChange(of: scenePhase) { _, phase in
@@ -122,6 +127,12 @@ struct NotificationSettingsView: View {
                 Task { await refreshAuthorizationStatus() }
             }
         }
+    }
+
+    private func findAthlete(id: String) -> Athlete? {
+        guard let uuid = UUID(uuidString: id) else { return nil }
+        let descriptor = FetchDescriptor<Athlete>(predicate: #Predicate { $0.id == uuid })
+        return (try? modelContext.fetch(descriptor))?.first
     }
 
     private func refreshAuthorizationStatus() async {

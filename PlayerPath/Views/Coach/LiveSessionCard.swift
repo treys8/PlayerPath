@@ -12,6 +12,7 @@ struct LiveSessionCard: View {
     let session: CoachSession
     var isEnding: Bool = false
     var onEnd: (() -> Void)?
+    var onEditNotes: (() -> Void)?
 
     @State private var isPulsing = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -97,8 +98,28 @@ struct LiveSessionCard: View {
                                 .monospacedDigit()
                         }
                     }
+
+                    if let onEditNotes {
+                        Button {
+                            onEditNotes()
+                        } label: {
+                            Image(systemName: "note.text")
+                                .font(.caption2)
+                                .foregroundColor(.brandNavy)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Edit session notes")
+                    }
                 }
                 .foregroundColor(.secondary)
+
+                if let notes = session.notes, !notes.isEmpty {
+                    Text(notes)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .italic()
+                }
             }
 
             Spacer()

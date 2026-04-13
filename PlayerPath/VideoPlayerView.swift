@@ -37,6 +37,7 @@ struct VideoPlayerView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.modelContext) private var modelContext
     @Environment(\.verticalSizeClass) private var vSizeClass
+    @Environment(\.horizontalSizeClass) private var hSizeClass
 
     // MARK: - Computed Properties
 
@@ -126,7 +127,7 @@ struct VideoPlayerView: View {
                     .background(Color.black)
 
                 // Video Info - hidden in landscape so video fills the screen
-                if vSizeClass != .compact {
+                if vSizeClass != .compact && hSizeClass != .regular {
                     VideoClipInfoCard(clip: clip)
                         .padding(.bottom, 8)
                 }

@@ -27,6 +27,11 @@ class VideoCloudManager: ObservableObject {
     @Published var downloadProgress: [UUID: Double] = [:]
     @Published var isDownloading: [UUID: Bool] = [:]
 
+    /// In-flight download tasks keyed by clip ID. Used to cancel a stale
+    /// download when a new one is requested for the same clip (e.g. after
+    /// trim bumps clip.version and the player view re-requests the file).
+    private var activeDownloads: [UUID: DownloadTaskBox] = [:]
+
     // Progress throttling to prevent excessive UI updates
     var lastProgressUpdate: [String: Date] = [:]
     let progressThrottleInterval: TimeInterval = 0.05 // 50ms
@@ -211,28 +216,29 @@ class VideoCloudManager: ObservableObject {
     ///   - localPath: Local file path where the video should be saved
     ///   - clipId: Optional UUID for progress tracking (defaults to new UUID)
     func downloadVideo(from url: String, to localPath: String, clipId: UUID = UUID()) async throws {
+        // --- Validation phase: all throwing work happens BEFORE we touch shared state,
+        // so an early throw here can never corrupt tracking dictionaries. ---
         guard ConnectivityMonitor.shared.isConnected else {
             throw VideoCloudError.networkUnavailable
         }
-
-        isDownloading[clipId] = true
-        downloadProgress[clipId] = 0.0
-
-        defer {
-            isDownloading[clipId] = false
-            downloadProgress[clipId] = nil
-            lastProgressUpdate.removeValue(forKey: "download_\(clipId.uuidString)")
-        }
-
-        // Parse the Firebase Storage URL to get the storage path
         guard let storageURL = URL(string: url) else {
             throw VideoCloudError.invalidURL
         }
+        let storage = Storage.storage()
+        let storageRef = try storage.reference(for: storageURL)
 
-        // Create local file URL
+        // --- Commit phase: from here on we own the clipId's tracking slot until
+        // either we complete OR a newer call supersedes us. ---
+
+        // Cancel any in-flight download for this clip (e.g. re-requested after trim).
+        // Without this, the old Firebase StorageDownloadTask keeps running alongside
+        // the new one, which GTMSessionFetcher flags as "was already running".
+        if let stale = activeDownloads[clipId] {
+            stale.task?.cancel()
+            activeDownloads[clipId] = nil
+        }
+
         let localURL = URL(fileURLWithPath: localPath)
-
-        // Ensure parent directory exists
         let parentDirectory = localURL.deletingLastPathComponent()
         do {
             try FileManager.default.createDirectory(at: parentDirectory, withIntermediateDirectories: true)
@@ -240,13 +246,24 @@ class VideoCloudManager: ObservableObject {
             videoCloudLog.error("Failed to create download directory: \(error.localizedDescription)")
         }
 
-        // Create storage reference from URL
-        let storage = Storage.storage()
-        let storageRef = try storage.reference(for: storageURL)
+        let ourBox = DownloadTaskBox()
+        isDownloading[clipId] = true
+        downloadProgress[clipId] = 0.0
+
+        defer {
+            // Only clear shared state if we're still the active download for this clipId.
+            // If a later call has replaced us in activeDownloads, leave its state alone.
+            if activeDownloads[clipId] === ourBox {
+                activeDownloads[clipId] = nil
+                isDownloading[clipId] = false
+                downloadProgress[clipId] = nil
+                lastProgressUpdate.removeValue(forKey: "download_\(clipId.uuidString)")
+            }
+        }
 
         // Download file with progress monitoring.
         // withTaskCancellationHandler cancels the Firebase task if the Swift Task is cancelled.
-        let downloadBox = DownloadTaskBox()
+        let downloadBox = ourBox
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 let hasResumed = OSAllocatedUnfairLock(initialState: false)
@@ -271,6 +288,7 @@ class VideoCloudManager: ObservableObject {
                     }
                 }
                 downloadBox.task = downloadTask
+                activeDownloads[clipId] = downloadBox
 
                 // Monitor download progress with throttling
                 downloadTask.observe(.progress) { [weak self] snapshot in
