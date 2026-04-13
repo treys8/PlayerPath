@@ -346,6 +346,86 @@ export const onNewDrillCard = functions.firestore
   });
 
 /**
+ * Backfills in-app notifications for invitations sent to an email BEFORE the user
+ * had an account. When a new Firebase Auth user is created, we look up any pending
+ * coach→athlete invitations keyed on their email and write matching
+ * `invitation_received` notifications into their notifications feed so the bell,
+ * badge, and banner surface normally.
+ *
+ * The client-side listener in AthleteInvitationManager also surfaces the banner
+ * directly, but this ensures the activity feed stays consistent with users who
+ * signed up AFTER the invitation was sent.
+ */
+export const backfillInvitationsOnSignup = functions.auth.user().onCreate(async (user) => {
+  if (!user.email) return;
+  const email = user.email.toLowerCase().trim();
+  try {
+    // Coach → Athlete: the new user was invited as an athlete
+    const c2aSnap = await admin.firestore().collection('invitations')
+      .where('type', '==', 'coach_to_athlete')
+      .where('athleteEmail', '==', email)
+      .where('status', '==', 'pending')
+      .get();
+
+    // Athlete → Coach: the new user was invited as a coach
+    const a2cSnap = await admin.firestore().collection('invitations')
+      .where('type', '==', 'athlete_to_coach')
+      .where('coachEmail', '==', email)
+      .where('status', '==', 'pending')
+      .get();
+
+    if (c2aSnap.empty && a2cSnap.empty) return;
+
+    const batch = admin.firestore().batch();
+
+    for (const doc of c2aSnap.docs) {
+      const data = doc.data();
+      const ref = admin.firestore()
+        .collection('notifications')
+        .doc(user.uid)
+        .collection('items')
+        .doc();
+      batch.set(ref, {
+        type: 'invitation_received',
+        title: 'New Coach Invitation',
+        body: `${data.coachName || 'A coach'} wants to connect with you on PlayerPath`,
+        senderName: data.coachName || 'Coach',
+        senderID: data.coachID || '',
+        targetID: doc.id,
+        targetType: 'invitation',
+        isRead: false,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    }
+
+    for (const doc of a2cSnap.docs) {
+      const data = doc.data();
+      const ref = admin.firestore()
+        .collection('notifications')
+        .doc(user.uid)
+        .collection('items')
+        .doc();
+      batch.set(ref, {
+        type: 'invitation_received',
+        title: 'New Folder Invitation',
+        body: `${data.athleteName || 'An athlete'} invited you to collaborate on PlayerPath`,
+        senderName: data.athleteName || 'Athlete',
+        senderID: data.athleteID || '',
+        targetID: doc.id,
+        targetType: 'invitation',
+        isRead: false,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    }
+
+    await batch.commit();
+    console.log(`✅ Backfilled ${c2aSnap.size} coach→athlete and ${a2cSnap.size} athlete→coach invitation notification(s) for ${email}`);
+  } catch (error) {
+    console.warn('⚠️ backfillInvitationsOnSignup failed:', error);
+  }
+});
+
+/**
  * Triggers when a new invitation is created in Firestore.
  * Routes to the appropriate email template based on invitation type:
  * - Athlete → Coach: sends coach a collaboration invite with folder/permissions

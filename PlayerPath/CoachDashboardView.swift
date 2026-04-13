@@ -26,6 +26,7 @@ struct CoachDashboardView: View {
     @State private var showingCancelConfirmation = false
     @State private var sessionToCancel: CoachSession?
     @State private var editingSessionNotes: CoachSession?
+    @State private var resumeWarning: String?
     private var archiveManager: CoachFolderArchiveManager { .shared }
     private var reviewQueue: ReviewQueueViewModel { .shared }
     private var needsReviewQueue: NeedsReviewQueueViewModel { .shared }
@@ -141,6 +142,14 @@ struct CoachDashboardView: View {
         .sheet(isPresented: $showingStartSession) {
             StartSessionSheet()
         }
+        .alert("Session Unavailable", isPresented: .init(
+            get: { resumeWarning != nil },
+            set: { if !$0 { resumeWarning = nil } }
+        )) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(resumeWarning ?? "")
+        }
         .sheet(item: $editingSessionNotes) { session in
             if let sessionID = session.id {
                 SessionNotesEditorSheet(
@@ -155,10 +164,13 @@ struct CoachDashboardView: View {
             }
         }
         .fullScreenCover(isPresented: $showingCamera) {
-            if let session = sessionManager.activeSession {
+            if let session = sessionManager.activeSession, session.status == .live {
                 DirectCameraRecorderView(
                     coachContext: CoachSessionContext(sessionID: session.id ?? "", session: session)
                 )
+            } else {
+                // Session is no longer live — dismiss on next runloop tick
+                Color.clear.onAppear { showingCamera = false }
             }
         }
         .onChange(of: showingCamera) { _, showing in
@@ -685,21 +697,49 @@ struct CoachDashboardView: View {
     // MARK: - Session Actions
 
     private func resumeSession(_ session: CoachSession) {
-        if session.status == .live {
-            showingCamera = true
-        } else if session.athleteIDs.count == 1,
-                  let athleteID = session.athleteIDs.first,
-                  let folderID = session.folderIDs[athleteID] {
-            // Single athlete — go directly to their folder's Needs Review tab
-            coordinator.navigateToFolder(
-                folderID,
-                folders: sharedFolderManager.coachFolders,
-                initialTab: .review
-            )
-        } else {
-            // Multi-athlete — go to Athletes tab so coach can pick which folder
-            coordinator.selectedTab = .athletes
+        Task {
+            let fresh: CoachSession
+            do {
+                if let refreshed = try await sessionManager.refreshSession(id: session.id ?? "") {
+                    fresh = refreshed
+                } else {
+                    resumeWarning = "This session is no longer available."
+                    Haptics.warning()
+                    return
+                }
+            } catch {
+                // Network failure — fall back to local state so resume still works offline
+                ErrorHandlerService.shared.handle(error, context: "CoachDashboard.resumeSession.refresh", showAlert: false)
+                fresh = session
+            }
+
+            switch fresh.status {
+            case .live:
+                showingCamera = true
+            case .reviewing:
+                routeToReview(for: fresh)
+            case .completed, .scheduled:
+                resumeWarning = "This session has ended."
+                Haptics.warning()
+            }
         }
+    }
+
+    /// Navigates to the review tab for a reviewing session. For multi-athlete
+    /// sessions, navigates to the first folder — the coach can switch via the
+    /// folder header. Previously this jumped to the Athletes tab with no
+    /// indication, which looked broken.
+    private func routeToReview(for session: CoachSession) {
+        guard let firstAthleteID = session.athleteIDs.first,
+              let folderID = session.folderIDs[firstAthleteID] else {
+            coordinator.selectedTab = .athletes
+            return
+        }
+        coordinator.navigateToFolder(
+            folderID,
+            folders: sharedFolderManager.coachFolders,
+            initialTab: .review
+        )
     }
 
     private func endActiveSession(_ session: CoachSession) {

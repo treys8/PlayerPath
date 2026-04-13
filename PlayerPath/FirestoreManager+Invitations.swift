@@ -26,6 +26,13 @@ enum InvitationErrorCode: Int {
 /// Expiration constant for invitations (30 days)
 private let invitationExpirationInterval: TimeInterval = 30 * 24 * 60 * 60
 
+/// Normalizes an email for storage and lookup: lowercased + trimmed.
+/// Coach input frequently includes trailing spaces (autocomplete, paste) which
+/// would otherwise cause the invitation to be orphaned from the athlete's signup record.
+func normalizeInvitationEmail(_ email: String) -> String {
+    email.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+}
+
 extension FirestoreManager {
 
     // MARK: - Invitations
@@ -41,11 +48,12 @@ extension FirestoreManager {
         permissions: FolderPermissions = .default
     ) async throws -> String {
 
+        let normalizedCoachEmail = normalizeInvitationEmail(coachEmail)
         var invitationData: [String: Any] = [
             "type": "athlete_to_coach",
             "athleteID": athleteID,
             "athleteName": athleteName,
-            "coachEmail": coachEmail.lowercased(),
+            "coachEmail": normalizedCoachEmail,
             "permissions": permissions.toDictionary(),
             "status": "pending",
             "sentAt": FieldValue.serverTimestamp(),
@@ -68,10 +76,12 @@ extension FirestoreManager {
     /// Checks if the current athlete already has a pending or accepted invitation with this coach
     /// in EITHER direction (athlete→coach or coach→athlete).
     func hasPendingInvitation(athleteID: String, coachEmail: String) async throws -> Bool {
+        let normalizedCoachEmail = normalizeInvitationEmail(coachEmail)
+
         // 1. Check for accepted athlete-to-coach invitation
         let acceptedA2C = try await db.collection(FC.invitations)
             .whereField("athleteID", isEqualTo: athleteID)
-            .whereField("coachEmail", isEqualTo: coachEmail.lowercased())
+            .whereField("coachEmail", isEqualTo: normalizedCoachEmail)
             .whereField("status", isEqualTo: "accepted")
             .whereField("type", isEqualTo: "athlete_to_coach")
             .limit(to: 1)
@@ -81,7 +91,7 @@ extension FirestoreManager {
         // 2. Check for pending non-expired athlete-to-coach invitation
         let pendingA2C = try await db.collection(FC.invitations)
             .whereField("athleteID", isEqualTo: athleteID)
-            .whereField("coachEmail", isEqualTo: coachEmail.lowercased())
+            .whereField("coachEmail", isEqualTo: normalizedCoachEmail)
             .whereField("status", isEqualTo: "pending")
             .whereField("type", isEqualTo: "athlete_to_coach")
             .whereField("expiresAt", isGreaterThan: Timestamp(date: Date()))
@@ -91,10 +101,10 @@ extension FirestoreManager {
 
         // 3. Check for accepted coach-to-athlete invitation (opposite direction).
         // The coach may have already invited this athlete via the coach-to-athlete flow.
-        if let currentEmail = Auth.auth().currentUser?.email?.lowercased() {
+        if let currentEmail = Auth.auth().currentUser?.email.map(normalizeInvitationEmail) {
             let acceptedC2A = try await db.collection(FC.invitations)
                 .whereField("athleteEmail", isEqualTo: currentEmail)
-                .whereField("coachEmail", isEqualTo: coachEmail.lowercased())
+                .whereField("coachEmail", isEqualTo: normalizedCoachEmail)
                 .whereField("status", isEqualTo: "accepted")
                 .whereField("type", isEqualTo: "coach_to_athlete")
                 .limit(to: 1)
@@ -110,7 +120,7 @@ extension FirestoreManager {
         do {
             let snapshot = try await db.collection(FC.invitations)
                 .whereField("type", isEqualTo: "athlete_to_coach")
-                .whereField("coachEmail", isEqualTo: email.lowercased())
+                .whereField("coachEmail", isEqualTo: normalizeInvitationEmail(email))
                 .whereField("status", isEqualTo: "pending")
                 .whereField("expiresAt", isGreaterThan: Timestamp(date: Date()))
                 .limit(to: 100)
@@ -284,11 +294,14 @@ extension FirestoreManager {
         message: String?
     ) async throws -> String {
 
+        let normalizedAthleteEmail = normalizeInvitationEmail(athleteEmail)
+        let normalizedCoachEmail = normalizeInvitationEmail(coachEmail)
+
         // Check for existing accepted invitation (already connected)
         let acceptedSnapshot = try await db.collection(FC.invitations)
             .whereField("type", isEqualTo: "coach_to_athlete")
             .whereField("coachID", isEqualTo: coachID)
-            .whereField("athleteEmail", isEqualTo: athleteEmail.lowercased())
+            .whereField("athleteEmail", isEqualTo: normalizedAthleteEmail)
             .whereField("status", isEqualTo: "accepted")
             .limit(to: 1)
             .getDocuments()
@@ -303,7 +316,7 @@ extension FirestoreManager {
         let pendingSnapshot = try await db.collection(FC.invitations)
             .whereField("type", isEqualTo: "coach_to_athlete")
             .whereField("coachID", isEqualTo: coachID)
-            .whereField("athleteEmail", isEqualTo: athleteEmail.lowercased())
+            .whereField("athleteEmail", isEqualTo: normalizedAthleteEmail)
             .whereField("status", isEqualTo: "pending")
             .limit(to: 1)
             .getDocuments()
@@ -317,9 +330,9 @@ extension FirestoreManager {
         var invitationData: [String: Any] = [
             "type": "coach_to_athlete",
             "coachID": coachID,
-            "coachEmail": coachEmail.lowercased(),
+            "coachEmail": normalizedCoachEmail,
             "coachName": coachName,
-            "athleteEmail": athleteEmail.lowercased(),
+            "athleteEmail": normalizedAthleteEmail,
             "athleteName": athleteName,
             "status": "pending",
             "sentAt": FieldValue.serverTimestamp(),
@@ -346,7 +359,7 @@ extension FirestoreManager {
         do {
             let snapshot = try await db.collection(FC.invitations)
                 .whereField("type", isEqualTo: "coach_to_athlete")
-                .whereField("athleteEmail", isEqualTo: email.lowercased())
+                .whereField("athleteEmail", isEqualTo: normalizeInvitationEmail(email))
                 .whereField("status", isEqualTo: "pending")
                 .whereField("expiresAt", isGreaterThan: Timestamp(date: Date()))
                 .limit(to: 100)
@@ -550,6 +563,74 @@ extension FirestoreManager {
             }
         }
         return ids
+    }
+
+    /// Real-time listener for pending athlete-to-coach invitations sent to a given coach email.
+    /// Returns a `ListenerRegistration` the caller is responsible for removing.
+    func listenPendingAthleteInvitations(
+        forCoachEmail email: String,
+        onUpdate: @escaping @MainActor ([CoachInvitation]) -> Void
+    ) -> ListenerRegistration {
+        return db.collection(FC.invitations)
+            .whereField("type", isEqualTo: "athlete_to_coach")
+            .whereField("coachEmail", isEqualTo: normalizeInvitationEmail(email))
+            .whereField("status", isEqualTo: "pending")
+            .whereField("expiresAt", isGreaterThan: Timestamp(date: Date()))
+            .limit(to: 100)
+            .addSnapshotListener { snapshot, error in
+                if let error {
+                    invitationLog.warning("Pending athlete invitations listener error: \(error.localizedDescription)")
+                    return
+                }
+                guard let snapshot else { return }
+                let invitations = snapshot.documents.compactMap { doc -> CoachInvitation? in
+                    do {
+                        var invitation = try doc.data(as: CoachInvitation.self)
+                        invitation.id = doc.documentID
+                        return invitation
+                    } catch {
+                        invitationLog.warning("Failed to decode pending invitation \(doc.documentID): \(error.localizedDescription)")
+                        return nil
+                    }
+                }
+                Task { @MainActor in
+                    onUpdate(invitations)
+                }
+            }
+    }
+
+    /// Real-time listener for pending coach-to-athlete invitations sent to a given email.
+    /// Returns a `ListenerRegistration` the caller is responsible for removing.
+    func listenPendingCoachInvitations(
+        forAthleteEmail email: String,
+        onUpdate: @escaping @MainActor ([CoachToAthleteInvitation]) -> Void
+    ) -> ListenerRegistration {
+        return db.collection(FC.invitations)
+            .whereField("type", isEqualTo: "coach_to_athlete")
+            .whereField("athleteEmail", isEqualTo: normalizeInvitationEmail(email))
+            .whereField("status", isEqualTo: "pending")
+            .whereField("expiresAt", isGreaterThan: Timestamp(date: Date()))
+            .limit(to: 100)
+            .addSnapshotListener { snapshot, error in
+                if let error {
+                    invitationLog.warning("Pending coach invitations listener error: \(error.localizedDescription)")
+                    return
+                }
+                guard let snapshot else { return }
+                let invitations = snapshot.documents.compactMap { doc -> CoachToAthleteInvitation? in
+                    do {
+                        var invitation = try doc.data(as: CoachToAthleteInvitation.self)
+                        invitation.id = doc.documentID
+                        return invitation
+                    } catch {
+                        invitationLog.warning("Failed to decode pending invitation \(doc.documentID): \(error.localizedDescription)")
+                        return nil
+                    }
+                }
+                Task { @MainActor in
+                    onUpdate(invitations)
+                }
+            }
     }
 
     /// Counts pending outbound coach-to-athlete invitations for a given coach.

@@ -321,6 +321,28 @@ final class ActivityNotificationService: ObservableObject {
         }
     }
 
+    /// Marks any invitation-targeted notifications for a specific invitationID as read.
+    /// Called after accept/decline so the bell/banner clears immediately without waiting
+    /// for the user to open the notifications list.
+    func markInvitationRead(invitationID: String, forUserID userID: String) async {
+        let matching = recentNotifications.filter {
+            !$0.isRead && $0.targetType == .invitation && $0.targetID == invitationID
+        }
+        guard !matching.isEmpty else { return }
+
+        let batch = db.batch()
+        for n in matching {
+            guard let id = n.id else { continue }
+            let ref = db.collection(FC.notifications).document(userID).collection(FC.items).document(id)
+            batch.updateData(["isRead": true], forDocument: ref)
+        }
+        do {
+            try await batch.commit()
+        } catch {
+            log.error("Failed to mark invitation \(invitationID) notifications read: \(error.localizedDescription)")
+        }
+    }
+
     func markRead(_ notifID: String, forUserID userID: String) async {
         do {
             try await db.collection(FC.notifications)

@@ -9,6 +9,7 @@
 import Foundation
 import SwiftData
 import FirebaseAuth
+import FirebaseFirestore
 import os
 
 private let invitationLog = Logger(subsystem: "com.playerpath.app", category: "AthleteInvitations")
@@ -22,7 +23,32 @@ class AthleteInvitationManager {
     var pendingCount: Int { pendingInvitations.count }
     var listenerError: String?
 
+    private var listener: ListenerRegistration?
+    private var listeningEmail: String?
+
     private init() {}
+
+    // MARK: - Listener
+
+    /// Starts a real-time listener for pending coach-to-athlete invitations for `email`.
+    /// Idempotent: restarts if the email changes, no-op if already listening to the same email.
+    func startListening(forEmail email: String) {
+        let normalized = email.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else { return }
+        if listener != nil, listeningEmail == normalized { return }
+        stopListening()
+        listeningEmail = normalized
+        listener = FirestoreManager.shared.listenPendingCoachInvitations(forAthleteEmail: normalized) { [weak self] invitations in
+            guard let self else { return }
+            self.pendingInvitations = invitations
+        }
+    }
+
+    func stopListening() {
+        listener?.remove()
+        listener = nil
+        listeningEmail = nil
+    }
 
     // MARK: - Result Type
 
@@ -139,6 +165,19 @@ class AthleteInvitationManager {
             )
         }
 
+        // Optimistically drop from the local list so UI updates immediately; the
+        // Firestore listener will converge (status transitions to accepted → query no
+        // longer matches).
+        pendingInvitations.removeAll { $0.id == invitationID }
+
+        // Mark any "invitation_received" activity notification as read for this
+        // invitation — accepting should clear the bell/banner without waiting for
+        // the user to open the notification list.
+        await ActivityNotificationService.shared.markInvitationRead(
+            invitationID: invitationID,
+            forUserID: userID
+        )
+
         invitationLog.info("Accepted invitation \(invitationID) from coach \(invitation.coachName)")
 
         return AcceptanceResult(
@@ -153,6 +192,16 @@ class AthleteInvitationManager {
     func declineInvitation(_ invitation: CoachToAthleteInvitation) async throws {
         guard let invitationID = invitation.id else { return }
         try await FirestoreManager.shared.declineCoachToAthleteInvitation(invitationID: invitationID)
+
+        pendingInvitations.removeAll { $0.id == invitationID }
+
+        if let uid = Auth.auth().currentUser?.uid {
+            await ActivityNotificationService.shared.markInvitationRead(
+                invitationID: invitationID,
+                forUserID: uid
+            )
+        }
+
         invitationLog.info("Declined invitation \(invitationID) from coach \(invitation.coachName)")
     }
 

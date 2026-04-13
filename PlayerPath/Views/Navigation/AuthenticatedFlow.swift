@@ -95,6 +95,9 @@ struct AuthenticatedFlow: View {
             ActivityNotificationService.shared.stopListening()
             SharedFolderManager.shared.stopAthleteFoldersListener()
             SharedFolderManager.shared.stopCoachFoldersListener()
+            AthleteInvitationManager.shared.stopListening()
+            CoachSessionManager.shared.stopListeningActiveSession()
+            CoachInvitationManager.shared.stopListening()
         }
         .onChange(of: authManager.isSignedIn) { oldValue, newValue in
             if oldValue == true && newValue == false {
@@ -102,6 +105,9 @@ struct AuthenticatedFlow: View {
                 ActivityNotificationService.shared.stopListening()
                 SharedFolderManager.shared.stopAthleteFoldersListener()
                 SharedFolderManager.shared.stopCoachFoldersListener()
+                AthleteInvitationManager.shared.stopListening()
+                CoachSessionManager.shared.stopListeningActiveSession()
+                CoachInvitationManager.shared.stopListening()
             }
         }
         .onChange(of: scenePhase) { _, newPhase in
@@ -110,19 +116,23 @@ struct AuthenticatedFlow: View {
                 ActivityNotificationService.shared.stopListening()
                 SharedFolderManager.shared.stopAthleteFoldersListener()
                 SharedFolderManager.shared.stopCoachFoldersListener()
+                AthleteInvitationManager.shared.stopListening()
+                CoachSessionManager.shared.stopListeningActiveSession()
+                CoachInvitationManager.shared.stopListening()
             case .active:
                 // Refresh data if user is authenticated
                 if let firebaseUID = authManager.currentFirebaseUser?.uid {
                     ActivityNotificationService.shared.startListening(forUserID: firebaseUID)
                     if authManager.userRole == .coach {
                         SharedFolderManager.shared.startCoachFoldersListener(coachID: firebaseUID)
+                        CoachSessionManager.shared.startListeningActiveSession(coachID: firebaseUID)
                         if let email = authManager.currentFirebaseUser?.email?.lowercased() {
-                            Task { await CoachInvitationManager.shared.checkPendingInvitations(forCoachEmail: email) }
+                            CoachInvitationManager.shared.startListening(forEmail: email)
                         }
                     } else {
                         SharedFolderManager.shared.startAthleteFoldersListener(athleteID: firebaseUID)
                         if let email = authManager.currentFirebaseUser?.email?.lowercased() {
-                            Task { _ = await AthleteInvitationManager.shared.fetchPendingInvitations(forEmail: email) }
+                            AthleteInvitationManager.shared.startListening(forEmail: email)
                         }
                     }
                     // Refresh tier from Firestore to catch changes from other devices
@@ -156,9 +166,10 @@ struct AuthenticatedFlow: View {
                 if let coachID = authManager.currentFirebaseUser?.uid {
                     CoachFolderArchiveManager.shared.configure(coachUID: coachID)
                     SharedFolderManager.shared.startCoachFoldersListener(coachID: coachID)
+                    CoachSessionManager.shared.startListeningActiveSession(coachID: coachID)
                 }
                 if let coachEmail = authManager.currentFirebaseUser?.email?.lowercased() {
-                    Task { await CoachInvitationManager.shared.checkPendingInvitations(forCoachEmail: coachEmail) }
+                    CoachInvitationManager.shared.startListening(forEmail: coachEmail)
                 }
             } else {
                 // Athlete-specific services — coaches don't have athletes/videos to sync
@@ -171,7 +182,7 @@ struct AuthenticatedFlow: View {
                     SharedFolderManager.shared.startAthleteFoldersListener(athleteID: athleteID)
                 }
                 if let athleteEmail = authManager.currentFirebaseUser?.email?.lowercased() {
-                    Task { _ = await AthleteInvitationManager.shared.fetchPendingInvitations(forEmail: athleteEmail) }
+                    AthleteInvitationManager.shared.startListening(forEmail: athleteEmail)
                 }
 
                 // Run migration, recovery, and sync in background

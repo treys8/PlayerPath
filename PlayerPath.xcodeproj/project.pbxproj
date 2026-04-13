@@ -113,6 +113,7 @@
 				2D3C65852EAB1CC900BC2B9C /* Sources */,
 				2D3C65862EAB1CC900BC2B9C /* Frameworks */,
 				2D3C65872EAB1CC900BC2B9C /* Resources */,
+				AACC00012EF9000000000003 /* Upload Crashlytics dSYMs */,
 			);
 			buildRules = (
 			);
@@ -206,6 +207,27 @@
 			shellPath = /bin/sh;
 			shellScript = "# Only run during Release builds or archives\nif [ \"$CONFIGURATION\" != \"Release\" ] && [ \"$ACTION\" != \"archive\" ]; then\n    exit 0\nfi\n\n# Find Info.plist\nINFO_PLIST_PATH=\"${PROJECT_DIR}/${PRODUCT_NAME}/Info.plist\"\nif [ ! -f \"$INFO_PLIST_PATH\" ]; then\n    INFO_PLIST_PATH=\"${PROJECT_DIR}/Info.plist\"\nfi\n\n";
 		};
+		AACC00012EF9000000000003 /* Upload Crashlytics dSYMs */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"${DWARF_DSYM_FOLDER_PATH}/${DWARF_DSYM_FILE_NAME}/Contents/Resources/DWARF/${TARGET_NAME}",
+				"$(SRCROOT)/$(BUILT_PRODUCTS_DIR)/$(INFOPLIST_PATH)",
+			);
+			name = "Upload Crashlytics dSYMs";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# Only upload on Release builds / archives\nif [ \"$CONFIGURATION\" != \"Release\" ] && [ \"$ACTION\" != \"install\" ]; then\n    exit 0\nfi\n\nSCRIPT=\"${BUILD_DIR%Build/*}SourcePackages/checkouts/firebase-ios-sdk/Crashlytics/run\"\nif [ ! -f \"$SCRIPT\" ]; then\n    echo \"warning: Crashlytics run script not found at $SCRIPT — skipping dSYM upload\"\n    exit 0\nfi\n\"$SCRIPT\"\n";
+		};
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -227,7 +249,7 @@
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
 				CODE_SIGN_ENTITLEMENTS = PlayerPath/PlayerPath.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 126;
+				CURRENT_PROJECT_VERSION = 127;
 				DEVELOPMENT_TEAM = GW6V623MC7;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -247,7 +269,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 5.0.3.1;
+				MARKETING_VERSION = 5.0.32;
 				PRODUCT_BUNDLE_IDENTIFIER = RZR.DT3;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -268,7 +290,7 @@
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
 				CODE_SIGN_ENTITLEMENTS = PlayerPath/PlayerPath.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 126;
+				CURRENT_PROJECT_VERSION = 127;
 				DEVELOPMENT_TEAM = GW6V623MC7;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -288,7 +310,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 5.0.3.1;
+				MARKETING_VERSION = 5.0.32;
 				PRODUCT_BUNDLE_IDENTIFIER = RZR.DT3;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;

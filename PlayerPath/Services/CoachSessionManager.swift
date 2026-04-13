@@ -24,6 +24,8 @@ class CoachSessionManager {
     var isLoading = false
 
     private let db = Firestore.firestore()
+    private var activeListener: ListenerRegistration?
+    private var listeningCoachID: String?
     private init() {}
 
     // MARK: - Helpers
@@ -227,59 +229,165 @@ class CoachSessionManager {
 
     // MARK: - Queries
 
-    /// Fetches all sessions for this coach, newest first.
+    /// Fetches all sessions for this coach. Uses three single-status queries
+    /// merged in memory — avoids the composite index required by
+    /// `isNotEqualTo + order(by: status)` which previously caused silent failures
+    /// when the index hadn't been deployed.
     func fetchSessions(coachID: String) async {
         isLoading = true
         defer { isLoading = false }
 
         do {
-            // Run both queries sequentially — async let can crash the Swift runtime
-            // if the parent task is cancelled mid-flight (asyncLet_finish_after_task_completion)
-            let started = try await db.collection(FC.coachSessions)
-                .whereField("coachID", isEqualTo: coachID)
-                .whereField("status", isNotEqualTo: SessionStatus.scheduled.rawValue)
-                .order(by: "status")
-                .order(by: "startedAt", descending: true)
-                .limit(to: 50)
-                .getDocuments()
+            let live = try await fetchSessionsWithStatus(coachID: coachID, status: .live, limit: 10)
+            let reviewing = try await fetchSessionsWithStatus(coachID: coachID, status: .reviewing, limit: 20)
+            let completed = try await fetchSessionsWithStatus(
+                coachID: coachID,
+                status: .completed,
+                limit: 50,
+                orderByStartedAtDescending: true
+            )
+            let scheduled = try await fetchSessionsWithStatus(
+                coachID: coachID,
+                status: .scheduled,
+                limit: 20,
+                orderByScheduledDateAscending: true
+            )
 
-            let scheduled = try await db.collection(FC.coachSessions)
-                .whereField("coachID", isEqualTo: coachID)
-                .whereField("status", isEqualTo: SessionStatus.scheduled.rawValue)
-                .order(by: "scheduledDate", descending: false)
-                .limit(to: 20)
-                .getDocuments()
-
-            sessions = started.documents.compactMap { doc in
-                do {
-                    var session = try doc.data(as: CoachSession.self)
-                    session.id = doc.documentID
-                    return session
-                } catch {
-                    sessionLog.error("Failed to decode session \(doc.documentID): \(error.localizedDescription)")
-                    return nil
-                }
+            // Active sessions first (newest startedAt), then completed.
+            let active = (live + reviewing).sorted {
+                ($0.startedAt ?? .distantPast) > ($1.startedAt ?? .distantPast)
             }
+            sessions = active + completed
+            scheduledSessions = scheduled
 
-            scheduledSessions = scheduled.documents.compactMap { doc in
-                do {
-                    var session = try doc.data(as: CoachSession.self)
-                    session.id = doc.documentID
-                    return session
-                } catch {
-                    sessionLog.error("Failed to decode scheduled session \(doc.documentID): \(error.localizedDescription)")
-                    return nil
-                }
-            }
-
-            // Detect if there's an active (live/reviewing) session
             activeSession = sessions.first(where: { $0.status.isActive })
 
-            // Auto-end abandoned sessions (live for > 24 hours)
             await cleanupAbandonedSessions()
         } catch {
             sessionLog.error("Failed to fetch sessions: \(error.localizedDescription)")
         }
+    }
+
+    private func fetchSessionsWithStatus(
+        coachID: String,
+        status: SessionStatus,
+        limit: Int,
+        orderByStartedAtDescending: Bool = false,
+        orderByScheduledDateAscending: Bool = false
+    ) async throws -> [CoachSession] {
+        var query: Query = db.collection(FC.coachSessions)
+            .whereField("coachID", isEqualTo: coachID)
+            .whereField("status", isEqualTo: status.rawValue)
+
+        if orderByStartedAtDescending {
+            query = query.order(by: "startedAt", descending: true)
+        } else if orderByScheduledDateAscending {
+            query = query.order(by: "scheduledDate", descending: false)
+        }
+
+        let snap = try await query.limit(to: limit).getDocuments()
+        return snap.documents.compactMap { doc in
+            do {
+                var session = try doc.data(as: CoachSession.self)
+                session.id = doc.documentID
+                return session
+            } catch {
+                sessionLog.error("Failed to decode session \(doc.documentID): \(error.localizedDescription)")
+                return nil
+            }
+        }
+    }
+
+    /// Reloads a single session from Firestore and merges it into local state.
+    /// Returns the refreshed session, or nil if the doc no longer exists.
+    /// Used by resume-session flows to verify status before presenting UI.
+    @discardableResult
+    func refreshSession(id: String) async throws -> CoachSession? {
+        let snap = try await db.collection(FC.coachSessions).document(id).getDocument()
+        guard snap.exists else {
+            // Session was deleted — remove from local state
+            sessions.removeAll { $0.id == id }
+            scheduledSessions.removeAll { $0.id == id }
+            if activeSession?.id == id { activeSession = nil }
+            return nil
+        }
+        var session = try snap.data(as: CoachSession.self)
+        session.id = snap.documentID
+
+        if let idx = sessions.firstIndex(where: { $0.id == id }) {
+            sessions[idx] = session
+        } else if session.status != .scheduled {
+            sessions.insert(session, at: 0)
+        }
+        if session.status == .scheduled {
+            if let idx = scheduledSessions.firstIndex(where: { $0.id == id }) {
+                scheduledSessions[idx] = session
+            }
+        } else {
+            scheduledSessions.removeAll { $0.id == id }
+        }
+        if session.status.isActive {
+            activeSession = session
+        } else if activeSession?.id == id {
+            activeSession = nil
+        }
+        return session
+    }
+
+    /// Starts a real-time listener for this coach's active (live or reviewing) session.
+    /// Keeps `activeSession` current across devices without requiring a manual reload.
+    func startListeningActiveSession(coachID: String) {
+        if activeListener != nil, listeningCoachID == coachID { return }
+        stopListeningActiveSession()
+        listeningCoachID = coachID
+
+        // Query each active status separately to avoid a composite index.
+        // We snapshot-listen on `live` (expected 0 or 1) and resolve `reviewing`
+        // via the same listener by observing the broader "has any active" question
+        // through a single status==live listener — reviewing sessions are less
+        // time-critical and are caught by fetchSessions on appear/foreground.
+        activeListener = db.collection(FC.coachSessions)
+            .whereField("coachID", isEqualTo: coachID)
+            .whereField("status", isEqualTo: SessionStatus.live.rawValue)
+            .limit(to: 1)
+            .addSnapshotListener { [weak self] snapshot, error in
+                guard let self else { return }
+                if let error {
+                    sessionLog.warning("Active session listener error: \(error.localizedDescription)")
+                    return
+                }
+                guard let snapshot else { return }
+                let live: CoachSession? = snapshot.documents.first.flatMap { doc in
+                    do {
+                        var s = try doc.data(as: CoachSession.self)
+                        s.id = doc.documentID
+                        return s
+                    } catch {
+                        sessionLog.warning("Failed to decode live session \(doc.documentID): \(error.localizedDescription)")
+                        return nil
+                    }
+                }
+                Task { @MainActor in
+                    if let live {
+                        if let idx = self.sessions.firstIndex(where: { $0.id == live.id }) {
+                            self.sessions[idx] = live
+                        } else {
+                            self.sessions.insert(live, at: 0)
+                        }
+                        self.activeSession = live
+                    } else if self.activeSession?.status == .live {
+                        // Live session ended elsewhere — drop it; reviewing (if any) is
+                        // picked up on next fetchSessions.
+                        self.activeSession = nil
+                    }
+                }
+            }
+    }
+
+    func stopListeningActiveSession() {
+        activeListener?.remove()
+        activeListener = nil
+        listeningCoachID = nil
     }
 
     // MARK: - Clip Upload
