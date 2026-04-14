@@ -170,7 +170,7 @@ struct VideoRecordingSettingsView: View {
                     }
                 }
             }
-            .disabled(!settings.supportsSlowMotion)
+            .disabled(!settings.slowMotionEnabled && !settings.supportsSlowMotion)
             
             if settings.slowMotionEnabled {
                 HStack {
@@ -440,37 +440,14 @@ struct VideoRecordingSettingsView: View {
             return
         }
         
-        let wasSlowMoCapable = settings.frameRate.supportsSlowMotion
+        // Model's `quality.didSet` reconciles frame rate and slow-mo invariants.
         settings.quality = quality
-
-        // Adjust frame rate if incompatible with new quality
-        if !settings.isFrameRateSupported(settings.frameRate, for: quality) {
-            // Auto-select highest compatible frame rate
-            let compatibleRates = settings.compatibleFrameRates(for: quality)
-            if let highestCompatible = compatibleRates.last {
-                settings.frameRate = highestCompatible
-            }
-        }
-
-        // Only adjust slow-mo flag when the capability transitions — preserve
-        // the user's manual toggle when both old and new rates support slow-mo.
-        if !settings.frameRate.supportsSlowMotion {
-            settings.slowMotionEnabled = false
-        } else if !wasSlowMoCapable {
-            settings.slowMotionEnabled = true
-        }
-
         Haptics.light()
     }
 
     private func selectFrameRate(_ frameRate: FrameRate) {
-        let wasSlowMoCapable = settings.frameRate.supportsSlowMotion
+        // Model's `frameRate.didSet` clears slow-mo if the new rate doesn't support it.
         settings.frameRate = frameRate
-        if !frameRate.supportsSlowMotion {
-            settings.slowMotionEnabled = false
-        } else if !wasSlowMoCapable {
-            settings.slowMotionEnabled = true
-        }
         Haptics.light()
     }
     

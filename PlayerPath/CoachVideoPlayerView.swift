@@ -880,7 +880,6 @@ struct VideoInfoTabView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                InfoRow(label: "File Name", value: video.fileName)
                 InfoRow(label: "Uploaded By", value: video.uploadedByName)
                 
                 if let date = video.createdAt {
@@ -937,7 +936,7 @@ struct VideoInfoTabView: View {
 struct InfoRow: View {
     let label: String
     let value: String
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(label)
@@ -946,6 +945,7 @@ struct InfoRow: View {
             Text(value)
                 .font(.subheadline)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

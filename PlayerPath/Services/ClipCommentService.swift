@@ -60,6 +60,10 @@ final class ClipCommentService {
     // MARK: - Write
 
     /// Posts a comment to the clip's thread.
+    /// Posts a comment and returns the new document ID so callers can link
+    /// mirrored records (e.g. annotation → comment) for precise deletes.
+    /// Returns nil when the text is empty (nothing written).
+    @discardableResult
     func postComment(
         clipId: String,
         text: String,
@@ -67,9 +71,9 @@ final class ClipCommentService {
         authorName: String,
         authorRole: String,
         category: String? = nil
-    ) async throws {
+    ) async throws -> String? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        guard !trimmed.isEmpty else { return nil }
 
         // Limit comment length to prevent abuse and excessive Firestore document size
         let clampedText = String(trimmed.prefix(2000))
@@ -83,7 +87,7 @@ final class ClipCommentService {
         ]
         if let category { data["category"] = category }
 
-        try await db
+        let ref = try await db
             .collection(FC.videos)
             .document(clipId)
             .collection(FC.comments)
@@ -91,6 +95,7 @@ final class ClipCommentService {
 
         // Invalidate cache so next fetch picks up the new comment
         invalidateCache(for: clipId)
+        return ref.documentID
     }
 
     // MARK: - Read
@@ -123,5 +128,43 @@ final class ClipCommentService {
 
         cache[clipId] = comments
         return comments
+    }
+
+    // MARK: - Listen
+
+    /// Attaches a Firestore snapshot listener for live updates. Returns the
+    /// registration so the caller can detach on disappear. `onUpdate` is
+    /// invoked on the main actor.
+    func listenToComments(
+        clipId: String,
+        onUpdate: @escaping @MainActor ([ClipComment]) -> Void
+    ) -> ListenerRegistration {
+        return db
+            .collection(FC.videos)
+            .document(clipId)
+            .collection(FC.comments)
+            .order(by: "createdAt")
+            .limit(to: 100)
+            .addSnapshotListener { [weak self] snapshot, error in
+                if let error {
+                    commentLog.warning("Comments listener error for \(clipId): \(error.localizedDescription)")
+                    return
+                }
+                guard let snapshot else { return }
+                let comments = snapshot.documents.compactMap { doc -> ClipComment? in
+                    do {
+                        var comment = try doc.data(as: ClipComment.self)
+                        comment.id = doc.documentID
+                        return comment
+                    } catch {
+                        commentLog.warning("Failed to decode comment \(doc.documentID): \(error.localizedDescription)")
+                        return nil
+                    }
+                }
+                Task { @MainActor in
+                    self?.cache[clipId] = comments
+                    onUpdate(comments)
+                }
+            }
     }
 }

@@ -557,18 +557,7 @@ struct CameraSettingsView: View {
                 }
 
                 Section("Frame Rate") {
-                    Picker("FPS", selection: Binding(
-                        get: { viewModel.settings.frameRate },
-                        set: { newRate in
-                            let wasSlowMoCapable = viewModel.settings.frameRate.supportsSlowMotion
-                            viewModel.settings.frameRate = newRate
-                            if !newRate.supportsSlowMotion {
-                                viewModel.settings.slowMotionEnabled = false
-                            } else if !wasSlowMoCapable {
-                                viewModel.settings.slowMotionEnabled = true
-                            }
-                        }
-                    )) {
+                    Picker("FPS", selection: $viewModel.settings.frameRate) {
                         ForEach(viewModel.settings.compatibleFrameRates(for: viewModel.settings.quality)) { rate in
                             Text(rate.displayName)
                                 .tag(rate)
@@ -586,7 +575,7 @@ struct CameraSettingsView: View {
                         get: { viewModel.settings.slowMotionEnabled },
                         set: { viewModel.settings.setSlowMotionEnabled($0) }
                     ))
-                    .disabled(!viewModel.settings.supportsSlowMotion)
+                    .disabled(!viewModel.settings.slowMotionEnabled && !viewModel.settings.supportsSlowMotion)
 
                     if !viewModel.settings.supportsSlowMotion {
                         Text("Requires 120fps or higher")

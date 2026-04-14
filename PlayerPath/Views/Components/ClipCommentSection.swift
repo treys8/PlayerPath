@@ -7,6 +7,7 @@
 //
 
 import SwiftUI
+import FirebaseFirestore
 
 struct ClipCommentSection: View {
     let clipId: String
@@ -14,7 +15,7 @@ struct ClipCommentSection: View {
     @State private var comments: [ClipComment] = []
     @State private var isLoading = false
     @State private var loadError: String?
-    @State private var lastFetchDate: Date?
+    @State private var listener: ListenerRegistration?
 
     var coachComments: [ClipComment] {
         comments.filter { $0.isCoachComment }
@@ -44,7 +45,8 @@ struct ClipCommentSection: View {
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
                 .onTapGesture {
-                    Task { await loadComments() }
+                    loadError = nil
+                    attachListener()
                 }
                 .accessibilityAddTraits(.isButton)
                 .accessibilityLabel("Retry loading comments")
@@ -68,24 +70,36 @@ struct ClipCommentSection: View {
             }
         }
         .task(id: clipId) {
-            // Reset state when clipId changes (e.g. cell reuse in a List)
+            // Tear down any prior listener synchronously before awaits so a
+            // cancelled previous task can't resurrect a stale-clipId listener
+            // after this task has already attached the new one.
+            listener?.remove()
+            listener = nil
             comments = []
-            lastFetchDate = nil
-            await loadComments()
-            lastFetchDate = Date()
+            isLoading = true
+            loadError = nil
+            // Seed from one-shot fetch for instant render, then attach listener
+            // for live updates while the view is visible.
+            do {
+                comments = try await ClipCommentService.shared.fetchComments(clipId: clipId)
+            } catch {
+                loadError = error.localizedDescription
+            }
+            isLoading = false
+            attachListener()
+        }
+        .onDisappear {
+            listener?.remove()
+            listener = nil
         }
     }
 
-    private func loadComments() async {
-        guard !isLoading else { return }
-        isLoading = true
-        loadError = nil
-        do {
-            comments = try await ClipCommentService.shared.fetchComments(clipId: clipId)
-        } catch {
-            loadError = error.localizedDescription
+    private func attachListener() {
+        listener?.remove()
+        listener = ClipCommentService.shared.listenToComments(clipId: clipId) { updated in
+            comments = updated
+            loadError = nil
         }
-        isLoading = false
     }
 }
 

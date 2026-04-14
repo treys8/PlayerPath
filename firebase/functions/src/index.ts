@@ -276,7 +276,44 @@ export const onVideoPublished = functions.firestore
   });
 
 /**
- * When a comment is added to a video, notify the video uploader.
+ * Resolves the set of user IDs that should be notified when a coach/athlete
+ * leaves feedback on a shared-folder video. Author is always excluded.
+ * Falls back to the video uploader for non-shared videos.
+ */
+async function resolveFeedbackRecipients(
+  video: admin.firestore.DocumentData,
+  authorId: string,
+  authorRole: string | undefined
+): Promise<string[]> {
+  const folderID = video.sharedFolderID;
+  if (folderID) {
+    const folderDoc = await admin.firestore().collection('sharedFolders').doc(folderID).get();
+    if (folderDoc.exists) {
+      const folder = folderDoc.data()!;
+      // Coach feedback → athlete (folder owner). Athlete feedback → all coaches.
+      if (authorRole === 'coach') {
+        const athleteID = folder.ownerAthleteID;
+        return athleteID && athleteID !== authorId ? [athleteID] : [];
+      }
+      if (authorRole === 'athlete') {
+        const coachIDs: string[] = folder.sharedWithCoachIDs || [];
+        return coachIDs.filter(id => id !== authorId);
+      }
+      // Unknown role — notify everyone on the folder except the author.
+      const everyone = [folder.ownerAthleteID, ...(folder.sharedWithCoachIDs || [])].filter(Boolean);
+      return everyone.filter((id: string) => id !== authorId);
+    }
+  }
+  // Non-shared video — fall back to uploader.
+  if (video.uploadedBy && video.uploadedBy !== authorId) {
+    return [video.uploadedBy];
+  }
+  return [];
+}
+
+/**
+ * When a comment is added to a video, push-notify the opposite party
+ * (coach → athlete, athlete → coaches) on shared folders.
  */
 export const onNewComment = functions.firestore
   .document('videos/{videoId}/comments/{commentId}')
@@ -288,21 +325,107 @@ export const onNewComment = functions.firestore
     if (!videoDoc.exists) return;
     const video = videoDoc.data()!;
 
-    // Don't notify if the commenter is the video uploader, or if uploader is unknown
-    if (!video.uploadedBy) return;
-    if (comment.authorId === video.uploadedBy) return;
+    const recipients = await resolveFeedbackRecipients(
+      video,
+      comment.authorId,
+      comment.authorRole
+    );
+    if (recipients.length === 0) return;
 
     const commenterName = comment.authorName || 'Someone';
     const preview = (comment.text || '').substring(0, 80);
 
-    await sendPushNotification(
-      video.uploadedBy,
+    await sendPushToMultipleUsers(
+      recipients,
       'New Comment',
       `${commenterName}: ${preview}`,
       {
         type: 'coach_comment',
         folderID: video.sharedFolderID || '',
         videoID: videoId,
+      },
+      'COACH_COMMENT'
+    );
+  });
+
+/**
+ * When a timestamped annotation is added to a video, push-notify the opposite
+ * party. Annotations are already mirrored to comments/ by iOS, but direct
+ * writes (e.g. drawing annotations) skip the mirror — this covers them.
+ * Deduplication with onNewComment is acceptable: APNs coalesces by thread ID
+ * and the worst case is one extra push per coach action.
+ */
+export const onNewAnnotation = functions.firestore
+  .document('videos/{videoId}/annotations/{annotationId}')
+  .onCreate(async (snap, context) => {
+    const annotation = snap.data();
+    const videoId = context.params.videoId;
+
+    // Skip annotations mirrored to comments — onNewComment will handle those.
+    // Drawings and non-coach annotations still fire here.
+    if (annotation.type !== 'drawing' && annotation.isCoachComment === true) return;
+
+    const videoDoc = await admin.firestore().collection('videos').doc(videoId).get();
+    if (!videoDoc.exists) return;
+    const video = videoDoc.data()!;
+
+    const authorRole = annotation.isCoachComment === true ? 'coach' : 'athlete';
+    const recipients = await resolveFeedbackRecipients(
+      video,
+      annotation.userID,
+      authorRole
+    );
+    if (recipients.length === 0) return;
+
+    const authorName = annotation.userName || 'Someone';
+    const isDrawing = annotation.type === 'drawing';
+    const body = isDrawing
+      ? `${authorName} added a drawing`
+      : `${authorName}: ${(annotation.text || '').substring(0, 80)}`;
+
+    await sendPushToMultipleUsers(
+      recipients,
+      'New Feedback',
+      body,
+      {
+        type: 'coach_comment',
+        folderID: video.sharedFolderID || '',
+        videoID: videoId,
+      },
+      'COACH_COMMENT'
+    );
+  });
+
+/**
+ * When a coach updates the plain `coachNote` field on a video, push-notify the
+ * athlete. Covers the "Instruction Notes" path from ClipReviewSheet and the
+ * note edit path from CoachVideoPlayerView.
+ */
+export const onCoachNoteUpdated = functions.firestore
+  .document('videos/{videoId}')
+  .onUpdate(async (change, context) => {
+    const before = change.before.data();
+    const after = change.after.data();
+
+    const beforeNote = (before.coachNote || '').trim();
+    const afterNote = (after.coachNote || '').trim();
+    // Only fire on a non-empty note that changed.
+    if (!afterNote || afterNote === beforeNote) return;
+
+    const authorId = after.coachNoteAuthorID || after.uploadedBy;
+    const authorName = after.coachNoteAuthorName || after.uploadedByName || 'Your coach';
+
+    const recipients = await resolveFeedbackRecipients(after, authorId, 'coach');
+    if (recipients.length === 0) return;
+
+    await sendPushToMultipleUsers(
+      recipients,
+      'New Coach Note',
+      `${authorName}: ${afterNote.substring(0, 80)}`,
+      {
+        type: 'coach_comment',
+        folderID: after.sharedFolderID || '',
+        videoID: context.params.videoId,
       },
       'COACH_COMMENT'
     );

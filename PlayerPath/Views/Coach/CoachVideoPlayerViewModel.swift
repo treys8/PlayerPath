@@ -11,6 +11,7 @@ import AVKit
 import CoreMedia
 import Photos
 import FirebaseAuth
+import FirebaseFirestore
 import PencilKit
 
 @MainActor
@@ -66,6 +67,7 @@ class CoachVideoPlayerViewModel {
     private var statusObservation: NSKeyValueObservation?
     private var timeObserver: Any?
     private var filmstripTimeObserver: Any?
+    private var annotationsListener: ListenerRegistration?
 
     var currentPlaybackTime: Double {
         player?.currentTime().seconds ?? 0.0
@@ -101,6 +103,7 @@ class CoachVideoPlayerViewModel {
                 player?.removeTimeObserver(observer)
             }
             statusObservation?.invalidate()
+            annotationsListener?.remove()
             player?.pause()
         }
     }
@@ -164,13 +167,14 @@ class CoachVideoPlayerViewModel {
     func loadAnnotations() async {
         isLoadingAnnotations = true
 
-        do {
-            let videoID = video.id
-            guard !videoID.isEmpty else {
-                isLoadingAnnotations = false
-                return
-            }
+        let videoID = video.id
+        guard !videoID.isEmpty else {
+            isLoadingAnnotations = false
+            return
+        }
 
+        // Seed with a one-shot fetch for fast first paint.
+        do {
             annotations = try await FirestoreManager.shared.fetchAnnotations(forVideo: videoID)
                 .sorted { $0.timestamp < $1.timestamp }
         } catch {
@@ -185,6 +189,14 @@ class CoachVideoPlayerViewModel {
         }
 
         isLoadingAnnotations = false
+
+        // Attach a live listener so coach feedback added elsewhere (another
+        // device, the athlete's player) shows up without a manual refresh.
+        annotationsListener?.remove()
+        annotationsListener = FirestoreManager.shared.listenToAnnotations(forVideo: videoID) { [weak self] updated in
+            guard let self else { return }
+            self.annotations = updated.sorted { $0.timestamp < $1.timestamp }
+        }
     }
 
     func addAnnotation(
@@ -209,13 +221,16 @@ class CoachVideoPlayerViewModel {
                 category: category
             )
 
-            annotations.append(annotation)
-            annotations.sort { $0.timestamp < $1.timestamp }
+            // The live snapshot listener drives `annotations` from Firestore —
+            // no optimistic local append needed (avoids a brief flash when the
+            // snapshot overwrites an append mid-flight).
 
-            // Mirror coach feedback to the unified comment thread
-            if isCoachComment {
+            // Mirror coach feedback to the unified comment thread and record
+            // the resulting comment ID on the annotation so delete can pair
+            // them precisely instead of matching on text.
+            if isCoachComment, let annotationID = annotation.id {
                 do {
-                    try await ClipCommentService.shared.postComment(
+                    let mirrorID = try await ClipCommentService.shared.postComment(
                         clipId: videoID,
                         text: text,
                         authorId: userID,
@@ -223,6 +238,13 @@ class CoachVideoPlayerViewModel {
                         authorRole: "coach",
                         category: category
                     )
+                    if let mirrorID {
+                        await FirestoreManager.shared.setAnnotationMirrorCommentID(
+                            videoID: videoID,
+                            annotationID: annotationID,
+                            mirrorCommentID: mirrorID
+                        )
+                    }
                 } catch {
                     ErrorHandlerService.shared.handle(error, context: "CoachVideoPlayer.mirrorComment", showAlert: false)
                 }
@@ -334,7 +356,7 @@ class CoachVideoPlayerViewModel {
                   let annotationID = annotation.id else { return }
 
             try await FirestoreManager.shared.deleteAnnotation(videoID: videoID, annotationID: annotationID)
-            annotations.removeAll { $0.id == annotationID }
+            // Listener will drop the deleted annotation on next snapshot.
             Haptics.success()
         } catch {
             errorMessage = "Failed to delete feedback: \(error.localizedDescription)"
@@ -533,8 +555,8 @@ class CoachVideoPlayerViewModel {
                 drawingCanvasHeight: canvasSize.height > 0 ? Double(canvasSize.height) : nil
             )
 
-            annotations.append(annotation)
-            annotations.sort { $0.timestamp < $1.timestamp }
+            // Live listener drives `annotations` — skip local append to avoid flash.
+            _ = annotation
             Haptics.success()
 
             // Notify the folder owner that the coach left a drawing

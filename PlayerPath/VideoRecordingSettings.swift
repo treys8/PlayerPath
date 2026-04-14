@@ -30,20 +30,24 @@ final class VideoRecordingSettings {
     /// Video quality/resolution
     var quality: RecordingQuality {
         didSet {
+            reconcileFrameRateForQuality()
             saveSettings()
         }
     }
-    
+
     /// Video format (codec)
     var format: VideoFormat {
         didSet {
             saveSettings()
         }
     }
-    
+
     /// Frame rate for recording
     var frameRate: FrameRate {
         didSet {
+            if !frameRate.supportsSlowMotion {
+                slowMotionEnabled = false
+            }
             saveSettings()
         }
     }
@@ -108,19 +112,31 @@ final class VideoRecordingSettings {
         }
         
         self.slowMotionEnabled = UserDefaults.standard.bool(forKey: Keys.slowMotionEnabled)
-        
+
         // Audio defaults to true
         if UserDefaults.standard.object(forKey: Keys.audioEnabled) == nil {
             self.audioEnabled = true
         } else {
             self.audioEnabled = UserDefaults.standard.bool(forKey: Keys.audioEnabled)
         }
-        
+
         if let stabRaw = UserDefaults.standard.string(forKey: Keys.stabilizationMode),
            let savedStab = StabilizationMode(rawValue: stabRaw) {
             self.stabilizationMode = savedStab
         } else {
             self.stabilizationMode = .auto
+        }
+
+        // Reconcile persisted state after all stored properties are initialized:
+        // clamp frame rate to what the loaded quality supports, and clear
+        // slow-mo if the resulting rate can't support it. Unsticks users whose
+        // stored state drifted into an inconsistent combination.
+        let compatible = compatibleFrameRates(for: self.quality)
+        if !compatible.contains(self.frameRate), let fallback = compatible.last {
+            self.frameRate = fallback
+        }
+        if !self.frameRate.supportsSlowMotion {
+            self.slowMotionEnabled = false
         }
 
         isInitializing = false
@@ -165,6 +181,21 @@ final class VideoRecordingSettings {
         UserDefaults.standard.set(stabilizationMode.rawValue, forKey: Keys.stabilizationMode)
     }
     
+    // MARK: - Invariants
+
+    /// Ensures `frameRate` is compatible with the current `quality`, and clears
+    /// `slowMotionEnabled` if the resulting rate no longer supports slow-mo.
+    /// Never auto-enables slow-mo — that must be an explicit user action.
+    private func reconcileFrameRateForQuality() {
+        let compatible = compatibleFrameRates(for: quality)
+        if !compatible.contains(frameRate), let fallback = compatible.last {
+            frameRate = fallback
+        }
+        if !frameRate.supportsSlowMotion {
+            slowMotionEnabled = false
+        }
+    }
+
     // MARK: - Slow Motion
 
     /// Enables or disables slow motion, updating `frameRate` atomically.
