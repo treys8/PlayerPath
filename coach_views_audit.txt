@@ -1,0 +1,168 @@
+COACH VIEWS AUDIT — 11 files
+==============================
+
+## CoachDashboardView.swift
+
+BUG #1 — shareAllReviewClips passes ownerAthleteID as coachIDs (line 417)
+  `coachIDs: [folder.ownerAthleteID]` passes the athlete's ID as the coach ID in the
+  notification. This means the notification goes to the wrong user or fails silently.
+  Should be the athlete's ID in the "recipient" field, not coachIDs.
+  (Same bug previously identified in ClipReviewSheet.)
+
+BUG #2 — recentAthleteCards computed on every body evaluation (lines 554-571)
+  `recentAthleteCards` is a computed property involving Dictionary grouping, mapping, and
+  sorting over all cached folders. It's called from the body and re-evaluated on every
+  SwiftUI redraw. Should be cached in @State and updated in updateCachedValues().
+
+MINOR #3 — DispatchQueue.main.asyncAfter for sheet chaining (line 147)
+  Uses a hardcoded 0.35s delay to chain dismiss/present of sheets. This is fragile — on
+  slower devices the dismiss animation may not complete in 350ms, causing the second sheet
+  to fail. Should use the sheet's onDismiss callback instead.
+
+MINOR #4 — headerPulse animation never resets (line 246-263)
+  `headerPulse` is set to true on .onAppear but never reset to false. If the session ends
+  and a new one starts, the animation state may be stale. Minor since the view rebuilds.
+
+
+## CoachesView.swift
+
+BUG #5 — deleteCoach saves modelContext inside a Task after withAnimation (lines 280-317)
+  `modelContext.delete(coach)` runs synchronously inside `withAnimation`, but
+  `modelContext.save()` runs in a deferred Task. If the save fails, the coach is removed
+  from the UI but not persisted. Same pattern bug as PracticesView's deleteSinglePractice.
+
+BUG #6 — reinviteCoach creates a folder using userID (athlete UID) but folder API expects
+  athlete ID (lines 237-243)
+  `SharedFolderManager.shared.createFolder(forAthlete: userID, ...)` passes the Firebase
+  Auth UID. If the folder API expects a different kind of athlete ID (like a SwiftData UUID),
+  the folder ownership may be wrong. Depends on API contract — worth verifying.
+
+MINOR #7 — athleteID property stored but unused (line 30)
+  `private var athleteID: UUID` is set in init but never referenced in the view body.
+
+
+## CoachFolderComponents.swift
+
+MINOR #8 — GameGroup.id uses string interpolation of Date.timeIntervalSince1970 (line 342)
+  `"\(opponent)-\(date.timeIntervalSince1970)"` — floating-point interpolation may vary
+  between runs. Two groups with the same opponent and date could produce subtly different
+  IDs. Should use a stable format.
+
+MINOR #9 — PracticeGroup.id uses TimeInterval directly (line 472)
+  Same floating-point stability concern. Identifiable protocol needs consistent IDs.
+
+No critical issues — this is mostly presentation code.
+
+
+## CoachFolderDetailView.swift
+
+BUG #10 — shareAllReviewClips same notification bug as dashboard (line 417)
+  `coachIDs: [folder.ownerAthleteID]` — passes athlete ID in the coachIDs field.
+
+BUG #11 — quickRecord creates a session even if the coach is at their athlete limit (lines 491-528)
+  No subscription gate check before scheduleSession. The session is created and started,
+  but the coach may already be over their athlete limit. CoachSessionManager.scheduleSession
+  may have its own check, but the folder detail view doesn't guard against it.
+
+MINOR #12 — 60-second cache guard prevents refresh on demand (line 219)
+  `if Date().timeIntervalSince(lastFetch) < 60 { return }` — if the user manually pulls
+  to refresh or navigates back, the data won't reload for 60 seconds. The guard should
+  only apply to .task (initial load), not refreshable.
+
+
+## CoachFolderViewModel.swift
+
+BUG #13 — videosListener uses nonisolated(unsafe) for deinit cleanup (line 49)
+  `nonisolated(unsafe) private var videosListener: ListenerRegistration?`
+  This suppresses the Sendable check for deinit access. However, if the ViewModel is
+  deallocated on a background thread while the listener callback fires simultaneously,
+  there's a potential data race. The @ObservationIgnored annotation prevents observation
+  tracking but doesn't prevent concurrent access. Consider using a wrapper or explicit
+  synchronization.
+
+MINOR #14 — loadVideos() skips silently when offline with existing data (lines 173-178)
+  If `videos` is non-empty and the device goes offline, loadVideos() returns without
+  updating the error state or notifying the user. The data may be stale with no indication.
+
+
+## CoachInvitationsView.swift
+
+No significant bugs found. Clean implementation with proper limit checking, error handling,
+and loading states. Minor: invitation expiration check could use server time instead of
+device time.
+
+
+## CoachPaywallView.swift
+
+BUG #15 — Purchase flow sets isPurchasing = true twice (line 454 + 366)
+  purchaseSelected() sets `isPurchasing = true` at line 454, but the button action at
+  line 366 also sets it. The button action fires first, then calls purchaseSelected() which
+  sets it again. Benign but indicates the guard at line 365 (`guard !isPurchasing`) will
+  never fire since it was just set to true on the previous line.
+
+MINOR #16 — Annual savings calculation uses hardcoded Instructor tier (lines 123-134)
+  `coachAnnualSavingsLabel` always calculates savings from Instructor pricing, even if the
+  user has Pro Instructor selected. The savings percentage may differ between tiers.
+
+
+## CoachProfileView.swift
+
+MINOR #17 — onDisappear for invitations fires on any navigation (lines 278-285)
+  The .onDisappear closure on CoachInvitationsView refetches athlete IDs. But onDisappear
+  fires whenever a sheet or sub-navigation pushes over CoachInvitationsView, not just when
+  it truly disappears from the stack.
+
+No critical issues — well-structured profile view.
+
+
+## CoachVideoItem.swift
+
+No issues. Clean value type with good separation from FirestoreVideoMetadata.
+
+
+## CoachVideoPlayerView.swift
+
+BUG #18 — Player auto-plays on every onAppear (line 337)
+  `player.play()` is called in `.onAppear` on the VideoPlayer. In SwiftUI, onAppear fires
+  when a view comes into the view hierarchy, including when returning from a sheet. If the
+  user paused the video and opens the add-note sheet, the video resumes playing when the
+  sheet dismisses. Should track user's play/pause intent.
+
+BUG #19 — onDisappear pauses and stops time observers on sheet presentation (lines 340-343)
+  Same SwiftUI onAppear/onDisappear issue. Opening the speed picker, note editor, or
+  telestration sheet triggers onDisappear, pausing the player and stopping time observers.
+  When the sheet dismisses, onAppear re-plays the video even if it was paused.
+
+MINOR #20 — drillCards not refreshed after creating one (line 190)
+  New drill cards are inserted locally at index 0, but if the Firestore write fails
+  silently, the local array has a card that doesn't exist server-side. No error handling
+  on the insert path.
+
+
+## CoachVideoUploadView.swift
+
+BUG #21 — Upload progress monitoring races with completion (lines 531-546)
+  The progress monitoring Task runs `while !Task.isCancelled` with 250ms polling. But
+  `uploadComplete = true` is set immediately after the enqueue at line 548, before the
+  upload actually finishes. The monitoring Task and the completion assignment race — the
+  user sees "Upload Complete!" while the file is still being uploaded by UploadQueueManager
+  in the background.
+
+BUG #22 — Temp files not cleaned up if view is dismissed during upload (line 389)
+  `auxiliaryTempFiles` are cleaned in clearSelection() and after successful enqueue, but
+  if the view is force-dismissed (e.g., app backgrounded, memory pressure), the ViewModel's
+  deinit doesn't clean them. @Observable classes don't have a guaranteed deinit timing.
+
+MINOR #23 — VideoPickerTransferable copies to Documents directory permanently (lines 574-586)
+  `imported_\(UUID).mov` is copied to the Documents directory root. If the picker is used
+  multiple times and earlier imports aren't cleaned up, these files accumulate indefinitely.
+  The pickerTempURL tracking only cleans the most recent one.
+
+
+## CRITICAL SUMMARY
+
+1. BUG #21 — Upload shows "Complete!" before upload actually finishes (CoachVideoUploadView)
+2. BUG #1/#10 — Notification sends athlete ID as coach ID (CoachDashboardView, CoachFolderDetailView)
+3. BUG #18/#19 — Video auto-plays on sheet dismiss, pauses on sheet present (CoachVideoPlayerView)
+4. BUG #5 — deleteCoach deferred save can silently fail (CoachesView)
+5. BUG #13 — videosListener potential data race on deinit (CoachFolderViewModel)

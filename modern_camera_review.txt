@@ -1,0 +1,165 @@
+ModernCameraView.swift Audit
+==============================
+Date: 2026-04-13
+
+Files Reviewed:
+- ModernCameraView.swift
+- CameraViewModel.swift
+
+
+BUGS
+====
+
+1. FocusReticleView opacity/scale don't reset on repeated taps
+   File: ModernCameraView.swift:479-505 (FocusReticleView)
+         ModernCameraView.swift:75-78 (usage site)
+
+   The opacity state starts at 1.0 and fades to 0 after 1.5s. The scale
+   starts at 1.5 and animates to 1.0. But SwiftUI may reuse the view
+   instance when lastFocusPoint changes to a new coordinate (rather than
+   destroying and recreating it), so the @State opacity and scale won't
+   reset to their initial values on subsequent taps. After the first tap
+   fades out, future taps will show nothing -- the reticle is invisible.
+
+   Fix: Add .id() to force a new view instance on each tap:
+
+     if let focusPoint = viewModel.lastFocusPoint {
+         FocusReticleView(point: focusPoint)
+             .id("\(focusPoint.x),\(focusPoint.y)")
+             .transition(.scale.combined(with: .opacity))
+     }
+
+
+POTENTIAL ISSUES
+================
+
+2. Cancel button doesn't stop recording first
+   File: ModernCameraView.swift:150-165
+
+   The cancel button is disabled during recording (line 163), but
+   onCancel() at line 152 doesn't call viewModel.stopRecording() or
+   viewModel.stopSession() before dismissing. If the disabled state
+   ever fails to prevent a tap (race condition where isRecording flips
+   between tap and action), the view disappears while AVFoundation is
+   still recording. The onDisappear at line 96 calls stopSession()
+   which does call stopRecording(), so this is partially mitigated --
+   but the recorded file would be orphaned since onVideoRecorded
+   wouldn't fire before the view is torn down.
+
+3. Background during recording silently ends and advances flow
+   File: ModernCameraView.swift:98-104
+
+   When the app goes to background, stopSession() is called, which
+   calls stopRecording(). This triggers the AVCaptureFileOutput delegate
+   -> sets recordedVideoURL -> fires onChange at line 139 -> calls
+   onVideoRecorded. Then the session restarts fresh on .active return.
+   The user experience is unexpected: backgrounding the app silently
+   ends recording and advances to the next flow phase (trimmer/tagger)
+   without any user confirmation.
+
+4. MagnificationGesture is deprecated on iOS 17+
+   File: ModernCameraView.swift:65-72
+
+   MagnificationGesture was deprecated in favor of MagnifyGesture. Since
+   the app targets iOS 17+, this should use the newer API. It still
+   compiles and works but will generate deprecation warnings.
+
+   Fix: Replace with MagnifyGesture:
+
+     .simultaneousGesture(
+         MagnifyGesture()
+             .onChanged { value in
+                 viewModel.handleZoom(scale: value.magnification)
+             }
+             .onEnded { _ in
+                 viewModel.endZoomGesture()
+             }
+     )
+
+5. No loading indicator before camera session is ready
+   File: ModernCameraView.swift:55-56
+
+   The camera preview fades in when isSessionReady becomes true, but
+   there is no spinner or placeholder shown during initialization. The
+   user sees a black screen with controls. On slower devices this could
+   feel broken or unresponsive.
+
+6. Preview orientation set on every SwiftUI redraw
+   File: ModernCameraView.swift:433-435
+
+   updateUIView is called on every SwiftUI state change, and each call
+   runs through updatePreviewOrientation. This sets the rotation angle
+   even if it hasn't changed. Not a real performance issue since UIKit
+   handles no-op sets efficiently, but could be avoided by caching the
+   last applied orientation and skipping if unchanged.
+
+7. Flash toggle lacks recording guard in ViewModel
+   File: ModernCameraView.swift:204-220
+
+   The flash button is disabled during recording (line 218), but
+   toggleFlash() in CameraViewModel applies the torch immediately via
+   device.lockForConfiguration. If the button were somehow tapped
+   during recording (race condition), toggling the torch mid-recording
+   would cause a visible flash change in the video. A guard in the
+   ViewModel method would be more defensive:
+
+     guard !isRecording else { return }
+
+
+MINOR / CLEANUP
+===============
+
+8. Unused Combine import
+   File: ModernCameraView.swift:11
+
+   ModernCameraView.swift imports Combine but doesn't use any Combine
+   types directly. The ViewModel uses @Published (in a separate file),
+   but this file doesn't need the import.
+
+9. Grid overlay doesn't account for safe area or video frame
+   File: ModernCameraView.swift:509-531
+
+   GridOverlayView uses GeometryReader but the grid lines span the full
+   geometry without accounting for the camera preview's actual visible
+   area (which uses .resizeAspectFill). On devices with notches or
+   Dynamic Island, the grid thirds won't align with the actual video
+   frame thirds.
+
+10. Landscape layout trailing padding is inconsistent
+    File: ModernCameraView.swift:412 vs 358
+
+    Portrait uses .padding(.horizontal, 20) but landscape uses
+    .padding(.trailing, 12). The record button is closer to the screen
+    edge in landscape, which could cause accidental edge taps.
+
+11. CameraSettingsView frame rate picker side effect
+    File: ModernCameraView.swift:560-566
+
+    The frame rate Picker's set closure also sets slowMotionEnabled:
+
+      viewModel.settings.frameRate = newRate
+      viewModel.settings.slowMotionEnabled = newRate.supportsSlowMotion
+
+    This means selecting a non-slow-mo frame rate disables slow motion,
+    but selecting a slow-mo-capable rate auto-enables it. The user has
+    no way to pick 120fps without slow motion being turned on. The
+    Toggle below (line 580) allows manual override, but the picker
+    always resets it.
+
+
+SUMMARY TABLE
+=============
+
+ #  | Severity | Issue
+----|----------|--------------------------------------------------------------
+ 1  | Bug      | FocusReticleView opacity/scale don't reset on new taps
+ 2  | Minor    | Cancel doesn't stop recording (mitigated by disabled + onDisappear)
+ 3  | Minor    | Background during recording silently ends and advances flow
+ 4  | Warning  | MagnificationGesture deprecated on iOS 17+
+ 5  | UX       | No loading indicator during session init
+ 6  | Minor    | Preview orientation set on every redraw
+ 7  | Minor    | Flash toggle lacks recording guard in ViewModel
+ 8  | Cleanup  | Unused Combine import
+ 9  | Minor    | Grid doesn't match actual video frame
+ 10 | Minor    | Inconsistent landscape padding
+ 11 | Minor    | Frame rate picker auto-enables slow motion

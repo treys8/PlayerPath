@@ -1,0 +1,122 @@
+Critical & High Priority Bugs Across All Audits
+=================================================
+Date: 2026-04-13
+
+Sources:
+- coach_session_review.txt
+- modern_camera_review.txt
+- video_recorder_refactored_review.txt
+- video_player_view_review.txt
+
+
+CRITICAL (users likely hitting these now)
+=========================================
+
+1. VideoPlayerView: onDisappear kills player on sheet dismiss
+   File: VideoPlayerView.swift:234-243
+   Source: video_player_view_review.txt #4
+
+   Every time a user opens the play result editor, game linker, or
+   share-to-coach sheet and comes back, the entire player tears down
+   and reloads from scratch. Users see a loading spinner flash on
+   every sheet dismiss. This happens because onDisappear fires when
+   sheets are presented (not just when truly leaving the view), and
+   it resets hasAppeared = false, nils the player, and sets
+   isLoading = true.
+
+   Impact: Every athlete sees this every time they use the menu.
+
+
+2. CoachSession: startScheduledSession missing local startedAt
+   Files: CoachSessionManager.swift:196-201, FirestoreModels.swift:256
+   Source: coach_session_review.txt #1, #2
+
+   When a coach starts a scheduled session, startedAt is written to
+   Firestore via FieldValue.serverTimestamp() but never set on the
+   local CoachSession object. The LiveSessionCard timer
+   (Text(startedAt, style: .timer)) shows nothing because
+   session.startedAt is nil. The field is declared as "let" so it
+   can't be mutated locally.
+
+   Impact: Coaches don't see the session timer after starting a
+   scheduled session until the next Firestore fetch.
+
+
+3. DirectCameraRecorderView: offline check blocks clip enqueue
+   File: DirectCameraRecorderView.swift:445-448
+   Source: coach_session_review.txt #4
+
+   If the device has a momentary connectivity blip when a coach
+   finishes recording a clip, the clip is NOT enqueued for upload.
+   The user is shown an alert with "Try Again" or "Discard". If
+   they tap "Discard", the clip is permanently lost -- even though
+   UploadQueueManager has built-in retry with exponential backoff
+   that would have handled it.
+
+   Impact: Coaches can lose recorded clips due to brief network
+   interruptions.
+
+
+HIGH (affecting subset of users)
+================================
+
+4. VideoPlayerView: info card hidden on all iPad layouts
+   File: VideoPlayerView.swift:130
+   Source: video_player_view_review.txt #8
+
+   The condition is:
+     if vSizeClass != .compact && hSizeClass != .regular
+
+   This excludes iPad entirely (iPad is always hSizeClass == .regular).
+   iPad users never see the play result, game opponent, highlight
+   badge, or creation date below the video.
+
+   Impact: All iPad users.
+
+
+5. VideoPlayerView: ShareLink available when file doesn't exist
+   File: VideoPlayerView.swift:193-195
+   Source: video_player_view_review.txt #2
+
+   ShareLink(item: clip.resolvedFileURL) is always in the menu
+   regardless of whether the local file exists. For cloud-only clips
+   (file deleted locally, not yet re-downloaded), the share sheet
+   will fail or show a broken/empty result.
+
+   Impact: Users who have clips only in the cloud (storage cleanup,
+   reinstall, etc).
+
+
+6. ModernCameraView: focus reticle invisible after first tap
+   File: ModernCameraView.swift:75-78, 479-505
+   Source: modern_camera_review.txt #1
+
+   FocusReticleView uses @State opacity (starts at 1.0, fades to 0)
+   and @State scale (starts at 1.5, animates to 1.0). SwiftUI may
+   reuse the view instance when lastFocusPoint changes coordinates
+   rather than creating a new one. The @State values don't reset, so
+   after the first tap fades out, subsequent taps show nothing.
+
+   Impact: All users who tap to focus more than once per session.
+
+
+NOT CRITICAL (included for context)
+====================================
+
+The following were flagged in individual audits but are lower priority:
+
+- ClipReviewSheet notification recipient (coach_session #3):
+  Needs verification of what postNewVideoNotification(coachIDs:)
+  actually does with that parameter.
+
+- VideoRecorderView photo picker failure (video_recorder #3):
+  User stuck on black screen if video import fails. Rare edge case.
+
+- MagnificationGesture deprecated (modern_camera #4):
+  Deprecation warning only, still functional.
+
+- saveToPhotos concurrency (video_player_view #1):
+  Works in practice, will warn under strict concurrency.
+
+- Duplicate NetworkMonitor class (video_recorder #2):
+  Code duplication, no user-facing impact.

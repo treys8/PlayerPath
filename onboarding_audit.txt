@@ -1,0 +1,155 @@
+Views/Onboarding Audit — 2026-04-14
+======================================
+
+Files reviewed (8):
+  AthleteOnboardingFlow.swift, CoachAnnouncementFlow.swift, CoachOnboardingFlow.swift,
+  OnboardingBackupView.swift, OnboardingFlow.swift, OnboardingSeasonCreationView.swift,
+  OnboardingStepIndicator.swift, WelcomeTutorialView.swift
+
+==========================================================================
+CRITICAL / BUG
+==========================================================================
+
+1. [Bug] AthleteOnboardingFlow — Task.detached with @MainActor accesses ModelContext potentially off-thread
+   File: AthleteOnboardingFlow.swift:151-162
+   `Task.detached { @MainActor in ... }` creates a detached task that
+   immediately hops to MainActor. While the @MainActor annotation should
+   ensure the body runs on the main thread, `modelContext` is captured from
+   a non-Sendable context crossing an isolation boundary. Under strict
+   concurrency this is a data race. The same pattern appears in
+   CoachOnboardingFlow.swift:65-76.
+   FIX: Use `Task { @MainActor in ... }` (non-detached) since the work
+   must run on MainActor anyway, or just run synchronously since you're
+   already on MainActor.
+
+2. [Bug] AthleteOnboardingFlow — markOnboardingComplete before SwiftData save
+   File: AthleteOnboardingFlow.swift:147-162
+   `authManager.markOnboardingComplete()` fires immediately, then the
+   OnboardingProgress is saved in a background Task. If the save fails
+   (retries exhausted), the in-memory flag says "done" but SwiftData has
+   no record. On next cold launch, the app will re-show onboarding because
+   it reads from SwiftData, but authManager thinks it's complete — creating
+   a stuck state where neither onboarding nor the main app shows correctly.
+   Same issue in CoachOnboardingFlow.swift:60-76.
+   SEVERITY: Medium — rare (save must fail 3+ times) but creates a
+   hard-to-recover state.
+
+3. [Bug] OnboardingBackupView — completes onboarding even on save failure
+   File: OnboardingBackupView.swift:154-158
+   The catch block explicitly says "Still complete onboarding even if save
+   fails" and calls `authManager.resetNewUserFlag()`. This means the user's
+   backup preference is lost silently — they think they chose "WiFi Only"
+   but it wasn't persisted. Their videos may not auto-upload as expected.
+   FIX: Show an error alert and let the user retry rather than silently
+   proceeding with unsaved preferences.
+
+4. [Bug] OnboardingSeasonCreationView — rollback doesn't call modelContext.save()
+   File: OnboardingSeasonCreationView.swift:318-325
+   On save failure, the code does:
+     modelContext.delete(season)
+     athlete.seasons?.removeAll { $0.id == season.id }
+   But never calls `modelContext.save()` after the rollback. The deleted
+   season remains in the context's pending changes. If any subsequent save
+   triggers elsewhere, it may re-insert the season or cause conflicts.
+   FIX: Call `try? modelContext.save()` after the rollback delete, or
+   use `modelContext.rollback()` if available.
+
+5. [Bug] OnboardingSeasonCreationView — skipSeasonCreation ignores save result
+   File: OnboardingSeasonCreationView.swift:248-257
+   `ErrorHandlerService.shared.saveContext(...)` return value is discarded.
+   If the save fails, the season exists in memory but not persisted. The
+   onboarding flow advances (relying on the in-memory season), but on
+   restart the season won't exist and the user may be re-prompted or end
+   up with no season at all.
+   FIX: Check the return value and show an error if save fails.
+
+==========================================================================
+POTENTIAL ISSUE
+==========================================================================
+
+6. [Potential] CoachAnnouncementFlow — DispatchQueue.main.asyncAfter for paywall timing
+   File: CoachAnnouncementFlow.swift:66-68
+   Uses `DispatchQueue.main.asyncAfter(deadline: .now() + 0.5)` to post a
+   notification after dismissal. This is a timing hack — if the dismiss
+   animation takes longer than 0.5s (e.g., on slow devices or with custom
+   transitions), the notification fires while the sheet is still visible.
+   The paywall may appear behind the dismissing sheet or be swallowed.
+   FIX: Use the sheet's onDismiss callback or a state-driven approach
+   instead of a timed delay.
+
+7. [Potential] WelcomeTutorialView — onDisappear marks milestone even on unexpected dismiss
+   File: WelcomeTutorialView.swift:65-69
+   The view has `interactiveDismissDisabled(true)` but the onDisappear
+   fallback marks the tutorial complete even if the view disappears for
+   other reasons (e.g., parent navigation change, memory warning). This
+   could mark the tutorial as seen before the user finishes it.
+
+8. [Potential] OnboardingSeasonCreationView — nested Task inside Task
+   File: OnboardingSeasonCreationView.swift:306-313
+   Inside the `Task { ... }` block at line 286, there's another `Task { }`
+   at line 306 for Firestore sync. The inner Task is fire-and-forget and
+   its errors are handled, but the nesting is unnecessary — the inner work
+   could just be `await`ed directly since the outer Task is already async.
+
+9. [Potential] OnboardingFlow — empty onAppear debug block
+   File: OnboardingFlow.swift:34-41
+   The onAppear block checks `authManager.userProfile` but does nothing in
+   either branch. This is dead code left over from debugging. Should be
+   removed.
+
+==========================================================================
+MINOR / IMPROVEMENT
+==========================================================================
+
+10. [Minor] Duplicated onboarding completion pattern
+    AthleteOnboardingFlow and CoachOnboardingFlow have nearly identical
+    `completeOnboarding()` / `completeCoachOnboarding()` methods. This
+    could be extracted into a shared helper on OnboardingManager or a
+    utility function.
+
+11. [Minor] CoachAnnouncementFlow — page indicator overlaps content on small screens
+    File: CoachAnnouncementFlow.swift:51
+    The page indicator is positioned with `.padding(.bottom, 36)` and the
+    CTA buttons use `.padding(.bottom, 80)`. On iPhone SE (1st gen) or
+    smaller screens, the bottom spacing may compress and overlap content.
+
+12. [Minor] WelcomeTutorialView — advancePage has no bounds check
+    File: WelcomeTutorialView.swift:73-74
+    `currentPage += 1` has no guard against exceeding `totalPages - 1`.
+    TabView will just show nothing, but it's not clean. The page buttons
+    only call `advancePage` from pages 0-4 so this can't happen in
+    practice, but a guard would be defensive.
+
+13. [Improvement] OnboardingBackupView — no loading state feedback on save
+    File: OnboardingBackupView.swift:137-160
+    The `isSaving` flag is set and the button shows a ProgressView, but
+    if the save fails, `isSaving` is reset to false with no visual
+    feedback that anything went wrong. The button just becomes tappable
+    again. Should show an error toast or alert.
+
+14. [Improvement] Consider disabling swipe-to-go-back on paged onboarding
+    CoachOnboardingFlow and CoachAnnouncementFlow use TabView with
+    `.page` style which allows swiping between pages. This is fine, but
+    the "appeared" animation state on each page is set once and never
+    reset, so swiping back to a page shows it without its entrance
+    animations (already appeared = true). Not a bug, but the experience
+    feels less polished if users swipe back and forth.
+
+==========================================================================
+SUMMARY
+==========================================================================
+
+Critical bugs to fix first:
+  #2 — Onboarding complete flag set before SwiftData save (both athlete
+       and coach flows). Can create a stuck state on save failure.
+  #3 — Backup preferences silently lost on save failure.
+  #4 — Season rollback doesn't save, leaving dirty context.
+  #5 — Skip season ignores save failure.
+
+The onboarding flows are well-designed visually with polished animations
+and good progressive disclosure. The main systemic issue is the "optimistic
+completion" pattern: marking onboarding complete before confirming the
+persistence layer succeeded. This creates edge cases where the app
+transitions to the main flow but critical data (seasons, preferences,
+progress records) wasn't actually saved. The fix pattern is the same
+across all files: wait for the save to succeed before advancing state.

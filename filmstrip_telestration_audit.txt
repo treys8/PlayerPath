@@ -1,0 +1,108 @@
+FILMSTRIP & TELESTRATION AUDIT — 7 files
+==========================================
+
+## FilmstripGenerator.swift
+
+MINOR #1 — Frame count formula may produce suboptimal results for very short/long videos
+  `min(30, max(1, Int(duration / 0.5)))` — a 1-second video gets 2 frames (fine), but a
+  60-second video gets 30 frames at 2-second intervals, while a 10-second video gets 20
+  frames at 0.5-second intervals. The density is inconsistent — short videos get very dense
+  frames while longer ones are sparse. Not a bug, but coaches reviewing short clips get
+  excessive frames while long clips may miss key moments.
+
+MINOR #2 — No cancellation of in-flight AVAssetImageGenerator (line 49)
+  The loop checks Task.isCancelled but doesn't call generator.cancelAllCGImageGeneration().
+  If the task is cancelled mid-generation, the current image(at:) call may still be running
+  in the background until it finishes or times out.
+
+No critical issues. Clean, well-structured async generator with progressive loading.
+
+
+## FilmstripScrubberView.swift
+
+BUG #3 — activeIndex computed property recalculated on every body evaluation (lines 22-27)
+  `activeIndex` uses min(by:) over all thumbnails on every SwiftUI redraw. With 30
+  thumbnails this is trivial, but it's called inside body which means it re-evaluates on
+  every time observer tick (likely 10-30 times per second). The onChange(of: activeIndex)
+  then fires and animates scrollTo — causing potentially janky continuous scrolling during
+  playback. Should debounce or throttle the scroll-to-active behavior.
+
+MINOR #4 — ScrollViewReader scrollTo animation during user drag
+  If the user is manually scrolling the filmstrip to browse, the automatic
+  scrollTo(activeIndex) will fight their scroll gesture, snapping back to the current
+  playback position. No gesture state tracking to suppress auto-scroll during user
+  interaction.
+
+
+## FilmstripThumbnail.swift
+
+No issues. Simple, clean model type.
+
+
+## DrawingAnnotationOverlay.swift
+
+BUG #5 — renderDrawing() uses drawing's own bounds, not the video frame's coordinate space
+  (lines 67-73)
+  PKDrawing.bounds returns the bounding rect of actual strokes. The drawing was created on a
+  canvas sized to the video frame, but renderDrawing() uses drawingBounds (stroke bounds)
+  to render. This means:
+  - The rendered image is cropped to just the strokes, not the full video frame
+  - When displayed via Image().resizable().frame(width: renderSize), the strokes are
+    stretched to fill the entire video area, distorting their positions
+  The drawing should be rendered at the original canvas size, not the stroke bounding box.
+  A coach drawing a circle in the top-right corner would see it displayed stretched across
+  the entire video.
+
+MINOR #6 — displayScale captured from Environment on appear (line 72)
+  `pkDrawing.image(from:scale:)` uses the current displayScale. If the overlay is shown
+  on an external display with a different scale, the rendering resolution may not match.
+  Edge case only.
+
+
+## TelestrationCanvasView.swift
+
+BUG #7 — canvasViewDrawingDidChange isUpdating flag is not thread-safe (lines 56-58)
+  The coordinator sets `isUpdating = true`, assigns the binding, then sets it `false` —
+  all synchronously. But `updateUIView` can be called on any thread by UIKit during
+  layout passes. If updateUIView checks `isUpdating` while canvasViewDrawingDidChange is
+  between setting it true and false on another thread, the flag won't protect against
+  feedback loops. In practice this is unlikely since both typically run on the main thread,
+  but PencilKit may call delegate methods on background threads during rapid drawing.
+
+MINOR #8 — Drawing comparison `canvas.drawing != drawing` may be expensive (line 36)
+  PKDrawing equality checks every stroke. With 50 strokes at high fidelity, this comparison
+  runs on every updateUIView call. For telestration use (limited strokes) this is fine.
+
+
+## TelestrationOverlayView.swift
+
+BUG #9 — Canvas and DrawingAnnotationOverlay use different coordinate systems
+  The canvas is sized to `fitSize(aspectRatio:in:)` of the GeometryReader's available space.
+  But when the drawing is saved and later displayed in DrawingAnnotationOverlay, the overlay
+  renders using the drawing's stroke bounds (BUG #5), not the canvas size. Strokes will
+  appear misaligned between drawing and viewing. This is the same root cause as BUG #5 —
+  the save path should store the canvas size alongside the drawing data so the viewer can
+  reconstruct the correct coordinate space.
+
+MINOR #10 — maxStrokes duplicated between TelestrationOverlayView (line 24) and
+  TelestrationToolbar (line 29)
+  Both hardcode `50`. Should be a shared constant to prevent drift.
+
+MINOR #11 — No discard confirmation when cancelling with strokes drawn
+  The Cancel button calls onCancel() immediately with no confirmation. If the coach has
+  drawn 20 strokes and accidentally taps Cancel (or the X button), all work is lost with
+  no "are you sure?" prompt.
+
+
+## TelestrationToolbar.swift
+
+No bugs. Well-structured toolbar with proper disabled states and clear confirmation.
+
+
+## CRITICAL SUMMARY
+
+1. BUG #5/#9 — Drawing coordinate mismatch: drawings render at stroke bounds, not canvas
+               frame — causes position distortion when viewing saved annotations
+2. BUG #3   — activeIndex recomputed 10-30x/sec during playback, causing continuous
+               scroll animations that may fight user interaction
+3. MINOR #11 — No discard confirmation on Cancel with unsaved drawing strokes

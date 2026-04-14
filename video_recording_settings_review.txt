@@ -1,0 +1,221 @@
+VideoRecordingSettings & VideoRecordingSettingsView Audit
+==========================================================
+Date: 2026-04-13
+
+Files Reviewed:
+- VideoRecordingSettings.swift
+- VideoRecordingSettingsView.swift
+
+
+BUGS
+====
+
+1. didSet fires during init despite isInitializing guard
+   File: VideoRecordingSettings.swift:88-128
+
+   The init sets properties like self.quality = savedQuality (line 92).
+   In Swift, didSet fires for property assignments in init ONLY when
+   the property has an initial value (default) and is reassigned. Since
+   these properties have no default value and are assigned for the first
+   time in init, didSet does NOT fire. So the isInitializing guard
+   works correctly -- but only by coincidence. If someone adds a default
+   value to any property (e.g., var quality: RecordingQuality = .high1080p),
+   didSet would fire during init, hit saveSettings(), and the
+   isInitializing guard would correctly block it. So this is technically
+   fine, but fragile.
+
+   Verdict: Not a bug, but the isInitializing pattern is good defense.
+
+
+2. selectQuality unconditionally sets slowMotionEnabled
+   File: VideoRecordingSettingsView.swift:455
+
+   When the user selects a quality, after adjusting frame rate:
+
+     settings.slowMotionEnabled = settings.frameRate.supportsSlowMotion
+
+   This means if the user had slow-mo OFF at 120fps (possible by
+   toggling the slow-mo switch off while keeping 120fps), changing
+   quality to anything that keeps 120fps will force slow-mo back ON.
+   The user's manual slow-mo preference is lost on quality changes.
+
+   Similarly, selectFrameRate (line 464) does the same:
+
+     settings.slowMotionEnabled = frameRate.supportsSlowMotion
+
+   Selecting 120fps always enables slow-mo. The user cannot use 120fps
+   without slow-mo. This is also flagged in the ModernCameraView audit
+   (CameraSettingsView has the same behavior).
+
+   Impact: Minor -- most users expect 120fps = slow-mo, but the toggle
+   exists implying it should be independent.
+
+
+3. capabilityCheckSession is a detached AVCaptureSession
+   File: VideoRecordingSettings.swift:457-460
+
+   A static AVCaptureSession is created solely for canSetSessionPreset
+   checks. This session has no inputs configured, so the preset
+   compatibility check may not be accurate -- AVCaptureSession preset
+   support depends on the configured inputs. A session with no camera
+   input may report different capabilities than one with a camera.
+
+   In practice, canSetSessionPreset on an empty session checks device
+   hardware capabilities, which is usually correct for broad checks.
+   But it could return false positives for edge cases (e.g., 4K on
+   older devices where the front camera doesn't support it).
+
+   Impact: Low -- the actual camera setup in CameraViewModel will
+   fail gracefully if the preset isn't truly supported.
+
+
+4. resetToDefaults triggers 6 separate debounced saves
+   File: VideoRecordingSettings.swift:193-204
+
+   Each property assignment fires didSet -> saveSettings(), which
+   cancels the previous debounced task and starts a new one. Only the
+   last save actually executes (after 500ms). This is correct behavior
+   thanks to debouncing, but the 5 cancelled tasks are unnecessary
+   work. Using a batch approach or the isInitializing pattern would
+   be cleaner.
+
+   Verdict: Works correctly due to debouncing, just slightly wasteful.
+
+
+POTENTIAL ISSUES
+================
+
+5. @State with singleton reference pattern
+   File: VideoRecordingSettingsView.swift:22
+
+   @State private var settings = VideoRecordingSettings.shared
+
+   This creates a @State wrapper around a reference to the singleton.
+   Since VideoRecordingSettings is a class (reference type) marked
+   @Observable, @State holds the reference, and @Observable provides
+   change tracking. This works correctly -- SwiftUI observes property
+   changes on the singleton via Observation framework.
+
+   However, the line 44 pattern is unusual:
+     @Bindable var settings = settings
+
+   This creates a local @Bindable from the @State's value. This is
+   the correct pattern for getting Bindings from @Observable objects
+   stored in @State. No issue here.
+
+
+6. Observation import may be unnecessary
+   File: VideoRecordingSettingsView.swift:10
+
+   import Observation is explicit, but SwiftUI implicitly imports it
+   on iOS 17+. Not harmful, just redundant.
+
+
+7. Cloud upload preferences depend on @Query UserPreferences
+   File: VideoRecordingSettingsView.swift:37-41
+
+   The cloud upload section reads from @Query userPreferences, and
+   mutations are saved via ErrorHandlerService.shared.saveContext.
+   If UserPreferences doesn't exist yet (new install, first launch),
+   preferences is nil and the section shows "Loading preferences...".
+   This could persist indefinitely if UserPreferences is never created
+   before this view is shown.
+
+   Fix: Ensure UserPreferences is created during onboarding or app
+   launch, or create a default one in this view if nil.
+
+
+8. isFrameRateSupported uses hardcoded device capabilities
+   File: VideoRecordingSettings.swift:470-482
+
+   The compatibility check is based on hardcoded rules:
+   - 4K capped at 60fps
+   - 240fps only at 480p
+
+   These don't reflect actual device capabilities. iPhone 15 Pro
+   supports 4K@120fps. The hardcoded rules will incorrectly block
+   users from selecting valid configurations on newer devices.
+
+   The compatibleFrameRates (line 485-494) method has the same issue:
+   - 4K allows only 24/30/60
+   - 1080p allows 24/30/60/120
+   - 720p and below allow all
+
+   iPhone 15 Pro+ supports 4K@120. This artificially limits users.
+
+   Fix: Query actual device format capabilities at runtime instead
+   of hardcoding. AVCaptureDevice.formats provides the real answer.
+
+
+9. File size estimates don't account for audio
+   File: VideoRecordingSettings.swift:209-215
+
+   estimatedFileSizePerMinute multiplies base MB by format and frame
+   rate factors, but doesn't add audio bitrate. Audio adds ~1-2 MB/min
+   (AAC at 128-256kbps). For 480p recordings (~8 MB/min), audio is
+   a significant 12-25% of total. The estimate is always slightly low.
+
+   Impact: Minor -- estimates are inherently approximate.
+
+
+MINOR / CLEANUP
+===============
+
+10. SwiftUI import in VideoRecordingSettings.swift
+    File: VideoRecordingSettings.swift:10
+
+    The model imports SwiftUI but only needs Foundation and
+    AVFoundation. SwiftUI is not used in this file. The @Observable
+    macro comes from the Observation framework (available via
+    Foundation on iOS 17+), and @MainActor comes from Swift concurrency.
+
+    Fix: Remove import SwiftUI, add import Observation if needed.
+
+
+11. FrameRate.fps uses Int(rawValue) with fallback
+    File: VideoRecordingSettings.swift:369
+
+      return Int(rawValue) ?? 30
+
+    The rawValue is always a valid integer string ("24", "30", etc.),
+    so the ?? 30 fallback never triggers. But if a new case were added
+    with a non-numeric rawValue, this would silently return 30 instead
+    of catching the error.
+
+
+12. Format section doesn't check device support
+    File: VideoRecordingSettingsView.swift:108-124
+
+    Unlike the quality section (which checks isQualitySupported), the
+    format section lets users select H.264 or HEVC without checking
+    device support. All iOS 11+ devices support HEVC, so this is fine
+    in practice, but inconsistent with the quality section pattern.
+
+
+13. onChange haptic for trimmer toggles fires on initial load
+    File: VideoRecordingSettingsView.swift:342-344, 360-362
+
+    .onChange(of: autoShowTrimmer) fires Haptics.light() but onChange
+    with the two-parameter closure (_, newValue) only fires on actual
+    changes, not initial load. So this is correct. The newValue
+    parameter is unused though -- could use .onChange(of:) { } instead.
+
+
+SUMMARY TABLE
+=============
+
+ #  | Severity | Issue
+----|----------|--------------------------------------------------------------
+ 1  | OK       | didSet during init is correctly guarded
+ 2  | Minor    | Quality/frame rate changes force slow-mo flag
+ 3  | Minor    | capabilityCheckSession has no inputs (may be inaccurate)
+ 4  | OK       | resetToDefaults debouncing works correctly
+ 5  | OK       | @State + @Observable singleton pattern is correct
+ 6  | Cleanup  | Redundant Observation import
+ 7  | Minor    | Cloud upload section shows "Loading..." if no UserPreferences
+ 8  | Bug      | Hardcoded frame rate limits don't match newer device capabilities
+ 9  | Minor    | File size estimates don't include audio
+ 10 | Cleanup  | Unnecessary SwiftUI import in model file
+ 11 | Minor    | FrameRate.fps has unreachable fallback
+ 12 | Minor    | Format selection doesn't check device support
+ 13 | OK       | Haptic onChange fires correctly

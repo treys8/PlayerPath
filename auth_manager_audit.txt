@@ -1,0 +1,135 @@
+AUTH MANAGER AUDIT — ComprehensiveAuthManager (all 4 files)
+============================================================
+
+## ComprehensiveAuthManager.swift (Core)
+
+BUG #1 — Account lockout state is in-memory only (lines 28-37)
+  failedSignInAttempts and signInLockedUntil are plain vars with no persistence. If the user
+  force-quits and relaunches, the lockout resets to zero. An attacker can bypass the lockout
+  by killing the app between attempts. Should persist to UserDefaults or Keychain.
+
+BUG #2 — lockoutRemainingSeconds is not reactive (lines 34-37)
+  It's a computed property that returns the current remaining seconds, but it's not @Published
+  and doesn't trigger SwiftUI updates. Any UI showing a countdown timer would show a stale
+  value. Needs a Timer or TimelineView to drive updates.
+
+MINOR #3 — ObservableObject with @Published instead of @Observable (line 20)
+  The project convention per CLAUDE.md is @Observable for ViewModels. This class uses the
+  older ObservableObject/@Published pattern. Migration would be large but worth noting for
+  consistency. The @ObservedObject usage in views would need updating to @State.
+
+MINOR #4 — hasLoadedProfile is a plain var, not @Published (line 91)
+  Code checks hasLoadedProfile in multiple places but UI won't react to changes. This is
+  likely intentional (internal flag), but if any view ever depends on it, it won't update.
+
+
+## ComprehensiveAuthManager+Auth.swift
+
+BUG #5 — Auth state listener race with checkEmailVerification (lines 32-96 + 376-395)
+  When checkEmailVerification() sets needsEmailVerification = false and isSignedIn = true,
+  the auth state listener may also fire (user.reload() can trigger it). The listener checks
+  `self?.needsEmailVerification == true` to skip, but by this point it's already false.
+  The listener then runs loadUserProfile() concurrently with whatever the verification
+  caller is doing. Not a data corruption risk (profile load is idempotent) but causes
+  duplicate network requests and potential UI flicker.
+
+BUG #6 — signOut continues after Auth.auth().signOut() throws (lines 304-361)
+  If `Auth.auth().signOut()` throws (line 319), the catch block only sets errorMessage and
+  logs. But the user's local state (isSignedIn, currentFirebaseUser, etc.) is NOT cleared.
+  The user is stuck in a signed-in state with a possibly-invalidated Firebase session.
+  The cleanup code (lines 320-354) only runs on success. At minimum, should still clear
+  local state even if Firebase sign-out fails, since the session may be irrecoverable.
+
+BUG #7 — observeAppleCredentialRevocation notification observer not stored (lines 18-29)
+  The NotificationCenter observer returned by addObserver(forName:) is not stored. With the
+  closure-based API, the observer is auto-removed when deallocated. Since ComprehensiveAuthManager
+  likely lives for the app's lifetime this is probably fine, but if the manager is ever
+  recreated, the old observer leaks. Should store the return value for proper cleanup.
+
+BUG #8 — signUpAsCoach checks pending invitations but doesn't process them (lines 263-267)
+  After coach signup, it fetches pending invitations but only logs the count. The invitations
+  are never accepted or presented to the user. This is either dead code or an incomplete
+  implementation — the user won't see their pending invitations until they manually navigate
+  to the invitations screen.
+
+MINOR #9 — signUp sends verification email but swallows the error (lines 205-210)
+  If sendEmailVerification() fails, needsEmailVerification is still set to true. The user
+  sees the verification gate but never received the email. They can use "resend" but may be
+  confused. Should surface this to the user (e.g., "Account created but we couldn't send the
+  verification email — tap Resend").
+
+MINOR #10 — signIn clears upload queues before confirming auth success (line 112)
+  UploadQueueManager.shared.clearAllQueues() is called at the start of signIn(), before
+  the Firebase auth call. If sign-in fails, any pending uploads from the current session
+  are already lost. Should clear queues only after successful authentication.
+
+
+## ComprehensiveAuthManager+Profile.swift
+
+BUG #11 — ensureLocalUser fetches by email, not Firebase UID (lines 23)
+  The SwiftData fetch predicate matches on email: `$0.email == email`. If a user changes
+  their email (via Firebase email update), the old SwiftData User won't be found and a
+  duplicate User is created. Should match on firebaseAuthUid as the primary key, with
+  email as a fallback for migration.
+
+BUG #12 — deleteAccount doesn't remove push tokens before deletion (lines 341-412)
+  signOut() calls PushNotificationService.shared.removeTokenFromServer() and
+  removeFCMTokenFromServer() before signing out. deleteAccount() does NOT — it deletes the
+  Firebase Auth account directly. The Firestore document holding the push token may already
+  be deleted by step 2, but the APNs token remains registered, and the device could
+  continue receiving push notifications intended for the deleted account until the token
+  naturally expires.
+
+BUG #13 — deleteAccount: user.delete() can fail with "requires recent login" (line 385)
+  Firebase Auth requires recent authentication for account deletion. If the user's session
+  is old, user.delete() throws AuthErrorCode.requiresRecentLogin. The error is caught and
+  re-thrown, but steps 1-3 have already executed (videos deleted from Storage, Firestore
+  profile deleted, local data cleared). The account still exists but all data is gone.
+  Should re-authenticate BEFORE any destructive operations, or at minimum do user.delete()
+  FIRST since it's the most likely to fail.
+
+BUG #14 — loadUserProfile creates fallback profile with UserDefaults-cached role (lines 200-216)
+  If fetchUserProfile returns nil for an existing user, it creates a profile using the
+  in-memory role (from UserDefaults). But if UserDefaults was cleared (reinstall, new device),
+  the role defaults to .athlete. A returning coach on a new device would get an athlete
+  profile created in Firestore, overwriting any existing coach data. The comment at line 207
+  acknowledges this risk but doesn't mitigate it.
+
+
+## ComprehensiveAuthManager+Tier.swift
+
+BUG #15 — Coach tier subscriber doesn't protect Firestore comps (lines 50-59)
+  The athlete tier subscriber (line 27-46) checks `tier >= self.currentTier` to avoid
+  downgrading a comped tier. The coach tier subscriber does NOT — it unconditionally sets
+  `self.currentCoachTier = tier`. If a coach has Academy (Firestore comp) but StoreKit
+  resolves to .free, the Academy tier is immediately overwritten. The loadUserProfile
+  Academy override may not have run yet if StoreKit resolves first.
+
+BUG #16 — refreshTierFromFirestore coach downgrade logic is inconsistent (line 149)
+  On coach tier downgrade: `currentCoachTier = max(firestoreCoachTier, StoreKitManager.shared.currentCoachTier)`
+  This takes the higher of Firestore and StoreKit, which means a coach can never be
+  downgraded below their StoreKit tier even if an admin explicitly revokes their Firestore
+  tier. This is likely intentional (StoreKit is authoritative for paid tiers), but contrasts
+  with the athlete path (line 140) which falls back purely to StoreKit, potentially losing
+  a Firestore comp.
+
+MINOR #17 — setupForegroundTierRefresh stores Combine subscription in storeKitCancellables (line 124)
+  This is a NotificationCenter publisher, not a StoreKit-related subscription. If
+  storeKitCancellables is ever cleared (e.g., to reset StoreKit subscriptions), the
+  foreground refresh would stop working. Should use a separate cancellable set.
+
+MINOR #18 — syncSubscriptionTierToFirestore is fire-and-forget (lines 92-101)
+  Uses `Task { await retryAsync { ... } }` with no error handling or caller notification.
+  If all retries fail, the Firestore tier silently diverges from the local tier. This
+  could cause subscription gate mismatches (user has Pro locally but Firestore says Free,
+  so security rules deny coach sharing).
+
+
+## CRITICAL SUMMARY
+
+1. BUG #13 — deleteAccount runs destructive steps before user.delete(), which can fail
+             with "requires recent login" — leaves account alive but data destroyed
+2. BUG #15 — Coach tier subscriber doesn't protect Academy comps from StoreKit override
+3. BUG #11 — ensureLocalUser matches on email not UID — creates duplicates on email change
+4. BUG #6  — signOut failure leaves user stuck in signed-in state with invalid session
+5. BUG #1  — Account lockout resets on app restart (in-memory only)

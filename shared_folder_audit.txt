@@ -1,0 +1,274 @@
+SHARED FOLDER SYSTEM AUDIT
+===========================
+Files audited (7):
+  - SharedFolderManager.swift (823 lines)
+  - FirestoreManager+SharedFolders.swift (437 lines)
+  - VideoCloudManager+SharedFolders.swift (211 lines)
+  - CreateFolderView.swift (377 lines)
+  - AthleteFoldersListView.swift (710 lines)
+  - CoachFolderComponents.swift (537 lines)
+  - CoachFolderArchiveManager.swift (49 lines)
+
+Total: ~3,144 lines across services and views
+
+================================================================================
+CRITICAL SUMMARY
+================================================================================
+1 Bug, 3 Potential Issues, 5 Minor Issues, 7 Improvements
+The most dangerous finding is the removeCoachFromFolder always fetching the
+athlete display name even when the caller already has it — causing an unnecessary
+Firestore read on every coach removal. The unbounded while-true loops in
+deleteSharedFolder could also loop indefinitely under persistent Firestore errors.
+
+================================================================================
+FINDINGS
+================================================================================
+
+#1 [Potential Issue] removeCoachFromFolder always fetches athlete display name
+    File: FirestoreManager+SharedFolders.swift:195
+    Severity: Medium
+
+    Even when folderName, coachEmail, and athleteID are all provided by the caller,
+    the function ALWAYS fetches the athlete user doc to get displayName (line 195):
+
+        let athleteSnapshot = try await db.collection(FC.users).document(resolvedAthleteID).getDocument()
+        let athleteName = athleteSnapshot.data()?["displayName"] as? String ?? "An athlete"
+
+    This is an unnecessary Firestore read on every single coach removal. The caller
+    (SharedFolderManager.removeCoachAccess) doesn't pass athleteName, yet the
+    notifyCoachAccessRevoked method it calls next already does its own name resolution
+    (SharedFolderManager.swift:191-203). So the name is fetched twice — once in
+    removeCoachFromFolder for the revocation doc, and once in notifyCoachAccessRevoked
+    for the notification.
+
+    Fix: Add an athleteName parameter to removeCoachFromFolder (like the other
+    skip-read params), and pass it from the call sites that have it.
+
+--------------------------------------------------------------------------------
+
+#2 [Potential Issue] Unbounded while-true loops in deleteSharedFolder
+    File: FirestoreManager+SharedFolders.swift:237-248, 254-303
+    Severity: Medium
+
+    Two while-true loops paginate through invitations and videos during folder deletion:
+
+        while true {
+            let invSnap = try await invitationsQuery.limit(to: 400).getDocuments()
+            guard !invSnap.documents.isEmpty else { break }
+            ...
+            try await batch.commit()   // <-- if this throws, the loop re-fetches the same docs
+        }
+
+    If batch.commit() throws (e.g., transient permission error, offline), the documents
+    are NOT modified, so the next iteration fetches the exact same documents, creating
+    an infinite retry loop. The video cleanup loop has the same pattern.
+
+    Fix: Add a max iteration guard (e.g., 100 iterations) or break on error.
+
+--------------------------------------------------------------------------------
+
+#3 [Bug] ManageCoachesView passes empty string for coachEmail on removal
+    File: AthleteFoldersListView.swift:540
+    Severity: Medium
+
+    When removing a coach from ManageCoachesView:
+
+        try await folderManager.removeCoachAccess(
+            coachID: coachID,
+            coachEmail: "",          // <-- empty string
+            fromFolder: folderID,
+            ...
+        )
+
+    In removeCoachFromFolder (FirestoreManager+SharedFolders.swift:181-192), the
+    coachEmail parameter is checked with `if let ce = coachEmail`. Since "" is non-nil,
+    it passes the check and the empty string is written to the revocation document:
+
+        "coachEmail": ""
+
+    This means the revocation email Cloud Function will have no email address to
+    send to. The coachEmail should either be nil (to trigger the Firestore lookup)
+    or the actual email should be fetched before calling removeCoachAccess.
+
+--------------------------------------------------------------------------------
+
+#4 [Potential Issue] Static mutable cache on CoachPermissionRow — not thread-safe
+    File: AthleteFoldersListView.swift:576-577
+    Severity: Low-Medium
+
+    CoachPermissionRow has a static var dictionary used as a cache:
+
+        private static var coachDetailsCache: [String: (name: String, email: String, fetchedAt: Date)] = [:]
+
+    Although CoachPermissionRow's loadCoachDetails() is @MainActor, the static property
+    itself is on a struct (value type) and could theoretically be accessed from any
+    context. In practice this is likely fine since SwiftUI views are MainActor-isolated,
+    but the compiler doesn't enforce MainActor isolation on static stored properties
+    of structs. A dedicated actor or MainActor-isolated class would be safer.
+
+--------------------------------------------------------------------------------
+
+#5 [Minor] FolderRow uses @ObservedObject for ActivityNotificationService singleton
+    File: AthleteFoldersListView.swift:222
+    Severity: Low
+
+        @ObservedObject private var activityNotifService = ActivityNotificationService.shared
+
+    FolderRow is a struct (value type). Each time the parent redraws and recreates
+    FolderRow, @ObservedObject re-subscribes. If ActivityNotificationService is
+    @Observable (not @ObservableObject), this is the wrong property wrapper. If it IS
+    @ObservableObject, the subscription churn is wasteful for a singleton.
+
+    Same pattern in AthleteFolderDetailContent (line 310).
+
+--------------------------------------------------------------------------------
+
+#6 [Minor] Duplicated permission toggle UI between CreateFolderView and InviteCoachView
+    File: CreateFolderView.swift:112-147 vs 246-275
+    Severity: Low
+
+    The permissions section (canUpload, canComment, canDelete toggles) is copy-pasted
+    between CreateFolderView.permissionsSection and InviteCoachView's inline Section.
+    The descriptions differ slightly ("Coach can add new videos to this folder" vs
+    "Coach can add new videos"). Extract a shared PermissionsSection view.
+
+--------------------------------------------------------------------------------
+
+#7 [Minor] CreateFolderView creates folder then invites — no rollback on invite failure
+    File: CreateFolderView.swift:165-179
+    Severity: Low-Medium
+
+    createFolder() first creates the folder, then invites the coach:
+
+        let folderID = try await folderManager.createFolder(...)
+        try await folderManager.inviteCoachToFolder(...)
+
+    If the invitation fails (e.g., duplicate invitation error, network failure), the
+    folder is created but has no coaches. The user sees "Failed to create folder" even
+    though the folder exists. The error message is misleading, and there's no cleanup
+    of the orphaned empty folder.
+
+--------------------------------------------------------------------------------
+
+#8 [Minor] deleteFolder in SharedFolderManager fetches videos with pageSize 500 — no pagination
+    File: SharedFolderManager.swift:256
+    Severity: Low
+
+        let videos = try await firestore.fetchVideos(forFolder: folderID, pageSize: 500)
+
+    This fetches at most 500 videos. If a folder has more than 500 videos, the
+    remaining ones won't be cleaned up during deletion. Meanwhile,
+    deleteSharedFolder in FirestoreManager has its own while-true pagination loop
+    (which is skipped via skipVideoCleanup: true). The two cleanup approaches are
+    inconsistent — SharedFolderManager does single-page cleanup, FirestoreManager
+    does paginated cleanup, but only one runs.
+
+--------------------------------------------------------------------------------
+
+#9 [Improvement] GameGroup.id uses timeIntervalSince1970 — possible collisions
+    File: CoachFolderComponents.swift:342
+    Severity: Low
+
+        var id: String { "\(opponent)-\(date.timeIntervalSince1970)" }
+
+    If two games against the same opponent happen on the same day, their group dates
+    come from `videos.first?.createdAt`, which could differ. But if they happen to
+    share the same timestamp (e.g., both nil → Date()), the IDs collide. Use a UUID
+    or include an index.
+
+--------------------------------------------------------------------------------
+
+#10 [Improvement] PracticeGroup.id uses only timeIntervalSince1970
+    File: CoachFolderComponents.swift:472
+    Severity: Low
+
+        var id: TimeInterval { date.timeIntervalSince1970 }
+
+    Similar to GameGroup — if two practice groups share the same startOfDay date
+    (which is the intent), they'd collide. This is actually correct for the grouping
+    logic (one group per day), but the id type is TimeInterval (Double), which
+    ForEach will hash. If Calendar.startOfDay ever returns slightly different values
+    for the same logical day (rare but possible with timezone changes), groups could
+    duplicate.
+
+--------------------------------------------------------------------------------
+
+#11 [Improvement] Duplicated videoGridColumns computed property across 4 views
+    File: CoachFolderComponents.swift:58-63, 356-362, 485-490 + AllVideosTabView
+    Severity: Low
+
+    The same adaptive grid columns logic is repeated in AllVideosTabView,
+    GameGroupView, PracticeGroupView, and appears in other coach views too.
+    Extract to a shared helper or extension.
+
+--------------------------------------------------------------------------------
+
+#12 [Minor] uploadVideo reads duration from original URL, not compressed URL
+    File: SharedFolderManager.swift:629
+    Severity: Low
+
+        let asset = AVURLAsset(url: videoURL)  // original, not uploadURL (compressed)
+
+    The duration is read from the original video URL, not the compressed copy.
+    Duration should be the same, but if compression changes the duration (e.g.,
+    trimming), the metadata would be inaccurate. File size IS correctly read from
+    uploadURL (line 619).
+
+--------------------------------------------------------------------------------
+
+#13 [Improvement] Listener closures use [weak self] but self is a singleton
+    File: SharedFolderManager.swift:311, 341, 368, 398
+    Severity: Low
+
+    SharedFolderManager.shared is a singleton that lives for the app's lifetime.
+    Using [weak self] is technically correct but unnecessary — self will never be
+    nil. The guard let self else { return } checks silently drop listener updates
+    for no reason. Not a bug, just unnecessary defensive code for a singleton.
+
+--------------------------------------------------------------------------------
+
+#14 [Improvement] batchRevokeCoachAccess reads from local cache, not Firestore
+    File: FirestoreManager+SharedFolders.swift:331
+    Severity: Low-Medium
+
+        let folders = SharedFolderManager.shared.coachFolders.filter { revokeSet.contains($0.ownerAthleteID) }
+
+    This reads from the in-memory coachFolders array, which may be stale if another
+    device modified the data. For a destructive downgrade operation, fetching fresh
+    data from Firestore would be safer to ensure all relevant folders are revoked.
+
+--------------------------------------------------------------------------------
+
+#15 [Improvement] CoachFolderArchiveManager doesn't clean up stale folder IDs
+    File: CoachFolderArchiveManager.swift
+    Severity: Low
+
+    Archived folder IDs persist in UserDefaults forever. If a folder is deleted
+    (by the athlete or otherwise), the archived ID remains in the set. Over time
+    this grows unbounded. A periodic cleanup that cross-references active folder
+    IDs would prevent UserDefaults bloat.
+
+--------------------------------------------------------------------------------
+
+#16 [Improvement] Hard-coded limit of 50 folders in all queries
+    Files: SharedFolderManager.swift:308, FirestoreManager+SharedFolders.swift:62,91
+    Severity: Low
+
+    All folder list queries use `.limit(to: 50)`. For power users (academy-tier
+    coaches), this could truncate results. There's no pagination or "load more"
+    mechanism for folders, and no user-visible indication that results are capped.
+
+--------------------------------------------------------------------------------
+
+#17 [Improvement] withCheckedThrowingContinuation used where async/await APIs exist
+    File: VideoCloudManager+SharedFolders.swift:33-77, 97-123, 150-161, 171-185
+    Severity: Low
+
+    Firebase Storage has native async/await APIs (putFileAsync, downloadURLAsync,
+    deleteAsync). The continuation-based wrappers add complexity and require manual
+    double-resume guards (OSAllocatedUnfairLock). Migrating to the native async APIs
+    would eliminate this boilerplate and the risk of continuation misuse.
+
+================================================================================
+END OF AUDIT — 17 findings (1 Bug, 3 Potential Issues, 5 Minor, 7 Improvements)
+================================================================================

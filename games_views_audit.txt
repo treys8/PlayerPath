@@ -1,0 +1,277 @@
+===============================================================================
+GAMES VIEWS (Views/Games/ + GamesView.swift) — AUDIT
+===============================================================================
+Scope:
+  GamesView.swift (top-level)
+  Views/Games/GameCreationView.swift
+  Views/Games/GameRow.swift
+  Views/Games/ManualStatisticsEntryView.swift
+  Views/Games/GameDetailView.swift
+  Views/Games/EmptyGamesView.swift
+  Views/Games/AddGameView.swift
+  Views/Games/EditGameSheet.swift
+  Views/Games/EmptyGamesTip.swift
+  Views/Games/VideoClipRow.swift
+
+Total findings: 16
+  Bug: 5
+  Potential Issue: 5
+  Minor: 4
+  Improvement: 2
+
+===============================================================================
+CRITICAL SUMMARY
+===============================================================================
+
+No crashes, but several data-integrity and UX issues:
+1. GamesView has two `refreshGames()` overloads (sync and async) — the sync
+   one shadows the async one in non-async contexts, meaning pull-to-refresh
+   and swipe actions use different code paths.
+2. AddGameView duplicates the game creation + reminder scheduling logic that
+   already exists in GamesView/GameCreationView — triple maintenance burden.
+3. GameDetailView fires `deleteGame()` then `dismiss()` without awaiting
+   the async deletion, potentially navigating away before cleanup finishes.
+
+===============================================================================
+FINDINGS
+===============================================================================
+
+-------------------------------------------------------------------------------
+[1] BUG — GamesView.swift:531-541
+    Two refreshGames() methods — sync version shadows async in non-async ctx
+-------------------------------------------------------------------------------
+GamesView defines both:
+  - `private func refreshGames()` (line 531, sync)
+  - `private func refreshGames() async` (line 536, async)
+
+In non-async contexts (like `startGame`, `endGame`, `deleteGame` at lines
+463-495), Swift resolves to the sync overload. The sync version just calls
+`viewModel?.update(allGames:)`. The async version also fires haptics and
+adds a sleep — but more importantly, both exist and can cause confusion.
+
+The real bug: after `startGame` / `endGame` / `completeGame`, the sync
+`refreshGames()` is called, but `updateFilteredGames()` is NOT called,
+so the cached filtered arrays (cachedLiveGames, etc.) may be stale until
+the next SwiftUI update cycle triggers `.onChange(of: allGames)`.
+
+Fix: Consolidate into one method, and always call `updateFilteredGames()`
+after refreshing.
+
+-------------------------------------------------------------------------------
+[2] BUG — GameDetailView.swift:405-410
+    deleteGame() dismisses before async deletion completes
+-------------------------------------------------------------------------------
+```swift
+Task {
+    await gameService?.deleteGameDeep(game)
+    dismiss()
+}
+```
+`deleteGameDeep` is async and may involve Firestore deletion, file cleanup,
+etc. If the user navigates back while deletion is in progress, the game
+object may become invalid mid-operation. Also, if deletion fails, the view
+already dismissed — no error is shown.
+
+Fix: Show a loading indicator, await the result, then dismiss on success
+or show an error on failure.
+
+-------------------------------------------------------------------------------
+[3] BUG — AddGameView.swift:110-227
+    Entire file duplicates GamesView + GameCreationView logic
+-------------------------------------------------------------------------------
+AddGameView duplicates:
+  - Opponent validation (same 2-50 char rule)
+  - Game creation via GameService
+  - Reminder scheduling (same UserPreferences fetch + PushNotificationService)
+  - Season error handling with "Add to Year Only" option
+
+GameCreationView (also in this folder) implements the same game creation form
+but with opponent autocomplete. GamesView.createGame() has its own creation
+path. This means three parallel implementations of game creation, each with
+slightly different behavior:
+  - AddGameView: Uses GameService, has "Add to Year Only" fallback
+  - GameCreationView: Uses onSave callback, no service
+  - GamesView.createGame(): Uses viewModel.create()
+
+If one is updated (e.g., new validation), the others silently diverge.
+
+Fix: Consolidate into a single game creation path.
+
+-------------------------------------------------------------------------------
+[4] BUG — ManualStatisticsEntryView.swift:197
+    Negative number validation is unreachable
+-------------------------------------------------------------------------------
+The text fields use `.keyboardType(.numberPad)` which only shows 0-9 — no
+minus sign is available. The `Int(string) ?? 0` fallback means empty strings
+become 0, never negative. The validation check at line 197:
+  `if newAtBats < 0 || newHits < 0 || ...`
+can never be true. This isn't harmful but is dead code that gives a false
+sense of validation.
+
+The actual risk: users can type non-numeric characters if they paste text.
+`Int(string) ?? 0` silently coerces invalid input to 0, which is correct
+but means pasted garbage is silently accepted as zero.
+
+-------------------------------------------------------------------------------
+[5] BUG — GamesView.swift:79
+    Operator precedence in suggestion visibility condition
+-------------------------------------------------------------------------------
+GameCreationView.swift line 79:
+```swift
+if !filteredOpponents.isEmpty && opponent.count < 3 || !filteredOpponents...
+```
+This evaluates as `(A && B) || C` due to `&&` binding tighter than `||`.
+The likely intent was `A && (B || C)`. As written, the second condition
+(`!filteredOpponents.filter(...)...isEmpty`) is evaluated independently,
+meaning the "Recent Opponents" section shows whenever there are matching
+suggestions regardless of the first condition.
+
+While this may be functionally acceptable, it doesn't match the apparent
+intent. Adding parentheses would clarify.
+
+-------------------------------------------------------------------------------
+[6] POTENTIAL ISSUE — GamesView.swift:36
+    @StateObject ViewModelHolder wrapping optional GamesViewModel
+-------------------------------------------------------------------------------
+`ViewModelHolder` is a `final class: ObservableObject` that wraps an optional
+`GamesViewModel?`. This is a workaround for the limitation that @StateObject
+can't be initialized with dynamic data. However:
+
+- `viewModel` is set in `.task`, which runs asynchronously — there's a brief
+  window where `viewModel` is nil and `hasGames` returns false, causing the
+  empty state to flash.
+- The `ViewModelHolder` pattern adds unnecessary indirection. Consider using
+  @State with @Observable instead (GamesViewModel could be @Observable).
+
+-------------------------------------------------------------------------------
+[7] POTENTIAL ISSUE — GameDetailView.swift:384-386
+    GameService created in onAppear, stored in @State
+-------------------------------------------------------------------------------
+`GameService` is created in `onAppear` and stored as `@State private var
+gameService: GameService?`. `GameService` takes a `modelContext` parameter,
+but `modelContext` comes from @Environment. If the environment changes
+(unlikely but possible with container swaps), the stored service holds a
+stale context.
+
+Also, `gameService` is force-unwrapped via optional chaining (`gameService?`)
+in all action methods. If somehow `onAppear` doesn't fire (e.g., the view
+is created but not displayed), tapping Start/End does nothing silently.
+
+Fix: Initialize GameService directly as a computed property or non-optional
+lazy property.
+
+-------------------------------------------------------------------------------
+[8] POTENTIAL ISSUE — VideoClipRow.swift:163-164
+    Thumbnail path saved without checking save result
+-------------------------------------------------------------------------------
+Line 163-164: `clip.thumbnailPath = thumbnailPath` mutates the model, then
+`ErrorHandlerService.shared.saveContext(...)` saves — but the `@discardableResult`
+return value is ignored. If save fails, the in-memory `thumbnailPath` is set
+but not persisted. On next launch, the thumbnail will be regenerated (harmless
+but wasteful).
+
+More importantly, the thumbnail file exists on disk but isn't referenced by
+the persisted model — a minor storage leak over time.
+
+-------------------------------------------------------------------------------
+[9] POTENTIAL ISSUE — EditGameSheet.swift:126-162
+    Game model mutated before save confirmation
+-------------------------------------------------------------------------------
+`saveChanges()` at lines 131-134 directly mutates the game's properties
+(`game.opponent = ...`, `game.date = ...`) before entering the Task that
+calls `modelContext.save()`. If save fails (line 157-159), the in-memory
+game object has already been modified. SwiftData auto-saves can persist
+these uncommitted changes later.
+
+Since `game` is `@Bindable`, the parent view's List immediately reflects
+the unsaved changes, making the UI inconsistent with the database on failure.
+
+Fix: Either save synchronously and roll back on failure, or buffer changes
+in local @State until save succeeds (which is already half-done — the local
+@State vars exist but are copied to the model before save).
+
+-------------------------------------------------------------------------------
+[10] POTENTIAL ISSUE — GameDetailView.swift:26-31
+     videoClips and gamePhotos computed on every body evaluation
+-------------------------------------------------------------------------------
+`videoClips` and `gamePhotos` are computed properties that sort arrays on
+every body evaluation. For games with many clips/photos, this sorts on
+every render pass. Should be cached in @State and updated via onChange.
+
+-------------------------------------------------------------------------------
+[11] MINOR — GameRow.swift:14
+     isPressed @State is declared but never written to
+-------------------------------------------------------------------------------
+`@State private var isPressed = false` at line 14 is used in
+`.scaleEffect(isPressed ? 0.98 : 1.0)` at line 38, but nothing ever sets
+`isPressed = true`. The scale effect is always 1.0 and the animation value
+is unused.
+
+Fix: Remove `isPressed` and the associated scaleEffect/animation, or
+implement the press gesture.
+
+-------------------------------------------------------------------------------
+[12] MINOR — EmptyGamesView.swift:14
+     isAnimating @State never resets
+-------------------------------------------------------------------------------
+`isAnimating` is set to `true` in `onAppear` but never set back to `false`.
+If the view disappears and reappears, `isAnimating` is already true and the
+entrance animation won't replay. Same pattern seen in DashboardStatCard
+(from dashboard audit).
+
+-------------------------------------------------------------------------------
+[13] MINOR — GamesView.swift:10
+     import Combine is unnecessary
+-------------------------------------------------------------------------------
+`import Combine` at line 10 but no Combine types are used — `@StateObject`
+and `@Published` come from SwiftUI/Observation. The search debounce uses
+Task.sleep, not Combine. This import can be removed.
+
+-------------------------------------------------------------------------------
+[14] MINOR — AddGameView.swift:87-89
+     Task.sleep timing hack for notification post
+-------------------------------------------------------------------------------
+Line 87-89:
+```swift
+Task { @MainActor in
+    try? await Task.sleep(for: .milliseconds(100))
+    NotificationCenter.default.post(name: .presentSeasons, object: athlete)
+}
+```
+This 100ms delay is a timing hack to ensure the alert has dismissed before
+posting the notification. The delay is fragile — on slow devices it may not
+be enough, on fast devices it's unnecessary.
+
+Fix: Post after the dismiss completes, e.g., use a flag checked in
+onDisappear or sheet's onDismiss.
+
+-------------------------------------------------------------------------------
+[15] IMPROVEMENT — ManualStatisticsEntryView.swift:248-284
+     StatEntryRow has dual code paths for focused/unfocused
+-------------------------------------------------------------------------------
+`StatEntryRow` body has two nearly identical TextField branches — one with
+`.focused()` and one without. The `else` branch (lines 277-281) exists for
+cases where `field` and `focusedField` are nil, but in practice every call
+site in ManualStatisticsEntryView passes both parameters.
+
+Fix: Make `field` and `focusedField` required parameters (remove optionality)
+and delete the else branch. If reusability elsewhere is needed, keep it but
+document why.
+
+-------------------------------------------------------------------------------
+[16] IMPROVEMENT — GameDetailView.swift:412-432
+     Photo save creates new PhotoPersistenceService each call
+-------------------------------------------------------------------------------
+Lines 416 and 430:
+```swift
+_ = try await PhotoPersistenceService().savePhoto(...)
+PhotoPersistenceService().deletePhoto(...)
+```
+A new `PhotoPersistenceService` instance is created for each operation.
+If the service holds any state or caches, these are lost. If it's truly
+stateless, it should be a static method or singleton rather than
+re-instantiated each time.
+
+===============================================================================
+END OF AUDIT
+===============================================================================

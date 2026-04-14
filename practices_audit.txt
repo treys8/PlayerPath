@@ -1,0 +1,79 @@
+PRACTICES AUDIT — PracticesView, PracticesViewModel, PracticeVideoSaveView
+==========================================================================
+
+## PracticesView.swift
+
+BUG #1 — Async save after delete (lines 298-317)
+  deleteSinglePractice() calls practice.delete(in: modelContext) synchronously, then wraps
+  modelContext.save() in a bare Task inside withAnimation. The animation block completes before
+  the save executes. If the save fails, the model is already removed from memory but not
+  persisted — data inconsistency. The save should happen synchronously in the same scope as
+  the delete, not deferred into a Task.
+
+BUG #2 — Deleted practice may linger in filtered list (lines 283-318)
+  After deleting, there's no call to viewModel.update() or viewModel.refilter(). The view
+  relies on onChange(of: athlete?.practices?.count) at line 229 to catch it, but SwiftData
+  relationship array count changes aren't always reliably observed through onChange. The
+  deleted practice can remain visible until the next manual refilter.
+
+BUG #3 — Pull-to-refresh doesn't actually refresh (lines 320-324)
+  refreshPractices() just calls viewModel.refilter() on the same in-memory data. It doesn't
+  re-fetch from SwiftData or trigger a Firestore sync. Users pulling to refresh expect fresh
+  data from the server.
+
+MINOR #4 — retryAsync swallows Firestore deletion errors (lines 290-293)
+  If Firestore deletion permanently fails after all retries, the local practice is already
+  gone. No user feedback or error logging after final failure. Silent data desync between
+  local and cloud.
+
+MINOR #5 — modelContext.save() should use ErrorHandlerService (line 258)
+  Per project conventions, saves should go through ErrorHandlerService.shared.saveContext()
+  instead of raw try modelContext.save(). Same issue in deleteSinglePractice.
+
+
+## PracticesViewModel.swift
+
+BUG #6 — refilter() resets displayLimit to 50 every time (line 76)
+  If a user has scrolled and loaded 150+ practices via "Load More", any filter change
+  (including typing a single search character) resets them back to 50 items. The list jumps
+  and they lose their scroll position.
+
+MINOR #7 — updateAvailableSeasons uses Set on reference types (line 116)
+  Set(seasons) relies on Season conforming to Hashable. If Season uses identity-based hashing
+  (default for classes/SwiftData models), two different Season objects pointing to the same
+  logical season could both appear as duplicates. Works if Season hashes by id, but fragile.
+
+MINOR #8 — No debounce on search text
+  onChange(of: viewModel.searchText) in PracticesView triggers refilter() on every keystroke.
+  For large practice lists this causes unnecessary recomputation. A 250ms debounce would help.
+
+
+## PracticeVideoSaveView.swift
+
+BUG #9 — Orientation lock not restored on all exit paths (lines 152-160)
+  previousOrientationLock is captured in onAppear and restored in onDisappear. But onDisappear
+  can fire when sheets are presented over this view (known SwiftUI behavior), which would
+  prematurely restore the orientation lock. Conversely, if the parent removes this view before
+  onDisappear fires, the lock stays on portrait permanently.
+
+BUG #10 — isSaving never resets on failure (lines 272-278)
+  save() sets isSaving = true then calls onSave(note) { isSaving = false }. If the caller's
+  onSave closure fails or never calls the completion handler, isSaving stays true forever.
+  The UI is frozen with the saving overlay, both buttons disabled, no way out. No timeout or
+  error recovery exists.
+
+MINOR #11 — Manual keyboard height tracking (lines 161-168)
+  Uses old UIKit NotificationCenter pattern for keyboard avoidance. SwiftUI on iOS 17+
+  handles keyboard avoidance automatically. Manual keyboardHeight tracking can conflict with
+  SwiftUI's built-in handling, causing double-offsetting of the bottom panel.
+
+MINOR #12 — Thumbnail size hardcoded to 1080x1920 (line 286)
+  Full portrait resolution for a background blur overlay is excessive. A smaller size like
+  540x960 would load faster and use less memory with no visible quality difference.
+
+
+## CRITICAL SUMMARY
+
+1. BUG #1  — Async save after delete risks data loss (PracticesView)
+2. BUG #3  — Pull-to-refresh is a no-op (PracticesView)
+3. BUG #10 — Saving overlay can freeze permanently (PracticeVideoSaveView)

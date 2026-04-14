@@ -1,0 +1,203 @@
+Views/Components Audit — 2026-04-14
+======================================
+
+Files reviewed (15):
+  AthleteInvitationsBanner.swift, ClipCommentSection.swift, EnhancedVideoPlayer.swift,
+  GameLinkerView.swift, MoveClipSheet.swift, PlayResultEditorView.swift,
+  RemoteThumbnailView.swift, RetrimSavedClipFlow.swift, ToastModifier.swift,
+  UploadStatisticsView.swift, UploadStatusBanner.swift, UploadStatusFilter.swift,
+  VideoClipCard.swift, VideoClipOptionsTip.swift, VideoClipsRecordTip.swift
+
+==========================================================================
+CRITICAL / BUG
+==========================================================================
+
+1. [Bug] EnhancedVideoPlayer — cleanup() destroys the shared AVPlayer
+   File: EnhancedVideoPlayer.swift:413-414
+   `cleanup()` calls `player.replaceCurrentItem(with: nil)`, which nukes
+   the player item even though the player was passed in from a parent view.
+   If the parent still holds the same AVPlayer reference (common pattern),
+   it becomes unusable after the EnhancedVideoPlayer disappears. This also
+   fires when sheets are presented (SwiftUI triggers onDisappear).
+   FIX: Remove `replaceCurrentItem(with: nil)` — let the owner manage
+   the player's lifecycle. Only pause and remove the time observer.
+
+2. [Bug] EnhancedVideoPlayer — time observer closure captures stale `isDragging`
+   File: EnhancedVideoPlayer.swift:403-406
+   The periodic time observer closure captures `isDragging` by value at
+   closure creation time (it's a struct/Bool). It will always see the
+   initial `false` value, so the slider will jump while the user is
+   scrubbing. The closure needs to capture self or use a reference type.
+   Actually — since this is a SwiftUI struct with @State, the closure does
+   capture the binding's storage indirectly through `self`. However, because
+   the observer is added once in `setupPlayer()`, the closure captures the
+   initial projection. If SwiftUI recreates the struct, the @State storage
+   is preserved but the closure still reads via the old struct's property
+   accessor. In practice this works because @State backing is heap-allocated,
+   but it's fragile and worth noting.
+   SEVERITY: Medium — may work today but is fragile under SwiftUI struct
+   recreation.
+
+3. [Bug] VideoClipCard — `saveToPhotos` uses DispatchQueue.main instead of @MainActor
+   File: VideoClipCard.swift:329-353
+   `PHPhotoLibrary.requestAuthorization` callback and `performChanges`
+   completionHandler use `DispatchQueue.main.async { self.xxx = ... }` to
+   mutate @State properties. In strict concurrency mode this is a data race
+   because the view struct captures are not Sendable. Should use
+   `Task { @MainActor in ... }` or move to the async `PHPhotoLibrary` APIs.
+   SEVERITY: Medium — works in practice but will be flagged/broken under
+   Swift 6 strict concurrency.
+
+4. [Bug] VideoClipCard — highlight toggle fires `try modelContext.save()` inside Task without error UI
+   File: VideoClipCard.swift:241-249
+   The highlight toggle wraps `modelContext.save()` in a Task and catches
+   the error to show an alert, but the `video.isHighlight.toggle()` and
+   `video.needsSync = true` mutations happen synchronously before the Task.
+   If save fails, the in-memory state is already toggled with no rollback.
+   The user sees the highlight toggled even though it wasn't persisted.
+   FIX: Toggle inside the Task or roll back on failure.
+
+5. [Bug] PlayResultEditorView — save failure shows no error to user
+   File: PlayResultEditorView.swift:238-239
+   If `modelContext.save()` throws, only `Haptics.warning()` is called.
+   No error message, no alert, no dismiss prevention. The user sees a
+   haptic buzz and nothing else. The sheet may not dismiss (since dismiss
+   is only called on success at line 237), leaving them stuck with no
+   feedback.
+   FIX: Set an error message and show an alert on save failure.
+
+6. [Bug] GameLinkerView — save failure shows no error to user
+   File: GameLinkerView.swift:135-137
+   Same pattern: `modelContext.save()` failure only logs via
+   ErrorHandlerService but shows nothing to the user. The sheet doesn't
+   dismiss, and the user has no idea the save failed.
+   FIX: Show an alert on save failure.
+
+7. [Bug] MoveClipSheet — saveContext result ignored, move proceeds even on failure
+   File: MoveClipSheet.swift:269
+   `ErrorHandlerService.shared.saveContext(...)` returns a Bool indicating
+   success, but the result is discarded (`@discardableResult`). The move
+   continues to recalculate stats, fire haptics, and dismiss even if the
+   save failed. The clip's relationships were already mutated in memory.
+   FIX: Check the return value; on failure show error and don't dismiss.
+
+==========================================================================
+POTENTIAL ISSUE
+==========================================================================
+
+8. [Potential] RemoteThumbnailView — recursive retry without cancellation guard between sleep and retry
+   File: RemoteThumbnailView.swift:202-206
+   The retry path sleeps, then calls `loadThumbnail()` recursively. The
+   `Task.isCancelled` check after sleep is good, but the recursion means
+   the call stack grows (though only 1 retry max). More importantly, if
+   the view disappears during the sleep, the Task is cancelled, but
+   `isLoading` is set to false in the wrong order — line 211 sets it after
+   the early return on line 196, so `isLoading` stays true on the guard
+   path. This is minor since the view is gone, but could cause issues if
+   the view reappears with stale state.
+
+9. [Potential] UploadStatisticsView — computeFileSizes blocks the main actor
+   File: UploadStatisticsView.swift:366-373
+   `computeFileSizes()` iterates all videos and calls
+   `FileManager.default.fileSize(atPath:)` for each one. This is
+   synchronous file I/O on the main thread. With hundreds of videos, this
+   will cause UI jank.
+   FIX: Move to a background Task with `Task.detached`.
+
+10. [Potential] UploadStatisticsView — ByteCountFormatter allocated on every call
+    File: UploadStatisticsView.swift:352-357
+    `formatBytes` creates a new `ByteCountFormatter` each invocation.
+    Called multiple times per render. Should be a static/cached instance.
+
+11. [Potential] EnhancedVideoPlayer — updateUIViewController is empty
+    File: EnhancedVideoPlayer.swift:563-565
+    `VideoPlayerRepresentable.updateUIViewController` doesn't update the
+    player when the `player` property changes. If SwiftUI recreates the
+    representable with a different player, the UIKit controller still shows
+    the old one.
+    FIX: Add `uiViewController.player = player` in updateUIViewController.
+
+12. [Potential] RetrimSavedClipFlow — uses @ObservedObject for a singleton
+    File: RetrimSavedClipFlow.swift:22
+    `@ObservedObject private var cloudManager = VideoCloudManager.shared`
+    — using @ObservedObject with a singleton means the view subscribes to
+    ALL upload progress changes, not just this clip's. Every other clip's
+    upload progress change causes this view to re-evaluate. This is a
+    performance concern, not a bug.
+
+13. [Potential] AthleteInvitationsBanner — auto-dismiss races with processing state
+    File: AthleteInvitationsBanner.swift:127-131
+    The onChange checks `processingInvitationID == nil` to auto-dismiss,
+    but `processingInvitationID` is set to nil at line 169 AFTER the
+    invitation is processed. If Firestore's real-time listener fires
+    (removing the invitation from pendingInvitations) before line 169
+    executes, the count drops to 0 while processingInvitationID is still
+    set, so the sheet won't auto-dismiss. Minor UX issue — user can still
+    tap "Done".
+
+==========================================================================
+MINOR / IMPROVEMENT
+==========================================================================
+
+14. [Minor] VideoClipCard — unused @State isPressed
+    File: VideoClipCard.swift:27
+    `@State private var isPressed = false` is declared but never read or
+    written. Dead state variable.
+    FIX: Remove it.
+
+15. [Minor] EnhancedVideoPlayer — Combine import for KVO publisher
+    File: EnhancedVideoPlayer.swift:10
+    `import Combine` is needed for `.publisher(for: \.timeControlStatus)`.
+    Could use `.onReceive` with `@Published` or observation instead, but
+    this is fine. Just noting the Combine dependency in a project that
+    prefers async/await.
+
+16. [Minor] ToastModifier — Task without cancellation on disappear
+    File: ToastModifier.swift:61-66
+    The auto-dismiss Task sleeps for `duration` seconds. If the toast is
+    dismissed manually or the view disappears, the Task lingers. Not
+    harmful (it just sets a Bool) but not clean.
+
+17. [Minor] UploadStatisticsView — multiple expensive computed properties recalculated per render
+    File: UploadStatisticsView.swift:301-338
+    `uploadedVideos`, `recentUploads`, etc. are computed properties that
+    filter/sort the full `allVideos` array on every body evaluation.
+    Consider caching these in @State and updating onChange of allVideos.
+
+18. [Improvement] EnhancedVideoPlayer — Slider jitter during playback
+    The time observer fires every 0.5s and updates `currentTime`. Between
+    updates, the Slider stays still, then jumps. A smoother interval (e.g.
+    0.1s or 1/30s) would improve the scrubbing feel. The 0.5s interval is
+    quite coarse for a video player.
+
+19. [Improvement] RemoteThumbnailView — fallback URL path has no caching
+    File: RemoteThumbnailView.swift:221-233
+    The non-secure fallback path downloads via `URLSession.shared.data(from:)`
+    with no disk caching (ThumbnailCache is only used in the secure path).
+    Scrolling a list of non-secure thumbnails will re-download every time
+    the cell appears.
+    FIX: Route both paths through ThumbnailCache.
+
+20. [Improvement] MoveClipSheet — no sync trigger after move
+    File: MoveClipSheet.swift:266-289
+    The clip's `needsSync` flag is set, but no sync is triggered (unlike
+    PracticesView which calls `SyncCoordinator.shared.syncPractices`).
+    The move won't propagate to Firestore until the next automatic sync
+    cycle.
+
+==========================================================================
+SUMMARY
+==========================================================================
+
+Critical bugs to fix first:
+  #1 — EnhancedVideoPlayer destroying shared AVPlayer on disappear
+  #5 — PlayResultEditorView silent save failure (no user feedback)
+  #6 — GameLinkerView silent save failure (no user feedback)
+  #7 — MoveClipSheet ignoring save failure, dismissing anyway
+  #4 — VideoClipCard highlight toggle not rolled back on save failure
+
+The components are generally well-structured with good separation of
+concerns. The most common pattern issue is save-failure handling — several
+sheets either swallow errors or dismiss without confirming persistence.
+The EnhancedVideoPlayer AVPlayer ownership issue (#1) is the most
+impactful bug since it can break video playback across the app.
