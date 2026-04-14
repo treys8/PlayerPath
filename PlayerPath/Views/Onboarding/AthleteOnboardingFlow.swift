@@ -14,6 +14,8 @@ struct AthleteOnboardingFlow: View {
     @ObservedObject var authManager: ComprehensiveAuthManager
     let user: User
     @State private var isCompleting = false
+    @State private var errorMessage: String?
+    @State private var showingError = false
 
     var body: some View {
         NavigationStack {
@@ -136,6 +138,11 @@ struct AthleteOnboardingFlow: View {
             }
             .padding()
             .toolbar(.hidden, for: .navigationBar)
+            .alert("Setup Failed", isPresented: $showingError) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(errorMessage ?? "")
+            }
         }
     }
 
@@ -143,12 +150,7 @@ struct AthleteOnboardingFlow: View {
         guard !isCompleting else { return }
         isCompleting = true
 
-        // Mark onboarding complete immediately so the transition fires without delay
-        authManager.markOnboardingComplete()
-        Haptics.medium()
-
-        // Persist to SwiftData in the background so the save doesn't block the transition
-        Task.detached { @MainActor in
+        Task {
             let progress = OnboardingProgress(firebaseAuthUid: authManager.currentFirebaseUser?.uid ?? "")
             progress.markCompleted()
             modelContext.insert(progress)
@@ -156,8 +158,14 @@ struct AthleteOnboardingFlow: View {
                 try await withRetry(delay: .seconds(1)) {
                     try modelContext.save()
                 }
+                authManager.markOnboardingComplete()
+                Haptics.medium()
             } catch {
+                modelContext.rollback()
                 ErrorHandlerService.shared.handle(error, context: "AthleteOnboarding.saveProgress", showAlert: false)
+                errorMessage = "Could not complete setup. Please try again."
+                showingError = true
+                isCompleting = false
             }
         }
     }

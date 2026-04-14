@@ -266,7 +266,13 @@ struct MoveClipSheet: View {
         clip.needsSync = true
 
         // Save
-        ErrorHandlerService.shared.saveContext(modelContext, caller: "MoveClipSheet")
+        let saved = ErrorHandlerService.shared.saveContext(modelContext, caller: "MoveClipSheet")
+        guard saved else {
+            errorMessage = "Could not move clip. Please try again."
+            showingError = true
+            isMoving = false
+            return
+        }
 
         // Recalculate statistics: old side then new side
         do {

@@ -539,15 +539,15 @@ class CoachVideoUploadViewModel {
                 } else if !UploadQueueManager.shared.pendingUploads.contains(where: { $0.clipId == clipId })
                             && UploadQueueManager.shared.activeUploads[clipId] == nil {
                     // Upload completed (no longer in any queue)
-                    break
+                    uploadProgress = 1.0
+                    uploadComplete = true
+                    Haptics.success()
+                    isUploading = false
+                    return
                 }
                 try? await Task.sleep(for: .milliseconds(250))
             }
         }
-
-        uploadComplete = true
-        Haptics.success()
-        isUploading = false
     }
     
     private func generateFileName() -> String {

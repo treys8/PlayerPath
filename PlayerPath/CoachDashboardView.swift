@@ -140,7 +140,14 @@ struct CoachDashboardView: View {
             InviteAthleteSheet()
         }
         .sheet(isPresented: $showingStartSession) {
-            StartSessionSheet()
+            StartSessionSheet(onInviteAthlete: {
+                // Dismiss then present invite sheet on next tick — iOS rejects two
+                // concurrent .sheet presentations.
+                showingStartSession = false
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                    showingInviteAthlete = true
+                }
+            })
         }
         .alert("Session Unavailable", isPresented: .init(
             get: { resumeWarning != nil },
@@ -164,12 +171,15 @@ struct CoachDashboardView: View {
             }
         }
         .fullScreenCover(isPresented: $showingCamera) {
-            if let session = sessionManager.activeSession, session.status == .live {
+            if let session = sessionManager.activeSession,
+               session.status == .live,
+               let sessionID = session.id,
+               !sessionID.isEmpty {
                 DirectCameraRecorderView(
-                    coachContext: CoachSessionContext(sessionID: session.id ?? "", session: session)
+                    coachContext: CoachSessionContext(sessionID: sessionID, session: session)
                 )
             } else {
-                // Session is no longer live — dismiss on next runloop tick
+                // Session is no longer live, or its ID is missing — dismiss on next tick
                 Color.clear.onAppear { showingCamera = false }
             }
         }
@@ -272,12 +282,18 @@ struct CoachDashboardView: View {
                     onEditNotes: { editingSessionNotes = session }
                 )
                 .contentShape(Rectangle())
-                .onTapGesture { resumeSession(session) }
+                .onTapGesture {
+                    if session.status == .live {
+                        resumeSession(session)
+                    } else {
+                        reviewSession(session)
+                    }
+                }
 
                 if session.status == .reviewing {
                     HStack(spacing: 12) {
                         Button {
-                            resumeSession(session)
+                            reviewSession(session)
                         } label: {
                             Label("Review Clips", systemImage: "eye")
                                 .font(.subheadline)
@@ -313,7 +329,8 @@ struct CoachDashboardView: View {
     @ViewBuilder
     private var reviewQueueSection: some View {
         if reviewQueue.totalCount > 0 {
-            ReviewQueueCard(
+            ClipQueueCard(
+                style: .myDrafts,
                 groups: reviewQueue.groupedClips,
                 totalCount: reviewQueue.totalCount,
                 onReviewAll: {
@@ -342,7 +359,8 @@ struct CoachDashboardView: View {
     @ViewBuilder
     private var needsReviewQueueSection: some View {
         if needsReviewQueue.totalCount > 0 {
-            NeedsReviewQueueCard(
+            ClipQueueCard(
+                style: .needsReview,
                 groups: needsReviewQueue.groupedClips,
                 totalCount: needsReviewQueue.totalCount,
                 onReviewAll: {
@@ -696,6 +714,8 @@ struct CoachDashboardView: View {
 
     // MARK: - Session Actions
 
+    /// Resume into live recording. For a `.reviewing` session, transitions it back
+    /// to `.live` first so the coach can keep recording clips in the same session.
     private func resumeSession(_ session: CoachSession) {
         Task {
             let fresh: CoachSession
@@ -708,7 +728,6 @@ struct CoachDashboardView: View {
                     return
                 }
             } catch {
-                // Network failure — fall back to local state so resume still works offline
                 ErrorHandlerService.shared.handle(error, context: "CoachDashboard.resumeSession.refresh", showAlert: false)
                 fresh = session
             }
@@ -717,12 +736,26 @@ struct CoachDashboardView: View {
             case .live:
                 showingCamera = true
             case .reviewing:
-                routeToReview(for: fresh)
+                guard let sessionID = fresh.id else { return }
+                do {
+                    try await sessionManager.resumeReviewingSession(sessionID: sessionID)
+                    showingCamera = true
+                } catch {
+                    ErrorHandlerService.shared.handle(error, context: "CoachDashboard.resumeReviewingSession", showAlert: false)
+                    resumeWarning = "Couldn't resume this session. Try again."
+                    Haptics.error()
+                }
             case .completed, .scheduled:
                 resumeWarning = "This session has ended."
                 Haptics.warning()
             }
         }
+    }
+
+    /// Review-only navigation for a reviewing session (no status change).
+    /// Used by the "Session Ended" card tap and the "Review Clips" button.
+    private func reviewSession(_ session: CoachSession) {
+        routeToReview(for: session)
     }
 
     /// Navigates to the review tab for a reviewing session. For multi-athlete

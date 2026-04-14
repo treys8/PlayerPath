@@ -367,12 +367,13 @@ struct CoachVideoPlayerView: View {
                     TelestrationOverlayView(
                         timestamp: viewModel.currentPlaybackTime,
                         videoAspectRatio: videoAspectRatio,
-                        onSave: { drawing, timestamp in
+                        onSave: { drawing, timestamp, canvasSize in
                             guard let userID = authManager.userID,
                                   let userName = authManager.userDisplayName ?? authManager.userEmail else { return false }
                             let saved = await viewModel.addDrawingAnnotation(
                                 drawing: drawing,
                                 timestamp: timestamp,
+                                canvasSize: canvasSize,
                                 userID: userID,
                                 userName: userName
                             )
@@ -388,10 +389,11 @@ struct CoachVideoPlayerView: View {
                 }
 
                 // Read-only drawing annotation overlay
-                if let drawingData = viewModel.activeDrawingOverlay {
+                if let overlay = viewModel.activeDrawingOverlay {
                     DrawingAnnotationOverlay(
-                        drawingData: drawingData,
+                        drawingData: overlay.data,
                         videoAspectRatio: videoAspectRatio,
+                        canvasSize: overlay.canvasSize,
                         onDismiss: { viewModel.dismissDrawingOverlay() }
                     )
                 }

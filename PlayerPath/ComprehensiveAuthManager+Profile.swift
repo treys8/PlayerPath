@@ -20,41 +20,64 @@ extension ComprehensiveAuthManager {
             return
         }
 
-        let fetchDescriptor = FetchDescriptor<User>(predicate: #Predicate<User> { $0.email == email })
+        let firebaseUID = firebaseUser.uid
 
         do {
-            let users = try context.fetch(fetchDescriptor)
-            if let existingUser = users.first {
+            // Primary: match on firebaseAuthUid (the stable identity). Email can
+            // change via verified-email-change flow; UID cannot.
+            let uidDescriptor = FetchDescriptor<User>(
+                predicate: #Predicate<User> { $0.firebaseAuthUid == firebaseUID }
+            )
+            var existingUser = try context.fetch(uidDescriptor).first
+
+            // Fallback: migrate legacy rows whose firebaseAuthUid was never populated.
+            // Require firebaseAuthUid == nil to avoid adopting a different account's row.
+            if existingUser == nil {
+                let noUID: String? = nil
+                let emailDescriptor = FetchDescriptor<User>(
+                    predicate: #Predicate<User> {
+                        $0.email == email && $0.firebaseAuthUid == noUID
+                    }
+                )
+                if let legacy = try context.fetch(emailDescriptor).first {
+                    legacy.firebaseAuthUid = firebaseUID
+                    authLog.info("Migrated legacy SwiftData user (email match) to firebaseAuthUid: \(firebaseUID, privacy: .private)")
+                    existingUser = legacy
+                }
+            }
+
+            if let user = existingUser {
                 var needsSave = false
-                // Sync role from authManager to SwiftData if different
-                if existingUser.role != self.userRole.rawValue {
-                    existingUser.role = self.userRole.rawValue
+                if user.role != self.userRole.rawValue {
+                    user.role = self.userRole.rawValue
                     needsSave = true
                     authLog.debug("Synced user role to SwiftData: \(self.userRole.rawValue)")
                 }
-                // Store Firebase Auth UID so SyncCoordinator queries the correct Firestore path
-                if existingUser.firebaseAuthUid != firebaseUser.uid {
-                    existingUser.firebaseAuthUid = firebaseUser.uid
+                if user.firebaseAuthUid != firebaseUID {
+                    user.firebaseAuthUid = firebaseUID
                     needsSave = true
-                    authLog.debug("Stored Firebase Auth UID: \(firebaseUser.uid, privacy: .private)")
                 }
-                // If local username is the email fallback but Firebase Auth has a real name, update it
+                // Pick up verified email changes from Firebase Auth.
+                if user.email != email {
+                    user.email = email
+                    needsSave = true
+                    authLog.debug("Synced email change from Firebase Auth to SwiftData")
+                }
                 if let displayName = firebaseUser.displayName,
                    !displayName.isEmpty,
-                   existingUser.username == existingUser.email || existingUser.username.isEmpty {
-                    existingUser.username = displayName
+                   user.username == user.email || user.username.isEmpty {
+                    user.username = displayName
                     needsSave = true
                     authLog.debug("Synced display name from Firebase Auth to SwiftData")
                 }
                 if needsSave { try context.save() }
-                self.localUser = existingUser
+                self.localUser = user
             } else {
-                // Create new user with current role from authManager
                 let newUser = User(username: firebaseUser.displayName ?? email, email: email, role: self.userRole.rawValue)
-                newUser.firebaseAuthUid = firebaseUser.uid
+                newUser.firebaseAuthUid = firebaseUID
                 context.insert(newUser)
                 try context.save()
-                authLog.debug("Created new SwiftData user with role: \(self.userRole.rawValue), Firebase UID: \(firebaseUser.uid, privacy: .private)")
+                authLog.debug("Created new SwiftData user with role: \(self.userRole.rawValue), Firebase UID: \(firebaseUID, privacy: .private)")
                 self.localUser = newUser
             }
         } catch {
@@ -198,25 +221,19 @@ extension ComprehensiveAuthManager {
 
                 authLog.debug("Loaded user profile: \(profile.role) for \(email, privacy: .private)")
             } else {
-                // Profile doesn't exist - only create if this is NOT a new user
-                // (new users should have had their profile created in signUp/signUpAsCoach)
-                if !isNewUser {
-                    // Use the current in-memory role (restored from UserDefaults)
-                    // rather than hardcoding .athlete. If the user was a coach,
-                    // the UserDefaults cache preserves that from the last successful
-                    // profile load. This prevents overwriting a coach's Firestore
-                    // doc with "athlete" if the profile transiently isn't found.
-                    let fallbackRole = self.userRole
-                    authLog.warning("Profile doesn't exist for existing user \(email, privacy: .private), creating profile with role: \(fallbackRole.rawValue)")
-                    try await createUserProfile(
-                        userID: userID,
-                        email: email,
-                        displayName: currentFirebaseUser?.displayName ?? email,
-                        role: fallbackRole
-                    )
-                    syncSubscriptionTierToFirestore()
+                // Profile doesn't exist. Do NOT fallback-create here — this path
+                // is the eager single-shot load called from signIn(). A nil result
+                // for a non-new user is more often a transient Firestore miss than
+                // a truly missing profile; creating one would risk overwriting an
+                // existing coach's Firestore doc with "athlete" on a fresh install
+                // where UserDefaults is wiped. The listener path uses
+                // loadUserProfileWithRetry which retries with backoff and has its
+                // own (gated) fallback-create.
+                if isNewUser {
+                    authLog.warning("Profile not found for new user \(email, privacy: .private), keeping pre-set role: \(self.userRole.rawValue)")
                 } else {
-                    authLog.warning("Profile not found for new user \(email, privacy: .private), but keeping existing role: \(self.userRole.rawValue)")
+                    authLog.error("Profile not found for existing user \(email, privacy: .private) — NOT creating fallback (would risk overwriting a real profile). User should retry.")
+                    self.errorMessage = "Couldn't load your profile. Please check your connection and try again."
                 }
             }
         } catch {
@@ -267,22 +284,33 @@ extension ComprehensiveAuthManager {
                     authLog.debug("Profile not found for \(email, privacy: .private) on attempt \(attempt)/\(maxAttempts), retrying in \(delay)s...")
                     try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                 } else {
-                    // Last attempt and still not found - create profile as fallback
-                    authLog.warning("Profile not found for \(email, privacy: .private) after \(maxAttempts) attempts — creating fallback Firestore profile with current role: \(self.userRole.rawValue)")
+                    // Last attempt and still not found. Only create a fallback
+                    // profile if this looks like a brand-new account (Firestore
+                    // write may have failed during signUp). For established
+                    // accounts, a persistent nil is almost certainly a backend
+                    // issue — creating here would risk overwriting an existing
+                    // coach profile with an athlete role on a fresh install
+                    // where UserDefaults is wiped.
+                    let creationDate = self.currentFirebaseUser?.metadata.creationDate ?? .distantPast
+                    let looksLikeNewAccount = Date().timeIntervalSince(creationDate) < 300
 
-                    // Create profile with current role (from UserDefaults/SwiftData).
-                    // loadAfterCreate: false prevents re-entering this retry loop.
-                    do {
-                        try await createUserProfile(
-                            userID: userID,
-                            email: email,
-                            displayName: self.currentFirebaseUser?.displayName ?? email,
-                            role: self.userRole,
-                            loadAfterCreate: false
-                        )
-                        authLog.debug("Successfully created fallback Firestore profile")
-                    } catch {
-                        authLog.error("Failed to create fallback profile: \(error.localizedDescription)")
+                    if looksLikeNewAccount {
+                        authLog.warning("Profile not found for new-ish account \(email, privacy: .private) after \(maxAttempts) attempts — creating fallback with role: \(self.userRole.rawValue)")
+                        do {
+                            try await createUserProfile(
+                                userID: userID,
+                                email: email,
+                                displayName: self.currentFirebaseUser?.displayName ?? email,
+                                role: self.userRole,
+                                loadAfterCreate: false
+                            )
+                            authLog.debug("Successfully created fallback Firestore profile")
+                        } catch {
+                            authLog.error("Failed to create fallback profile: \(error.localizedDescription)")
+                        }
+                    } else {
+                        authLog.error("Profile not found for established account \(email, privacy: .private) after \(maxAttempts) attempts — NOT creating fallback (would risk overwriting a real profile).")
+                        self.errorMessage = "Couldn't load your profile. Please check your connection and try again."
                     }
                     return
                 }
@@ -294,19 +322,28 @@ extension ComprehensiveAuthManager {
                 } else {
                     authLog.error("Failed to load user profile after \(maxAttempts) attempts: \(error.localizedDescription)")
 
-                    // Create profile with current role as fallback.
-                    // loadAfterCreate: false prevents re-entering this retry loop.
-                    do {
-                        try await createUserProfile(
-                            userID: userID,
-                            email: email,
-                            displayName: self.currentFirebaseUser?.displayName ?? email,
-                            role: self.userRole,
-                            loadAfterCreate: false
-                        )
-                        authLog.debug("Successfully created fallback Firestore profile after errors")
-                    } catch {
-                        authLog.error("Failed to create fallback profile: \(error.localizedDescription)")
+                    // Same gating as above: only fallback-create for brand-new
+                    // accounts. Errors for established accounts are almost
+                    // always network/backend issues, not missing profiles.
+                    let creationDate = self.currentFirebaseUser?.metadata.creationDate ?? .distantPast
+                    let looksLikeNewAccount = Date().timeIntervalSince(creationDate) < 300
+
+                    if looksLikeNewAccount {
+                        do {
+                            try await createUserProfile(
+                                userID: userID,
+                                email: email,
+                                displayName: self.currentFirebaseUser?.displayName ?? email,
+                                role: self.userRole,
+                                loadAfterCreate: false
+                            )
+                            authLog.debug("Successfully created fallback Firestore profile after errors")
+                        } catch {
+                            authLog.error("Failed to create fallback profile: \(error.localizedDescription)")
+                        }
+                    } else {
+                        authLog.error("NOT creating fallback profile for established account \(email, privacy: .private) — would risk overwriting a real profile.")
+                        self.errorMessage = "Couldn't load your profile. Please check your connection and try again."
                     }
                 }
             }
@@ -333,11 +370,19 @@ extension ComprehensiveAuthManager {
         )
     }
 
-    /// Deletes user account and all associated data (GDPR compliance)
-    /// This deletes:
-    /// - Firebase Auth account
-    /// - Firestore user profile and related data
-    /// - Firebase Storage files (videos, thumbnails)
+    /// Deletes user account and all associated data (GDPR compliance).
+    ///
+    /// Order matters:
+    ///   1. Remove this device's push tokens while still authenticated (the FCM
+    ///      removal writes to the user's Firestore doc, which is about to go away).
+    ///   2. Delete the Firebase Auth account FIRST. If this fails with
+    ///      `requiresRecentLogin`, we abort before destroying any data so the
+    ///      user can re-authenticate and retry without a zombie account.
+    ///   3. Best-effort cleanup of Storage videos, Firestore profile, and local
+    ///      data. Once the Auth token is invalidated by step 2, these client
+    ///      calls will usually fail under `request.auth.uid == userID` rules —
+    ///      the authoritative cleanup path is an `onDelete` Auth Cloud Function
+    ///      (follow-up, not blocking).
     func deleteAccount() async throws {
         guard let user = currentFirebaseUser else {
             throw NSError(domain: "ComprehensiveAuthManager", code: -1, userInfo: [NSLocalizedDescriptionKey: "No user signed in"])
@@ -349,65 +394,73 @@ extension ComprehensiveAuthManager {
         isLoading = true
         errorMessage = nil
 
+        let userID = user.uid
+        authLog.info("Starting account deletion for user: \(user.email ?? "unknown", privacy: .private)")
+        AnalyticsService.shared.trackAccountDeletionRequested(userID: userID)
+
+        // Step 1: Remove this device's push tokens BEFORE deleting the Auth account.
+        // FCM token removal writes to the user's Firestore doc and requires an
+        // authenticated session.
+        await PushNotificationService.shared.removeTokenFromServer()
+        await PushNotificationService.shared.removeFCMTokenFromServer()
+
+        // Step 2: Delete the Firebase Auth account FIRST. If this throws
+        // (typically requiresRecentLogin), no data has been destroyed yet.
         do {
-            let userID = user.uid
-
-            authLog.info("Starting account deletion for user: \(user.email ?? "unknown", privacy: .private)")
-
-            // Track account deletion request
-            AnalyticsService.shared.trackAccountDeletionRequested(userID: userID)
-
-            // Step 1: Delete all user videos from Firebase Storage
-            authLog.info("Deleting user videos from Storage...")
-            do {
-                try await VideoCloudManager.shared.deleteAllUserVideos(userID: userID)
-                authLog.debug("Deleted all videos from Storage")
-            } catch {
-                authLog.warning("Error deleting videos from Storage during account deletion: \(error.localizedDescription)")
-                // Continue with deletion even if video deletion fails
-            }
-
-            // Step 2: Delete Firestore user profile and related data
-            authLog.info("Deleting user profile from Firestore...")
-            do {
-                try await FirestoreManager.shared.deleteUserProfile(userID: userID)
-                authLog.debug("Deleted user profile from Firestore")
-            } catch {
-                authLog.warning("Error deleting Firestore profile during account deletion: \(error.localizedDescription)")
-                // Continue with deletion even if Firestore deletion fails
-            }
-
-            // Step 3: Cancel any in-flight uploads and clear local data
-            UploadQueueManager.shared.clearAllQueues()
-            SyncCoordinator.shared.clearLocalData(fallbackContext: modelContext)
-
-            // Step 4: Delete Firebase Auth account
             try await user.delete()
-
-            // Step 5: Clear local state
-            currentFirebaseUser = nil
-            isSignedIn = false
-            userProfile = nil
-            localUser = nil
-            isLoading = false
-            isNewUser = false
-            userRole = .athlete
-
-            // Clear all persisted user data from UserDefaults
-            clearPersistedUserDefaults()
-
-            // Track account deletion completion
-            AnalyticsService.shared.trackAccountDeletionCompleted(userID: userID)
-            AnalyticsService.shared.clearUserID()
-
-            authLog.debug("Account deletion successful")
-
         } catch {
-            errorMessage = "Failed to delete account: \(error.localizedDescription)"
+            let nsError = error as NSError
             isLoading = false
-            authLog.error("Account deletion failed: \(error.localizedDescription)")
+            if nsError.code == AuthErrorCode.requiresRecentLogin.rawValue {
+                errorMessage = "For your security, please sign in again before deleting your account."
+                authLog.warning("Account deletion requires recent login — aborting before any data loss")
+                ErrorHandlerService.shared.handle(error, context: "Auth.deleteAccount.requiresRecentLogin", showAlert: false)
+                throw AppError.authenticationFailed("Please sign in again, then retry account deletion.")
+            }
+            errorMessage = "Failed to delete account: \(error.localizedDescription)"
+            authLog.error("Firebase Auth deletion failed: \(error.localizedDescription)")
             ErrorHandlerService.shared.handle(error, context: "Auth.deleteAccount", showAlert: false)
             throw error
         }
+
+        // Step 3: Best-effort data cleanup. The Auth account is already gone;
+        // failures here are logged but do NOT revive the account. An onDelete
+        // Cloud Function is the authoritative path.
+        do {
+            try await VideoCloudManager.shared.deleteAllUserVideos(userID: userID)
+            authLog.debug("Deleted all videos from Storage")
+        } catch {
+            authLog.warning("Post-auth-delete: error deleting videos from Storage: \(error.localizedDescription)")
+        }
+
+        do {
+            try await FirestoreManager.shared.deleteUserProfile(userID: userID)
+            authLog.debug("Deleted user profile from Firestore")
+        } catch {
+            authLog.warning("Post-auth-delete: error deleting Firestore profile: \(error.localizedDescription)")
+        }
+
+        UploadQueueManager.shared.clearAllQueues()
+        SyncCoordinator.shared.clearLocalData(fallbackContext: modelContext)
+
+        // Step 4: Clear local state
+        currentFirebaseUser = nil
+        isSignedIn = false
+        userProfile = nil
+        localUser = nil
+        isNewUser = false
+        userRole = .athlete
+        currentTier = .free
+        currentCoachTier = .free
+        hasLoadedProfile = false
+        hasCompletedOnboarding = false
+
+        clearPersistedUserDefaults()
+
+        AnalyticsService.shared.trackAccountDeletionCompleted(userID: userID)
+        AnalyticsService.shared.clearUserID()
+
+        isLoading = false
+        authLog.debug("Account deletion successful")
     }
 }

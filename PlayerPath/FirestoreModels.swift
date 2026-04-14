@@ -186,6 +186,8 @@ struct VideoAnnotation: Codable, Identifiable {
     var templateID: String? = nil
     var type: String? = nil // "note" (default), "drill_card", "drawing"
     var drawingData: String? = nil // base64-encoded PKDrawing data (telestration)
+    var drawingCanvasWidth: Double? = nil // canvas size the drawing was captured on (points)
+    var drawingCanvasHeight: Double? = nil
 
     var annotationCategory: AnnotationCategory? {
         guard let category else { return nil }
@@ -244,7 +246,22 @@ struct CoachToAthleteInvitation: Codable, Identifiable {
 
 /// Instruction session for coaches (scheduled or live)
 struct CoachSession: Codable, Identifiable, Hashable {
-    static func == (lhs: CoachSession, rhs: CoachSession) -> Bool { lhs.id == rhs.id }
+    /// Equality compares id plus every mutable field so SwiftUI `onChange`
+    /// and `ForEach` diffing detect status/clipCount/notes transitions.
+    /// id-only equality previously hid live updates from views holding a local copy.
+    static func == (lhs: CoachSession, rhs: CoachSession) -> Bool {
+        lhs.id == rhs.id
+            && lhs.status == rhs.status
+            && lhs.clipCount == rhs.clipCount
+            && lhs.startedAt == rhs.startedAt
+            && lhs.endedAt == rhs.endedAt
+            && lhs.notes == rhs.notes
+            && lhs.scheduledDate == rhs.scheduledDate
+            && lhs.athleteIDs == rhs.athleteIDs
+            && lhs.athleteNames == rhs.athleteNames
+            && lhs.folderIDs == rhs.folderIDs
+            && lhs.title == rhs.title
+    }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
     var id: String?
     let coachID: String
@@ -253,7 +270,7 @@ struct CoachSession: Codable, Identifiable, Hashable {
     var athleteNames: [String: String]
     var folderIDs: [String: String]
     var status: SessionStatus
-    let startedAt: Date?
+    var startedAt: Date?
     var endedAt: Date?
     var clipCount: Int
     var title: String?

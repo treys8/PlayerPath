@@ -2,13 +2,65 @@
 //  ReviewQueueCard.swift
 //  PlayerPath
 //
-//  Dashboard card showing aggregated unreviewed clips across all folders.
-//  Styled as a calm "to-do queue" with navy tones instead of orange/red alarms.
+//  Dashboard card showing aggregated clips grouped by athlete.
+//  Drives two dashboard queues via `ClipQueueStyle`: coach's own
+//  draft clips ("My Drafts") and athlete-shared clips awaiting
+//  coach feedback ("Needs Your Review").
 //
 
 import SwiftUI
 
-struct ReviewQueueCard: View {
+enum ClipQueueStyle {
+    case myDrafts
+    case needsReview
+
+    var accent: Color {
+        switch self {
+        case .myDrafts: return .brandNavy
+        case .needsReview: return .orange
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .myDrafts: return "My Drafts"
+        case .needsReview: return "Needs Your Review"
+        }
+    }
+
+    var headerIcon: String {
+        switch self {
+        case .myDrafts: return "square.and.pencil"
+        case .needsReview: return "tray.full.fill"
+        }
+    }
+
+    var rowSubtitleSuffix: String {
+        switch self {
+        case .myDrafts: return "to review"
+        case .needsReview: return "waiting"
+        }
+    }
+
+    var badgeOpacity: Double {
+        self == .myDrafts ? 0.12 : 0.15
+    }
+
+    var gradientTopOpacity: Double {
+        self == .myDrafts ? 0.08 : 0.10
+    }
+
+    var strokeOpacity: Double {
+        self == .myDrafts ? 0.20 : 0.25
+    }
+
+    var rowIconBackgroundOpacity: Double {
+        self == .myDrafts ? 0.10 : 0.12
+    }
+}
+
+struct ClipQueueCard: View {
+    let style: ClipQueueStyle
     let groups: [AthleteClipGroup]
     let totalCount: Int
     let onReviewAll: () -> Void
@@ -16,30 +68,8 @@ struct ReviewQueueCard: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            // Header
-            HStack {
-                HStack(spacing: 6) {
-                    Image(systemName: "square.and.pencil")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(.brandNavy)
-                    Text("My Drafts")
-                        .font(.title3)
-                        .fontWeight(.bold)
-                        .fontDesign(.rounded)
-                }
+            header
 
-                Spacer()
-
-                Text("\(totalCount) clip\(totalCount == 1 ? "" : "s")")
-                    .font(.caption2)
-                    .fontWeight(.bold)
-                    .foregroundColor(.brandNavy)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(Capsule().fill(Color.brandNavy.opacity(0.12)))
-            }
-
-            // Athlete rows
             VStack(spacing: 8) {
                 ForEach(groups) { group in
                     Button {
@@ -51,14 +81,13 @@ struct ReviewQueueCard: View {
                 }
             }
 
-            // Review Clips button
             Button(action: onReviewAll) {
                 Label("Review Clips", systemImage: "eye")
                     .font(.subheadline)
                     .fontWeight(.semibold)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 10)
-                    .background(Color.brandNavy)
+                    .background(style.accent)
                     .foregroundColor(.white)
                     .cornerRadius(10)
             }
@@ -68,27 +97,49 @@ struct ReviewQueueCard: View {
             RoundedRectangle(cornerRadius: .cornerXLarge)
                 .fill(
                     LinearGradient(
-                        colors: [Color.brandNavy.opacity(0.08), Color.brandNavy.opacity(0.03)],
+                        colors: [style.accent.opacity(style.gradientTopOpacity), style.accent.opacity(0.03)],
                         startPoint: .topLeading, endPoint: .bottomTrailing
                     )
                 )
         )
         .overlay(
             RoundedRectangle(cornerRadius: .cornerXLarge)
-                .stroke(Color.brandNavy.opacity(0.2), lineWidth: 1.5)
+                .stroke(style.accent.opacity(style.strokeOpacity), lineWidth: 1.5)
         )
         .shadow(color: .black.opacity(0.06), radius: 8, x: 0, y: 4)
     }
 
-    // MARK: - Athlete Row
+    private var header: some View {
+        HStack {
+            HStack(spacing: 6) {
+                Image(systemName: style.headerIcon)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(style.accent)
+                Text(style.title)
+                    .font(.title3)
+                    .fontWeight(.bold)
+                    .fontDesign(.rounded)
+            }
+
+            Spacer()
+
+            Text("\(totalCount) clip\(totalCount == 1 ? "" : "s")")
+                .font(.caption2)
+                .fontWeight(.bold)
+                .foregroundColor(style.accent)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(Capsule().fill(style.accent.opacity(style.badgeOpacity)))
+        }
+    }
 
     private func athleteRow(_ group: AthleteClipGroup) -> some View {
         HStack(spacing: 10) {
             Image(systemName: "figure.baseball")
                 .font(.caption)
-                .foregroundColor(.brandNavy)
+                .foregroundColor(style.accent)
                 .frame(width: 28, height: 28)
-                .background(Color.brandNavy.opacity(0.1))
+                .background(style.accent.opacity(style.rowIconBackgroundOpacity))
                 .clipShape(Circle())
 
             VStack(alignment: .leading, spacing: 2) {
@@ -98,14 +149,13 @@ struct ReviewQueueCard: View {
                     .foregroundColor(.primary)
                     .lineLimit(1)
 
-                Text("\(group.clips.count) clip\(group.clips.count == 1 ? "" : "s") to review")
+                Text("\(group.clips.count) clip\(group.clips.count == 1 ? "" : "s") \(style.rowSubtitleSuffix)")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
 
             Spacer()
 
-            // Small thumbnail previews (max 3)
             HStack(spacing: -8) {
                 ForEach(Array(group.clips.prefix(3).enumerated()), id: \.element.id) { index, clip in
                     RemoteThumbnailView(

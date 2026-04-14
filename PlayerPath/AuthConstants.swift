@@ -54,6 +54,8 @@ enum AuthConstants {
         static let userRole = "userRole"
         static let hasCompletedOnboarding = "hasCompletedOnboarding"
         static let hasAthleteTierOverride = "hasAthleteTierOverride"
+        static let failedSignInAttempts = "failedSignInAttempts"
+        static let signInLockedUntil = "signInLockedUntil"
     }
 
     // MARK: - Roles

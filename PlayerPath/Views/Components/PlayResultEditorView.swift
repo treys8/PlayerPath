@@ -15,6 +15,8 @@ struct PlayResultEditorView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var selectedResult: PlayResultType?
     @State private var showingConfirmation = false
+    @State private var errorMessage: String?
+    @State private var showingError = false
 
     init(clip: VideoClip, modelContext: ModelContext) {
         self.clip = clip
@@ -200,10 +202,18 @@ struct PlayResultEditorView: View {
                     Text("Remove play result from this clip?")
                 }
             }
+            .alert("Save Failed", isPresented: $showingError) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(errorMessage ?? "")
+            }
         }
     }
 
     private func saveChanges() {
+        let prevResult = clip.playResult
+        let prevType = clip.playResult?.type
+
         if let selected = selectedResult {
             if let existing = clip.playResult {
                 existing.type = selected
@@ -236,7 +246,16 @@ struct PlayResultEditorView: View {
             Haptics.success()
             dismiss()
         } catch {
+            // Roll back in-memory mutation
+            if let prev = prevResult {
+                prev.type = prevType ?? prev.type
+                clip.playResult = prev
+            } else {
+                clip.playResult = nil
+            }
             Haptics.warning()
+            errorMessage = "Could not save play result. Please try again."
+            showingError = true
         }
     }
 }

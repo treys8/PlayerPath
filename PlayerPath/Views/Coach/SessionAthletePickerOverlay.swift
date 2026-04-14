@@ -16,6 +16,9 @@ struct SessionAthletePickerOverlay: View {
     let onCancel: () -> Void
 
     @State private var selectedID: String?
+    /// Prevents double-tap from firing onSelect twice — which would enqueue the same
+    /// clip to two athlete folders.
+    @State private var hasSelected = false
 
     var body: some View {
         VStack(spacing: 16) {
@@ -30,6 +33,8 @@ struct SessionAthletePickerOverlay: View {
                     HStack(spacing: 10) {
                         ForEach(athletes, id: \.id) { athlete in
                             Button {
+                                guard !hasSelected else { return }
+                                hasSelected = true
                                 selectedID = athlete.id
                                 Haptics.light()
                                 onSelect(athlete.id)
@@ -60,12 +65,14 @@ struct SessionAthletePickerOverlay: View {
                                         .strokeBorder(isSelected(athlete.id) ? Color.brandNavy : Color.clear, lineWidth: 2)
                                 )
                             }
+                            .disabled(hasSelected)
                         }
                     }
                     .padding(.horizontal)
                 }
 
                 Button {
+                    guard !hasSelected else { return }
                     onCancel()
                 } label: {
                     Text("Discard Clip")
@@ -73,6 +80,7 @@ struct SessionAthletePickerOverlay: View {
                         .foregroundColor(.white.opacity(0.6))
                 }
                 .padding(.top, 4)
+                .disabled(hasSelected)
             }
             .padding(.vertical, 20)
             .background(

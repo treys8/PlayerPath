@@ -31,12 +31,5 @@ struct OnboardingFlow: View {
                 )
             }
         }
-        .onAppear {
-
-            // Extra debugging
-            if authManager.userProfile != nil {
-            } else {
-            }
-        }
     }
 }

@@ -5,6 +5,7 @@ struct DashboardNextStepCard: View {
     let athlete: Athlete
     @Environment(\.modelContext) private var modelContext
     @State private var dismissedTipID: String?
+    @State private var tipsEnabled: Bool = true
 
     private enum Step {
         case createGame
@@ -60,10 +61,14 @@ struct DashboardNextStepCard: View {
         }
     }
 
-    /// Check user preferences for the onboarding tips toggle
-    private var tipsEnabled: Bool {
-        guard let prefs = try? modelContext.fetch(FetchDescriptor<UserPreferences>()).first else { return true }
-        return prefs.showOnboardingTips
+    /// Reads the onboarding tips toggle from UserPreferences. Cached in
+    /// @State so the fetch doesn't run on every body evaluation.
+    private func loadTipsEnabled() {
+        if let prefs = try? modelContext.fetch(FetchDescriptor<UserPreferences>()).first {
+            tipsEnabled = prefs.showOnboardingTips
+        } else {
+            tipsEnabled = true
+        }
     }
 
     private var currentStep: Step? {
@@ -80,6 +85,14 @@ struct DashboardNextStepCard: View {
     }
 
     var body: some View {
+        Group {
+            cardBody
+        }
+        .task { loadTipsEnabled() }
+    }
+
+    @ViewBuilder
+    private var cardBody: some View {
         if let step = currentStep, step.tipID != dismissedTipID {
             HStack(spacing: 12) {
                 Image(systemName: step.icon)

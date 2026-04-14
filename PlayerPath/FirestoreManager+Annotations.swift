@@ -24,7 +24,9 @@ extension FirestoreManager {
         category: String? = nil,
         templateID: String? = nil,
         type: String? = nil,
-        drawingData: String? = nil
+        drawingData: String? = nil,
+        drawingCanvasWidth: Double? = nil,
+        drawingCanvasHeight: Double? = nil
     ) async throws -> String {
         var annotationData: [String: Any] = [
             "userID": userID,
@@ -38,6 +40,8 @@ extension FirestoreManager {
         if let templateID { annotationData["templateID"] = templateID }
         if let type { annotationData["type"] = type }
         if let drawingData { annotationData["drawingData"] = drawingData }
+        if let drawingCanvasWidth { annotationData["drawingCanvasWidth"] = drawingCanvasWidth }
+        if let drawingCanvasHeight { annotationData["drawingCanvasHeight"] = drawingCanvasHeight }
 
         do {
             let docRef = try await db.collection(FC.videos)
@@ -165,7 +169,9 @@ extension FirestoreManager {
         category: String? = nil,
         templateID: String? = nil,
         type: String? = nil,
-        drawingData: String? = nil
+        drawingData: String? = nil,
+        drawingCanvasWidth: Double? = nil,
+        drawingCanvasHeight: Double? = nil
     ) async throws -> VideoAnnotation {
         let annotationID = try await addAnnotation(
             videoID: videoID,
@@ -177,7 +183,9 @@ extension FirestoreManager {
             category: category,
             templateID: templateID,
             type: type,
-            drawingData: drawingData
+            drawingData: drawingData,
+            drawingCanvasWidth: drawingCanvasWidth,
+            drawingCanvasHeight: drawingCanvasHeight
         )
 
         return VideoAnnotation(
@@ -191,7 +199,9 @@ extension FirestoreManager {
             category: category,
             templateID: templateID,
             type: type,
-            drawingData: drawingData
+            drawingData: drawingData,
+            drawingCanvasWidth: drawingCanvasWidth,
+            drawingCanvasHeight: drawingCanvasHeight
         )
     }
 }

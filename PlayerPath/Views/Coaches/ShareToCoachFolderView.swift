@@ -20,6 +20,7 @@ struct ShareToCoachFolderView: View {
     @State private var isUploading = false
     @State private var uploadProgress: Double = 0
     @State private var errorMessage: String?
+    @State private var shouldOpenPaywallOnDismiss = false
     @FocusState private var notesFocused: Bool
 
     var body: some View {
@@ -71,6 +72,11 @@ struct ShareToCoachFolderView: View {
         .task {
             await loadFolders()
         }
+        .onDisappear {
+            if shouldOpenPaywallOnDismiss {
+                NotificationCenter.default.post(name: .showSubscriptionPaywall, object: nil)
+            }
+        }
     }
 
     // MARK: - Sub-views
@@ -103,8 +109,8 @@ struct ShareToCoachFolderView: View {
             Spacer()
 
             Button {
+                shouldOpenPaywallOnDismiss = true
                 dismiss()
-                NotificationCenter.default.post(name: .showSubscriptionPaywall, object: nil)
             } label: {
                 Text("View Plans")
                     .font(.headline)

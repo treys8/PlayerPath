@@ -20,6 +20,7 @@ struct DrillCardView: View {
     @State private var overallRating: Int?
     @State private var summary = ""
     @State private var isSaving = false
+    @State private var saveErrorMessage: String?
 
     var body: some View {
         NavigationStack {
@@ -90,6 +91,14 @@ struct DrillCardView: View {
                     .disabled(categories.isEmpty || isSaving)
                 }
             }
+            .alert("Unable to Save", isPresented: .init(
+                get: { saveErrorMessage != nil },
+                set: { if !$0 { saveErrorMessage = nil } }
+            )) {
+                Button("OK") { saveErrorMessage = nil }
+            } message: {
+                Text(saveErrorMessage ?? "")
+            }
             .onAppear {
                 if let card = existingCard {
                     selectedTemplate = DrillCardTemplate(rawValue: card.templateType) ?? .custom
@@ -136,6 +145,7 @@ struct DrillCardView: View {
                 await MainActor.run { dismiss() }
             } catch {
                 ErrorHandlerService.shared.handle(error, context: "DrillCardView.save", showAlert: false)
+                saveErrorMessage = "Couldn't save drill card: \(error.localizedDescription)"
             }
             isSaving = false
         }

@@ -191,9 +191,10 @@ class SharedFolderManager {
         if let athleteName, !athleteName.isEmpty {
             resolvedAthleteName = athleteName
         } else if let profile = try? await firestore.fetchUserProfile(userID: athleteID) { // Best-effort: fall through to default name on failure
-            // UserProfile doesn't have a separate displayName field —
-            // use Firebase Auth displayName or derive from email
-            let name = Auth.auth().currentUser?.displayName
+            // Use the fetched profile's displayName — Auth.currentUser may be a
+            // different user than athleteID for parent accounts managing multiple athletes.
+            let profileDisplayName = (profile.displayName?.isEmpty == false) ? profile.displayName : nil
+            let name = profileDisplayName
                 ?? profile.email.components(separatedBy: "@").first
                 ?? profile.email
             resolvedAthleteName = name

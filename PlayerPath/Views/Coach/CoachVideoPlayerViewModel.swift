@@ -54,7 +54,11 @@ class CoachVideoPlayerViewModel {
     var observedPlaybackTime: Double = 0
 
     // Telestration state
-    var activeDrawingOverlay: Data?
+    struct ActiveDrawingOverlay: Equatable {
+        let data: Data
+        let canvasSize: CGSize?
+    }
+    var activeDrawingOverlay: ActiveDrawingOverlay?
     var videoNaturalSize: CGSize?
 
     private var durationTask: Task<Void, Never>?
@@ -112,71 +116,24 @@ class CoachVideoPlayerViewModel {
         isLoading = true
         isPlayerReady = false
 
-        let cache = CoachVideoCacheService.shared
         let folderID = folder.id ?? ""
         let playbackURL: URL
 
-        // Check cache first for offline playback
-        if let cachedURL = cache.cachedURL(folderID: folderID, fileName: video.fileName) {
-            playbackURL = cachedURL
+        if let cached = CoachVideoLoader.cachedURL(folderID: folderID, fileName: video.fileName) {
+            playbackURL = cached
         } else {
-            // Fetch signed URL and download to cache
-            let signedURLString: String
-            do {
-                signedURLString = try await SecureURLManager.shared.getSecureVideoURL(
-                    fileName: video.fileName,
-                    folderID: folderID
-                )
-            } catch {
-                ErrorHandlerService.shared.handle(error, context: "CoachVideoPlayer.getSignedURL", showAlert: false)
-                errorMessage = "Unable to load video. Please check your connection and try again."
-                isLoading = false
-                return
-            }
-
-            // Download and cache for offline use
             isDownloading = true
             do {
-                playbackURL = try await cache.downloadAndCache(
-                    signedURLString: signedURLString,
+                playbackURL = try await CoachVideoLoader.fetchAndCache(
                     folderID: folderID,
                     fileName: video.fileName
                 )
-            } catch let cacheError as CoachVideoCacheError where cacheError == .signedURLExpired {
-                // Signed URL expired mid-download — fetch a fresh one and retry once
-                isDownloading = false
-                do {
-                    let freshURL = try await SecureURLManager.shared.getSecureVideoURL(
-                        fileName: video.fileName,
-                        folderID: folderID,
-                        forceRefresh: true
-                    )
-                    isDownloading = true
-                    playbackURL = try await cache.downloadAndCache(
-                        signedURLString: freshURL,
-                        folderID: folderID,
-                        fileName: video.fileName
-                    )
-                } catch {
-                    isDownloading = false
-                    if let url = URL(string: signedURLString) {
-                        playbackURL = url
-                    } else {
-                        errorMessage = "Unable to load video."
-                        isLoading = false
-                        return
-                    }
-                }
             } catch {
-                // Fall back to streaming if download fails
                 isDownloading = false
-                if let url = URL(string: signedURLString) {
-                    playbackURL = url
-                } else {
-                    errorMessage = "Unable to load video."
-                    isLoading = false
-                    return
-                }
+                ErrorHandlerService.shared.handle(error, context: "CoachVideoPlayer.loadVideo", showAlert: false)
+                errorMessage = "Unable to load video. Please check your connection and try again."
+                isLoading = false
+                return
             }
             isDownloading = false
         }
@@ -546,6 +503,7 @@ class CoachVideoPlayerViewModel {
     func addDrawingAnnotation(
         drawing: PKDrawing,
         timestamp: Double,
+        canvasSize: CGSize,
         userID: String,
         userName: String
     ) async -> Bool {
@@ -570,7 +528,9 @@ class CoachVideoPlayerViewModel {
                 userName: userName,
                 isCoachComment: true,
                 type: "drawing",
-                drawingData: base64
+                drawingData: base64,
+                drawingCanvasWidth: canvasSize.width > 0 ? Double(canvasSize.width) : nil,
+                drawingCanvasHeight: canvasSize.height > 0 ? Double(canvasSize.height) : nil
             )
 
             annotations.append(annotation)
@@ -600,7 +560,13 @@ class CoachVideoPlayerViewModel {
     func showDrawingOverlay(for annotation: VideoAnnotation) {
         guard let data = annotation.drawingPKData else { return }
         seekToTimestampPaused(annotation.timestamp)
-        activeDrawingOverlay = data
+        let size: CGSize? = {
+            guard let w = annotation.drawingCanvasWidth,
+                  let h = annotation.drawingCanvasHeight,
+                  w > 0, h > 0 else { return nil }
+            return CGSize(width: w, height: h)
+        }()
+        activeDrawingOverlay = ActiveDrawingOverlay(data: data, canvasSize: size)
     }
 
     /// Dismisses the drawing overlay.

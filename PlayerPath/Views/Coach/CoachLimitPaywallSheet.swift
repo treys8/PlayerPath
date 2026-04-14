@@ -15,6 +15,7 @@ struct CoachLimitPaywallSheet: View {
     @State private var isPurchasing = false
     @State private var connectedCount = 0
     @State private var hasLoadedCount = false
+    @State private var shouldOpenPaywallOnDismiss = false
 
     var body: some View {
         NavigationStack {
@@ -73,10 +74,8 @@ struct CoachLimitPaywallSheet: View {
 
                 // Upgrade button
                 Button {
-                    // Open the existing coach paywall for purchase
+                    shouldOpenPaywallOnDismiss = true
                     dismiss()
-                    // Post notification to show full paywall
-                    NotificationCenter.default.post(name: .showSubscriptionPaywall, object: nil)
                 } label: {
                     Text("View Plans")
                         .font(.headline)
@@ -106,6 +105,11 @@ struct CoachLimitPaywallSheet: View {
                 if let coachID = authManager.userID {
                     connectedCount = await SubscriptionGate.fullConnectedAthleteCount(coachID: coachID)
                     hasLoadedCount = true
+                }
+            }
+            .onDisappear {
+                if shouldOpenPaywallOnDismiss {
+                    NotificationCenter.default.post(name: .showSubscriptionPaywall, object: nil)
                 }
             }
         }

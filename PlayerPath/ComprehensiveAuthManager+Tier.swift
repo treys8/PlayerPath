@@ -46,13 +46,24 @@ extension ComprehensiveAuthManager {
             }
             .store(in: &storeKitCancellables)
 
-        // Keep coach tier in sync with StoreKitManager (Academy override happens in loadUserProfile)
+        // Keep coach tier in sync with StoreKitManager.
+        // Symmetric with athlete path: if StoreKit resolves lower and the Firestore
+        // profile has already loaded (which may contain an Academy comp), don't
+        // downgrade locally. Academy override is applied in loadUserProfile, and
+        // refreshTierFromFirestore() reconciles on the next foreground entry.
         StoreKitManager.shared.$currentCoachTier
             .removeDuplicates()
             .receive(on: RunLoop.main)
             .sink { [weak self] tier in
                 guard let self else { return }
-                self.currentCoachTier = tier
+                if tier >= self.currentCoachTier {
+                    self.currentCoachTier = tier
+                } else if !self.hasLoadedProfile {
+                    // Profile hasn't loaded yet — no Firestore comp to protect
+                    self.currentCoachTier = tier
+                }
+                // else: StoreKit resolved lower than a Firestore-loaded coach tier
+                // (e.g. Academy comp) — don't downgrade locally.
                 guard self.hasLoadedProfile, StoreKitManager.shared.hasResolvedEntitlements else { return }
                 self.syncSubscriptionTierToFirestore()
             }
@@ -92,10 +103,19 @@ extension ComprehensiveAuthManager {
     func syncSubscriptionTierToFirestore() {
         guard let userID = currentFirebaseUser?.uid else { return }
         Task {
-            await retryAsync(maxAttempts: 3) {
-                try await FirestoreManager.shared.syncSubscriptionTiersWithThrow(
-                    userID: userID
-                )
+            do {
+                try await withRetry(maxAttempts: 3) {
+                    try await FirestoreManager.shared.syncSubscriptionTiersWithThrow(
+                        userID: userID
+                    )
+                }
+            } catch {
+                // Firestore tier is now diverged from local — subscription gates
+                // may mismatch (e.g. Pro locally but Firestore says Free, so
+                // security rules deny coach sharing). Log so divergence is
+                // visible in telemetry.
+                authLog.error("syncSubscriptionTierToFirestore failed after retries: \(error.localizedDescription)")
+                ErrorHandlerService.shared.handle(error, context: "Auth.syncSubscriptionTier", showAlert: false)
             }
         }
     }
@@ -121,7 +141,7 @@ extension ComprehensiveAuthManager {
                 guard let self, self.hasLoadedProfile else { return }
                 Task { await self.refreshTierFromFirestore() }
             }
-            .store(in: &storeKitCancellables)
+            .store(in: &lifecycleCancellables)
     }
 
     /// Refreshes the subscription tier from Firestore to pick up changes

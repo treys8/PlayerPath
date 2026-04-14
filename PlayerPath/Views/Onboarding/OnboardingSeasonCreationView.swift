@@ -251,7 +251,13 @@ struct OnboardingSeasonCreationView: View {
         season.athlete = athlete
         season.needsSync = true
         modelContext.insert(season)
-        ErrorHandlerService.shared.saveContext(modelContext, caller: "OnboardingSeasonCreation.skip")
+        let saved = ErrorHandlerService.shared.saveContext(modelContext, caller: "OnboardingSeasonCreation.skip")
+        guard saved else {
+            modelContext.rollback()
+            errorMessage = "Could not create default season. Please try again."
+            showingError = true
+            return
+        }
         #if DEBUG
         print("🟡 User skipped — created default '\(year) Season'")
         #endif
@@ -315,9 +321,9 @@ struct OnboardingSeasonCreationView: View {
                 Haptics.medium()
                 isCreating = false
             } catch {
-                // Rollback on failure
-                modelContext.delete(season)
-                athlete.seasons?.removeAll { $0.id == season.id }
+                // Discard the pending insert; simpler and safer than
+                // stacking a delete op on an already-failed context.
+                modelContext.rollback()
 
                 isCreating = false
                 errorMessage = "Failed to create season: \(error.localizedDescription)"

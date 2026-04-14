@@ -25,7 +25,13 @@ class CoachSessionManager {
 
     private let db = Firestore.firestore()
     private var activeListener: ListenerRegistration?
+    private var reviewingListener: ListenerRegistration?
     private var listeningCoachID: String?
+    private var latestLive: CoachSession?
+    private var latestReviewing: CoachSession?
+    /// Guards against duplicate uploads when `uploadClip` is invoked twice for the
+    /// same source URL (UI race conditions, double-taps).
+    private var inflightUploadSources: Set<URL> = []
     private init() {}
 
     // MARK: - Helpers
@@ -93,13 +99,16 @@ class CoachSessionManager {
         }
     }
 
-    /// Auto-ends abandoned sessions older than 24 hours.
+    /// Moves abandoned live sessions (older than 24 hours) to `.reviewing` so any clips
+    /// captured before abandonment remain reviewable. The coach can explicitly `.complete`
+    /// from the dashboard after reviewing. Previously jumped straight to `.completed`,
+    /// losing the review opportunity.
     func cleanupAbandonedSessions() async {
         let cutoff = Date().addingTimeInterval(-24 * 3600)
         for session in sessions where session.status == .live {
             guard let startedAt = session.startedAt, startedAt < cutoff, let sessionID = session.id else { continue }
             do {
-                try await completeSession(sessionID: sessionID)
+                try await endSession(sessionID: sessionID)
             } catch {
                 sessionLog.error("Failed to cleanup abandoned session: \(error.localizedDescription)")
             }
@@ -161,6 +170,31 @@ class CoachSessionManager {
         return docRef.documentID
     }
 
+    /// Transitions a reviewing session back to live so the coach can record more clips
+    /// in the same session. Resets startedAt so the LiveSessionCard timer reflects the
+    /// new segment, clears endedAt. Posts `.sessionBecameLive`.
+    func resumeReviewingSession(sessionID: String) async throws {
+        let now = Date()
+        try await db.collection(FC.coachSessions).document(sessionID).updateData([
+            "status": SessionStatus.live.rawValue,
+            "startedAt": FieldValue.serverTimestamp(),
+            "endedAt": FieldValue.delete()
+        ])
+
+        if let idx = sessions.firstIndex(where: { $0.id == sessionID }) {
+            sessions[idx].status = .live
+            sessions[idx].startedAt = now
+            sessions[idx].endedAt = nil
+            activeSession = sessions[idx]
+        } else if activeSession?.id == sessionID {
+            activeSession?.status = .live
+            activeSession?.startedAt = now
+            activeSession?.endedAt = nil
+        }
+
+        NotificationCenter.default.post(name: .sessionBecameLive, object: sessionID)
+    }
+
     /// Transitions a scheduled session to live, ending any existing live session first.
     func startScheduledSession(sessionID: String) async throws {
         // End any existing live session to enforce one-active-session constraint
@@ -168,6 +202,7 @@ class CoachSessionManager {
             try await endSession(sessionID: existingID)
         }
 
+        let now = Date()
         try await db.collection(FC.coachSessions).document(sessionID).updateData([
             "status": SessionStatus.live.rawValue,
             "startedAt": FieldValue.serverTimestamp()
@@ -176,6 +211,7 @@ class CoachSessionManager {
         if let idx = scheduledSessions.firstIndex(where: { $0.id == sessionID }) {
             var session = scheduledSessions.remove(at: idx)
             session.status = .live
+            session.startedAt = now
             activeSession = session
             sessions.insert(session, at: 0)
         }
@@ -212,18 +248,22 @@ class CoachSessionManager {
         }
     }
 
-    /// Increments the clip count for the active session.
+    /// Increments the clip count for the active session. Local state only bumps after
+    /// the Firestore write succeeds — otherwise cross-device counts drift.
     func incrementClipCount(sessionID: String) async {
         do {
             try await db.collection(FC.coachSessions).document(sessionID).updateData([
                 "clipCount": FieldValue.increment(Int64(1))
             ])
-            activeSession?.clipCount += 1
+            if activeSession?.id == sessionID {
+                activeSession?.clipCount += 1
+            }
             if let idx = sessions.firstIndex(where: { $0.id == sessionID }) {
                 sessions[idx].clipCount += 1
             }
         } catch {
             sessionLog.error("Failed to increment clip count: \(error.localizedDescription)")
+            // Deliberately skip local bump — listener / next fetch will converge.
         }
     }
 
@@ -238,20 +278,23 @@ class CoachSessionManager {
         defer { isLoading = false }
 
         do {
-            let live = try await fetchSessionsWithStatus(coachID: coachID, status: .live, limit: 10)
-            let reviewing = try await fetchSessionsWithStatus(coachID: coachID, status: .reviewing, limit: 20)
-            let completed = try await fetchSessionsWithStatus(
+            // Run the four status queries concurrently — each is an independent
+            // Firestore round-trip, so this cuts cold-start latency roughly 4×.
+            async let liveFetch = fetchSessionsWithStatus(coachID: coachID, status: .live, limit: 10)
+            async let reviewingFetch = fetchSessionsWithStatus(coachID: coachID, status: .reviewing, limit: 20)
+            async let completedFetch = fetchSessionsWithStatus(
                 coachID: coachID,
                 status: .completed,
                 limit: 50,
                 orderByStartedAtDescending: true
             )
-            let scheduled = try await fetchSessionsWithStatus(
+            async let scheduledFetch = fetchSessionsWithStatus(
                 coachID: coachID,
                 status: .scheduled,
                 limit: 20,
                 orderByScheduledDateAscending: true
             )
+            let (live, reviewing, completed, scheduled) = try await (liveFetch, reviewingFetch, completedFetch, scheduledFetch)
 
             // Active sessions first (newest startedAt), then completed.
             let active = (live + reviewing).sorted {
@@ -334,59 +377,84 @@ class CoachSessionManager {
         return session
     }
 
-    /// Starts a real-time listener for this coach's active (live or reviewing) session.
-    /// Keeps `activeSession` current across devices without requiring a manual reload.
+    /// Starts real-time listeners for this coach's active (live + reviewing) sessions.
+    /// Two single-field queries (no composite index) resolve independently; the combined
+    /// `activeSession` prefers live > reviewing. Keeps the dashboard in sync across
+    /// devices when a session is ended/resumed elsewhere.
     func startListeningActiveSession(coachID: String) {
         if activeListener != nil, listeningCoachID == coachID { return }
         stopListeningActiveSession()
         listeningCoachID = coachID
 
-        // Query each active status separately to avoid a composite index.
-        // We snapshot-listen on `live` (expected 0 or 1) and resolve `reviewing`
-        // via the same listener by observing the broader "has any active" question
-        // through a single status==live listener — reviewing sessions are less
-        // time-critical and are caught by fetchSessions on appear/foreground.
-        activeListener = db.collection(FC.coachSessions)
+        activeListener = attachStatusListener(coachID: coachID, status: .live) { [weak self] session in
+            guard let self else { return }
+            self.latestLive = session
+            self.resolveActiveSession()
+        }
+
+        reviewingListener = attachStatusListener(coachID: coachID, status: .reviewing) { [weak self] session in
+            guard let self else { return }
+            self.latestReviewing = session
+            self.resolveActiveSession()
+        }
+    }
+
+    private func attachStatusListener(
+        coachID: String,
+        status: SessionStatus,
+        onUpdate: @escaping @MainActor (CoachSession?) -> Void
+    ) -> ListenerRegistration {
+        return db.collection(FC.coachSessions)
             .whereField("coachID", isEqualTo: coachID)
-            .whereField("status", isEqualTo: SessionStatus.live.rawValue)
+            .whereField("status", isEqualTo: status.rawValue)
             .limit(to: 1)
-            .addSnapshotListener { [weak self] snapshot, error in
-                guard let self else { return }
+            .addSnapshotListener { snapshot, error in
                 if let error {
-                    sessionLog.warning("Active session listener error: \(error.localizedDescription)")
+                    sessionLog.warning("\(status.rawValue, privacy: .public) session listener error: \(error.localizedDescription)")
                     return
                 }
                 guard let snapshot else { return }
-                let live: CoachSession? = snapshot.documents.first.flatMap { doc in
+                let session: CoachSession? = snapshot.documents.first.flatMap { doc in
                     do {
                         var s = try doc.data(as: CoachSession.self)
                         s.id = doc.documentID
                         return s
                     } catch {
-                        sessionLog.warning("Failed to decode live session \(doc.documentID): \(error.localizedDescription)")
+                        sessionLog.warning("Failed to decode \(status.rawValue, privacy: .public) session \(doc.documentID): \(error.localizedDescription)")
                         return nil
                     }
                 }
                 Task { @MainActor in
-                    if let live {
-                        if let idx = self.sessions.firstIndex(where: { $0.id == live.id }) {
-                            self.sessions[idx] = live
-                        } else {
-                            self.sessions.insert(live, at: 0)
-                        }
-                        self.activeSession = live
-                    } else if self.activeSession?.status == .live {
-                        // Live session ended elsewhere — drop it; reviewing (if any) is
-                        // picked up on next fetchSessions.
-                        self.activeSession = nil
-                    }
+                    onUpdate(session)
                 }
             }
+    }
+
+    /// Reconciles `activeSession` from the two status listeners. Live wins over reviewing;
+    /// nil only when both are empty.
+    private func resolveActiveSession() {
+        let winner = latestLive ?? latestReviewing
+
+        if let winner {
+            if let idx = sessions.firstIndex(where: { $0.id == winner.id }) {
+                sessions[idx] = winner
+            } else {
+                sessions.insert(winner, at: 0)
+            }
+            activeSession = winner
+        } else {
+            // Both snapshots empty — no active session on server
+            activeSession = nil
+        }
     }
 
     func stopListeningActiveSession() {
         activeListener?.remove()
         activeListener = nil
+        reviewingListener?.remove()
+        reviewingListener = nil
+        latestLive = nil
+        latestReviewing = nil
         listeningCoachID = nil
     }
 
@@ -394,6 +462,13 @@ class CoachSessionManager {
 
     /// Enqueues a recorded clip for background upload via UploadQueueManager.
     /// The queue handles retries, background task support, and persistence.
+    ///
+    /// Guards:
+    ///   - Dedup: same source URL queued more than once returns silently.
+    ///   - Permission: verifies the coach still has upload permission on the folder.
+    ///     If not (access revoked mid-session), the clip is moved to
+    ///     `coach_failed_uploads/` and a recovery notification is posted — not silently
+    ///     dropped to the queue where it would fail and eventually be discarded.
     func uploadClip(
         videoURL: URL,
         folderID: String,
@@ -401,42 +476,62 @@ class CoachSessionManager {
         coachID: String,
         coachName: String
     ) async {
-        // Verify session is still live before uploading — clips to completed sessions may be missed
+        // Dedup — prevents duplicate uploads from a UI race
+        guard !inflightUploadSources.contains(videoURL) else {
+            sessionLog.warning("Duplicate uploadClip call for \(videoURL.lastPathComponent, privacy: .public) — ignoring")
+            return
+        }
+        inflightUploadSources.insert(videoURL)
+        defer { inflightUploadSources.remove(videoURL) }
+
+        // Permission pre-check — avoid silent loss when access was revoked.
+        let hasUploadAccess = await canUploadToFolder(folderID: folderID, coachID: coachID)
+
+        // Verify session status (non-blocking — we still want the clip saved locally)
         do {
             let sessionDoc = try await db.collection(FC.coachSessions).document(sessionID).getDocument()
             let status = sessionDoc.data()?["status"] as? String
             if status != SessionStatus.live.rawValue && status != SessionStatus.reviewing.rawValue {
                 sessionLog.warning("Session not active during clip upload — enqueuing anyway")
-                // Don't abort — the clip is recorded locally. Enqueue it anyway so it's not lost.
             }
         } catch {
-            // Network failure checking session status — proceed with upload anyway
             sessionLog.error("Failed to check session status: \(error.localizedDescription)")
         }
 
         let dateStr = Date().formatted(.iso8601.year().month().day())
         let fileName = "instruction_\(dateStr)_\(UUID().uuidString.prefix(8)).mov"
 
-        // Move the video to a stable Documents path so it survives app backgrounding.
-        // The queue will read from this path later.
         guard let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
-        let coachUploadsDir = documentsURL.appendingPathComponent("coach_pending_uploads", isDirectory: true)
-        try? FileManager.default.createDirectory(at: coachUploadsDir, withIntermediateDirectories: true)
-        let stablePath = coachUploadsDir.appendingPathComponent(fileName)
+
+        // If the coach lost access, route to failed_uploads instead of the queue.
+        // The clip stays on disk so the coach can recover it if access is restored.
+        let targetDir: URL = hasUploadAccess
+            ? documentsURL.appendingPathComponent("coach_pending_uploads", isDirectory: true)
+            : documentsURL.appendingPathComponent("coach_failed_uploads", isDirectory: true)
+        try? FileManager.default.createDirectory(at: targetDir, withIntermediateDirectories: true)
+        let stablePath = targetDir.appendingPathComponent(fileName)
 
         do {
-            // Copy instead of move in case the source is still referenced
             if FileManager.default.fileExists(atPath: stablePath.path) {
                 try FileManager.default.removeItem(at: stablePath)
             }
             try FileManager.default.copyItem(at: videoURL, to: stablePath)
         } catch {
-            sessionLog.error("Failed to copy clip for upload queue: \(error.localizedDescription)")
+            sessionLog.error("Failed to copy clip to stable path: \(error.localizedDescription)")
             return
         }
 
-        // Remove the original recording now that we have a stable copy
         try? FileManager.default.removeItem(at: videoURL)
+
+        guard hasUploadAccess else {
+            sessionLog.warning("Coach lacks upload permission on folder \(folderID, privacy: .public) — saved to failed_uploads, notifying coach")
+            await ActivityNotificationService.shared.postClipUploadFailedPermissionNotification(
+                coachUserID: coachID,
+                folderID: folderID,
+                fileName: fileName
+            )
+            return
+        }
 
         UploadQueueManager.shared.enqueueCoachUpload(
             fileName: fileName,
@@ -447,6 +542,23 @@ class CoachSessionManager {
             sessionID: sessionID,
             priority: .normal
         )
+    }
+
+    /// Verifies the coach currently has upload permission on the target shared folder.
+    /// Returns false on any error so we err on the side of surfacing a recovery path.
+    private func canUploadToFolder(folderID: String, coachID: String) async -> Bool {
+        do {
+            let snap = try await db.collection(FC.sharedFolders).document(folderID).getDocument()
+            guard let data = snap.data() else { return false }
+            let sharedCoachIDs = data["sharedWithCoachIDs"] as? [String] ?? []
+            guard sharedCoachIDs.contains(coachID) else { return false }
+            let permissions = data["permissions"] as? [String: [String: Any]] ?? [:]
+            let coachPerms = permissions[coachID] ?? [:]
+            return (coachPerms["canUpload"] as? Bool) == true
+        } catch {
+            sessionLog.error("canUploadToFolder failed: \(error.localizedDescription)")
+            return false
+        }
     }
 
 

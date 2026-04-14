@@ -15,6 +15,8 @@ struct OnboardingBackupView: View {
 
     @State private var selectedMode: AutoUploadMode = .wifiOnly
     @State private var isSaving = false
+    @State private var errorMessage: String?
+    @State private var showingError = false
 
     var body: some View {
         NavigationStack {
@@ -123,6 +125,11 @@ struct OnboardingBackupView: View {
                 .padding(.top, 16)
             }
             .toolbar(.hidden, for: .navigationBar)
+            .alert("Save Failed", isPresented: $showingError) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(errorMessage ?? "")
+            }
         }
     }
 
@@ -153,8 +160,9 @@ struct OnboardingBackupView: View {
                 isSaving = false
             } catch {
                 isSaving = false
-                // Still complete onboarding even if save fails
-                authManager.resetNewUserFlag()
+                errorMessage = "Could not save backup preference. Please try again."
+                showingError = true
+                ErrorHandlerService.shared.handle(error, context: "OnboardingBackup.save", showAlert: false)
             }
         }
     }

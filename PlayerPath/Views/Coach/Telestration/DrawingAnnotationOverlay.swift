@@ -12,6 +12,10 @@ import PencilKit
 struct DrawingAnnotationOverlay: View {
     let drawingData: Data
     let videoAspectRatio: CGFloat
+    /// Canvas size (points) the drawing was captured on. When provided, strokes are
+    /// rendered in that coordinate space and scaled uniformly to fit the video area.
+    /// When nil (legacy annotations), falls back to stroke-bounds rendering.
+    let canvasSize: CGSize?
     let onDismiss: () -> Void
 
     @State private var isVisible = false
@@ -62,10 +66,15 @@ struct DrawingAnnotationOverlay: View {
         }
     }
 
-    /// Renders the drawing once on appear. Uses the drawing's own bounds
-    /// so strokes aren't clipped; the Image view scales to fit display size.
+    /// Renders the drawing once on appear. When canvasSize is provided, renders
+    /// the full canvas rect so stroke positions are preserved relative to the
+    /// video frame. Falls back to stroke bounds for legacy annotations.
     private func renderDrawing() -> UIImage? {
         guard let pkDrawing = try? PKDrawing(data: drawingData) else { return nil }
+        if let canvasSize, canvasSize.width > 0, canvasSize.height > 0 {
+            let rect = CGRect(origin: .zero, size: canvasSize)
+            return pkDrawing.image(from: rect, scale: displayScale)
+        }
         let drawingBounds = pkDrawing.bounds
         guard !drawingBounds.isEmpty else { return nil }
         let padded = drawingBounds.insetBy(dx: -8, dy: -8)

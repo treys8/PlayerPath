@@ -203,8 +203,11 @@ struct CoachesView: View {
     private func reportCoach(_ coach: Coach) {
         let subject = "Coach Report: \(coach.name)"
         let body = "I would like to report the following coach for inappropriate behavior:\n\nCoach Name: \(coach.name)\nCoach Email: \(coach.email)\n\nDetails:\n[Please describe the issue here]"
-        let mailto = "mailto:\(AuthConstants.supportEmail)?subject=\(subject)&body=\(body)"
-            .addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        // Encode subject/body as query values (not query-allowed — that set passes & and = through).
+        let queryValueAllowed = CharacterSet.urlQueryAllowed.subtracting(CharacterSet(charactersIn: "&=?#"))
+        let encodedSubject = subject.addingPercentEncoding(withAllowedCharacters: queryValueAllowed) ?? ""
+        let encodedBody = body.addingPercentEncoding(withAllowedCharacters: queryValueAllowed) ?? ""
+        let mailto = "mailto:\(AuthConstants.supportEmail)?subject=\(encodedSubject)&body=\(encodedBody)"
         if let url = URL(string: mailto) {
             UIApplication.shared.open(url)
         }
@@ -228,29 +231,12 @@ struct CoachesView: View {
             do {
                 guard let userID = authManager.userID else { throw NSError(domain: "CoachesView", code: -1) }
 
-                // Re-use existing shared folder if it still exists, otherwise create one
-                let folderID: String
-                if let existingFolderID = coach.sharedFolderIDs.first,
-                   let _ = try await FirestoreManager.shared.fetchSharedFolder(folderID: existingFolderID) {
-                    folderID = existingFolderID
-                } else {
-                    let folderName = "\(athlete.name)'s Videos"
-                    folderID = try await SharedFolderManager.shared.createFolder(
-                        name: folderName,
-                        forAthlete: userID,
-                        athleteName: athlete.name,
-                        hasCoachingAccess: authManager.hasCoachingAccess
-                    )
-                    coach.sharedFolderIDs = [folderID]
-                }
-
-                // Create a new Firestore invitation document
+                // Create invitation only — folders are created server-side when the coach accepts.
+                // Matches InviteCoachSheet behavior; avoids orphaned folders if the coach never accepts.
                 _ = try await FirestoreManager.shared.createInvitation(
                     athleteID: userID,
                     athleteName: athlete.name,
-                    coachEmail: coach.email.lowercased(),
-                    folderID: folderID,
-                    folderName: "\(athlete.name)'s Videos"
+                    coachEmail: coach.email.lowercased()
                 )
 
                 // Update local coach record
@@ -290,30 +276,13 @@ struct CoachesView: View {
                 Haptics.error()
             }
 
-            // Revoke Firestore folder access in the background.
-            // Silent failures are acceptable — Firestore rules prevent
-            // unauthorized access regardless.
-            if let coachID = firebaseCoachID, !sharedFolderIDs.isEmpty {
-                for folderID in sharedFolderIDs {
-                    do {
-                        try await FirestoreManager.shared.removeCoachFromFolder(
-                            folderID: folderID,
-                            coachID: coachID
-                        )
-                    } catch {
-                        ErrorHandlerService.shared.handle(error, context: "CoachesView.removeCoachFromFolder", showAlert: false)
-                    }
-                }
-            }
-
-            // Soft-delete coach record in Firestore
-            if let coachFirestoreId, let userId, let athleteFirestoreId {
-                await retryAsync {
-                    try await FirestoreManager.shared.deleteCoach(
-                        userId: userId, athleteFirestoreId: athleteFirestoreId, coachId: coachFirestoreId
-                    )
-                }
-            }
+            await CoachRemovalService.revokeRemoteAccess(
+                firebaseCoachID: firebaseCoachID,
+                sharedFolderIDs: sharedFolderIDs,
+                userID: userId,
+                athleteFirestoreID: athleteFirestoreId,
+                coachFirestoreID: coachFirestoreId
+            )
         }
     }
 

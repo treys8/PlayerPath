@@ -223,8 +223,8 @@ struct PracticesView: View {
         .onAppear {
             AnalyticsService.shared.trackScreenView(screenName: "Practices", screenClass: "PracticesView")
         }
-        .onChange(of: viewModel.searchText) { _, _ in viewModel.refilter() }
-        .onChange(of: viewModel.selectedSeasonFilter) { _, _ in viewModel.refilter() }
+        .onChange(of: viewModel.searchText) { _, _ in viewModel.resetPagination(); viewModel.refilter() }
+        .onChange(of: viewModel.selectedSeasonFilter) { _, _ in viewModel.resetPagination(); viewModel.refilter() }
         .onChange(of: viewModel.sortOrder) { _, _ in viewModel.refilter() }
         .onChange(of: athlete?.practices?.count) { _, _ in viewModel.update(practices: athlete?.practices ?? []) }
         .navigationTitle("Practices")
@@ -254,9 +254,8 @@ struct PracticesView: View {
 
         SeasonManager.linkPracticeToActiveSeason(practice, for: athlete, in: modelContext)
 
-        do {
-            try modelContext.save()
-
+        let saved = ErrorHandlerService.shared.saveContext(modelContext, caller: "PracticesView.quickCreatePractice")
+        if saved {
             AnalyticsService.shared.trackPracticeCreated(
                 practiceID: practice.id.uuidString,
                 seasonID: practice.season?.id.uuidString
@@ -274,9 +273,8 @@ struct PracticesView: View {
 
             Haptics.success()
             navigateToPractice = practice
-        } catch {
+        } else {
             Haptics.error()
-            log.error("Failed to save practice: \(error.localizedDescription)")
         }
     }
 
@@ -297,30 +295,39 @@ struct PracticesView: View {
 
         withAnimation {
             practice.delete(in: modelContext)
+        }
 
-            Task {
-                do {
-                    try modelContext.save()
+        let saved = ErrorHandlerService.shared.saveContext(modelContext, caller: "PracticesView.deleteSinglePractice")
 
-                    // Recalculate athlete statistics to reflect the removed play results
-                    if let athlete = practiceAthlete {
-                        try StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: modelContext)
-                    }
-
-                    Haptics.success()
-                    log.info("Successfully deleted practice")
-                } catch {
-                    Haptics.error()
-                    log.error("Failed to delete practice: \(error.localizedDescription)")
-                }
+        if saved, let athlete = practiceAthlete {
+            do {
+                try StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: modelContext)
+            } catch {
+                ErrorHandlerService.shared.handle(error, context: "PracticesView.recalculateAthleteStatistics", showAlert: false)
             }
+        }
+
+        viewModel.update(practices: athlete?.practices ?? [])
+
+        if saved {
+            Haptics.success()
+            log.info("Successfully deleted practice")
+        } else {
+            Haptics.error()
         }
     }
 
     @MainActor
     private func refreshPractices() async {
         Haptics.light()
-        viewModel.refilter()
+        if let user = athlete?.user {
+            do {
+                try await SyncCoordinator.shared.syncPractices(for: user)
+            } catch {
+                log.error("Pull-to-refresh sync failed: \(error.localizedDescription)")
+            }
+        }
+        viewModel.update(practices: athlete?.practices ?? [])
     }
 
     private func getSortIcon(_ order: PracticesViewModel.SortOrder) -> String {

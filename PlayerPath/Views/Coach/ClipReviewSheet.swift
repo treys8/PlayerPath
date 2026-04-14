@@ -218,43 +218,20 @@ struct ClipReviewSheet: View {
         isLoadingVideo = true
         videoError = nil
 
-        let cache = CoachVideoCacheService.shared
         let playbackURL: URL
-
-        // Check cache first
-        if let cachedURL = cache.cachedURL(folderID: folderID, fileName: video.fileName) {
-            playbackURL = cachedURL
+        if let cached = CoachVideoLoader.cachedURL(folderID: folderID, fileName: video.fileName) {
+            playbackURL = cached
         } else {
-            // Fetch signed URL
-            let signedURLString: String
             do {
-                signedURLString = try await SecureURLManager.shared.getSecureVideoURL(
-                    fileName: video.fileName,
-                    folderID: folderID
+                playbackURL = try await CoachVideoLoader.fetchAndCache(
+                    folderID: folderID,
+                    fileName: video.fileName
                 )
             } catch {
                 ErrorHandlerService.shared.handle(error, context: "ClipReviewSheet.loadVideo", showAlert: false)
                 videoError = "Unable to load video. Check your connection."
                 isLoadingVideo = false
                 return
-            }
-
-            // Download and cache
-            do {
-                playbackURL = try await cache.downloadAndCache(
-                    signedURLString: signedURLString,
-                    folderID: folderID,
-                    fileName: video.fileName
-                )
-            } catch {
-                // Fall back to streaming if download fails
-                if let url = URL(string: signedURLString) {
-                    playbackURL = url
-                } else {
-                    videoError = "Unable to load video."
-                    isLoadingVideo = false
-                    return
-                }
             }
         }
 
@@ -277,13 +254,14 @@ struct ClipReviewSheet: View {
                     notes: trimmedNotes.isEmpty ? nil : trimmedNotes
                 )
 
-                await ActivityNotificationService.shared.postNewVideoNotification(
+                await ActivityNotificationService.shared.postCoachSharedClipNotification(
+                    videoFileName: video.fileName,
+                    videoID: videoID,
                     folderID: folderID,
                     folderName: folder.name,
-                    uploaderID: video.uploadedBy,
-                    uploaderName: video.uploadedByName,
-                    coachIDs: [folder.ownerAthleteID],
-                    videoFileName: video.fileName
+                    coachID: video.uploadedBy,
+                    coachName: video.uploadedByName,
+                    athleteID: folder.ownerAthleteID
                 )
 
                 Haptics.success()

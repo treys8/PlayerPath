@@ -22,7 +22,6 @@ struct PracticeVideoSaveView: View {
     @State private var showContent = false
     @State private var isSaving = false
     @State private var thumbnail: UIImage?
-    @State private var keyboardHeight: CGFloat = 0
     @State private var bottomSafeArea: CGFloat = 0
     @State private var previousOrientationLock: UIInterfaceOrientationMask = .allButUpsideDown
     @FocusState private var noteIsFocused: Bool
@@ -122,7 +121,7 @@ struct PracticeVideoSaveView: View {
                 Spacer()
                 glassPanel
                     .padding(.horizontal, 16)
-                    .padding(.bottom, keyboardHeight > 0 ? keyboardHeight : bottomSafeArea + 16)
+                    .padding(.bottom, bottomSafeArea + 16)
                     .onAppear {
                         withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                             showContent = true
@@ -147,7 +146,6 @@ struct PracticeVideoSaveView: View {
             }
         }
         .animation(.easeInOut(duration: 0.2), value: isSaving)
-        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: keyboardHeight)
         .onAppear {
             previousOrientationLock = PlayerPathAppDelegate.orientationLock
             PlayerPathAppDelegate.orientationLock = .portrait
@@ -157,14 +155,6 @@ struct PracticeVideoSaveView: View {
         }
         .onDisappear {
             PlayerPathAppDelegate.orientationLock = previousOrientationLock
-        }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { notification in
-            if let frame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect {
-                keyboardHeight = frame.height
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
-            keyboardHeight = 0
         }
         .onTapGesture {
             noteIsFocused = false

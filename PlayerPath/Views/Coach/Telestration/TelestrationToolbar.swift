@@ -26,7 +26,7 @@ struct TelestrationToolbar: View {
         ("Thick", 8)
     ]
 
-    private let maxStrokes = 50
+    private var maxStrokes: Int { TelestrationConstants.maxStrokes }
 
     var body: some View {
         VStack(spacing: 8) {

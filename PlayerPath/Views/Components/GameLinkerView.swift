@@ -16,6 +16,8 @@ struct GameLinkerView: View {
 
     @State private var selectedGame: Game?
     @State private var hasChanges = false
+    @State private var errorMessage: String?
+    @State private var showingError = false
 
     private var athleteGames: [Game] {
         guard let athleteId = clip.athlete?.id else { return [] }
@@ -105,11 +107,18 @@ struct GameLinkerView: View {
             .onAppear {
                 selectedGame = clip.game
             }
+            .alert("Save Failed", isPresented: $showingError) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(errorMessage ?? "")
+            }
         }
     }
 
     private func saveChanges() {
         let oldGame = clip.game
+        let prevSeason = clip.season
+        let prevNeedsSync = clip.needsSync
 
         clip.game = selectedGame
         clip.needsSync = true
@@ -133,7 +142,13 @@ struct GameLinkerView: View {
             Haptics.success()
             dismiss()
         } catch {
-            ErrorHandlerService.shared.handle(error, context: "VideoPlayerView.saveClipAssignment", showAlert: false)
+            // Roll back in-memory mutations
+            clip.game = oldGame
+            clip.season = prevSeason
+            clip.needsSync = prevNeedsSync
+            ErrorHandlerService.shared.handle(error, context: "GameLinkerView.saveClipAssignment", showAlert: false)
+            errorMessage = "Could not save game assignment. Please try again."
+            showingError = true
         }
     }
 }

@@ -380,6 +380,33 @@ final class ActivityNotificationService: ObservableObject {
         await writeNotification(data, toUserIDs: coachIDs)
     }
 
+    /// Coach published a clip from the Needs Review queue → notify the athlete who
+    /// owns the folder that new coach-authored content is available. Uses `.newVideo`
+    /// so it counts toward unread-video badges.
+    func postCoachSharedClipNotification(
+        videoFileName: String,
+        videoID: String,
+        folderID: String,
+        folderName: String,
+        coachID: String,
+        coachName: String,
+        athleteID: String
+    ) async {
+        let data: [String: Any] = [
+            "type": ActivityNotification.NotificationType.newVideo.rawValue,
+            "title": "New Clip from \(coachName)",
+            "body": "\(coachName) shared a new clip in \(folderName)",
+            "senderName": coachName,
+            "senderID": coachID,
+            "targetID": videoID,
+            "targetType": ActivityNotification.TargetType.video.rawValue,
+            "folderID": folderID,
+            "isRead": false,
+            "createdAt": FieldValue.serverTimestamp()
+        ]
+        await writeNotification(data, toUserIDs: [athleteID])
+    }
+
     /// Coach adds a comment → notify the athlete who owns the folder.
     func postCoachCommentNotification(
         videoFileName: String,
@@ -560,6 +587,28 @@ final class ActivityNotificationService: ObservableObject {
             "createdAt": FieldValue.serverTimestamp()
         ]
         await writeNotification(data, toUserIDs: [athleteUserID])
+    }
+
+    /// Coach recorded a clip but upload failed because they no longer have folder access.
+    /// The clip is saved to `coach_failed_uploads/` on disk so the coach can recover it
+    /// if access is restored.
+    func postClipUploadFailedPermissionNotification(
+        coachUserID: String,
+        folderID: String,
+        fileName: String
+    ) async {
+        let data: [String: Any] = [
+            "type": ActivityNotification.NotificationType.accessRevoked.rawValue,
+            "title": "Clip Not Uploaded",
+            "body": "Your access to this athlete's folder was removed. \(fileName) is saved on your device and will not upload.",
+            "senderName": "PlayerPath",
+            "senderID": "",
+            "targetID": folderID,
+            "targetType": ActivityNotification.TargetType.folder.rawValue,
+            "isRead": false,
+            "createdAt": FieldValue.serverTimestamp()
+        ]
+        await writeNotification(data, toUserIDs: [coachUserID])
     }
 
     /// Athlete's subscription lapsed → notify coaches that the sharing relationship is in limbo.

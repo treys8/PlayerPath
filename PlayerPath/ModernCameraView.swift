@@ -8,7 +8,6 @@
 
 import SwiftUI
 import AVFoundation
-import Combine
 
 // MARK: - Modern Camera View
 
@@ -62,9 +61,9 @@ struct ModernCameraView: View {
                         }
                 )
                 .simultaneousGesture(
-                    MagnificationGesture()
-                        .onChanged { scale in
-                            viewModel.handleZoom(scale: scale)
+                    MagnifyGesture()
+                        .onChanged { value in
+                            viewModel.handleZoom(scale: value.magnification)
                         }
                         .onEnded { _ in
                             viewModel.endZoomGesture()
@@ -74,6 +73,7 @@ struct ModernCameraView: View {
             // Focus Reticle
             if let focusPoint = viewModel.lastFocusPoint {
                 FocusReticleView(point: focusPoint)
+                    .id("\(focusPoint.x),\(focusPoint.y)")
                     .transition(.scale.combined(with: .opacity))
             }
 
@@ -103,9 +103,25 @@ struct ModernCameraView: View {
             }
         }
         .alert("Camera Error", isPresented: $viewModel.showingError) {
-            Button("OK", role: .cancel) {
-                if viewModel.isFatalError {
-                    onCancel()
+            if viewModel.errorNeedsSettings {
+                Button("Open Settings") {
+                    if let url = URL(string: UIApplication.openSettingsURLString) {
+                        UIApplication.shared.open(url)
+                    }
+                    if viewModel.isFatalError {
+                        onCancel()
+                    }
+                }
+                Button("Cancel", role: .cancel) {
+                    if viewModel.isFatalError {
+                        onCancel()
+                    }
+                }
+            } else {
+                Button("OK", role: .cancel) {
+                    if viewModel.isFatalError {
+                        onCancel()
+                    }
                 }
             }
         } message: {
@@ -544,8 +560,13 @@ struct CameraSettingsView: View {
                     Picker("FPS", selection: Binding(
                         get: { viewModel.settings.frameRate },
                         set: { newRate in
+                            let wasSlowMoCapable = viewModel.settings.frameRate.supportsSlowMotion
                             viewModel.settings.frameRate = newRate
-                            viewModel.settings.slowMotionEnabled = newRate.supportsSlowMotion
+                            if !newRate.supportsSlowMotion {
+                                viewModel.settings.slowMotionEnabled = false
+                            } else if !wasSlowMoCapable {
+                                viewModel.settings.slowMotionEnabled = true
+                            }
                         }
                     )) {
                         ForEach(viewModel.settings.compatibleFrameRates(for: viewModel.settings.quality)) { rate in

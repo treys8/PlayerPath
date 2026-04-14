@@ -12,7 +12,7 @@ import PencilKit
 struct TelestrationOverlayView: View {
     let timestamp: Double
     let videoAspectRatio: CGFloat
-    let onSave: (PKDrawing, Double) async -> Bool
+    let onSave: (PKDrawing, Double, CGSize) async -> Bool
     let onCancel: () -> Void
 
     @State private var drawing = PKDrawing()
@@ -20,8 +20,10 @@ struct TelestrationOverlayView: View {
     @State private var lineWidth: CGFloat = 4
     @State private var isSaving = false
     @State private var saveError: String?
+    @State private var canvasSize: CGSize = .zero
+    @State private var showingCancelConfirm = false
 
-    private let maxStrokes = 50
+    private var maxStrokes: Int { TelestrationConstants.maxStrokes }
 
     private var strokeCount: Int {
         drawing.strokes.count
@@ -45,13 +47,13 @@ struct TelestrationOverlayView: View {
                     onUndo: undo,
                     onClear: { drawing = PKDrawing() },
                     onSave: save,
-                    onCancel: onCancel
+                    onCancel: handleCancel
                 )
 
                 // Canvas area — sized to match video aspect ratio
                 GeometryReader { geometry in
                     let containerSize = geometry.size
-                    let canvasSize = fitSize(
+                    let fittedCanvas = fitSize(
                         aspectRatio: videoAspectRatio,
                         in: containerSize
                     )
@@ -61,8 +63,10 @@ struct TelestrationOverlayView: View {
                         tool: currentTool,
                         isEnabled: !isSaving && strokeCount < maxStrokes
                     )
-                    .frame(width: canvasSize.width, height: canvasSize.height)
+                    .frame(width: fittedCanvas.width, height: fittedCanvas.height)
                     .position(x: containerSize.width / 2, y: containerSize.height / 2)
+                    .onAppear { canvasSize = fittedCanvas }
+                    .onChange(of: fittedCanvas) { _, newValue in canvasSize = newValue }
                 }
             }
         }
@@ -84,6 +88,16 @@ struct TelestrationOverlayView: View {
         } message: {
             Text(saveError ?? "")
         }
+        .confirmationDialog(
+            "Discard drawing?",
+            isPresented: $showingCancelConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("Discard", role: .destructive) { onCancel() }
+            Button("Keep Drawing", role: .cancel) {}
+        } message: {
+            Text("Your strokes will be lost.")
+        }
     }
 
     private func undo() {
@@ -97,12 +111,21 @@ struct TelestrationOverlayView: View {
     private func save() {
         guard !drawing.strokes.isEmpty else { return }
         isSaving = true
+        let capturedSize = canvasSize
         Task {
-            let success = await onSave(drawing, timestamp)
+            let success = await onSave(drawing, timestamp, capturedSize)
             isSaving = false
             if !success {
                 saveError = "Drawing could not be saved. Try simplifying it."
             }
+        }
+    }
+
+    private func handleCancel() {
+        if drawing.strokes.isEmpty {
+            onCancel()
+        } else {
+            showingCancelConfirm = true
         }
     }
 

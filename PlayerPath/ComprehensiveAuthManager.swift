@@ -25,16 +25,34 @@ final class ComprehensiveAuthManager: ObservableObject {
     @Published var needsEmailVerification: Bool = false
 
     // MARK: - Account Lockout
-    var failedSignInAttempts = 0
-    var signInLockedUntil: Date?
+    // Persisted to UserDefaults so a force-quit can't reset the counter and
+    // bypass the lockout window.
+    var failedSignInAttempts: Int {
+        get { UserDefaults.standard.integer(forKey: AuthConstants.UserDefaultsKeys.failedSignInAttempts) }
+        set { UserDefaults.standard.set(newValue, forKey: AuthConstants.UserDefaultsKeys.failedSignInAttempts) }
+    }
+    var signInLockedUntil: Date? {
+        get { UserDefaults.standard.object(forKey: AuthConstants.UserDefaultsKeys.signInLockedUntil) as? Date }
+        set {
+            if let newValue {
+                UserDefaults.standard.set(newValue, forKey: AuthConstants.UserDefaultsKeys.signInLockedUntil)
+            } else {
+                UserDefaults.standard.removeObject(forKey: AuthConstants.UserDefaultsKeys.signInLockedUntil)
+            }
+        }
+    }
     var isSignInLocked: Bool {
         guard let lockedUntil = signInLockedUntil else { return false }
         return Date() < lockedUntil
     }
+    /// Bumped by the lockout ticker so SwiftUI re-evaluates lockoutRemainingSeconds.
+    @Published private(set) var lockoutTick: Date = Date()
     var lockoutRemainingSeconds: Int {
+        _ = lockoutTick // force re-read on tick
         guard let lockedUntil = signInLockedUntil else { return 0 }
         return max(0, Int(lockedUntil.timeIntervalSinceNow.rounded(.up)))
     }
+    var lockoutTimer: Timer?
 
     @Published var localUser: User?
     @Published var hasCompletedOnboarding: Bool = false {
@@ -105,9 +123,25 @@ final class ComprehensiveAuthManager: ObservableObject {
     var authStateDidChangeListenerHandle: AuthStateDidChangeListenerHandle?
     var modelContext: ModelContext?
     var storeKitCancellables = Set<AnyCancellable>()
+    /// Separate cancellable set for lifecycle observers (foreground, etc.)
+    /// that should survive a StoreKit-only reset.
+    var lifecycleCancellables = Set<AnyCancellable>()
     /// True while `signIn()` is in flight. Prevents the auth state listener from
     /// triggering a second `loadUserProfile()` concurrent with the one in `signIn()`.
     var isHandlingSignIn = false
+    /// True while `checkEmailVerification()` is in flight. Prevents the listener
+    /// from racing with verification (user.reload() can fire the listener).
+    var isHandlingVerification = false
+    /// Stored Apple credential-revoked observer so we can remove it on deinit.
+    var appleCredentialObserver: NSObjectProtocol?
+
+    // MARK: - Coach signup carryover
+    /// Pending shared-folder invitations discovered during coach signup.
+    /// Surfaced to the coach onboarding flow after email verification.
+    @Published var pendingCoachInvitations: [CoachInvitation] = []
+    /// True when the verification email could not be sent during signup.
+    /// UI should show a "couldn't send — tap Resend" hint when true.
+    @Published var verificationEmailSendFailed: Bool = false
 
     init() {
         currentFirebaseUser = Auth.auth().currentUser
@@ -149,6 +183,8 @@ final class ComprehensiveAuthManager: ObservableObject {
         setupAuthStateListener()
         observeAppleCredentialRevocation()
         setupForegroundTierRefresh()
+        // Resume lockout countdown if we relaunched while still locked.
+        startLockoutTickerIfNeeded()
 
         // Profile loading for already signed-in users is handled by the
         // auth state listener above (which fires on init). No need to
@@ -158,6 +194,27 @@ final class ComprehensiveAuthManager: ObservableObject {
     deinit {
         if let handle = authStateDidChangeListenerHandle {
             Auth.auth().removeStateDidChangeListener(handle)
+        }
+        if let obs = appleCredentialObserver {
+            NotificationCenter.default.removeObserver(obs)
+        }
+        lockoutTimer?.invalidate()
+    }
+
+    /// Starts (or restarts) a 1Hz timer that bumps `lockoutTick` so any UI
+    /// reading `lockoutRemainingSeconds` stays current. No-op when not locked.
+    func startLockoutTickerIfNeeded() {
+        lockoutTimer?.invalidate()
+        guard isSignInLocked else { return }
+        lockoutTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] t in
+            Task { @MainActor in
+                guard let self else { t.invalidate(); return }
+                self.lockoutTick = Date()
+                if !self.isSignInLocked {
+                    t.invalidate()
+                    self.lockoutTimer = nil
+                }
+            }
         }
     }
 
@@ -200,6 +257,8 @@ final class ComprehensiveAuthManager: ObservableObject {
     func clearPersistedUserDefaults() {
         UserDefaults.standard.removeObject(forKey: AuthConstants.UserDefaultsKeys.userRole)
         UserDefaults.standard.removeObject(forKey: AuthConstants.UserDefaultsKeys.hasCompletedOnboarding)
+        UserDefaults.standard.removeObject(forKey: AuthConstants.UserDefaultsKeys.failedSignInAttempts)
+        UserDefaults.standard.removeObject(forKey: AuthConstants.UserDefaultsKeys.signInLockedUntil)
         // hasAthleteTierOverride removed — comp detection is now server-side
     }
 

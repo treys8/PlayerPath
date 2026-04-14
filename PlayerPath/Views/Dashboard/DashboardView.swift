@@ -35,6 +35,9 @@ struct DashboardView: View {
     @State private var cachedBA: String = ".000"
     @State private var cachedSLG: String = ".000"
     @State private var cachedHits: String = "0"
+    @State private var cachedSeasonCount: Int = 0
+    @State private var cachedPracticeCount: Int = 0
+    @State private var cachedPhotoCount: Int = 0
 
     // Dynamic live games query configured via init to safely capture athleteID
     private let athleteID: UUID
@@ -45,7 +48,6 @@ struct DashboardView: View {
         self.athlete = athlete
         self.authManager = authManager
         self._viewModel = StateObject(wrappedValue: GamesDashboardViewModel(athlete: athlete, modelContext: modelContext))
-        self._pulseAnimation = State(initialValue: false)
         self.athleteID = athlete.id
         // Configure the query with a predicate bound to a stable value (athleteID)
         self._liveGames = Query(filter: #Predicate<Game> { game in
@@ -158,6 +160,12 @@ struct DashboardView: View {
             updateCachedStats()
         }
         .onChange(of: athlete.seasons?.count) { _, _ in
+            updateCachedStats()
+        }
+        .onChange(of: athlete.practices?.count) { _, _ in
+            updateCachedStats()
+        }
+        .onChange(of: athlete.photos?.count) { _, _ in
             updateCachedStats()
         }
         .sheet(isPresented: $showingSeasons) {
@@ -353,13 +361,13 @@ struct DashboardView: View {
                 DashboardFeatureCard(icon: "chart.bar.fill", title: "Statistics", subtitle: cachedBA + " AVG", color: .brandNavy) {
                     postSwitchTab(.stats)
                 }
-                DashboardFeatureCard(icon: "calendar", title: "Seasons", subtitle: "\((athlete.seasons ?? []).count) Total", color: .brandNavy) {
+                DashboardFeatureCard(icon: "calendar", title: "Seasons", subtitle: "\(cachedSeasonCount) Total", color: .brandNavy) {
                     showingSeasons = true
                 }
-                DashboardFeatureCard(icon: "figure.run", title: "Practice", subtitle: "\((athlete.practices ?? []).count) Sessions", color: .brandNavy) {
+                DashboardFeatureCard(icon: "figure.run", title: "Practice", subtitle: "\(cachedPracticeCount) Sessions", color: .brandNavy) {
                     NotificationCenter.default.post(name: .navigateToMorePractice, object: nil)
                 }
-                DashboardFeatureCard(icon: "photo.on.rectangle.angled", title: "Photos", subtitle: "\((athlete.photos ?? []).count) Photos", color: .brandNavy) {
+                DashboardFeatureCard(icon: "photo.on.rectangle.angled", title: "Photos", subtitle: "\(cachedPhotoCount) Photos", color: .brandNavy) {
                     showingPhotos = true
                 }
                 DashboardPremiumFeatureCard(icon: "star.fill", title: "Highlights", subtitle: "\(viewModel.totalHighlights) Highlights", color: .brandGold, isPremium: authManager.currentTier >= .plus, badgeLabel: "PLUS") {
@@ -417,6 +425,7 @@ struct DashboardView: View {
             #if DEBUG
             print("🎮 New Game quick action - switching to Games tab")
             #endif
+            try? await Task.sleep(for: .milliseconds(150))
             NotificationCenter.default.post(name: Notification.Name.presentAddGame, object: nil)
             #if DEBUG
             print("📣 Posted .presentAddGame notification with no tournament context")
@@ -436,6 +445,9 @@ struct DashboardView: View {
             cachedSLG = ".000"
             cachedHits = "0"
         }
+        cachedSeasonCount = (athlete.seasons ?? []).count
+        cachedPracticeCount = (athlete.practices ?? []).count
+        cachedPhotoCount = (athlete.photos ?? []).count
     }
 
     /// Formats a rate stat in baseball style: ".325" for values < 1.0, "1.400" for SLG/OPS >= 1.0

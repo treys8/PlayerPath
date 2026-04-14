@@ -15,8 +15,6 @@ import AVKit
 import PhotosUI
 import CoreMedia
 import UIKit
-import Combine
-import Network
 
 // MARK: - VideoRecorderView_Refactored
 
@@ -31,7 +29,7 @@ struct VideoRecorderView_Refactored: View {
     
     // Service objects
     @StateObject private var uploadService = VideoUploadService()
-    @StateObject private var networkMonitor = NetworkMonitor()
+    @State private var networkMonitor = ConnectivityMonitor.shared
 
     // State management
     @State private var recordedVideoURL: URL?
@@ -41,6 +39,7 @@ struct VideoRecorderView_Refactored: View {
     @State private var pendingDismissAction: (() -> Void)?
     @State private var saveTask: Task<Void, Never>?
     @State private var showingSaveError = false
+    @State private var importError: String?
     @State private var showingTrimmer = false
     @State private var trimmedVideoURL: URL?
     @State private var uploadFlowShowingPlayResult = false
@@ -58,6 +57,22 @@ struct VideoRecorderView_Refactored: View {
         ZStack {
             Color.black.ignoresSafeArea()
             networkStatusBanner
+            if uploadService.isProcessingVideo {
+                VStack(spacing: 12) {
+                    ProgressView().tint(.white)
+                    Text("Importing video…")
+                        .font(.caption)
+                        .foregroundColor(.white)
+                }
+            }
+        }
+        .alert("Video Import Failed", isPresented: Binding(
+            get: { importError != nil },
+            set: { if !$0 { importError = nil; dismiss() } }
+        )) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(importError ?? "")
         }
         .photosPicker(isPresented: $showingPhotoPicker, selection: $selectedVideoItem, matching: .videos, preferredItemEncoding: .compatible)
         .onChange(of: selectedVideoItem) { _, newItem in
@@ -88,12 +103,8 @@ struct VideoRecorderView_Refactored: View {
             Text("This clip won't be saved to PlayerPath. Your original video in Photos is not affected.")
         }
         .task {
-            networkMonitor.startMonitoring()
             checkAvailableStorage()
             showingPhotoPicker = true
-        }
-        .onDisappear {
-            networkMonitor.stopMonitoring()
         }
     }
     
@@ -186,7 +197,8 @@ struct VideoRecorderView_Refactored: View {
                                 self.showingTrimmer = false
                             }
                             showingDiscardConfirmation = true
-                        }
+                        },
+                        mutePreview: false
                     )
                 }
             }
@@ -279,8 +291,9 @@ struct VideoRecorderView_Refactored: View {
                 }
                 showingTrimmer = true
                 Haptics.medium()
-            case .failure:
-                break
+            case .failure(let error):
+                importError = error.localizedDescription
+                selectedVideoItem = nil
             }
         }
     }
@@ -405,87 +418,6 @@ struct VideoRecorderView_Refactored: View {
 
 // MARK: - Supporting Views
 
-struct GuidelineItem: View {
-    let icon: String
-    let text: String
-    let color: Color
-    
-    var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: icon)
-                .font(.caption)
-                .foregroundColor(color)
-            Text(text)
-                .font(.caption2)
-                .fontWeight(.medium)
-                .foregroundColor(.white.opacity(0.9))
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(
-            Capsule()
-                .fill(Color.white.opacity(0.1))
-        )
-    }
-}
-
-
-// MARK: - Network Monitoring
-
-@MainActor class NetworkMonitor: ObservableObject {
-    @Published var isConnected: Bool = true
-    @Published var connectionType: NWInterface.InterfaceType?
-
-    private var monitor: NWPathMonitor?
-    private let queue = DispatchQueue(label: "NetworkMonitor")
-
-    func startMonitoring() {
-        guard monitor == nil else { return }
-
-        let pathMonitor = NWPathMonitor()
-        monitor = pathMonitor
-
-        pathMonitor.pathUpdateHandler = { [weak self] path in
-            DispatchQueue.main.async { [weak self] in
-                self?.isConnected = path.status == .satisfied
-                self?.connectionType = path.availableInterfaces.first?.type
-
-                if path.status == .satisfied {
-                    if let type = path.availableInterfaces.first?.type {
-                        _ = self?.interfaceTypeName(type) ?? "unknown"
-                    }
-                } else {
-                }
-            }
-        }
-        pathMonitor.start(queue: queue)
-    }
-
-    func stopMonitoring() {
-        monitor?.cancel()
-        monitor = nil
-    }
-
-    private func interfaceTypeName(_ type: NWInterface.InterfaceType) -> String {
-        switch type {
-        case .wifi: return "WiFi"
-        case .cellular: return "Cellular"
-        case .wiredEthernet: return "Ethernet"
-        case .loopback: return "Loopback"
-        case .other: return "Other"
-        @unknown default: return "Unknown"
-        }
-    }
-
-    var isOnWiFi: Bool {
-        connectionType == .wifi
-    }
-
-    var isOnCellular: Bool {
-        connectionType == .cellular
-    }
-}
-
 #Preview("Recorder - Game") {
     // Minimal inline mock for preview purposes
     let mockGame = Game(date: Date(), opponent: "Rivals")
@@ -542,6 +474,9 @@ struct PreUploadTrimmerView: View {
     /// in `RetrimSavedClipFlow` where that action doesn't make sense (the user
     /// already has the full clip saved and is editing it).
     var hideSkipButton: Bool = false
+    /// When true (default), the preview player is muted. Set to false for
+    /// imported Photos videos where audio helps locate the trim point.
+    var mutePreview: Bool = true
 
     @State private var player: AVPlayer?
     @State private var startTime: Double = 0
@@ -713,6 +648,7 @@ struct PreUploadTrimmerView: View {
                             .frame(width: 20)
                         Slider(value: $startTime, in: 0...startSliderMax, step: 0.1)
                             .tint(.green)
+                            .accessibilityLabel("Start time")
                             .onChange(of: startTime) { _, newValue in
                                 seekTo(time: newValue)
                             }
@@ -725,6 +661,7 @@ struct PreUploadTrimmerView: View {
                             .frame(width: 20)
                         Slider(value: $endTime, in: endSliderMin...duration, step: 0.1)
                             .tint(.red)
+                            .accessibilityLabel("End time")
                             .onChange(of: endTime) { _, newValue in
                                 seekTo(time: newValue)
                             }
@@ -856,7 +793,7 @@ struct PreUploadTrimmerView: View {
 
     private func setupPlayer() {
         let newPlayer = AVPlayer(url: videoURL)
-        newPlayer.isMuted = true
+        newPlayer.isMuted = mutePreview
         player = newPlayer
         newPlayer.play()
 

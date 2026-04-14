@@ -7,7 +7,6 @@
 
 import Foundation
 import AVFoundation
-import SwiftUI
 
 // MARK: - Video Recording Settings Model
 

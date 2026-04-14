@@ -11,7 +11,6 @@ import SwiftData
 // MARK: - Game Row View
 struct GameRow: View {
     let game: Game
-    @State private var isPressed = false
     @State private var livePulse = false
 
     var body: some View {
@@ -35,8 +34,6 @@ struct GameRow: View {
         .clipShape(RoundedRectangle(cornerRadius: .cornerLarge, style: .continuous))
         .shadow(color: .black.opacity(0.06), radius: 8, x: 0, y: 2)
         .shadow(color: .black.opacity(0.04), radius: 2, x: 0, y: 1)
-        .scaleEffect(isPressed ? 0.98 : 1.0)
-        .animation(.spring(response: 0.25, dampingFraction: 0.7), value: isPressed)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Game against \(game.opponent)")
         .accessibilityValue(game.isLive ? "Live" : game.isComplete ? "Completed" : "Scheduled")

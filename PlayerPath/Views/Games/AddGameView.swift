@@ -22,6 +22,7 @@ struct AddGameView: View {
     @State private var showingError = false
     @State private var errorMessage = ""
     @State private var isSeasonError = false
+    @State private var shouldPresentSeasonsOnDismiss = false
 
     init(athlete: Athlete? = nil) {
         self.athlete = athlete
@@ -82,12 +83,8 @@ struct AddGameView: View {
         .alert(isSeasonError ? "No Active Season" : "Error", isPresented: $showingError) {
             if isSeasonError {
                 Button("Create Season") {
+                    shouldPresentSeasonsOnDismiss = true
                     dismiss()
-                    // Post notification to open seasons view
-                    Task { @MainActor in
-                        try? await Task.sleep(for: .milliseconds(100))
-                        NotificationCenter.default.post(name: Notification.Name.presentSeasons, object: athlete)
-                    }
                 }
                 Button("Add to Year Only") {
                     saveGameWithoutSeason()
@@ -103,6 +100,11 @@ struct AddGameView: View {
                 Text("You don't have an active season. Create a season to organize your games, or add this game to year \(year) for basic tracking.")
             } else {
                 Text(errorMessage)
+            }
+        }
+        .onDisappear {
+            if shouldPresentSeasonsOnDismiss {
+                NotificationCenter.default.post(name: Notification.Name.presentSeasons, object: athlete)
             }
         }
     }

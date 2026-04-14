@@ -27,9 +27,10 @@ struct HighlightsView: View {
     @State private var viewModel = HighlightsViewModel()
     @State private var selection = Set<VideoClip.ID>()
     @AppStorage("hasCompletedHighlightMigration") private var hasCompletedMigration = false
-    @State private var expandedGroups = Set<UUID>()
 
     @State private var recomputeTask: Task<Void, Never>?
+    @State private var errorAlertShown = false
+    @State private var errorAlertMessage = ""
 
     /// Single entry point that debounces and recomputes the flat highlights list.
     private func recomputeAll() {
@@ -38,7 +39,6 @@ struct HighlightsView: View {
             try? await Task.sleep(for: .milliseconds(100))
             guard !Task.isCancelled else { return }
             viewModel.refilter()
-            viewModel.recomputeGroups(expandedGroups: expandedGroups)
         }
     }
     
@@ -80,11 +80,12 @@ struct HighlightsView: View {
         .task {
             migrateHitVideosToHighlights()
             viewModel.update(videoClips: athlete?.videoClips ?? [])
-            viewModel.recomputeGroups(expandedGroups: expandedGroups)
+        }
+        .onDisappear {
+            recomputeTask?.cancel()
         }
         .onChange(of: athlete?.id) { _, _ in
             selection.removeAll()
-            expandedGroups.removeAll()
         }
         .onAppear {
             AnalyticsService.shared.trackScreenView(screenName: "Highlights", screenClass: "HighlightsView")
@@ -99,11 +100,14 @@ struct HighlightsView: View {
                 try? await Task.sleep(for: .milliseconds(250))
                 guard !Task.isCancelled else { return }
                 viewModel.refilter()
-                viewModel.recomputeGroups(expandedGroups: expandedGroups)
             }
         }
         .onChange(of: viewModel.sortOrder) { _, _ in recomputeAll() }
-        .onChange(of: expandedGroups) { _, _ in viewModel.recomputeGroups(expandedGroups: expandedGroups) }
+        .alert("Error", isPresented: $errorAlertShown) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(errorAlertMessage)
+        }
     }
 
     private func migrateHitVideosToHighlights() {
@@ -284,14 +288,6 @@ struct HighlightsView: View {
         }
     }
 
-    private func toggleGroupExpansion(_ groupID: UUID) {
-        if expandedGroups.contains(groupID) {
-            expandedGroups.remove(groupID)
-        } else {
-            expandedGroups.insert(groupID)
-        }
-    }
-    
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         // Season filter (only show if we have highlights)
@@ -300,7 +296,7 @@ struct HighlightsView: View {
                 SeasonFilterMenu(
                     selectedSeasonID: $viewModel.selectedSeasonFilter,
                     availableSeasons: viewModel.availableSeasons,
-                    showNoSeasonOption: viewModel.highlights.contains(where: { $0.season == nil })
+                    showNoSeasonOption: viewModel.hasNoSeasonClips
                 )
             }
         }
@@ -522,17 +518,31 @@ struct HighlightsView: View {
 
     private func shareClip(_ clip: VideoClip) {
         guard FileManager.default.fileExists(atPath: clip.resolvedFilePath) else {
+            ErrorHandlerService.shared.reportWarning(
+                "Video file is missing.",
+                context: "HighlightsView.shareClip",
+                message: $errorAlertMessage,
+                isPresented: $errorAlertShown
+            )
             return
         }
-        let fileURL = clip.resolvedFileURL
-        let activityVC = UIActivityViewController(activityItems: [fileURL], applicationActivities: nil)
-        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-           let window = windowScene.windows.first,
-           let rootVC = window.rootViewController {
-            activityVC.popoverPresentationController?.sourceView = rootVC.view
-            rootVC.present(activityVC, animated: true)
-        }
+        presentShareSheet(items: [clip.resolvedFileURL])
         Haptics.light()
+    }
+
+    private func presentShareSheet(items: [Any]) {
+        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+              let rootVC = scene.windows.first(where: { $0.isKeyWindow })?.rootViewController
+                    ?? scene.windows.first?.rootViewController else { return }
+        let topVC = sequence(first: rootVC, next: { $0.presentedViewController })
+            .first(where: { $0.presentedViewController == nil }) ?? rootVC
+        let vc = UIActivityViewController(activityItems: items, applicationActivities: nil)
+        if let pop = vc.popoverPresentationController {
+            pop.sourceView = topVC.view
+            pop.sourceRect = CGRect(x: topVC.view.bounds.midX, y: topVC.view.bounds.midY, width: 0, height: 0)
+            pop.permittedArrowDirections = []
+        }
+        topVC.present(vc, animated: true)
     }
 
     private func batchRemoveFromHighlights() {
@@ -561,76 +571,44 @@ struct HighlightsView: View {
         let clips = viewModel.highlights.filter { selection.contains($0.id) }
         guard !clips.isEmpty, let athlete = athlete else { return }
 
-        Task {
-            var failedCount = 0
-            for clip in clips {
-                guard clip.needsUpload else { continue }
-                // Skip clips already being uploaded (e.g. by UploadQueueManager)
-                guard VideoCloudManager.shared.isUploading[clip.id] != true else { continue }
-
-                do {
-                    let cloudURL = try await VideoCloudManager.shared.uploadVideo(clip, athlete: athlete)
-
-                    await MainActor.run {
-                        clip.cloudURL = cloudURL
-                        clip.isUploaded = true
-                        clip.lastSyncDate = Date()
-                        if let user = athlete.user {
-                            if let fileSize = (try? FileManager.default.attributesOfItem(atPath: clip.resolvedFilePath)[.size] as? Int64) {
-                                user.cloudStorageUsedBytes += fileSize
-                            } else {
-                                ErrorHandlerService.shared.handle(NSError(domain: "PlayerPath", code: -1, userInfo: [NSLocalizedDescriptionKey: "Could not read file size for quota update"]), context: "HighlightsView.uploadQuota", showAlert: false)
-                            }
-                        }
-                    }
-                } catch {
-                    ErrorHandlerService.shared.handle(error, context: "HighlightsView.batchUpload", showAlert: false)
-                    failedCount += 1
-                }
-            }
-
-            await MainActor.run {
-                do {
-                    try modelContext.save()
-                    if failedCount > 0 {
-                        Haptics.error()
-                    } else {
-                        Haptics.success()
-                    }
-                } catch {
-                    ErrorHandlerService.shared.handle(error, context: "HighlightsView.batchUploadSelected", showAlert: false)
-                }
-
-                selection.removeAll()
-                withAnimation { editMode = .inactive }
-            }
+        var queuedCount = 0
+        for clip in clips {
+            guard clip.needsUpload,
+                  VideoCloudManager.shared.isUploading[clip.id] != true else { continue }
+            UploadQueueManager.shared.enqueue(clip, athlete: athlete, priority: .high)
+            queuedCount += 1
         }
+
+        if queuedCount > 0 {
+            Haptics.success()
+        } else {
+            Haptics.light()
+        }
+
+        selection.removeAll()
+        withAnimation { editMode = .inactive }
     }
 
     private func batchShareSelected() {
         let clips = viewModel.highlights.filter { selection.contains($0.id) }
         guard !clips.isEmpty else { return }
 
-        // Get file URLs for all selected clips
         let fileURLs = clips.compactMap { clip -> URL? in
             guard FileManager.default.fileExists(atPath: clip.resolvedFilePath) else { return nil }
             return clip.resolvedFileURL
         }
 
         guard !fileURLs.isEmpty else {
+            ErrorHandlerService.shared.reportWarning(
+                "No video files are available to share.",
+                context: "HighlightsView.batchShareSelected",
+                message: $errorAlertMessage,
+                isPresented: $errorAlertShown
+            )
             return
         }
 
-        // Present share sheet
-        let activityVC = UIActivityViewController(activityItems: fileURLs, applicationActivities: nil)
-
-        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-           let window = windowScene.windows.first,
-           let rootVC = window.rootViewController {
-            activityVC.popoverPresentationController?.sourceView = rootVC.view
-            rootVC.present(activityVC, animated: true)
-        }
-
+        presentShareSheet(items: fileURLs)
         Haptics.light()
     }
 }

@@ -440,6 +440,7 @@ struct VideoRecordingSettingsView: View {
             return
         }
         
+        let wasSlowMoCapable = settings.frameRate.supportsSlowMotion
         settings.quality = quality
 
         // Adjust frame rate if incompatible with new quality
@@ -451,17 +452,25 @@ struct VideoRecordingSettingsView: View {
             }
         }
 
-        // Resync slow-mo flag to whatever frame rate we ended up on.
-        settings.slowMotionEnabled = settings.frameRate.supportsSlowMotion
+        // Only adjust slow-mo flag when the capability transitions — preserve
+        // the user's manual toggle when both old and new rates support slow-mo.
+        if !settings.frameRate.supportsSlowMotion {
+            settings.slowMotionEnabled = false
+        } else if !wasSlowMoCapable {
+            settings.slowMotionEnabled = true
+        }
 
         Haptics.light()
     }
-    
+
     private func selectFrameRate(_ frameRate: FrameRate) {
+        let wasSlowMoCapable = settings.frameRate.supportsSlowMotion
         settings.frameRate = frameRate
-        // Keep the slow-mo flag in sync with the chosen frame rate so the toggle,
-        // badge, and summary row always match what the camera will actually record.
-        settings.slowMotionEnabled = frameRate.supportsSlowMotion
+        if !frameRate.supportsSlowMotion {
+            settings.slowMotionEnabled = false
+        } else if !wasSlowMoCapable {
+            settings.slowMotionEnabled = true
+        }
         Haptics.light()
     }
     

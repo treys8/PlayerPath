@@ -39,6 +39,11 @@ final class PracticesViewModel {
         refilter()
     }
 
+    /// Call when filter/search/sort changes — returns pagination to first page.
+    func resetPagination() {
+        displayLimit = 50
+    }
+
     /// Call when any filter property changes
     func refilter() {
         // Sort
@@ -73,7 +78,6 @@ final class PracticesViewModel {
         }
 
         allFilteredPractices = sorted
-        displayLimit = 50
         filteredPractices = Array(sorted.prefix(displayLimit))
         practicesSummary = computeSummary(from: sorted)
         updateAvailableSeasons()

@@ -343,7 +343,9 @@ struct GamesView: View {
                     gamesListContent
                 }
                 .refreshable {
-                    await refreshGames()
+                    Haptics.light()
+                    refreshGames()
+                    try? await Task.sleep(for: .milliseconds(300))
                 }
             }
         }
@@ -530,14 +532,6 @@ struct GamesView: View {
     
     private func refreshGames() {
         viewModelHolder.viewModel?.update(allGames: allGames)
-    }
-
-    @MainActor
-    private func refreshGames() async {
-        Haptics.light()
-        viewModelHolder.viewModel?.update(allGames: allGames)
-        // Small delay for haptic feedback
-        try? await Task.sleep(for: .milliseconds(300))
     }
 
     private func showError(_ message: String) {

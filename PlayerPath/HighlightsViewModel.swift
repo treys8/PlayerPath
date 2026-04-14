@@ -26,13 +26,12 @@ final class HighlightsViewModel {
 
     // MARK: - Results
     private(set) var highlights: [VideoClip] = []
-    private(set) var groupedHighlights: [GameHighlightGroup] = []
     private(set) var availableSeasons: [Season] = []
+    private(set) var hasNoSeasonClips: Bool = false
 
     // MARK: - Private
     private var allVideoClips: [VideoClip] = []
     private var allFilteredHighlights: [VideoClip] = []
-    private var lastGroupInputHash: Int = 0
 
     // MARK: - Public API
 
@@ -46,11 +45,6 @@ final class HighlightsViewModel {
     /// Call when any filter property changes
     func refilter() {
         recomputeHighlights()
-    }
-
-    /// Call when expandedGroups changes (UI state affects grouping)
-    func recomputeGroups(expandedGroups: Set<UUID>) {
-        recomputeGroupedHighlights(expandedGroups: expandedGroups)
     }
 
     // MARK: - Private
@@ -74,7 +68,7 @@ final class HighlightsViewModel {
             switch filter {
             case .all: return true
             case .game: return clip.game != nil
-            case .practice: return clip.game == nil
+            case .practice: return clip.practice != nil
             }
         }
 
@@ -115,76 +109,11 @@ final class HighlightsViewModel {
         loadMore()
     }
 
-    private func recomputeGroupedHighlights(expandedGroups: Set<UUID>) {
-        let clips = highlights
-
-        // Memoization guard
-        var hasher = Hasher()
-        hasher.combine(clips.count)
-        hasher.combine(sortOrder)
-        hasher.combine(expandedGroups)
-        for clip in clips.prefix(20) { hasher.combine(clip.id) }
-        let inputHash = hasher.finalize()
-        guard inputHash != lastGroupInputHash else { return }
-        lastGroupInputHash = inputHash
-
-        // Group by game
-        var gameClips: [UUID: [VideoClip]] = [:]
-        var practiceClips: [VideoClip] = []
-
-        for clip in clips {
-            if let game = clip.game {
-                gameClips[game.id, default: []].append(clip)
-            } else {
-                practiceClips.append(clip)
-            }
-        }
-
-        // Build groups
-        var groups: [GameHighlightGroup] = gameClips.map { gameID, clips in
-            let sortedClips = clips.sorted { lhs, rhs in
-                let l = lhs.createdAt ?? .distantPast
-                let r = rhs.createdAt ?? .distantPast
-                return l < r
-            }
-            return GameHighlightGroup(
-                id: gameID,
-                game: clips.first?.game,
-                clips: sortedClips,
-                isExpanded: expandedGroups.contains(gameID)
-            )
-        }
-
-        for clip in practiceClips {
-            groups.append(GameHighlightGroup(
-                id: clip.id,
-                game: nil,
-                clips: [clip],
-                isExpanded: true
-            ))
-        }
-
-        // Sort groups
-        groups.sort { lhs, rhs in
-            let lDate = lhs.game?.date ?? lhs.clips.first?.createdAt ?? .distantPast
-            let rDate = rhs.game?.date ?? rhs.clips.first?.createdAt ?? .distantPast
-            return sortOrder == .newest ? (lDate > rDate) : (lDate < rDate)
-        }
-
-        // Auto-expand single-clip groups
-        groups = groups.map { group in
-            var g = group
-            if g.clips.count == 1 { g.isExpanded = true }
-            return g
-        }
-
-        groupedHighlights = groups
-    }
-
     private func updateAvailableSeasons() {
         let highlightClips = allVideoClips.filter { $0.isHighlight }
         let seasons = highlightClips.compactMap { $0.season }
         let uniqueSeasons = Array(Set(seasons))
         availableSeasons = uniqueSeasons.sorted { ($0.startDate ?? .distantPast) > ($1.startDate ?? .distantPast) }
+        hasNoSeasonClips = highlightClips.contains(where: { $0.season == nil })
     }
 }

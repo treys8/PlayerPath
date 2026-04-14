@@ -20,14 +20,12 @@ struct VideoPlayerView: View {
     @State private var errorMessage = ""
     @State private var isPlayerReady = false
     @State private var isLoading = true
-    @State private var hasAppeared = false
     @State private var shouldResumeOnActive = false
     @State private var showingRetrimFlow = false
     @State private var showingPlayResultEditor = false
     @State private var showingGameLinker = false
     @State private var showingShareToFolder = false
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
-    @State private var setupTask: Task<Void, Never>?
     @State private var isDownloadingFromCloud = false
     @State private var downloadProgress: Double = 0.0
     @State private var showingSaveSuccess = false
@@ -82,9 +80,6 @@ struct VideoPlayerView: View {
     private func activePlayerView(player: AVPlayer) -> some View {
         EnhancedVideoPlayer(player: player, preloadedDuration: videoDuration, onClose: { dismiss() })
             .accessibilityLabel("Video player")
-            .onDisappear {
-                player.pause()
-            }
     }
 
     private var errorView: some View {
@@ -127,7 +122,7 @@ struct VideoPlayerView: View {
                     .background(Color.black)
 
                 // Video Info - hidden in landscape so video fills the screen
-                if vSizeClass != .compact && hSizeClass != .regular {
+                if vSizeClass != .compact {
                     VideoClipInfoCard(clip: clip)
                         .padding(.bottom, 8)
                 }
@@ -190,8 +185,10 @@ struct VideoPlayerView: View {
                         }
                         .disabled(isSavingToPhotos)
                         .accessibilityLabel("Save video to Photos library")
-                        ShareLink(item: clip.resolvedFileURL) {
-                            Label("Share Video", systemImage: "square.and.arrow.up")
+                        if FileManager.default.fileExists(atPath: clip.resolvedFilePath) {
+                            ShareLink(item: clip.resolvedFileURL) {
+                                Label("Share Video", systemImage: "square.and.arrow.up")
+                            }
                         }
                         if AppFeatureFlags.isCoachEnabled {
                             Divider()
@@ -220,26 +217,11 @@ struct VideoPlayerView: View {
                 }
             }
         }
-        .onAppear {
-            if !hasAppeared {
-                hasAppeared = true
-                setupTask = Task { await setupPlayer() }
-            }
-        }
-        .onChange(of: clip.version) { _, _ in
-            // Re-trim bumps version — reload the player so the new file is picked up.
-            setupTask?.cancel()
-            setupTask = Task { await setupPlayer() }
+        .task(id: clip.version) {
+            await setupPlayer()
         }
         .onDisappear {
-            setupTask?.cancel()
-            setupTask = nil
             player?.pause()
-            player?.replaceCurrentItem(with: nil)
-            player = nil
-            isPlayerReady = false
-            isLoading = true
-            hasAppeared = false
         }
         .sheet(isPresented: $showingPlayResultEditor) {
             PlayResultEditorView(clip: clip, modelContext: modelContext)

@@ -27,6 +27,10 @@ class CameraViewModel: NSObject, ObservableObject {
     @MainActor @Published var recordingTimeString = "0:00"
     @MainActor @Published var recordingPulse = false
     @MainActor @Published var showingError = false
+    /// True when the current error is recoverable by opening the system Settings app
+    /// (e.g., camera/microphone permission was denied). Drives the "Open Settings"
+    /// button on the error alert.
+    @MainActor @Published var errorNeedsSettings = false
     @MainActor @Published var currentError: String?
     @MainActor @Published var isFatalError = false
     @MainActor @Published var recordedVideoURL: URL?
@@ -302,22 +306,51 @@ class CameraViewModel: NSObject, ObservableObject {
 
     @MainActor
     private func checkPermissions() async {
-        let cameraStatus = AVCaptureDevice.authorizationStatus(for: .video)
-        let audioStatus = AVCaptureDevice.authorizationStatus(for: .audio)
-
-        if cameraStatus != .authorized {
+        // Camera — fatal if denied. Distinguish `.notDetermined` (prompt the user)
+        // from `.denied/.restricted` (iOS won't re-prompt; surface a Settings path).
+        switch AVCaptureDevice.authorizationStatus(for: .video) {
+        case .authorized:
+            break
+        case .notDetermined:
             let granted = await AVCaptureDevice.requestAccess(for: .video)
             if !granted {
-                handleError("Camera access denied", isFatal: true)
+                handleError("Camera access denied.", isFatal: true, needsSettings: true)
                 return
             }
+        case .denied, .restricted:
+            handleError(
+                "Camera access is turned off. Open Settings to enable it.",
+                isFatal: true,
+                needsSettings: true
+            )
+            return
+        @unknown default:
+            handleError("Camera access unavailable.", isFatal: true, needsSettings: true)
+            return
         }
 
-        if settings.audioEnabled && audioStatus != .authorized {
+        // Microphone — non-fatal; video continues without audio.
+        guard settings.audioEnabled else { return }
+        switch AVCaptureDevice.authorizationStatus(for: .audio) {
+        case .authorized:
+            break
+        case .notDetermined:
             let granted = await AVCaptureDevice.requestAccess(for: .audio)
             if !granted {
-                handleError("Microphone access denied. Video will record without audio.", isFatal: false)
+                handleError(
+                    "Microphone access denied. Video will record without audio.",
+                    isFatal: false,
+                    needsSettings: true
+                )
             }
+        case .denied, .restricted:
+            handleError(
+                "Microphone access is turned off. Video will record without audio. Open Settings to enable it.",
+                isFatal: false,
+                needsSettings: true
+            )
+        @unknown default:
+            break
         }
     }
 
@@ -718,11 +751,11 @@ class CameraViewModel: NSObject, ObservableObject {
     // MARK: - Error Handling
 
     @MainActor
-    private func handleError(_ message: String, isFatal: Bool) {
+    private func handleError(_ message: String, isFatal: Bool, needsSettings: Bool = false) {
         currentError = message
         self.isFatalError = isFatal
+        self.errorNeedsSettings = needsSettings
         showingError = true
-
 
         if isFatal {
             stopSession()

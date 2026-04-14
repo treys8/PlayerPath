@@ -76,7 +76,7 @@ struct GameCreationView: View {
                 }
 
                 // Opponent Suggestions
-                if !filteredOpponents.isEmpty && opponent.count < 3 || !filteredOpponents.filter({ $0.localizedCaseInsensitiveContains(opponent) && $0 != opponent }).isEmpty {
+                if !filteredOpponents.isEmpty && (opponent.count < 3 || !filteredOpponents.filter({ $0.localizedCaseInsensitiveContains(opponent) && $0 != opponent }).isEmpty) {
                     Section("Recent Opponents") {
                         ForEach(filteredOpponents, id: \.self) { suggestion in
                             Button {

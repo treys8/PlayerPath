@@ -16,6 +16,9 @@ struct CoachOnboardingFlow: View {
     let user: User
 
     @State private var currentPage = 0
+    @State private var isCompleting = false
+    @State private var errorMessage: String?
+    @State private var showingError = false
     private let totalPages = 3
 
     var body: some View {
@@ -53,16 +56,18 @@ struct CoachOnboardingFlow: View {
             .padding(.bottom, 36)
         }
         .toolbar(.hidden, for: .navigationBar)
+        .alert("Setup Failed", isPresented: $showingError) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(errorMessage ?? "")
+        }
     }
 
     private func completeCoachOnboarding() {
-        // Mark onboarding complete immediately so the transition fires without delay
-        authManager.resetNewUserFlag()
-        authManager.markOnboardingComplete()
-        Haptics.medium()
+        guard !isCompleting else { return }
+        isCompleting = true
 
-        // Persist to SwiftData in the background so the save doesn't block the transition
-        Task.detached { @MainActor in
+        Task {
             let progress = OnboardingProgress(firebaseAuthUid: authManager.currentFirebaseUser?.uid ?? "")
             progress.markCompleted()
             modelContext.insert(progress)
@@ -70,8 +75,15 @@ struct CoachOnboardingFlow: View {
                 try await withRetry(delay: .seconds(1)) {
                     try modelContext.save()
                 }
+                authManager.resetNewUserFlag()
+                authManager.markOnboardingComplete()
+                Haptics.medium()
             } catch {
+                modelContext.rollback()
                 ErrorHandlerService.shared.handle(error, context: "CoachOnboarding.saveProgress", showAlert: false)
+                errorMessage = "Could not complete setup. Please try again."
+                showingError = true
+                isCompleting = false
             }
         }
     }

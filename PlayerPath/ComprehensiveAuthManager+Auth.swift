@@ -16,7 +16,7 @@ extension ComprehensiveAuthManager {
     /// Signs the user out when Apple ID credentials are revoked
     /// (Settings → Password & Security → Apps Using Apple ID).
     func observeAppleCredentialRevocation() {
-        NotificationCenter.default.addObserver(
+        appleCredentialObserver = NotificationCenter.default.addObserver(
             forName: ASAuthorizationAppleIDProvider.credentialRevokedNotification,
             object: nil,
             queue: .main
@@ -49,7 +49,7 @@ extension ComprehensiveAuthManager {
                     self?.currentCoachTier = .free
                     self?.clearPersistedUserDefaults()
                     authLog.debug("Cleared all user data on sign out")
-                } else if self?.isHandlingSignIn == true || self?.needsEmailVerification == true {
+                } else if self?.isHandlingSignIn == true || self?.isHandlingVerification == true || self?.needsEmailVerification == true {
                     // signIn()/signUp() is in progress or user needs to verify email —
                     // skip automatic isSignedIn to prevent bypassing verification gate.
                     authLog.debug("Auth state changed - Skipping (handled by signIn/signUp or pending verification)")
@@ -108,11 +108,16 @@ extension ComprehensiveAuthManager {
         errorMessage = nil
         isNewUser = false // This is a sign-in, not a new user
 
-        // Clear any existing upload queues from previous session (handles account switching)
-        UploadQueueManager.shared.clearAllQueues()
+        let previousUID = currentFirebaseUser?.uid
 
         do {
             let result = try await Auth.auth().signIn(withEmail: email, password: password)
+            // Only clear upload queues on a real account switch — clearing
+            // before auth would drop the current session's pending uploads
+            // on a failed sign-in attempt.
+            if previousUID != nil && previousUID != result.user.uid {
+                UploadQueueManager.shared.clearAllQueues()
+            }
             currentFirebaseUser = result.user
 
             // Reset lockout on success
@@ -149,6 +154,7 @@ extension ComprehensiveAuthManager {
                 signInLockedUntil = Date().addingTimeInterval(lockoutSeconds)
                 errorMessage = "Too many failed attempts. Please wait \(Int(lockoutSeconds)) seconds before trying again."
                 authLog.warning("Account lockout triggered: \(self.failedSignInAttempts) attempts, locked for \(Int(lockoutSeconds))s")
+                startLockoutTickerIfNeeded()
             } else {
                 errorMessage = friendlyErrorMessage(from: error)
             }
@@ -163,8 +169,7 @@ extension ComprehensiveAuthManager {
         errorMessage = nil
         isNewUser = true // This is a signup, mark as new user
 
-        // Clear any existing upload queues from previous session
-        UploadQueueManager.shared.clearAllQueues()
+        let previousUID = currentFirebaseUser?.uid
 
         // Set the role IMMEDIATELY before any async operations
         // This ensures the UI sees the correct role right away
@@ -173,6 +178,9 @@ extension ComprehensiveAuthManager {
 
         do {
             let result = try await Auth.auth().createUser(withEmail: email, password: password)
+            if previousUID != nil && previousUID != result.user.uid {
+                UploadQueueManager.shared.clearAllQueues()
+            }
             if let displayName = displayName, !displayName.isEmpty {
                 let changeRequest = result.user.createProfileChangeRequest()
                 changeRequest.displayName = displayName
@@ -204,8 +212,10 @@ extension ComprehensiveAuthManager {
             // Send verification email and gate access until verified
             do {
                 try await result.user.sendEmailVerification()
+                verificationEmailSendFailed = false
                 authLog.info("Verification email sent to \(email, privacy: .private)")
             } catch {
+                verificationEmailSendFailed = true
                 authLog.error("Failed to send verification email: \(error.localizedDescription)")
             }
             needsEmailVerification = true
@@ -227,8 +237,7 @@ extension ComprehensiveAuthManager {
         errorMessage = nil
         isNewUser = true
 
-        // Clear any existing upload queues from previous session
-        UploadQueueManager.shared.clearAllQueues()
+        let previousUID = currentFirebaseUser?.uid
 
         // Set the role IMMEDIATELY before any async operations
         // This ensures the UI sees the correct role right away
@@ -237,6 +246,9 @@ extension ComprehensiveAuthManager {
 
         do {
             let result = try await Auth.auth().createUser(withEmail: email, password: password)
+            if previousUID != nil && previousUID != result.user.uid {
+                UploadQueueManager.shared.clearAllQueues()
+            }
             let changeRequest = result.user.createProfileChangeRequest()
             changeRequest.displayName = displayName
             try await changeRequest.commitChanges()
@@ -260,17 +272,26 @@ extension ComprehensiveAuthManager {
                 userRole = .coach
             }
 
-            // Check for pending invitations
-            let invitations = try await SharedFolderManager.shared.checkPendingInvitations(forEmail: email)
-            if !invitations.isEmpty {
-                authLog.debug("Found \(invitations.count) pending invitations for new coach")
+            // Stash any pending invitations so the coach onboarding flow can
+            // surface them after email verification (processing/accepting
+            // happens there, not here — verification is still pending).
+            do {
+                let invitations = try await SharedFolderManager.shared.checkPendingInvitations(forEmail: email)
+                self.pendingCoachInvitations = invitations
+                if !invitations.isEmpty {
+                    authLog.debug("Stashed \(invitations.count) pending invitations for new coach")
+                }
+            } catch {
+                authLog.warning("Failed to fetch pending invitations for new coach: \(error.localizedDescription)")
             }
 
             // Send verification email and gate access until verified
             do {
                 try await result.user.sendEmailVerification()
+                verificationEmailSendFailed = false
                 authLog.info("Verification email sent to \(email, privacy: .private)")
             } catch {
+                verificationEmailSendFailed = true
                 authLog.error("Failed to send verification email: \(error.localizedDescription)")
             }
             needsEmailVerification = true
@@ -306,58 +327,61 @@ extension ComprehensiveAuthManager {
         defer { isLoading = false }
         errorMessage = nil
 
+        AnalyticsService.shared.trackSignOut()
+        AnalyticsService.shared.clearUserID()
+
+        // Remove this device's push tokens (APNs + FCM) before signing out so it stops
+        // receiving notifications for this account on this device.
+        await PushNotificationService.shared.removeTokenFromServer()
+        await PushNotificationService.shared.removeFCMTokenFromServer()
+
+        var signOutError: Error?
         do {
-            // Track sign out before clearing user data
-            AnalyticsService.shared.trackSignOut()
-            AnalyticsService.shared.clearUserID()
-
-            // Remove this device's push tokens (APNs + FCM) before signing out so it stops
-            // receiving notifications for this account on this device.
-            await PushNotificationService.shared.removeTokenFromServer()
-            await PushNotificationService.shared.removeFCMTokenFromServer()
-
             try Auth.auth().signOut()
-            currentFirebaseUser = nil
-            isSignedIn = false
-            isNewUser = false
-            needsEmailVerification = false
-            errorMessage = nil
-            userRole = .athlete // Reset to default
-
-            // Clear user-specific published state immediately (auth listener also does this
-            // async, but clearing here eliminates any race window between accounts)
-            userProfile = nil
-            localUser = nil
-            currentTier = .free
-            currentCoachTier = .free
-            hasLoadedProfile = false
-
-            // Clear persisted role and onboarding completion (both in memory and UserDefaults).
-            // Don't wait for the auth listener — it fires asynchronously and leaves a race window.
-            hasCompletedOnboarding = false
-            clearPersistedUserDefaults()
-
-            // Stop active Firestore listeners and background sync for this user
-            ActivityNotificationService.shared.stopListening()
-            ReviewQueueViewModel.shared.stopListening()
-            SyncCoordinator.shared.stopPeriodicSync()
-            SharedFolderManager.shared.clearAllData()
-
-            // Clear local SwiftData and local video/photo files to prevent data leakage
-            SyncCoordinator.shared.clearLocalData(fallbackContext: modelContext)
-
-            // Clear signed URL cache so another user can't access previous user's URLs
-            SecureURLManager.shared.clearCache()
-
-            // Clear upload queues to prevent cross-account data leakage
-            UploadQueueManager.shared.clearAllQueues()
-
-            authLog.info("Sign out successful")
         } catch {
-            errorMessage = "Failed to sign out: \(error.localizedDescription)"
-            authLog.error("Sign out failed: \(error.localizedDescription)")
+            signOutError = error
+            authLog.error("Auth.signOut() failed — clearing local state anyway: \(error.localizedDescription)")
             ErrorHandlerService.shared.handle(error, context: "Auth.signOut", showAlert: false)
         }
+
+        // ALWAYS clear local state, even if Firebase sign-out threw. An invalid
+        // server session is recoverable on next launch; a stuck signed-in UI is not.
+        clearLocalSignedInState()
+
+        if let signOutError {
+            errorMessage = "Signed out locally, but Firebase sign-out failed: \(signOutError.localizedDescription)"
+        } else {
+            authLog.info("Sign out successful")
+        }
+    }
+
+    /// Clears all per-account in-memory state, persisted UserDefaults, local
+    /// SwiftData, caches, and background listeners. Safe to call even if
+    /// Firebase's own sign-out failed.
+    private func clearLocalSignedInState() {
+        currentFirebaseUser = nil
+        isSignedIn = false
+        isNewUser = false
+        needsEmailVerification = false
+        userRole = .athlete
+
+        userProfile = nil
+        localUser = nil
+        currentTier = .free
+        currentCoachTier = .free
+        hasLoadedProfile = false
+
+        hasCompletedOnboarding = false
+        clearPersistedUserDefaults()
+
+        ActivityNotificationService.shared.stopListening()
+        ReviewQueueViewModel.shared.stopListening()
+        SyncCoordinator.shared.stopPeriodicSync()
+        SharedFolderManager.shared.clearAllData()
+
+        SyncCoordinator.shared.clearLocalData(fallbackContext: modelContext)
+        SecureURLManager.shared.clearCache()
+        UploadQueueManager.shared.clearAllQueues()
     }
 
     // MARK: - Email Verification
@@ -368,6 +392,7 @@ extension ComprehensiveAuthManager {
             throw AppError.authenticationFailed(AuthConstants.ErrorMessages.noUserSignedIn)
         }
         try await user.sendEmailVerification()
+        verificationEmailSendFailed = false
         authLog.info("Verification email resent to \(user.email ?? "unknown", privacy: .private)")
     }
 
@@ -375,13 +400,21 @@ extension ComprehensiveAuthManager {
     /// If verified, transitions to the signed-in state.
     func checkEmailVerification() async -> Bool {
         guard let user = currentFirebaseUser else { return false }
+        // Suppress the auth state listener while we're in the middle of
+        // verification — user.reload() can fire the listener and race with
+        // the state we're about to flip.
+        isHandlingVerification = true
+        defer { isHandlingVerification = false }
         do {
             try await user.reload()
-            // Re-fetch the user object after reload to get updated properties
             guard let refreshedUser = Auth.auth().currentUser else { return false }
             currentFirebaseUser = refreshedUser
 
             if refreshedUser.isEmailVerified {
+                // Load profile BEFORE flipping needsEmailVerification/isSignedIn
+                // so the listener (if it fires) sees a consistent state and any
+                // subsequent UI render has the correct role.
+                await loadUserProfile()
                 needsEmailVerification = false
                 isSignedIn = true
                 authLog.info("Email verified for \(refreshedUser.email ?? "unknown", privacy: .private)")

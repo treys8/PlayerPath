@@ -24,7 +24,6 @@ struct VideoClipCard: View {
     @State private var showingShareToFolder = false
     @State private var showingMoveSheet = false
     private let uploadManager = UploadQueueManager.shared
-    @State private var isPressed = false
     @State private var isSavingToPhotos = false
 
     var body: some View {
@@ -237,12 +236,16 @@ struct VideoClipCard: View {
 
         Button {
             Haptics.light()
+            let prevHighlight = video.isHighlight
+            let prevNeedsSync = video.needsSync
             video.isHighlight.toggle()
             video.needsSync = true
             Task {
                 do {
                     try modelContext.save()
                 } catch {
+                    video.isHighlight = prevHighlight
+                    video.needsSync = prevNeedsSync
                     errorMessage = "Could not update highlight status. Please try again."
                     showingError = true
                 }

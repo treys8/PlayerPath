@@ -209,27 +209,13 @@ struct CoachDetailView: View {
         }
 
         Task {
-            // Revoke Firestore folder access — retries on failure since
-            // a silent failure here is a security issue (coach retains access)
-            if let coachID = firebaseCoachID, !sharedFolderIDs.isEmpty {
-                for folderID in sharedFolderIDs {
-                    await retryAsync {
-                        try await FirestoreManager.shared.removeCoachFromFolder(
-                            folderID: folderID,
-                            coachID: coachID
-                        )
-                    }
-                }
-            }
-
-            // Soft-delete coach record in Firestore
-            if let coachFirestoreId, let userId, let athleteFirestoreId {
-                await retryAsync {
-                    try await FirestoreManager.shared.deleteCoach(
-                        userId: userId, athleteFirestoreId: athleteFirestoreId, coachId: coachFirestoreId
-                    )
-                }
-            }
+            await CoachRemovalService.revokeRemoteAccess(
+                firebaseCoachID: firebaseCoachID,
+                sharedFolderIDs: sharedFolderIDs,
+                userID: userId,
+                athleteFirestoreID: athleteFirestoreId,
+                coachFirestoreID: coachFirestoreId
+            )
         }
     }
 
@@ -237,8 +223,7 @@ struct CoachDetailView: View {
     private func createPhoneURL(from phone: String) -> URL? {
         let validChars = CharacterSet(charactersIn: "0123456789+()-")
         let filtered = phone.components(separatedBy: validChars.inverted).joined()
-        let urlString = "tel:\(filtered.replacingOccurrences(of: " ", with: ""))"
-        return URL(string: urlString)
+        return URL(string: "tel:\(filtered)")
     }
 
     /// Creates a valid email URL with proper encoding

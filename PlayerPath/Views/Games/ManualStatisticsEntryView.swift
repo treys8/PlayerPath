@@ -193,13 +193,6 @@ struct ManualStatisticsEntryView: View {
     }
 
     private func saveStatistics() {
-        // Validation
-        if newAtBats < 0 || newHits < 0 || newRuns < 0 || newRbis < 0 || newStrikeouts < 0 || newWalks < 0 || newGroundOuts < 0 || newFlyOuts < 0 || newHitByPitches < 0 {
-            alertMessage = "Statistics cannot be negative numbers."
-            showingValidationAlert = true
-            return
-        }
-
         // Create game stats if they don't exist
         var stats = game.gameStats
         if stats == nil {

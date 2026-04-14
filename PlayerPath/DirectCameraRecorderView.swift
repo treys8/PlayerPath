@@ -47,7 +47,6 @@ struct DirectCameraRecorderView: View {
     @State private var showingDiscardConfirmation = false
     @State private var showingSaveError = false
     @State private var showingSaveFailedError = false
-    @State private var showingOfflineAlert = false
 
     // Coach mode state
     @State private var lastSelectedAthleteID: String?
@@ -114,20 +113,6 @@ struct DirectCameraRecorderView: View {
             if let error = ErrorHandlerService.shared.currentError {
                 Text(error.errorDescription ?? "An error occurred")
             }
-        }
-        .alert("No Internet Connection", isPresented: $showingOfflineAlert) {
-            Button("Try Again") {
-                if let url = trimmedVideoURL ?? recordedVideoURL,
-                   let context = coachContext,
-                   let athleteID = lastSelectedAthleteID ?? context.session.athleteIDs.first {
-                    saveCoachClip(videoURL: url, athleteID: athleteID, context: context)
-                }
-            }
-            Button("Discard", role: .destructive) {
-                cleanupAndDismiss()
-            }
-        } message: {
-            Text("Your clip couldn't be uploaded. Check your connection and try again, or discard the clip.")
         }
     }
 
@@ -438,15 +423,10 @@ struct DirectCameraRecorderView: View {
             return
         }
 
-        // Store athleteID before connectivity check so "Try Again" knows the target
+        // Remember for next clip's athlete picker pre-selection
         lastSelectedAthleteID = athleteID
 
-        // Check connectivity before fire-and-forget upload
-        guard ConnectivityMonitor.shared.isConnected else {
-            showingOfflineAlert = true
-            return
-        }
-
+        // Enqueue unconditionally — UploadQueueManager handles retry with exponential backoff.
         let coachID = currentUser.uid
         let coachName = currentUser.displayName ?? currentUser.email ?? "Coach"
 
