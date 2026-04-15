@@ -334,6 +334,18 @@ struct AthleteFolderDetailContent: View {
         _viewModel = State(initialValue: CoachFolderViewModel(folder: folder))
     }
 
+    private var folderUnreadCount: Int {
+        guard let folderID = folder.id else { return 0 }
+        return activityNotifService.unreadCountByFolder[folderID] ?? 0
+    }
+
+    private func markAllFolderNotificationsRead() {
+        guard let folderID = folder.id else { return }
+        Task {
+            await activityNotifService.markFolderRead(folderID: folderID, forUserID: athleteID)
+        }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             // Header with folder info
@@ -375,6 +387,15 @@ struct AthleteFolderDetailContent: View {
                         } label: {
                             Label("Manage Coaches", systemImage: "person.2.fill")
                         }
+
+                        if folderUnreadCount > 0 {
+                            Divider()
+                            Button {
+                                markAllFolderNotificationsRead()
+                            } label: {
+                                Label("Mark All as Read", systemImage: "checkmark.circle")
+                            }
+                        }
                     } label: {
                         Image(systemName: "ellipsis.circle")
                     }
@@ -395,11 +416,6 @@ struct AthleteFolderDetailContent: View {
             if let lastFetch = lastFetchDate, Date().timeIntervalSince(lastFetch) < 60 { return }
             await viewModel.loadVideos()
             lastFetchDate = Date()
-
-            // Mark this folder's notifications as read
-            if let folderID = folder.id {
-                await activityNotifService.markFolderRead(folderID: folderID, forUserID: athleteID)
-            }
         }
         .refreshable {
             await viewModel.loadVideos()
