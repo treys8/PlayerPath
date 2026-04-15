@@ -44,6 +44,8 @@ struct UpcomingSessionCard: View {
                             .font(.caption)
                     }
                     .foregroundColor(.secondary)
+
+                    relativeTimeLabel(for: date)
                 }
 
                 if let notes = session.notes, !notes.isEmpty {
@@ -148,5 +150,26 @@ struct UpcomingSessionCard: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Scheduled session with \(session.athleteNamesSummary)")
+    }
+
+    private static let relativeFormatter: RelativeDateTimeFormatter = {
+        let f = RelativeDateTimeFormatter()
+        f.unitsStyle = .abbreviated
+        return f
+    }()
+
+    @ViewBuilder
+    private func relativeTimeLabel(for date: Date) -> some View {
+        let interval = date.timeIntervalSinceNow
+        let isImminent = interval > 0 && interval <= 3600
+
+        HStack(spacing: 4) {
+            Image(systemName: isImminent ? "bolt.fill" : "timer")
+                .font(.caption2)
+            Text(Self.relativeFormatter.localizedString(for: date, relativeTo: Date()))
+                .font(.caption)
+                .fontWeight(isImminent ? .bold : .regular)
+        }
+        .foregroundColor(isImminent ? .red : .blue)
     }
 }

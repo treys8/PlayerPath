@@ -733,7 +733,9 @@ extension PushNotificationService: UNUserNotificationCenterDelegate {
 
         case "VIEW_VIDEO", "VIEW_COMMENT", "VIEW_DRILL_CARD":
             if let folderID = userInfo["folderID"] as? String {
+                // Post both role-scoped notifications — only the active tab bar observes its own.
                 NotificationCenter.default.post(name: .navigateToCoachFolder, object: folderID)
+                NotificationCenter.default.post(name: .navigateToSharedFolder, object: folderID)
             }
 
         case "VIEW_INVITATION":
@@ -765,7 +767,9 @@ extension PushNotificationService: UNUserNotificationCenterDelegate {
                 NotificationCenter.default.post(name: .navigateToWeeklySummary, object: nil)
             case "new_video", "coach_comment", "drill_card":
                 if let folderID = userInfo["folderID"] as? String {
+                    // Post both role-scoped notifications — only the active tab bar observes its own.
                     NotificationCenter.default.post(name: .navigateToCoachFolder, object: folderID)
+                    NotificationCenter.default.post(name: .navigateToSharedFolder, object: folderID)
                 }
             case "invitation_received", "invitation_accepted":
                 NotificationCenter.default.post(name: .openCoachInvitations, object: nil)

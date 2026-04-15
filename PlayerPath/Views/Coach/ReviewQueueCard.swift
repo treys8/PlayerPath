@@ -133,8 +133,24 @@ struct ClipQueueCard: View {
         }
     }
 
+    private static let ageFormatter: RelativeDateTimeFormatter = {
+        let f = RelativeDateTimeFormatter()
+        f.unitsStyle = .abbreviated
+        return f
+    }()
+
+    private func ageColor(for date: Date) -> Color {
+        let age = -date.timeIntervalSinceNow
+        let day: TimeInterval = 86_400
+        if age < day { return .green }
+        if age < 3 * day { return .yellow }
+        return .red
+    }
+
     private func athleteRow(_ group: AthleteClipGroup) -> some View {
-        HStack(spacing: 10) {
+        let oldest = group.clips.compactMap(\.createdAt).min()
+
+        return HStack(spacing: 10) {
             Image(systemName: "figure.baseball")
                 .font(.caption)
                 .foregroundColor(style.accent)
@@ -149,9 +165,22 @@ struct ClipQueueCard: View {
                     .foregroundColor(.primary)
                     .lineLimit(1)
 
-                Text("\(group.clips.count) clip\(group.clips.count == 1 ? "" : "s") \(style.rowSubtitleSuffix)")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                HStack(spacing: 6) {
+                    Text("\(group.clips.count) clip\(group.clips.count == 1 ? "" : "s") \(style.rowSubtitleSuffix)")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    if style == .needsReview, let oldest {
+                        HStack(spacing: 3) {
+                            Circle()
+                                .fill(ageColor(for: oldest))
+                                .frame(width: 6, height: 6)
+                            Text("oldest \(Self.ageFormatter.localizedString(for: oldest, relativeTo: Date()))")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
             }
 
             Spacer()

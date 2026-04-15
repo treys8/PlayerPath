@@ -13,6 +13,21 @@ extension FirestoreManager {
 
     // MARK: - Shared Folders
 
+    /// Renames an existing shared folder. Caller must be the folder owner
+    /// (enforced by Firestore security rules).
+    func renameSharedFolder(folderID: String, newName: String) async throws {
+        let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw NSError(domain: "PlayerPath", code: -1, userInfo: [
+                NSLocalizedDescriptionKey: "Folder name can't be empty."
+            ])
+        }
+        try await db.collection(FC.sharedFolders).document(folderID).updateData([
+            "name": trimmed,
+            "updatedAt": FieldValue.serverTimestamp()
+        ])
+    }
+
     /// Creates a new shared folder for an athlete
     /// - Parameters:
     ///   - name: Display name for the folder (e.g., "Coach Smith")
