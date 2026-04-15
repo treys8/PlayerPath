@@ -72,9 +72,13 @@ final class FolderAthleteMigrationService {
 
         case 1:
             let uuid = athletesForUser[0].id.uuidString
-            await backfill(folders: legacy, athleteUUID: uuid)
-            markRun(forUserID: userID)
-            migrationLog.info("Migration complete: auto-assigned \(legacy.count) legacy folders to single athlete")
+            let succeeded = await backfill(folders: legacy, athleteUUID: uuid)
+            if succeeded == legacy.count {
+                markRun(forUserID: userID)
+                migrationLog.info("Migration complete: auto-assigned \(legacy.count) legacy folders to single athlete")
+            } else {
+                migrationLog.warning("Migration partial: \(succeeded)/\(legacy.count) folders written — will retry next launch")
+            }
 
         default:
             unassignedFolders = legacy
@@ -84,32 +88,52 @@ final class FolderAthleteMigrationService {
     }
 
     /// Called by LegacyFolderAssignmentSheet once the user has picked an athlete per folder.
+    /// Only marks the migration done if every folder write succeeded — partial failures
+    /// leave `needsAssignment` set so the sheet reappears on next launch.
     func completeAssignments(_ assignments: [(folder: SharedFolder, athleteUUID: String)], userID: String) async {
+        var succeeded = 0
+        var remaining: [SharedFolder] = []
         for assignment in assignments {
             guard let folderID = assignment.folder.id else { continue }
-            await writeAthleteUUID(folderID: folderID, athleteUUID: assignment.athleteUUID)
+            if await writeAthleteUUID(folderID: folderID, athleteUUID: assignment.athleteUUID) {
+                succeeded += 1
+            } else {
+                remaining.append(assignment.folder)
+            }
         }
-        needsAssignment = false
-        unassignedFolders = []
-        markRun(forUserID: userID)
+        if remaining.isEmpty {
+            needsAssignment = false
+            unassignedFolders = []
+            markRun(forUserID: userID)
+        } else {
+            unassignedFolders = remaining
+            migrationLog.warning("Assignment partial: \(succeeded)/\(assignments.count) folders written — \(remaining.count) will retry")
+        }
     }
 
-    private func backfill(folders: [SharedFolder], athleteUUID: String) async {
+    /// Returns the number of folders successfully written.
+    private func backfill(folders: [SharedFolder], athleteUUID: String) async -> Int {
+        var succeeded = 0
         for folder in folders {
             guard let folderID = folder.id else { continue }
-            await writeAthleteUUID(folderID: folderID, athleteUUID: athleteUUID)
+            if await writeAthleteUUID(folderID: folderID, athleteUUID: athleteUUID) {
+                succeeded += 1
+            }
         }
+        return succeeded
     }
 
-    private func writeAthleteUUID(folderID: String, athleteUUID: String) async {
+    private func writeAthleteUUID(folderID: String, athleteUUID: String) async -> Bool {
         let db = Firestore.firestore()
         do {
             try await db.collection(FC.sharedFolders).document(folderID).updateData([
                 "athleteUUID": athleteUUID,
                 "updatedAt": FieldValue.serverTimestamp(),
             ])
+            return true
         } catch {
             migrationLog.error("Failed to set athleteUUID on folder \(folderID): \(error.localizedDescription)")
+            return false
         }
     }
 }

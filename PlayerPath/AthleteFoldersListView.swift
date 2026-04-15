@@ -15,13 +15,12 @@ struct AthleteFoldersListView: View {
     private var folderManager: SharedFolderManager { .shared }
 
     /// Folders scoped to the currently-selected athlete.
-    /// Legacy folders (pre-migration) with `athleteUUID == nil` are included so the user can see
-    /// and assign them — the migration service or detail view will set the UUID.
+    /// Nil-athleteUUID folders are intentionally excluded — otherwise they leak across
+    /// all athletes on multi-athlete accounts. They're surfaced to the user via
+    /// LegacyFolderAssignmentSheet (triggered by FolderAthleteMigrationService).
     private var scopedFolders: [SharedFolder] {
         let selected = athlete.id.uuidString
-        return folderManager.athleteFolders.filter {
-            $0.athleteUUID == nil || $0.athleteUUID == selected
-        }
+        return folderManager.athleteFolders.filter { $0.athleteUUID == selected }
     }
     
     enum SheetType: Identifiable {
