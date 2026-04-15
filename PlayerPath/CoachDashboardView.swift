@@ -55,6 +55,17 @@ struct CoachDashboardView: View {
             } else {
             ScrollView {
                 VStack(spacing: 20) {
+                    DashboardGreetingHeader(
+                        displayName: authManager.userDisplayName,
+                        needsReviewCount: needsReviewQueue.totalCount,
+                        draftCount: reviewQueue.totalCount,
+                        hasActiveSession: sessionManager.activeSession != nil,
+                        nextScheduledDate: sessionManager.scheduledSessions
+                            .compactMap(\.scheduledDate)
+                            .filter { $0 > Date() }
+                            .min()
+                    )
+
                     // Stale data warning
                     if let listenerError = sharedFolderManager.listenerError {
                         Label(listenerError, systemImage: "exclamationmark.triangle.fill")
@@ -68,11 +79,11 @@ struct CoachDashboardView: View {
                     // Live session card (top priority)
                     liveSessionSection
 
+                    // Athlete clips waiting for the coach's feedback (primary value prop)
+                    needsReviewQueueSection
+
                     // My Drafts queue (coach's own private clips awaiting publish)
                     reviewQueueSection
-
-                    // Athlete clips waiting for the coach's feedback
-                    needsReviewQueueSection
 
                     // Upcoming scheduled sessions
                     upcomingSessionsSection
@@ -118,7 +129,8 @@ struct CoachDashboardView: View {
             // In-app notification banner is handled by UserMainFlow's overlay
             // to avoid duplicate banners.
         }
-        .navigationTitle(authManager.userDisplayName ?? "Dashboard")
+        .navigationTitle("Dashboard")
+        .navigationBarTitleDisplayMode(.inline)
         .alert("Cancel Session?", isPresented: $showingCancelConfirmation) {
             Button("Cancel Session", role: .destructive) {
                 if let session = sessionToCancel, let sessionID = session.id {
@@ -504,7 +516,15 @@ struct CoachDashboardView: View {
     @ViewBuilder
     private func recentAthleteCardView(_ card: RecentAthleteCard, fixedWidth: Bool) -> some View {
         Button {
-            coordinator.selectedTab = .athletes
+            if let folderID = card.primaryFolderID {
+                coordinator.navigateToFolder(
+                    folderID,
+                    folders: sharedFolderManager.coachFolders,
+                    initialTab: nil
+                )
+            } else {
+                coordinator.selectedTab = .athletes
+            }
         } label: {
             VStack(alignment: .leading, spacing: 8) {
                 Image(systemName: "figure.baseball")
@@ -551,6 +571,7 @@ struct CoachDashboardView: View {
         let totalVideos: Int
         let unreadCount: Int
         let mostRecentUpdate: Date
+        let primaryFolderID: String?
     }
 
     private var recentAthleteCards: [RecentAthleteCard] {
@@ -562,12 +583,16 @@ struct CoachDashboardView: View {
                 total + (activityNotifService.unreadCountByFolder[folder.id ?? ""] ?? 0)
             }
             let mostRecent = folders.compactMap(\.updatedAt).max() ?? .distantPast
+            let primary = folders
+                .sorted { ($0.updatedAt ?? .distantPast) > ($1.updatedAt ?? .distantPast) }
+                .first?.id
             return RecentAthleteCard(
                 athleteID: athleteID,
                 athleteName: name,
                 totalVideos: videos,
                 unreadCount: unread,
-                mostRecentUpdate: mostRecent
+                mostRecentUpdate: mostRecent,
+                primaryFolderID: primary
             )
         }.sorted { $0.mostRecentUpdate > $1.mostRecentUpdate }
     }
@@ -815,6 +840,10 @@ struct CoachDashboardView: View {
         do {
             try await sharedFolderManager.loadCoachFolders(coachID: coachID)
             await sessionManager.fetchSessions(coachID: coachID)
+            await needsReviewQueue.refresh(
+                coachUID: coachID,
+                folders: sharedFolderManager.coachFolders
+            )
             if let coachEmail = authManager.userEmail {
                 await invitationManager.checkPendingInvitations(forCoachEmail: coachEmail)
             }

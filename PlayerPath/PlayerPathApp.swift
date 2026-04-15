@@ -201,7 +201,9 @@ final class NavigationCoordinator {
             navigateToInvitation(invitationId: id)
         case .folder(let id):
             Haptics.light()
+            // Post both role-scoped notifications — only the active tab bar observes its own.
             NotificationCenter.default.post(name: .navigateToCoachFolder, object: id)
+            NotificationCenter.default.post(name: .navigateToSharedFolder, object: id)
         }
     }
 

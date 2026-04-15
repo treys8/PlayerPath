@@ -217,6 +217,12 @@ class SharedFolderManager {
     ///   2. Delete all videos and their storage files
     ///   3. Send notifications to affected coaches
     ///   4. Delete the folder document
+    /// Renames a folder and refreshes the local athlete list so the UI updates.
+    func renameFolder(folderID: String, newName: String, athleteID: String) async throws {
+        try await firestore.renameSharedFolder(folderID: folderID, newName: newName)
+        try await loadAthleteFolders(athleteID: athleteID)
+    }
+
     func deleteFolder(folderID: String, athleteID: String) async throws {
 
         // 0. End any active coach sessions for this folder

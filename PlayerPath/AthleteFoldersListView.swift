@@ -24,58 +24,123 @@ struct AthleteFoldersListView: View {
     }
     
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
+    @ObservedObject private var activityNotifService = ActivityNotificationService.shared
     @State private var activeSheet: SheetType?
     @State private var showingError = false
     @State private var errorMessage = ""
     @State private var isDeletingFolders = false
     @State private var lastFetchDate: Date?
     @State private var showingPaywall = false
+    @State private var pendingDeletions: [SharedFolder] = []
+    @State private var showingDeleteConfirmation = false
+    @State private var sortMode: FolderSortMode = .recentActivity
+    @State private var unreadOnly: Bool = false
+
+    enum FolderSortMode: String, CaseIterable, Identifiable {
+        case recentActivity = "Recent Activity"
+        case mostVideos = "Most Videos"
+        case name = "Name"
+        var id: String { rawValue }
+    }
+
+    private var showSortControl: Bool {
+        folderManager.athleteFolders.count >= 5
+    }
+
+    private func unreadCount(for folder: SharedFolder) -> Int {
+        guard let id = folder.id else { return 0 }
+        return activityNotifService.unreadCountByFolder[id] ?? 0
+    }
+
+    private var displayedFolders: [SharedFolder] {
+        var list = folderManager.athleteFolders
+        if unreadOnly {
+            list = list.filter { unreadCount(for: $0) > 0 }
+        }
+        switch sortMode {
+        case .recentActivity:
+            return list.sorted { ($0.updatedAt ?? .distantPast) > ($1.updatedAt ?? .distantPast) }
+        case .mostVideos:
+            return list.sorted { ($0.videoCount ?? 0) > ($1.videoCount ?? 0) }
+        case .name:
+            return list.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        }
+    }
+
+    @ViewBuilder
+    private var rootContent: some View {
+        if folderManager.isLoading {
+            ProgressView("Loading folders...")
+        } else if folderManager.athleteFolders.isEmpty {
+            emptyState
+        } else {
+            foldersList
+        }
+    }
 
     var body: some View {
-        Group {
-            if folderManager.isLoading {
-                ProgressView("Loading folders...")
-            } else if folderManager.athleteFolders.isEmpty {
-                emptyState
-            } else {
-                foldersList
-            }
-        }
-        .navigationTitle("Shared Folders")
-        .navigationBarTitleDisplayMode(.large)
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    activeSheet = .createFolder
-                    Haptics.light()
-                } label: {
-                    Image(systemName: "plus.circle.fill")
+        rootContent
+            .navigationTitle("Shared Folders")
+            .navigationBarTitleDisplayMode(.large)
+            .toolbar {
+                if showSortControl {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Menu {
+                            Picker("Sort", selection: $sortMode) {
+                                ForEach(FolderSortMode.allCases) { mode in
+                                    Text(mode.rawValue).tag(mode)
+                                }
+                            }
+                            Toggle("Unread only", isOn: $unreadOnly)
+                        } label: {
+                            Image(systemName: "line.3.horizontal.decrease.circle")
+                        }
+                    }
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        activeSheet = .createFolder
+                        Haptics.light()
+                    } label: {
+                        Image(systemName: "plus.circle.fill")
+                    }
                 }
             }
-        }
-        .sheet(item: $activeSheet) { sheet in
-            switch sheet {
-            case .createFolder:
-                CreateFolderView()
+            .sheet(item: $activeSheet) { sheet in
+                switch sheet {
+                case .createFolder:
+                    CreateFolderView()
+                }
             }
-        }
-        .alert("Folder Error", isPresented: $showingError) {
-            Button("OK", role: .cancel) { }
-        } message: {
-            Text(errorMessage)
-        }
-        .overlay {
-            if isDeletingFolders {
-                ProgressView("Deleting...")
-                    .padding()
-                    .background(Color(.systemBackground))
-                    .cornerRadius(12)
-                    .shadow(radius: 10)
+            .alert("Folder Error", isPresented: $showingError) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text(errorMessage)
             }
-        }
-        .refreshable {
-            await loadFolders()
-        }
+            .alert(deleteAlertTitle, isPresented: $showingDeleteConfirmation) {
+                Button("Cancel", role: .cancel) { pendingDeletions = [] }
+                Button("Delete", role: .destructive) {
+                    performDeletion()
+                }
+            } message: {
+                Text(deleteAlertMessage)
+            }
+            .overlay {
+                if isDeletingFolders {
+                    deletingOverlay
+                }
+            }
+            .refreshable {
+                await loadFolders()
+            }
+    }
+
+    private var deletingOverlay: some View {
+        ProgressView("Deleting...")
+            .padding()
+            .background(Color(.systemBackground))
+            .cornerRadius(12)
+            .shadow(radius: 10)
     }
     
     // MARK: - Empty State
@@ -110,9 +175,13 @@ struct AthleteFoldersListView: View {
     
     // MARK: - Folders List
     
+    private var hasActiveCoachSharing: Bool {
+        folderManager.athleteFolders.contains { !$0.sharedWithCoachIDs.isEmpty }
+    }
+
     private var foldersList: some View {
         List {
-            if authManager.currentTier < .pro {
+            if authManager.currentTier < .pro && hasActiveCoachSharing {
                 Section {
                     Button {
                         showingPaywall = true
@@ -135,12 +204,18 @@ struct AthleteFoldersListView: View {
             }
 
             Section {
-                ForEach(folderManager.athleteFolders) { folder in
-                    NavigationLink(destination: AthleteFolderDetailView(folder: folder)) {
-                        FolderRow(folder: folder)
+                if displayedFolders.isEmpty && unreadOnly {
+                    Text("No folders with unread content.")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                } else {
+                    ForEach(displayedFolders) { folder in
+                        NavigationLink(destination: AthleteFolderDetailView(folder: folder)) {
+                            FolderRow(folder: folder)
+                        }
                     }
+                    .onDelete(perform: deleteFolders)
                 }
-                .onDelete(perform: deleteFolders)
             } header: {
                 Text("Your folders")
             } footer: {
@@ -172,16 +247,38 @@ struct AthleteFoldersListView: View {
         }
     }
     
-    private func deleteFolders(at offsets: IndexSet) {
-        let foldersToDelete = offsets.compactMap { index in
-            index < folderManager.athleteFolders.count ? folderManager.athleteFolders[index] : nil
+    private var deleteAlertTitle: String {
+        pendingDeletions.count == 1
+            ? "Delete '\(pendingDeletions[0].name)'?"
+            : "Delete \(pendingDeletions.count) folders?"
+    }
+
+    private var deleteAlertMessage: String {
+        let totalVideos = pendingDeletions.reduce(0) { $0 + ($1.videoCount ?? 0) }
+        if totalVideos == 0 {
+            return "This can't be undone. Coach access will be revoked."
         }
+        return "This will permanently delete \(totalVideos) video\(totalVideos == 1 ? "" : "s") and revoke coach access. This can't be undone."
+    }
+
+    private func deleteFolders(at offsets: IndexSet) {
+        let list = displayedFolders
+        pendingDeletions = offsets.compactMap { index in
+            index < list.count ? list[index] : nil
+        }
+        guard !pendingDeletions.isEmpty else { return }
+        showingDeleteConfirmation = true
+    }
+
+    private func performDeletion() {
+        let foldersToDelete = pendingDeletions
+        pendingDeletions = []
 
         isDeletingFolders = true
         Task {
-            
+
             var errors: [String] = []
-            
+
             for folder in foldersToDelete {
                 guard let folderID = folder.id else {
                     errors.append("Folder '\(folder.name)' has no ID")
@@ -221,19 +318,48 @@ struct FolderRow: View {
     let folder: SharedFolder
     @ObservedObject private var activityNotifService = ActivityNotificationService.shared
 
+    private static let updatedFormatter: RelativeDateTimeFormatter = {
+        let f = RelativeDateTimeFormatter()
+        f.unitsStyle = .abbreviated
+        return f
+    }()
+
     private var unreadCount: Int {
         guard let folderID = folder.id else { return 0 }
         return activityNotifService.unreadCountByFolder[folderID] ?? 0
     }
 
+    private var updatedLabel: String? {
+        guard let date = folder.updatedAt else { return nil }
+        // Suppress "just now" churn for freshly-created folders.
+        if -date.timeIntervalSinceNow < 60 { return nil }
+        return "Updated \(Self.updatedFormatter.localizedString(for: date, relativeTo: Date()))"
+    }
+
+    private var folderIcon: String {
+        switch folder.folderType {
+        case "games":   return "baseball.fill"
+        case "lessons": return "video.badge.checkmark"
+        default:        return "folder.fill"
+        }
+    }
+
+    private var folderIconColor: Color {
+        switch folder.folderType {
+        case "games":   return .brandNavy
+        case "lessons": return .green
+        default:        return .brandNavy
+        }
+    }
+
     var body: some View {
         HStack(spacing: 16) {
             // Folder icon
-            Image(systemName: "folder.fill")
+            Image(systemName: folderIcon)
                 .font(.title2)
-                .foregroundColor(.brandNavy)
+                .foregroundColor(folderIconColor)
                 .frame(width: 44, height: 44)
-                .background(Color.brandNavy.opacity(0.1))
+                .background(folderIconColor.opacity(0.1))
                 .clipShape(RoundedRectangle(cornerRadius: 8))
 
             // Folder info
@@ -254,6 +380,12 @@ struct FolderRow: View {
                             .foregroundColor(.secondary)
                     }
 
+                }
+
+                if let updatedLabel {
+                    Text(updatedLabel)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
                 }
             }
 
@@ -283,21 +415,16 @@ struct AthleteFolderDetailView: View {
     let folder: SharedFolder
 
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
-    @State private var resolvedAthleteID: String?
 
     var body: some View {
-        Group {
-            if let athleteID = resolvedAthleteID {
-                AthleteFolderDetailContent(folder: folder, athleteID: athleteID)
-            } else {
-                ProgressView("Loading...")
-            }
-        }
-        .task {
-            // Resolve athlete ID from the environment once the view appears
-            if resolvedAthleteID == nil {
-                resolvedAthleteID = authManager.userID
-            }
+        if let athleteID = authManager.userID {
+            AthleteFolderDetailContent(folder: folder, athleteID: athleteID)
+        } else {
+            ContentUnavailableView(
+                "Not signed in",
+                systemImage: "person.slash",
+                description: Text("Sign in to view this folder.")
+            )
         }
     }
 }
@@ -315,12 +442,14 @@ struct AthleteFolderDetailContent: View {
         case inviteCoach
         case manageCoaches
         case uploadVideo
+        case renameFolder
 
         var id: String {
             switch self {
             case .inviteCoach: return "inviteCoach"
             case .manageCoaches: return "manageCoaches"
             case .uploadVideo: return "uploadVideo"
+            case .renameFolder: return "renameFolder"
             }
         }
     }
@@ -361,7 +490,7 @@ struct AthleteFolderDetailContent: View {
                         Button {
                             activeSheet = .uploadVideo
                         } label: {
-                            Label("Upload Video", systemImage: "plus.circle")
+                            Label("Share a Video", systemImage: "plus.circle")
                         }
 
                         Button {
@@ -374,6 +503,12 @@ struct AthleteFolderDetailContent: View {
                             activeSheet = .manageCoaches
                         } label: {
                             Label("Manage Coaches", systemImage: "person.2.fill")
+                        }
+
+                        Button {
+                            activeSheet = .renameFolder
+                        } label: {
+                            Label("Rename Folder", systemImage: "pencil")
                         }
                     } label: {
                         Image(systemName: "ellipsis.circle")
@@ -388,7 +523,9 @@ struct AthleteFolderDetailContent: View {
             case .manageCoaches:
                 ManageCoachesView(folder: folder)
             case .uploadVideo:
-                CoachVideoUploadView(folder: folder, defaultContext: .instruction)
+                CoachVideoUploadView(folder: folder, defaultContext: .game)
+            case .renameFolder:
+                RenameFolderSheet(folder: folder, athleteID: athleteID)
             }
         }
         .task {
@@ -445,7 +582,7 @@ struct AthleteFolderDetailContent: View {
 
     private var folderHeader: some View {
         HStack(spacing: 12) {
-            let count = viewModel.videos.count
+            let count = folder.videoCount ?? viewModel.videos.count
             Label("\(count) video\(count == 1 ? "" : "s")", systemImage: "video")
                 .font(.caption)
                 .foregroundColor(.secondary)
@@ -472,6 +609,7 @@ struct ManageCoachesView: View {
 
     @State private var showingRemoveConfirmation = false
     @State private var coachToRemove: String?
+    @State private var coachEmailToRemove: String?
     @State private var isRemoving = false
     @State private var showingError = false
     @State private var errorMessage = ""
@@ -492,9 +630,10 @@ struct ManageCoachesView: View {
                                 folder: folder,
                                 coachID: coachID,
                                 permissions: folder.getPermissions(for: coachID) ?? .default,
-                                onRemove: {
+                                onRemove: { loadedEmail in
                                     Haptics.warning()
                                     coachToRemove = coachID
+                                    coachEmailToRemove = loadedEmail
                                     showingRemoveConfirmation = true
                                 }
                             )
@@ -527,17 +666,30 @@ struct ManageCoachesView: View {
             .alert("Remove Coach", isPresented: $showingRemoveConfirmation) {
                 Button("Cancel", role: .cancel) {
                     coachToRemove = nil
+                    coachEmailToRemove = nil
                 }
                 Button("Remove", role: .destructive) {
                     Haptics.heavy()
                     if let coachID = coachToRemove,
                        let folderID = folder.id {
+                        let email = coachEmailToRemove
                         Task {
                             isRemoving = true
+                            // Best-effort: if the row never loaded the email
+                            // (name came from folder.sharedWithCoachNames),
+                            // fetch it now so the revocation record is useful.
+                            let resolvedEmail: String
+                            if let email, !email.isEmpty {
+                                resolvedEmail = email
+                            } else if let info = try? await FirestoreManager.shared.fetchCoachInfo(coachID: coachID) {
+                                resolvedEmail = info.email
+                            } else {
+                                resolvedEmail = ""
+                            }
                             do {
                                 try await folderManager.removeCoachAccess(
                                     coachID: coachID,
-                                    coachEmail: "",
+                                    coachEmail: resolvedEmail,
                                     fromFolder: folderID,
                                     folderName: folder.name,
                                     athleteID: folder.ownerAthleteID
@@ -557,6 +709,7 @@ struct ManageCoachesView: View {
                         }
                     }
                     coachToRemove = nil
+                    coachEmailToRemove = nil
                 }
             } message: {
                 Text("This coach will no longer have access to this folder and its videos.")
@@ -584,7 +737,7 @@ struct CoachPermissionRow: View {
     let folder: SharedFolder
     let coachID: String
     let permissions: FolderPermissions
-    let onRemove: () -> Void
+    let onRemove: (_ loadedEmail: String?) -> Void
 
     @State private var coachName: String?
     @State private var coachEmail: String?
@@ -616,7 +769,9 @@ struct CoachPermissionRow: View {
 
                 Spacer()
 
-                Button(role: .destructive, action: onRemove) {
+                Button(role: .destructive) {
+                    onRemove(coachEmail)
+                } label: {
                     Image(systemName: "minus.circle.fill")
                         .foregroundColor(.red)
                 }
