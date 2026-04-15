@@ -37,7 +37,8 @@ enum SubscriptionGate {
     /// Returns `isConfirmed: false` on network failure (uses local folder count as fallback).
     @MainActor
     static func fullConnectedAthleteCountResult(coachID: String) async -> AthleteCountResult {
-        var athleteIDs = Set(SharedFolderManager.shared.coachFolders.map(\.ownerAthleteID))
+        // Per-athlete UUID when present (new data), account UID fallback (legacy) so one slot per real athlete.
+        var athleteIDs = Set(SharedFolderManager.shared.coachFolders.map { $0.athleteUUID ?? $0.ownerAthleteID })
         var confirmed = true
         do {
             let acceptedIDs = try await FirestoreManager.shared.fetchAcceptedCoachToAthleteAthleteIDs(coachID: coachID)

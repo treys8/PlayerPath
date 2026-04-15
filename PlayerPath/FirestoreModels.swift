@@ -43,6 +43,9 @@ struct SharedFolder: Codable, Identifiable, Hashable {
     let name: String
     let ownerAthleteID: String
     let ownerAthleteName: String?  // Name of the athlete who owns this folder
+    /// Stable per-athlete UUID (`Athlete.id.uuidString`) identifying which of the owner's athletes this folder is for.
+    /// Optional for legacy folders created before per-athlete scoping; migration backfills in production.
+    var athleteUUID: String? = nil
     let sharedWithCoachIDs: [String]
     var sharedWithCoachNames: [String: String]? = nil
     let permissions: [String: [String: Bool]]

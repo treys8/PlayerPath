@@ -178,7 +178,8 @@ struct CoachDowngradeSelectionView: View {
         // Group folders by athlete
         var athleteMap: [String: (name: String, folderCount: Int, videoCount: Int)] = [:]
         for folder in folders {
-            let id = folder.ownerAthleteID
+            // One slot per real athlete post-migration; legacy folders fall back to account UID.
+            let id = folder.athleteUUID ?? folder.ownerAthleteID
             let existing = athleteMap[id]
             athleteMap[id] = (
                 name: existing?.name ?? folder.ownerAthleteName ?? "Unknown Athlete",
@@ -230,7 +231,7 @@ struct CoachDowngradeSelectionView: View {
             // End active sessions and notify affected athletes
             let revokeSet = Set(athleteIDsToRevoke)
             let affectedFolders = sharedFolderManager.coachFolders.filter {
-                revokeSet.contains($0.ownerAthleteID)
+                revokeSet.contains($0.athleteUUID ?? $0.ownerAthleteID)
             }
             let coachName = Auth.auth().currentUser?.displayName
                 ?? Auth.auth().currentUser?.email?.components(separatedBy: "@").first

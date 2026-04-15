@@ -236,6 +236,7 @@ struct CoachesView: View {
                 _ = try await FirestoreManager.shared.createInvitation(
                     athleteID: userID,
                     athleteName: athlete.name,
+                    athleteUUID: athlete.id.uuidString,
                     coachEmail: coach.email.lowercased()
                 )
 

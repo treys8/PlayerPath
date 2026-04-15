@@ -577,7 +577,9 @@ struct CoachDashboardView: View {
     }
 
     private var recentAthleteCards: [RecentAthleteCard] {
-        let grouped = Dictionary(grouping: cachedRecentFolders) { $0.ownerAthleteID }
+        // Group by per-athlete UUID when present (multi-athlete accounts), falling back to
+        // the account-level ownerAthleteID for legacy folders so coaches still see one card per athlete.
+        let grouped = Dictionary(grouping: cachedRecentFolders) { $0.athleteUUID ?? $0.ownerAthleteID }
         return grouped.map { athleteID, folders in
             let name = folders.first?.ownerAthleteName ?? "Athlete"
             let videos = folders.reduce(0) { $0 + ($1.videoCount ?? 0) }
@@ -832,7 +834,7 @@ struct CoachDashboardView: View {
     }
 
     private var uniqueAthleteCount: Int {
-        Set(sharedFolderManager.coachFolders.map(\.ownerAthleteID)).count
+        Set(sharedFolderManager.coachFolders.map { $0.athleteUUID ?? $0.ownerAthleteID }).count
     }
 
     private var totalVideoCount: Int {

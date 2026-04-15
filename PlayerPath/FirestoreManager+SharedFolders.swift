@@ -39,6 +39,7 @@ extension FirestoreManager {
         name: String,
         ownerAthleteID: String,
         ownerAthleteName: String? = nil,
+        athleteUUID: String? = nil,
         permissions: [String: FolderPermissions] = [:],
         folderType: String? = nil
     ) async throws -> String {
@@ -53,6 +54,9 @@ extension FirestoreManager {
         ]
         if let ownerAthleteName {
             folderData["ownerAthleteName"] = ownerAthleteName
+        }
+        if let athleteUUID {
+            folderData["athleteUUID"] = athleteUUID
         }
         if let folderType {
             folderData["folderType"] = folderType
@@ -347,6 +351,7 @@ extension FirestoreManager {
         // SharedFolderManager.coachFolders — the cache can be stale if another
         // device modified folders, and a compliance-sensitive revocation flow
         // must operate on authoritative state.
+        // revokeSet contains athleteUUIDs (new folders) or account UIDs (legacy). Match on either.
         let snapshot = try await db.collection(FC.sharedFolders)
             .whereField("sharedWithCoachIDs", arrayContains: coachID)
             .getDocuments()
@@ -359,7 +364,7 @@ extension FirestoreManager {
                 firestoreLog.warning("Failed to decode SharedFolder from doc \(doc.documentID): \(error.localizedDescription)")
                 return nil
             }
-        }.filter { revokeSet.contains($0.ownerAthleteID) }
+        }.filter { revokeSet.contains($0.athleteUUID ?? $0.ownerAthleteID) }
 
         // Fetch coach email once for revocation docs
         let coachSnapshot = try await db.collection(FC.users).document(coachID).getDocument()

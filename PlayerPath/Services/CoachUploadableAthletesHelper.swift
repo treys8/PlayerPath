@@ -20,18 +20,20 @@ enum CoachUploadableAthletesHelper {
         var athleteFolders: [String: SharedFolder] = [:]
         for folder in uploadableFolders {
             guard folder.id != nil else { continue }
-            if let existing = athleteFolders[folder.ownerAthleteID] {
+            // Prefer per-athlete UUID (one key per real athlete); fall back to account UID for legacy rows.
+            let key = folder.athleteUUID ?? folder.ownerAthleteID
+            if let existing = athleteFolders[key] {
                 if folder.folderType == "lessons" && existing.folderType != "lessons" {
-                    athleteFolders[folder.ownerAthleteID] = folder
+                    athleteFolders[key] = folder
                 }
             } else {
-                athleteFolders[folder.ownerAthleteID] = folder
+                athleteFolders[key] = folder
             }
         }
 
-        return athleteFolders.values.compactMap { folder in
-            guard let folderID = folder.id else { return nil }
-            return (athleteID: folder.ownerAthleteID, athleteName: folder.ownerAthleteName ?? "Athlete", folderID: folderID)
-        }
+        return athleteFolders.map { key, folder in
+            guard let folderID = folder.id else { return nil as (athleteID: String, athleteName: String, folderID: String)? }
+            return (athleteID: key, athleteName: folder.ownerAthleteName ?? "Athlete", folderID: folderID)
+        }.compactMap { $0 }
     }
 }

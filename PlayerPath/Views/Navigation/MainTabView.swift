@@ -546,12 +546,12 @@ struct MainTabView: View {
                 case .coaches:
                     CoachesView(athlete: selectedAthlete).id(selectedAthlete.id).proRequired()
                 case .sharedFolders:
-                    AthleteFoldersListView(userID: authManager.userID).proRequired()
+                    AthleteFoldersListView(userID: authManager.userID, athlete: selectedAthlete).id(selectedAthlete.id).proRequired()
                 case .sharedFolder(let folderID):
                     if let folder = SharedFolderManager.shared.athleteFolders.first(where: { $0.id == folderID }) {
                         AthleteFolderDetailView(folder: folder).proRequired()
                     } else {
-                        AthleteFoldersListView(userID: authManager.userID).proRequired()
+                        AthleteFoldersListView(userID: authManager.userID, athlete: selectedAthlete).id(selectedAthlete.id).proRequired()
                     }
                 }
             }

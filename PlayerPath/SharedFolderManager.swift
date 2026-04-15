@@ -51,6 +51,7 @@ class SharedFolderManager {
         name: String,
         forAthlete athleteID: String,
         athleteName: String? = nil,
+        athleteUUID: String,
         hasCoachingAccess: Bool
     ) async throws -> String {
         // Verify tier server-side rather than trusting the caller's boolean alone
@@ -62,11 +63,12 @@ class SharedFolderManager {
             throw SharedFolderError.invalidName
         }
 
-        folderLog.debug("createFolder: ownerAthleteID=\(athleteID), authUID=\(Auth.auth().currentUser?.uid ?? "nil")")
+        folderLog.debug("createFolder: ownerAthleteID=\(athleteID), athleteUUID=\(athleteUUID), authUID=\(Auth.auth().currentUser?.uid ?? "nil")")
         let folderID = try await firestore.createSharedFolder(
             name: name.trimmingCharacters(in: .whitespacesAndNewlines),
             ownerAthleteID: athleteID,
             ownerAthleteName: athleteName,
+            athleteUUID: athleteUUID,
             permissions: [:]
         )
         
@@ -95,6 +97,7 @@ class SharedFolderManager {
         folderID: String,
         athleteID: String,
         athleteName: String,
+        athleteUUID: String? = nil,
         folderName: String,
         permissions: FolderPermissions
     ) async throws {
@@ -117,6 +120,7 @@ class SharedFolderManager {
         let invitationID = try await firestore.createInvitation(
             athleteID: athleteID,
             athleteName: athleteName,
+            athleteUUID: athleteUUID,
             coachEmail: cleanEmail,
             folderID: folderID,
             folderName: folderName,

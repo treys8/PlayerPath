@@ -1582,8 +1582,9 @@ export const acceptAthleteToCoachInvitation = functions.https.onCall(async (data
 
   const athleteName = invData.athleteName || 'Athlete';
   const athleteID = invData.athleteID;
+  const athleteUUID = invData.athleteUUID || null;
   const permissions = invData.permissions || { canUpload: true, canComment: true, canDelete: false };
-  const folderBase = {
+  const folderBase: Record<string, unknown> = {
     ownerAthleteID: athleteID,
     ownerAthleteName: athleteName,
     sharedWithCoachIDs: [coachID],
@@ -1592,6 +1593,9 @@ export const acceptAthleteToCoachInvitation = functions.https.onCall(async (data
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     videoCount: 0,
   };
+  if (athleteUUID) {
+    folderBase.athleteUUID = athleteUUID;
+  }
 
   let gamesFolderID: string | null = null;
   let lessonsFolderID: string | null = null;
@@ -1647,10 +1651,12 @@ export const acceptCoachToAthleteInvitation = functions.https.onCall(async (data
     throw new functions.https.HttpsError('unauthenticated', 'Must be authenticated');
   }
 
-  const { invitationID, athleteName: clientAthleteName } = data;
+  const { invitationID, athleteName: clientAthleteName, athleteUUID: clientAthleteUUID } = data;
   if (!invitationID || typeof invitationID !== 'string') {
     throw new functions.https.HttpsError('invalid-argument', 'invitationID is required');
   }
+  const athleteUUID: string | null =
+    typeof clientAthleteUUID === 'string' && clientAthleteUUID.length > 0 ? clientAthleteUUID : null;
 
   const athleteUserID = context.auth.uid;
   const athleteEmail = context.auth.token.email?.toLowerCase();
@@ -1797,11 +1803,15 @@ export const acceptCoachToAthleteInvitation = functions.https.onCall(async (data
       });
     }
 
-    transaction.update(invRef, {
+    const invUpdate: Record<string, unknown> = {
       status: 'accepted',
       acceptedAt: admin.firestore.FieldValue.serverTimestamp(),
       athleteUserID: athleteUserID,
-    });
+    };
+    if (athleteUUID) {
+      invUpdate.athleteUUID = athleteUUID;
+    }
+    transaction.update(invRef, invUpdate);
   });
 
   // Create shared folders after transaction succeeds (Admin SDK bypasses security rules).
@@ -1810,7 +1820,7 @@ export const acceptCoachToAthleteInvitation = functions.https.onCall(async (data
   const name = clientAthleteName || invData.athleteName || 'Athlete';
   const coachDisplayName = coachDoc.data()?.displayName || invData.coachName || invData.coachEmail?.split('@')[0] || 'Coach';
   const defaultPerms = { canUpload: true, canComment: true, canDelete: false };
-  const folderBase = {
+  const folderBase: Record<string, unknown> = {
     ownerAthleteID: athleteUserID,
     ownerAthleteName: name,
     sharedWithCoachIDs: [coachID],
@@ -1820,6 +1830,9 @@ export const acceptCoachToAthleteInvitation = functions.https.onCall(async (data
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     videoCount: 0,
   };
+  if (athleteUUID) {
+    folderBase.athleteUUID = athleteUUID;
+  }
 
   let gamesFolderID: string | null = null;
   let lessonsFolderID: string | null = null;

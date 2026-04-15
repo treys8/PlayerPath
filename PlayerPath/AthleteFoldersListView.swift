@@ -11,7 +11,18 @@ import SwiftUI
 /// Athlete's view of all their shared folders
 struct AthleteFoldersListView: View {
     let userID: String?
+    let athlete: Athlete
     private var folderManager: SharedFolderManager { .shared }
+
+    /// Folders scoped to the currently-selected athlete.
+    /// Legacy folders (pre-migration) with `athleteUUID == nil` are included so the user can see
+    /// and assign them — the migration service or detail view will set the UUID.
+    private var scopedFolders: [SharedFolder] {
+        let selected = athlete.id.uuidString
+        return folderManager.athleteFolders.filter {
+            $0.athleteUUID == nil || $0.athleteUUID == selected
+        }
+    }
     
     enum SheetType: Identifiable {
         case createFolder
@@ -53,7 +64,7 @@ struct AthleteFoldersListView: View {
     }
 
     private var displayedFolders: [SharedFolder] {
-        var list = folderManager.athleteFolders
+        var list = scopedFolders
         if unreadOnly {
             list = list.filter { unreadCount(for: $0) > 0 }
         }
@@ -71,7 +82,7 @@ struct AthleteFoldersListView: View {
     private var rootContent: some View {
         if folderManager.isLoading {
             ProgressView("Loading folders...")
-        } else if folderManager.athleteFolders.isEmpty {
+        } else if scopedFolders.isEmpty {
             emptyState
         } else {
             foldersList
@@ -109,9 +120,8 @@ struct AthleteFoldersListView: View {
             .sheet(item: $activeSheet) { sheet in
                 switch sheet {
                 case .createFolder:
-                    CreateFolderView()
+                    CreateFolderView(athlete: athlete)
                 }
-            }
             .alert("Folder Error", isPresented: $showingError) {
                 Button("OK", role: .cancel) { }
             } message: {
@@ -874,7 +884,7 @@ struct PermissionBadge: View {
 
 #Preview("Athlete Folders List") {
     NavigationStack {
-        AthleteFoldersListView(userID: "preview-user-id")
+        AthleteFoldersListView(userID: "preview-user-id", athlete: Athlete(name: "Preview Athlete"))
     }
 }
 

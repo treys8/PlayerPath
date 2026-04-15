@@ -78,10 +78,19 @@ struct AthleteInvitationsSheet: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @Environment(\.modelContext) private var modelContext
+    @Query private var allAthletes: [Athlete]
 
     @State private var processingInvitationID: String?
     @State private var errorMessage: String?
     @State private var showingPaywall = false
+    @State private var pendingInvitationForPicker: CoachToAthleteInvitation?
+
+    /// Athletes belonging to the currently-signed-in user. Multi-athlete users need to pick one
+    /// when accepting a coach invitation (the coach doesn't know which kid the invite is for).
+    private var athletesForUser: [Athlete] {
+        guard let uid = authManager.userID else { return [] }
+        return allAthletes.filter { $0.user?.firebaseAuthUid == uid }
+    }
 
     var body: some View {
         NavigationStack {
@@ -124,6 +133,17 @@ struct AthleteInvitationsSheet: View {
                     ImprovedPaywallView(user: user)
                 }
             }
+            .sheet(item: $pendingInvitationForPicker) { invitation in
+                AcceptInvitationAthletePickerSheet(
+                    invitation: invitation,
+                    athletes: athletesForUser
+                ) { chosen in
+                    pendingInvitationForPicker = nil
+                    Task { await performAccept(invitation: invitation, targetAthlete: chosen) }
+                } onCancel: {
+                    pendingInvitationForPicker = nil
+                }
+            }
             .onChange(of: invitationManager.pendingInvitations.count) { _, newCount in
                 if newCount == 0 && processingInvitationID == nil {
                     dismiss()
@@ -147,16 +167,34 @@ struct AthleteInvitationsSheet: View {
             Haptics.error()
             return
         }
+
+        // Multi-athlete accounts: ask which athlete this invitation is for.
+        // Single-athlete (or no athlete yet) accounts skip the picker.
+        let athletes = athletesForUser
+        if athletes.count >= 2 {
+            pendingInvitationForPicker = invitation
+            return
+        }
+
+        await performAccept(invitation: invitation, targetAthlete: athletes.first)
+    }
+
+    private func performAccept(invitation: CoachToAthleteInvitation, targetAthlete: Athlete?) async {
+        guard let currentUID = authManager.userID, !currentUID.isEmpty else {
+            errorMessage = "Not signed in. Please sign in and try again."
+            Haptics.error()
+            return
+        }
         log.debug("ACCEPT starting for invitation \(invitation.id ?? "nil") from coach \(invitation.coachName, privacy: .private)")
         processingInvitationID = invitation.id
 
         do {
-            // Ensure Firestore tier is up-to-date (covers just-upgraded scenario)
             await authManager.syncSubscriptionTierToFirestoreAndWait()
 
             let result = try await AthleteInvitationManager.shared.acceptInvitation(
                 invitation,
                 userID: currentUID,
+                targetAthlete: targetAthlete,
                 modelContext: modelContext
             )
             log.info("ACCEPT succeeded for coach: \(result.coachName, privacy: .private)")

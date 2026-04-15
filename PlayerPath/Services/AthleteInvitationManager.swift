@@ -79,21 +79,24 @@ class AthleteInvitationManager {
     func acceptInvitation(
         _ invitation: CoachToAthleteInvitation,
         userID: String,
+        targetAthlete: Athlete? = nil,
         modelContext: ModelContext
     ) async throws -> AcceptanceResult {
         guard let invitationID = invitation.id else {
             throw NSError(domain: "PlayerPath", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid invitation"])
         }
 
-        // 1. Find the local athlete for this user
-        // Use optional binding so both sides of the #Predicate comparison are String?,
-        // avoiding a SwiftData crash when evaluating entities with nil relationships.
+        // 1. Resolve the athlete this invitation is for.
+        // Prefer the caller-specified target (from the athlete-picker sheet on multi-athlete accounts).
+        // Falls back to the first athlete on the user for single-athlete accounts.
         let optionalUserID: String? = userID
         let athleteDescriptor = FetchDescriptor<Athlete>(
             predicate: #Predicate { $0.user?.firebaseAuthUid == optionalUserID }
         )
-        let athlete = (try? modelContext.fetch(athleteDescriptor))?.first
+        let fetched = (try? modelContext.fetch(athleteDescriptor)) ?? []
+        let athlete = targetAthlete ?? fetched.first
         let athleteName = athlete?.name ?? Auth.auth().currentUser?.displayName ?? "Athlete"
+        let athleteUUID = athlete?.id.uuidString
 
         // 2. Accept invitation + create folders server-side via Cloud Function.
         //    Folders are created regardless of athlete subscription tier (Admin SDK
@@ -101,7 +104,8 @@ class AthleteInvitationManager {
         let (gamesFolderID, lessonsFolderID) = try await FirestoreManager.shared.acceptCoachToAthleteInvitation(
             invitationID: invitationID,
             athleteUserID: userID,
-            athleteName: athleteName
+            athleteName: athleteName,
+            athleteUUID: athleteUUID
         )
 
         // 3. Create or update Coach record in SwiftData

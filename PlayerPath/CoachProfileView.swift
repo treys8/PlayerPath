@@ -298,7 +298,7 @@ struct CoachProfileView: View {
     }
 
     private var uniqueAthleteCount: Int {
-        var ids = Set(sharedFolderManager.coachFolders.map { $0.ownerAthleteID })
+        var ids = Set(sharedFolderManager.coachFolders.map { $0.athleteUUID ?? $0.ownerAthleteID })
         ids.formUnion(coachToAthleteConnectedIDs)
         return ids.count
     }
