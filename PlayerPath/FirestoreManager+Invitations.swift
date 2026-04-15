@@ -42,6 +42,7 @@ extension FirestoreManager {
     func createInvitation(
         athleteID: String,
         athleteName: String,
+        athleteUUID: String? = nil,
         coachEmail: String,
         folderID: String? = nil,
         folderName: String? = nil,
@@ -59,6 +60,7 @@ extension FirestoreManager {
             "sentAt": FieldValue.serverTimestamp(),
             "expiresAt": Date().addingTimeInterval(invitationExpirationInterval)
         ]
+        if let athleteUUID { invitationData["athleteUUID"] = athleteUUID }
         if let folderID { invitationData["folderID"] = folderID }
         if let folderName { invitationData["folderName"] = folderName }
 
@@ -390,7 +392,8 @@ extension FirestoreManager {
     func acceptCoachToAthleteInvitation(
         invitationID: String,
         athleteUserID: String,
-        athleteName: String
+        athleteName: String,
+        athleteUUID: String? = nil
     ) async throws -> (gamesFolderID: String?, lessonsFolderID: String?) {
         guard let user = Auth.auth().currentUser else {
             throw NSError(domain: "FirestoreManager", code: -1,
@@ -405,7 +408,9 @@ extension FirestoreManager {
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.timeoutInterval = 30
 
-        let body: [String: Any] = ["data": ["invitationID": invitationID, "athleteName": athleteName]]
+        var payload: [String: Any] = ["invitationID": invitationID, "athleteName": athleteName]
+        if let athleteUUID { payload["athleteUUID"] = athleteUUID }
+        let body: [String: Any] = ["data": payload]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (responseData, response) = try await URLSession.shared.data(for: request)
@@ -558,7 +563,12 @@ extension FirestoreManager {
             .getDocuments()
         var ids = Set<String>()
         for doc in snapshot.documents {
-            if let athleteUID = doc.data()["athleteUserID"] as? String, !athleteUID.isEmpty {
+            // Prefer per-athlete UUID (matches folder.athleteUUID so the SubscriptionGate union dedupes
+            // correctly); fall back to the account UID for legacy invitations accepted before that field.
+            let data = doc.data()
+            if let athleteUUID = data["athleteUUID"] as? String, !athleteUUID.isEmpty {
+                ids.insert(athleteUUID)
+            } else if let athleteUID = data["athleteUserID"] as? String, !athleteUID.isEmpty {
                 ids.insert(athleteUID)
             }
         }

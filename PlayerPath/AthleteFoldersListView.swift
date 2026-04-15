@@ -11,7 +11,18 @@ import SwiftUI
 /// Athlete's view of all their shared folders
 struct AthleteFoldersListView: View {
     let userID: String?
+    let athlete: Athlete
     private var folderManager: SharedFolderManager { .shared }
+
+    /// Folders scoped to the currently-selected athlete.
+    /// Legacy folders (pre-migration) with `athleteUUID == nil` are included so the user can see
+    /// and assign them — the migration service or detail view will set the UUID.
+    private var scopedFolders: [SharedFolder] {
+        let selected = athlete.id.uuidString
+        return folderManager.athleteFolders.filter {
+            $0.athleteUUID == nil || $0.athleteUUID == selected
+        }
+    }
     
     enum SheetType: Identifiable {
         case createFolder
@@ -35,7 +46,7 @@ struct AthleteFoldersListView: View {
         Group {
             if folderManager.isLoading {
                 ProgressView("Loading folders...")
-            } else if folderManager.athleteFolders.isEmpty {
+            } else if scopedFolders.isEmpty {
                 emptyState
             } else {
                 foldersList
@@ -56,7 +67,7 @@ struct AthleteFoldersListView: View {
         .sheet(item: $activeSheet) { sheet in
             switch sheet {
             case .createFolder:
-                CreateFolderView()
+                CreateFolderView(athlete: athlete)
             }
         }
         .alert("Folder Error", isPresented: $showingError) {
@@ -135,7 +146,7 @@ struct AthleteFoldersListView: View {
             }
 
             Section {
-                ForEach(folderManager.athleteFolders) { folder in
+                ForEach(scopedFolders) { folder in
                     NavigationLink(destination: AthleteFolderDetailView(folder: folder)) {
                         FolderRow(folder: folder)
                     }
@@ -173,8 +184,9 @@ struct AthleteFoldersListView: View {
     }
     
     private func deleteFolders(at offsets: IndexSet) {
+        let visible = scopedFolders
         let foldersToDelete = offsets.compactMap { index in
-            index < folderManager.athleteFolders.count ? folderManager.athleteFolders[index] : nil
+            index < visible.count ? visible[index] : nil
         }
 
         isDeletingFolders = true
@@ -703,7 +715,7 @@ struct PermissionBadge: View {
 
 #Preview("Athlete Folders List") {
     NavigationStack {
-        AthleteFoldersListView(userID: "preview-user-id")
+        AthleteFoldersListView(userID: "preview-user-id", athlete: Athlete(name: "Preview Athlete"))
     }
 }
 

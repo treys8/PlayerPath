@@ -24,6 +24,7 @@ extension FirestoreManager {
         name: String,
         ownerAthleteID: String,
         ownerAthleteName: String? = nil,
+        athleteUUID: String? = nil,
         permissions: [String: FolderPermissions] = [:],
         folderType: String? = nil
     ) async throws -> String {
@@ -38,6 +39,9 @@ extension FirestoreManager {
         ]
         if let ownerAthleteName {
             folderData["ownerAthleteName"] = ownerAthleteName
+        }
+        if let athleteUUID {
+            folderData["athleteUUID"] = athleteUUID
         }
         if let folderType {
             folderData["folderType"] = folderType
@@ -328,7 +332,10 @@ extension FirestoreManager {
         guard !athleteIDsToRevoke.isEmpty else { return }
 
         let revokeSet = Set(athleteIDsToRevoke)
-        let folders = SharedFolderManager.shared.coachFolders.filter { revokeSet.contains($0.ownerAthleteID) }
+        // revokeSet contains athleteUUIDs (new folders) or account UIDs (legacy). Match on either.
+        let folders = SharedFolderManager.shared.coachFolders.filter {
+            revokeSet.contains($0.athleteUUID ?? $0.ownerAthleteID)
+        }
 
         // Fetch coach email once for revocation docs
         let coachSnapshot = try await db.collection(FC.users).document(coachID).getDocument()

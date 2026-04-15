@@ -9,10 +9,12 @@
 import SwiftUI
 
 struct CreateFolderView: View {
+    let athlete: Athlete
+
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
     private var folderManager: SharedFolderManager { .shared }
-    
+
     @State private var coachEmail = ""
     @State private var permissions = FolderPermissions.default
 
@@ -27,8 +29,7 @@ struct CreateFolderView: View {
     }
 
     private var autoFolderName: String {
-        let name = authManager.userDisplayName ?? authManager.userEmail ?? "Athlete"
-        return "\(name)'s Videos"
+        "\(athlete.name)'s Videos"
     }
     
     var body: some View {
@@ -149,23 +150,25 @@ struct CreateFolderView: View {
     // MARK: - Actions
     
     private func createFolder() async {
-        guard let athleteID = authManager.userID,
-              let athleteName = authManager.userDisplayName ?? authManager.userEmail else {
+        guard let userID = authManager.userID else {
             errorMessage = "Not authenticated"
             showingError = true
             return
         }
-        
+        let athleteUUID = athlete.id.uuidString
+        let athleteName = athlete.name
+
         isCreating = true
-        
+
         do {
             let name = autoFolderName
 
             // Create folder
             let folderID = try await folderManager.createFolder(
                 name: name,
-                forAthlete: athleteID,
+                forAthlete: userID,
                 athleteName: athleteName,
+                athleteUUID: athleteUUID,
                 hasCoachingAccess: authManager.hasCoachingAccess
             )
 
@@ -173,8 +176,9 @@ struct CreateFolderView: View {
             try await folderManager.inviteCoachToFolder(
                 coachEmail: coachEmail.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
                 folderID: folderID,
-                athleteID: athleteID,
+                athleteID: userID,
                 athleteName: athleteName,
+                athleteUUID: athleteUUID,
                 folderName: name,
                 permissions: permissions
             )
@@ -333,6 +337,7 @@ struct InviteCoachView: View {
                 folderID: folderID,
                 athleteID: athleteID,
                 athleteName: athleteName,
+                athleteUUID: folder.athleteUUID,
                 folderName: folder.name,
                 permissions: permissions
             )
@@ -354,7 +359,7 @@ struct InviteCoachView: View {
 // MARK: - Preview
 
 #Preview("Create Folder") {
-    CreateFolderView()
+    CreateFolderView(athlete: Athlete(name: "Preview Athlete"))
         .environmentObject(ComprehensiveAuthManager())
 }
 

@@ -307,20 +307,23 @@ struct ProfileView: View {
         ))
 
         if AppFeatureFlags.isCoachEnabled {
-            if authManager.hasCoachingAccess {
+            // Resolve a real Athlete once — never synthesise a throwaway record, as the
+            // NavigationLink destination is evaluated eagerly and would churn SwiftData.
+            let resolvedAthlete = selectedAthlete ?? user.athletes?.first
+            if authManager.hasCoachingAccess, let folderAthlete = resolvedAthlete {
                 items.append(SearchResult(
                     title: "Shared Folders",
                     icon: "folder.badge.person.crop",
                     keywords: ["shared", "folders", "coach", "sharing"],
                     link: AnyView(
                         NavigationLink {
-                            AthleteFoldersListView(userID: authManager.userID)
+                            AthleteFoldersListView(userID: authManager.userID, athlete: folderAthlete)
                         } label: {
                             Label("Shared Folders", systemImage: "folder.badge.person.crop")
                         }
                     )
                 ))
-            } else {
+            } else if !authManager.hasCoachingAccess {
                 items.append(SearchResult(
                     title: "Shared Folders",
                     icon: "folder.badge.person.crop",
@@ -489,13 +492,13 @@ struct ProfileView: View {
         Section("Settings") {
             // Coach Sharing Feature (requires Pro tier + coach features enabled)
             if AppFeatureFlags.isCoachEnabled {
-                if authManager.hasCoachingAccess {
+                if authManager.hasCoachingAccess, let folderAthlete = selectedAthlete ?? user.athletes?.first {
                     NavigationLink {
-                        AthleteFoldersListView(userID: authManager.userID)
+                        AthleteFoldersListView(userID: authManager.userID, athlete: folderAthlete)
                     } label: {
                         Label("Shared Folders", systemImage: "folder.badge.person.crop")
                     }
-                } else {
+                } else if !authManager.hasCoachingAccess {
                     Button {
                         Haptics.warning()
                         showingPaywall = true

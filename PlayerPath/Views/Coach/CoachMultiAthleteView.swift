@@ -14,9 +14,11 @@ struct CoachMultiAthleteView: View {
     @Environment(\.dismiss) private var dismiss
 
     private var athleteGroups: [AthleteComparisonData] {
+        // Group per athlete (UUID where present, account UID for legacy folders) so multi-athlete
+        // parent accounts surface as separate rows.
         let grouped = Dictionary(grouping: sharedFolderManager.coachFolders.filter {
             !archiveManager.isArchived($0.id ?? "")
-        }) { $0.ownerAthleteID }
+        }) { $0.athleteUUID ?? $0.ownerAthleteID }
 
         return grouped.map { athleteID, folders in
             AthleteComparisonData(

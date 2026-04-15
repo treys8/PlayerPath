@@ -17,6 +17,17 @@ struct ShareToCoachFolderView: View {
 
     @State private var selectedFolder: SharedFolder?
     @State private var notes: String = ""
+
+    /// Folders scoped to this clip's athlete. Legacy folders (pre-migration, athleteUUID == nil)
+    /// are included so users aren't locked out of sharing until the migration assigns them.
+    private var scopedFolders: [SharedFolder] {
+        guard let athleteUUID = clip.athlete?.id.uuidString else {
+            return folderManager.athleteFolders.filter { $0.athleteUUID == nil }
+        }
+        return folderManager.athleteFolders.filter {
+            $0.athleteUUID == nil || $0.athleteUUID == athleteUUID
+        }
+    }
     @State private var isUploading = false
     @State private var uploadProgress: Double = 0
     @State private var errorMessage: String?
@@ -28,10 +39,10 @@ struct ShareToCoachFolderView: View {
             Group {
                 if !authManager.hasCoachingAccess {
                     unauthorizedState
-                } else if folderManager.isLoading && folderManager.athleteFolders.isEmpty {
+                } else if folderManager.isLoading && scopedFolders.isEmpty {
                     ProgressView("Loading folders…")
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if folderManager.athleteFolders.isEmpty {
+                } else if scopedFolders.isEmpty {
                     emptyState
                 } else {
                     folderPicker
@@ -164,7 +175,7 @@ struct ShareToCoachFolderView: View {
     private var folderPicker: some View {
         Form {
             Section("Select Folder") {
-                ForEach(folderManager.athleteFolders) { folder in
+                ForEach(scopedFolders) { folder in
                     Button {
                         selectedFolder = folder
                         Haptics.selection()

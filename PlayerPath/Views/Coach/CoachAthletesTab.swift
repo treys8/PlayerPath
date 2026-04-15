@@ -207,10 +207,13 @@ struct CoachAthletesTab: View {
         var archivedFolders: [String: [SharedFolder]] = [:]
 
         for folder in sharedFolderManager.coachFolders {
+            // Per-athlete grouping: multi-athlete parent accounts get one row per kid.
+            // Legacy folders (no athleteUUID) fall back to the account UID.
+            let key = folder.athleteUUID ?? folder.ownerAthleteID
             if archiveManager.isArchived(folder.id ?? "") {
-                archivedFolders[folder.ownerAthleteID, default: []].append(folder)
+                archivedFolders[key, default: []].append(folder)
             } else {
-                activeFolders[folder.ownerAthleteID, default: []].append(folder)
+                activeFolders[key, default: []].append(folder)
             }
         }
 
