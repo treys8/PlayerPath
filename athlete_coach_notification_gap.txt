@@ -1,0 +1,73 @@
+ATHLETE FEEDBACK → COACH NOTIFICATION GAP
+==========================================
+Date: 2026-04-15
+Scope: Does athlete feedback on lesson videos trigger coach notifications?
+
+ANSWER: NO — athlete comments/feedback do NOT notify the coach.
+
+========================================
+FINDING #1 — CRITICAL GAP: No athlete→coach notification path
+========================================
+Severity: Feature Gap
+Files involved:
+  - Services/ClipCommentService.swift (lines 67-99)
+  - Services/ActivityNotificationService.swift
+  - Views/Coach/CoachVideoPlayerViewModel.swift (~line 255)
+  - PushNotificationService.swift
+
+Description:
+  When an athlete posts a comment or feedback on a lesson video, the comment
+  is written to Firestore (videos/{clipId}/comments/) but NO notification
+  is sent to the coach. The coach has no way to know feedback was left
+  unless they manually open the video and check the comment thread.
+
+Evidence:
+  1. ClipCommentService.postComment() writes to Firestore and returns —
+     no notification call follows the write.
+
+  2. ActivityNotificationService has notification types for:
+       - newVideo (athlete uploads)
+       - coachComment (coach comments on athlete video)
+     There is NO athleteComment, athleteFeedback, or athleteReply type.
+
+  3. CoachVideoPlayerViewModel.addAnnotation() (~line 255) has logic to
+     "Notify the folder owner that a coach left feedback" — this is
+     coach→athlete direction ONLY. No inverse path exists.
+
+  4. PushNotificationService defines a COACH_COMMENT push category but
+     has no ATHLETE_COMMENT or ATHLETE_FEEDBACK category.
+
+  5. ClipCommentService file header explicitly states:
+     "v1 ships one-way (coach replies, athlete reads)"
+
+Impact:
+  Coaches miss athlete engagement entirely. If an athlete asks a question,
+  requests clarification, or responds to coaching feedback, the coach won't
+  see it until they happen to revisit that specific video. This undermines
+  the two-way communication the comment system is designed for.
+
+========================================
+RECOMMENDED IMPLEMENTATION
+========================================
+
+1. Add athleteComment/athleteFeedback notification type to ActivityNotificationService
+   - Create in-app notification for the coach when an athlete posts a comment
+
+2. Update ClipCommentService.postComment() to trigger notification
+   - After successful Firestore write with authorRole == "athlete":
+     a. Look up the video's sharedFolderID to find the coach owner
+     b. Call ActivityNotificationService to create an in-app notification
+     c. Optionally send a push notification via FCM
+
+3. Add ATHLETE_COMMENT push notification category to PushNotificationService
+   - Define the category with appropriate actions (e.g., "View", "Reply")
+   - Send push to coach's FCM token when athlete comments
+
+4. Add unread indicator on coach dashboard
+   - Show badge/dot on folders or videos that have unread athlete comments
+   - Track read state per-video or per-folder for the coach
+
+5. Consider batching/digest
+   - If an athlete posts multiple comments quickly, batch into a single
+     notification ("3 new comments from [Athlete] on [Video]")
+   - Respect coach notification preferences (if they exist)

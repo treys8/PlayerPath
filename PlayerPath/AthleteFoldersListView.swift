@@ -122,6 +122,7 @@ struct AthleteFoldersListView: View {
                 case .createFolder:
                     CreateFolderView(athlete: athlete)
                 }
+            }
             .alert("Folder Error", isPresented: $showingError) {
                 Button("OK", role: .cancel) { }
             } message: {
