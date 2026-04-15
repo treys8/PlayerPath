@@ -206,12 +206,12 @@ final class ComprehensiveAuthManager: ObservableObject {
     func startLockoutTickerIfNeeded() {
         lockoutTimer?.invalidate()
         guard isSignInLocked else { return }
-        lockoutTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] t in
-            Task { @MainActor in
-                guard let self else { t.invalidate(); return }
+        lockoutTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
                 self.lockoutTick = Date()
                 if !self.isSignInLocked {
-                    t.invalidate()
+                    self.lockoutTimer?.invalidate()
                     self.lockoutTimer = nil
                 }
             }

@@ -43,6 +43,7 @@ struct VideoRecorderView_Refactored: View {
     @State private var showingTrimmer = false
     @State private var trimmedVideoURL: URL?
     @State private var uploadFlowShowingPlayResult = false
+    @State private var clipOrientation: VideoOrientation = .portrait
 
     // System monitoring
     @State private var availableStorageGB: Double = 0
@@ -119,6 +120,7 @@ struct VideoRecorderView_Refactored: View {
                             videoURL: finalVideoURL,
                             athlete: athlete,
                             practice: practice,
+                            clipOrientation: clipOrientation,
                             onSave: { note, completion in
                                 saveVideoWithResult(videoURL: finalVideoURL, playResult: nil, note: note, onError: {
                                     completion() // Reset PracticeVideoSaveView spinner so user can retry
@@ -126,7 +128,7 @@ struct VideoRecorderView_Refactored: View {
                                     completion()
                                     uploadFlowShowingPlayResult = false
                                     showingTrimmer = false
-                                    PlayerPathAppDelegate.orientationLock = .allButUpsideDown
+                                    OrientationLocker.restore()
                                     dismiss()
                                 }
                             },
@@ -150,11 +152,12 @@ struct VideoRecorderView_Refactored: View {
                             athlete: athlete,
                             game: game,
                             practice: practice,
+                            clipOrientation: clipOrientation,
                             onSave: { result, pitchSpeed, pitchType, role in
                                 saveVideoWithResult(videoURL: finalVideoURL, playResult: result, pitchSpeed: pitchSpeed, pitchType: pitchType, role: role) {
                                     uploadFlowShowingPlayResult = false
                                     showingTrimmer = false
-                                    PlayerPathAppDelegate.orientationLock = .allButUpsideDown
+                                    OrientationLocker.restore()
                                     dismiss()
                                 }
                             },
@@ -178,12 +181,12 @@ struct VideoRecorderView_Refactored: View {
                         videoURL: videoURL,
                         onSave: { trimmedURL in
                             trimmedVideoURL = trimmedURL
-                            lockPortrait()
+                            lockForClip()
                             uploadFlowShowingPlayResult = true
                         },
                         onSkip: {
                             trimmedVideoURL = nil
-                            lockPortrait()
+                            lockForClip()
                             uploadFlowShowingPlayResult = true
                         },
                         onCancel: {
@@ -280,6 +283,7 @@ struct VideoRecorderView_Refactored: View {
             switch result {
             case .success(let videoURL):
                 recordedVideoURL = videoURL
+                clipOrientation = await VideoOrientationDetector.detect(url: videoURL)
 
                 let duration = await getVideoDuration(videoURL)
                 let autoShowTrimmer = UserDefaults.standard.bool(forKey: "autoShowTrimmer")
@@ -287,6 +291,7 @@ struct VideoRecorderView_Refactored: View {
 
                 if !autoShowTrimmer && duration < 15 && skipShortClips {
                     // Skip trimmer — go straight to tagging
+                    lockForClip()
                     uploadFlowShowingPlayResult = true
                 }
                 showingTrimmer = true
@@ -378,8 +383,8 @@ struct VideoRecorderView_Refactored: View {
                     ErrorHandlerService.shared.handle(error, context: "VideoRecorderView.saveVideoWithResult", showAlert: false)
                     self.saveTask = nil
                     // Restore orientation — cleanupAndDismiss won't run on the
-                    // error path, so without this the user stays locked portrait.
-                    PlayerPathAppDelegate.orientationLock = .allButUpsideDown
+                    // error path, so without this the user stays locked.
+                    OrientationLocker.restore()
                     onError?()
                     self.showingSaveError = true
                 }
@@ -387,13 +392,8 @@ struct VideoRecorderView_Refactored: View {
         }
     }
     
-    /// Locks the UI to portrait immediately before presenting an overlay view.
-    /// Called synchronously so the orientation is already set when SwiftUI renders the overlay.
-    private func lockPortrait() {
-        PlayerPathAppDelegate.orientationLock = .portrait
-        if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
-            scene.requestGeometryUpdate(.iOS(interfaceOrientations: .portrait))
-        }
+    private func lockForClip() {
+        OrientationLocker.lock(for: clipOrientation)
     }
 
     private func cleanupAndDismiss() {
@@ -413,7 +413,7 @@ struct VideoRecorderView_Refactored: View {
             showingTrimmer = false
             showingPhotoPicker = false
             selectedVideoItem = nil
-            PlayerPathAppDelegate.orientationLock = .allButUpsideDown
+            OrientationLocker.restore()
             dismiss()
         }
     }

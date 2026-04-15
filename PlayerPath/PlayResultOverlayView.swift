@@ -14,9 +14,10 @@ struct PlayResultOverlayView: View {
     let athlete: Athlete?
     let game: Game?
     let practice: Practice?
+    let clipOrientation: VideoOrientation
     let onSave: (PlayResultType?, Double?, String?, AthleteRole) -> Void
     let onCancel: () -> Void
-    
+
     @State private var selectedResult: PlayResultType?
     @State private var showingConfirmation = false
     @State private var recordingMode: AthleteRole
@@ -31,14 +32,14 @@ struct PlayResultOverlayView: View {
     @State private var pitchType: String = "fastball"
     @FocusState private var pitchSpeedFocused: Bool
 
-    @Environment(\.verticalSizeClass) private var vSizeClass
-    private var isLandscape: Bool { vSizeClass == .compact }
+    private var isLandscape: Bool { clipOrientation.isLandscape }
 
     init(
         videoURL: URL,
         athlete: Athlete?,
         game: Game?,
         practice: Practice?,
+        clipOrientation: VideoOrientation,
         onSave: @escaping (PlayResultType?, Double?, String?, AthleteRole) -> Void,
         onCancel: @escaping () -> Void
     ) {
@@ -46,6 +47,7 @@ struct PlayResultOverlayView: View {
         self.athlete = athlete
         self.game = game
         self.practice = practice
+        self.clipOrientation = clipOrientation
         self.onSave = onSave
         self.onCancel = onCancel
         self._recordingMode = State(initialValue: athlete?.primaryRole ?? .batter)
@@ -152,7 +154,7 @@ struct PlayResultOverlayView: View {
                         }
                         Spacer()
                     }
-                    .padding(.leading, isLandscape ? 120 : 104)
+                    .padding(.leading, isLandscape ? 72 : 104)
                     .padding(.trailing, 20)
                     .padding(.top, isLandscape ? 28 : 16)
                     .padding(.bottom, 20)
@@ -276,7 +278,7 @@ struct PlayResultOverlayView: View {
                     .padding(.vertical, 8)
             }
             .scrollBounceBehavior(.basedOnSize)
-            .frame(maxWidth: 380)
+            .frame(maxWidth: 420, maxHeight: .infinity)
             .padding(.trailing, 16)
             .padding(.vertical, 8)
         }
@@ -1055,11 +1057,14 @@ struct MetadataBadge: View {
 extension PlayResultOverlayView {
     private func loadThumbnail() {
         guard thumbnail == nil else { return }
+        let maxSize: CGSize = clipOrientation.isLandscape
+            ? CGSize(width: 640, height: 360)
+            : CGSize(width: 360, height: 640)
         thumbnailTask = Task.detached(priority: .userInitiated) {
             let asset = AVURLAsset(url: videoURL)
             let generator = AVAssetImageGenerator(asset: asset)
             generator.appliesPreferredTrackTransform = true
-            generator.maximumSize = CGSize(width: 360, height: 640)
+            generator.maximumSize = maxSize
             if let cgImage = try? await generator.image(at: .zero).image {
                 guard !Task.isCancelled else { return }
                 let image = UIImage(cgImage: cgImage)
@@ -1120,6 +1125,7 @@ extension PlayResultOverlayView {
         athlete: nil,
         game: nil,
         practice: nil,
+        clipOrientation: .portrait,
         onSave: { _, _, _, _ in },
         onCancel: { }
     )

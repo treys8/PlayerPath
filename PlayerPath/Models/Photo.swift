@@ -101,21 +101,36 @@ final class Photo {
         return filePath
     }
 
-    /// Resolves `thumbnailPath` to an absolute path.
+    /// Resolves `thumbnailPath` to an absolute path. New photos store a path relative
+    /// to Documents; legacy rows may hold a stale absolute path from a previous app
+    /// container UUID and are recovered by filename under PhotoThumbnails/.
     var resolvedThumbnailPath: String? {
         guard let thumbnailPath else { return nil }
         if let cached = _cachedResolvedThumbPath { return cached }
-        let resolved: String
+        let resolved = _resolveThumbnailPath(thumbnailPath)
+        _cachedResolvedThumbPath = resolved
+        return resolved
+    }
+
+    private func _resolveThumbnailPath(_ thumbnailPath: String) -> String {
         if !thumbnailPath.hasPrefix("/") {
             guard let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
                 return thumbnailPath
             }
-            resolved = docs.appendingPathComponent(thumbnailPath).path
-        } else {
-            resolved = thumbnailPath
+            return docs.appendingPathComponent(thumbnailPath).path
         }
-        _cachedResolvedThumbPath = resolved
-        return resolved
+        if FileManager.default.fileExists(atPath: thumbnailPath) {
+            return thumbnailPath
+        }
+        guard let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
+            return thumbnailPath
+        }
+        let fileName = (thumbnailPath as NSString).lastPathComponent
+        let recovered = docs.appendingPathComponent("PhotoThumbnails").appendingPathComponent(fileName).path
+        if FileManager.default.fileExists(atPath: recovered) {
+            return recovered
+        }
+        return thumbnailPath
     }
 
     /// Full-size image URL derived from resolved filePath

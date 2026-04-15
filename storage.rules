@@ -103,6 +103,25 @@ service firebase.storage {
     }
 
     // ========================================================================
+    // PERSONAL ATHLETE PHOTOS
+    // ========================================================================
+    // Path uses Firebase Auth UID as the first segment for ownership enforcement
+
+    match /athlete_photos/{userID}/{fileName} {
+      // Read: owner only
+      allow read: if isAuthenticated() && request.auth.uid == userID;
+
+      // Write: owner only; max 25MB; must be image
+      allow write: if isAuthenticated() &&
+                      request.auth.uid == userID &&
+                      request.resource.size < 25 * 1024 * 1024 &&
+                      request.resource.contentType.matches('image/.*');
+
+      // Delete: owner only
+      allow delete: if isAuthenticated() && request.auth.uid == userID;
+    }
+
+    // ========================================================================
     // DENY ALL OTHER PATHS
     // ========================================================================
 

@@ -44,6 +44,7 @@ struct DirectCameraRecorderView: View {
     @State private var phase: RecordingPhase = .camera
     @State private var recordedVideoURL: URL?
     @State private var trimmedVideoURL: URL?
+    @State private var clipOrientation: VideoOrientation = .portrait
     @State private var showingDiscardConfirmation = false
     @State private var showingSaveError = false
     @State private var showingSaveFailedError = false
@@ -114,6 +115,10 @@ struct DirectCameraRecorderView: View {
                 Text(error.errorDescription ?? "An error occurred")
             }
         }
+        .onDisappear {
+            // Ensure orientation is released no matter which path dismissed the flow.
+            OrientationLocker.restore()
+        }
     }
 
     // MARK: - Camera Phase
@@ -128,6 +133,7 @@ struct DirectCameraRecorderView: View {
 
                     // Smart trimmer logic
                     Task {
+                        clipOrientation = await VideoOrientationDetector.detect(url: videoURL)
                         let duration = await getVideoDuration(videoURL)
                         let autoShowTrimmer = UserDefaults.standard.bool(forKey: "autoShowTrimmer")
                         let skipShortClips = UserDefaults.standard.bool(forKey: "skipTrimmerForShortClips")
@@ -141,6 +147,11 @@ struct DirectCameraRecorderView: View {
                             shouldSkip = false // Long clip or skip setting disabled
                         }
 
+                        // Lock orientation before transitioning to trimmer/tagging so
+                        // the overlays render in the clip's native aspect.
+                        if shouldSkip {
+                            OrientationLocker.lock(for: clipOrientation)
+                        }
                         withAnimation(.easeInOut(duration: 0.25)) {
                             phase = shouldSkip ? .tagging : .trimming
                         }
@@ -239,12 +250,14 @@ struct DirectCameraRecorderView: View {
                 videoURL: videoURL,
                 onSave: { trimmedURL in
                     trimmedVideoURL = trimmedURL
+                    OrientationLocker.lock(for: clipOrientation)
                     withAnimation(.easeInOut(duration: 0.25)) {
                         phase = .tagging
                     }
                 },
                 onSkip: {
                     trimmedVideoURL = nil
+                    OrientationLocker.lock(for: clipOrientation)
                     withAnimation(.easeInOut(duration: 0.25)) {
                         phase = .tagging
                     }
@@ -284,6 +297,7 @@ struct DirectCameraRecorderView: View {
                     videoURL: finalVideoURL,
                     athlete: athlete,
                     practice: practice,
+                    clipOrientation: clipOrientation,
                     onSave: { note, completion in
                         saveVideoWithResult(videoURL: finalVideoURL, playResult: nil, role: athlete?.primaryRole ?? .batter, note: note, onError: {
                             completion() // Reset PracticeVideoSaveView spinner so user can retry
@@ -302,6 +316,7 @@ struct DirectCameraRecorderView: View {
                     athlete: athlete,
                     game: game,
                     practice: practice,
+                    clipOrientation: clipOrientation,
                     onSave: { result, pitchSpeed, pitchType, role in
                         saveVideoWithResult(videoURL: finalVideoURL, playResult: result, pitchSpeed: pitchSpeed, pitchType: pitchType, role: role) { dismiss() }
                     },
@@ -459,6 +474,7 @@ struct DirectCameraRecorderView: View {
         }
         recordedVideoURL = nil
         trimmedVideoURL = nil
+        OrientationLocker.restore()
         dismiss()
     }
 }

@@ -134,8 +134,9 @@ struct StorageManager {
         }
 
         var totalSize: Int64 = 0
-        for case let fileURL as URL in enumerator {
-            guard let values = try? fileURL.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey]),
+        while let obj = enumerator.nextObject() {
+            guard let fileURL = obj as? URL,
+                  let values = try? fileURL.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey]),
                   values.isRegularFile == true,
                   let fileSize = values.fileSize else {
                 continue

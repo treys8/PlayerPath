@@ -15,8 +15,11 @@ struct PracticeVideoSaveView: View {
     let videoURL: URL
     let athlete: Athlete?
     let practice: Practice?
+    let clipOrientation: VideoOrientation
     let onSave: (String?, @escaping () -> Void) -> Void
     let onDiscard: () -> Void
+
+    private var isLandscape: Bool { clipOrientation.isLandscape }
 
     @State private var noteText: String = ""
     @State private var showContent = false
@@ -120,6 +123,7 @@ struct PracticeVideoSaveView: View {
             VStack {
                 Spacer()
                 glassPanel
+                    .frame(maxWidth: isLandscape ? 520 : .infinity)
                     .padding(.horizontal, 16)
                     .padding(.bottom, bottomSafeArea + 16)
                     .onAppear {
@@ -148,10 +152,7 @@ struct PracticeVideoSaveView: View {
         .animation(.easeInOut(duration: 0.2), value: isSaving)
         .onAppear {
             previousOrientationLock = PlayerPathAppDelegate.orientationLock
-            PlayerPathAppDelegate.orientationLock = .portrait
-            if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
-                scene.requestGeometryUpdate(.iOS(interfaceOrientations: .portrait))
-            }
+            OrientationLocker.lock(for: clipOrientation)
         }
         .onDisappear {
             PlayerPathAppDelegate.orientationLock = previousOrientationLock
@@ -269,11 +270,14 @@ struct PracticeVideoSaveView: View {
 
     private func loadThumbnail() {
         guard thumbnail == nil else { return }
+        let maxSize: CGSize = clipOrientation.isLandscape
+            ? CGSize(width: 640, height: 360)
+            : CGSize(width: 360, height: 640)
         Task {
             let asset = AVURLAsset(url: videoURL)
             let generator = AVAssetImageGenerator(asset: asset)
             generator.appliesPreferredTrackTransform = true
-            generator.maximumSize = CGSize(width: 1080, height: 1920)
+            generator.maximumSize = maxSize
             if let cgImage = try? await generator.image(at: .zero).image {
                 await MainActor.run {
                     thumbnail = UIImage(cgImage: cgImage)

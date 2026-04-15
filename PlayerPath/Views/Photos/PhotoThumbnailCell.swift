@@ -28,7 +28,7 @@ struct PhotoThumbnailCell: View {
                     Image(uiImage: thumbnail)
                         .resizable()
                         .scaledToFill()
-                        .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
+                        .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .top)
                         .clipped()
                 } else if loadFailed {
                     Rectangle()
@@ -53,17 +53,19 @@ struct PhotoThumbnailCell: View {
                         }
                 }
             }
-            .aspectRatio(1, contentMode: .fill)
+            .aspectRatio(3.0/4.0, contentMode: .fill)
             .clipShape(UnevenRoundedRectangle(topLeadingRadius: 12, bottomLeadingRadius: 0, bottomTrailingRadius: 0, topTrailingRadius: 12))
 
             // Info section
             VStack(alignment: .leading, spacing: 4) {
-                Text(photo.caption ?? "Photo")
-                    .font(.subheadline)
-                    .fontWeight(.semibold)
-                    .foregroundColor(.primary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                if let caption = photo.caption, !caption.isEmpty {
+                    Text(caption)
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
 
                 HStack(spacing: 4) {
                     if let game = photo.game {
@@ -97,6 +99,18 @@ struct PhotoThumbnailCell: View {
         .shadow(color: .black.opacity(0.08), radius: 8, x: 0, y: 3)
         .shadow(color: .black.opacity(0.04), radius: 2, x: 0, y: 1)
         .contextMenu {
+            if photo.isAvailableOffline, let url = photo.fileURL {
+                ShareLink(
+                    item: url,
+                    preview: SharePreview(
+                        photo.caption ?? "Photo",
+                        image: thumbnail.map { Image(uiImage: $0) } ?? Image(systemName: "photo")
+                    )
+                ) {
+                    Label("Share Photo", systemImage: "square.and.arrow.up")
+                }
+            }
+
             Button {
                 showingTagSheet = true
             } label: {
@@ -135,16 +149,14 @@ struct PhotoThumbnailCell: View {
     }
 
     private func loadThumbnail() async {
-        if let thumbPath = photo.resolvedThumbnailPath {
-            if let image = try? await ThumbnailCache.shared.loadThumbnail(at: thumbPath) {
-                thumbnail = image
-                return
-            }
-        }
+        // Decode an aspect-preserving thumbnail from the full-resolution photo via
+        // CGImageSource. We intentionally skip the pre-cached thumbnail file because
+        // legacy thumbnails are 300x300 square crops (heads chopped) generated before
+        // the 3:4 grid redesign.
         let url = URL(fileURLWithPath: photo.resolvedFilePath) as CFURL
         if let source = CGImageSourceCreateWithURL(url, nil) {
             let options: [CFString: Any] = [
-                kCGImageSourceThumbnailMaxPixelSize: 300,
+                kCGImageSourceThumbnailMaxPixelSize: 600,
                 kCGImageSourceCreateThumbnailFromImageAlways: true,
                 kCGImageSourceCreateThumbnailWithTransform: true
             ]

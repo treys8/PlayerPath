@@ -86,11 +86,18 @@ final class PhotoPersistenceService {
         }
         try imageData.write(to: photoURL, options: .atomic)
 
-        // Generate and write thumbnail
-        let thumbnail = Self.resizedImage(normalized, to: Constants.thumbnailSize)
-        let thumbData = thumbnail.jpegData(compressionQuality: Constants.thumbnailQuality)
-        if let thumbData {
-            try thumbData.write(to: thumbURL, options: .atomic)
+        // Generate and write aspect-preserving thumbnail (max 600px on the longest side)
+        // via CGImageSource. Avoids square center-crops that chop heads/feet.
+        if let source = CGImageSourceCreateWithURL(photoURL as CFURL, nil) {
+            let options: [CFString: Any] = [
+                kCGImageSourceThumbnailMaxPixelSize: 600,
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true
+            ]
+            if let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary),
+               let thumbData = UIImage(cgImage: cgImage).jpegData(compressionQuality: Constants.thumbnailQuality) {
+                try thumbData.write(to: thumbURL, options: .atomic)
+            }
         }
 
         return ProcessedPhoto(photoURL: photoURL, thumbURL: thumbURL)
@@ -112,9 +119,12 @@ final class PhotoPersistenceService {
         // Process image off the main thread
         let processed = try await processImage(image, photoID: photoID)
 
-        // Create SwiftData record (must be on @MainActor)
-        let photo = Photo(fileName: fileName, filePath: processed.photoURL.path)
-        photo.thumbnailPath = processed.thumbURL.path
+        // Create SwiftData record (must be on @MainActor).
+        // Persist RELATIVE paths so they survive app-container UUID changes across updates.
+        let relativeFilePath = "\(Constants.photosFolderName)/\(fileName)"
+        let relativeThumbPath = "\(Constants.thumbnailsFolderName)/\(processed.thumbURL.lastPathComponent)"
+        let photo = Photo(fileName: fileName, filePath: relativeFilePath)
+        photo.thumbnailPath = relativeThumbPath
         photo.caption = caption
         photo.athlete = athlete
         photo.game = game

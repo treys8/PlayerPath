@@ -65,7 +65,10 @@ struct PhotosView: View {
             filterBar
 
             if cachedPhotos.isEmpty {
-                emptyState
+                ScrollView {
+                    emptyState
+                }
+                .refreshable { await refreshPhotos() }
             } else {
                 photosGrid
             }
@@ -190,13 +193,12 @@ struct PhotosView: View {
                         }
                     }
                     .buttonStyle(.plain)
+                    .photoOptionsTip(isFirst: photo.id == cachedPhotos.first?.id)
                 }
             }
             .padding(.horizontal, 10)
         }
-        .refreshable {
-            updatePhotosCache()
-        }
+        .refreshable { await refreshPhotos() }
     }
 
     // MARK: - Empty State
@@ -255,6 +257,13 @@ struct PhotosView: View {
     }
 
     // MARK: - Cache
+
+    private func refreshPhotos() async {
+        if let user = athlete.user {
+            try? await SyncCoordinator.shared.syncPhotos(for: user)
+        }
+        updatePhotosCache()
+    }
 
     private func updatePhotosCache() {
         var filtered = Array(allPhotos)

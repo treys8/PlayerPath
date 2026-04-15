@@ -23,14 +23,15 @@ extension SyncCoordinator {
 
             // Upload new photos that haven't been synced
             for photo in photos where photo.cloudURL == nil && photo.needsSync {
-                guard FileManager.default.fileExists(atPath: photo.filePath) else { continue }
+                let resolvedPath = photo.resolvedFilePath
+                guard FileManager.default.fileExists(atPath: resolvedPath) else { continue }
                 // Enforce storage limit before uploading (use live StoreKit tier)
                 let fileSize: Int64
                 do {
-                    let attrs = try FileManager.default.attributesOfItem(atPath: photo.filePath)
+                    let attrs = try FileManager.default.attributesOfItem(atPath: resolvedPath)
                     fileSize = (attrs[.size] as? Int64) ?? 0
                 } catch {
-                    syncLog.error("Failed to read photo file size at '\(photo.filePath)': \(error.localizedDescription)")
+                    syncLog.error("Failed to read photo file size at '\(resolvedPath)': \(error.localizedDescription)")
                     continue
                 }
                 let tier = StoreKitManager.shared.currentTier
@@ -40,7 +41,7 @@ extension SyncCoordinator {
                 }
                 do {
                     let cloudURL = try await VideoCloudManager.shared.uploadPhoto(
-                        at: URL(fileURLWithPath: photo.filePath),
+                        at: URL(fileURLWithPath: resolvedPath),
                         ownerUID: ownerUID
                     )
                     photo.cloudURL = cloudURL
@@ -63,7 +64,7 @@ extension SyncCoordinator {
                     }
                     photo.needsSync = false
                     syncedPhotos.append(photo)
-                    if let uploadedSize = (try? FileManager.default.attributesOfItem(atPath: photo.filePath)[.size] as? Int64) {
+                    if let uploadedSize = (try? FileManager.default.attributesOfItem(atPath: resolvedPath)[.size] as? Int64) {
                         user.cloudStorageUsedBytes += uploadedSize
                     } else {
                         syncLog.warning("Could not read uploaded photo file size for storage tracking")
@@ -138,19 +139,16 @@ extension SyncCoordinator {
                 pendingDownloadTasks[taskID] = Task { [weak self] in
                     do {
                         try await VideoCloudManager.shared.downloadPhoto(from: downloadURL, to: photoRef.resolvedFilePath)
-                        // Generate thumbnail for the downloaded photo
-                        if let image = UIImage(contentsOfFile: photoRef.resolvedFilePath) {
-                            let thumbSize = CGSize(width: 300, height: 300)
-                            let scale = max(thumbSize.width / image.size.width, thumbSize.height / image.size.height)
-                            let newSize = CGSize(width: image.size.width * scale, height: image.size.height * scale)
-                            let format = UIGraphicsImageRendererFormat()
-                            format.scale = 1.0
-                            let renderer = UIGraphicsImageRenderer(size: thumbSize, format: format)
-                            let thumb = renderer.image { _ in
-                                let origin = CGPoint(x: (thumbSize.width - newSize.width) / 2, y: (thumbSize.height - newSize.height) / 2)
-                                image.draw(in: CGRect(origin: origin, size: newSize))
-                            }
-                            if let thumbData = thumb.jpegData(compressionQuality: 0.7) {
+                        // Generate aspect-preserving thumbnail via CGImageSource (max 600px).
+                        let photoURL = URL(fileURLWithPath: photoRef.resolvedFilePath)
+                        if let source = CGImageSourceCreateWithURL(photoURL as CFURL, nil) {
+                            let options: [CFString: Any] = [
+                                kCGImageSourceThumbnailMaxPixelSize: 600,
+                                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                                kCGImageSourceCreateThumbnailWithTransform: true
+                            ]
+                            if let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary),
+                               let thumbData = UIImage(cgImage: cgImage).jpegData(compressionQuality: 0.7) {
                                 guard let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
                                 let thumbDir = documentsURL.appendingPathComponent("PhotoThumbnails", isDirectory: true)
                                 do {
