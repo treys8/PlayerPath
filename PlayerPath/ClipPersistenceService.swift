@@ -412,6 +412,9 @@ final class ClipPersistenceService {
             try context.save()
         } catch {
             try? fileManager.removeItem(at: destinationURL)
+            if let absoluteThumbnailPath = videoClip.resolvedThumbnailPath {
+                try? fileManager.removeItem(atPath: absoluteThumbnailPath)
+            }
             throw error
         }
 
@@ -481,22 +484,14 @@ final class ClipPersistenceService {
                 ErrorHandlerService.shared.handle(error, context: "ClipPersistence.fetchAutoUploadPrefs", showAlert: false)
                 autoUploadPrefs = nil
             }
-            if let preferences = autoUploadPrefs,
-               preferences.autoUploadToCloud {
-                // Check file size limit
-                let fileSize = FileManager.default.fileSize(atPath: videoClip.resolvedFilePath)
-                let fileSizeMB = fileSize / StorageConstants.bytesPerMB
+            guard let preferences = autoUploadPrefs, preferences.autoUploadToCloud else { return }
 
-                if fileSizeMB <= preferences.maxVideoFileSize {
-                    // Check if we should only upload highlights
-                    if !preferences.syncHighlightsOnly || videoClip.isHighlight {
-                        UploadQueueManager.shared.enqueue(videoClip, athlete: athlete, priority: .normal)
-                    } else {
-                    }
-                } else {
-                }
-            } else {
-            }
+            let fileSize = self.fileManager.fileSize(atPath: videoClip.resolvedFilePath)
+            let fileSizeMB = fileSize / StorageConstants.bytesPerMB
+            guard fileSizeMB <= preferences.maxVideoFileSize else { return }
+            guard !preferences.syncHighlightsOnly || videoClip.isHighlight else { return }
+
+            UploadQueueManager.shared.enqueue(videoClip, athlete: athlete, priority: .normal)
         }
 
         return videoClip

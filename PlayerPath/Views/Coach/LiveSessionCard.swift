@@ -13,6 +13,7 @@ struct LiveSessionCard: View {
     var isEnding: Bool = false
     var onEnd: (() -> Void)?
     var onEditNotes: (() -> Void)?
+    var onRecord: (() -> Void)?
 
     @State private var isPulsing = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -124,39 +125,60 @@ struct LiveSessionCard: View {
 
             Spacer()
 
-            if isLive, let onEnd {
-                Button {
-                    Haptics.medium()
-                    onEnd()
-                } label: {
-                    Group {
-                        if isEnding {
-                            ProgressView().tint(.white)
-                        } else {
-                            Text("End")
+            if isLive {
+                HStack(spacing: 8) {
+                    if let onRecord {
+                        Button {
+                            Haptics.medium()
+                            onRecord()
+                        } label: {
+                            Label("Record", systemImage: "video.fill")
+                                .font(.caption)
+                                .fontWeight(.bold)
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 7)
+                                .background(
+                                    LinearGradient(
+                                        colors: [.red, .red.opacity(0.8)],
+                                        startPoint: .topLeading, endPoint: .bottomTrailing
+                                    )
+                                )
+                                .clipShape(Capsule())
+                                .shadow(color: .red.opacity(0.3), radius: 4, x: 0, y: 2)
                         }
+                        .buttonStyle(.borderless)
+                        .accessibilityLabel("Record clip")
                     }
-                    .font(.caption)
-                    .fontWeight(.bold)
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 7)
-                    .background(
-                        LinearGradient(
-                            colors: [.red, .red.opacity(0.8)],
-                            startPoint: .topLeading, endPoint: .bottomTrailing
-                        )
-                    )
-                    .clipShape(Capsule())
-                    .shadow(color: .red.opacity(0.3), radius: 4, x: 0, y: 2)
-                }
-                .disabled(isEnding)
-                .buttonStyle(.borderless)
-            }
 
-            Image(systemName: "chevron.right")
-                .font(.caption)
-                .foregroundColor(.secondary)
+                    if let onEnd {
+                        Button {
+                            Haptics.medium()
+                            onEnd()
+                        } label: {
+                            Group {
+                                if isEnding {
+                                    ProgressView().tint(.primary)
+                                } else {
+                                    Text("End")
+                                }
+                            }
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                            .foregroundColor(.primary)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 7)
+                            .background(Capsule().fill(Color(.secondarySystemBackground)))
+                        }
+                        .disabled(isEnding)
+                        .buttonStyle(.borderless)
+                    }
+                }
+            } else {
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
         }
         .padding(16)
         .contentShape(Rectangle())

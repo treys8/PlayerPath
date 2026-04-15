@@ -269,10 +269,16 @@ struct CoachDashboardView: View {
                     session: session,
                     isEnding: isEndingSession,
                     onEnd: { endActiveSession(session) },
-                    onEditNotes: { editingSessionNotes = session }
+                    onEditNotes: { editingSessionNotes = session },
+                    onRecord: session.status == .live ? { showingCamera = true } : nil
                 )
                 .contentShape(Rectangle())
-                .onTapGesture { resumeSession(session) }
+                .onTapGesture {
+                    // Only the reviewing state routes somewhere on tap. Live sessions
+                    // require tapping the explicit Record button — avoids pushing the
+                    // coach into the camera by accident.
+                    if session.status == .reviewing { resumeSession(session) }
+                }
 
                 if session.status == .reviewing {
                     HStack(spacing: 12) {
@@ -413,7 +419,9 @@ struct CoachDashboardView: View {
             do {
                 try await sessionManager.startScheduledSession(sessionID: sessionID)
                 Haptics.success()
-                showingCamera = true
+                // Don't auto-open the recorder — just flip the session to live.
+                // The dashboard's live session card now shows; the coach taps it
+                // to start recording when they're ready.
             } catch {
                 ErrorHandlerService.shared.handle(error, context: "CoachDashboard.startScheduledSession", showAlert: false)
             }
@@ -715,7 +723,9 @@ struct CoachDashboardView: View {
 
             switch fresh.status {
             case .live:
-                showingCamera = true
+                // Don't auto-open the recorder. The live session card is already
+                // visible on the dashboard with an explicit Record button.
+                Haptics.light()
             case .reviewing:
                 routeToReview(for: fresh)
             case .completed, .scheduled:
