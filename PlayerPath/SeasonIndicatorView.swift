@@ -64,7 +64,7 @@ struct SeasonRecommendationBanner: View {
         switch recommendation {
         case .createFirst:     recType = "createFirst"
         case .noActiveSeason:  recType = "noActiveSeason"
-        case .considerEnding:  recType = "considerEnding"
+        case .considerEnding(let season): recType = "considerEnding_\(season.id.uuidString)"
         case .ok:              recType = "ok"
         }
         return "seasonBanner_\(athlete.id.uuidString)_\(recType)"

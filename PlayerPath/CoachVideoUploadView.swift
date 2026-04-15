@@ -388,6 +388,15 @@ class CoachVideoUploadViewModel {
     /// Marked `@ObservationIgnored` because SwiftUI never reads this directly.
     @ObservationIgnored private var auxiliaryTempFiles: [URL] = []
 
+    /// Handle to the in-flight upload progress poller. Retained so we can
+    /// cancel it on VM teardown or when a new upload starts — otherwise the
+    /// `Task { while !Task.isCancelled }` loop polls every 250ms forever.
+    @ObservationIgnored private var progressMonitorTask: Task<Void, Never>?
+
+    deinit {
+        progressMonitorTask?.cancel()
+    }
+
     init(folder: SharedFolder, defaultContext: VideoContext = .instruction) {
         self.folder = folder
         self.videoContext = defaultContext
@@ -488,7 +497,11 @@ class CoachVideoUploadViewModel {
 
         // Copy video to stable Documents path for queue persistence
         let fileName = generateFileName()
-        guard let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
+        guard let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
+            errorMessage = "Failed to prepare upload location."
+            isUploading = false
+            return
+        }
         let coachUploadsDir = documentsURL.appendingPathComponent("coach_pending_uploads", isDirectory: true)
         try? FileManager.default.createDirectory(at: coachUploadsDir, withIntermediateDirectories: true)
         let stablePath = coachUploadsDir.appendingPathComponent(fileName)
@@ -528,7 +541,8 @@ class CoachVideoUploadViewModel {
 
         // Monitor queue progress — must match the deterministic UUID used by UploadQueueManager
         let clipId = UploadQueueManager.stableUUID(from: "\(folderID)|\(fileName)")
-        Task { @MainActor in
+        progressMonitorTask?.cancel()
+        progressMonitorTask = Task { @MainActor in
             while !Task.isCancelled {
                 if let progress = UploadQueueManager.shared.getProgress(for: clipId) {
                     uploadProgress = progress

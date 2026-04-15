@@ -377,6 +377,9 @@ struct VideoRecorderView_Refactored: View {
                     Haptics.error()
                     ErrorHandlerService.shared.handle(error, context: "VideoRecorderView.saveVideoWithResult", showAlert: false)
                     self.saveTask = nil
+                    // Restore orientation — cleanupAndDismiss won't run on the
+                    // error path, so without this the user stays locked portrait.
+                    PlayerPathAppDelegate.orientationLock = .allButUpsideDown
                     onError?()
                     self.showingSaveError = true
                 }

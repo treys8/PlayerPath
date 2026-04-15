@@ -411,11 +411,6 @@ struct SeasonDetailView: View {
                 }
             }
 
-            // Store relationships for rollback
-            let games = season.games
-            let practices = season.practices
-            let videoClips = season.videoClips
-
             // Delink relationships so games/practices/videos are not cascade-deleted
             season.games = nil
             season.practices = nil
@@ -429,14 +424,17 @@ struct SeasonDetailView: View {
                 Haptics.medium()
                 dismiss()
             } catch {
-                // Re-insert the season to undo the pending delete, then restore relationships
-                modelContext.insert(season)
-                season.games = games
-                season.practices = practices
-                season.videoClips = videoClips
-
+                // Firestore is already deleted and is the source of truth. Don't
+                // re-insert locally — that would produce a permanent divergence
+                // (gone remotely, present locally). SyncCoordinator will
+                // reconcile the missing Firestore doc on the next pull.
+                ErrorHandlerService.shared.handle(
+                    error,
+                    context: "SeasonDetail.localSaveAfterFirestoreDelete",
+                    showAlert: false
+                )
                 isProcessing = false
-                errorMessage = "Failed to delete season: \(error.localizedDescription)"
+                errorMessage = "Deleted from cloud but local cleanup didn't finish. It'll clear on the next sync."
                 showingError = true
             }
         }

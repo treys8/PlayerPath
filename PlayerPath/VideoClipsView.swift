@@ -355,7 +355,7 @@ struct VideoClipsView: View {
         .onChange(of: viewModel.selectedUploadFilter) { _, _ in
             viewModel.refilter()
         }
-        .onChange(of: athlete.videoClips?.count) { _, _ in
+        .onChange(of: videoClipsChangeKey) { _, _ in
             viewModel.update(videos: athlete.videoClips ?? [])
         }
         .alert("Unable to Load Videos", isPresented: $showingError) {
@@ -692,8 +692,16 @@ struct VideoClipsView: View {
     @MainActor
     private func refreshVideos() async {
         Haptics.light()
-        // Small delay for haptic feedback
-        try? await Task.sleep(for: .milliseconds(300))
+        viewModel.update(videos: athlete.videoClips ?? [])
+    }
+
+    /// Composite key for `.onChange` that reacts to property mutations the
+    /// filter depends on, not just add/remove. A count-only key misses edits
+    /// like toggling isHighlight or tagging a playResult.
+    private var videoClipsChangeKey: String {
+        (athlete.videoClips ?? [])
+            .map { "\($0.id):\($0.isHighlight ? 1 : 0):\($0.playResult?.type.rawValue ?? -1)" }
+            .joined(separator: "|")
     }
 
     /// Prefetch thumbnails for videos near the current index for smooth scrolling

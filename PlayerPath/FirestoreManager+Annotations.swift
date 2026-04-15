@@ -44,20 +44,25 @@ extension FirestoreManager {
         if let drawingCanvasHeight { annotationData["drawingCanvasHeight"] = drawingCanvasHeight }
 
         do {
-            let docRef = try await db.collection(FC.videos)
+            // Batch the annotation insert and the video-doc counter increment
+            // so they land atomically. Previously the increment was a
+            // best-effort follow-up call; if it failed, annotationCount drifted
+            // permanently behind the real count.
+            let annotationRef = db.collection(FC.videos)
                 .document(videoID)
                 .collection(FC.annotations)
-                .addDocument(data: annotationData)
+                .document()
+            let videoRef = db.collection(FC.videos).document(videoID)
 
-            // Increment annotationCount on the video document
-            do {
-                try await db.collection(FC.videos).document(videoID)
-                    .updateData(["annotationCount": FieldValue.increment(Int64(1))])
-            } catch {
-                firestoreLog.warning("Failed to increment annotationCount for video \(videoID): \(error.localizedDescription)")
-            }
+            let batch = db.batch()
+            batch.setData(annotationData, forDocument: annotationRef)
+            batch.updateData(
+                ["annotationCount": FieldValue.increment(Int64(1))],
+                forDocument: videoRef
+            )
+            try await batch.commit()
 
-            return docRef.documentID
+            return annotationRef.documentID
         } catch {
             firestoreLog.error("Failed to add comment: \(error.localizedDescription)")
             errorMessage = "Failed to add comment."

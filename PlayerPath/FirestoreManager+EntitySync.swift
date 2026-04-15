@@ -553,7 +553,10 @@ extension FirestoreManager {
     }
 
     func updatePhoto(photoId: String, data: [String: Any]) async throws {
-        var updateData = data
+        // Mirror the allowlist pattern used by updateAthlete/Season/Game/Practice
+        // so callers can't accidentally write arbitrary fields to the photo doc.
+        let allowedFields: Set<String> = ["caption", "gameId", "practiceId", "seasonId"]
+        var updateData = data.filter { allowedFields.contains($0.key) }
         updateData["updatedAt"] = FieldValue.serverTimestamp()
         try await db.collection(FC.photos).document(photoId).updateData(updateData)
     }

@@ -32,4 +32,16 @@ class FirestoreManager: ObservableObject {
         // PlayerPathApp.init() immediately after FirebaseApp.configure(),
         // before any code accesses the Firestore instance.
     }
+
+    // MARK: - Cloud Functions
+
+    /// Base URL for HTTPS-invoked Cloud Functions. Centralized so the project
+    /// ID / region can be changed in one place rather than across every
+    /// `acceptInvitation` / `syncSubscriptionTier` call site.
+    private static let cloudFunctionBase = "https://us-central1-playerpath-159b2.cloudfunctions.net"
+
+    /// Returns the HTTPS URL for a Cloud Function by name.
+    static func cloudFunctionURL(_ name: String) -> URL {
+        URL(string: "\(cloudFunctionBase)/\(name)")!
+    }
 }
