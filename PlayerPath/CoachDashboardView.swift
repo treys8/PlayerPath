@@ -443,7 +443,7 @@ struct CoachDashboardView: View {
 
     private var quickActionsSection: some View {
         VStack(spacing: 16) {
-            DashboardSectionHeader(title: "Quick Actions", icon: "bolt.fill", color: .brandNavy)
+            DashboardSectionHeader(title: "Quick Actions", icon: "bolt.fill", color: .brandGold)
 
             HStack(spacing: 12) {
                 if sessionManager.activeSession != nil {
@@ -481,7 +481,7 @@ struct CoachDashboardView: View {
 
     private var recentAthletesSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            DashboardSectionHeader(title: "Recent Athletes", icon: "clock.fill", color: .brandNavy)
+            DashboardSectionHeader(title: "Recent Athletes", icon: "clock.fill", color: .brandGold)
 
             if isRegularWidth {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 140, maximum: 180), spacing: 12)], spacing: 12) {
@@ -576,7 +576,7 @@ struct CoachDashboardView: View {
 
     private var summarySection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            DashboardSectionHeader(title: "Overview", icon: "chart.bar.fill", color: .brandNavy)
+            DashboardSectionHeader(title: "Overview", icon: "chart.bar.fill", color: .brandGold)
 
             HStack(spacing: 12) {
                 CoachSummaryCard(
@@ -604,7 +604,7 @@ struct CoachDashboardView: View {
 
     private var gettingStartedSection: some View {
         VStack(spacing: 16) {
-            DashboardSectionHeader(title: "Getting Started", icon: "sparkles", color: .brandNavy)
+            DashboardSectionHeader(title: "Getting Started", icon: "sparkles", color: .brandGold)
 
             VStack(spacing: 12) {
                 gettingStartedStep(
@@ -664,7 +664,7 @@ struct CoachDashboardView: View {
     private var thisWeekSection: some View {
         if !sessionManager.sessions.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
-                DashboardSectionHeader(title: "This Week", icon: "calendar", color: .brandNavy)
+                DashboardSectionHeader(title: "This Week", icon: "calendar", color: .brandGold)
 
                 HStack(spacing: 12) {
                     CoachSummaryCard(
@@ -836,7 +836,7 @@ private struct CoachSummaryCard: View {
         VStack(spacing: 8) {
             Image(systemName: icon)
                 .font(.title3)
-                .foregroundColor(.brandNavy)
+                .foregroundColor(.brandGold)
 
             Text(value)
                 .font(.title2)
