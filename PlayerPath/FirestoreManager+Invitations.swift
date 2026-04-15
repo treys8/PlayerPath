@@ -77,19 +77,20 @@ extension FirestoreManager {
     /// in EITHER direction (athlete→coach or coach→athlete).
     func hasPendingInvitation(athleteID: String, coachEmail: String) async throws -> Bool {
         let normalizedCoachEmail = normalizeInvitationEmail(coachEmail)
+        let currentEmail = Auth.auth().currentUser?.email.map(normalizeInvitationEmail)
 
-        // 1. Check for accepted athlete-to-coach invitation
-        let acceptedA2C = try await db.collection(FC.invitations)
+        // Fire all three checks in parallel rather than serially — on cellular,
+        // three sequential round trips was the bulk of the perceived latency.
+        // Any one match means "already invited," so we still OR the results.
+        async let acceptedA2C = db.collection(FC.invitations)
             .whereField("athleteID", isEqualTo: athleteID)
             .whereField("coachEmail", isEqualTo: normalizedCoachEmail)
             .whereField("status", isEqualTo: "accepted")
             .whereField("type", isEqualTo: "athlete_to_coach")
             .limit(to: 1)
             .getDocuments()
-        if !acceptedA2C.documents.isEmpty { return true }
 
-        // 2. Check for pending non-expired athlete-to-coach invitation
-        let pendingA2C = try await db.collection(FC.invitations)
+        async let pendingA2C = db.collection(FC.invitations)
             .whereField("athleteID", isEqualTo: athleteID)
             .whereField("coachEmail", isEqualTo: normalizedCoachEmail)
             .whereField("status", isEqualTo: "pending")
@@ -97,22 +98,24 @@ extension FirestoreManager {
             .whereField("expiresAt", isGreaterThan: Timestamp(date: Date()))
             .limit(to: 1)
             .getDocuments()
-        if !pendingA2C.documents.isEmpty { return true }
 
-        // 3. Check for accepted coach-to-athlete invitation (opposite direction).
-        // The coach may have already invited this athlete via the coach-to-athlete flow.
-        if let currentEmail = Auth.auth().currentUser?.email.map(normalizeInvitationEmail) {
-            let acceptedC2A = try await db.collection(FC.invitations)
+        // Third query is conditional on having the current user's email. When
+        // absent, resolve to an empty document set so the `await` tuple below
+        // still type-checks and short-circuits correctly.
+        async let acceptedC2ADocs: [QueryDocumentSnapshot] = {
+            guard let currentEmail else { return [] }
+            let snap = try await db.collection(FC.invitations)
                 .whereField("athleteEmail", isEqualTo: currentEmail)
                 .whereField("coachEmail", isEqualTo: normalizedCoachEmail)
                 .whereField("status", isEqualTo: "accepted")
                 .whereField("type", isEqualTo: "coach_to_athlete")
                 .limit(to: 1)
                 .getDocuments()
-            if !acceptedC2A.documents.isEmpty { return true }
-        }
+            return snap.documents
+        }()
 
-        return false
+        let (a1, a2, a3) = try await (acceptedA2C, pendingA2C, acceptedC2ADocs)
+        return !a1.documents.isEmpty || !a2.documents.isEmpty || !a3.isEmpty
     }
 
     /// Fetches pending invitations for a coach (by email)
@@ -177,7 +180,7 @@ extension FirestoreManager {
         }
         let token = try await user.getIDToken()
 
-        let url = URL(string: "https://us-central1-playerpath-159b2.cloudfunctions.net/acceptAthleteToCoachInvitation")!
+        let url = FirestoreManager.cloudFunctionURL("acceptAthleteToCoachInvitation")
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -398,7 +401,7 @@ extension FirestoreManager {
         }
         let token = try await user.getIDToken()
 
-        let url = URL(string: "https://us-central1-playerpath-159b2.cloudfunctions.net/acceptCoachToAthleteInvitation")!
+        let url = FirestoreManager.cloudFunctionURL("acceptCoachToAthleteInvitation")
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")

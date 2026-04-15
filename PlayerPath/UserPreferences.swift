@@ -28,7 +28,10 @@ final class UserPreferences {
         set { autoUploadMode = newValue ? .wifiOnly : .off }
     }
 
-    // Legacy property for backwards compatibility - computed from autoUploadMode
+    // Legacy property for backwards compatibility - computed from autoUploadMode.
+    // Precondition: the setter is a no-op when autoUploadMode == .off. Callers
+    // must enable uploads (autoUploadMode = .wifiOnly or .always) first. The UI
+    // gates this toggle behind the auto-upload switch.
     var allowCellularUploads: Bool {
         get { autoUploadMode == .always }
         set { if newValue && autoUploadMode != .off { autoUploadMode = .always } }
@@ -40,8 +43,9 @@ final class UserPreferences {
 
     // MARK: - Cloud Sync Preferences
     var syncHighlightsOnly: Bool = false { didSet { markAsModified() } }
-    // Clamped in MB to a reasonable range (50MB–10GB).
-    // Clamping is done in the UI layer / setter to avoid didSet re-entrancy.
+    // MB. Range 50–2000 (2 GB), enforced by the slider in UserPreferencesView.
+    // No programmatic setter exists; add one here if a migration/sync path
+    // ever writes this directly.
     var maxVideoFileSize: Int = 500 { didSet { markAsModified() } }
     var autoDeleteAfterUpload: Bool = false { didSet { markAsModified() } }
 
@@ -66,15 +70,6 @@ final class UserPreferences {
     // MARK: - Mutation helpers
     func markAsModified() {
         self.lastModified = Date()
-    }
-
-    /// Resolve a sync conflict by keeping the most recently modified instance
-    /// and deleting the loser from the given context.
-    static func resolveConflict(local: UserPreferences, remote: UserPreferences, in context: ModelContext) -> UserPreferences {
-        let (keep, discard) = (local.lastModified >= remote.lastModified)
-            ? (local, remote) : (remote, local)
-        context.delete(discard)
-        return keep
     }
 
     // Convenience method to get shared preferences (fetch-or-create persisted singleton)

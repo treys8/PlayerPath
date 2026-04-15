@@ -143,7 +143,7 @@ extension FirestoreManager {
         guard let user = Auth.auth().currentUser else { return }
         let token = try await user.getIDToken()
 
-        let url = URL(string: "https://us-central1-playerpath-159b2.cloudfunctions.net/syncSubscriptionTier")!
+        let url = FirestoreManager.cloudFunctionURL("syncSubscriptionTier")
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")

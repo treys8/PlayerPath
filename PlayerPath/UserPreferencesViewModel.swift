@@ -7,7 +7,7 @@ import os
 final class UserPreferencesViewModel {
     private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.playerpath", category: "UserPreferences")
 
-    var modelContext: ModelContext?
+    private(set) var modelContext: ModelContext?
     func attach(modelContext: ModelContext?) {
         self.modelContext = modelContext
     }
@@ -17,30 +17,10 @@ final class UserPreferencesViewModel {
 
     func load() async {
         guard let context = modelContext else { return }
-
-        let fetchDescriptor = FetchDescriptor<UserPreferences>(
-            sortBy: [SortDescriptor(\UserPreferences.lastModified, order: .reverse)]
-        )
-        do {
-            let results = try context.fetch(fetchDescriptor)
-            if let newest = results.first {
-                // Clean up duplicates — keep the most recently modified
-                if results.count > 1 {
-                    for extra in results.dropFirst() {
-                        context.delete(extra)
-                    }
-                    ErrorHandlerService.shared.saveContext(context, caller: "UserPreferencesVM.deduplicatePreferences")
-                }
-                preferences = newest
-            } else {
-                let newPreferences = UserPreferences()
-                context.insert(newPreferences)
-                try context.save()
-                preferences = newPreferences
-            }
-        } catch {
-            Self.logger.error("Failed to load preferences: \(error.localizedDescription)")
-        }
+        hasUnsavedChanges = false
+        // Delegate to the canonical fetch-or-create + dedup path so this and
+        // UserPreferences.shared(in:) don't race on duplicate deletion.
+        preferences = UserPreferences.shared(in: context)
     }
 
     func save() async throws {

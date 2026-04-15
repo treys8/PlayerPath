@@ -343,7 +343,23 @@ extension FirestoreManager {
         guard !athleteIDsToRevoke.isEmpty else { return }
 
         let revokeSet = Set(athleteIDsToRevoke)
-        let folders = SharedFolderManager.shared.coachFolders.filter { revokeSet.contains($0.ownerAthleteID) }
+        // Query Firestore directly rather than reading from
+        // SharedFolderManager.coachFolders — the cache can be stale if another
+        // device modified folders, and a compliance-sensitive revocation flow
+        // must operate on authoritative state.
+        let snapshot = try await db.collection(FC.sharedFolders)
+            .whereField("sharedWithCoachIDs", arrayContains: coachID)
+            .getDocuments()
+        let folders = snapshot.documents.compactMap { doc -> SharedFolder? in
+            do {
+                var folder = try doc.data(as: SharedFolder.self)
+                folder.id = doc.documentID
+                return folder
+            } catch {
+                firestoreLog.warning("Failed to decode SharedFolder from doc \(doc.documentID): \(error.localizedDescription)")
+                return nil
+            }
+        }.filter { revokeSet.contains($0.ownerAthleteID) }
 
         // Fetch coach email once for revocation docs
         let coachSnapshot = try await db.collection(FC.users).document(coachID).getDocument()

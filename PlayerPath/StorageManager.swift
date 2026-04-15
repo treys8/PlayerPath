@@ -56,7 +56,6 @@ struct StorageManager {
     
     // MARK: - Constants
     
-    private static let minimumStorageBytes: Int64 = StorageConstants.minimumFreeStorageBytes
     private static let mbPerMinuteVideo: Double = 150 // Average for high quality video
     
     // MARK: - Public Methods
@@ -123,30 +122,26 @@ struct StorageManager {
             return 0
         }
 
-        var totalSize: Int64 = 0
-
-        do {
-            let files = try FileManager.default.contentsOfDirectory(
-                at: url,
-                includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey],
-                options: .skipsHiddenFiles
-            )
-
-            for fileURL in files {
-                let resourceValues = try fileURL.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
-
-                guard let isRegularFile = resourceValues.isRegularFile, isRegularFile else {
-                    continue
-                }
-
-                if let fileSize = resourceValues.fileSize {
-                    totalSize += Int64(fileSize)
-                }
-            }
-        } catch {
-            logger.error("Failed to calculate directory size: \(error.localizedDescription)")
+        // Use a deep enumerator so per-athlete / per-season subdirectories
+        // are included. The previous contentsOfDirectory-based scan only
+        // counted immediate children and silently undercounted nested files.
+        guard let enumerator = FileManager.default.enumerator(
+            at: url,
+            includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return 0
         }
 
+        var totalSize: Int64 = 0
+        for case let fileURL as URL in enumerator {
+            guard let values = try? fileURL.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey]),
+                  values.isRegularFile == true,
+                  let fileSize = values.fileSize else {
+                continue
+            }
+            totalSize += Int64(fileSize)
+        }
         return totalSize
     }
 
@@ -173,8 +168,11 @@ struct StorageManager {
                 includingPropertiesForKeys: [.isRegularFileKey],
                 options: .skipsHiddenFiles
             ).filter { url in
+                // Keep in sync with OrphanedClipRecoveryService.findOrphanedVideoFiles
+                // — both services must scan the same extension set so an orphan
+                // visible in the recovery UI is also eligible for cleanup here.
                 let ext = url.pathExtension.lowercased()
-                return ext == "mov" || ext == "mp4"
+                return ext == "mov" || ext == "mp4" || ext == "m4v"
             }
 
             // Get all video filenames from database
@@ -256,6 +254,12 @@ struct StorageManager {
         let exportExtensions: Set<String> = ["csv", "pdf", "json"]
         let staleFiles = contents.filter { exportExtensions.contains($0.pathExtension.lowercased()) }
         for file in staleFiles {
+            // Only delete files older than 1 hour to avoid racing with an
+            // in-flight UIActivityViewController share that survived an
+            // app relaunch. Matches cleanupOrphanedImports' policy.
+            guard let attrs = try? file.resourceValues(forKeys: [.creationDateKey]),
+                  let created = attrs.creationDate,
+                  Date().timeIntervalSince(created) > 3600 else { continue }
             try? fm.removeItem(at: file)
             logger.info("Cleaned up stale export: \(file.lastPathComponent)")
         }

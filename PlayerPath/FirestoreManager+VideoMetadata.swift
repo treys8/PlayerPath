@@ -75,7 +75,7 @@ extension FirestoreManager {
             videoData["pitchType"] = pitchType
         }
         if let seasonName {
-            videoData["seasonID"] = seasonName
+            videoData["seasonName"] = seasonName
         }
         if let athleteName {
             videoData["athleteName"] = athleteName

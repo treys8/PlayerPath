@@ -32,6 +32,6 @@ enum StorageConstants {
 
     // MARK: - Storage Thresholds
 
-    /// Minimum free device storage before warning (500 MB)
-    static let minimumFreeStorageBytes: Int64 = 500_000_000
+    /// Minimum free device storage before warning (500 MB, binary — matches bytesPerMB)
+    static let minimumFreeStorageBytes: Int64 = 500 * bytesPerMB
 }

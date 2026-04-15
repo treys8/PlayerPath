@@ -22,15 +22,15 @@ struct UserPreferencesView: View {
                 if let prefs = viewModel.preferences {
                     Form {
                         if !isCoach {
-                            videoRecordingSection(preferences: prefs)
+                            videoRecordingSection()
                         } else {
-                            generalSection(preferences: prefs)
+                            generalSection()
                         }
-                        uiPreferencesSection(preferences: prefs)
+                        uiPreferencesSection()
                         if !isCoach {
                             cloudSyncSection(preferences: prefs)
                         }
-                        privacyAnalyticsSection(preferences: prefs)
+                        privacyAnalyticsSection()
                     }
                 } else {
                     ProgressView("Loading preferences...")
@@ -72,7 +72,7 @@ struct UserPreferencesView: View {
 
     // MARK: - View Sections
 
-    private func videoRecordingSection(preferences: UserPreferences) -> some View {
+    private func videoRecordingSection() -> some View {
         Section {
             Picker("Auto-Upload Videos", selection: Binding<AutoUploadMode>(
                 get: { viewModel.preferences?.autoUploadMode ?? .off },
@@ -104,7 +104,7 @@ struct UserPreferencesView: View {
         }
     }
 
-    private func generalSection(preferences: UserPreferences) -> some View {
+    private func generalSection() -> some View {
         Section {
             Toggle("Haptic Feedback", isOn: Binding(
                 get: { viewModel.preferences?.enableHapticFeedback ?? true },
@@ -118,7 +118,7 @@ struct UserPreferencesView: View {
         }
     }
 
-    private func uiPreferencesSection(preferences: UserPreferences) -> some View {
+    private func uiPreferencesSection() -> some View {
         Section {
             Picker("App Theme", selection: Binding<AppTheme>(
                 get: { viewModel.preferences?.preferredTheme ?? AppTheme.system },
@@ -174,7 +174,7 @@ struct UserPreferencesView: View {
         }
     }
 
-    private func privacyAnalyticsSection(preferences: UserPreferences) -> some View {
+    private func privacyAnalyticsSection() -> some View {
         Section {
             Toggle("Enable Analytics", isOn: Binding(
                 get: { viewModel.preferences?.enableAnalytics ?? false },

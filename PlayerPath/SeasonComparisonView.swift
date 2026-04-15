@@ -179,22 +179,6 @@ struct SeasonComparisonView: View {
                 .listStyle(.insetGrouped)
             }
 
-            // Compare button
-            if selectedSeasons.count >= 2 {
-                Button(action: {
-                    // Button just keeps selections - view automatically shows comparison
-                }) {
-                    Text("Compare \(selectedSeasons.count) Seasons")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(Color.blue)
-                        .foregroundStyle(.white)
-                        .cornerRadius(12)
-                }
-                .padding()
-            }
-
             Spacer()
         }
     }
