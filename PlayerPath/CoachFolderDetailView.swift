@@ -158,7 +158,7 @@ struct CoachFolderDetailView: View {
                 Button {
                     showingUploadSheet = true
                 } label: {
-                    Label("Upload Video", systemImage: "plus.circle")
+                    Label("Upload Video", systemImage: AppIcon.upload)
                 }
             }
 

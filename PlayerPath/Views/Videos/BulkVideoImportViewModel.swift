@@ -34,7 +34,13 @@ final class BulkVideoImportViewModel {
         isCancelled = true
     }
 
-    func runImport(items: [PhotosPickerItem], athlete: Athlete, modelContext: ModelContext) async {
+    func runImport(
+        items: [PhotosPickerItem],
+        athlete: Athlete,
+        modelContext: ModelContext,
+        game: Game? = nil,
+        practice: Practice? = nil
+    ) async {
         let total = items.count
         guard total > 0 else {
             status = .completed(succeeded: 0, failed: 0, stoppedForQuota: false, wasCancelled: false)
@@ -54,6 +60,11 @@ final class BulkVideoImportViewModel {
         // ensure (or create) an active season so imports never land orphaned.
         let activeSeason = SeasonManager.ensureActiveSeason(for: athlete, in: modelContext)
         let allSeasons = athlete.seasons ?? []
+
+        // Fetch user preferences once so we can apply the same auto-upload gate
+        // that ClipPersistenceService.saveClip uses (autoUploadToCloud, file size
+        // cap, syncHighlightsOnly). Fetched once — preferences don't change mid-import.
+        let preferences = (try? modelContext.fetch(FetchDescriptor<UserPreferences>()).first)
 
         for (index, item) in items.enumerated() {
             if isCancelled || Task.isCancelled { break }
@@ -100,9 +111,17 @@ final class BulkVideoImportViewModel {
                 return (try? await item.load(.dateValue)) ?? Date()
             }()
 
-            // Match the clip to the season whose date range contains the capture
-            // date; fall back to the active season if no existing season covers it.
-            let matchedSeason = Self.season(containing: originalDate, in: allSeasons) ?? activeSeason
+            // When importing into a specific game/practice, prefer that
+            // entity's season so the clip lands on the right timeline. Otherwise
+            // match by capture date, falling back to the active season.
+            let matchedSeason: Season?
+            if let game = game {
+                matchedSeason = game.season ?? activeSeason
+            } else if let practice = practice {
+                matchedSeason = practice.season ?? activeSeason
+            } else {
+                matchedSeason = Self.season(containing: originalDate, in: allSeasons) ?? activeSeason
+            }
 
             let clip = VideoClip(
                 fileName: stableURL.lastPathComponent,
@@ -114,11 +133,38 @@ final class BulkVideoImportViewModel {
             clip.thumbnailPath = thumbnailPath
             clip.duration = durationSeconds
             clip.createdAt = originalDate
+            clip.game = game
+            clip.practice = practice
+            // Denormalize game/practice display fields so data survives cross-device sync
+            // even if the relationships can't be re-linked. Matches ClipPersistenceService.
+            clip.gameOpponent = game?.opponent
+            clip.gameDate = game?.date
+            clip.practiceDate = practice?.date
             modelContext.insert(clip)
 
             do {
                 try modelContext.save()
-                UploadQueueManager.shared.enqueue(clip, athlete: athlete, priority: .normal)
+
+                // Apply auto-upload gate mirroring ClipPersistenceService.saveClip.
+                // Skip enqueue when preferences are missing (safer default), when
+                // the user disabled auto-upload, when the file exceeds their cap,
+                // or when highlights-only sync is on (imported clips are never highlights).
+                let fileSizeMB = fileSize / StorageConstants.bytesPerMB
+                let shouldEnqueue: Bool = {
+                    guard let prefs = preferences else { return false }
+                    guard prefs.autoUploadToCloud else { return false }
+                    guard fileSizeMB <= prefs.maxVideoFileSize else { return false }
+                    guard !prefs.syncHighlightsOnly || clip.isHighlight else { return false }
+                    return true
+                }()
+                if shouldEnqueue {
+                    UploadQueueManager.shared.enqueue(clip, athlete: athlete, priority: .normal)
+                }
+
+                // Notify dashboard + weekly summary scheduler so they refresh.
+                // Matches ClipPersistenceService.saveClip behavior.
+                NotificationCenter.default.post(name: .videoRecorded, object: clip)
+
                 succeeded += 1
                 reservedThisSession += fileSize
             } catch {

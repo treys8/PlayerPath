@@ -101,10 +101,8 @@ struct SeasonBadge: View {
             .foregroundStyle(.white)
             .lineLimit(1)
             .fixedSize()
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(season.isActive ? Color.brandNavy : Color.gray)
-            .cornerRadius(4)
+            .badgeSmall()
+            .background(season.isActive ? Color.brandNavy : Color.gray, in: Capsule())
             .accessibilityLabel("\(season.displayName), \(season.isActive ? "Active" : "Archived") season")
     }
 }

@@ -100,8 +100,9 @@ Some services live in `PlayerPath/Services/`, others at the `PlayerPath/` top le
 
 ### Video Pipeline
 
-Recording (athlete): `VideoRecorderView_Refactored.swift` → `CameraViewModel.swift` → `ModernCameraView.swift` (AVFoundation)
+Recording (athlete): `DirectCameraRecorderView.swift` → `CameraViewModel.swift` → `ModernCameraView.swift` (AVFoundation). Optional `PreUploadTrimmerView` + `PlayResultOverlayView` for tagging.
 Recording (coach): `DirectCameraRecorderView.swift` — Standalone camera for session clip capture
+Import (athlete): `BulkVideoImportSheet` / `BulkVideoImportViewModel` — multi-select from Photos, untagged, season auto-matched by capture date (or inherited from game/practice context)
 Upload: `ClipPersistenceService` → `UploadQueueManager` → `VideoCloudManager` → Firebase Storage
 Playback: `VideoPlayerView.swift` with `PlayResultOverlayView` for tagging and coach annotations
 

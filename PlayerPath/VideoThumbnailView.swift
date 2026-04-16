@@ -228,7 +228,7 @@ struct VideoThumbnailView: View {
         guard let playResult = clip.playResult else {
             return [Color.gray.opacity(0.5), Color.gray.opacity(0.7)]
         }
-        let base = playResult.type.badgeColor
+        let base = playResult.type.color
         return [base.opacity(0.5), base.opacity(0.7)]
     }
 
@@ -261,7 +261,7 @@ struct VideoThumbnailView: View {
     private func playResultBadge(for type: PlayResultType) -> some View {
         HStack(spacing: 4) {
             Circle()
-                .fill(type.badgeColor)
+                .fill(type.color)
                 .frame(width: 8, height: 8)
             Text(type.abbreviation)
                 .font(.system(size: 11, weight: .bold))

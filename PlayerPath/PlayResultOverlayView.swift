@@ -596,43 +596,6 @@ extension PlayResultType {
         }
     }
 
-    /// Color used for badges and grid indicators.
-    var badgeColor: Color {
-        switch self {
-        case .single: return .green
-        case .double: return .brandNavy
-        case .triple: return .orange
-        case .homeRun: return .gold
-        case .walk: return .cyan
-        case .strikeout: return .red
-        case .groundOut, .flyOut: return .red
-        case .batterHitByPitch: return .purple
-        case .ball: return .orange
-        case .strike: return .green
-        case .hitByPitch: return .purple
-        case .wildPitch: return .red
-        case .pitchingStrikeout: return .red
-        case .pitchingWalk: return .cyan
-        }
-    }
-
-    /// Color used for play result selection buttons (overlay UI).
-    var uiColor: Color {
-        switch self {
-        case .single, .double, .triple: return .green
-        case .homeRun: return .gold
-        case .walk: return .brandNavy
-        case .strikeout, .groundOut, .flyOut: return .red
-        case .batterHitByPitch: return .purple
-        case .ball: return .orange
-        case .strike: return .green
-        case .hitByPitch: return .purple
-        case .wildPitch: return .red
-        case .pitchingStrikeout: return .red
-        case .pitchingWalk: return .brandNavy
-        }
-    }
-
     var accessibilityLabel: String { displayName }
 }
 
@@ -694,8 +657,8 @@ struct PlayResultButton: View {
                         .fill(
                             LinearGradient(
                                 colors: [
-                                    result.uiColor,
-                                    result.uiColor.opacity(0.7)
+                                    result.color,
+                                    result.color.opacity(0.7)
                                 ],
                                 startPoint: .topLeading,
                                 endPoint: .bottomTrailing
@@ -736,7 +699,7 @@ struct PlayResultButton: View {
                         lineWidth: isSelected ? 2 : 1
                     )
             )
-            .shadow(color: result.uiColor.opacity(isSelected ? 0.6 : 0.3), radius: isSelected ? 12 : 6, x: 0, y: isSelected ? 6 : 3)
+            .shadow(color: result.color.opacity(isSelected ? 0.6 : 0.3), radius: isSelected ? 12 : 6, x: 0, y: isSelected ? 6 : 3)
             .shadow(color: .black.opacity(0.2), radius: 2, x: 0, y: 1)
             .scaleEffect(isPressed ? 0.95 : (isSelected ? 1.02 : 1.0))
         }

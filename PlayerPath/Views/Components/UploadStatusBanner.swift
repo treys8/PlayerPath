@@ -251,11 +251,9 @@ struct UploadBadge: View {
                     .font(.caption2)
                     .fontWeight(.semibold)
             }
-            .padding(.horizontal, 6)
-            .padding(.vertical, 3)
-            .background(badgeColor)
+            .badgeSmall()
+            .background(badgeColor, in: Capsule())
             .foregroundColor(.white)
-            .cornerRadius(10)
         }
     }
 

@@ -30,17 +30,18 @@ struct VideoClipOptionsTip: Tip {
 // MARK: - View Modifier
 
 extension View {
-    func videoClipOptionsTip(isFirst: Bool) -> some View {
-        modifier(VideoClipOptionsTipModifier(isFirst: isFirst))
+    func videoClipOptionsTip(isFirst: Bool, tipsEnabled: Bool) -> some View {
+        modifier(VideoClipOptionsTipModifier(isFirst: isFirst, tipsEnabled: tipsEnabled))
     }
 }
 
 private struct VideoClipOptionsTipModifier: ViewModifier {
     let isFirst: Bool
+    let tipsEnabled: Bool
     private let tip = VideoClipOptionsTip()
 
     func body(content: Content) -> some View {
-        if isFirst {
+        if isFirst && tipsEnabled {
             content.popoverTip(tip, arrowEdge: .top)
         } else {
             content

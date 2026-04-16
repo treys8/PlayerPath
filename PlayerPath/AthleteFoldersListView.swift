@@ -512,7 +512,7 @@ struct AthleteFolderDetailContent: View {
                         Button {
                             activeSheet = .uploadVideo
                         } label: {
-                            Label("Share a Video", systemImage: "plus.circle")
+                            Label("Share a Video", systemImage: AppIcon.upload)
                         }
 
                         Button {
@@ -596,7 +596,7 @@ struct AthleteFolderDetailContent: View {
                     .font(.headline)
                     .frame(maxWidth: .infinity)
                     .frame(height: 50)
-                    .background(Color.accentColor)
+                    .background(Color.brandNavy)
                     .foregroundColor(.white)
                     .cornerRadius(12)
             }

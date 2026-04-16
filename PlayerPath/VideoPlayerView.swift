@@ -52,7 +52,7 @@ struct VideoPlayerView: View {
             Button {
                 showingPlayResultEditor = true
             } label: {
-                Label("Edit Play Result", systemImage: "pencil.circle")
+                Label("Edit Play Result", systemImage: AppIcon.edit)
             }
         }
 

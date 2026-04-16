@@ -349,14 +349,20 @@ struct StatisticsChartsView: View {
             if hasData {
                 Chart {
                     BarMark(x: .value("Type", "1B"), y: .value("Count", hits.singles))
-                        .foregroundStyle(Color.green)
+                        .foregroundStyle(by: .value("Hit Type", "Single"))
                     BarMark(x: .value("Type", "2B"), y: .value("Count", hits.doubles))
-                        .foregroundStyle(Color.blue)
+                        .foregroundStyle(by: .value("Hit Type", "Double"))
                     BarMark(x: .value("Type", "3B"), y: .value("Count", hits.triples))
-                        .foregroundStyle(Color.orange)
+                        .foregroundStyle(by: .value("Hit Type", "Triple"))
                     BarMark(x: .value("Type", "HR"), y: .value("Count", hits.homeRuns))
-                        .foregroundStyle(Color.red)
+                        .foregroundStyle(by: .value("Hit Type", "Home Run"))
                 }
+                .chartForegroundStyleScale([
+                    "Single":   .green,
+                    "Double":   .blue,
+                    "Triple":   .orange,
+                    "Home Run": .red
+                ])
                 .frame(height: horizontalSizeClass == .regular ? 300 : 200)
             } else {
                 Text("No hit data available")

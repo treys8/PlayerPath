@@ -124,11 +124,10 @@ struct GameRow: View {
                             .font(.caption2)
                             .fontWeight(.medium)
                             .foregroundColor(.white)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
+                            .badgeSmall()
                             .background(
-                                Capsule()
-                                    .fill(season.isActive ? Color.brandNavy : Color.gray)
+                                season.isActive ? Color.brandNavy : Color.gray,
+                                in: Capsule()
                             )
                     }
                 }
@@ -161,8 +160,7 @@ struct LiveBadge: View {
                     .fontWeight(.bold)
             }
             .foregroundColor(.white)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
+            .badgeMedium()
             .background(
                 Capsule()
                     .fill(

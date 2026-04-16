@@ -450,7 +450,7 @@ final class ClipPersistenceService {
         }
 
         // Delete the source file now that the clip is safely persisted in Documents/Clips/.
-        // This cleans up the temporary copy created by VideoTransferable.importing (imported_*.mov).
+        // This cleans up the temporary file the recorder or trimmer wrote to a scratch location.
         if sourceNeedsDeletion {
             try? fileManager.removeItem(at: url)
         }

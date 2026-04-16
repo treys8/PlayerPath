@@ -5,7 +5,7 @@
 //  Subscription tier definitions and product ID registry.
 //
 
-import Foundation
+import SwiftUI
 
 // MARK: - Subscription Tier
 
@@ -119,6 +119,17 @@ enum CoachSubscriptionTier: String, Comparable, CaseIterable {
         case .instructor:    return 10
         case .proInstructor: return 30
         case .academy:       return Int.max
+        }
+    }
+
+    /// Canonical display color for this tier.
+    /// Free = neutral, Instructor = brand primary, Pro Instructor = premium, Academy = enterprise.
+    var color: Color {
+        switch self {
+        case .free:          return .secondary
+        case .instructor:    return .brandNavy
+        case .proInstructor: return .brandGold
+        case .academy:       return .purple
         }
     }
 

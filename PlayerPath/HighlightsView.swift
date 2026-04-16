@@ -24,6 +24,7 @@ struct HighlightsView: View {
     @State private var showingAutoHighlightSettings = false
 
     @State private var clipToShareToFolder: VideoClip?
+    @State private var clipToMove: VideoClip?
     @State private var viewModel = HighlightsViewModel()
     @State private var selection = Set<VideoClip.ID>()
     @AppStorage("hasCompletedHighlightMigration") private var hasCompletedMigration = false
@@ -58,6 +59,9 @@ struct HighlightsView: View {
         }
         .sheet(item: $clipToShareToFolder) { clip in
             ShareToCoachFolderView(clip: clip)
+        }
+        .sheet(item: $clipToMove) { clip in
+            MoveClipSheet(clip: clip)
         }
         .alert("Delete Highlight", isPresented: $showingDeleteAlert) {
             Button("Cancel", role: .cancel) {
@@ -249,6 +253,11 @@ struct HighlightsView: View {
                             } label: {
                                 Label("Share to Coach Folder", systemImage: hasCoachingAccess ? "folder.badge.person.crop" : "lock.fill")
                             }
+                        }
+                        Button {
+                            clipToMove = clip
+                        } label: {
+                            Label("Move to Athlete", systemImage: "arrow.right.arrow.left")
                         }
                         Divider()
                         Button {

@@ -16,12 +16,15 @@ struct GameDetailView: View {
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @State private var showingEndGame = false
     @State private var showingVideoRecorder = false
-    @State private var showingUploadRecorder = false
     @State private var showingDeleteConfirmation = false
     @State private var showingManualStats = false
     @State private var showingEditGame = false
     @State private var showingPhotoCamera = false
+    @State private var showingPhotoLibrary = false
     @State private var gameService: GameService? = nil
+
+    // Bulk import from Photos — state owned by BulkImportAttach modifier.
+    @State private var importTrigger = false
 
     var videoClips: [VideoClip] {
         (game.videoClips ?? []).sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
@@ -113,13 +116,18 @@ struct GameDetailView: View {
                 .padding(.vertical, 5)
             }
 
-            // Quick Actions Section
+            // Quick Actions Section — state-dependent ordering:
+            //   New game:  Record → Start → Add Photo → Stats → Edit → Delete
+            //   Live:      Record → End → Add Photo → Stats → Edit
+            //   Completed: Upload → Add Photo → Stats → Edit → Restart → Delete
             Section("Actions") {
                 if !game.isComplete {
+                    // Primary content action: live recording
                     Button(action: { showingVideoRecorder = true }) {
                         Label("Record Video", systemImage: "video.badge.plus")
                     }
 
+                    // Primary state action at #2 — Start for a new game, End mid-game
                     if game.isLive {
                         Button(role: .destructive) {
                             Haptics.warning()
@@ -128,38 +136,38 @@ struct GameDetailView: View {
                             Label("End Game", systemImage: "stop.circle")
                         }
                     } else {
-                        Button {
-                            startGame()
-                        } label: {
+                        Button(action: { startGame() }) {
                             Label("Start Game", systemImage: "play.circle")
                         }
                     }
                 } else {
-                    Button {
-                        restartGame()
-                    } label: {
-                        Label("Restart Game", systemImage: "arrow.counterclockwise")
-                    }
-
-                    Button(action: { showingUploadRecorder = true }) {
-                        Label("Upload from Camera Roll", systemImage: "photo.badge.plus")
+                    // Completed: primary content action is importing footage after the fact
+                    Button(action: { importTrigger = true }) {
+                        Label("Upload Video", systemImage: "square.and.arrow.down.on.square")
                     }
                 }
 
-                // Edit Game Details - available for all games
-                Button(action: { showingEditGame = true }) {
-                    Label("Edit Game", systemImage: "pencil")
-                }
+                // Content: photo (menu — Take Photo / Choose from Library)
+                addPhotoMenu
 
-                Button(action: { showingPhotoCamera = true }) {
-                    Label("Add Photo", systemImage: "camera")
-                }
-
-                // Manual Statistics Entry
+                // Data entry
                 Button(action: { showingManualStats = true }) {
                     Label("Enter Statistics", systemImage: "chart.bar.doc.horizontal")
                 }
 
+                // Metadata
+                Button(action: { showingEditGame = true }) {
+                    Label("Edit Game", systemImage: "pencil")
+                }
+
+                // Restart Game is rarely used — place near the bottom for completed games only.
+                if game.isComplete {
+                    Button(action: { restartGame() }) {
+                        Label("Restart Game", systemImage: "arrow.counterclockwise")
+                    }
+                }
+
+                // Destructive
                 if !game.isLive {
                     Button(role: .destructive) {
                         Haptics.warning()
@@ -275,15 +283,12 @@ struct GameDetailView: View {
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Menu {
-                    // Video Actions
+                    // Content group
                     if !game.isComplete {
                         Button(action: { showingVideoRecorder = true }) {
                             Label("Record Video", systemImage: "video.badge.plus")
                         }
-                    }
 
-                    // Game State Actions
-                    if !game.isComplete {
                         if game.isLive {
                             Button(action: { Haptics.warning(); showingEndGame = true }) {
                                 Label("End Game", systemImage: "stop.circle")
@@ -294,35 +299,35 @@ struct GameDetailView: View {
                             }
                         }
                     } else {
-                        Button(action: { restartGame() }) {
-                            Label("Restart Game", systemImage: "arrow.counterclockwise")
-                        }
-
-                        Button(action: { showingUploadRecorder = true }) {
-                            Label("Upload from Camera Roll", systemImage: "photo.badge.plus")
+                        Button(action: { importTrigger = true }) {
+                            Label("Upload Video", systemImage: "square.and.arrow.down.on.square")
                         }
                     }
 
-                    Button(action: { showingPhotoCamera = true }) {
-                        Label("Add Photo", systemImage: "camera")
-                    }
+                    addPhotoMenu
 
                     Divider()
 
-                    // Edit Game Details
-                    Button(action: { showingEditGame = true }) {
-                        Label("Edit Game", systemImage: "pencil")
-                    }
-
-                    // Statistics Action
+                    // Data + metadata group
                     Button(action: { showingManualStats = true }) {
                         Label("Enter Statistics", systemImage: "chart.bar.doc.horizontal")
                     }
 
-                    Divider()
+                    Button(action: { showingEditGame = true }) {
+                        Label("Edit Game", systemImage: "pencil")
+                    }
 
-                    // Destructive Actions
+                    // State-change + destructive group
+                    if game.isComplete {
+                        Divider()
+
+                        Button(action: { restartGame() }) {
+                            Label("Restart Game", systemImage: "arrow.counterclockwise")
+                        }
+                    }
+
                     if !game.isLive {
+                        if !game.isComplete { Divider() }
                         Button(role: .destructive, action: { showingDeleteConfirmation = true }) {
                             Label("Delete Game", systemImage: "trash")
                         }
@@ -366,9 +371,7 @@ struct GameDetailView: View {
         .fullScreenCover(isPresented: $showingVideoRecorder) {
             DirectCameraRecorderView(athlete: game.athlete, game: game)
         }
-        .fullScreenCover(isPresented: $showingUploadRecorder) {
-            VideoRecorderView_Refactored(athlete: game.athlete, game: game)
-        }
+        .bulkImportAttach(athlete: game.athlete, game: game, trigger: $importTrigger)
         .sheet(isPresented: $showingManualStats) {
             ManualStatisticsEntryView(game: game)
         }
@@ -381,8 +384,27 @@ struct GameDetailView: View {
             }
             .ignoresSafeArea()
         }
+        .fullScreenCover(isPresented: $showingPhotoLibrary) {
+            ImagePicker(sourceType: .photoLibrary, allowsEditing: false) { image in
+                saveGamePhoto(image)
+            }
+            .ignoresSafeArea()
+        }
         .onAppear {
             if gameService == nil { gameService = GameService(modelContext: modelContext) }
+        }
+    }
+
+    private var addPhotoMenu: some View {
+        Menu {
+            Button(action: { showingPhotoCamera = true }) {
+                Label("Take Photo", systemImage: "camera")
+            }
+            Button(action: { showingPhotoLibrary = true }) {
+                Label("Choose from Library", systemImage: "photo.on.rectangle")
+            }
+        } label: {
+            Label("Add Photo", systemImage: "camera")
         }
     }
 

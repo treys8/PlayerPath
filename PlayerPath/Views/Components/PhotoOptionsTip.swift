@@ -30,17 +30,18 @@ struct PhotoOptionsTip: Tip {
 // MARK: - View Modifier
 
 extension View {
-    func photoOptionsTip(isFirst: Bool) -> some View {
-        modifier(PhotoOptionsTipModifier(isFirst: isFirst))
+    func photoOptionsTip(isFirst: Bool, tipsEnabled: Bool) -> some View {
+        modifier(PhotoOptionsTipModifier(isFirst: isFirst, tipsEnabled: tipsEnabled))
     }
 }
 
 private struct PhotoOptionsTipModifier: ViewModifier {
     let isFirst: Bool
+    let tipsEnabled: Bool
     private let tip = PhotoOptionsTip()
 
     func body(content: Content) -> some View {
-        if isFirst {
+        if isFirst && tipsEnabled {
             content.popoverTip(tip, arrowEdge: .top)
         } else {
             content

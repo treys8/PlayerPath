@@ -166,7 +166,7 @@ struct CoachPaywallView: View {
             } academy: {
                 Text("Contact\nUs")
                     .font(.caption).fontWeight(.semibold)
-                    .foregroundStyle(.purple)
+                    .foregroundStyle(CoachSubscriptionTier.academy.color)
                     .multilineTextAlignment(.center)
             }
 
@@ -176,9 +176,9 @@ struct CoachPaywallView: View {
             } instructor: {
                 Text("10").font(.caption)
             } proInstructor: {
-                Text("30").font(.caption).foregroundStyle(Color.brandNavy)
+                Text("30").font(.caption).foregroundStyle(CoachSubscriptionTier.proInstructor.color)
             } academy: {
-                Text("∞").font(.caption).foregroundStyle(.purple)
+                Text("∞").font(.caption).foregroundStyle(CoachSubscriptionTier.academy.color)
             }
 
             // Video Review row
@@ -211,7 +211,7 @@ struct CoachPaywallView: View {
                 .foregroundStyle(isSelected ? .white : .primary)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 12)
-                .background(isSelected ? Color.brandNavy : Color.clear)
+                .background(isSelected ? tier.color : Color.clear)
         }
         .buttonStyle(.plain)
         .animation(.easeInOut(duration: 0.2), value: isSelected)
@@ -223,10 +223,10 @@ struct CoachPaywallView: View {
         } label: {
             Text("Academy")
                 .font(.caption).fontWeight(.semibold)
-                .foregroundStyle(selectedTier == .academy ? .white : .purple)
+                .foregroundStyle(selectedTier == .academy ? .white : CoachSubscriptionTier.academy.color)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 12)
-                .background(selectedTier == .academy ? Color.purple : Color.clear)
+                .background(selectedTier == .academy ? CoachSubscriptionTier.academy.color : Color.clear)
         }
         .buttonStyle(.plain)
         .animation(.easeInOut(duration: 0.2), value: selectedTier == .academy)
@@ -258,13 +258,13 @@ struct CoachPaywallView: View {
                 Spacer(minLength: 0)
 
                 coachCellFrame { free() }
-                    .background(selectedTier == .free ? Color.brandNavy.opacity(0.06) : Color.clear)
+                    .background(selectedTier == .free ? CoachSubscriptionTier.free.color.opacity(0.06) : Color.clear)
                 coachCellFrame { instructor() }
-                    .background(selectedTier == .instructor ? Color.brandNavy.opacity(0.06) : Color.clear)
+                    .background(selectedTier == .instructor ? CoachSubscriptionTier.instructor.color.opacity(0.06) : Color.clear)
                 coachCellFrame { proInstructor() }
-                    .background(selectedTier == .proInstructor ? Color.brandNavy.opacity(0.06) : Color.clear)
+                    .background(selectedTier == .proInstructor ? CoachSubscriptionTier.proInstructor.color.opacity(0.06) : Color.clear)
                 coachCellFrame { academy() }
-                    .background(selectedTier == .academy ? Color.purple.opacity(0.06) : Color.clear)
+                    .background(selectedTier == .academy ? CoachSubscriptionTier.academy.color.opacity(0.06) : Color.clear)
             }
         }
     }
@@ -319,7 +319,7 @@ struct CoachPaywallView: View {
                         .background(LinearGradient.premiumButton)
                         .foregroundStyle(.white)
                         .cornerRadius(14)
-                        .shadow(color: Color.purple.opacity(0.3), radius: 8, x: 0, y: 4)
+                        .shadow(color: CoachSubscriptionTier.academy.color.opacity(0.3), radius: 8, x: 0, y: 4)
                 }
                 .buttonStyle(.plain)
             } else if selectedTier == .free {
@@ -376,7 +376,7 @@ struct CoachPaywallView: View {
                     .background(LinearGradient.coachButton)
                     .foregroundStyle(.white)
                     .cornerRadius(14)
-                    .shadow(color: Color.brandNavy.opacity(0.3), radius: 8, x: 0, y: 4)
+                    .shadow(color: selectedTier.color.opacity(0.3), radius: 8, x: 0, y: 4)
                 }
                 .disabled(isPurchasing)
                 .buttonStyle(.plain)

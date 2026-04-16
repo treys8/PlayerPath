@@ -14,6 +14,8 @@ import PhotosUI
 struct BulkVideoImportSheet: View {
     let items: [PhotosPickerItem]
     let athlete: Athlete
+    var game: Game? = nil
+    var practice: Practice? = nil
     let onComplete: (_ succeeded: Int, _ failed: Int, _ stoppedForQuota: Bool, _ wasCancelled: Bool) -> Void
 
     @State private var viewModel = BulkVideoImportViewModel()
@@ -63,7 +65,13 @@ struct BulkVideoImportSheet: View {
             }
             .interactiveDismissDisabled()
             .task {
-                await viewModel.runImport(items: items, athlete: athlete, modelContext: modelContext)
+                await viewModel.runImport(
+                    items: items,
+                    athlete: athlete,
+                    modelContext: modelContext,
+                    game: game,
+                    practice: practice
+                )
                 if case .completed(let succeeded, let failed, let quota, let cancelled) = viewModel.status {
                     onComplete(succeeded, failed, quota, cancelled)
                     dismiss()

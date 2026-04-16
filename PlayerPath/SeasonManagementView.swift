@@ -83,7 +83,7 @@ struct SeasonManagementView: View {
                     Button {
                         showingCreateSeason = true
                     } label: {
-                        Label("Start New Season", systemImage: "plus.circle")
+                        Label("Start New Season", systemImage: AppIcon.addInline)
                     }
                 } header: {
                     Text("Actions")

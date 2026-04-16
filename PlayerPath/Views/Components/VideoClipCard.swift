@@ -70,9 +70,8 @@ struct VideoClipCard: View {
                                     .font(.caption2)
                                     .fontWeight(.semibold)
                                     .foregroundColor(.white)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 3)
-                                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 4))
+                                    .badgeSmall()
+                                    .background(.ultraThinMaterial, in: Capsule())
                                     .padding(8)
                             }
                             Spacer()
@@ -116,8 +115,7 @@ struct VideoClipCard: View {
                                             .foregroundColor(.white)
                                             .lineLimit(1)
                                             .fixedSize(horizontal: true, vertical: false)
-                                            .padding(.horizontal, 8)
-                                            .padding(.vertical, 3)
+                                            .badgeMedium()
                                             .background(.orange, in: Capsule())
                                     }
                                 }
@@ -176,15 +174,15 @@ struct VideoClipCard: View {
                                 .font(.caption2)
                                 .foregroundColor(.secondary)
                         } else {
-                            HStack(spacing: 6) {
-                                Text((video.createdAt ?? Date()), style: .date)
-                                    .font(.caption2)
-                                    .foregroundColor(.secondary)
-                                Spacer()
-                                if let season = video.season {
+                            if let season = video.season {
+                                HStack(spacing: 6) {
+                                    Spacer()
                                     SeasonBadge(season: season, fontSize: 8)
                                 }
                             }
+                            Text((video.createdAt ?? Date()), style: .date)
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
                         }
                     }
                     .padding(.horizontal, 12)

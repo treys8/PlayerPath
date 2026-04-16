@@ -98,7 +98,7 @@ struct AllVideosTabView: View {
                                 } else {
                                     Text("Load More Videos")
                                         .font(.subheadline.weight(.medium))
-                                        .foregroundColor(.accentColor)
+                                        .foregroundColor(.brandNavy)
                                         .frame(maxWidth: .infinity)
                                         .padding()
                                 }

@@ -303,12 +303,11 @@ struct RemoteThumbnailView: View {
                 .font(.system(size: 10, weight: .bold))
         }
         .foregroundColor(.white)
-        .padding(.horizontal, 6)
-        .padding(.vertical, 3)
+        .badgeSmall()
         .background {
             ZStack {
-                RoundedRectangle(cornerRadius: 5).fill(.ultraThinMaterial)
-                RoundedRectangle(cornerRadius: 5).fill(.black.opacity(0.3))
+                Capsule().fill(.ultraThinMaterial)
+                Capsule().fill(.black.opacity(0.3))
             }
         }
         .shadow(color: .black.opacity(0.25), radius: 4, x: 0, y: 2)

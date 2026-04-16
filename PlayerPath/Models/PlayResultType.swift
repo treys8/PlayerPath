@@ -5,7 +5,7 @@
 //  Created by Trey Schilling on 10/23/25.
 //
 
-import Foundation
+import SwiftUI
 
 enum PlayResultType: Int, CaseIterable, Codable {
     // Batting results
@@ -93,6 +93,25 @@ enum PlayResultType: Int, CaseIterable, Codable {
         case .wildPitch: return "Wild Pitch"
         case .pitchingStrikeout: return "Strikeout"
         case .pitchingWalk: return "Walk"
+        }
+    }
+
+    /// Canonical display color for this play result.
+    /// Used by video thumbnails, tagging overlays, and result editor cards.
+    var color: Color {
+        switch self {
+        case .single, .double, .triple, .strike:
+            return .green
+        case .homeRun:
+            return .gold
+        case .walk, .pitchingWalk:
+            return .cyan
+        case .strikeout, .groundOut, .flyOut, .wildPitch, .pitchingStrikeout:
+            return .red
+        case .batterHitByPitch, .hitByPitch:
+            return .purple
+        case .ball:
+            return .orange
         }
     }
 

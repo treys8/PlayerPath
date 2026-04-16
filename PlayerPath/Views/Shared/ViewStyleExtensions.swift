@@ -6,8 +6,18 @@
 //
 
 import SwiftUI
+import TipKit
 
 extension View {
+    @ViewBuilder
+    func popoverTipIfEnabled<T: Tip>(_ tip: T, arrowEdge: Edge = .top, enabled: Bool) -> some View {
+        if enabled {
+            popoverTip(tip, arrowEdge: arrowEdge)
+        } else {
+            self
+        }
+    }
+
     func appCard(cornerRadius: CGFloat = 16) -> some View {
         self
             .background(

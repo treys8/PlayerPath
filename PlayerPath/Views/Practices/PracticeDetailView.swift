@@ -19,14 +19,11 @@ struct PracticeDetailView: View {
     @State private var selectedVideo: VideoClip?
     @State private var showingDeleteConfirmation = false
 
-    private enum PracticeSheet: Identifiable {
-        case uploadVideo
-        case addNote
-        var id: String { String(describing: self) }
-    }
-
-    @State private var activeSheet: PracticeSheet?
+    @State private var showingAddNote = false
     @State private var showingRecordCamera = false
+
+    // Bulk import from Photos — state owned by BulkImportAttach modifier.
+    @State private var importTrigger = false
 
     private var practiceType: PracticeType {
         practice.type
@@ -87,11 +84,11 @@ struct PracticeDetailView: View {
                     Label("Record Video", systemImage: "video.badge.plus")
                 }
 
-                Button(action: { activeSheet = .uploadVideo }) {
-                    Label("Upload from Camera Roll", systemImage: "photo.on.rectangle")
+                Button(action: { importTrigger = true }) {
+                    Label("Upload Video", systemImage: "square.and.arrow.down.on.square")
                 }
 
-                Button(action: { activeSheet = .addNote }) {
+                Button(action: { showingAddNote = true }) {
                     Label("Add Note", systemImage: "note.text.badge.plus")
                 }
 
@@ -124,7 +121,7 @@ struct PracticeDetailView: View {
             // Notes Section
             Section("Notes (\(notes.count))") {
                 if notes.isEmpty {
-                    Button(action: { activeSheet = .addNote }) {
+                    Button(action: { showingAddNote = true }) {
                         Label("Add your first note", systemImage: "note.text.badge.plus")
                     }
                 } else {
@@ -145,14 +142,10 @@ struct PracticeDetailView: View {
         .fullScreenCover(isPresented: $showingRecordCamera) {
             DirectCameraRecorderView(athlete: practice.athlete, practice: practice)
         }
-        .sheet(item: $activeSheet) { sheet in
-            switch sheet {
-            case .uploadVideo:
-                VideoRecorderView_Refactored(athlete: practice.athlete, practice: practice)
-            case .addNote:
-                AddPracticeNoteView(practice: practice)
-            }
+        .sheet(isPresented: $showingAddNote) {
+            AddPracticeNoteView(practice: practice)
         }
+        .bulkImportAttach(athlete: practice.athlete, practice: practice, trigger: $importTrigger)
         .fullScreenCover(item: $selectedVideo) { video in
             VideoPlayerView(clip: video)
         }

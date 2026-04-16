@@ -14,6 +14,7 @@ struct PlayResultEditorView: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var selectedResult: PlayResultType?
+    @State private var mode: AthleteRole
     @State private var showingConfirmation = false
     @State private var errorMessage: String?
     @State private var showingError = false
@@ -22,9 +23,21 @@ struct PlayResultEditorView: View {
         self.clip = clip
         self.modelContext = modelContext
         _selectedResult = State(initialValue: clip.playResult?.type)
+        let initialMode: AthleteRole = {
+            if let existing = clip.playResult?.type {
+                return existing.isPitchingResult ? .pitcher : .batter
+            }
+            return clip.athlete?.primaryRole ?? .batter
+        }()
+        _mode = State(initialValue: initialMode)
     }
 
     private var isTagging: Bool { clip.playResult == nil }
+
+    private var canSave: Bool {
+        guard let selected = selectedResult else { return false }
+        return selected != clip.playResult?.type
+    }
 
     var body: some View {
         NavigationStack {
@@ -40,7 +53,7 @@ struct PlayResultEditorView: View {
                             HStack {
                                 Image(systemName: currentResult.iconName)
                                     .font(.title)
-                                    .foregroundColor(currentResult.uiColor)
+                                    .foregroundColor(currentResult.color)
                                 Text(currentResult.displayName)
                                     .font(.title2)
                                     .fontWeight(.bold)
@@ -48,7 +61,7 @@ struct PlayResultEditorView: View {
                             .padding()
                             .background(
                                 RoundedRectangle(cornerRadius: 12)
-                                    .fill(currentResult.uiColor.opacity(0.1))
+                                    .fill(currentResult.color.opacity(0.1))
                             )
                         } else {
                             Text("No result recorded")
@@ -69,74 +82,22 @@ struct PlayResultEditorView: View {
                     VStack(spacing: 16) {
                         Text(isTagging ? "Select Play Result" : "Select New Result")
                             .font(.headline)
+
+                        Picker("Mode", selection: $mode) {
+                            Text("Batter").tag(AthleteRole.batter)
+                            Text("Pitcher").tag(AthleteRole.pitcher)
+                        }
+                        .pickerStyle(.segmented)
+                        .onChange(of: mode) { _, _ in
+                            selectedResult = nil
+                            Haptics.light()
+                        }
+
                         VStack(spacing: 12) {
-                            // Hits Section
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("Hits")
-                                    .font(.caption)
-                                    .fontWeight(.bold)
-                                    .foregroundColor(.secondary)
-                                    .padding(.horizontal, 4)
-
-                                LazyVGrid(columns: [
-                                    GridItem(.flexible(), spacing: 8),
-                                    GridItem(.flexible(), spacing: 8)
-                                ], spacing: 8) {
-                                    ForEach([PlayResultType.single, .double, .triple, .homeRun], id: \.self) { result in
-                                        PlayResultEditButton(
-                                            result: result,
-                                            isSelected: selectedResult == result,
-                                            isCurrent: clip.playResult?.type == result
-                                        ) {
-                                            selectedResult = result
-                                            Haptics.medium()
-                                        }
-                                    }
-                                }
-                            }
-
-                            // Walk Section
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("Walk")
-                                    .font(.caption)
-                                    .fontWeight(.bold)
-                                    .foregroundColor(.secondary)
-                                    .padding(.horizontal, 4)
-
-                                PlayResultEditButton(
-                                    result: .walk,
-                                    isSelected: selectedResult == .walk,
-                                    isCurrent: clip.playResult?.type == .walk,
-                                    fullWidth: true
-                                ) {
-                                    selectedResult = .walk
-                                    Haptics.medium()
-                                }
-                            }
-
-                            // Outs Section
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("Outs")
-                                    .font(.caption)
-                                    .fontWeight(.bold)
-                                    .foregroundColor(.secondary)
-                                    .padding(.horizontal, 4)
-
-                                LazyVGrid(columns: [
-                                    GridItem(.flexible(), spacing: 8),
-                                    GridItem(.flexible(), spacing: 8)
-                                ], spacing: 8) {
-                                    ForEach([PlayResultType.strikeout, .groundOut, .flyOut], id: \.self) { result in
-                                        PlayResultEditButton(
-                                            result: result,
-                                            isSelected: selectedResult == result,
-                                            isCurrent: clip.playResult?.type == result
-                                        ) {
-                                            selectedResult = result
-                                            Haptics.medium()
-                                        }
-                                    }
-                                }
+                            if mode == .batter {
+                                battingResultsSection
+                            } else {
+                                pitchingResultsSection
                             }
 
                             // Remove result option (only when editing, not tagging)
@@ -172,8 +133,8 @@ struct PlayResultEditorView: View {
                                 .foregroundColor(.white)
                                 .cornerRadius(12)
                         }
-                        .disabled(selectedResult == clip.playResult?.type)
-                        .opacity(selectedResult == clip.playResult?.type ? 0.5 : 1.0)
+                        .disabled(!canSave)
+                        .opacity(canSave ? 1.0 : 0.5)
                         .padding(.top, 8)
                     }
             }
@@ -210,6 +171,96 @@ struct PlayResultEditorView: View {
             } message: {
                 Text(errorMessage ?? "")
             }
+        }
+    }
+
+    // MARK: - Result Sections
+
+    private var battingResultsSection: some View {
+        VStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 8) {
+                sectionHeader("Hits")
+                LazyVGrid(columns: twoColumnGrid, spacing: 8) {
+                    ForEach([PlayResultType.single, .double, .triple, .homeRun], id: \.self) { result in
+                        resultButton(result)
+                    }
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                sectionHeader("Walk")
+                resultButton(.walk, fullWidth: true)
+                resultButton(.batterHitByPitch, fullWidth: true)
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                sectionHeader("Outs")
+                LazyVGrid(columns: twoColumnGrid, spacing: 8) {
+                    ForEach([PlayResultType.strikeout, .groundOut, .flyOut], id: \.self) { result in
+                        resultButton(result)
+                    }
+                }
+            }
+        }
+    }
+
+    private var pitchingResultsSection: some View {
+        VStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 8) {
+                sectionHeader("Pitches")
+                LazyVGrid(columns: twoColumnGrid, spacing: 8) {
+                    ForEach([PlayResultType.ball, .strike], id: \.self) { result in
+                        resultButton(result)
+                    }
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                sectionHeader("Outs")
+                LazyVGrid(columns: twoColumnGrid, spacing: 8) {
+                    ForEach([PlayResultType.pitchingStrikeout, .groundOut, .flyOut], id: \.self) { result in
+                        resultButton(result)
+                    }
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                sectionHeader("Walk")
+                resultButton(.pitchingWalk, fullWidth: true)
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                sectionHeader("Special")
+                LazyVGrid(columns: twoColumnGrid, spacing: 8) {
+                    ForEach([PlayResultType.hitByPitch, .wildPitch], id: \.self) { result in
+                        resultButton(result)
+                    }
+                }
+            }
+        }
+    }
+
+    private var twoColumnGrid: [GridItem] {
+        [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)]
+    }
+
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title)
+            .font(.caption)
+            .fontWeight(.bold)
+            .foregroundColor(.secondary)
+            .padding(.horizontal, 4)
+    }
+
+    private func resultButton(_ result: PlayResultType, fullWidth: Bool = false) -> some View {
+        PlayResultEditButton(
+            result: result,
+            isSelected: selectedResult == result,
+            isCurrent: clip.playResult?.type == result,
+            fullWidth: fullWidth
+        ) {
+            selectedResult = result
+            Haptics.medium()
         }
     }
 
@@ -295,7 +346,7 @@ struct PlayResultEditButton: View {
             .frame(maxWidth: fullWidth ? .infinity : nil)
             .background(
                 RoundedRectangle(cornerRadius: 10)
-                    .fill(isSelected ? result.uiColor : result.uiColor.opacity(0.1))
+                    .fill(isSelected ? result.color : result.color.opacity(0.1))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 10)
@@ -304,7 +355,7 @@ struct PlayResultEditButton: View {
                         lineWidth: 2
                     )
             )
-            .foregroundColor(isSelected ? .white : result.uiColor)
+            .foregroundColor(isSelected ? .white : result.color)
         }
         .buttonStyle(.plain)
     }

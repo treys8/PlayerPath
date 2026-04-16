@@ -51,6 +51,7 @@ struct PhotosView: View {
     @State private var isSelecting = false
     @State private var selectedIDs: Set<UUID> = []
     @State private var showingBulkDeleteConfirm = false
+    @State private var tipsEnabled: Bool = true
 
     private var hasActiveFilters: Bool {
         selectedDateRange != .allTime || selectedSeasonFilter != nil
@@ -83,7 +84,10 @@ struct PhotosView: View {
         }
         .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search photos")
         .onAppear { AnalyticsService.shared.trackScreenView(screenName: "Photos", screenClass: "PhotosView") }
-        .task { updatePhotosCache() }
+        .task {
+            loadTipsEnabled()
+            updatePhotosCache()
+        }
         .onChange(of: activeFilter) { _, _ in updatePhotosCache() }
         .onChange(of: selectedSeasonFilter) { _, _ in updatePhotosCache() }
         .onChange(of: selectedDateRange) { _, _ in updatePhotosCache() }
@@ -128,11 +132,17 @@ struct PhotosView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         Button {
-                            showingSourcePicker = true
+                            showingCamera = true
                         } label: {
-                            Label("Add Photo", systemImage: "plus")
+                            Label("Take Photo", systemImage: "camera")
+                        }
+                        Button {
+                            showingLibraryPicker = true
+                        } label: {
+                            Label("Choose from Library", systemImage: "photo.on.rectangle")
                         }
                         if !cachedPhotos.isEmpty {
+                            Divider()
                             Button {
                                 isSelecting = true
                             } label: {
@@ -278,7 +288,7 @@ struct PhotosView: View {
                                 }
                             }
                             .buttonStyle(.plain)
-                            .photoOptionsTip(isFirst: photo.id == cachedPhotos.first?.id)
+                            .photoOptionsTip(isFirst: photo.id == cachedPhotos.first?.id, tipsEnabled: tipsEnabled)
                         }
                     }
                 }
@@ -350,6 +360,14 @@ struct PhotosView: View {
             try? await SyncCoordinator.shared.syncPhotos(for: user)
         }
         updatePhotosCache()
+    }
+
+    private func loadTipsEnabled() {
+        if let prefs = try? modelContext.fetch(FetchDescriptor<UserPreferences>()).first {
+            tipsEnabled = prefs.showOnboardingTips
+        } else {
+            tipsEnabled = true
+        }
     }
 
     private func updatePhotosCache() {

@@ -27,7 +27,6 @@ struct DashboardView: View {
     @State private var showingPhotos = false
     @State private var isCheckingPermissions = false
     @State private var isEndingGame: Set<UUID> = []
-    private let gamesCardTip = DashboardGamesCardTip()
     private let athletePickerTip = AthletePickerTip()
 
     // Cached computed values to avoid recalculation during body evaluation
@@ -38,6 +37,7 @@ struct DashboardView: View {
     @State private var cachedSeasonCount: Int = 0
     @State private var cachedPracticeCount: Int = 0
     @State private var cachedPhotoCount: Int = 0
+    @State private var tipsEnabled: Bool = true
 
     // Dynamic live games query configured via init to safely capture athleteID
     private let athleteID: UUID
@@ -140,10 +140,11 @@ struct DashboardView: View {
                 } label: {
                     AthletePickerLabel(name: athlete.name, initials: athleteInitials)
                 }
-                .popoverTip(athletePickerTip, arrowEdge: .top)
+                .popoverTipIfEnabled(athletePickerTip, arrowEdge: .top, enabled: tipsEnabled)
             }
         }
         .task {
+            loadTipsEnabled()
             await viewModel.refresh()
         }
         .onAppear {
@@ -151,10 +152,6 @@ struct DashboardView: View {
                 pulseAnimation = true
             }
             updateCachedStats()
-            DashboardGamesCardTip.gamesCount = viewModel.totalGames
-        }
-        .onChange(of: viewModel.totalGames) { _, newValue in
-            DashboardGamesCardTip.gamesCount = newValue
         }
         .onChange(of: athlete.statistics?.updatedAt) { _, _ in
             updateCachedStats()
@@ -354,7 +351,6 @@ struct DashboardView: View {
                 DashboardFeatureCard(icon: "baseball.diamond.bases", title: "Games", subtitle: "\(viewModel.totalGames) Total", color: .brandNavy) {
                     postSwitchTab(.games)
                 }
-                .popoverTip(gamesCardTip, arrowEdge: .top)
                 DashboardFeatureCard(icon: "video", title: "Video Clips", subtitle: "\(viewModel.totalVideos) Recorded", color: .brandNavy) {
                     postSwitchTab(.videos)
                 }
@@ -448,6 +444,14 @@ struct DashboardView: View {
         cachedSeasonCount = (athlete.seasons ?? []).count
         cachedPracticeCount = (athlete.practices ?? []).count
         cachedPhotoCount = (athlete.photos ?? []).count
+    }
+
+    private func loadTipsEnabled() {
+        if let prefs = try? modelContext.fetch(FetchDescriptor<UserPreferences>()).first {
+            tipsEnabled = prefs.showOnboardingTips
+        } else {
+            tipsEnabled = true
+        }
     }
 
     /// Formats a rate stat in baseball style: ".325" for values < 1.0, "1.400" for SLG/OPS >= 1.0

@@ -27,8 +27,10 @@ struct StatisticsView: View {
         }
     }
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.modelContext) private var modelContext
     @State private var activeSheet: ActiveSheet?
     @State private var selectedSeasonFilter: String? = nil // nil = All Seasons (Career)
+    @State private var tipsEnabled: Bool = true
 
     // Get all available seasons (active + archived)
     private var availableSeasons: [Season] {
@@ -292,11 +294,24 @@ struct StatisticsView: View {
                 showQuickEntry: {
                     if let game = currentLiveGame { activeSheet = .quickEntry(game) }
                 },
-                showGameSelection: { activeSheet = .gameSelection }
+                showGameSelection: { activeSheet = .gameSelection },
+                tipsEnabled: tipsEnabled
             )
-            .onAppear {
+            .task {
+                loadTipsEnabled()
                 EmptyStatsTip.hasGames = !(athlete?.games ?? []).isEmpty
             }
+            .onChange(of: athlete?.games?.count) { _, _ in
+                EmptyStatsTip.hasGames = !(athlete?.games ?? []).isEmpty
+            }
+        }
+    }
+
+    private func loadTipsEnabled() {
+        if let prefs = try? modelContext.fetch(FetchDescriptor<UserPreferences>()).first {
+            tipsEnabled = prefs.showOnboardingTips
+        } else {
+            tipsEnabled = true
         }
     }
 }

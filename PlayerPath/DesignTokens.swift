@@ -81,8 +81,11 @@ extension Color {
             ? UIColor(red: 0.25, green: 0.66, blue: 0.97, alpha: 1) // #40A8F7
             : UIColor(red: 0.0, green: 0.20, blue: 0.45, alpha: 1)  // #003373 original navy
     })
-    static let brandGold = Color(red: 0.83, green: 0.63, blue: 0.16)       // #D4A029
-    static let brandGoldLight = Color(red: 0.90, green: 0.72, blue: 0.28)  // Brighter for dark mode
+    static let brandGold = Color(UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(red: 0.90, green: 0.72, blue: 0.28, alpha: 1) // brighter for dark mode
+            : UIColor(red: 0.83, green: 0.63, blue: 0.16, alpha: 1) // #D4A029
+    })
 
     /// Legacy aliases
     static let brandPrimary = Color.brandNavy
@@ -211,4 +214,20 @@ extension Animation {
     static let quick = Animation.easeInOut(duration: 0.2)
     static let standard = Animation.easeInOut(duration: 0.3)
     static let slow = Animation.easeInOut(duration: 0.5)
+}
+
+// MARK: - Badges
+
+extension View {
+    /// Small metadata badge (season, duration, count). 6h / 2v padding.
+    /// Pair with Capsule background.
+    func badgeSmall() -> some View {
+        padding(.horizontal, 6).padding(.vertical, 2)
+    }
+
+    /// Medium status badge (LIVE, pitch speed, uploading). 8h / 4v padding.
+    /// Pair with Capsule background.
+    func badgeMedium() -> some View {
+        padding(.horizontal, 8).padding(.vertical, 4)
+    }
 }

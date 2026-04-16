@@ -64,8 +64,7 @@ struct LiveSessionCard: View {
                             .fontWeight(.black)
                             .foregroundColor(accentColor)
                     }
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 3)
+                    .badgeSmall()
                     .background(Capsule().fill(accentColor.opacity(0.12)))
 
                     if isLive {

@@ -8,8 +8,6 @@
 import SwiftUI
 import SwiftData
 import AVKit
-import PhotosUI
-import Photos
 import TipKit
 
 struct VideoClipsView: View {
@@ -19,14 +17,12 @@ struct VideoClipsView: View {
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
     private let uploadManager = UploadQueueManager.shared
     @State private var showingRecorder = false
-    @State private var showingUploadPicker = false
     @State private var showingAdvancedSearch = false
     @State private var selectedVideo: VideoClip?
     @State private var viewModel = VideoClipsViewModel()
     @State private var liveGameContext: Game?
     @State private var errorMessage: String?
     @State private var showingError = false
-    @State private var isImporting = false
     @State private var videoToDelete: VideoClip?
     @State private var showingDeleteConfirmation = false
 
@@ -42,16 +38,13 @@ struct VideoClipsView: View {
 
     // Tips
     private let recordTip = VideoClipsRecordTip()
+    @State private var tipsEnabled: Bool = true
 
     // Debounce for search-driven filtering
     @State private var filterDebounceTask: Task<Void, Never>?
 
-    // Bulk import from Photos (Plus+)
-    @State private var showingBulkPicker = false
-    @State private var bulkPickerItems: [PhotosPickerItem] = []
-    @State private var pendingImportItems: [PhotosPickerItem] = []
-    @State private var showingBulkImportSheet = false
-    @State private var showingBulkImportPaywall = false
+    // Upload Video — state owned by BulkImportAttach modifier.
+    @State private var importTrigger = false
 
     // Check if filters are active
     private var hasActiveFilters: Bool {
@@ -183,16 +176,9 @@ struct VideoClipsView: View {
                 Menu {
                     Button {
                         Haptics.light()
-                        showingUploadPicker = true
+                        importTrigger = true
                     } label: {
-                        Label("Upload from Library", systemImage: "square.and.arrow.up")
-                    }
-
-                    Button {
-                        Haptics.light()
-                        handleBulkImportTap()
-                    } label: {
-                        Label("Import from Photos", systemImage: "square.and.arrow.down.on.square")
+                        Label("Upload Video", systemImage: "square.and.arrow.down.on.square")
                     }
 
                     if !(athlete.videoClips?.isEmpty ?? true) {
@@ -264,9 +250,6 @@ struct VideoClipsView: View {
         .fullScreenCover(isPresented: $showingRecorder) {
             DirectCameraRecorderView(athlete: athlete, game: liveGameContext)
         }
-        .sheet(isPresented: $showingUploadPicker) {
-            VideoRecorderView_Refactored(athlete: athlete)
-        }
         .fullScreenCover(item: $selectedVideo) { video in
             VideoPlayerView(clip: video)
         }
@@ -276,43 +259,7 @@ struct VideoClipsView: View {
         .sheet(isPresented: $showingAdvancedSearch) {
             AdvancedSearchView(athlete: athlete)
         }
-        .photosPicker(
-            isPresented: $showingBulkPicker,
-            selection: $bulkPickerItems,
-            maxSelectionCount: 20,
-            matching: .videos,
-            preferredItemEncoding: .compatible
-        )
-        .onChange(of: bulkPickerItems) { _, newItems in
-            guard !newItems.isEmpty else { return }
-            pendingImportItems = newItems
-            bulkPickerItems = []
-            showingBulkImportSheet = true
-        }
-        .sheet(isPresented: $showingBulkImportSheet) {
-            BulkVideoImportSheet(items: pendingImportItems, athlete: athlete) { succeeded, failed, stoppedForQuota, wasCancelled in
-                let message: String
-                if stoppedForQuota {
-                    message = succeeded > 0 ? "\(succeeded) imported — storage full" : "Storage full — nothing imported"
-                } else if wasCancelled {
-                    message = succeeded > 0 ? "Cancelled — \(succeeded) imported" : "Import cancelled"
-                } else if failed == 0 && succeeded > 0 {
-                    message = succeeded == 1 ? "1 video imported" : "\(succeeded) videos imported"
-                } else if succeeded == 0 {
-                    message = "Import failed"
-                } else {
-                    message = "\(succeeded) imported, \(failed) failed"
-                }
-                showBulkToast(message)
-                pendingImportItems = []
-            }
-            .presentationDetents([.medium])
-        }
-        .sheet(isPresented: $showingBulkImportPaywall) {
-            if let user = authManager.localUser {
-                ImprovedPaywallView(user: user)
-            }
-        }
+        .bulkImportAttach(athlete: athlete, trigger: $importTrigger)
         .onReceive(NotificationCenter.default.publisher(for: .presentVideoRecorder)) { notification in
             liveGameContext = notification.object as? Game
             showingRecorder = true
@@ -325,6 +272,7 @@ struct VideoClipsView: View {
             }
         }
         .task {
+            loadTipsEnabled()
             viewModel.update(videos: athlete.videoClips ?? [])
         }
         .onAppear {
@@ -369,25 +317,6 @@ struct VideoClipsView: View {
         } message: {
             Text("Are you sure you want to delete \(selectedVideos.count) video\(selectedVideos.count == 1 ? "" : "s")? This action cannot be undone.")
         }
-        .overlay {
-            if isImporting {
-                ZStack {
-                    Color.black.opacity(0.4)
-                        .ignoresSafeArea()
-                    VStack(spacing: 16) {
-                        ProgressView()
-                            .scaleEffect(1.5)
-                        Text("Importing Video...")
-                            .font(.headline)
-                            .foregroundColor(.white)
-                    }
-                    .padding(32)
-                    .background(Color(.systemBackground))
-                    .cornerRadius(.cornerXLarge)
-                    .shadow(radius: 20)
-                }
-            }
-        }
         .overlay(alignment: .bottom) {
             if let message = bulkOperationMessage {
                 Text(message)
@@ -401,6 +330,14 @@ struct VideoClipsView: View {
                     .padding(.bottom, 32)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
+        }
+    }
+
+    private func loadTipsEnabled() {
+        if let prefs = try? modelContext.fetch(FetchDescriptor<UserPreferences>()).first {
+            tipsEnabled = prefs.showOnboardingTips
+        } else {
+            tipsEnabled = true
         }
     }
 
@@ -494,15 +431,6 @@ struct VideoClipsView: View {
         }
     }
 
-    private func handleBulkImportTap() {
-        guard authManager.currentTier >= .plus else {
-            showingBulkImportPaywall = true
-            return
-        }
-        bulkPickerItems = []
-        showingBulkPicker = true
-    }
-
     private func bulkUploadSelected() {
         let videosToUpload = (athlete.videoClips ?? []).filter { selectedVideos.contains($0.id) }
         var queuedCount = 0
@@ -569,8 +497,11 @@ struct VideoClipsView: View {
                 showingRecorder = true
             }
         )
-        .popoverTip(recordTip, arrowEdge: .top)
-        .onAppear {
+        .popoverTipIfEnabled(recordTip, arrowEdge: .top, enabled: tipsEnabled)
+        .task {
+            VideoClipsRecordTip.hasGames = !(athlete.games ?? []).isEmpty
+        }
+        .onChange(of: athlete.games?.count) { _, _ in
             VideoClipsRecordTip.hasGames = !(athlete.games ?? []).isEmpty
         }
     }
@@ -661,7 +592,7 @@ struct VideoClipsView: View {
                                 toggleSelection(for: video)
                             }
                         )
-                        .videoClipOptionsTip(isFirst: video.id == viewModel.filteredVideos.first?.id)
+                        .videoClipOptionsTip(isFirst: video.id == viewModel.filteredVideos.first?.id, tipsEnabled: tipsEnabled)
                         .onAppear {
                             viewModel.onItemAppear(video)
                             if let index = viewModel.filteredVideoIndex[video.id] {

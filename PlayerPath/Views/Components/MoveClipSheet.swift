@@ -170,7 +170,7 @@ struct MoveClipSheet: View {
                             Spacer()
                             if selectedAthlete?.id == athlete.id {
                                 Image(systemName: "checkmark")
-                                    .foregroundColor(.accentColor)
+                                    .foregroundColor(.brandNavy)
                                     .fontWeight(.semibold)
                             }
                         }
@@ -194,7 +194,7 @@ struct MoveClipSheet: View {
                             Spacer()
                             if selectedGame == nil {
                                 Image(systemName: "checkmark")
-                                    .foregroundColor(.accentColor)
+                                    .foregroundColor(.brandNavy)
                                     .fontWeight(.semibold)
                             }
                         }
@@ -218,7 +218,7 @@ struct MoveClipSheet: View {
                                 Spacer()
                                 if selectedGame?.id == game.id {
                                     Image(systemName: "checkmark")
-                                        .foregroundColor(.accentColor)
+                                        .foregroundColor(.brandNavy)
                                         .fontWeight(.semibold)
                                 }
                             }

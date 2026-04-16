@@ -77,7 +77,7 @@ struct PlayerPathApp: App {
     init() {
         do {
             try Tips.configure([
-                .displayFrequency(.immediate),
+                .displayFrequency(.daily),
                 .datastoreLocation(.applicationDefault)
             ])
         } catch {
