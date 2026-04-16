@@ -43,6 +43,14 @@ struct PhotosView: View {
     @State private var showingLibraryPicker = false
     @State private var selectedPhotoItems: [PhotosPickerItem] = []
     @State private var isImporting = false
+    @State private var importProgress: (current: Int, total: Int) = (0, 0)
+    @State private var importTask: Task<Void, Never>?
+    @State private var showImportToast = false
+    @State private var importToastMessage = ""
+    @State private var importToastType: ToastType = .success
+    @State private var isSelecting = false
+    @State private var selectedIDs: Set<UUID> = []
+    @State private var showingBulkDeleteConfirm = false
 
     private var hasActiveFilters: Bool {
         selectedDateRange != .allTime || selectedSeasonFilter != nil
@@ -85,22 +93,67 @@ struct PhotosView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
-                Button("Done") { dismiss() }
-            }
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    showingFilterSheet = true
-                } label: {
-                    Image(systemName: hasActiveFilters ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                if isSelecting {
+                    Button("Cancel") { exitSelectionMode() }
+                } else {
+                    Button("Done") { dismiss() }
                 }
             }
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    showingSourcePicker = true
-                } label: {
-                    Image(systemName: "plus")
+            if isSelecting {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(selectedIDs.count == cachedPhotos.count ? "Deselect All" : "Select All") {
+                        if selectedIDs.count == cachedPhotos.count {
+                            selectedIDs.removeAll()
+                        } else {
+                            selectedIDs = Set(cachedPhotos.map { $0.id })
+                        }
+                    }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(role: .destructive) {
+                        showingBulkDeleteConfirm = true
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .disabled(selectedIDs.isEmpty)
+                }
+            } else {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showingFilterSheet = true
+                    } label: {
+                        Image(systemName: hasActiveFilters ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                    }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Button {
+                            showingSourcePicker = true
+                        } label: {
+                            Label("Add Photo", systemImage: "plus")
+                        }
+                        if !cachedPhotos.isEmpty {
+                            Button {
+                                isSelecting = true
+                            } label: {
+                                Label("Select", systemImage: "checkmark.circle")
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
                 }
             }
+        }
+        .confirmationDialog(
+            selectedIDs.count == 1 ? "Delete 1 photo?" : "Delete \(selectedIDs.count) photos?",
+            isPresented: $showingBulkDeleteConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) { bulkDeleteSelected() }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("This can't be undone.")
         }
         .sheet(isPresented: $showingFilterSheet) {
             filterSheet
@@ -128,25 +181,41 @@ struct PhotosView: View {
         )
         .onChange(of: selectedPhotoItems) { _, items in
             guard !items.isEmpty else { return }
-            importPhotos(items)
+            startImport(items)
             selectedPhotoItems = []
         }
         .overlay {
             if isImporting {
                 ZStack {
                     Color.black.opacity(0.4).ignoresSafeArea()
-                    VStack(spacing: 12) {
-                        ProgressView()
-                            .tint(.white)
-                        Text("Importing...")
+                    VStack(spacing: 16) {
+                        ProgressView(
+                            value: Double(importProgress.current),
+                            total: Double(max(importProgress.total, 1))
+                        )
+                        .tint(.white)
+                        .frame(width: 160)
+
+                        Text("Importing \(importProgress.current) of \(importProgress.total)")
                             .font(.subheadline)
                             .foregroundColor(.white)
+                            .monospacedDigit()
+
+                        Button(role: .destructive) {
+                            importTask?.cancel()
+                        } label: {
+                            Text("Cancel")
+                                .font(.subheadline)
+                                .fontWeight(.semibold)
+                                .foregroundColor(.white.opacity(0.9))
+                        }
                     }
                     .padding(24)
                     .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
                 }
             }
         }
+        .toast(isPresenting: $showImportToast, type: importToastType, message: importToastMessage, duration: 3.0)
     }
 
     // MARK: - Filter Bar
@@ -183,17 +252,35 @@ struct PhotosView: View {
         ScrollView {
             LazyVGrid(columns: columns, spacing: 10) {
                 ForEach(cachedPhotos) { photo in
-                    NavigationLink {
-                        PhotoDetailView(photo: photo) {
-                            deletePhoto(photo)
-                        }
-                    } label: {
-                        PhotoThumbnailCell(photo: photo) {
-                            deletePhoto(photo)
+                    Group {
+                        if isSelecting {
+                            Button {
+                                toggleSelection(photo.id)
+                            } label: {
+                                PhotoThumbnailCell(photo: photo) {
+                                    deletePhoto(photo)
+                                }
+                                .overlay(alignment: .topTrailing) {
+                                    selectionIndicator(isSelected: selectedIDs.contains(photo.id))
+                                        .padding(8)
+                                }
+                                .opacity(selectedIDs.contains(photo.id) ? 0.75 : 1.0)
+                            }
+                            .buttonStyle(.plain)
+                        } else {
+                            NavigationLink {
+                                PhotoDetailView(photo: photo) {
+                                    deletePhoto(photo)
+                                }
+                            } label: {
+                                PhotoThumbnailCell(photo: photo) {
+                                    deletePhoto(photo)
+                                }
+                            }
+                            .buttonStyle(.plain)
+                            .photoOptionsTip(isFirst: photo.id == cachedPhotos.first?.id)
                         }
                     }
-                    .buttonStyle(.plain)
-                    .photoOptionsTip(isFirst: photo.id == cachedPhotos.first?.id)
                 }
             }
             .padding(.horizontal, 10)
@@ -327,44 +414,106 @@ struct PhotosView: View {
         }
     }
 
-    private func importPhotos(_ items: [PhotosPickerItem]) {
-        Task {
-            isImporting = true
-            defer { isImporting = false }
+    private func startImport(_ items: [PhotosPickerItem]) {
+        importProgress = (0, items.count)
+        isImporting = true
+        importTask = Task {
+            await importPhotos(items)
+        }
+    }
 
-            let service = PhotoPersistenceService()
-            var savedCount = 0
-            var failedCount = 0
-            for item in items {
-                do {
-                    guard let data = try await item.loadTransferable(type: Data.self),
-                          let image = UIImage(data: data) else {
-                        failedCount += 1
-                        continue
-                    }
-                    _ = try await service.savePhoto(
-                        image: image,
-                        context: modelContext,
-                        athlete: athlete
-                    )
-                    savedCount += 1
-                } catch {
-                    ErrorHandlerService.shared.handle(error, context: "PhotosView.importPhoto", showAlert: false)
+    private func importPhotos(_ items: [PhotosPickerItem]) async {
+        let service = PhotoPersistenceService()
+        var savedCount = 0
+        var failedCount = 0
+
+        for (index, item) in items.enumerated() {
+            if Task.isCancelled { break }
+            importProgress = (index + 1, items.count)
+
+            do {
+                guard let data = try await item.loadTransferable(type: Data.self) else {
                     failedCount += 1
+                    continue
                 }
-            }
-            if failedCount > 0 && savedCount == 0 {
-                Haptics.error()
-            } else {
-                Haptics.success()
+                // CGImageSource pipeline: writes raw data to disk and converts
+                // via ImageIO — never decodes a full UIImage bitmap into memory.
+                _ = try await service.savePhotoFromData(
+                    data,
+                    context: modelContext,
+                    athlete: athlete
+                )
+                savedCount += 1
+            } catch {
+                ErrorHandlerService.shared.handle(error, context: "PhotosView.importPhoto", showAlert: false)
+                failedCount += 1
             }
         }
+
+        isImporting = false
+        importTask = nil
+        showImportResult(saved: savedCount, failed: failedCount)
+    }
+
+    private func showImportResult(saved: Int, failed: Int) {
+        if saved == 0 && failed == 0 {
+            return // cancelled before any work
+        } else if saved > 0 && failed == 0 {
+            importToastType = .success
+            importToastMessage = saved == 1 ? "Photo imported" : "\(saved) photos imported"
+        } else if saved > 0 && failed > 0 {
+            importToastType = .warning
+            importToastMessage = "Imported \(saved) photos. \(failed) failed."
+        } else {
+            importToastType = .warning
+            importToastMessage = "Could not import photos."
+        }
+        showImportToast = true
     }
 
     private func deletePhoto(_ photo: Photo) {
         Task {
             PhotoPersistenceService().deletePhoto(photo, context: modelContext)
             Haptics.light()
+        }
+    }
+
+    // MARK: - Selection
+
+    @ViewBuilder
+    private func selectionIndicator(isSelected: Bool) -> some View {
+        Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+            .font(.title2)
+            .symbolRenderingMode(.palette)
+            .foregroundStyle(isSelected ? Color.white : Color.white.opacity(0.9),
+                             isSelected ? Color.brandNavy : Color.black.opacity(0.35))
+            .background(Circle().fill(Color.black.opacity(0.15)).blur(radius: 2))
+    }
+
+    private func toggleSelection(_ id: UUID) {
+        if selectedIDs.contains(id) {
+            selectedIDs.remove(id)
+        } else {
+            selectedIDs.insert(id)
+        }
+        Haptics.light()
+    }
+
+    private func exitSelectionMode() {
+        isSelecting = false
+        selectedIDs.removeAll()
+    }
+
+    private func bulkDeleteSelected() {
+        let ids = selectedIDs
+        let toDelete = cachedPhotos.filter { ids.contains($0.id) }
+        Task {
+            let service = PhotoPersistenceService()
+            for photo in toDelete {
+                service.deletePhoto(photo, context: modelContext)
+            }
+            Haptics.success()
+            exitSelectionMode()
         }
     }
 }

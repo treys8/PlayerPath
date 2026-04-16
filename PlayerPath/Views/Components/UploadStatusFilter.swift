@@ -9,6 +9,7 @@ import SwiftUI
 
 enum UploadStatusFilter: String, CaseIterable {
     case all = "All Videos"
+    case untagged = "Untagged"
     case uploaded = "Uploaded"
     case notUploaded = "Not Uploaded"
     case uploading = "Uploading"
@@ -17,6 +18,7 @@ enum UploadStatusFilter: String, CaseIterable {
     var icon: String {
         switch self {
         case .all: return "square.grid.2x2"
+        case .untagged: return "tag.slash"
         case .uploaded: return "checkmark.icloud.fill"
         case .notUploaded: return "iphone"
         case .uploading: return "arrow.up.circle"
@@ -27,6 +29,7 @@ enum UploadStatusFilter: String, CaseIterable {
     var color: Color {
         switch self {
         case .all: return .primary
+        case .untagged: return .orange
         case .uploaded: return .green
         case .notUploaded: return .gray
         case .uploading: return .brandNavy

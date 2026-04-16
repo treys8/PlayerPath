@@ -180,18 +180,6 @@ struct AuthenticatedFlow: View {
                 // Start athlete folder listener (real-time) + fetch invitations (one-shot)
                 if let athleteID = authManager.currentFirebaseUser?.uid {
                     SharedFolderManager.shared.startAthleteFoldersListener(athleteID: athleteID)
-
-                    // Run one-shot legacy-folder migration after the listener has had time to deliver
-                    // at least one snapshot. Delay is short; the service idempotently checks a
-                    // UserDefaults key before doing any work.
-                    Task { [athleteID] in
-                        try? await Task.sleep(for: .seconds(3))
-                        let athletes = currentUser?.athletes ?? []
-                        await FolderAthleteMigrationService.shared.runIfNeeded(
-                            userID: athleteID,
-                            athletesForUser: athletes
-                        )
-                    }
                 }
                 if let athleteEmail = authManager.currentFirebaseUser?.email?.lowercased() {
                     AthleteInvitationManager.shared.startListening(forEmail: athleteEmail)

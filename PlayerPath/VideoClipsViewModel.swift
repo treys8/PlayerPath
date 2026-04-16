@@ -58,6 +58,7 @@ final class VideoClipsViewModel {
             videos = videos.filter { video in
                 switch selectedUploadFilter {
                 case .all: return true
+                case .untagged: return video.playResult == nil
                 case .uploaded: return video.isUploaded
                 case .notUploaded:
                     return !video.isUploaded &&

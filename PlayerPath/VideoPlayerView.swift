@@ -25,6 +25,7 @@ struct VideoPlayerView: View {
     @State private var showingPlayResultEditor = false
     @State private var showingGameLinker = false
     @State private var showingShareToFolder = false
+    @State private var showingMoveSheet = false
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @State private var isDownloadingFromCloud = false
     @State private var downloadProgress: Double = 0.0
@@ -36,6 +37,151 @@ struct VideoPlayerView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.verticalSizeClass) private var vSizeClass
     @Environment(\.horizontalSizeClass) private var hSizeClass
+
+    // MARK: - Shared Controls
+
+    @ViewBuilder
+    private var playerMenuItems: some View {
+        if clip.playResult == nil {
+            Button {
+                showingPlayResultEditor = true
+            } label: {
+                Label("Tag Play Result", systemImage: "tag.fill")
+            }
+        } else {
+            Button {
+                showingPlayResultEditor = true
+            } label: {
+                Label("Edit Play Result", systemImage: "pencil.circle")
+            }
+        }
+
+        Button {
+            showingGameLinker = true
+        } label: {
+            Label(clip.game == nil ? "Link to Game" : "Change Game", systemImage: "baseball.diamond.bases")
+        }
+
+        Button {
+            clip.isHighlight.toggle()
+            clip.needsSync = true
+            ErrorHandlerService.shared.saveContext(modelContext, caller: "VideoPlayerView.toggleHighlight")
+            Haptics.medium()
+        } label: {
+            Label(
+                clip.isHighlight ? "Remove from Highlights" : "Add to Highlights",
+                systemImage: clip.isHighlight ? "star.slash" : "star"
+            )
+        }
+
+        if clip.isUploaded && clip.athlete != nil {
+            Divider()
+            Button {
+                showingRetrimFlow = true
+            } label: {
+                Label("Trim Clip", systemImage: "scissors")
+            }
+        }
+
+        Divider()
+        Button {
+            saveToPhotos()
+        } label: {
+            if isSavingToPhotos {
+                Label { Text("Saving...") } icon: { ProgressView() }
+            } else {
+                Label("Save to Photos", systemImage: "square.and.arrow.down")
+            }
+        }
+        .disabled(isSavingToPhotos)
+
+        if FileManager.default.fileExists(atPath: clip.resolvedFilePath) {
+            ShareLink(item: clip.resolvedFileURL) {
+                Label("Share Video", systemImage: "square.and.arrow.up")
+            }
+        }
+        // Upload controls
+        if clip.isUploaded {
+            Label("Uploaded to Cloud", systemImage: "checkmark.icloud")
+                .foregroundColor(.green)
+        } else if let athlete = clip.athlete {
+            Button {
+                Haptics.light()
+                UploadQueueManager.shared.enqueue(clip, athlete: athlete, priority: .high)
+            } label: {
+                if UploadQueueManager.shared.activeUploads[clip.id] != nil {
+                    Label("Uploading...", systemImage: "icloud.and.arrow.up")
+                } else if UploadQueueManager.shared.pendingUploads.contains(where: { $0.clipId == clip.id }) {
+                    Label("Queued for Upload", systemImage: "clock.arrow.circlepath")
+                } else {
+                    Label("Upload to Cloud", systemImage: "icloud.and.arrow.up")
+                }
+            }
+        }
+
+        if AppFeatureFlags.isCoachEnabled {
+            Divider()
+            Button {
+                showingShareToFolder = true
+            } label: {
+                Label("Share to Coach Folder", systemImage: authManager.hasCoachingAccess ? "folder.badge.person.crop" : "lock.fill")
+            }
+        }
+
+        Divider()
+
+        Button {
+            showingMoveSheet = true
+        } label: {
+            Label("Move to Athlete", systemImage: "arrow.right.arrow.left")
+        }
+    }
+
+    private var closeButton: some View {
+        Button {
+            dismiss()
+        } label: {
+            Image(systemName: "xmark.circle.fill")
+                .font(.title2)
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(.secondary)
+        }
+        .accessibilityLabel("Close video player")
+    }
+
+    private var landscapeControls: some View {
+        VStack {
+            HStack {
+                Menu {
+                    playerMenuItems
+                } label: {
+                    Image(systemName: "ellipsis.circle.fill")
+                        .font(.title2)
+                        .symbolRenderingMode(.hierarchical)
+                        .foregroundStyle(.white)
+                        .shadow(color: .black.opacity(0.5), radius: 4, x: 0, y: 2)
+                }
+                .accessibilityLabel("More actions")
+
+                Spacer()
+
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.title2)
+                        .symbolRenderingMode(.hierarchical)
+                        .foregroundStyle(.white)
+                        .shadow(color: .black.opacity(0.5), radius: 4, x: 0, y: 2)
+                }
+                .accessibilityLabel("Close video player")
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+
+            Spacer()
+        }
+    }
 
     // MARK: - Computed Properties
 
@@ -115,16 +261,20 @@ struct VideoPlayerView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                // Video Player - fills available space
-                videoPlayerContent
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(Color.black)
+            ZStack {
+                VStack(spacing: 0) {
+                    videoPlayerContent
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(Color.black)
 
-                // Video Info - hidden in landscape so video fills the screen
-                if vSizeClass != .compact {
-                    VideoClipInfoCard(clip: clip)
-                        .padding(.bottom, 8)
+                    if vSizeClass != .compact {
+                        VideoClipInfoCard(clip: clip)
+                            .padding(.bottom, 8)
+                    }
+                }
+
+                if vSizeClass == .compact {
+                    landscapeControls
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
@@ -132,72 +282,7 @@ struct VideoPlayerView: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Menu {
-                        Button {
-                            showingPlayResultEditor = true
-                        } label: {
-                            Label("Edit Play Result", systemImage: "pencil.circle")
-                        }
-                        .accessibilityLabel("Edit the play result for this video")
-
-                        Button {
-                            showingGameLinker = true
-                        } label: {
-                            Label(clip.game == nil ? "Link to Game" : "Change Game", systemImage: "baseball.diamond.bases")
-                        }
-                        .accessibilityLabel(clip.game == nil ? "Link this video to a game" : "Change which game this video is linked to")
-
-                        Button {
-                            clip.isHighlight.toggle()
-                            clip.needsSync = true
-                            ErrorHandlerService.shared.saveContext(modelContext, caller: "VideoPlayerView.toggleHighlight")
-                            Haptics.medium()
-                        } label: {
-                            Label(
-                                clip.isHighlight ? "Remove from Highlights" : "Add to Highlights",
-                                systemImage: clip.isHighlight ? "star.slash" : "star"
-                            )
-                        }
-                        .accessibilityLabel(clip.isHighlight ? "Remove this video from highlights" : "Add this video to highlights")
-
-                        if clip.isUploaded && clip.athlete != nil {
-                            Divider()
-                            Button {
-                                showingRetrimFlow = true
-                            } label: {
-                                Label("Trim Clip", systemImage: "scissors")
-                            }
-                            .accessibilityLabel("Trim this video")
-                        }
-
-                        Divider()
-                        Button {
-                            saveToPhotos()
-                        } label: {
-                            if isSavingToPhotos {
-                                Label {
-                                    Text("Saving...")
-                                } icon: {
-                                    ProgressView()
-                                }
-                            } else {
-                                Label("Save to Photos", systemImage: "square.and.arrow.down")
-                            }
-                        }
-                        .disabled(isSavingToPhotos)
-                        .accessibilityLabel("Save video to Photos library")
-                        if FileManager.default.fileExists(atPath: clip.resolvedFilePath) {
-                            ShareLink(item: clip.resolvedFileURL) {
-                                Label("Share Video", systemImage: "square.and.arrow.up")
-                            }
-                        }
-                        if AppFeatureFlags.isCoachEnabled {
-                            Divider()
-                            Button {
-                                showingShareToFolder = true
-                            } label: {
-                                Label("Share to Coach Folder", systemImage: authManager.hasCoachingAccess ? "folder.badge.person.crop" : "lock.fill")
-                            }
-                        }
+                        playerMenuItems
                     } label: {
                         Image(systemName: "ellipsis.circle")
                             .accessibilityLabel("More actions")
@@ -205,15 +290,7 @@ struct VideoPlayerView: View {
                 }
 
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        dismiss()
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.title2)
-                            .symbolRenderingMode(.hierarchical)
-                            .foregroundStyle(.secondary)
-                    }
-                    .accessibilityLabel("Close video player")
+                    closeButton
                 }
             }
         }
@@ -231,6 +308,9 @@ struct VideoPlayerView: View {
         }
         .sheet(isPresented: $showingShareToFolder) {
             ShareToCoachFolderView(clip: clip)
+        }
+        .sheet(isPresented: $showingMoveSheet) {
+            MoveClipSheet(clip: clip)
         }
         .fullScreenCover(isPresented: $showingRetrimFlow) {
             if let athlete = clip.athlete {

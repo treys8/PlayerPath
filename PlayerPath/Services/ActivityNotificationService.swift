@@ -189,145 +189,14 @@ final class ActivityNotificationService: ObservableObject {
 
     // MARK: - Mark Read
 
-    func markAllRead(forUserID userID: String) async {
-        let unread = recentNotifications.filter { !$0.isRead }
-        guard !unread.isEmpty else { return }
-
-        let batch = db.batch()
-        for n in unread {
-            guard let id = n.id else { continue }
-            let ref = db.collection(FC.notifications).document(userID).collection(FC.items).document(id)
-            batch.updateData(["isRead": true], forDocument: ref)
-        }
-        do {
-            try await batch.commit()
-        } catch {
-            log.error("Failed to mark all notifications read: \(error.localizedDescription)")
-        }
-    }
-
-    func markNewVideoNotificationsRead(forUserID userID: String) async {
-        let videoUnread = recentNotifications.filter { !$0.isRead && $0.type == .newVideo }
-        guard !videoUnread.isEmpty else { return }
-
-        let batch = db.batch()
-        for n in videoUnread {
-            guard let id = n.id else { continue }
-            let ref = db.collection(FC.notifications).document(userID).collection(FC.items).document(id)
-            batch.updateData(["isRead": true], forDocument: ref)
-        }
-        do {
-            try await batch.commit()
-        } catch {
-            log.error("Failed to mark new-video notifications read: \(error.localizedDescription)")
-        }
-    }
-
-    func markFolderNotificationsRead(forUserID userID: String) async {
-        let folderUnread = recentNotifications.filter {
-            !$0.isRead && ($0.type == .newVideo || $0.type == .coachComment) && $0.targetType == .folder
-        }
-        guard !folderUnread.isEmpty else { return }
-
-        let batch = db.batch()
-        for n in folderUnread {
-            guard let id = n.id else { continue }
-            let ref = db.collection(FC.notifications).document(userID).collection(FC.items).document(id)
-            batch.updateData(["isRead": true], forDocument: ref)
-        }
-        do {
-            try await batch.commit()
-        } catch {
-            log.error("Failed to mark folder notifications read: \(error.localizedDescription)")
-        }
-    }
-
-    /// Marks only dashboard-level notifications as read (invitations + access events),
-    /// leaving folder/video notifications unread for the Athletes tab.
-    func markDashboardNotificationsRead(forUserID userID: String) async {
-        let dashboardTypes: Set<ActivityNotification.NotificationType> = [
-            .invitationReceived, .invitationAccepted, .accessRevoked, .accessLapsed
-        ]
-        let unread = recentNotifications.filter { !$0.isRead && dashboardTypes.contains($0.type) }
-        guard !unread.isEmpty else { return }
-
-        let batch = db.batch()
-        for n in unread {
-            guard let id = n.id else { continue }
-            let ref = db.collection(FC.notifications).document(userID).collection(FC.items).document(id)
-            batch.updateData(["isRead": true], forDocument: ref)
-        }
-        do {
-            try await batch.commit()
-        } catch {
-            log.error("Failed to mark dashboard notifications read: \(error.localizedDescription)")
-        }
-    }
-
-    func markInvitationNotificationsRead(forUserID userID: String) async {
-        let invitationUnread = recentNotifications.filter {
-            !$0.isRead && ($0.type == .invitationAccepted || $0.type == .invitationReceived)
-        }
-        guard !invitationUnread.isEmpty else { return }
-
-        let batch = db.batch()
-        for n in invitationUnread {
-            guard let id = n.id else { continue }
-            let ref = db.collection(FC.notifications).document(userID).collection(FC.items).document(id)
-            batch.updateData(["isRead": true], forDocument: ref)
-        }
-        do {
-            try await batch.commit()
-        } catch {
-            log.error("Failed to mark invitation notifications read: \(error.localizedDescription)")
-        }
-    }
-
-    func markFolderRead(folderID: String, forUserID userID: String) async {
-        let folderUnread = recentNotifications.filter {
-            !$0.isRead && ($0.folderID == folderID || ($0.targetID == folderID && $0.targetType == .folder))
-        }
-        guard !folderUnread.isEmpty else { return }
-
-        let batch = db.batch()
-        for n in folderUnread {
-            guard let id = n.id else { continue }
-            let ref = db.collection(FC.notifications).document(userID).collection(FC.items).document(id)
-            batch.updateData(["isRead": true], forDocument: ref)
-        }
-        do {
-            try await batch.commit()
-        } catch {
-            log.error("Failed to mark folder \(folderID) notifications read: \(error.localizedDescription)")
-        }
-    }
-
-    func markVideoRead(videoID: String, forUserID userID: String) async {
-        let videoUnread = recentNotifications.filter {
-            !$0.isRead && $0.targetID == videoID && $0.targetType == .video
-        }
-        guard !videoUnread.isEmpty else { return }
-
-        let batch = db.batch()
-        for n in videoUnread {
-            guard let id = n.id else { continue }
-            let ref = db.collection(FC.notifications).document(userID).collection(FC.items).document(id)
-            batch.updateData(["isRead": true], forDocument: ref)
-        }
-        do {
-            try await batch.commit()
-        } catch {
-            log.error("Failed to mark video \(videoID) notifications read: \(error.localizedDescription)")
-        }
-    }
-
-    /// Marks any invitation-targeted notifications for a specific invitationID as read.
-    /// Called after accept/decline so the bell/banner clears immediately without waiting
-    /// for the user to open the notifications list.
-    func markInvitationRead(invitationID: String, forUserID userID: String) async {
-        let matching = recentNotifications.filter {
-            !$0.isRead && $0.targetType == .invitation && $0.targetID == invitationID
-        }
+    /// Marks every unread notification matching `predicate` as read in a single Firestore batch.
+    /// Operates on `recentNotifications` (the listener's local cache, capped at 50).
+    private func markBatchRead(
+        forUserID userID: String,
+        label: String,
+        where predicate: (ActivityNotification) -> Bool
+    ) async {
+        let matching = recentNotifications.filter { !$0.isRead && predicate($0) }
         guard !matching.isEmpty else { return }
 
         let batch = db.batch()
@@ -339,7 +208,53 @@ final class ActivityNotificationService: ObservableObject {
         do {
             try await batch.commit()
         } catch {
-            log.error("Failed to mark invitation \(invitationID) notifications read: \(error.localizedDescription)")
+            log.error("Failed to mark \(label) notifications read: \(error.localizedDescription)")
+        }
+    }
+
+    func markNewVideoNotificationsRead(forUserID userID: String) async {
+        await markBatchRead(forUserID: userID, label: "new-video") { $0.type == .newVideo }
+    }
+
+    func markFolderNotificationsRead(forUserID userID: String) async {
+        await markBatchRead(forUserID: userID, label: "folder") {
+            ($0.type == .newVideo || $0.type == .coachComment) && $0.targetType == .folder
+        }
+    }
+
+    /// Marks only dashboard-level notifications as read (invitations + access events),
+    /// leaving folder/video notifications unread for the Athletes tab.
+    func markDashboardNotificationsRead(forUserID userID: String) async {
+        let dashboardTypes: Set<ActivityNotification.NotificationType> = [
+            .invitationReceived, .invitationAccepted, .accessRevoked, .accessLapsed
+        ]
+        await markBatchRead(forUserID: userID, label: "dashboard") { dashboardTypes.contains($0.type) }
+    }
+
+    func markInvitationNotificationsRead(forUserID userID: String) async {
+        await markBatchRead(forUserID: userID, label: "invitation") {
+            $0.type == .invitationAccepted || $0.type == .invitationReceived
+        }
+    }
+
+    func markFolderRead(folderID: String, forUserID userID: String) async {
+        await markBatchRead(forUserID: userID, label: "folder \(folderID)") {
+            $0.folderID == folderID || ($0.targetID == folderID && $0.targetType == .folder)
+        }
+    }
+
+    func markVideoRead(videoID: String, forUserID userID: String) async {
+        await markBatchRead(forUserID: userID, label: "video \(videoID)") {
+            $0.targetID == videoID && $0.targetType == .video
+        }
+    }
+
+    /// Marks any invitation-targeted notifications for a specific invitationID as read.
+    /// Called after accept/decline so the bell/banner clears immediately without waiting
+    /// for the user to open the notifications list.
+    func markInvitationRead(invitationID: String, forUserID userID: String) async {
+        await markBatchRead(forUserID: userID, label: "invitation \(invitationID)") {
+            $0.targetType == .invitation && $0.targetID == invitationID
         }
     }
 

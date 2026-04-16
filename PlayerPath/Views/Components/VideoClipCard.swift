@@ -23,8 +23,11 @@ struct VideoClipCard: View {
     @State private var showingSaveSuccess = false
     @State private var showingShareToFolder = false
     @State private var showingMoveSheet = false
+    @State private var showingGameLinker = false
+    @State private var showingRetrimFlow = false
     private let uploadManager = UploadQueueManager.shared
     @State private var isSavingToPhotos = false
+    @State private var showingTagSheet = false
 
     var body: some View {
         Button(action: {
@@ -172,10 +175,16 @@ struct VideoClipCard: View {
                             Text((video.createdAt ?? Date()), style: .date)
                                 .font(.caption2)
                                 .foregroundColor(.secondary)
-                        } else if let created = video.createdAt {
-                            Text(created, style: .date)
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
+                        } else {
+                            HStack(spacing: 6) {
+                                Text((video.createdAt ?? Date()), style: .date)
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                                Spacer()
+                                if let season = video.season {
+                                    SeasonBadge(season: season, fontSize: 8)
+                                }
+                            }
                         }
                     }
                     .padding(.horizontal, 12)
@@ -198,6 +207,17 @@ struct VideoClipCard: View {
         }
         .sheet(isPresented: $showingMoveSheet) {
             MoveClipSheet(clip: video)
+        }
+        .sheet(isPresented: $showingTagSheet) {
+            PlayResultEditorView(clip: video, modelContext: modelContext)
+        }
+        .sheet(isPresented: $showingGameLinker) {
+            GameLinkerView(clip: video)
+        }
+        .fullScreenCover(isPresented: $showingRetrimFlow) {
+            if let athlete = video.athlete {
+                RetrimSavedClipFlow(clip: video, athlete: athlete)
+            }
         }
         .alert("Video Action Failed", isPresented: $showingError) {
             Button("OK", role: .cancel) { }
@@ -227,11 +247,27 @@ struct VideoClipCard: View {
 
     @ViewBuilder
     private var videoMenuItems: some View {
+        if video.playResult == nil {
+            Button {
+                Haptics.light()
+                showingTagSheet = true
+            } label: {
+                Label("Tag Play Result", systemImage: "tag.fill")
+            }
+            Divider()
+        }
+
         Button {
             Haptics.light()
             onPlay()
         } label: {
             Label("Play", systemImage: "play.fill")
+        }
+
+        Button {
+            showingGameLinker = true
+        } label: {
+            Label(video.game == nil ? "Link to Game" : "Change Game", systemImage: "baseball.diamond.bases")
         }
 
         Button {
@@ -257,6 +293,17 @@ struct VideoClipCard: View {
             )
         }
 
+        if video.isUploaded && video.athlete != nil {
+            Divider()
+            Button {
+                showingRetrimFlow = true
+            } label: {
+                Label("Trim Clip", systemImage: "scissors")
+            }
+        }
+
+        Divider()
+
         if FileManager.default.fileExists(atPath: video.resolvedFilePath) {
             ShareLink(item: video.resolvedFileURL) {
                 Label("Share", systemImage: "square.and.arrow.up")
@@ -268,8 +315,6 @@ struct VideoClipCard: View {
                 Label("Save to Photos", systemImage: "square.and.arrow.down")
             }
         }
-
-        Divider()
 
         // Upload controls
         if video.isUploaded {

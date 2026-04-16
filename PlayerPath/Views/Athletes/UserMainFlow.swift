@@ -157,10 +157,6 @@ struct UserMainFlow: View {
             }
         }
         .animation(.easeInOut(duration: 0.3), value: showingAthleteSelection)
-        .modifier(LegacyFolderAssignmentSheetModifier(
-            userID: authManager.userID,
-            athletes: athletesForUser
-        ))
         .overlay(alignment: .top) {
             VStack(spacing: 8) {
                 if showCreationToast {

@@ -103,14 +103,24 @@ struct VideoThumbnailView: View {
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
             .overlay(playButtonOverlay)
 
-            // Play result badge (top-right)
-            if showPlayResult, let playResult = clip.playResult {
-                VStack {
-                    HStack {
+            // Play result badge (top-right) — or untagged dot when play result missing
+            if showPlayResult {
+                if let playResult = clip.playResult {
+                    VStack {
+                        HStack {
+                            Spacer()
+                            playResultBadge(for: playResult.type)
+                        }
                         Spacer()
-                        playResultBadge(for: playResult.type)
                     }
-                    Spacer()
+                } else {
+                    VStack {
+                        HStack {
+                            Spacer()
+                            untaggedDot
+                        }
+                        Spacer()
+                    }
                 }
             }
 
@@ -269,6 +279,17 @@ struct VideoThumbnailView: View {
         .padding(.top, 8)
         .padding(.trailing, 8)
         .accessibilityHidden(true)
+    }
+
+    private var untaggedDot: some View {
+        Circle()
+            .fill(Color.orange)
+            .frame(width: 10, height: 10)
+            .overlay(Circle().strokeBorder(Color.white, lineWidth: 2))
+            .shadow(color: .black.opacity(0.35), radius: 3, x: 0, y: 1)
+            .padding(.top, 8)
+            .padding(.trailing, 8)
+            .accessibilityLabel("Untagged — needs play result")
     }
 
     private var highlightIndicator: some View {

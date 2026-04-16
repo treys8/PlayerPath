@@ -22,38 +22,43 @@ struct PhotoThumbnailCell: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Thumbnail
-            ZStack {
-                if let thumbnail {
-                    Image(uiImage: thumbnail)
-                        .resizable()
-                        .scaledToFill()
-                        .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .top)
-                        .clipped()
-                } else if loadFailed {
-                    Rectangle()
-                        .fill(Color(.systemGray5))
-                        .overlay {
-                            VStack(spacing: 4) {
-                                Image(systemName: photo.cloudURL != nil ? "icloud.and.arrow.down" : "photo")
-                                    .font(.title3)
-                                    .foregroundColor(.secondary)
-                                if photo.cloudURL != nil {
-                                    Text("Syncing…")
-                                        .font(.caption2)
+            // Thumbnail — GeometryReader gives a concrete bounded frame so that
+            // `alignment: .top` anchors the overflow to the same region we clip to.
+            // aspectRatio(.fit) prevents the cell from overflowing its grid column
+            // on larger device widths (which was silently happening with .fill).
+            GeometryReader { geo in
+                Group {
+                    if let thumbnail {
+                        Image(uiImage: thumbnail)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
+                            .clipped()
+                    } else if loadFailed {
+                        Rectangle()
+                            .fill(Color(.systemGray5))
+                            .frame(width: geo.size.width, height: geo.size.height)
+                            .overlay {
+                                VStack(spacing: 4) {
+                                    Image(systemName: photo.cloudURL != nil ? "icloud.and.arrow.down" : "photo")
+                                        .font(.title3)
                                         .foregroundColor(.secondary)
+                                    if photo.cloudURL != nil {
+                                        Text("Syncing…")
+                                            .font(.caption2)
+                                            .foregroundColor(.secondary)
+                                    }
                                 }
                             }
-                        }
-                } else {
-                    Rectangle()
-                        .fill(Color(.systemGray5))
-                        .overlay {
-                            ProgressView()
-                        }
+                    } else {
+                        Rectangle()
+                            .fill(Color(.systemGray5))
+                            .frame(width: geo.size.width, height: geo.size.height)
+                            .overlay { ProgressView() }
+                    }
                 }
             }
-            .aspectRatio(3.0/4.0, contentMode: .fill)
+            .aspectRatio(3.0/4.0, contentMode: .fit)
             .clipShape(UnevenRoundedRectangle(topLeadingRadius: 12, bottomLeadingRadius: 0, bottomTrailingRadius: 0, topTrailingRadius: 12))
 
             // Info section
@@ -149,10 +154,31 @@ struct PhotoThumbnailCell: View {
     }
 
     private func loadThumbnail() async {
-        // Decode an aspect-preserving thumbnail from the full-resolution photo via
-        // CGImageSource. We intentionally skip the pre-cached thumbnail file because
-        // legacy thumbnails are 300x300 square crops (heads chopped) generated before
-        // the 3:4 grid redesign.
+        // Try the cached 600px aspect-preserving thumbnail first (avoids decoding
+        // the full-size JPEG on every scroll). Legacy 300x300 square crops are
+        // detected by aspect ratio and skipped so the full image is used instead.
+        if let thumbPath = photo.resolvedThumbnailPath,
+           FileManager.default.fileExists(atPath: thumbPath) {
+            let thumbURL = URL(fileURLWithPath: thumbPath) as CFURL
+            if let source = CGImageSourceCreateWithURL(thumbURL, nil),
+               let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+               let pw = props[kCGImagePropertyPixelWidth] as? Int,
+               let ph = props[kCGImagePropertyPixelHeight] as? Int,
+               abs(Double(pw) / Double(max(ph, 1)) - 1.0) > 0.05 { // not square → new-style
+                let options: [CFString: Any] = [
+                    kCGImageSourceThumbnailMaxPixelSize: 600,
+                    kCGImageSourceCreateThumbnailFromImageAlways: true,
+                    kCGImageSourceCreateThumbnailWithTransform: true
+                ]
+                if let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) {
+                    thumbnail = UIImage(cgImage: cgImage)
+                    return
+                }
+            }
+        }
+
+        // Fall back to generating from the full-size photo (handles legacy
+        // square thumbnails and photos without a cached thumbnail).
         let url = URL(fileURLWithPath: photo.resolvedFilePath) as CFURL
         if let source = CGImageSourceCreateWithURL(url, nil) {
             let options: [CFString: Any] = [
@@ -165,13 +191,15 @@ struct PhotoThumbnailCell: View {
                 return
             }
         }
+
+        // No local file — try downloading from cloud
         if let cloudURL = photo.cloudURL, !cloudURL.isEmpty {
             do {
                 try await VideoCloudManager.shared.downloadPhoto(from: cloudURL, to: photo.resolvedFilePath)
                 let downloadedURL = URL(fileURLWithPath: photo.resolvedFilePath) as CFURL
                 if let source = CGImageSourceCreateWithURL(downloadedURL, nil) {
                     let options: [CFString: Any] = [
-                        kCGImageSourceThumbnailMaxPixelSize: 300,
+                        kCGImageSourceThumbnailMaxPixelSize: 600,
                         kCGImageSourceCreateThumbnailFromImageAlways: true,
                         kCGImageSourceCreateThumbnailWithTransform: true
                     ]

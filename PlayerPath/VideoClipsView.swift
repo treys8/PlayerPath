@@ -46,10 +46,6 @@ struct VideoClipsView: View {
     // Debounce for search-driven filtering
     @State private var filterDebounceTask: Task<Void, Never>?
 
-    // Post-import tagging
-    @State private var clipToTag: VideoClip?
-    @State private var isAwaitingImportedClip = false
-
     // Bulk import from Photos (Plus+)
     @State private var showingBulkPicker = false
     @State private var bulkPickerItems: [PhotosPickerItem] = []
@@ -243,10 +239,23 @@ struct VideoClipsView: View {
             }
     }
 
+    private var untaggedCount: Int {
+        (athlete.videoClips ?? []).filter { $0.playResult == nil && !$0.isDeletedRemotely }.count
+    }
+
     var body: some View {
         videosContent
         .safeAreaInset(edge: .top, spacing: 0) {
-            UploadStatusBanner()
+            VStack(spacing: 8) {
+                UploadStatusBanner()
+                if untaggedCount >= 3 && viewModel.selectedUploadFilter != .untagged {
+                    UntaggedClipsBanner(count: untaggedCount) {
+                        withAnimation {
+                            viewModel.selectedUploadFilter = .untagged
+                        }
+                    }
+                }
+            }
         }
         .navigationTitle("Videos")
         .navigationBarTitleDisplayMode(.large)
@@ -258,11 +267,6 @@ struct VideoClipsView: View {
         .sheet(isPresented: $showingUploadPicker) {
             VideoRecorderView_Refactored(athlete: athlete)
         }
-        .onChange(of: showingUploadPicker) { _, isShowing in
-            if isShowing {
-                isAwaitingImportedClip = true
-            }
-        }
         .fullScreenCover(item: $selectedVideo) { video in
             VideoPlayerView(clip: video)
         }
@@ -271,9 +275,6 @@ struct VideoClipsView: View {
         }
         .sheet(isPresented: $showingAdvancedSearch) {
             AdvancedSearchView(athlete: athlete)
-        }
-        .sheet(item: $clipToTag) { clip in
-            ImportTaggingSheet(clip: clip, athlete: athlete)
         }
         .photosPicker(
             isPresented: $showingBulkPicker,
@@ -310,17 +311,6 @@ struct VideoClipsView: View {
         .sheet(isPresented: $showingBulkImportPaywall) {
             if let user = authManager.localUser {
                 ImprovedPaywallView(user: user)
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .videoRecorded)) { notification in
-            // Capture the most recently imported clip when it has no game context
-            if isAwaitingImportedClip, let clip = notification.object as? VideoClip, clip.game == nil {
-                // Delay slightly so the upload picker sheet can dismiss first
-                Task { @MainActor in
-                    try? await Task.sleep(for: .milliseconds(600))
-                    clipToTag = clip
-                    isAwaitingImportedClip = false
-                }
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .presentVideoRecorder)) { notification in

@@ -24,50 +24,51 @@ struct PlayResultEditorView: View {
         _selectedResult = State(initialValue: clip.playResult?.type)
     }
 
+    private var isTagging: Bool { clip.playResult == nil }
+
     var body: some View {
         NavigationStack {
-            VStack(spacing: 20) {
-                // Current result
-                VStack(spacing: 12) {
-                    Text("Current Play Result")
-                        .font(.headline)
-                        .foregroundColor(.secondary)
-
-                    if let currentResult = clip.playResult?.type {
-                        HStack {
-                            Image(systemName: currentResult.iconName)
-                                .font(.title)
-                                .foregroundColor(currentResult.uiColor)
-                            Text(currentResult.displayName)
-                                .font(.title2)
-                                .fontWeight(.bold)
-                        }
-                        .padding()
-                        .background(
-                            RoundedRectangle(cornerRadius: 12)
-                                .fill(currentResult.uiColor.opacity(0.1))
-                        )
-                    } else {
-                        Text("No result recorded")
-                            .font(.title3)
+            ScrollView {
+                VStack(spacing: 20) {
+                    // Current result
+                    VStack(spacing: 12) {
+                        Text("Current Play Result")
+                            .font(.headline)
                             .foregroundColor(.secondary)
+
+                        if let currentResult = clip.playResult?.type {
+                            HStack {
+                                Image(systemName: currentResult.iconName)
+                                    .font(.title)
+                                    .foregroundColor(currentResult.uiColor)
+                                Text(currentResult.displayName)
+                                    .font(.title2)
+                                    .fontWeight(.bold)
+                            }
                             .padding()
                             .background(
                                 RoundedRectangle(cornerRadius: 12)
-                                    .fill(Color.gray.opacity(0.1))
+                                    .fill(currentResult.uiColor.opacity(0.1))
                             )
+                        } else {
+                            Text("No result recorded")
+                                .font(.title3)
+                                .foregroundColor(.secondary)
+                                .padding()
+                                .background(
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .fill(Color.gray.opacity(0.1))
+                                )
+                        }
                     }
-                }
-                .padding(.top)
+                    .padding(.top)
 
-                Divider()
+                    Divider()
 
-                // New result selection
-                VStack(spacing: 16) {
-                    Text("Select New Result")
-                        .font(.headline)
-
-                    ScrollView {
+                    // New result selection
+                    VStack(spacing: 16) {
+                        Text(isTagging ? "Select Play Result" : "Select New Result")
+                            .font(.headline)
                         VStack(spacing: 12) {
                             // Hits Section
                             VStack(alignment: .leading, spacing: 8) {
@@ -138,46 +139,48 @@ struct PlayResultEditorView: View {
                                 }
                             }
 
-                            // Remove result option
-                            Button {
-                                selectedResult = nil
-                                showingConfirmation = true
-                            } label: {
-                                Label("Remove Play Result", systemImage: "xmark.circle")
-                                    .font(.body.weight(.medium))
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 14)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 12)
-                                            .stroke(Color.red.opacity(0.5), lineWidth: 1.5)
-                                    )
-                                    .foregroundColor(.red)
+                            // Remove result option (only when editing, not tagging)
+                            if !isTagging {
+                                Button {
+                                    selectedResult = nil
+                                    showingConfirmation = true
+                                } label: {
+                                    Label("Remove Play Result", systemImage: "xmark.circle")
+                                        .font(.body.weight(.medium))
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 14)
+                                        .background(
+                                            RoundedRectangle(cornerRadius: 12)
+                                                .stroke(Color.red.opacity(0.5), lineWidth: 1.5)
+                                        )
+                                        .foregroundColor(.red)
+                                }
+                                .padding(.top, 8)
                             }
-                            .padding(.top, 8)
                         }
                         .padding()
+
+                        // Save button
+                        Button {
+                            showingConfirmation = true
+                        } label: {
+                            Text(isTagging ? "Save" : "Save Changes")
+                                .font(.headline)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 16)
+                                .background(Color.brandNavy)
+                                .foregroundColor(.white)
+                                .cornerRadius(12)
+                        }
+                        .disabled(selectedResult == clip.playResult?.type)
+                        .opacity(selectedResult == clip.playResult?.type ? 0.5 : 1.0)
+                        .padding(.top, 8)
                     }
-                }
-
-                Spacer()
-
-                // Save button
-                Button {
-                    showingConfirmation = true
-                } label: {
-                    Text("Save Changes")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 16)
-                        .background(Color.brandNavy)
-                        .foregroundColor(.white)
-                        .cornerRadius(12)
-                }
-                .disabled(selectedResult == clip.playResult?.type)
-                .opacity(selectedResult == clip.playResult?.type ? 0.5 : 1.0)
-                .padding()
             }
-            .navigationTitle("Edit Play Result")
+            .padding(.horizontal)
+            }
+            .scrollDismissesKeyboard(.interactively)
+            .navigationTitle(isTagging ? "Tag Play Result" : "Edit Play Result")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

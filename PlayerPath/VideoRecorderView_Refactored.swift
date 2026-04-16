@@ -42,9 +42,6 @@ struct VideoRecorderView_Refactored: View {
     @State private var importError: String?
     @State private var showingTrimmer = false
     @State private var trimmedVideoURL: URL?
-    @State private var uploadFlowShowingPlayResult = false
-    @State private var clipOrientation: VideoOrientation = .portrait
-
     // System monitoring
     @State private var availableStorageGB: Double = 0
 
@@ -113,103 +110,43 @@ struct VideoRecorderView_Refactored: View {
     private var videoTrimmerView: some View {
         ZStack {
             if let videoURL = recordedVideoURL {
-                if uploadFlowShowingPlayResult {
-                    let finalVideoURL = trimmedVideoURL ?? videoURL
-                    if practice != nil {
-                        PracticeVideoSaveView(
-                            videoURL: finalVideoURL,
-                            athlete: athlete,
-                            practice: practice,
-                            clipOrientation: clipOrientation,
-                            onSave: { note, completion in
-                                saveVideoWithResult(videoURL: finalVideoURL, playResult: nil, note: note, onError: {
-                                    completion() // Reset PracticeVideoSaveView spinner so user can retry
-                                }) {
-                                    completion()
-                                    uploadFlowShowingPlayResult = false
-                                    showingTrimmer = false
-                                    OrientationLocker.restore()
-                                    dismiss()
-                                }
-                            },
-                            onDiscard: {
-                                pendingDismissAction = {
-                                    VideoFileManager.cleanup(url: videoURL)
-                                    if let trimmed = trimmedVideoURL {
-                                        VideoFileManager.cleanup(url: trimmed)
-                                    }
-                                    self.recordedVideoURL = nil
-                                    self.trimmedVideoURL = nil
-                                    self.uploadFlowShowingPlayResult = false
-                                    self.showingTrimmer = false
-                                }
-                                showingDiscardConfirmation = true
+                PreUploadTrimmerView(
+                    videoURL: videoURL,
+                    onSave: { trimmedURL in
+                        trimmedVideoURL = trimmedURL
+                        saveUntagged(videoURL: trimmedURL)
+                    },
+                    onSkip: {
+                        trimmedVideoURL = nil
+                        saveUntagged(videoURL: videoURL)
+                    },
+                    onCancel: {
+                        pendingDismissAction = {
+                            VideoFileManager.cleanup(url: videoURL)
+                            if let trimmed = trimmedVideoURL {
+                                VideoFileManager.cleanup(url: trimmed)
                             }
-                        )
-                    } else {
-                        PlayResultOverlayView(
-                            videoURL: finalVideoURL,
-                            athlete: athlete,
-                            game: game,
-                            practice: practice,
-                            clipOrientation: clipOrientation,
-                            onSave: { result, pitchSpeed, pitchType, role in
-                                saveVideoWithResult(videoURL: finalVideoURL, playResult: result, pitchSpeed: pitchSpeed, pitchType: pitchType, role: role) {
-                                    uploadFlowShowingPlayResult = false
-                                    showingTrimmer = false
-                                    OrientationLocker.restore()
-                                    dismiss()
-                                }
-                            },
-                            onCancel: {
-                                pendingDismissAction = {
-                                    VideoFileManager.cleanup(url: videoURL)
-                                    if let trimmed = trimmedVideoURL {
-                                        VideoFileManager.cleanup(url: trimmed)
-                                    }
-                                    self.recordedVideoURL = nil
-                                    self.trimmedVideoURL = nil
-                                    self.uploadFlowShowingPlayResult = false
-                                    self.showingTrimmer = false
-                                }
-                                showingDiscardConfirmation = true
-                            }
-                        )
-                    }
-                } else {
-                    PreUploadTrimmerView(
-                        videoURL: videoURL,
-                        onSave: { trimmedURL in
-                            trimmedVideoURL = trimmedURL
-                            lockForClip()
-                            uploadFlowShowingPlayResult = true
-                        },
-                        onSkip: {
-                            trimmedVideoURL = nil
-                            lockForClip()
-                            uploadFlowShowingPlayResult = true
-                        },
-                        onCancel: {
-                            pendingDismissAction = {
-                                VideoFileManager.cleanup(url: videoURL)
-                                if let trimmed = trimmedVideoURL {
-                                    VideoFileManager.cleanup(url: trimmed)
-                                }
-                                self.recordedVideoURL = nil
-                                self.trimmedVideoURL = nil
-                                self.showingTrimmer = false
-                            }
-                            showingDiscardConfirmation = true
-                        },
-                        mutePreview: false
-                    )
-                }
+                            self.recordedVideoURL = nil
+                            self.trimmedVideoURL = nil
+                            self.showingTrimmer = false
+                        }
+                        showingDiscardConfirmation = true
+                    },
+                    mutePreview: false
+                )
             }
         }
         .alert("Save Failed", isPresented: $showingSaveError) {
             Button("OK", role: .cancel) { }
         } message: {
             Text("The video could not be saved. Please try recording again.")
+        }
+    }
+
+    private func saveUntagged(videoURL: URL) {
+        saveVideoWithResult(videoURL: videoURL, playResult: nil) {
+            showingTrimmer = false
+            dismiss()
         }
     }
 
@@ -283,18 +220,17 @@ struct VideoRecorderView_Refactored: View {
             switch result {
             case .success(let videoURL):
                 recordedVideoURL = videoURL
-                clipOrientation = await VideoOrientationDetector.detect(url: videoURL)
 
                 let duration = await getVideoDuration(videoURL)
                 let autoShowTrimmer = UserDefaults.standard.bool(forKey: "autoShowTrimmer")
                 let skipShortClips = UserDefaults.standard.bool(forKey: "skipTrimmerForShortClips")
 
                 if !autoShowTrimmer && duration < 15 && skipShortClips {
-                    // Skip trimmer — go straight to tagging
-                    lockForClip()
-                    uploadFlowShowingPlayResult = true
+                    // Skip trimmer — save immediately, user can tag later from the library.
+                    saveUntagged(videoURL: videoURL)
+                } else {
+                    showingTrimmer = true
                 }
-                showingTrimmer = true
                 Haptics.medium()
             case .failure(let error):
                 importError = error.localizedDescription
@@ -382,9 +318,6 @@ struct VideoRecorderView_Refactored: View {
                     Haptics.error()
                     ErrorHandlerService.shared.handle(error, context: "VideoRecorderView.saveVideoWithResult", showAlert: false)
                     self.saveTask = nil
-                    // Restore orientation — cleanupAndDismiss won't run on the
-                    // error path, so without this the user stays locked.
-                    OrientationLocker.restore()
                     onError?()
                     self.showingSaveError = true
                 }
@@ -392,10 +325,6 @@ struct VideoRecorderView_Refactored: View {
         }
     }
     
-    private func lockForClip() {
-        OrientationLocker.lock(for: clipOrientation)
-    }
-
     private func cleanupAndDismiss() {
         saveTask?.cancel()
         saveTask = nil
@@ -409,11 +338,9 @@ struct VideoRecorderView_Refactored: View {
             }
             recordedVideoURL = nil
             trimmedVideoURL = nil
-            uploadFlowShowingPlayResult = false
             showingTrimmer = false
             showingPhotoPicker = false
             selectedVideoItem = nil
-            OrientationLocker.restore()
             dismiss()
         }
     }

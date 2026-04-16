@@ -78,8 +78,13 @@ final class VideoClip {
     }
 
     // Computed properties for sync status
+    //
+    // Relies solely on `isUploaded` — not `cloudURL` — so a clip in the rare
+    // crash-recovery state (cloudURL persisted but isUploaded not) still gets
+    // re-queued. UploadQueueManager's recovery branch detects the completed
+    // Firestore doc and marks isUploaded without re-uploading bytes.
     var needsUpload: Bool {
-        return !isUploaded && cloudURL == nil
+        return !isUploaded
     }
 
     /// Cached result of path resolution. Stable within a single app launch since the
@@ -163,47 +168,6 @@ final class VideoClip {
             return recovered
         }
         return thumbnailPath
-    }
-
-    // MARK: - Firestore Conversion
-
-    /// Converts video metadata to Firestore document
-    /// Note: This syncs metadata only - actual video files are in Firebase Storage
-    func toFirestoreData() -> [String: Any] {
-        let athleteRef = athlete?.firestoreId ?? athlete?.id.uuidString ?? ""
-        var data: [String: Any] = [
-            "id": id.uuidString,
-            "athleteId": athleteRef,
-            "fileName": fileName,
-            "isHighlight": isHighlight,
-            "isUploaded": isUploaded,
-            "createdAt": createdAt ?? Date(),
-            "updatedAt": Date(),
-            "version": version,
-            "isDeleted": false
-        ]
-
-        // Optional fields — prefer firestoreId for cross-device sync
-        if let gameId = game?.firestoreId ?? game?.id.uuidString {
-            data["gameId"] = gameId
-        }
-        if let practiceId = practice?.firestoreId ?? practice?.id.uuidString {
-            data["practiceId"] = practiceId
-        }
-        if let practiceDate = practiceDate ?? practice?.date {
-            data["practiceDate"] = practiceDate
-        }
-        if let seasonId = season?.firestoreId ?? season?.id.uuidString {
-            data["seasonId"] = seasonId
-        }
-        if let cloudURL = cloudURL {
-            data["cloudURL"] = cloudURL
-        }
-        if let playResult = playResult {
-            data["playResultType"] = playResult.type.rawValue
-        }
-
-        return data
     }
 
     /// Properly delete video clip with all associated files and data

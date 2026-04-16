@@ -8,6 +8,8 @@
 import UIKit
 import SwiftData
 import Foundation
+import ImageIO
+import UniformTypeIdentifiers
 
 @MainActor
 final class PhotoPersistenceService {
@@ -138,6 +140,105 @@ final class PhotoPersistenceService {
         return photo
     }
 
+    // MARK: - Save Photo from Raw Data (memory-efficient)
+
+    /// Saves a photo from raw file data (HEIC/JPEG from the photo library) without
+    /// decoding into a full UIImage bitmap. Uses CGImageSource for orientation-correct
+    /// JPEG conversion and thumbnail generation, keeping peak memory far below the
+    /// UIImage path (~one OS-managed image tile vs. three full-res bitmaps).
+    func savePhotoFromData(
+        _ data: Data,
+        caption: String? = nil,
+        context: ModelContext,
+        athlete: Athlete,
+        game: Game? = nil,
+        practice: Practice? = nil
+    ) async throws -> Photo {
+        let photoID = UUID()
+        let fileName = "\(photoID.uuidString).jpg"
+
+        let processed = try await processRawData(data, photoID: photoID)
+
+        let relativeFilePath = "\(Constants.photosFolderName)/\(fileName)"
+        let relativeThumbPath = "\(Constants.thumbnailsFolderName)/\(processed.thumbURL.lastPathComponent)"
+        let photo = Photo(fileName: fileName, filePath: relativeFilePath)
+        photo.thumbnailPath = relativeThumbPath
+        photo.caption = caption
+        photo.athlete = athlete
+        photo.game = game
+        photo.practice = practice
+        photo.season = athlete.activeSeason
+        photo.needsSync = true
+
+        context.insert(photo)
+        try context.save()
+
+        return photo
+    }
+
+    /// CGImageSource pipeline: writes raw data to a temp file, produces an
+    /// orientation-correct JPEG and thumbnail without UIImage decode.
+    private nonisolated func processRawData(
+        _ data: Data,
+        photoID: UUID
+    ) async throws -> ProcessedPhoto {
+        let photosDir = try ensurePhotosDirectory()
+        let thumbDir = try ensureThumbnailsDirectory()
+
+        let fileName = "\(photoID.uuidString).jpg"
+        let photoURL = photosDir.appendingPathComponent(fileName)
+        let thumbFileName = "thumb_\(photoID.uuidString).jpg"
+        let thumbURL = thumbDir.appendingPathComponent(thumbFileName)
+
+        // Write raw data to a temp file so CGImageSource can stream from disk
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        try data.write(to: tempURL, options: .atomic)
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+
+        guard let source = CGImageSourceCreateWithURL(tempURL as CFURL, nil) else {
+            throw PhotoPersistenceError.failedToEncode
+        }
+
+        // Full-size orientation-correct image (cap at 4000px to avoid enormous output)
+        let fullOptions: [CFString: Any] = [
+            kCGImageSourceThumbnailMaxPixelSize: 4000,
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true
+        ]
+        guard let fullCG = CGImageSourceCreateThumbnailAtIndex(source, 0, fullOptions as CFDictionary) else {
+            throw PhotoPersistenceError.failedToEncode
+        }
+
+        // Write full-size JPEG via CGImageDestination
+        guard let destination = CGImageDestinationCreateWithURL(
+            photoURL as CFURL,
+            UTType.jpeg.identifier as CFString,
+            1,
+            nil
+        ) else {
+            throw PhotoPersistenceError.failedToEncode
+        }
+        let jpegProps: [CFString: Any] = [kCGImageDestinationLossyCompressionQuality: Constants.jpegQuality]
+        CGImageDestinationAddImage(destination, fullCG, jpegProps as CFDictionary)
+        guard CGImageDestinationFinalize(destination) else {
+            throw PhotoPersistenceError.failedToEncode
+        }
+
+        // Thumbnail (600px max)
+        let thumbOptions: [CFString: Any] = [
+            kCGImageSourceThumbnailMaxPixelSize: 600,
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true
+        ]
+        if let thumbCG = CGImageSourceCreateThumbnailAtIndex(source, 0, thumbOptions as CFDictionary),
+           let thumbData = UIImage(cgImage: thumbCG).jpegData(compressionQuality: Constants.thumbnailQuality) {
+            try thumbData.write(to: thumbURL, options: .atomic)
+        }
+
+        return ProcessedPhoto(photoURL: photoURL, thumbURL: thumbURL)
+    }
+
     // MARK: - Delete Photo
 
     func deletePhoto(_ photo: Photo, context: ModelContext) {
@@ -148,7 +249,9 @@ final class PhotoPersistenceService {
     // MARK: - Image Helpers (nonisolated for background processing)
 
     private nonisolated static func normalizedImage(_ image: UIImage) -> UIImage {
-        if image.imageOrientation == .up { return image }
+        // Always redraw through a renderer so orientation is baked into the pixels.
+        // UIImage(data:) from HEIC/photo-library data can report .up while the
+        // pixel buffer is still un-transformed, producing rotated/black-bar saves.
         let format = UIGraphicsImageRendererFormat()
         format.scale = image.scale
         let renderer = UIGraphicsImageRenderer(size: image.size, format: format)
