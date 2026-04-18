@@ -125,7 +125,11 @@ async function sendPushNotification(
     const message: admin.messaging.MulticastMessage = {
       tokens: fcmTokens,
       notification: { title, body },
-      data: { ...data, type: data.type || '' },
+      // "source: activity" lets the iOS foreground handler distinguish these
+      // activity-feed pushes (already mirrored by the in-app banner) from
+      // locally-scheduled UN notifications, so only the former get suppressed
+      // while the app is active.
+      data: { ...data, type: data.type || '', source: 'activity' },
       apns: {
         payload: {
           aps: {
@@ -298,32 +302,39 @@ export const onSharedFolderDeleted = functions.firestore
     const athleteID = folder?.ownerAthleteID || '';
     const folderName = folder?.name || 'a shared folder';
 
-    const batch = admin.firestore().batch();
-    for (const coachID of coachIDs) {
-      if (coachID === athleteID) continue; // never self-notify
-      const ref = admin.firestore()
-        .collection('notifications')
-        .doc(coachID)
-        .collection('items')
-        .doc(`revoked_${folderID}_${coachID}`);
-      batch.set(ref, {
-        type: 'access_revoked',
-        title: 'Folder Deleted',
-        body: `${athleteName} deleted "${folderName}"`,
-        senderName: athleteName,
-        senderID: athleteID,
-        targetID: folderID,
-        targetType: 'folder',
-        isRead: false,
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
-    }
-
-    try {
-      await batch.commit();
-    } catch (err) {
-      console.warn(`onSharedFolderDeleted batch commit failed for ${folderID}:`, err);
-    }
+    // Use per-doc create() (not set/merge) so if the client already wrote the
+    // same deterministic ID we leave its title/body/isRead alone. This prevents
+    // a read notification from resurfacing as unread and the body from flipping
+    // between "Folder Access Removed" (client) and "Folder Deleted" (server).
+    await Promise.allSettled(
+      coachIDs
+        .filter((coachID) => coachID !== athleteID)
+        .map(async (coachID) => {
+          const ref = admin.firestore()
+            .collection('notifications')
+            .doc(coachID)
+            .collection('items')
+            .doc(`revoked_${folderID}_${coachID}`);
+          try {
+            await ref.create({
+              type: 'access_revoked',
+              title: 'Folder Deleted',
+              body: `${athleteName} deleted "${folderName}"`,
+              senderName: athleteName,
+              senderID: athleteID,
+              targetID: folderID,
+              targetType: 'folder',
+              isRead: false,
+              createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+          } catch (err: any) {
+            // ALREADY_EXISTS (code 6) is expected when the client beat us to it
+            if (err?.code !== 6) {
+              console.warn(`onSharedFolderDeleted create failed for ${coachID}:`, err);
+            }
+          }
+        })
+    );
 
     // Also push-notify coaches so they get an FCM banner on device
     await sendPushToMultipleUsers(

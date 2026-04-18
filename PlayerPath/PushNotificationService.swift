@@ -676,11 +676,23 @@ extension PushNotificationService: UNUserNotificationCenterDelegate {
     ) {
         logger.info("Received notification while app in foreground: \(notification.request.identifier)")
 
-        // Suppress system banner while app is active — rely on in-app ActivityNotificationBanner
-        // to avoid double-surfacing the same notification.
-        Task { @MainActor in
-            let isActive = UIApplication.shared.applicationState == .active
-            completionHandler(isActive ? [] : [.banner, .list, .sound, .badge])
+        // UN delegate callbacks run on the main thread. Read state synchronously so we
+        // return the presentation decision before iOS deadlines it.
+        let isActive = MainActor.assumeIsolated {
+            UIApplication.shared.applicationState == .active
+        }
+
+        // Suppress the system banner only for activity-feed FCMs when the app is active —
+        // our in-app ActivityNotificationBanner already surfaces them. Local UN
+        // notifications (upload-failed, stale-game reminders, etc.) and any non-activity
+        // FCM still present normally.
+        let userInfo = notification.request.content.userInfo
+        let isActivityFCM = (userInfo["source"] as? String) == "activity"
+
+        if isActive && isActivityFCM {
+            completionHandler([])
+        } else {
+            completionHandler([.banner, .list, .sound, .badge])
         }
     }
     

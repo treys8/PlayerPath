@@ -881,11 +881,13 @@ final class UploadQueueManager {
                 // the coach sees it in their notification feed even if they signed in on
                 // a different device than the one that did the uploading.
                 if let coachID = updatedUpload.coachID {
+                    let uploadID = updatedUpload.clipId.uuidString
                     let fileName = updatedUpload.fileName
                     let folderID = updatedUpload.folderID
                     let reason = (error as NSError).localizedDescription
                     Task {
                         await ActivityNotificationService.shared.postClipUploadFailedNotification(
+                            uploadID: uploadID,
                             coachUserID: coachID,
                             folderID: folderID,
                             fileName: fileName,

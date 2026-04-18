@@ -131,12 +131,13 @@ final class ActivityNotificationService: ObservableObject {
                     self.unreadCount = unread.count
                     self.unreadVideoCount = unread.filter { $0.type == .newVideo || $0.type == .coachComment }.count
                     self.unreadFolderVideoCount = unread.filter {
-                        ($0.type == .newVideo || $0.type == .coachComment) && $0.targetType == .folder
+                        ($0.type == .newVideo || $0.type == .coachComment || $0.type == .uploadFailed) && $0.targetType == .folder
                     }.count
 
                     // Per-folder unread counts and per-video unread set
-                    // Includes coachComment (folderID field) and newVideo (targetID is folderID)
-                    let videoRelatedUnread = unread.filter { $0.type == .coachComment || $0.type == .newVideo }
+                    // Includes coachComment (folderID field), newVideo (targetID is folderID),
+                    // and uploadFailed (folderID field set when the failed upload targets a folder)
+                    let videoRelatedUnread = unread.filter { $0.type == .coachComment || $0.type == .newVideo || $0.type == .uploadFailed }
                     var folderCounts: [String: Int] = [:]
                     var videoIDs: Set<String> = []
                     for n in videoRelatedUnread {
@@ -219,7 +220,7 @@ final class ActivityNotificationService: ObservableObject {
 
     func markFolderNotificationsRead(forUserID userID: String) async {
         await markBatchRead(forUserID: userID, label: "folder") {
-            ($0.type == .newVideo || $0.type == .coachComment) && $0.targetType == .folder
+            ($0.type == .newVideo || $0.type == .coachComment || $0.type == .uploadFailed) && $0.targetType == .folder
         }
     }
 
@@ -539,6 +540,7 @@ final class ActivityNotificationService: ObservableObject {
     /// activity feed so they know the clip is in the failed queue even if they didn't
     /// see the local push notification.
     func postClipUploadFailedNotification(
+        uploadID: String,
         coachUserID: String,
         folderID: String?,
         fileName: String,
@@ -558,7 +560,13 @@ final class ActivityNotificationService: ObservableObject {
             data["targetType"] = ActivityNotification.TargetType.folder.rawValue
             data["folderID"] = folderID
         }
-        await writeNotification(data, toUserIDs: [coachUserID])
+        // Keyed by upload/clip ID so repeat failures on the same clip overwrite
+        // rather than stacking duplicate entries in the coach's feed.
+        await writeNotification(
+            data,
+            toUserIDs: [coachUserID],
+            deterministicID: "upload_failed_\(uploadID)"
+        )
     }
 
     /// Athlete's subscription lapsed → notify coaches that the sharing relationship is in limbo.
