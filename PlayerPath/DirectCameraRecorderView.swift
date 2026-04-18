@@ -292,6 +292,31 @@ struct DirectCameraRecorderView: View {
                     // Multi-athlete — show athlete picker
                     coachTaggingView(videoURL: finalVideoURL, context: ctx)
                 }
+            } else if athlete?.trackStatsEnabled == false {
+                // Journal mode: skip play-result tagging and save immediately.
+                ZStack {
+                    Color.black.ignoresSafeArea()
+                    VStack(spacing: 16) {
+                        ProgressView()
+                            .scaleEffect(1.5)
+                            .tint(.white)
+                        Text("Saving...")
+                            .font(.headline)
+                            .foregroundColor(.white)
+                    }
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Saving recording")
+                .accessibilityAddTraits(.updatesFrequently)
+                .onAppear {
+                    guard !didAutoSave else { return }
+                    didAutoSave = true
+                    saveVideoWithResult(
+                        videoURL: finalVideoURL,
+                        playResult: nil,
+                        role: athlete?.primaryRole ?? .batter
+                    ) { dismiss() }
+                }
             } else if practice != nil {
                 PracticeVideoSaveView(
                     videoURL: finalVideoURL,

@@ -271,7 +271,9 @@ struct UserMainFlow: View {
 
         switch notification.type {
         case .coachComment, .newVideo:
-            if let folderID = notification.folderID {
+            let folderID = notification.folderID
+                ?? (notification.targetType == .folder ? notification.targetID : nil)
+            if let folderID {
                 if isCoach {
                     NotificationCenter.default.post(name: .navigateToCoachFolder, object: folderID)
                 } else {
@@ -295,6 +297,16 @@ struct UserMainFlow: View {
         case .accessRevoked, .accessLapsed:
             if isCoach {
                 NotificationCenter.default.post(name: .switchCoachTab, object: CoachTab.athletes.rawValue)
+            }
+        case .uploadFailed:
+            let folderID = notification.folderID
+                ?? (notification.targetType == .folder ? notification.targetID : nil)
+            if isCoach, let folderID {
+                NotificationCenter.default.post(name: .navigateToCoachFolder, object: folderID)
+            } else if isCoach {
+                NotificationCenter.default.post(name: .switchCoachTab, object: CoachTab.athletes.rawValue)
+            } else {
+                postSwitchTab(.more)
             }
         }
 

@@ -29,6 +29,7 @@ struct BulkImportAttach: ViewModifier {
     let athlete: Athlete?
     var game: Game? = nil
     var practice: Practice? = nil
+    var season: Season? = nil
     @Binding var trigger: Bool
 
     @State private var showingPicker = false
@@ -67,7 +68,8 @@ struct BulkImportAttach: ViewModifier {
                         items: pendingItems,
                         athlete: athlete,
                         game: game,
-                        practice: practice
+                        practice: practice,
+                        preselectedSeason: season
                     ) { succeeded, failed, stoppedForQuota, wasCancelled in
                         let (text, kind) = Self.classify(
                             succeeded: succeeded,
@@ -139,8 +141,9 @@ extension View {
         athlete: Athlete?,
         game: Game? = nil,
         practice: Practice? = nil,
+        season: Season? = nil,
         trigger: Binding<Bool>
     ) -> some View {
-        modifier(BulkImportAttach(athlete: athlete, game: game, practice: practice, trigger: trigger))
+        modifier(BulkImportAttach(athlete: athlete, game: game, practice: practice, season: season, trigger: trigger))
     }
 }

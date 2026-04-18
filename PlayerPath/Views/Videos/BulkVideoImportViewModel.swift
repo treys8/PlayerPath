@@ -39,7 +39,8 @@ final class BulkVideoImportViewModel {
         athlete: Athlete,
         modelContext: ModelContext,
         game: Game? = nil,
-        practice: Practice? = nil
+        practice: Practice? = nil,
+        seasonOverride: Season? = nil
     ) async {
         let total = items.count
         guard total > 0 else {
@@ -112,13 +113,16 @@ final class BulkVideoImportViewModel {
             }()
 
             // When importing into a specific game/practice, prefer that
-            // entity's season so the clip lands on the right timeline. Otherwise
-            // match by capture date, falling back to the active season.
+            // entity's season so the clip lands on the right timeline.
+            // Otherwise, an explicit seasonOverride wins over date-matching;
+            // fall back to matching by capture date, then the active season.
             let matchedSeason: Season?
             if let game = game {
                 matchedSeason = game.season ?? activeSeason
             } else if let practice = practice {
                 matchedSeason = practice.season ?? activeSeason
+            } else if let seasonOverride {
+                matchedSeason = seasonOverride
             } else {
                 matchedSeason = Self.season(containing: originalDate, in: allSeasons) ?? activeSeason
             }

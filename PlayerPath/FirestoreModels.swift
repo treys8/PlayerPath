@@ -319,6 +319,7 @@ struct FirestoreAthlete: Codable, Identifiable {
     let name: String
     let primaryRole: String?
     let userId: String
+    let trackStatsEnabled: Bool?
     let createdAt: Date?
     let updatedAt: Date?
     let version: Int
@@ -329,6 +330,7 @@ struct FirestoreAthlete: Codable, Identifiable {
         case name
         case primaryRole
         case userId
+        case trackStatsEnabled
         case createdAt
         case updatedAt
         case version

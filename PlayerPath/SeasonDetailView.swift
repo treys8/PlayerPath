@@ -34,6 +34,8 @@ struct SeasonDetailView: View {
     @State private var showingSuccess = false
     @State private var successTitle = "Success"
     @State private var successMessage = ""
+    @State private var videoUploadTrigger = false
+    @State private var photoUploadTrigger = false
 
     // Cached stats - updated via relationships
     @State private var completedGames: Int = 0
@@ -73,6 +75,25 @@ struct SeasonDetailView: View {
                     }
                 }
                 .padding(.vertical, 8)
+            }
+
+            // Add Content — routes every upload to this season regardless of
+            // whether it is active or archived, and regardless of the photo/
+            // video capture dates in the library.
+            Section("Add Content") {
+                Button {
+                    videoUploadTrigger = true
+                } label: {
+                    Label("Upload Videos", systemImage: "video.badge.plus")
+                        .foregroundColor(.brandNavy)
+                }
+
+                Button {
+                    photoUploadTrigger = true
+                } label: {
+                    Label("Upload Photos", systemImage: "photo.badge.plus")
+                        .foregroundColor(.brandNavy)
+                }
             }
 
             // Date Range
@@ -172,6 +193,8 @@ struct SeasonDetailView: View {
         }
         .navigationTitle("Season Details")
         .navigationBarTitleDisplayMode(.inline)
+        .bulkImportAttach(athlete: athlete, season: season, trigger: $videoUploadTrigger)
+        .bulkPhotoImportAttach(athlete: athlete, season: season, trigger: $photoUploadTrigger)
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 Button("Done") {

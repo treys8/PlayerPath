@@ -425,6 +425,19 @@ struct ProfileView: View {
 
             if let selectedAthlete = selectedAthlete {
                 NavigationLink {
+                    EditAthleteView(athlete: selectedAthlete)
+                } label: {
+                    Label("Athlete Settings", systemImage: "slider.horizontal.3")
+                }
+                .accessibilityHint("Edit settings for \(selectedAthlete.name)")
+            } else {
+                Label("Athlete Settings", systemImage: "slider.horizontal.3")
+                    .foregroundColor(.secondary)
+                    .accessibilityLabel("Athlete Settings — select an athlete first")
+            }
+
+            if let selectedAthlete = selectedAthlete {
+                NavigationLink {
                     SeasonManagementView(athlete: selectedAthlete)
                 } label: {
                     Label("Manage Seasons", systemImage: "calendar")
@@ -715,44 +728,78 @@ struct AthleteProfileRow: View {
     let isSelected: Bool
     let onSelect: () -> Void
 
+    @State private var showingEdit = false
+
     var body: some View {
-        Button(action: onSelect) {
-            HStack {
-                Image(systemName: "figure.baseball")
-                    .font(.title2)
-                    .foregroundColor(.brandNavy)
-                    .frame(width: 30)
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(athlete.name)
-                        .font(.headline)
-                        .foregroundColor(.primary)
-
-                    let gamesCount = (athlete.games ?? []).count
-                    let videosCount = (athlete.videoClips ?? []).count
-                    HStack {
-                        Text("\(gamesCount) \(gamesCount == 1 ? "game" : "games")")
-                        Text("•")
-                        Text("\(videosCount) \(videosCount == 1 ? "clip" : "clips")")
-                    }
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                }
-
-                Spacer()
-
-                if isSelected {
-                    Image(systemName: "checkmark.circle.fill")
+        HStack(spacing: 12) {
+            Button(action: onSelect) {
+                HStack {
+                    Image(systemName: "figure.baseball")
+                        .font(.title2)
                         .foregroundColor(.brandNavy)
-                        .accessibilityLabel("Selected")
-                        .accessibilityHidden(true)
+                        .frame(width: 30)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(athlete.name)
+                            .font(.headline)
+                            .foregroundColor(.primary)
+
+                        let gamesCount = (athlete.games ?? []).count
+                        let videosCount = (athlete.videoClips ?? []).count
+                        HStack {
+                            Text("\(gamesCount) \(gamesCount == 1 ? "game" : "games")")
+                            Text("•")
+                            Text("\(videosCount) \(videosCount == 1 ? "clip" : "clips")")
+                            if !athlete.trackStatsEnabled {
+                                Text("•")
+                                Text("Stats off")
+                                    .foregroundColor(.orange)
+                            }
+                        }
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    }
+
+                    Spacer()
+
+                    if isSelected {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.brandNavy)
+                            .accessibilityLabel("Selected")
+                            .accessibilityHidden(true)
+                    }
                 }
+                .contentShape(Rectangle())
             }
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+            .accessibilityHint("Select this athlete")
+            .accessibilityValue(isSelected ? "Selected" : "Not selected")
+
+            Button {
+                Haptics.light()
+                showingEdit = true
+            } label: {
+                Image(systemName: "info.circle")
+                    .font(.title3)
+                    .foregroundColor(.brandNavy)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Edit \(athlete.name)")
+            .accessibilityHint("Open athlete settings")
         }
-        .buttonStyle(.plain)
-        .accessibilityHint("Select this athlete")
-        .accessibilityValue(isSelected ? "Selected" : "Not selected")
+        .swipeActions(edge: .leading) {
+            Button {
+                showingEdit = true
+            } label: {
+                Label("Settings", systemImage: "slider.horizontal.3")
+            }
+            .tint(.brandNavy)
+        }
+        .sheet(isPresented: $showingEdit) {
+            NavigationStack { EditAthleteView(athlete: athlete) }
+        }
     }
 }
 

@@ -39,6 +39,7 @@ struct ActivityNotification: Identifiable, Codable {
         case invitationAccepted  = "invitation_accepted"
         case accessRevoked       = "access_revoked"
         case accessLapsed        = "access_lapsed"
+        case uploadFailed        = "upload_failed"
     }
 
     enum TargetType: String, Codable {
@@ -289,6 +290,7 @@ final class ActivityNotificationService: ObservableObject {
             "senderID": uploaderID,
             "targetID": folderID,
             "targetType": ActivityNotification.TargetType.folder.rawValue,
+            "folderID": folderID,
             "isRead": false,
             "createdAt": FieldValue.serverTimestamp()
         ]
@@ -479,7 +481,13 @@ final class ActivityNotificationService: ObservableObject {
             "isRead": false,
             "createdAt": FieldValue.serverTimestamp()
         ]
-        await writeNotification(data, toUserIDs: [coachUserID])
+        // Deterministic ID so the paired server trigger (onSharedFolderDeleted /
+        // onSharedFolderUpdated) can write the same doc without producing a duplicate.
+        await writeNotification(
+            data,
+            toUserIDs: [coachUserID],
+            deterministicID: "revoked_\(folderID)_\(coachUserID)"
+        )
     }
 
     /// Coach loses folder access (downgrade) → notify the affected athlete.
@@ -526,6 +534,33 @@ final class ActivityNotificationService: ObservableObject {
         await writeNotification(data, toUserIDs: [coachUserID])
     }
 
+    /// Coach's clip upload failed after exhausting retries (non-permission failure —
+    /// network timeout, storage quota, corrupt file, etc.). Surfaces in the coach's
+    /// activity feed so they know the clip is in the failed queue even if they didn't
+    /// see the local push notification.
+    func postClipUploadFailedNotification(
+        coachUserID: String,
+        folderID: String?,
+        fileName: String,
+        reason: String
+    ) async {
+        var data: [String: Any] = [
+            "type": ActivityNotification.NotificationType.uploadFailed.rawValue,
+            "title": "Upload Failed",
+            "body": "\(fileName) couldn't upload after multiple attempts. \(reason)",
+            "senderName": "PlayerPath",
+            "senderID": "",
+            "isRead": false,
+            "createdAt": FieldValue.serverTimestamp()
+        ]
+        if let folderID {
+            data["targetID"] = folderID
+            data["targetType"] = ActivityNotification.TargetType.folder.rawValue
+            data["folderID"] = folderID
+        }
+        await writeNotification(data, toUserIDs: [coachUserID])
+    }
+
     /// Athlete's subscription lapsed → notify coaches that the sharing relationship is in limbo.
     func postAccessLapsedNotification(
         folderID: String,
@@ -550,20 +585,27 @@ final class ActivityNotificationService: ObservableObject {
 
     // MARK: - Internal Write
 
-    private func writeNotification(_ data: [String: Any], toUserIDs userIDs: [String]) async {
+    private func writeNotification(
+        _ data: [String: Any],
+        toUserIDs userIDs: [String],
+        deterministicID: String? = nil
+    ) async {
         // Filter out the sender so users don't notify themselves
         let senderID = data["senderID"] as? String
         let recipients = userIDs.filter { $0 != senderID }
         guard !recipients.isEmpty else { return }
 
-        // Batch writes to reduce Firestore operations
+        // Batch writes to reduce Firestore operations. When deterministicID is supplied,
+        // it's used as the doc ID on every recipient's items collection. This lets a
+        // server-side Cloud Function (e.g. onSharedFolderDeleted) write with the same ID
+        // and safely overwrite rather than producing a duplicate notification.
         let batch = db.batch()
         for userID in recipients {
-            let ref = db
+            let collection = db
                 .collection(FC.notifications)
                 .document(userID)
                 .collection(FC.items)
-                .document()
+            let ref = deterministicID.map { collection.document($0) } ?? collection.document()
             batch.setData(data, forDocument: ref)
         }
         do {

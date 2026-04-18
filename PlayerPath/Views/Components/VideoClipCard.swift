@@ -252,8 +252,15 @@ struct VideoClipCard: View {
             } label: {
                 Label("Tag Play Result", systemImage: "tag.fill")
             }
-            Divider()
+        } else {
+            Button {
+                Haptics.light()
+                showingTagSheet = true
+            } label: {
+                Label("Edit Play Result", systemImage: AppIcon.edit)
+            }
         }
+        Divider()
 
         Button {
             Haptics.light()

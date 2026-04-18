@@ -114,18 +114,23 @@ struct StatisticsView: View {
                     // Actions menu (always available)
                     ToolbarItem(placement: .primaryAction) {
                         Menu {
-                            if let game = currentLiveGame {
-                                Button {
-                                    activeSheet = .quickEntry(game)
-                                } label: {
-                                    Label("Record Live Game Stats", systemImage: "chart.bar.doc.horizontal.fill")
+                            // Manual-entry shortcuts contradict a user who has
+                            // explicitly turned off stat tracking. Hide them
+                            // here — export still works if they have old stats.
+                            if ath.trackStatsEnabled {
+                                if let game = currentLiveGame {
+                                    Button {
+                                        activeSheet = .quickEntry(game)
+                                    } label: {
+                                        Label("Record Live Game Stats", systemImage: "chart.bar.doc.horizontal.fill")
+                                    }
                                 }
-                            }
 
-                            Button {
-                                activeSheet = .gameSelection
-                            } label: {
-                                Label("Add Past Game Statistics", systemImage: "plus.circle.fill")
+                                Button {
+                                    activeSheet = .gameSelection
+                                } label: {
+                                    Label("Add Past Game Statistics", systemImage: "plus.circle.fill")
+                                }
                             }
 
                             if statistics != nil, currentTier >= .plus {
@@ -242,8 +247,55 @@ struct StatisticsView: View {
         }
     }
     
+    @State private var showingEditAthlete = false
+
     @ViewBuilder
     private var contentView: some View {
+        VStack(spacing: 0) {
+            if let athlete, !athlete.trackStatsEnabled {
+                statTrackingOffBanner(athlete: athlete)
+            }
+            mainContent
+        }
+        // Sheet attached at the parent so it survives the banner unmounting
+        // when the user toggles tracking back on from inside the sheet.
+        .sheet(isPresented: $showingEditAthlete) {
+            if let athlete {
+                NavigationStack { EditAthleteView(athlete: athlete) }
+            }
+        }
+    }
+
+    private func statTrackingOffBanner(athlete: Athlete) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "info.circle")
+                .foregroundColor(.brandNavy)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Stat tracking is off for \(athlete.name)")
+                    .font(.footnote.weight(.semibold))
+                Text("New clips won't add to stats.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            Spacer(minLength: 8)
+            Button("Turn On") {
+                showingEditAthlete = true
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+            .tint(.brandNavy)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(Color.brandNavy.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .padding(.horizontal, 16)
+        .padding(.top, 8)
+        .padding(.bottom, 12)
+    }
+
+    @ViewBuilder
+    private var mainContent: some View {
         if let stats = statistics {
             ScrollView {
                 LazyVStack(spacing: 20) {

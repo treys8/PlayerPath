@@ -15,11 +15,17 @@ struct CreateSeasonView: View {
 
     @State private var seasonName = ""
     @State private var startDate = Date()
+    @State private var endDate = Date()
+    @State private var hasEndDate = false
     @State private var selectedSport: Season.SportType = .baseball
     @State private var makeActive = true
     @State private var showingError = false
     @State private var errorMessage = ""
     @State private var isCreating = false
+
+    private var isCreatingPastSeason: Bool {
+        !makeActive && athlete.activeSeason != nil
+    }
 
     // Season name suggestions
     private var suggestedSeasons: [String] {
@@ -77,8 +83,24 @@ struct CreateSeasonView: View {
 
                 Section {
                     DatePicker("Start Date", selection: $startDate, displayedComponents: .date)
+
+                    if isCreatingPastSeason {
+                        Toggle("Set End Date", isOn: $hasEndDate.animation())
+                        if hasEndDate {
+                            DatePicker(
+                                "End Date",
+                                selection: $endDate,
+                                in: startDate...Date(),
+                                displayedComponents: .date
+                            )
+                        }
+                    }
                 } header: {
-                    Text("When does this season start?")
+                    Text(isCreatingPastSeason ? "Season Dates" : "When does this season start?")
+                } footer: {
+                    if isCreatingPastSeason {
+                        Text("Setting an end date helps us route past games and imported videos to the correct season.")
+                    }
                 }
 
                 Section {
@@ -158,6 +180,11 @@ struct CreateSeasonView: View {
 
         if makeActive {
             newSeason.activate()
+        } else if hasEndDate {
+            // Past season: stamp an explicit end date so it's a closed interval.
+            // BulkVideoImportViewModel.season(containing:) treats nil endDate as
+            // distantFuture, which would let current-date videos leak in.
+            newSeason.endDate = endDate
         }
 
         // Link to athlete

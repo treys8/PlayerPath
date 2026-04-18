@@ -20,6 +20,7 @@ struct AddAthleteView: View {
     @Binding var selectedAthlete: Athlete?
     let isFirstAthlete: Bool
     @State private var athleteName = ""
+    @State private var trackStats = true
     @State private var showingSuccessAlert = false
     @State private var isCreatingAthlete = false
     @State private var showingValidationError = false
@@ -109,6 +110,17 @@ struct AddAthleteView: View {
                                 }
                                 .accessibilityLabel("Athlete name")
                                 .accessibilityHint("Enter the athlete's name")
+
+                            if !isFirstAthlete {
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Toggle("Track statistics for this athlete", isOn: $trackStats)
+                                        .tint(.brandNavy)
+                                    Text("Turn off to record and review videos without play-result tagging. You can change this later in athlete settings.")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                                .padding(.horizontal, 4)
+                            }
 
                             Button(action: { Haptics.light(); saveAthlete() }) {
                                 HStack(spacing: 10) {
@@ -277,6 +289,12 @@ struct AddAthleteView: View {
 
             // Set up relationship BEFORE inserting
             athlete.user = user
+
+            // Apply stat tracking preference (only asked for second+ athletes;
+            // first athlete always defaults to tracking on).
+            if !isFirstAthlete {
+                athlete.trackStatsEnabled = trackStats
+            }
 
             // Mark for Firestore sync
             athlete.needsSync = true

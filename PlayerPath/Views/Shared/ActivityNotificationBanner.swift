@@ -57,16 +57,23 @@ struct ActivityNotificationBanner: View {
                     .frame(width: 24, height: 24)
             }
             .buttonStyle(.borderless)
+            .accessibilityLabel("Dismiss notification")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: .cornerXLarge))
         .shadow(color: .black.opacity(0.12), radius: 8, x: 0, y: 4)
         .padding(.horizontal, 16)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(notification.title). \(notification.body)")
+        .accessibilityHint("Double-tap to open, or activate the dismiss button to close")
+        .accessibilityAddTraits(.isButton)
         .task {
-            // Auto-dismiss after 5 seconds; cancelled automatically on disappear
+            // Auto-dismiss after a timeout; extend under VoiceOver so the user has time
+            // to hear the announcement and interact. Cancelled automatically on disappear.
+            let seconds: TimeInterval = UIAccessibility.isVoiceOverRunning ? 10 : 5
             do {
-                try await Task.sleep(for: .seconds(5))
+                try await Task.sleep(for: .seconds(seconds))
                 onDismiss()
             } catch {
                 // Task was cancelled (view disappeared) — don't dismiss
@@ -82,6 +89,7 @@ struct ActivityNotificationBanner: View {
         case .invitationAccepted: return "checkmark.circle.fill"
         case .accessRevoked:      return "minus.circle.fill"
         case .accessLapsed:       return "exclamationmark.triangle.fill"
+        case .uploadFailed:       return "exclamationmark.arrow.triangle.2.circlepath"
         }
     }
 
@@ -93,6 +101,7 @@ struct ActivityNotificationBanner: View {
         case .invitationAccepted: return .green
         case .accessRevoked:      return .orange
         case .accessLapsed:       return .yellow
+        case .uploadFailed:       return .red
         }
     }
 }

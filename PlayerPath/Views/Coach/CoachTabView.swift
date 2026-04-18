@@ -57,6 +57,7 @@ struct CoachTabView: View {
                         await ActivityNotificationService.shared.markDashboardNotificationsRead(forUserID: coachID)
                     } else if newTab == .athletes {
                         await ActivityNotificationService.shared.markInvitationNotificationsRead(forUserID: coachID)
+                        await ActivityNotificationService.shared.markFolderNotificationsRead(forUserID: coachID)
                     }
                 }
             }

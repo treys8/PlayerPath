@@ -40,6 +40,7 @@ struct PracticesView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var viewModel = PracticesViewModel()
     @State private var navigateToPractice: Practice?
+    @State private var showingAddPractice = false
 
     // Check if filters are active
     private var hasActiveFilters: Bool {
@@ -179,6 +180,12 @@ struct PracticesView: View {
                         Label(type.displayName, systemImage: type.icon)
                     }
                 }
+                Divider()
+                Button {
+                    showingAddPractice = true
+                } label: {
+                    Label("Schedule Practice…", systemImage: "calendar.badge.plus")
+                }
             } label: {
                 Image(systemName: "plus")
             } primaryAction: {
@@ -233,6 +240,13 @@ struct PracticesView: View {
         .toolbar { practicesToolbar }
         .navigationDestination(item: $navigateToPractice) { practice in
             PracticeDetailView(practice: practice)
+        }
+        .sheet(isPresented: $showingAddPractice) {
+            if let athlete {
+                AddPracticeView(athlete: athlete) { created in
+                    navigateToPractice = created
+                }
+            }
         }
     }
 

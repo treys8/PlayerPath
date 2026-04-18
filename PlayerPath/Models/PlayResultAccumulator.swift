@@ -92,6 +92,9 @@ extension PlayResultAccumulator {
         case .pitchingWalk:
             self.totalPitches += 1
             self.pitchingWalks += 1
+        case .pitchingSingleAllowed, .pitchingDoubleAllowed, .pitchingTripleAllowed, .pitchingHomeRunAllowed:
+            // Label-only tag. No counters — pitcher-side hits allowed aren't tracked as stats.
+            break
         }
 
         // Pitcher-mode credit: strikeouts/groundouts/flyouts also count as a strike.

@@ -27,12 +27,29 @@ enum PlayResultType: Int, CaseIterable, Codable {
     case pitchingStrikeout = 14
     case pitchingWalk = 15
 
+    // Pitcher-perspective hits allowed — cosmetic clip labels only.
+    // Do not accumulate into the athlete's batting counters.
+    case pitchingSingleAllowed = 16
+    case pitchingDoubleAllowed = 17
+    case pitchingTripleAllowed = 18
+    case pitchingHomeRunAllowed = 19
+
     var isPitchingResult: Bool {
         rawValue >= 10
     }
 
     var isBattingResult: Bool {
         rawValue < 10
+    }
+
+    /// True for pitcher-side hit-allowed labels that don't contribute to stats.
+    var isHitAllowed: Bool {
+        switch self {
+        case .pitchingSingleAllowed, .pitchingDoubleAllowed, .pitchingTripleAllowed, .pitchingHomeRunAllowed:
+            return true
+        default:
+            return false
+        }
     }
 
     var isHit: Bool {
@@ -93,6 +110,10 @@ enum PlayResultType: Int, CaseIterable, Codable {
         case .wildPitch: return "Wild Pitch"
         case .pitchingStrikeout: return "Strikeout"
         case .pitchingWalk: return "Walk"
+        case .pitchingSingleAllowed: return "Single"
+        case .pitchingDoubleAllowed: return "Double"
+        case .pitchingTripleAllowed: return "Triple"
+        case .pitchingHomeRunAllowed: return "Home Run"
         }
     }
 
@@ -100,9 +121,10 @@ enum PlayResultType: Int, CaseIterable, Codable {
     /// Used by video thumbnails, tagging overlays, and result editor cards.
     var color: Color {
         switch self {
-        case .single, .double, .triple, .strike:
+        case .single, .double, .triple, .strike,
+             .pitchingSingleAllowed, .pitchingDoubleAllowed, .pitchingTripleAllowed:
             return .green
-        case .homeRun:
+        case .homeRun, .pitchingHomeRunAllowed:
             return .gold
         case .walk, .pitchingWalk:
             return .cyan
@@ -120,8 +142,9 @@ enum PlayResultType: Int, CaseIterable, Codable {
         allCases.filter { $0.isBattingResult }
     }
 
-    /// Returns only pitching result types for filtering in UI
+    /// Returns only pitching result types for filtering in UI.
+    /// Excludes hit-allowed labels so the manual stats picker isn't cluttered with no-op entries.
     static var pitchingCases: [PlayResultType] {
-        allCases.filter { $0.isPitchingResult }
+        allCases.filter { $0.isPitchingResult && !$0.isHitAllowed }
     }
 }

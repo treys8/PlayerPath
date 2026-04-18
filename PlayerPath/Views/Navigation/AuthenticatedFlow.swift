@@ -110,6 +110,29 @@ struct AuthenticatedFlow: View {
                 CoachInvitationManager.shared.stopListening()
             }
         }
+        .onChange(of: authManager.userRole) { oldRole, newRole in
+            guard oldRole != newRole,
+                  let uid = authManager.currentFirebaseUser?.uid else { return }
+            let email = authManager.currentFirebaseUser?.email?.lowercased()
+            // Tear down previous-role listeners
+            if oldRole == .coach {
+                CoachInvitationManager.shared.stopListening()
+                CoachSessionManager.shared.stopListeningActiveSession()
+                SharedFolderManager.shared.stopCoachFoldersListener()
+            } else {
+                AthleteInvitationManager.shared.stopListening()
+                SharedFolderManager.shared.stopAthleteFoldersListener()
+            }
+            // Start new-role listeners
+            if newRole == .coach {
+                SharedFolderManager.shared.startCoachFoldersListener(coachID: uid)
+                CoachSessionManager.shared.startListeningActiveSession(coachID: uid)
+                if let email { CoachInvitationManager.shared.startListening(forEmail: email) }
+            } else {
+                SharedFolderManager.shared.startAthleteFoldersListener(athleteID: uid)
+                if let email { AthleteInvitationManager.shared.startListening(forEmail: email) }
+            }
+        }
         .onChange(of: scenePhase) { _, newPhase in
             switch newPhase {
             case .background:

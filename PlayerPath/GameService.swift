@@ -96,14 +96,15 @@ class GameService {
         }
     }
 
-    func createGame(for athlete: Athlete, opponent: String, date: Date, isLive: Bool, allowWithoutSeason: Bool = false) async -> Result<Game, GameCreationError> {
-        // Check if athlete has an active season
-        let hasActiveSeason = athlete.activeSeason != nil
+    func createGame(for athlete: Athlete, opponent: String, date: Date, isLive: Bool, season: Season? = nil, allowWithoutSeason: Bool = false) async -> Result<Game, GameCreationError> {
+        // Resolve target season: caller-supplied override wins, otherwise active.
+        let resolvedSeason = season ?? athlete.activeSeason
+        let hasSeason = resolvedSeason != nil
 
-        logger.debug("createGame() called — athlete: \(athlete.name, privacy: .private), hasActiveSeason: \(hasActiveSeason), activeSeason: \(athlete.activeSeason?.name ?? "none"), allowWithoutSeason: \(allowWithoutSeason)")
+        logger.debug("createGame() called — athlete: \(athlete.name, privacy: .private), hasSeason: \(hasSeason), resolvedSeason: \(resolvedSeason?.name ?? "none"), allowWithoutSeason: \(allowWithoutSeason)")
 
-        // If no active season and not explicitly allowed to create without season, return error
-        if !hasActiveSeason && !allowWithoutSeason {
+        // If no season could be resolved and not explicitly allowed to create without season, return error
+        if !hasSeason && !allowWithoutSeason {
             logger.debug("Returning .noActiveSeason error")
             return .failure(.noActiveSeason)
         }
@@ -120,8 +121,10 @@ class GameService {
             return .failure(.duplicateGame)
         }
 
-        // End all other live games if this game is going live
-        if isLive {
+        // End all other live games if this game is going live — but only when
+        // the new game is on the active season. A historical game filed onto a
+        // past season should never interrupt the current live game.
+        if isLive && (resolvedSeason?.isActive ?? true) {
             (athlete.games ?? []).filter { $0.isLive }.forEach {
                 $0.isLive = false
                 GameAlertService.shared.cancelEndGameReminder(for: $0)
@@ -133,7 +136,7 @@ class GameService {
         game.isLive = isLive
         if isLive { game.liveStartDate = Date() }
         game.athlete = athlete
-        game.season = athlete.activeSeason // Will be nil if no active season
+        game.season = resolvedSeason // Will be nil if no season available and allowWithoutSeason
 
         // Create and link statistics
         let stats = GameStatistics()

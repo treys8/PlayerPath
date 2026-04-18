@@ -12,13 +12,19 @@ import Foundation
 struct GameCreationView: View {
     @Environment(\.dismiss) private var dismiss
     let athlete: Athlete?
-    let onSave: (String, Date, Bool) -> Void
+    let onSave: (String, Date, Bool, Season?) -> Void
 
     @State private var opponent = ""
     @State private var date = Date()
     @State private var makeGameLive = false
+    @State private var selectedSeason: Season?
+    @State private var didInitSeason = false
     @State private var showingValidationError = false
     @State private var validationMessage = ""
+
+    private var hasMultipleSeasons: Bool {
+        (athlete?.seasons?.count ?? 0) > 1
+    }
 
     // Get previous opponents for autocomplete
     private var previousOpponents: [String] {
@@ -95,8 +101,21 @@ struct GameCreationView: View {
                     }
                 }
 
+                if hasMultipleSeasons {
+                    Section {
+                        SeasonPickerRow(athlete: athlete, selection: $selectedSeason)
+                    } header: {
+                        Text("Season")
+                    } footer: {
+                        if let selectedSeason, !selectedSeason.isActive {
+                            Text("This game will be filed on a past season and won't affect your current season's stats.")
+                        }
+                    }
+                }
+
                 Section("Game Options") {
                     Toggle("Start as Live Game", isOn: $makeGameLive)
+                        .disabled(selectedSeason?.isActive == false)
 
                     if makeGameLive {
                         Label {
@@ -105,6 +124,14 @@ struct GameCreationView: View {
                         } icon: {
                             Image(systemName: "info.circle")
                                 .foregroundColor(.brandNavy)
+                        }
+                    } else if selectedSeason?.isActive == false {
+                        Label {
+                            Text("Live mode isn't available for past seasons.")
+                                .font(.caption)
+                        } icon: {
+                            Image(systemName: "info.circle")
+                                .foregroundColor(.secondary)
                         }
                     }
                 }
@@ -136,7 +163,15 @@ struct GameCreationView: View {
                     .disabled(!canSave)
                 }
             }
-            // Removed onAppear that sets selectedTournament
+            .onAppear {
+                guard !didInitSeason else { return }
+                selectedSeason = athlete?.activeSeason
+                didInitSeason = true
+            }
+            .onChange(of: selectedSeason) { _, newValue in
+                // Live mode is only valid on the active season
+                if newValue?.isActive == false { makeGameLive = false }
+            }
         }
         .alert("Validation Error", isPresented: $showingValidationError) {
             Button("OK") { }
@@ -153,27 +188,44 @@ struct GameCreationView: View {
             return
         }
 
-        // Check for reasonable date (not too far in past/future)
-        let yearFromNow = Calendar.current.date(byAdding: .year, value: 1, to: Date()) ?? Date()
-        let yearAgo = Calendar.current.date(byAdding: .year, value: -1, to: Date()) ?? Date()
+        // Bound the game date by the selected season when one is chosen, otherwise
+        // fall back to the legacy ±1yr guardrails. This lets users file historical
+        // games onto a past season (e.g., "Spring 2024") without bumping the year cap.
+        if let selectedSeason {
+            let start = selectedSeason.startDate ?? .distantPast
+            let end = selectedSeason.endDate ?? Date()
+            if date < start {
+                validationMessage = "Game date is before the selected season starts."
+                showingValidationError = true
+                return
+            }
+            if date > end {
+                validationMessage = "Game date is after the selected season ends."
+                showingValidationError = true
+                return
+            }
+        } else {
+            let yearFromNow = Calendar.current.date(byAdding: .year, value: 1, to: Date()) ?? Date()
+            let yearAgo = Calendar.current.date(byAdding: .year, value: -1, to: Date()) ?? Date()
 
-        if date > yearFromNow {
-            validationMessage = "Game date cannot be more than 1 year in the future"
-            showingValidationError = true
-            return
-        }
+            if date > yearFromNow {
+                validationMessage = "Game date cannot be more than 1 year in the future"
+                showingValidationError = true
+                return
+            }
 
-        if date < yearAgo {
-            validationMessage = "Game date cannot be more than 1 year in the past"
-            showingValidationError = true
-            return
+            if date < yearAgo {
+                validationMessage = "Game date cannot be more than 1 year in the past"
+                showingValidationError = true
+                return
+            }
         }
 
         #if DEBUG
-        print("🎮 GameCreationView: Saving game | Opponent: '\(opponent.trimmingCharacters(in: .whitespacesAndNewlines))' | makeGameLive: \(makeGameLive)")
+        print("🎮 GameCreationView: Saving game | Opponent: '\(opponent.trimmingCharacters(in: .whitespacesAndNewlines))' | makeGameLive: \(makeGameLive) | season: \(selectedSeason?.name ?? "none")")
         #endif
 
-        onSave(opponent.trimmingCharacters(in: .whitespacesAndNewlines), date, makeGameLive)
+        onSave(opponent.trimmingCharacters(in: .whitespacesAndNewlines), date, makeGameLive, selectedSeason)
         dismiss()
     }
 }

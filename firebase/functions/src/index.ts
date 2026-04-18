@@ -276,6 +276,66 @@ export const onVideoPublished = functions.firestore
   });
 
 /**
+ * When a shared folder is deleted, notify every coach who had access. The client
+ * path (SharedFolderManager.deleteFolder) attempts this in-app notification first,
+ * but that only works if the deleting device is online and reaches the loop. This
+ * server-side trigger covers:
+ *   - athlete deletes while offline; coach is on a different device
+ *   - direct admin console / server deletes that bypass the client
+ *
+ * Uses deterministic doc IDs matching the client path so duplicates overwrite
+ * rather than producing two identical items in the coach's feed.
+ */
+export const onSharedFolderDeleted = functions.firestore
+  .document('sharedFolders/{folderID}')
+  .onDelete(async (snap) => {
+    const folder = snap.data();
+    const folderID = snap.id;
+    const coachIDs: string[] = folder?.sharedWithCoachIDs || [];
+    if (coachIDs.length === 0) return;
+
+    const athleteName = folder?.ownerAthleteName || 'The athlete';
+    const athleteID = folder?.ownerAthleteID || '';
+    const folderName = folder?.name || 'a shared folder';
+
+    const batch = admin.firestore().batch();
+    for (const coachID of coachIDs) {
+      if (coachID === athleteID) continue; // never self-notify
+      const ref = admin.firestore()
+        .collection('notifications')
+        .doc(coachID)
+        .collection('items')
+        .doc(`revoked_${folderID}_${coachID}`);
+      batch.set(ref, {
+        type: 'access_revoked',
+        title: 'Folder Deleted',
+        body: `${athleteName} deleted "${folderName}"`,
+        senderName: athleteName,
+        senderID: athleteID,
+        targetID: folderID,
+        targetType: 'folder',
+        isRead: false,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    }
+
+    try {
+      await batch.commit();
+    } catch (err) {
+      console.warn(`onSharedFolderDeleted batch commit failed for ${folderID}:`, err);
+    }
+
+    // Also push-notify coaches so they get an FCM banner on device
+    await sendPushToMultipleUsers(
+      coachIDs.filter((id) => id !== athleteID),
+      'Folder Deleted',
+      `${athleteName} deleted "${folderName}"`,
+      { type: 'access_revoked', folderID },
+      'ACCESS_REVOKED'
+    );
+  });
+
+/**
  * Resolves the set of user IDs that should be notified when a coach/athlete
  * leaves feedback on a shared-folder video. Author is always excluded.
  * Falls back to the video uploader for non-shared videos.

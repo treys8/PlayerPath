@@ -216,6 +216,15 @@ struct PlayResultEditorView: View {
             }
 
             VStack(alignment: .leading, spacing: 8) {
+                sectionHeader("Hits Allowed")
+                LazyVGrid(columns: twoColumnGrid, spacing: 8) {
+                    ForEach([PlayResultType.pitchingSingleAllowed, .pitchingDoubleAllowed, .pitchingTripleAllowed, .pitchingHomeRunAllowed], id: \.self) { result in
+                        resultButton(result)
+                    }
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
                 sectionHeader("Outs")
                 LazyVGrid(columns: twoColumnGrid, spacing: 8) {
                     ForEach([PlayResultType.pitchingStrikeout, .groundOut, .flyOut], id: \.self) { result in
@@ -267,6 +276,7 @@ struct PlayResultEditorView: View {
     private func saveChanges() {
         let prevResult = clip.playResult
         let prevType = clip.playResult?.type
+        let prevHighlight = clip.isHighlight
 
         if let selected = selectedResult {
             if let existing = clip.playResult {
@@ -277,6 +287,17 @@ struct PlayResultEditorView: View {
             }
         } else {
             clip.playResult = nil
+        }
+
+        // Re-evaluate auto-highlight rule against the new type+role so a clip
+        // doesn't keep a stale highlight flag from its previous tag.
+        let newHighlight: Bool = {
+            guard let selected = selectedResult else { return false }
+            return AutoHighlightSettings.shared.shouldAutoHighlight(playType: selected, role: mode)
+        }()
+        if clip.isHighlight != newHighlight {
+            clip.isHighlight = newHighlight
+            clip.needsSync = true
         }
 
         do {
@@ -307,6 +328,7 @@ struct PlayResultEditorView: View {
             } else {
                 clip.playResult = nil
             }
+            clip.isHighlight = prevHighlight
             Haptics.warning()
             errorMessage = "Could not save play result. Please try again."
             showingError = true

@@ -45,6 +45,12 @@ final class Athlete {
     var isDeletedRemotely: Bool = false  // Soft delete from another device
     var version: Int = 0            // Version number for conflict resolution
 
+    /// When false, new clips save without the play-result tagging prompt and the
+    /// Stats tab shows a disabled-tracking banner. Existing tagged clips remain
+    /// and their stats stay visible. Defaults to true so existing athletes keep
+    /// their current behavior after migration.
+    var trackStatsEnabled: Bool = true
+
     /// The currently active season for this athlete (only one can be active at a time)
     var activeSeason: Season? {
         seasons?.first(where: { $0.isActive })
@@ -144,6 +150,7 @@ final class Athlete {
             "name": name,
             "userId": user?.id.uuidString ?? "",
             "primaryRole": primaryRole.rawValue,
+            "trackStatsEnabled": trackStatsEnabled,
             "createdAt": createdAt ?? Date(),
             "updatedAt": Date(),
             "version": version,

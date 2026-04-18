@@ -46,7 +46,7 @@ extension FirestoreManager {
     ///   - data: Updated athlete data dictionary
     func updateAthlete(userId: String, athleteId: String, data: [String: Any]) async throws {
 
-        let allowedFields: Set<String> = ["id", "name", "primaryRole", "userId", "version"]
+        let allowedFields: Set<String> = ["id", "name", "primaryRole", "userId", "version", "trackStatsEnabled"]
         var updateData = data.filter { allowedFields.contains($0.key) }
         updateData["updatedAt"] = FieldValue.serverTimestamp()
 

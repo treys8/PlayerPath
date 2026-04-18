@@ -500,6 +500,23 @@ struct PlayResultOverlayView: View {
             PlayResultDivider()
 
             VStack(alignment: .leading, spacing: 10) {
+                PlayResultSectionHeader(icon: "baseball.fill", title: "HITS ALLOWED", color: .green)
+
+                VStack(spacing: 10) {
+                    HStack(spacing: 10) {
+                        PlayResultButton(result: .pitchingSingleAllowed, isSelected: selectedResult == .pitchingSingleAllowed) { selectResult(.pitchingSingleAllowed) }
+                        PlayResultButton(result: .pitchingDoubleAllowed, isSelected: selectedResult == .pitchingDoubleAllowed) { selectResult(.pitchingDoubleAllowed) }
+                    }
+                    HStack(spacing: 10) {
+                        PlayResultButton(result: .pitchingTripleAllowed, isSelected: selectedResult == .pitchingTripleAllowed) { selectResult(.pitchingTripleAllowed) }
+                        PlayResultButton(result: .pitchingHomeRunAllowed, isSelected: selectedResult == .pitchingHomeRunAllowed) { selectResult(.pitchingHomeRunAllowed) }
+                    }
+                }
+            }
+
+            PlayResultDivider()
+
+            VStack(alignment: .leading, spacing: 10) {
                 PlayResultSectionHeader(icon: "xmark.circle.fill", title: "OUTS", color: .red)
 
                 VStack(spacing: 10) {
@@ -572,6 +589,10 @@ extension PlayResultType {
         case .wildPitch: return "arrow.up.right.and.arrow.down.left"
         case .pitchingStrikeout: return "k.circle.fill"
         case .pitchingWalk: return "figure.walk"
+        case .pitchingSingleAllowed: return "1.circle.fill"
+        case .pitchingDoubleAllowed: return "2.circle.fill"
+        case .pitchingTripleAllowed: return "3.circle.fill"
+        case .pitchingHomeRunAllowed: return "4.circle.fill"
         }
     }
 
@@ -593,6 +614,10 @@ extension PlayResultType {
         case .wildPitch: return "WP"
         case .pitchingStrikeout: return "K"
         case .pitchingWalk: return "BB"
+        case .pitchingSingleAllowed: return "1B"
+        case .pitchingDoubleAllowed: return "2B"
+        case .pitchingTripleAllowed: return "3B"
+        case .pitchingHomeRunAllowed: return "HR"
         }
     }
 

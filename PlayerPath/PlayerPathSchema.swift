@@ -293,12 +293,26 @@ enum SchemaV15: VersionedSchema {
     static var models: [any PersistentModel.Type] { SchemaV1.models }
 }
 
+// MARK: - Schema V16 (2026-04-17 — Per-athlete stat tracking toggle)
+//
+//  Changes from V15:
+//    • Athlete.trackStatsEnabled (Bool = true) added — when false, new clips
+//      save without play-result tagging and the Stats tab shows a disabled
+//      banner. Default true preserves existing behavior for all migrated athletes.
+//
+//  Default value of true → lightweight migration is sufficient.
+
+enum SchemaV16: VersionedSchema {
+    static var versionIdentifier = Schema.Version(16, 0, 0)
+    static var models: [any PersistentModel.Type] { SchemaV1.models }
+}
+
 // MARK: - Migration Plan
 
 enum PlayerPathMigrationPlan: SchemaMigrationPlan {
     /// All schema versions in chronological order (oldest first).
     static var schemas: [any VersionedSchema.Type] {
-        [SchemaV1.self, SchemaV2.self, SchemaV3.self, SchemaV4.self, SchemaV5.self, SchemaV6.self, SchemaV7.self, SchemaV8.self, SchemaV9.self, SchemaV10.self, SchemaV11.self, SchemaV12.self, SchemaV13.self, SchemaV14.self, SchemaV15.self]
+        [SchemaV1.self, SchemaV2.self, SchemaV3.self, SchemaV4.self, SchemaV5.self, SchemaV6.self, SchemaV7.self, SchemaV8.self, SchemaV9.self, SchemaV10.self, SchemaV11.self, SchemaV12.self, SchemaV13.self, SchemaV14.self, SchemaV15.self, SchemaV16.self]
     }
 
     /// Migration stages between consecutive versions.
@@ -317,7 +331,8 @@ enum PlayerPathMigrationPlan: SchemaMigrationPlan {
             .lightweight(fromVersion: SchemaV11.self, toVersion: SchemaV12.self),
             .lightweight(fromVersion: SchemaV12.self, toVersion: SchemaV13.self),
             .lightweight(fromVersion: SchemaV13.self, toVersion: SchemaV14.self),
-            .lightweight(fromVersion: SchemaV14.self, toVersion: SchemaV15.self)
+            .lightweight(fromVersion: SchemaV14.self, toVersion: SchemaV15.self),
+            .lightweight(fromVersion: SchemaV15.self, toVersion: SchemaV16.self)
         ]
     }
 }

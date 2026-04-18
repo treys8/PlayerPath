@@ -49,7 +49,7 @@ struct VideoClipsView: View {
     // Check if filters are active
     private var hasActiveFilters: Bool {
         viewModel.selectedSeasonFilter != nil ||
-        viewModel.selectedUploadFilter != .all ||
+        viewModel.selectedFilter != .all ||
         !viewModel.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
@@ -69,8 +69,8 @@ struct VideoClipsView: View {
             }
         }
 
-        if viewModel.selectedUploadFilter != .all {
-            parts.append("upload: \(viewModel.selectedUploadFilter.rawValue)")
+        if viewModel.selectedFilter != .all {
+            parts.append("filter: \(viewModel.selectedFilter.rawValue)")
         }
 
         if !viewModel.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -94,7 +94,7 @@ struct VideoClipsView: View {
         Haptics.light()
         withAnimation {
             viewModel.selectedSeasonFilter = nil
-            viewModel.selectedUploadFilter = .all
+            viewModel.selectedFilter = .all
             viewModel.searchText = ""
         }
         viewModel.update(videos: athlete.videoClips ?? [])
@@ -234,10 +234,10 @@ struct VideoClipsView: View {
         .safeAreaInset(edge: .top, spacing: 0) {
             VStack(spacing: 8) {
                 UploadStatusBanner()
-                if untaggedCount >= 3 && viewModel.selectedUploadFilter != .untagged {
+                if untaggedCount >= 3 && viewModel.selectedFilter != .untagged {
                     UntaggedClipsBanner(count: untaggedCount) {
                         withAnimation {
-                            viewModel.selectedUploadFilter = .untagged
+                            viewModel.selectedFilter = .untagged
                         }
                     }
                 }
@@ -290,7 +290,7 @@ struct VideoClipsView: View {
         .onChange(of: viewModel.selectedSeasonFilter) { _, _ in
             viewModel.refilter()
         }
-        .onChange(of: viewModel.selectedUploadFilter) { _, _ in
+        .onChange(of: viewModel.selectedFilter) { _, _ in
             viewModel.refilter()
         }
         .onChange(of: videoClipsChangeKey) { _, _ in
@@ -509,10 +509,10 @@ struct VideoClipsView: View {
     private var uploadStatusFilterPicker: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 12) {
-                ForEach(UploadStatusFilter.allCases, id: \.self) { filter in
+                ForEach(VideoLibraryFilter.allCases, id: \.self) { filter in
                     Button {
                         withAnimation {
-                            viewModel.selectedUploadFilter = filter
+                            viewModel.selectedFilter = filter
                         }
                         Haptics.light()
                     } label: {
@@ -522,17 +522,17 @@ struct VideoClipsView: View {
 
                             Text(filter.rawValue)
                                 .font(.subheadline)
-                                .fontWeight(viewModel.selectedUploadFilter == filter ? .semibold : .regular)
+                                .fontWeight(viewModel.selectedFilter == filter ? .semibold : .regular)
                         }
                         .padding(.horizontal, 12)
                         .padding(.vertical, 8)
                         .background(
-                            viewModel.selectedUploadFilter == filter ?
+                            viewModel.selectedFilter == filter ?
                                 filter.color.opacity(0.2) :
                                 Color.gray.opacity(0.1)
                         )
                         .foregroundColor(
-                            viewModel.selectedUploadFilter == filter ?
+                            viewModel.selectedFilter == filter ?
                                 filter.color :
                                 .secondary
                         )
@@ -540,7 +540,7 @@ struct VideoClipsView: View {
                         .overlay(
                             RoundedRectangle(cornerRadius: 20)
                                 .stroke(
-                                    viewModel.selectedUploadFilter == filter ?
+                                    viewModel.selectedFilter == filter ?
                                         filter.color :
                                         Color.clear,
                                     lineWidth: 1.5

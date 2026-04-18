@@ -113,7 +113,8 @@ final class PhotoPersistenceService {
         context: ModelContext,
         athlete: Athlete,
         game: Game? = nil,
-        practice: Practice? = nil
+        practice: Practice? = nil,
+        season: Season? = nil
     ) async throws -> Photo {
         let photoID = UUID()
         let fileName = "\(photoID.uuidString).jpg"
@@ -131,7 +132,7 @@ final class PhotoPersistenceService {
         photo.athlete = athlete
         photo.game = game
         photo.practice = practice
-        photo.season = athlete.activeSeason
+        photo.season = season ?? athlete.activeSeason
         photo.needsSync = true  // Mark for cloud upload on next sync
 
         context.insert(photo)
@@ -152,7 +153,8 @@ final class PhotoPersistenceService {
         context: ModelContext,
         athlete: Athlete,
         game: Game? = nil,
-        practice: Practice? = nil
+        practice: Practice? = nil,
+        season: Season? = nil
     ) async throws -> Photo {
         let photoID = UUID()
         let fileName = "\(photoID.uuidString).jpg"
@@ -167,7 +169,7 @@ final class PhotoPersistenceService {
         photo.athlete = athlete
         photo.game = game
         photo.practice = practice
-        photo.season = athlete.activeSeason
+        photo.season = season ?? athlete.activeSeason
         photo.needsSync = true
 
         context.insert(photo)

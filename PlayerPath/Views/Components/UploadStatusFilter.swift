@@ -2,38 +2,33 @@
 //  UploadStatusFilter.swift
 //  PlayerPath
 //
-//  Extracted from VideoClipsView.swift
+//  Hosts VideoLibraryFilter — the pill-row filter for the Videos tab.
+//  Filename kept for diff continuity; the enum was renamed from UploadStatusFilter
+//  when upload-state filters were retired in favor of role-based filtering.
 //
 
 import SwiftUI
 
-enum UploadStatusFilter: String, CaseIterable {
+enum VideoLibraryFilter: String, CaseIterable {
     case all = "All Videos"
     case untagged = "Untagged"
-    case uploaded = "Uploaded"
-    case notUploaded = "Not Uploaded"
-    case uploading = "Uploading"
-    case failed = "Failed"
+    case batter = "Batter"
+    case pitcher = "Pitcher"
 
     var icon: String {
         switch self {
-        case .all: return "square.grid.2x2"
+        case .all:      return "square.grid.2x2"
         case .untagged: return "tag.slash"
-        case .uploaded: return "checkmark.icloud.fill"
-        case .notUploaded: return "iphone"
-        case .uploading: return "arrow.up.circle"
-        case .failed: return "exclamationmark.triangle.fill"
+        case .batter:   return "figure.baseball"
+        case .pitcher:  return "figure.cricket"
         }
     }
 
     var color: Color {
         switch self {
-        case .all: return .primary
-        case .untagged: return .orange
-        case .uploaded: return .green
-        case .notUploaded: return .gray
-        case .uploading: return .brandNavy
-        case .failed: return .red
+        case .all:              return .primary
+        case .untagged:         return .orange
+        case .batter, .pitcher: return .brandNavy
         }
     }
 }

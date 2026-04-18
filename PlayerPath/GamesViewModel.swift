@@ -98,10 +98,10 @@ final class GamesViewModel: ObservableObject {
         }
     }
     
-    func create(opponent: String, date: Date, isLive: Bool, onError: @escaping (String) -> Void, onSuccess: ((Game) -> Void)? = nil) {
+    func create(opponent: String, date: Date, isLive: Bool, season: Season? = nil, onError: @escaping (String) -> Void, onSuccess: ((Game) -> Void)? = nil) {
         guard let athlete = self.athlete else { return }
         Task {
-            let result = await gameService.createGame(for: athlete, opponent: opponent, date: date, isLive: isLive)
+            let result = await gameService.createGame(for: athlete, opponent: opponent, date: date, isLive: isLive, season: season)
             switch result {
             case .success(let game):
                 onSuccess?(game)

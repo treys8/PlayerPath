@@ -376,6 +376,9 @@ extension ComprehensiveAuthManager {
 
         ActivityNotificationService.shared.stopListening()
         ReviewQueueViewModel.shared.stopListening()
+        CoachInvitationManager.shared.stopListening()
+        AthleteInvitationManager.shared.stopListening()
+        CoachSessionManager.shared.stopListeningActiveSession()
         SyncCoordinator.shared.stopPeriodicSync()
         SharedFolderManager.shared.clearAllData()
 

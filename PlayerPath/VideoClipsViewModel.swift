@@ -6,7 +6,7 @@ final class VideoClipsViewModel {
     // MARK: - Filter State
     var searchText = ""
     var selectedSeasonFilter: String?
-    var selectedUploadFilter: UploadStatusFilter = .all
+    var selectedFilter: VideoLibraryFilter = .all
 
     // MARK: - Loading & Pagination
     var isLoading = true
@@ -35,7 +35,6 @@ final class VideoClipsViewModel {
 
     /// Call when any filter property changes
     func refilter() {
-        let uploadManager = UploadQueueManager.shared
         var videos = allVideos
 
         // Season filter
@@ -49,26 +48,14 @@ final class VideoClipsViewModel {
             }
         }
 
-        // Upload status filter
-        if selectedUploadFilter != .all {
-            let pendingIDs = Set(uploadManager.pendingUploads.map(\.clipId))
-            let failedIDs = Set(uploadManager.failedUploads.map(\.clipId))
-            let activeIDs = Set(uploadManager.activeUploads.keys)
-
+        // Role/tag filter
+        if selectedFilter != .all {
             videos = videos.filter { video in
-                switch selectedUploadFilter {
-                case .all: return true
+                switch selectedFilter {
+                case .all:      return true
                 case .untagged: return video.playResult == nil
-                case .uploaded: return video.isUploaded
-                case .notUploaded:
-                    return !video.isUploaded &&
-                           !activeIDs.contains(video.id) &&
-                           !pendingIDs.contains(video.id) &&
-                           !failedIDs.contains(video.id)
-                case .uploading:
-                    return activeIDs.contains(video.id) || pendingIDs.contains(video.id)
-                case .failed:
-                    return failedIDs.contains(video.id)
+                case .batter:   return video.playResult?.type.isBattingResult ?? false
+                case .pitcher:  return video.playResult?.type.isPitchingResult ?? false
                 }
             }
         }

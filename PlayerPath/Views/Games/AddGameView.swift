@@ -19,6 +19,8 @@ struct AddGameView: View {
     @State private var opponent = ""
     @State private var date = Date()
     @State private var startAsLive = false
+    @State private var selectedSeason: Season?
+    @State private var didInitSeason = false
     @State private var showingError = false
     @State private var errorMessage = ""
     @State private var isSeasonError = false
@@ -26,6 +28,10 @@ struct AddGameView: View {
 
     init(athlete: Athlete? = nil) {
         self.athlete = athlete
+    }
+
+    private var hasMultipleSeasons: Bool {
+        (athlete?.seasons?.count ?? 0) > 1
     }
 
     private var isValidOpponent: Bool {
@@ -58,8 +64,15 @@ struct AddGameView: View {
 
                 // Removed tournament selection section
 
+                if hasMultipleSeasons {
+                    Section("Season") {
+                        SeasonPickerRow(athlete: athlete, selection: $selectedSeason)
+                    }
+                }
+
                 Section {
                     Toggle("Start as Live Game", isOn: $startAsLive)
+                        .disabled(selectedSeason?.isActive == false)
                 }
             }
             .navigationTitle("New Game")
@@ -78,7 +91,14 @@ struct AddGameView: View {
                     .disabled(!isValidOpponent)
                 }
             }
-            // Removed onAppear that sets selectedTournament
+            .onAppear {
+                guard !didInitSeason else { return }
+                selectedSeason = athlete?.activeSeason
+                didInitSeason = true
+            }
+            .onChange(of: selectedSeason) { _, newValue in
+                if newValue?.isActive == false { startAsLive = false }
+            }
         }
         .alert(isSeasonError ? "No Active Season" : "Error", isPresented: $showingError) {
             if isSeasonError {
@@ -136,7 +156,8 @@ struct AddGameView: View {
                 for: athlete,
                 opponent: trimmedOpponent,
                 date: date,
-                isLive: startAsLive
+                isLive: startAsLive,
+                season: selectedSeason
             )
 
             await MainActor.run {
@@ -194,6 +215,7 @@ struct AddGameView: View {
                 opponent: trimmedOpponent,
                 date: date,
                 isLive: startAsLive,
+                season: selectedSeason,
                 allowWithoutSeason: true
             )
 

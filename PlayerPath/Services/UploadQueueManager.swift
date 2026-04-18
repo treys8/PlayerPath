@@ -876,6 +876,23 @@ final class UploadQueueManager {
                         trigger: UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
                     )
                 }
+
+                // For coach uploads, also write a cross-device activity notification so
+                // the coach sees it in their notification feed even if they signed in on
+                // a different device than the one that did the uploading.
+                if let coachID = updatedUpload.coachID {
+                    let fileName = updatedUpload.fileName
+                    let folderID = updatedUpload.folderID
+                    let reason = (error as NSError).localizedDescription
+                    Task {
+                        await ActivityNotificationService.shared.postClipUploadFailedNotification(
+                            coachUserID: coachID,
+                            folderID: folderID,
+                            fileName: fileName,
+                            reason: reason
+                        )
+                    }
+                }
             }
         }
     }

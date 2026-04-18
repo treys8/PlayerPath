@@ -675,9 +675,13 @@ extension PushNotificationService: UNUserNotificationCenterDelegate {
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
         logger.info("Received notification while app in foreground: \(notification.request.identifier)")
-        
-        // Show notification even when app is in foreground
-        completionHandler([.banner, .list, .sound, .badge])
+
+        // Suppress system banner while app is active — rely on in-app ActivityNotificationBanner
+        // to avoid double-surfacing the same notification.
+        Task { @MainActor in
+            let isActive = UIApplication.shared.applicationState == .active
+            completionHandler(isActive ? [] : [.banner, .list, .sound, .badge])
+        }
     }
     
     /// Handle notification tap
