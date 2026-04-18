@@ -1,0 +1,293 @@
+OVERENGINEERING & OVERCOMPLEXITY AUDIT
+=======================================
+Date: 2026-04-18
+
+This audit identifies areas where the codebase is more complex than
+it needs to be. Ranked by impact — how much simpler the codebase
+would be if addressed.
+
+=======================================
+HIGH IMPACT
+=======================================
+
+-----------------------------------------------------------------------
+1. 44 SINGLETON SERVICES — MANY OVERLAP OR ARE TRIVIAL
+-----------------------------------------------------------------------
+Files: PlayerPath/Services/ (37 files) + 7 top-level services
+
+The Services directory alone has 37 files. Several are single-method
+wrappers that don't justify their own class:
+
+  - CoachRemovalService.swift (48 lines): 1 static method calling
+    2 Firestore operations with retryAsync. Should be a method on
+    SharedFolderManager or CoachSessionManager.
+
+  - CoachUploadableAthletesHelper.swift (39 lines): 1 static method
+    filtering folders. Should be a computed property or ViewModel
+    method.
+
+  - WeeklySummaryScheduler.swift (55 lines): 2 methods computing
+    stats and scheduling local notifications. Could live in
+    PushNotificationService or StatisticsService.
+
+  - PerformanceMonitor.swift (35 lines): Tracks only thumbnail
+    cache hit rate with 2 methods. Trivial.
+
+Overlapping pairs that could merge:
+  - AthleteDowngradeManager (85 lines) + CoachDowngradeManager
+    (127 lines) — nearly identical monitor→notify→UI patterns
+  - ReviewQueueViewModel (128 lines) + NeedsReviewQueueViewModel
+    (128 lines) — identical structure, different filter
+  - CoachVideoLoader (56) + CoachVideoCacheService (100) +
+    CoachVideoProcessingService (90) — three services for one
+    concern (loading coach videos)
+
+TARGET: Consolidate to ~20 core services. Delete or inline
+the single-method wrappers. Merge the overlapping pairs.
+
+-----------------------------------------------------------------------
+2. 51 NOTIFICATIONCENTER NAMES — UNTYPED, REDUNDANT
+-----------------------------------------------------------------------
+File: AppNotifications.swift (91 lines) + 31 files posting/listening
+
+51 unique Notification.Name constants including:
+  gameBecameLive, sessionBecameLive (same concept, different name)
+  gameCreated, gameEnded, sessionScheduled, sessionEnded,
+  videoRecorded, clipSaved, uploadCompleted, ...
+
+Problems:
+  - No type safety — events posted with untyped object/userInfo
+  - Parallel AppEvent enum (87 lines) that's largely unused
+  - Many notifications connect only 2 objects that could use a
+    direct callback, Combine publisher, or @Observable property
+  - Multiple names for semantically identical events
+
+TARGET: Keep ~10-15 for genuinely app-wide cross-cutting events
+(deep links, tab switches, auth state changes). Replace the rest
+with direct @Observable bindings or typed callbacks.
+
+-----------------------------------------------------------------------
+3. CACHED DERIVED STATE IN VIEWMODELS
+-----------------------------------------------------------------------
+Files: CoachFolderViewModel, ReviewQueueViewModel, others
+
+CoachFolderViewModel stores 6 cached arrays that are all derived
+from a single `videos` source array:
+
+    var cachedAllVideos: [CoachVideoItem] = []
+    var cachedNeedsReviewVideos: [CoachVideoItem] = []
+    var cachedReviewVideos: [CoachVideoItem] = []
+    var cachedSharedVideos: [CoachVideoItem] = []
+    var cachedGameVideos: [CoachVideoItem] = []
+    var cachedInstructionVideos: [CoachVideoItem] = []
+
+Every mutation to `videos` must call updateFilteredVideos() or
+the caches diverge. These should be computed properties:
+
+    var needsReviewVideos: [CoachVideoItem] {
+        videos.filter { $0.status == .needsReview }
+    }
+
+Same pattern in ReviewQueueViewModel (cachedClips → groupedClips).
+
+TARGET: Replace stored derived state with computed properties
+throughout all ViewModels.
+
+=======================================
+MEDIUM IMPACT
+=======================================
+
+-----------------------------------------------------------------------
+4. FIRESTORE MANAGER OVER-SPLIT (8 EXTENSION FILES)
+-----------------------------------------------------------------------
+Files: FirestoreManager.swift (47 lines, just a shell) +
+  +SharedFolders (472), +VideoMetadata (591), +Annotations (282),
+  +Invitations (658), +UserProfile (593), +EntitySync (658),
+  +DrillCards (112)
+
++DrillCards at 112 lines doesn't warrant its own file. +Annotations
+at 282 lines is borderline. The shell file is just a singleton init.
+
+The split creates false organizational clarity — you can't see the
+full API surface without opening 8 files.
+
+TARGET: Merge +DrillCards into +Annotations. Keep the 4-5 large
+extensions. The shell file should contain shared helpers.
+
+-----------------------------------------------------------------------
+5. SYNCCOORDINATOR OVER-SPLIT (8 EXTENSIONS)
+-----------------------------------------------------------------------
+Same pattern: +PracticeNotes (76 lines) and +Coaches (86 lines)
+are too small to justify separate files.
+
+TARGET: Merge the two smallest into neighboring extensions.
+
+-----------------------------------------------------------------------
+6. AppError OVER-ENUMERATION (284 LINES)
+-----------------------------------------------------------------------
+File: Services/AppError.swift
+
+60+ error cases with 4 parallel switch statements (description,
+recovery suggestion, severity, suggested actions). Most errors
+resolve to the same handling: show message + retry button.
+
+Cases like .saveFailed, .loadFailed, .videoRecordingFailed,
+.networkFailure all map to severity: .medium and actions:
+[.retry, .dismiss].
+
+TARGET: Collapse to ~15-20 high-level error types. Derive severity
+and actions from type + context, not case-by-case switches.
+
+-----------------------------------------------------------------------
+7. HARDCODED FEATURE FLAG (AppFeatureFlags)
+-----------------------------------------------------------------------
+File: AppFeatureFlags.swift (20 lines)
+
+    enum AppFeatureFlags {
+        static let isCoachEnabled = true
+    }
+
+Always true. Checked in 18+ files. Every conditional path always
+takes the same branch. This is dead complexity.
+
+TARGET: Delete AppFeatureFlags.swift. Remove all 18+ conditionals.
+If remote gating is needed later, use Firebase Remote Config.
+
+-----------------------------------------------------------------------
+8. MONOLITHIC VIEWS (1,000+ LINES)
+-----------------------------------------------------------------------
+Files:
+  - PlayResultOverlayView.swift (1,120 lines)
+  - CoachVideoPlayerView.swift (1,005 lines)
+  - CoachDashboardView.swift (900 lines)
+
+These views contain dozens of @ViewBuilder private properties used
+exactly once. The decomposition doesn't aid reuse — it just scatters
+the rendering logic across many computed properties that you have
+to mentally reassemble.
+
+Example: PlayResultOverlayView has backgroundView, portraitOverlayPanel,
+landscapeOverlayPanel, glassPanel, pitchSpeedRow, resultGrid, etc.
+Each used once. The flow is: body → layout branch → panel → sub-panel
+→ sub-sub-panel. Following it requires jumping between 8+ computed
+properties.
+
+TARGET: Extract only genuinely reusable subviews (used 2+ places)
+into separate files. Keep single-use logic inline. Aim for 400-600
+lines per view file.
+
+=======================================
+LOW IMPACT (BUT EASY WINS)
+=======================================
+
+-----------------------------------------------------------------------
+9. NavigationCoordinator — UNUSED IN ENVIRONMENT
+-----------------------------------------------------------------------
+Files: PlayerPathApp.swift, CoachNavigationCoordinator.swift (91 lines)
+
+NavigationCoordinator is created and injected into the environment
+but no view reads it via @Environment. CoachNavigationCoordinator
+is a thin wrapper around NavigationPath + selectedTab + pending
+folder resolution.
+
+With iOS 17+ NavigationStack and @State, both coordinators add
+boilerplate without value.
+
+TARGET: Replace with native @State var selectedTab and
+navigationDestination modifiers. Delete ~180 lines.
+
+-----------------------------------------------------------------------
+10. THIN PROXY VIEWMODELS
+-----------------------------------------------------------------------
+File: UserPreferencesViewModel.swift (45 lines)
+
+Wraps SwiftData with attach/load/save/update methods. Views could
+use @Query or direct SwiftData access. The ViewModel adds no
+business logic — it's a CRUD proxy.
+
+TARGET: Delete. Use @Query or direct modelContext access in views.
+
+-----------------------------------------------------------------------
+11. UploadQueueManager REIMPLEMENTS EXISTING HELPERS
+-----------------------------------------------------------------------
+File: Services/UploadQueueManager.swift (1,292 lines)
+
+Custom exponential backoff retry logic duplicates RetryHelpers.swift.
+Custom network monitoring duplicates ConnectivityMonitor. Custom
+preference caching duplicates @Query.
+
+TARGET: Refactor to use RetryHelpers.withRetry() and
+ConnectivityMonitor. Could shrink to ~700-800 lines.
+
+-----------------------------------------------------------------------
+12. ErrorHandlerService DOES TOO MANY THINGS
+-----------------------------------------------------------------------
+File: Services/ErrorHandlerService.swift
+
+Handles: OSLog logging, error history array, analytics tracking,
+haptic feedback, view helpers (reportError, reportWarning),
+SwiftData context saves, alert state.
+
+A "God service" pattern — everything error-related funnels through
+one singleton. The haptic feedback and analytics concerns don't
+belong in an error handler.
+
+TARGET: Split logging from haptics from analytics. Or simplify
+to just log + optional alert. The history array is unused by any
+view.
+
+-----------------------------------------------------------------------
+13. DESIGN TOKENS — DEFINED BUT INCONSISTENTLY USED
+-----------------------------------------------------------------------
+File: DesignTokens.swift
+
+Defines spacing tokens (spacingXSmall through spacingXLarge) and
+corner radius tokens (cornerSmall through cornerXLarge), but the
+codebase mixes raw values (cornerRadius: 14, padding: 10) with
+tokens throughout. The tokens exist but aren't enforced.
+
+Having tokens that are only sometimes used is worse than not having
+them — it creates false confidence that the design is systematic.
+
+TARGET: Either enforce tokens everywhere (lint rule or review
+discipline) or delete the unused ones. Currently ~60% of padding
+and corner radius values use raw numbers.
+
+
+=======================================
+WHAT'S NOT OVERENGINEERED
+=======================================
+
+For balance, these patterns are justified by the app's complexity:
+
+  - SyncCoordinator existence — bidirectional SwiftData↔Firestore
+    sync genuinely needs a coordinator
+  - UploadQueueManager existence — background upload with retry,
+    quota, and progress is inherently complex
+  - Separate athlete/coach tab bars — different enough to warrant
+    separate view hierarchies
+  - FirestoreManager as a singleton — centralizing Firestore access
+    is correct; the over-split is the issue, not the pattern
+  - ActivityNotificationService — real-time listener + badge
+    counting + banner + mark-read is genuinely complex
+  - ClipTrimService — multi-step pipeline (file replace → thumbnail
+    → upload → Firestore → quota) needs careful sequencing
+
+
+=======================================
+SUMMARY
+=======================================
+
+Estimated removable/simplifiable lines: ~3,000-5,000
+Estimated file deletions: 8-12
+Estimated file merges: 6-8
+
+The codebase works correctly. The overengineering isn't causing bugs
+but it IS making the code harder to navigate, harder to onboard new
+contributors to, and slower to modify. The biggest wins are:
+
+  1. Kill single-method services (easy, immediate)
+  2. Replace cached derived state with computed properties (medium)
+  3. Consolidate NotificationCenter usage (medium, high payoff)
+  4. Delete AppFeatureFlags (easy, touches many files)
+  5. Merge overlapping ViewModel pairs (medium)
