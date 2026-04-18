@@ -78,6 +78,14 @@ final class ActivityNotificationService: ObservableObject {
     private var retryAttempt: Int = 0
     private static let maxRetryAttempts = 3
 
+    /// Most recent moment the app transitioned into the `.active` scene phase.
+    /// Used to suppress the in-app banner for notifications the user already
+    /// saw as an FCM lock-screen banner while the app was backgrounded.
+    private var lastForegroundAt: Date = Date()
+    /// Grace window so notifications created in the brief gap between
+    /// foregrounding and the listener's first callback still surface as banners.
+    private static let foregroundBannerGrace: TimeInterval = 2
+
     private init() {}
 
     deinit {
@@ -148,12 +156,23 @@ final class ActivityNotificationService: ObservableObject {
                     self.unreadCountByFolder = folderCounts
                     self.unreadVideoIDs = videoIDs
 
-                    // Surface in-app banner for any genuinely new (unseen) notification
+                    // Surface in-app banner for any genuinely new (unseen) notification.
+                    // Suppress banners for notifications that arrived before the most
+                    // recent foreground transition — the user already saw them as FCM
+                    // lock-screen banners while the app was backgrounded; re-showing
+                    // them in-app produces a duplicate prompt. The grace window covers
+                    // the gap between foregrounding and this listener firing.
                     let currentIDs = Set(notifications.compactMap { $0.id })
                     if !self.previousIDs.isEmpty {
+                        let bannerCutoff = self.lastForegroundAt
+                            .addingTimeInterval(-Self.foregroundBannerGrace)
                         if let newest = notifications.first(where: {
                             guard let id = $0.id else { return false }
-                            return !self.previousIDs.contains(id) && !$0.isRead
+                            guard !self.previousIDs.contains(id), !$0.isRead else { return false }
+                            // createdAt nil (still pending server timestamp) → show it;
+                            // otherwise require the notification to be newer than the cutoff.
+                            guard let created = $0.createdAt else { return true }
+                            return created > bannerCutoff
                         }) {
                             self.incomingBanner = newest
                         }
@@ -187,6 +206,14 @@ final class ActivityNotificationService: ObservableObject {
 
     func dismissBanner() {
         incomingBanner = nil
+    }
+
+    /// Call when the app transitions to `.active` scene phase. Marks the
+    /// moment so the next listener callback can decide whether a fresh
+    /// notification should surface as an in-app banner (true) or be suppressed
+    /// because the user already saw it as an FCM banner on the lock screen (false).
+    func noteAppDidBecomeActive() {
+        lastForegroundAt = Date()
     }
 
     // MARK: - Mark Read

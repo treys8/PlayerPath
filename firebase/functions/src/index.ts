@@ -347,6 +347,54 @@ export const onSharedFolderDeleted = functions.firestore
   });
 
 /**
+ * Sends an FCM push whenever an `invitation_accepted` notification is written
+ * to a user's feed. Covers both directions:
+ *   - athlete accepts coach's invite (Pro or free-tier connection)
+ *   - coach accepts athlete's invite
+ *
+ * Triggering off the notification write (rather than a source-of-truth doc)
+ * keeps the push logic decoupled from the many code paths that create these
+ * notifications (SharedFolderManager, AthleteInvitationManager, and the
+ * acceptCoachToAthleteInvitation callable). The title/body already set by the
+ * client are reused verbatim.
+ */
+export const onInvitationAcceptedNotification = functions.firestore
+  .document('notifications/{userID}/items/{notifID}')
+  .onCreate(async (snap, context) => {
+    const n = snap.data();
+    if (n?.type !== 'invitation_accepted') return;
+    const folderID = (n.folderID as string) || (n.targetID as string) || '';
+    await sendPushNotification(
+      context.params.userID,
+      n.title || 'Invitation Accepted',
+      n.body || '',
+      { type: 'invitation_accepted', folderID },
+      'INVITATION'
+    );
+  });
+
+/**
+ * Sends an FCM push whenever an `access_lapsed` notification is written —
+ * fires when an athlete's subscription lapses and a coach's access becomes
+ * stale. Coaches on a different device than the one that logged the lapse
+ * only learn about it on next app open otherwise.
+ */
+export const onAccessLapsedNotification = functions.firestore
+  .document('notifications/{userID}/items/{notifID}')
+  .onCreate(async (snap, context) => {
+    const n = snap.data();
+    if (n?.type !== 'access_lapsed') return;
+    const folderID = (n.targetID as string) || '';
+    await sendPushNotification(
+      context.params.userID,
+      n.title || 'Subscription Lapsed',
+      n.body || '',
+      { type: 'access_lapsed', folderID },
+      'ACCESS_REVOKED'
+    );
+  });
+
+/**
  * Resolves the set of user IDs that should be notified when a coach/athlete
  * leaves feedback on a shared-folder video. Author is always excluded.
  * Falls back to the video uploader for non-shared videos.

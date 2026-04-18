@@ -296,6 +296,11 @@ struct ScenePhaseSaveHandler<Content: View>: View {
         case .active:
             appLog.info("App became active")
 
+            // Mark the foreground transition so ActivityNotificationService can
+            // suppress in-app banners for notifications the user already saw as
+            // FCM lock-screen banners while the app was backgrounded.
+            ActivityNotificationService.shared.noteAppDidBecomeActive()
+
             // Refresh entitlements each time the app returns to foreground to catch
             // renewals, expirations, or revocations that occurred in the background.
             Task { await StoreKitManager.shared.updateEntitlements() }
