@@ -225,25 +225,11 @@ struct CoachVideoPlayerView: View {
                 coachName: authManager.userDisplayName ?? "Coach",
                 onSave: { card in
                     drillCards.insert(card, at: 0)
-                    Task {
-                        await notifyDrillCardAdded(card: card, coachID: coachID)
-                    }
+                    // Athlete is notified by the server-side onNewDrillCard CF
+                    // which fires on drillCards subcollection creation.
                 }
             )
         }
-    }
-
-    private func notifyDrillCardAdded(card: DrillCard, coachID: String) async {
-        await ActivityNotificationService.shared.postDrillCardNotification(
-            videoFileName: video.fileName,
-            folderID: folder.id ?? "",
-            videoID: video.id,
-            cardID: card.id ?? UUID().uuidString,
-            coachID: coachID,
-            coachName: authManager.userDisplayName ?? "Coach",
-            athleteID: folder.ownerAthleteID,
-            templateName: card.template?.displayName ?? "Drill Card"
-        )
     }
 
     private func handleScenePhaseChange(old: ScenePhase, new: ScenePhase) {

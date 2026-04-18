@@ -254,16 +254,8 @@ struct ClipReviewSheet: View {
                     notes: trimmedNotes.isEmpty ? nil : trimmedNotes
                 )
 
-                await ActivityNotificationService.shared.postCoachSharedClipNotification(
-                    videoFileName: video.fileName,
-                    videoID: videoID,
-                    folderID: folderID,
-                    folderName: folder.name,
-                    coachID: video.uploadedBy,
-                    coachName: video.uploadedByName,
-                    athleteID: folder.ownerAthleteID
-                )
-
+                // Athlete is notified by the server-side onVideoPublished CF which
+                // fires on the visibility transition private→shared.
                 Haptics.success()
                 dismiss()
                 onShared?()

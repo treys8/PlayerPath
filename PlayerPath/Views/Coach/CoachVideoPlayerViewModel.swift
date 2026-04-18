@@ -253,33 +253,10 @@ class CoachVideoPlayerViewModel {
 
             Haptics.success()
 
-            // Notify the folder owner that a coach left feedback. Deterministic ID
-            // matches the server-side onNewComment CF (for mirrored text comments)
-            // so client and CF converge on one notification doc.
-            if isCoachComment {
-                let athleteID = folder.ownerAthleteID
-                // Prefer the mirror comment ID (matches onNewComment's deterministic
-                // scheme). Fall back to the annotation ID (matches onNewAnnotation)
-                // if the mirror write didn't produce an ID.
-                let detID: String
-                if let commentID = mirroredCommentID {
-                    detID = "comment_\(videoID)_\(commentID)_\(athleteID)"
-                } else if let annotationID = annotation.id {
-                    detID = "annotation_\(videoID)_\(annotationID)_\(athleteID)"
-                } else {
-                    detID = "comment_\(videoID)_\(UUID().uuidString)_\(athleteID)"
-                }
-                await ActivityNotificationService.shared.postCoachCommentNotification(
-                    videoFileName: video.fileName,
-                    folderID: folder.id ?? "",
-                    videoID: videoID,
-                    coachID: userID,
-                    coachName: userName,
-                    athleteID: athleteID,
-                    notePreview: text,
-                    deterministicID: detID
-                )
-            }
+            // Athlete is notified by the server-side onNewComment CF (for text
+            // coach comments, which are mirrored to the comments subcollection)
+            // or onNewAnnotation CF (for drawings handled by addDrawingAnnotation).
+            _ = mirroredCommentID // silence unused-var when no client notif write
 
         } catch {
             errorMessage = "Failed to add feedback: \(error.localizedDescription)"
@@ -316,23 +293,8 @@ class CoachVideoPlayerViewModel {
             // immediately without a refetch.
             reviewedAt = Date()
 
-            // Notify the folder owner that a coach left a plain note. Reuses the
-            // existing coachComment notification path so the in-app banner +
-            // folder badge + per-video "New" badge all light up the same way as
-            // a timestamped feedback marker. Deterministic ID matches the server
-            // onCoachNoteUpdated CF — one doc per (video, recipient) regardless
-            // of how many edits pass through.
-            let athleteID = folder.ownerAthleteID
-            await ActivityNotificationService.shared.postCoachCommentNotification(
-                videoFileName: video.fileName,
-                folderID: folder.id ?? "",
-                videoID: video.id,
-                coachID: authorID,
-                coachName: authorName,
-                athleteID: athleteID,
-                notePreview: trimmed,
-                deterministicID: "note_\(video.id)_\(athleteID)"
-            )
+            // Athlete is notified by the server-side onCoachNoteUpdated CF which
+            // fires on the video doc's coachNote field changing.
         } else {
             coachNoteText = nil
             coachNoteAuthorName = nil
@@ -578,20 +540,8 @@ class CoachVideoPlayerViewModel {
             _ = annotation
             Haptics.success()
 
-            // Notify the folder owner that the coach left a drawing. Deterministic
-            // ID matches server onNewAnnotation CF for drawings.
-            let athleteID = folder.ownerAthleteID
-            let annotationKey = annotation.id ?? UUID().uuidString
-            await ActivityNotificationService.shared.postCoachCommentNotification(
-                videoFileName: video.fileName,
-                folderID: folder.id ?? "",
-                videoID: videoID,
-                coachID: userID,
-                coachName: userName,
-                athleteID: athleteID,
-                notePreview: "Drawing annotation",
-                deterministicID: "annotation_\(videoID)_\(annotationKey)_\(athleteID)"
-            )
+            // Athlete is notified by the server-side onNewAnnotation CF which
+            // fires on annotation subcollection creation (for drawings).
             return true
         } catch {
             errorMessage = "Failed to save drawing: \(error.localizedDescription)"

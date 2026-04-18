@@ -151,26 +151,9 @@ class AthleteInvitationManager {
         // 4. Save SwiftData context
         ErrorHandlerService.shared.saveContext(modelContext, caller: "AthleteInvitationManager.acceptInvitation")
 
-        // 5. Notify the coach
-        let folderID = gamesFolderID ?? lessonsFolderID
-        let folderName = gamesFolderID != nil ? "\(athleteName)'s Games" : lessonsFolderID != nil ? "\(athleteName)'s Lessons" : nil
-        if let folderName, let folderID {
-            await ActivityNotificationService.shared.postAthleteAcceptedInvitationNotification(
-                invitationID: invitationID,
-                folderName: folderName,
-                folderID: folderID,
-                athleteID: userID,
-                athleteName: athleteName,
-                coachUserID: invitation.coachID
-            )
-        } else {
-            await ActivityNotificationService.shared.postConnectionAcceptedNotification(
-                invitationID: invitationID,
-                athleteID: userID,
-                athleteName: athleteName,
-                coachUserID: invitation.coachID
-            )
-        }
+        // 5. The coach is notified by the server-side onInvitationAccepted CF
+        // which fires on the invitation doc status transition to accepted.
+        // No client-side notification write needed.
 
         // Optimistically drop from the local list so UI updates immediately; the
         // Firestore listener will converge (status transitions to accepted → query no

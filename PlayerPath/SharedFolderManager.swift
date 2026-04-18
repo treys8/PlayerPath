@@ -116,8 +116,10 @@ class SharedFolderManager {
             throw SharedFolderError.duplicateInvitation
         }
 
-        // Create invitation
-        let invitationID = try await firestore.createInvitation(
+        // Create invitation. The server-side onInvitationCreated CF handles both
+        // the in-app activity notification and the FCM push to the coach (if they
+        // have an account) — no client-side notification write needed.
+        _ = try await firestore.createInvitation(
             athleteID: athleteID,
             athleteName: athleteName,
             athleteUUID: athleteUUID,
@@ -126,18 +128,6 @@ class SharedFolderManager {
             folderName: folderName,
             permissions: permissions
         )
-        
-
-        // Notify the coach in-app if they already have an account
-        if let coachUserID = await ActivityNotificationService.shared.lookupUserID(byEmail: cleanEmail) {
-            await ActivityNotificationService.shared.postInvitationReceivedNotification(
-                invitationID: invitationID,
-                athleteID: athleteID,
-                athleteName: athleteName,
-                folderName: folderName,
-                coachUserID: coachUserID
-            )
-        }
     }
     
     /// Removes a coach from a shared folder WITH NOTIFICATION
@@ -155,7 +145,10 @@ class SharedFolderManager {
         athleteID: String
     ) async throws {
 
-        // 1. Revoke permissions in Firestore — pass known values to skip 2 redundant reads
+        // 1. Revoke permissions in Firestore — pass known values to skip 2 redundant reads.
+        //    The removeCoachFromFolder path writes to coach_access_revocations, which the
+        //    server-side sendCoachAccessRevokedEmail CF triggers on; that CF owns both
+        //    the email to the coach and the activity notification + FCM push.
         try await firestore.removeCoachFromFolder(
             folderID: folderID,
             coachID: coachID,
@@ -164,57 +157,15 @@ class SharedFolderManager {
             athleteID: athleteID
         )
 
-        // 2. Send notification to coach (TODO: Implement push notification)
-        await notifyCoachAccessRevoked(
-            coachID: coachID,
-            coachEmail: coachEmail,
-            folderID: folderID,
-            folderName: folderName,
-            athleteID: athleteID
-        )
-
-        // 3. End any active coach session for this folder
+        // 2. End any active coach session for this folder
         await CoachSessionManager.shared.endSessionIfActive(forFolderID: folderID)
 
-        // 4. Refresh folders list — use the folder owner's athleteID, not the auth UID
+        // 3. Refresh folders list — use the folder owner's athleteID, not the auth UID
         // (they differ for parent accounts managing multiple athletes)
         try await loadAthleteFolders(athleteID: athleteID)
     }
 
-    /// Sends notification to coach that their access was revoked
-    private func notifyCoachAccessRevoked(
-        coachID: String,
-        coachEmail: String,
-        folderID: String,
-        folderName: String,
-        athleteID: String,
-        athleteName: String? = nil
-    ) async {
-        // Use provided name, or fetch display name from user profile
-        let resolvedAthleteName: String
-        if let athleteName, !athleteName.isEmpty {
-            resolvedAthleteName = athleteName
-        } else if let profile = try? await firestore.fetchUserProfile(userID: athleteID) { // Best-effort: fall through to default name on failure
-            // Use the fetched profile's displayName — Auth.currentUser may be a
-            // different user than athleteID for parent accounts managing multiple athletes.
-            let profileDisplayName = (profile.displayName?.isEmpty == false) ? profile.displayName : nil
-            let name = profileDisplayName
-                ?? profile.email.components(separatedBy: "@").first
-                ?? profile.email
-            resolvedAthleteName = name
-        } else {
-            resolvedAthleteName = "An athlete"
-        }
 
-        await ActivityNotificationService.shared.postAccessRevokedNotification(
-            folderID: folderID,
-            folderName: folderName,
-            athleteID: athleteID,
-            athleteName: resolvedAthleteName,
-            coachUserID: coachID
-        )
-    }
-    
     /// Deletes a shared folder and all its contents WITH CASCADE
     /// - This will:
     ///   1. Revoke all coach permissions
@@ -250,16 +201,9 @@ class SharedFolderManager {
             }
         }
 
-        // 2b. Notify revoked coaches in-app
-        for coachID in folder.sharedWithCoachIDs {
-            await notifyCoachAccessRevoked(
-                coachID: coachID,
-                coachEmail: "",
-                folderID: folderID,
-                folderName: folder.name,
-                athleteID: athleteID
-            )
-        }
+        // 2b. Affected coaches are notified by the server-side onSharedFolderDeleted
+        // CF, which fires when the folder doc is deleted at step 5 below. It writes
+        // one access_revoked notification per coach and sends FCM — no client write.
 
         // 3. Delete all videos and their storage files
         do {
@@ -493,22 +437,10 @@ class SharedFolderManager {
         )
         folderLog.info("acceptInvitation: Cloud Function succeeded for \(invitationID)")
 
-        // Refresh coach folders so the new folder appears in the UI
+        // Refresh coach folders so the new folder appears in the UI. The athlete
+        // is notified by the server-side onInvitationAccepted CF which fires on the
+        // invitation status transition to accepted and writes the in-app + FCM.
         try? await loadCoachFolders(coachID: coachID)
-
-        // Notify the athlete that their coach accepted
-        let coachName = Auth.auth().currentUser?.displayName
-            ?? Auth.auth().currentUser?.email
-            ?? "Your coach"
-        let folderName = invitation.folderName ?? "\(invitation.athleteName)'s Videos"
-        await ActivityNotificationService.shared.postInvitationAcceptedNotification(
-            invitationID: invitationID,
-            folderName: folderName,
-            coachID: coachID,
-            coachName: coachName,
-            athleteID: invitation.athleteID,
-            folderID: invitation.folderID ?? ""
-        )
     }
     
     /// Declines an invitation
@@ -711,19 +643,8 @@ class SharedFolderManager {
             throw error
         }
 
-        // Notify all coaches with access to this folder
-        if let folder = try? await firestore.fetchSharedFolder(folderID: folderID),
-           !folder.sharedWithCoachIDs.isEmpty {
-            await ActivityNotificationService.shared.postNewVideoNotification(
-                folderID: folderID,
-                folderName: folder.name,
-                videoID: videoID,
-                uploaderID: uploadedBy,
-                uploaderName: uploadedByName,
-                coachIDs: folder.sharedWithCoachIDs,
-                videoFileName: fileName
-            )
-        }
+        // Coaches are notified by the server-side onNewSharedVideo CF which fires
+        // on video doc creation — no client-side notification write needed.
 
         return videoID
     }
