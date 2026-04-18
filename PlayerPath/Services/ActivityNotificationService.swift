@@ -302,9 +302,13 @@ final class ActivityNotificationService: ObservableObject {
     // MARK: - Post Helpers
 
     /// Athlete uploads a video → notify all coaches with access to the folder.
+    /// Uses `newvideo_{videoID}_{recipientID}` deterministic IDs to coordinate with
+    /// the server-side onNewSharedVideo CF that writes the same doc; whichever
+    /// fires first wins and the other is a no-op.
     func postNewVideoNotification(
         folderID: String,
         folderName: String,
+        videoID: String,
         uploaderID: String,
         uploaderName: String,
         coachIDs: [String],
@@ -322,7 +326,7 @@ final class ActivityNotificationService: ObservableObject {
             "isRead": false,
             "createdAt": FieldValue.serverTimestamp()
         ]
-        await writeNotification(data, toUserIDs: coachIDs)
+        await writeNotification(data, toUserIDs: coachIDs, deterministicIDFor: { rid in "newvideo_\(videoID)_\(rid)" })
     }
 
     /// Coach published a clip from the Needs Review queue → notify the athlete who
@@ -349,10 +353,17 @@ final class ActivityNotificationService: ObservableObject {
             "isRead": false,
             "createdAt": FieldValue.serverTimestamp()
         ]
-        await writeNotification(data, toUserIDs: [athleteID])
+        // Shares the newvideo_{videoID}_{athleteID} key with onVideoPublished (and
+        // onNewSharedVideo's coach-upload branch) so a single clip produces one doc.
+        await writeNotification(data, toUserIDs: [athleteID], deterministicIDFor: { _ in "newvideo_\(videoID)_\(athleteID)" })
     }
 
-    /// Coach adds a comment → notify the athlete who owns the folder.
+    /// Coach adds a comment, drawing annotation, or plain note → notify the athlete
+    /// who owns the folder. `deterministicID` is picked by the caller to match the
+    /// paired server CF:
+    ///   - text comment: `comment_{videoID}_{commentID}_{athleteID}` (onNewComment)
+    ///   - drawing:      `annotation_{videoID}_{annotationID}_{athleteID}` (onNewAnnotation)
+    ///   - plain note:   `note_{videoID}_{athleteID}` (onCoachNoteUpdated)
     func postCoachCommentNotification(
         videoFileName: String,
         folderID: String,
@@ -360,7 +371,8 @@ final class ActivityNotificationService: ObservableObject {
         coachID: String,
         coachName: String,
         athleteID: String,
-        notePreview: String
+        notePreview: String,
+        deterministicID: String
     ) async {
         let preview = String(notePreview.prefix(80))
         let data: [String: Any] = [
@@ -375,10 +387,11 @@ final class ActivityNotificationService: ObservableObject {
             "isRead": false,
             "createdAt": FieldValue.serverTimestamp()
         ]
-        await writeNotification(data, toUserIDs: [athleteID])
+        await writeNotification(data, toUserIDs: [athleteID], deterministicIDFor: { _ in deterministicID })
     }
 
     /// Athlete invites coach → notify coach (if they already have an account).
+    /// Deterministic ID matches server onInvitationCreated CF.
     func postInvitationReceivedNotification(
         invitationID: String,
         athleteID: String,
@@ -397,11 +410,13 @@ final class ActivityNotificationService: ObservableObject {
             "isRead": false,
             "createdAt": FieldValue.serverTimestamp()
         ]
-        await writeNotification(data, toUserIDs: [coachUserID])
+        await writeNotification(data, toUserIDs: [coachUserID], deterministicIDFor: { _ in "invreceived_\(invitationID)_\(coachUserID)" })
     }
 
     /// Coach accepts invitation → notify athlete.
+    /// Deterministic ID matches server onInvitationAccepted CF.
     func postInvitationAcceptedNotification(
+        invitationID: String,
         folderName: String,
         coachID: String,
         coachName: String,
@@ -419,11 +434,13 @@ final class ActivityNotificationService: ObservableObject {
             "isRead": false,
             "createdAt": FieldValue.serverTimestamp()
         ]
-        await writeNotification(data, toUserIDs: [athleteID])
+        await writeNotification(data, toUserIDs: [athleteID], deterministicIDFor: { _ in "invaccepted_\(invitationID)_\(athleteID)" })
     }
 
     /// Athlete accepts coach's invitation → notify coach they now have folder access.
+    /// Deterministic ID matches server onInvitationAccepted CF.
     func postAthleteAcceptedInvitationNotification(
+        invitationID: String,
         folderName: String,
         folderID: String,
         athleteID: String,
@@ -441,10 +458,12 @@ final class ActivityNotificationService: ObservableObject {
             "isRead": false,
             "createdAt": FieldValue.serverTimestamp()
         ]
-        await writeNotification(data, toUserIDs: [coachUserID])
+        await writeNotification(data, toUserIDs: [coachUserID], deterministicIDFor: { _ in "invaccepted_\(invitationID)_\(coachUserID)" })
     }
 
     /// Athlete accepts coach's invitation but doesn't have Pro → notify coach of connection only.
+    /// Shares the `invaccepted_{invitationID}_{coachUserID}` key with the Pro path so each
+    /// acceptance produces exactly one notification doc regardless of tier.
     func postConnectionAcceptedNotification(
         invitationID: String,
         athleteID: String,
@@ -462,14 +481,16 @@ final class ActivityNotificationService: ObservableObject {
             "isRead": false,
             "createdAt": FieldValue.serverTimestamp()
         ]
-        await writeNotification(data, toUserIDs: [coachUserID])
+        await writeNotification(data, toUserIDs: [coachUserID], deterministicIDFor: { _ in "invaccepted_\(invitationID)_\(coachUserID)" })
     }
 
     /// Coach creates a drill card on a video → notify the athlete who owns the folder.
+    /// Deterministic ID matches server onNewDrillCard CF.
     func postDrillCardNotification(
         videoFileName: String,
         folderID: String,
         videoID: String,
+        cardID: String,
         coachID: String,
         coachName: String,
         athleteID: String,
@@ -487,7 +508,7 @@ final class ActivityNotificationService: ObservableObject {
             "isRead": false,
             "createdAt": FieldValue.serverTimestamp()
         ]
-        await writeNotification(data, toUserIDs: [athleteID])
+        await writeNotification(data, toUserIDs: [athleteID], deterministicIDFor: { _ in "drillcard_\(videoID)_\(cardID)_\(athleteID)" })
     }
 
     /// Athlete revokes coach access → notify coach.
@@ -514,7 +535,7 @@ final class ActivityNotificationService: ObservableObject {
         await writeNotification(
             data,
             toUserIDs: [coachUserID],
-            deterministicID: "revoked_\(folderID)_\(coachUserID)"
+            deterministicIDFor: { _ in "revoked_\(folderID)_\(coachUserID)" }
         )
     }
 
@@ -592,7 +613,7 @@ final class ActivityNotificationService: ObservableObject {
         await writeNotification(
             data,
             toUserIDs: [coachUserID],
-            deterministicID: "upload_failed_\(uploadID)"
+            deterministicIDFor: { _ in "upload_failed_\(uploadID)" }
         )
     }
 
@@ -623,24 +644,25 @@ final class ActivityNotificationService: ObservableObject {
     private func writeNotification(
         _ data: [String: Any],
         toUserIDs userIDs: [String],
-        deterministicID: String? = nil
+        deterministicIDFor: ((String) -> String)? = nil
     ) async {
         // Filter out the sender so users don't notify themselves
         let senderID = data["senderID"] as? String
         let recipients = userIDs.filter { $0 != senderID }
         guard !recipients.isEmpty else { return }
 
-        // Batch writes to reduce Firestore operations. When deterministicID is supplied,
-        // it's used as the doc ID on every recipient's items collection. This lets a
-        // server-side Cloud Function (e.g. onSharedFolderDeleted) write with the same ID
-        // and safely overwrite rather than producing a duplicate notification.
+        // Batch writes to reduce Firestore operations. When deterministicIDFor is supplied,
+        // each recipient gets a stable per-user doc ID. This lets the paired server-side
+        // Cloud Function write with the same ID and collapse client+server writes into
+        // one notification doc. Without it, Firestore auto-generates an ID (fan-outs
+        // that don't coordinate with a CF).
         let batch = db.batch()
         for userID in recipients {
             let collection = db
                 .collection(FC.notifications)
                 .document(userID)
                 .collection(FC.items)
-            let ref = deterministicID.map { collection.document($0) } ?? collection.document()
+            let ref = deterministicIDFor.map { collection.document($0(userID)) } ?? collection.document()
             batch.setData(data, forDocument: ref)
         }
         do {

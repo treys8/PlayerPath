@@ -406,19 +406,10 @@ struct CoachFolderDetailView: View {
                 shareProgress = (current: sharedCount, total: clips.count)
             }
 
-            // Notify athlete once (not per-clip)
-            if sharedCount > 0, let coachID = authManager.userID {
-                let coachName = authManager.userDisplayName ?? "Coach"
-                await ActivityNotificationService.shared.postNewVideoNotification(
-                    folderID: folderID,
-                    folderName: folder.name,
-                    uploaderID: coachID,
-                    uploaderName: coachName,
-                    coachIDs: [folder.ownerAthleteID],
-                    videoFileName: "\(sharedCount) clip\(sharedCount == 1 ? "" : "s")"
-                )
-            }
-
+            // No bundled client notification — per-clip server CFs (onVideoPublished
+            // for coach-authored clips transitioning private→shared) write one
+            // notification per clip to the athlete. More informative than a single
+            // "N clips" summary and avoids client/server duplication.
             await viewModel.loadVideos()
             isSharingAll = false
             shareProgress = nil

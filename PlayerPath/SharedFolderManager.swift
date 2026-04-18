@@ -502,6 +502,7 @@ class SharedFolderManager {
             ?? "Your coach"
         let folderName = invitation.folderName ?? "\(invitation.athleteName)'s Videos"
         await ActivityNotificationService.shared.postInvitationAcceptedNotification(
+            invitationID: invitationID,
             folderName: folderName,
             coachID: coachID,
             coachName: coachName,
@@ -716,6 +717,7 @@ class SharedFolderManager {
             await ActivityNotificationService.shared.postNewVideoNotification(
                 folderID: folderID,
                 folderName: folder.name,
+                videoID: videoID,
                 uploaderID: uploadedBy,
                 uploaderName: uploadedByName,
                 coachIDs: folder.sharedWithCoachIDs,

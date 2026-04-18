@@ -156,6 +156,7 @@ class AthleteInvitationManager {
         let folderName = gamesFolderID != nil ? "\(athleteName)'s Games" : lessonsFolderID != nil ? "\(athleteName)'s Lessons" : nil
         if let folderName, let folderID {
             await ActivityNotificationService.shared.postAthleteAcceptedInvitationNotification(
+                invitationID: invitationID,
                 folderName: folderName,
                 folderID: folderID,
                 athleteID: userID,

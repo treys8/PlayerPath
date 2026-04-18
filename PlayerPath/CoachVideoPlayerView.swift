@@ -32,6 +32,13 @@ struct CoachVideoPlayerView: View {
     @Environment(\.scenePhase) private var scenePhase
     private var isWideLayout: Bool { hSizeClass == .regular || vSizeClass == .compact }
     private var isIPad: Bool { hSizeClass == .regular }
+
+    private var playbackRateLabel: String {
+        let rate = viewModel.playbackRate
+        if rate == 1.0 { return "1x" }
+        if rate < 1.0 { return String(format: "%.2gx", rate) }
+        return String(format: "%.4gx", rate)
+    }
     
     init(folder: SharedFolder, video: CoachVideoItem) {
         self.folder = folder
@@ -111,11 +118,7 @@ struct CoachVideoPlayerView: View {
                         Button {
                             showingSpeedPicker = true
                         } label: {
-                            Text(viewModel.playbackRate == 1.0
-                                 ? "1x"
-                                 : viewModel.playbackRate < 1.0
-                                     ? String(format: "%.2gx", viewModel.playbackRate)
-                                     : String(format: "%.4gx", viewModel.playbackRate))
+                            Text(playbackRateLabel)
                                 .font(.subheadline)
                                 .fontWeight(.semibold)
                                 .monospacedDigit()
@@ -181,27 +184,7 @@ struct CoachVideoPlayerView: View {
             }
         }
         .sheet(isPresented: $showingDrillCardEditor) {
-            if let coachID = authManager.userID {
-                DrillCardView(
-                    videoID: video.id,
-                    coachID: coachID,
-                    coachName: authManager.userDisplayName ?? "Coach",
-                    onSave: { card in
-                        drillCards.insert(card, at: 0)
-                        Task {
-                            await ActivityNotificationService.shared.postDrillCardNotification(
-                                videoFileName: video.fileName,
-                                folderID: folder.id ?? "",
-                                videoID: video.id,
-                                coachID: coachID,
-                                coachName: authManager.userDisplayName ?? "Coach",
-                                athleteID: folder.ownerAthleteID,
-                                templateName: card.template?.displayName ?? "Drill Card"
-                            )
-                        }
-                    }
-                )
-            }
+            drillCardEditorSheet
         }
         .task {
             // Load video first (always needed)
@@ -229,15 +212,49 @@ struct CoachVideoPlayerView: View {
             }
         }
         .onChange(of: scenePhase) { oldPhase, newPhase in
-            if newPhase != .active {
-                viewModel.shouldResumeOnActive = (viewModel.player?.rate ?? 0) > 0
-                viewModel.player?.pause()
-            } else if newPhase == .active, oldPhase != .active {
-                if viewModel.shouldResumeOnActive {
-                    viewModel.player?.play()
+            handleScenePhaseChange(old: oldPhase, new: newPhase)
+        }
+    }
+
+    @ViewBuilder
+    private var drillCardEditorSheet: some View {
+        if let coachID = authManager.userID {
+            DrillCardView(
+                videoID: video.id,
+                coachID: coachID,
+                coachName: authManager.userDisplayName ?? "Coach",
+                onSave: { card in
+                    drillCards.insert(card, at: 0)
+                    Task {
+                        await notifyDrillCardAdded(card: card, coachID: coachID)
+                    }
                 }
-                viewModel.shouldResumeOnActive = false
+            )
+        }
+    }
+
+    private func notifyDrillCardAdded(card: DrillCard, coachID: String) async {
+        await ActivityNotificationService.shared.postDrillCardNotification(
+            videoFileName: video.fileName,
+            folderID: folder.id ?? "",
+            videoID: video.id,
+            cardID: card.id ?? UUID().uuidString,
+            coachID: coachID,
+            coachName: authManager.userDisplayName ?? "Coach",
+            athleteID: folder.ownerAthleteID,
+            templateName: card.template?.displayName ?? "Drill Card"
+        )
+    }
+
+    private func handleScenePhaseChange(old: ScenePhase, new: ScenePhase) {
+        if new != .active {
+            viewModel.shouldResumeOnActive = (viewModel.player?.rate ?? 0) > 0
+            viewModel.player?.pause()
+        } else if new == .active, old != .active {
+            if viewModel.shouldResumeOnActive {
+                viewModel.player?.play()
             }
+            viewModel.shouldResumeOnActive = false
         }
     }
     
