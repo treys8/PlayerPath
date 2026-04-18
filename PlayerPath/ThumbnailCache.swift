@@ -66,15 +66,7 @@ import UIKit
 
         // Check memory cache first (NSCache is thread-safe)
         if let cachedImage = cache.object(forKey: key) {
-            Task { @MainActor in
-                PerformanceMonitor.shared.recordCacheHit()
-            }
             return cachedImage
-        }
-
-        // Record cache miss
-        Task { @MainActor in
-            PerformanceMonitor.shared.recordCacheMiss()
         }
 
         // Check if already loading this path
@@ -188,11 +180,8 @@ import UIKit
 
         // 1. Check memory cache
         if let cached = cache.object(forKey: nsKey) {
-            Task { @MainActor in PerformanceMonitor.shared.recordCacheHit() }
             return cached
         }
-
-        Task { @MainActor in PerformanceMonitor.shared.recordCacheMiss() }
 
         // 2. Check disk cache — load and store under cacheKey (not disk path)
         let diskPath = sharedThumbnailPath(for: cacheKey)

@@ -22,9 +22,32 @@ struct StartSessionSheet: View {
     @State private var scheduledDate = Date().addingTimeInterval(3600)
     @State private var sessionNotes = ""
 
+    /// Deduplicated athletes the coach can upload to, preferring "lessons" folders
+    /// when both a games and lessons folder exist for the same athlete.
     private var availableAthletes: [(athleteID: String, athleteName: String, folderID: String)] {
         guard let coachID = authManager.userID else { return [] }
-        return CoachUploadableAthletesHelper.availableAthletes(coachID: coachID)
+        let uploadableFolders = SharedFolderManager.shared.coachFolders.filter { folder in
+            folder.getPermissions(for: coachID)?.canUpload == true
+        }
+
+        var athleteFolders: [String: SharedFolder] = [:]
+        for folder in uploadableFolders {
+            guard folder.id != nil else { continue }
+            // Prefer per-athlete UUID (one key per real athlete); fall back to account UID for legacy rows.
+            let key = folder.athleteUUID ?? folder.ownerAthleteID
+            if let existing = athleteFolders[key] {
+                if folder.folderType == "lessons" && existing.folderType != "lessons" {
+                    athleteFolders[key] = folder
+                }
+            } else {
+                athleteFolders[key] = folder
+            }
+        }
+
+        return athleteFolders.compactMap { key, folder in
+            guard let folderID = folder.id else { return nil }
+            return (athleteID: key, athleteName: folder.ownerAthleteName ?? "Athlete", folderID: folderID)
+        }
     }
 
     var body: some View {
