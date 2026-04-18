@@ -580,16 +580,46 @@ export const onInvitationAccepted = functions.firestore
   .onUpdate(async (change, context) => {
     const before = change.before.data();
     const after = change.after.data();
-    if (before.status === 'accepted' || after.status !== 'accepted') return;
+    if (after.status !== 'accepted') return;
+
+    // The acceptance callables (acceptAthleteToCoachInvitation /
+    // acceptCoachToAthleteInvitation) write status='accepted' first, then
+    // update folderID + folderName in a separate write after server-side
+    // folder creation. onUpdate fires on both writes.
+    //
+    // Fire strategy differs by direction:
+    //
+    //   athlete_to_coach: WAIT for folderID. The folder is guaranteed to
+    //     exist (legacy) or be created (new); deferring to the second fire
+    //     yields the correct folder name. Legacy invitations have folderID
+    //     pre-populated, so the first fire already has it — no wait needed.
+    //
+    //   coach_to_athlete: FIRE on the first update, regardless of folderID.
+    //     The connection-only path (where folder creation fails or is not
+    //     attempted) never produces a second update; waiting would silently
+    //     drop the notification. Accepting "connected" text for Pro users
+    //     on the first fire is a worse UX but not a broken one.
+    const justAccepted = before.status !== 'accepted';
+    const folderJustPopulated = !before.folderID && !!after.folderID;
+
+    if (after.type === 'athlete_to_coach') {
+      // Fire only on the update that has folderID present.
+      if (!justAccepted && !folderJustPopulated) return;
+      if (justAccepted && !after.folderID) return; // wait for second update
+    } else {
+      // coach_to_athlete: fire exactly once, on the first update.
+      if (!justAccepted) return;
+    }
 
     const invitationId = context.params.invitationId;
+    const folderID: string = after.folderID || '';
+    const folderName: string = after.folderName || '';
 
     if (after.type === 'athlete_to_coach') {
       // Coach accepted athlete's folder invite → notify athlete.
       const athleteID: string = after.athleteID || '';
       if (!athleteID) return;
-      const folderName: string = after.folderName || `${after.athleteName || 'your'} folder`;
-      // acceptedByCoachID is set by the acceptance Cloud Function; fetch coach name.
+      const resolvedFolderName = folderName || `${after.athleteName || 'your'} folder`;
       const coachID: string = after.acceptedByCoachID || '';
       let coachName = 'Your coach';
       if (coachID) {
@@ -599,8 +629,7 @@ export const onInvitationAccepted = functions.firestore
           coachName = d?.displayName || d?.email || coachName;
         } catch { /* fall back to default */ }
       }
-      const folderID: string = after.folderID || '';
-      const body = `${coachName} accepted your invitation to "${folderName}"`;
+      const body = `${coachName} accepted your invitation to "${resolvedFolderName}"`;
       await writeActivityNotification(
         athleteID,
         `invaccepted_${invitationId}_${athleteID}`,
@@ -628,13 +657,7 @@ export const onInvitationAccepted = functions.firestore
       if (!coachID) return;
       const athleteName: string = after.athleteName || 'An athlete';
       const athleteID: string = after.athleteUserID || '';
-      // The acceptance Cloud Function may write folder IDs back onto the invitation
-      // when the athlete has Pro; otherwise it's a bare connection (no folder).
-      const folderID: string = after.gamesFolderID || after.lessonsFolderID || '';
-      const folderName: string = folderID
-        ? (after.gamesFolderID ? `${athleteName}'s Games` : `${athleteName}'s Lessons`)
-        : '';
-      const body = folderName
+      const body = folderID && folderName
         ? `${athleteName} accepted your invitation and shared "${folderName}" with you`
         : `${athleteName} accepted your invitation and is now connected with you`;
       await writeActivityNotification(
