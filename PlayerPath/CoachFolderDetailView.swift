@@ -108,9 +108,9 @@ struct CoachFolderDetailView: View {
                 Text("Please end your current session before starting a new recording.")
             }
             .task { await initialLoad() }
-            .onChange(of: viewModel.cachedAllVideos) { _, _ in refreshAvailableTags() }
-            .onChange(of: viewModel.cachedSharedVideos) { _, _ in refreshAvailableTags() }
-            .onChange(of: viewModel.cachedReviewVideos) { _, _ in refreshAvailableTags() }
+            .onChange(of: viewModel.allVideos) { _, _ in refreshAvailableTags() }
+            .onChange(of: viewModel.sharedVideos) { _, _ in refreshAvailableTags() }
+            .onChange(of: viewModel.reviewVideos) { _, _ in refreshAvailableTags() }
             .disabled(isLeaving)
             .overlay { leavingOverlay }
     }
@@ -282,7 +282,7 @@ struct CoachFolderDetailView: View {
                     case .review:
                         reviewContent
                     case .shared:
-                        AllVideosTabView(folder: folder, videos: filterByTag(viewModel.cachedSharedVideos), isLoading: viewModel.isLoading, isLoadingMore: viewModel.isLoadingMore, hasMoreVideos: viewModel.hasMoreVideos, errorMessage: viewModel.errorMessage, unreadVideoIDs: activityNotifService.unreadVideoIDs, onRefresh: {
+                        AllVideosTabView(folder: folder, videos: filterByTag(viewModel.sharedVideos), isLoading: viewModel.isLoading, isLoadingMore: viewModel.isLoadingMore, hasMoreVideos: viewModel.hasMoreVideos, errorMessage: viewModel.errorMessage, unreadVideoIDs: activityNotifService.unreadVideoIDs, onRefresh: {
                             await viewModel.loadVideos()
                         }, onLoadMore: {
                             await viewModel.loadMoreVideos()
@@ -296,8 +296,8 @@ struct CoachFolderDetailView: View {
                 } else {
                     // Games folder: flat list, filtered by gamesFilter
                     let sourceVideos = (gamesFilter == .needsReview)
-                        ? viewModel.cachedNeedsReviewVideos
-                        : viewModel.cachedAllVideos
+                        ? viewModel.needsReviewVideos
+                        : viewModel.allVideos
                     if gamesFilter == .needsReview && sourceVideos.isEmpty && !viewModel.isLoading {
                         EmptyFolderView(
                             icon: "checkmark.circle.fill",
@@ -320,7 +320,7 @@ struct CoachFolderDetailView: View {
 
     @ViewBuilder
     private var reviewContent: some View {
-        let clips = viewModel.cachedReviewVideos
+        let clips = viewModel.reviewVideos
         if viewModel.isLoading && clips.isEmpty {
             VStack { Spacer(); ProgressView("Loading clips..."); Spacer() }
         } else if clips.isEmpty {
@@ -385,7 +385,7 @@ struct CoachFolderDetailView: View {
     }
 
     private func shareAllReviewClips() {
-        let clips = viewModel.cachedReviewVideos
+        let clips = viewModel.reviewVideos
         guard !clips.isEmpty, let folderID = folder.id else { return }
         isSharingAll = true
         shareProgress = (current: 0, total: clips.count)
@@ -530,11 +530,11 @@ struct CoachFolderDetailView: View {
         let visibleVideos: [CoachVideoItem]
         if isLessonsFolder {
             switch selectedTab {
-            case .review: visibleVideos = viewModel.cachedReviewVideos
-            case .shared: visibleVideos = viewModel.cachedSharedVideos
+            case .review: visibleVideos = viewModel.reviewVideos
+            case .shared: visibleVideos = viewModel.sharedVideos
             }
         } else {
-            visibleVideos = viewModel.cachedAllVideos
+            visibleVideos = viewModel.allVideos
         }
         cachedAvailableTags = Array(Set(visibleVideos.flatMap(\.tags))).sorted()
     }

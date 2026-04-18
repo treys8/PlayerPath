@@ -24,20 +24,48 @@ class CoachFolderViewModel {
     /// "showing cached data" banner when non-nil.
     var listenerError: String?
 
-    /// Cached filtered arrays — updated whenever `videos` changes
-    // Games folder: all visible videos (uploaded by athlete)
-    var cachedAllVideos: [CoachVideoItem] = []
-    // Games folder: athlete clips this coach hasn't yet reviewed
-    var cachedNeedsReviewVideos: [CoachVideoItem] = []
-    // Lessons folder: coach's private clips pending review vs shared clips
-    var cachedReviewVideos: [CoachVideoItem] = []
-    var cachedSharedVideos: [CoachVideoItem] = []
+    // Filtered views derived from `videos`. Computed so they stay in sync
+    // automatically — no manual cache-refresh step after every mutation.
+    // @Observable tracks reads through these since they access `videos`.
 
-    var reviewCount: Int { cachedReviewVideos.count }
-    var needsReviewCount: Int { cachedNeedsReviewVideos.count }
-    // Athlete tabs (used by AthleteFoldersListView)
-    var cachedGameVideos: [CoachVideoItem] = []
-    var cachedInstructionVideos: [CoachVideoItem] = []
+    /// Games folder: all visible videos (uploaded by athlete, or shared coach clips).
+    var allVideos: [CoachVideoItem] {
+        videos.filter { $0.visibility != "private" }
+    }
+
+    /// Games folder: athlete clips this coach hasn't yet reviewed.
+    var needsReviewVideos: [CoachVideoItem] {
+        let myUID = currentUserID ?? ""
+        return allVideos.filter { v in
+            v.uploadedBy != myUID && !v.isReviewed(by: myUID)
+        }
+    }
+
+    /// Lessons folder: coach's private clips pending review.
+    var reviewVideos: [CoachVideoItem] {
+        let myUID = currentUserID ?? ""
+        return videos.filter { $0.visibility == "private" && $0.uploadedBy == myUID }
+    }
+
+    /// Lessons folder: coach's published clips.
+    var sharedVideos: [CoachVideoItem] {
+        let myUID = currentUserID ?? ""
+        return allVideos.filter { $0.uploadedBy == myUID }
+    }
+
+    var reviewCount: Int { reviewVideos.count }
+    var needsReviewCount: Int { needsReviewVideos.count }
+
+    /// Athlete tab: game-type videos (takes priority over instruction for dual-tagged clips).
+    var gameVideos: [CoachVideoItem] {
+        allVideos.filter { $0.videoType == "game" || $0.gameOpponent != nil }
+    }
+
+    /// Athlete tab: instruction/practice videos. Excludes any clip already classified as a game.
+    var instructionVideos: [CoachVideoItem] {
+        let gameIDs = Set(gameVideos.map(\.id))
+        return allVideos.filter { !gameIDs.contains($0.id) && ($0.videoType == "instruction" || $0.videoType == "practice" || $0.practiceDate != nil) }
+    }
 
     private var prefetchedFileNames: Set<String> = []
     private var lastVideoDocument: QueryDocumentSnapshot?
@@ -58,28 +86,6 @@ class CoachFolderViewModel {
 
     private var currentUserID: String? { Auth.auth().currentUser?.uid }
 
-    private func updateFilteredVideos() {
-        let myUID = currentUserID ?? ""
-        let sharedVideos = videos.filter { $0.visibility != "private" }
-
-        // Games folder: all visible videos (athlete uploads)
-        cachedAllVideos = sharedVideos
-
-        // Games folder: athlete clips this coach hasn't yet reviewed
-        cachedNeedsReviewVideos = sharedVideos.filter { v in
-            v.uploadedBy != myUID && !v.isReviewed(by: myUID)
-        }
-
-        // Lessons folder: My Drafts (coach's private clips) / Shared (coach's published clips)
-        cachedReviewVideos = videos.filter { $0.visibility == "private" && $0.uploadedBy == myUID }
-        cachedSharedVideos = sharedVideos.filter { $0.uploadedBy == myUID }
-
-        // Athlete: Games / Instruction (mutually exclusive — games take priority)
-        cachedGameVideos = sharedVideos.filter { $0.videoType == "game" || $0.gameOpponent != nil }
-        let gameSet = Set(cachedGameVideos.map(\.id))
-        cachedInstructionVideos = sharedVideos.filter { !gameSet.contains($0.id) && ($0.videoType == "instruction" || $0.videoType == "practice" || $0.practiceDate != nil) }
-    }
-
     /// Processes a list of Firestore video metadata into the view's video arrays.
     private func applyVideos(_ firestoreVideos: [FirestoreVideoMetadata]) {
         let currentUID = Auth.auth().currentUser?.uid
@@ -87,7 +93,6 @@ class CoachFolderViewModel {
             .filter { $0.visibility != "private" || $0.uploadedBy == currentUID }
             .map { CoachVideoItem(from: $0) }
             .sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
-        updateFilteredVideos()
     }
 
     /// Appends additional videos from a "Load More" page.
@@ -100,7 +105,6 @@ class CoachFolderViewModel {
         let deduplicated = newItems.filter { !existingIDs.contains($0.id) }
         videos.append(contentsOf: deduplicated)
         videos.sort { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
-        updateFilteredVideos()
     }
 
     /// Prefetches signed URLs only for videos not already prefetched.
@@ -158,7 +162,6 @@ class CoachFolderViewModel {
 
         videos = (listenerItems + paginatedExtras)
             .sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
-        updateFilteredVideos()
     }
 
     func loadVideos() async {
