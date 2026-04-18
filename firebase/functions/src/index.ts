@@ -189,7 +189,82 @@ async function sendPushToMultipleUsers(
 }
 
 // ============================================================
-// FCM Triggers for Coach/Athlete Events
+// Activity Notification Write Helper
+// ============================================================
+
+/**
+ * Writes a single activity notification to
+ * `notifications/{recipientID}/items/{deterministicID}`.
+ *
+ * Uses `.create()` so if the client already wrote the same doc ID (shadow-mode
+ * rollout of server-authored notifications) we silently skip rather than
+ * overwrite and reset isRead/title/body. All notification-producing Cloud
+ * Functions should call this helper — it is the single canonical server-side
+ * writer. The deterministic ID is the coordination point between client and
+ * server during the migration window; post-migration the client stops writing
+ * entirely and the server is the sole author.
+ */
+async function writeActivityNotification(
+  recipientID: string,
+  deterministicID: string,
+  data: {
+    type: string;
+    title: string;
+    body: string;
+    senderName: string;
+    senderID: string;
+    targetID?: string;
+    targetType?: 'folder' | 'video' | 'invitation';
+    folderID?: string;
+  }
+): Promise<void> {
+  if (!recipientID || recipientID === data.senderID) return;
+  const payload: Record<string, any> = {
+    type: data.type,
+    title: data.title,
+    body: data.body,
+    senderName: data.senderName,
+    senderID: data.senderID,
+    isRead: false,
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+  };
+  if (data.targetID !== undefined) payload.targetID = data.targetID;
+  if (data.targetType !== undefined) payload.targetType = data.targetType;
+  if (data.folderID !== undefined) payload.folderID = data.folderID;
+
+  const ref = admin.firestore()
+    .collection('notifications')
+    .doc(recipientID)
+    .collection('items')
+    .doc(deterministicID);
+  try {
+    await ref.create(payload);
+  } catch (err: any) {
+    // 6 = ALREADY_EXISTS — expected during shadow-mode when client beat us to the doc.
+    if (err?.code !== 6) {
+      console.warn(`writeActivityNotification failed for ${recipientID}/${deterministicID}:`, err);
+    }
+  }
+}
+
+/**
+ * Fans out the same notification to many recipients in parallel, scoping the
+ * deterministic ID per recipient so each user's feed gets its own doc.
+ */
+async function writeActivityNotifications(
+  recipientIDs: string[],
+  deterministicIDFor: (recipientID: string) => string,
+  data: Parameters<typeof writeActivityNotification>[2]
+): Promise<void> {
+  await Promise.allSettled(
+    recipientIDs.map(rid =>
+      writeActivityNotification(rid, deterministicIDFor(rid), data)
+    )
+  );
+}
+
+// ============================================================
+// FCM + Activity Notification Triggers for Coach/Athlete Events
 // ============================================================
 
 /**
@@ -199,7 +274,7 @@ async function sendPushToMultipleUsers(
  */
 export const onNewSharedVideo = functions.firestore
   .document('videos/{videoId}')
-  .onCreate(async (snap) => {
+  .onCreate(async (snap, context) => {
     const video = snap.data();
     const folderID = video.sharedFolderID;
     if (!folderID) return; // Personal video, not shared
@@ -212,8 +287,12 @@ export const onNewSharedVideo = functions.firestore
     if (!folderDoc.exists) return;
     const folder = folderDoc.data()!;
 
+    const videoID = context.params.videoId;
     const uploaderName = video.uploadedByName || 'Someone';
+    const uploaderID: string = video.uploadedBy || '';
     const uploaderType = video.uploadedByType; // "athlete" or "coach"
+    const folderName: string = folder.name || 'a folder';
+    const videoFileName: string = video.fileName || video.name || 'the video';
 
     if (uploaderType === 'athlete') {
       // Notify all coaches with folder access
@@ -222,9 +301,24 @@ export const onNewSharedVideo = functions.firestore
         await sendPushToMultipleUsers(
           coachIDs,
           'New Video Shared',
-          `${uploaderName} shared a new video in ${folder.name || 'a folder'}`,
+          `${uploaderName} shared a new video in ${folderName}`,
           { type: 'new_video', folderID },
           'COACH_VIDEO'
+        );
+        // Matches client postNewVideoNotification: targetType: folder, targetID: folderID.
+        await writeActivityNotifications(
+          coachIDs,
+          (rid) => `newvideo_${videoID}_${rid}`,
+          {
+            type: 'new_video',
+            title: `New Video in ${folderName}`,
+            body: `${uploaderName} uploaded a new clip — ${videoFileName}`,
+            senderName: uploaderName,
+            senderID: uploaderID,
+            targetID: folderID,
+            targetType: 'folder',
+            folderID,
+          }
         );
       }
     } else if (uploaderType === 'coach') {
@@ -238,6 +332,21 @@ export const onNewSharedVideo = functions.firestore
           { type: 'new_video', folderID },
           'COACH_VIDEO'
         );
+        // Matches client postCoachSharedClipNotification: targetType: video, targetID: videoID.
+        await writeActivityNotification(
+          athleteID,
+          `newvideo_${videoID}_${athleteID}`,
+          {
+            type: 'new_video',
+            title: `New Clip from ${uploaderName}`,
+            body: `${uploaderName} shared a new clip in ${folderName}`,
+            senderName: uploaderName,
+            senderID: uploaderID,
+            targetID: videoID,
+            targetType: 'video',
+            folderID,
+          }
+        );
       }
     }
   });
@@ -249,7 +358,7 @@ export const onNewSharedVideo = functions.firestore
  */
 export const onVideoPublished = functions.firestore
   .document('videos/{videoId}')
-  .onUpdate(async (change) => {
+  .onUpdate(async (change, context) => {
     const before = change.before.data();
     const after = change.after.data();
 
@@ -265,9 +374,12 @@ export const onVideoPublished = functions.firestore
       if (!folderDoc.exists) return;
       const folder = folderDoc.data()!;
 
+      const videoID = context.params.videoId;
       const coachName = after.uploadedByName || 'Your coach';
+      const coachID: string = after.uploadedBy || '';
       const athleteID = folder.ownerAthleteID;
       if (!athleteID) return;
+      const folderName: string = folder.name || 'a folder';
 
       await sendPushNotification(
         athleteID,
@@ -275,6 +387,22 @@ export const onVideoPublished = functions.firestore
         `${coachName} shared a lesson clip with you`,
         { type: 'new_video', folderID },
         'COACH_VIDEO'
+      );
+      // Matches client postCoachSharedClipNotification. Shares the newvideo_{videoID}_{athleteID}
+      // key with onNewSharedVideo so a private-then-published coach clip produces only one doc.
+      await writeActivityNotification(
+        athleteID,
+        `newvideo_${videoID}_${athleteID}`,
+        {
+          type: 'new_video',
+          title: `New Clip from ${coachName}`,
+          body: `${coachName} shared a new clip in ${folderName}`,
+          senderName: coachName,
+          senderID: coachID,
+          targetID: videoID,
+          targetType: 'video',
+          folderID,
+        }
       );
     }
   });
@@ -439,6 +567,7 @@ export const onNewComment = functions.firestore
   .onCreate(async (snap, context) => {
     const comment = snap.data();
     const videoId = context.params.videoId;
+    const commentId = context.params.commentId;
 
     const videoDoc = await admin.firestore().collection('videos').doc(videoId).get();
     if (!videoDoc.exists) return;
@@ -451,8 +580,11 @@ export const onNewComment = functions.firestore
     );
     if (recipients.length === 0) return;
 
-    const commenterName = comment.authorName || 'Someone';
-    const preview = (comment.text || '').substring(0, 80);
+    const commenterName: string = comment.authorName || 'Someone';
+    const commenterID: string = comment.authorId || '';
+    const preview: string = (comment.text || '').substring(0, 80);
+    const folderID: string = video.sharedFolderID || '';
+    const videoFileName: string = video.fileName || video.name || 'the video';
 
     await sendPushToMultipleUsers(
       recipients,
@@ -460,10 +592,30 @@ export const onNewComment = functions.firestore
       `${commenterName}: ${preview}`,
       {
         type: 'coach_comment',
-        folderID: video.sharedFolderID || '',
+        folderID,
         videoID: videoId,
       },
       'COACH_COMMENT'
+    );
+    // Matches client postCoachCommentNotification for the coach→athlete direction.
+    // Athlete→coach comments previously had only an FCM push with no in-app record;
+    // we now write an in-app record in both directions for parity.
+    const title = comment.authorRole === 'coach'
+      ? `Coach Feedback on ${videoFileName}`
+      : `New Comment on ${videoFileName}`;
+    await writeActivityNotifications(
+      recipients,
+      (rid) => `comment_${videoId}_${commentId}_${rid}`,
+      {
+        type: 'coach_comment',
+        title,
+        body: `${commenterName}: ${preview}`,
+        senderName: commenterName,
+        senderID: commenterID,
+        targetID: videoId,
+        targetType: 'video',
+        folderID: folderID || undefined,
+      }
     );
   });
 
@@ -479,6 +631,7 @@ export const onNewAnnotation = functions.firestore
   .onCreate(async (snap, context) => {
     const annotation = snap.data();
     const videoId = context.params.videoId;
+    const annotationId = context.params.annotationId;
 
     // Skip annotations mirrored to comments — onNewComment will handle those.
     // Drawings and non-coach annotations still fire here.
@@ -496,11 +649,14 @@ export const onNewAnnotation = functions.firestore
     );
     if (recipients.length === 0) return;
 
-    const authorName = annotation.userName || 'Someone';
+    const authorName: string = annotation.userName || 'Someone';
+    const authorID: string = annotation.userID || '';
     const isDrawing = annotation.type === 'drawing';
     const body = isDrawing
       ? `${authorName} added a drawing`
       : `${authorName}: ${(annotation.text || '').substring(0, 80)}`;
+    const folderID: string = video.sharedFolderID || '';
+    const videoFileName: string = video.fileName || video.name || 'the video';
 
     await sendPushToMultipleUsers(
       recipients,
@@ -508,10 +664,27 @@ export const onNewAnnotation = functions.firestore
       body,
       {
         type: 'coach_comment',
-        folderID: video.sharedFolderID || '',
+        folderID,
         videoID: videoId,
       },
       'COACH_COMMENT'
+    );
+    const title = authorRole === 'coach'
+      ? `Coach Feedback on ${videoFileName}`
+      : `New Feedback on ${videoFileName}`;
+    await writeActivityNotifications(
+      recipients,
+      (rid) => `annotation_${videoId}_${annotationId}_${rid}`,
+      {
+        type: 'coach_comment',
+        title,
+        body,
+        senderName: authorName,
+        senderID: authorID,
+        targetID: videoId,
+        targetType: 'video',
+        folderID: folderID || undefined,
+      }
     );
   });
 
@@ -531,22 +704,44 @@ export const onCoachNoteUpdated = functions.firestore
     // Only fire on a non-empty note that changed.
     if (!afterNote || afterNote === beforeNote) return;
 
-    const authorId = after.coachNoteAuthorID || after.uploadedBy;
-    const authorName = after.coachNoteAuthorName || after.uploadedByName || 'Your coach';
+    const authorId: string = after.coachNoteAuthorID || after.uploadedBy || '';
+    const authorName: string = after.coachNoteAuthorName || after.uploadedByName || 'Your coach';
 
     const recipients = await resolveFeedbackRecipients(after, authorId, 'coach');
     if (recipients.length === 0) return;
 
+    const videoId = context.params.videoId;
+    const folderID: string = after.sharedFolderID || '';
+    const videoFileName: string = after.fileName || after.name || 'the video';
+    const preview = afterNote.substring(0, 80);
+
     await sendPushToMultipleUsers(
       recipients,
       'New Coach Note',
-      `${authorName}: ${afterNote.substring(0, 80)}`,
+      `${authorName}: ${preview}`,
       {
         type: 'coach_comment',
-        folderID: after.sharedFolderID || '',
-        videoID: context.params.videoId,
+        folderID,
+        videoID: videoId,
       },
       'COACH_COMMENT'
+    );
+    // Note updates: one doc per (video, recipient). Re-edits don't resurface
+    // the notification — the initial note-add drives the notification; later
+    // typo fixes silently hit ALREADY_EXISTS. Acceptable for v1.
+    await writeActivityNotifications(
+      recipients,
+      (rid) => `note_${videoId}_${rid}`,
+      {
+        type: 'coach_comment',
+        title: `Coach Feedback on ${videoFileName}`,
+        body: `${authorName}: ${preview}`,
+        senderName: authorName,
+        senderID: authorId,
+        targetID: videoId,
+        targetType: 'video',
+        folderID: folderID || undefined,
+      }
     );
   });
 
@@ -558,6 +753,7 @@ export const onNewDrillCard = functions.firestore
   .onCreate(async (snap, context) => {
     const card = snap.data();
     const videoId = context.params.videoId;
+    const cardId = context.params.cardId;
 
     const videoDoc = await admin.firestore().collection('videos').doc(videoId).get();
     if (!videoDoc.exists) return;
@@ -569,20 +765,40 @@ export const onNewDrillCard = functions.firestore
     if (!folderDoc.exists) return;
     const folder = folderDoc.data()!;
 
-    const coachName = card.coachName || 'Your coach';
+    const coachName: string = card.coachName || 'Your coach';
+    const coachID: string = card.coachID || '';
+    const folderID: string = video.sharedFolderID;
+    const templateName: string = card.templateName || 'drill card';
+    const videoFileName: string = video.fileName || video.name || 'the video';
 
     // Notify the athlete (folder owner)
     if (folder.ownerAthleteID && folder.ownerAthleteID !== card.coachID) {
+      const athleteID: string = folder.ownerAthleteID;
       await sendPushNotification(
-        folder.ownerAthleteID,
+        athleteID,
         'New Drill Card',
         `${coachName} added a drill card to your video`,
         {
           type: 'drill_card',
-          folderID: video.sharedFolderID,
+          folderID,
           videoID: videoId,
         },
         'DRILL_CARD'
+      );
+      // Matches client postDrillCardNotification: type 'coach_comment' (not 'drill_card').
+      await writeActivityNotification(
+        athleteID,
+        `drillcard_${videoId}_${cardId}_${athleteID}`,
+        {
+          type: 'coach_comment',
+          title: 'New Drill Card',
+          body: `${coachName} added a ${templateName} to ${videoFileName}`,
+          senderName: coachName,
+          senderID: coachID,
+          targetID: videoId,
+          targetType: 'video',
+          folderID,
+        }
       );
     }
   });
