@@ -16,7 +16,15 @@ struct AthleteCoachVideosView: View {
     @State private var isLoading = true
     @State private var showingManageCoaches = false
 
-    private var folders: [SharedFolder] { folderManager.athleteFolders }
+    private var folders: [SharedFolder] {
+        let selected = athlete.id.uuidString
+        let onlyAthlete = (athlete.user?.athletes ?? []).count <= 1
+        return folderManager.athleteFolders.filter { folder in
+            if folder.athleteUUID == selected { return true }
+            if folder.athleteUUID == nil && onlyAthlete { return true }
+            return false
+        }
+    }
 
     var body: some View {
         Group {

@@ -97,7 +97,7 @@ class SharedFolderManager {
         folderID: String,
         athleteID: String,
         athleteName: String,
-        athleteUUID: String? = nil,
+        athleteUUID: String,
         folderName: String,
         permissions: FolderPermissions
     ) async throws {

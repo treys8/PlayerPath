@@ -42,7 +42,7 @@ extension FirestoreManager {
     func createInvitation(
         athleteID: String,
         athleteName: String,
-        athleteUUID: String? = nil,
+        athleteUUID: String,
         coachEmail: String,
         folderID: String? = nil,
         folderName: String? = nil,
@@ -54,13 +54,13 @@ extension FirestoreManager {
             "type": "athlete_to_coach",
             "athleteID": athleteID,
             "athleteName": athleteName,
+            "athleteUUID": athleteUUID,
             "coachEmail": normalizedCoachEmail,
             "permissions": permissions.toDictionary(),
             "status": "pending",
             "sentAt": FieldValue.serverTimestamp(),
             "expiresAt": Date().addingTimeInterval(invitationExpirationInterval)
         ]
-        if let athleteUUID { invitationData["athleteUUID"] = athleteUUID }
         if let folderID { invitationData["folderID"] = folderID }
         if let folderName { invitationData["folderName"] = folderName }
 
@@ -396,7 +396,7 @@ extension FirestoreManager {
         invitationID: String,
         athleteUserID: String,
         athleteName: String,
-        athleteUUID: String? = nil
+        athleteUUID: String
     ) async throws -> (gamesFolderID: String?, lessonsFolderID: String?) {
         guard let user = Auth.auth().currentUser else {
             throw NSError(domain: "FirestoreManager", code: -1,
@@ -411,8 +411,11 @@ extension FirestoreManager {
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.timeoutInterval = 30
 
-        var payload: [String: Any] = ["invitationID": invitationID, "athleteName": athleteName]
-        if let athleteUUID { payload["athleteUUID"] = athleteUUID }
+        let payload: [String: Any] = [
+            "invitationID": invitationID,
+            "athleteName": athleteName,
+            "athleteUUID": athleteUUID,
+        ]
         let body: [String: Any] = ["data": payload]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 

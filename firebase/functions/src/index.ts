@@ -2056,20 +2056,24 @@ export const acceptAthleteToCoachInvitation = functions.https.onCall(async (data
 
   const athleteName = invData.athleteName || 'Athlete';
   const athleteID = invData.athleteID;
-  const athleteUUID = invData.athleteUUID || null;
+  const athleteUUID = invData.athleteUUID;
+  if (typeof athleteUUID !== 'string' || athleteUUID.length === 0) {
+    throw new functions.https.HttpsError(
+      'failed-precondition',
+      'Invitation is missing athleteUUID. Ask the athlete to resend from an updated app version.'
+    );
+  }
   const permissions = invData.permissions || { canUpload: true, canComment: true, canDelete: false };
   const folderBase: Record<string, unknown> = {
     ownerAthleteID: athleteID,
     ownerAthleteName: athleteName,
+    athleteUUID,
     sharedWithCoachIDs: [coachID],
     permissions: { [coachID]: permissions },
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     videoCount: 0,
   };
-  if (athleteUUID) {
-    folderBase.athleteUUID = athleteUUID;
-  }
 
   let gamesFolderID: string | null = null;
   let lessonsFolderID: string | null = null;
@@ -2129,7 +2133,7 @@ export const acceptCoachToAthleteInvitation = functions.https.onCall(async (data
   if (!invitationID || typeof invitationID !== 'string') {
     throw new functions.https.HttpsError('invalid-argument', 'invitationID is required');
   }
-  const athleteUUID: string | null =
+  let athleteUUID: string | null =
     typeof clientAthleteUUID === 'string' && clientAthleteUUID.length > 0 ? clientAthleteUUID : null;
 
   const athleteUserID = context.auth.uid;
@@ -2146,6 +2150,21 @@ export const acceptCoachToAthleteInvitation = functions.https.onCall(async (data
 
   if (!coachID) {
     throw new functions.https.HttpsError('failed-precondition', 'Invitation missing coachID');
+  }
+
+  // Fallback: live v5.0 clients don't send athleteUUID on this call. If the
+  // invitation doc already carries one, use it. Fail hard if neither source has a value.
+  if (!athleteUUID) {
+    const invAthleteUUID = invData.athleteUUID;
+    if (typeof invAthleteUUID === 'string' && invAthleteUUID.length > 0) {
+      athleteUUID = invAthleteUUID;
+    }
+  }
+  if (!athleteUUID) {
+    throw new functions.https.HttpsError(
+      'failed-precondition',
+      'athleteUUID is required. Please update the app to the latest version.'
+    );
   }
 
   // Check athlete has Pro subscription tier (coach sharing is a Pro feature)
@@ -2277,15 +2296,12 @@ export const acceptCoachToAthleteInvitation = functions.https.onCall(async (data
       });
     }
 
-    const invUpdate: Record<string, unknown> = {
+    transaction.update(invRef, {
       status: 'accepted',
       acceptedAt: admin.firestore.FieldValue.serverTimestamp(),
       athleteUserID: athleteUserID,
-    };
-    if (athleteUUID) {
-      invUpdate.athleteUUID = athleteUUID;
-    }
-    transaction.update(invRef, invUpdate);
+      athleteUUID: athleteUUID,
+    });
   });
 
   // Create shared folders after transaction succeeds (Admin SDK bypasses security rules).
@@ -2297,6 +2313,7 @@ export const acceptCoachToAthleteInvitation = functions.https.onCall(async (data
   const folderBase: Record<string, unknown> = {
     ownerAthleteID: athleteUserID,
     ownerAthleteName: name,
+    athleteUUID,
     sharedWithCoachIDs: [coachID],
     sharedWithCoachNames: { [coachID]: coachDisplayName },
     permissions: { [coachID]: defaultPerms },
@@ -2304,9 +2321,6 @@ export const acceptCoachToAthleteInvitation = functions.https.onCall(async (data
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     videoCount: 0,
   };
-  if (athleteUUID) {
-    folderBase.athleteUUID = athleteUUID;
-  }
 
   let gamesFolderID: string | null = null;
   let lessonsFolderID: string | null = null;

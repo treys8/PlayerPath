@@ -8,7 +8,6 @@
 
 import Foundation
 import SwiftData
-import FirebaseAuth
 import FirebaseFirestore
 import os
 
@@ -96,9 +95,15 @@ class AthleteInvitationManager {
             predicate: #Predicate { $0.user?.firebaseAuthUid == optionalUserID }
         )
         let fetched = (try? modelContext.fetch(athleteDescriptor)) ?? []
-        let athlete = targetAthlete ?? fetched.first
-        let athleteName = athlete?.name ?? Auth.auth().currentUser?.displayName ?? "Athlete"
-        let athleteUUID = athlete?.id.uuidString
+        guard let athlete = targetAthlete ?? fetched.first else {
+            throw NSError(
+                domain: "PlayerPath",
+                code: -1,
+                userInfo: [NSLocalizedDescriptionKey: "Create an athlete before accepting this invitation."]
+            )
+        }
+        let athleteName = athlete.name
+        let athleteUUID = athlete.id.uuidString
 
         // 2. Accept invitation + create folders server-side via Cloud Function.
         //    Folders are created regardless of athlete subscription tier (Admin SDK
@@ -121,7 +126,7 @@ class AthleteInvitationManager {
             }
         )
         let existingCoaches = (try? modelContext.fetch(existingCoachDescriptor)) ?? []
-        let existingCoach = existingCoaches.first { $0.athlete?.id == athlete?.id }
+        let existingCoach = existingCoaches.first { $0.athlete?.id == athlete.id }
 
         if let existingCoach {
             existingCoach.name = invitation.coachName
@@ -142,9 +147,7 @@ class AthleteInvitationManager {
             coach.firebaseCoachID = invitation.coachID
             coach.lastInvitationStatus = "accepted"
             coach.sharedFolderIDs = [gamesFolderID, lessonsFolderID].compactMap { $0 }
-            if let athlete {
-                coach.athlete = athlete
-            }
+            coach.athlete = athlete
             modelContext.insert(coach)
         }
 

@@ -123,6 +123,12 @@ extension SyncCoordinator {
                 if let matched = localAthlete {
                     // Re-link the local athlete to this Firestore document
                     matched.firestoreId = remoteId
+                    // Same drift recovery as the firestoreId-match branch — the
+                    // name fallback implies a reinstall that lost firestoreId,
+                    // so local.id almost certainly drifted too.
+                    if let remoteUUID = UUID(uuidString: remoteData.swiftDataId), matched.id != remoteUUID {
+                        matched.id = remoteUUID
+                    }
                 }
             }
 
@@ -142,6 +148,15 @@ extension SyncCoordinator {
 
             if let local = localAthlete {
                 claimedFirestoreIds.insert(remoteId)
+
+                // UUID drift recovery. Firestore's `id` field is the canonical
+                // per-athlete UUID — once set on first upload, it follows the athlete
+                // forever. Reinstalls used to overwrite local.id with a fresh UUID(),
+                // drifting it away from Firestore. Reconcile here. Safe because
+                // SwiftData relationships are object refs, not UUID-keyed.
+                if let remoteUUID = UUID(uuidString: remoteData.swiftDataId), local.id != remoteUUID {
+                    local.id = remoteUUID
+                }
 
                 // Athlete exists locally - check if remote is newer
                 let remoteUpdatedAt = remoteData.updatedAt ?? Date.distantPast
@@ -178,6 +193,12 @@ extension SyncCoordinator {
                 // Genuinely new athlete from another device - create locally
 
                 let newAthlete = Athlete(name: remoteData.name)
+                // Preserve the athlete's original UUID across devices. Without this,
+                // a second device would assign a fresh UUID(), which silently breaks
+                // any data keyed by athlete UUID (e.g. sharedFolders.athleteUUID).
+                if let remoteUUID = UUID(uuidString: remoteData.swiftDataId) {
+                    newAthlete.id = remoteUUID
+                }
                 newAthlete.firestoreId = remoteId
                 newAthlete.createdAt = remoteData.createdAt
                 newAthlete.lastSyncDate = Date()

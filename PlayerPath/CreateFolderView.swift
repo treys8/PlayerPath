@@ -328,16 +328,21 @@ struct InviteCoachView: View {
             showingError = true
             return
         }
-        
+        guard let athleteUUID = folder.athleteUUID else {
+            errorMessage = "This folder is from an older version. Re-create it to invite a coach."
+            showingError = true
+            return
+        }
+
         isSending = true
-        
+
         do {
             try await folderManager.inviteCoachToFolder(
                 coachEmail: coachEmail.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
                 folderID: folderID,
                 athleteID: athleteID,
                 athleteName: athleteName,
-                athleteUUID: folder.athleteUUID,
+                athleteUUID: athleteUUID,
                 folderName: folder.name,
                 permissions: permissions
             )
