@@ -400,43 +400,53 @@ service cloud.firestore {
       // Only the recipient can read their notifications
       allow read:   if isAuthenticated() && isOwner(userID);
 
-      // Authenticated users can create notifications for a specific recipient.
-      // Must identify themselves as sender, include required fields, use a valid
-      // notification type, AND prove a relationship with the recipient via a shared
-      // folder or invitation. This prevents arbitrary users from spamming notifications.
+      // Most notifications are authored by Cloud Functions (Admin SDK bypasses
+      // rules). Clients may only create the narrow set of types the server
+      // cannot derive from Firestore state:
+      //
+      //   1. upload_failed — coach's upload queue exhausted retries. Written
+      //      by the coach to their own feed (userID == senderID == auth.uid).
+      //
+      //   2. access_revoked as an upload-failed-permission record — the coach
+      //      detects mid-upload that their folder access was removed and logs
+      //      it to their own feed. Sender field is empty (system-authored
+      //      from the coach's device; senderID != recipient but recipient is
+      //      the auth user writing their own record).
+      //
+      //   3. access_revoked / access_lapsed tier-change notifications —
+      //      postCoachAccessLostNotification (coach downgrade → athlete) and
+      //      postAccessLapsedNotification (athlete subscription lapse → coach).
+      //      These will migrate to a source-triggered CF in a later chunk;
+      //      until then, the sender must demonstrate the target folder exists.
+      //
+      // Types that were previously client-authorable and are now server-only:
+      //   new_video, coach_comment, invitation_received, invitation_accepted,
+      //   and the folder-deletion / athlete-initiated revocation variants of
+      //   access_revoked. Client writes of these types are REJECTED.
       allow create: if isAuthenticated()
-                    && request.resource.data.senderID == request.auth.uid
                     && request.resource.data.keys().hasAll(['senderID', 'type', 'title', 'body', 'createdAt', 'isRead'])
                     && request.resource.data.isRead == false
-                    && request.resource.data.type in [
-                         'new_video', 'coach_comment', 'invitation_received',
-                         'invitation_accepted', 'access_revoked', 'access_lapsed'
-                       ]
                     && (
-                      // Branch 1: Has explicit folderID field — verify sender has folder access
-                      // (covers: coach_comment, drill_card notifications)
-                      ('folderID' in request.resource.data
-                        && canAccessFolder(request.resource.data.folderID))
+                      // Coach writes an upload_failed record to their own feed.
+                      (request.resource.data.type == 'upload_failed'
+                        && userID == request.auth.uid
+                        && request.resource.data.senderID == request.auth.uid)
                       ||
-                      // Branch 2: targetType is folder — verify sender has folder access
-                      // (covers: new_video, invitation_accepted, access_revoked by owner, access_lapsed)
-                      (request.resource.data.targetType == 'folder'
-                        && canAccessFolder(request.resource.data.targetID))
+                      // Coach writes a clip-not-uploaded (access_revoked) record
+                      // to their own feed when a folder upload hits a permission
+                      // error. senderID is blank (system-authored from device).
+                      (request.resource.data.type == 'access_revoked'
+                        && userID == request.auth.uid
+                        && request.resource.data.senderID == ''
+                        && request.resource.data.targetType == 'folder')
                       ||
-                      // Branch 3: Access removal where sender was just removed from folder.
-                      // Weaker check (folder exists) because sender already left the folder.
-                      // Risk: someone who knows a folder UUID could send this type. Mitigated
-                      // by UUIDs being unguessable and senderID being verified above.
-                      // (covers: access_revoked by coach during downgrade)
+                      // Tier-change notifications (still client-authored).
+                      // Sender must be the auth user and the target folder exists.
                       (request.resource.data.type in ['access_revoked', 'access_lapsed']
+                        && request.resource.data.senderID == request.auth.uid
+                        && request.resource.data.targetType == 'folder'
                         && 'targetID' in request.resource.data
                         && exists(/databases/$(database)/documents/sharedFolders/$(request.resource.data.targetID)))
-                      ||
-                      // Branch 4: Invitation-targeted — verify the invitation exists
-                      // (covers: invitation_received, invitation_accepted without folder)
-                      (request.resource.data.targetType == 'invitation'
-                        && request.resource.data.type in ['invitation_received', 'invitation_accepted']
-                        && exists(/databases/$(database)/documents/invitations/$(request.resource.data.targetID)))
                     );
 
       // Only the recipient can update, and only to mark as read.
