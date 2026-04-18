@@ -263,6 +263,27 @@ async function writeActivityNotifications(
   );
 }
 
+/**
+ * Looks up a Firebase user ID by email. Returns null if no account exists —
+ * in that case notification writes should be skipped (backfillInvitationsOnSignup
+ * will cover them when the user eventually signs up).
+ */
+async function lookupUserIDByEmail(email: string): Promise<string | null> {
+  const normalized = (email || '').toLowerCase().trim();
+  if (!normalized) return null;
+  try {
+    const snap = await admin.firestore()
+      .collection('users')
+      .where('email', '==', normalized)
+      .limit(1)
+      .get();
+    return snap.empty ? null : snap.docs[0].id;
+  } catch (err) {
+    console.warn(`lookupUserIDByEmail failed for ${normalized}:`, err);
+    return null;
+  }
+}
+
 // ============================================================
 // FCM + Activity Notification Triggers for Coach/Athlete Events
 // ============================================================
@@ -475,30 +496,169 @@ export const onSharedFolderDeleted = functions.firestore
   });
 
 /**
- * Sends an FCM push whenever an `invitation_accepted` notification is written
- * to a user's feed. Covers both directions:
- *   - athlete accepts coach's invite (Pro or free-tier connection)
- *   - coach accepts athlete's invite
+ * Fires on invitation doc creation. Writes the `invitation_received` activity
+ * notification + FCM push to the recipient (the coach or athlete the invitation
+ * is addressed to). Handles both directions.
  *
- * Triggering off the notification write (rather than a source-of-truth doc)
- * keeps the push logic decoupled from the many code paths that create these
- * notifications (SharedFolderManager, AthleteInvitationManager, and the
- * acceptCoachToAthleteInvitation callable). The title/body already set by the
- * client are reused verbatim.
+ * If the recipient doesn't have an account yet, silently skips — the sibling
+ * `backfillInvitationsOnSignup` CF handles delivery when they eventually sign up.
  */
-export const onInvitationAcceptedNotification = functions.firestore
-  .document('notifications/{userID}/items/{notifID}')
+export const onInvitationCreated = functions.firestore
+  .document('invitations/{invitationId}')
   .onCreate(async (snap, context) => {
-    const n = snap.data();
-    if (n?.type !== 'invitation_accepted') return;
-    const folderID = (n.folderID as string) || (n.targetID as string) || '';
-    await sendPushNotification(
-      context.params.userID,
-      n.title || 'Invitation Accepted',
-      n.body || '',
-      { type: 'invitation_accepted', folderID },
-      'INVITATION'
-    );
+    const inv = snap.data();
+    const invitationId = context.params.invitationId;
+    if (inv?.status && inv.status !== 'pending') return;
+
+    if (inv.type === 'athlete_to_coach') {
+      const coachUID = await lookupUserIDByEmail(inv.coachEmail || '');
+      if (!coachUID) return;
+      const athleteName: string = inv.athleteName || 'An athlete';
+      const athleteID: string = inv.athleteID || '';
+      const folderName: string = inv.folderName || `${athleteName}'s folder`;
+      const body = `${athleteName} invited you to view their folder "${folderName}"`;
+      await writeActivityNotification(
+        coachUID,
+        `invreceived_${invitationId}_${coachUID}`,
+        {
+          type: 'invitation_received',
+          title: 'New Folder Invitation',
+          body,
+          senderName: athleteName,
+          senderID: athleteID,
+          targetID: invitationId,
+          targetType: 'invitation',
+        }
+      );
+      await sendPushNotification(
+        coachUID,
+        'New Folder Invitation',
+        body,
+        { type: 'invitation_received', invitationID: invitationId },
+        'INVITATION'
+      );
+    } else if (inv.type === 'coach_to_athlete') {
+      const athleteUID = await lookupUserIDByEmail(inv.athleteEmail || '');
+      if (!athleteUID) return;
+      const coachName: string = inv.coachName || 'A coach';
+      const coachID: string = inv.coachID || '';
+      const body = `${coachName} wants to connect with you on PlayerPath`;
+      await writeActivityNotification(
+        athleteUID,
+        `invreceived_${invitationId}_${athleteUID}`,
+        {
+          type: 'invitation_received',
+          title: 'New Coach Invitation',
+          body,
+          senderName: coachName,
+          senderID: coachID,
+          targetID: invitationId,
+          targetType: 'invitation',
+        }
+      );
+      await sendPushNotification(
+        athleteUID,
+        'New Coach Invitation',
+        body,
+        { type: 'invitation_received', invitationID: invitationId },
+        'INVITATION'
+      );
+    }
+  });
+
+/**
+ * Fires on invitation status transitions to `accepted`. Writes the paired
+ * `invitation_accepted` activity notification + FCM push to the ORIGINAL SENDER
+ * (the athlete for athlete_to_coach, the coach for coach_to_athlete).
+ *
+ * Replaces the earlier meta-trigger (onInvitationAcceptedNotification) which
+ * fired off the client-written notification doc — centralizing here eliminates
+ * the "many writers" coordination problem for invitation_accepted.
+ */
+export const onInvitationAccepted = functions.firestore
+  .document('invitations/{invitationId}')
+  .onUpdate(async (change, context) => {
+    const before = change.before.data();
+    const after = change.after.data();
+    if (before.status === 'accepted' || after.status !== 'accepted') return;
+
+    const invitationId = context.params.invitationId;
+
+    if (after.type === 'athlete_to_coach') {
+      // Coach accepted athlete's folder invite → notify athlete.
+      const athleteID: string = after.athleteID || '';
+      if (!athleteID) return;
+      const folderName: string = after.folderName || `${after.athleteName || 'your'} folder`;
+      // acceptedByCoachID is set by the acceptance Cloud Function; fetch coach name.
+      const coachID: string = after.acceptedByCoachID || '';
+      let coachName = 'Your coach';
+      if (coachID) {
+        try {
+          const coachDoc = await admin.firestore().collection('users').doc(coachID).get();
+          const d = coachDoc.data();
+          coachName = d?.displayName || d?.email || coachName;
+        } catch { /* fall back to default */ }
+      }
+      const folderID: string = after.folderID || '';
+      const body = `${coachName} accepted your invitation to "${folderName}"`;
+      await writeActivityNotification(
+        athleteID,
+        `invaccepted_${invitationId}_${athleteID}`,
+        {
+          type: 'invitation_accepted',
+          title: 'Coach Joined Your Folder',
+          body,
+          senderName: coachName,
+          senderID: coachID,
+          targetID: folderID || invitationId,
+          targetType: folderID ? 'folder' : 'invitation',
+          folderID: folderID || undefined,
+        }
+      );
+      await sendPushNotification(
+        athleteID,
+        'Coach Joined Your Folder',
+        body,
+        { type: 'invitation_accepted', folderID: folderID || '' },
+        'INVITATION'
+      );
+    } else if (after.type === 'coach_to_athlete') {
+      // Athlete accepted coach's invite → notify coach.
+      const coachID: string = after.coachID || '';
+      if (!coachID) return;
+      const athleteName: string = after.athleteName || 'An athlete';
+      const athleteID: string = after.athleteUserID || '';
+      // The acceptance Cloud Function may write folder IDs back onto the invitation
+      // when the athlete has Pro; otherwise it's a bare connection (no folder).
+      const folderID: string = after.gamesFolderID || after.lessonsFolderID || '';
+      const folderName: string = folderID
+        ? (after.gamesFolderID ? `${athleteName}'s Games` : `${athleteName}'s Lessons`)
+        : '';
+      const body = folderName
+        ? `${athleteName} accepted your invitation and shared "${folderName}" with you`
+        : `${athleteName} accepted your invitation and is now connected with you`;
+      await writeActivityNotification(
+        coachID,
+        `invaccepted_${invitationId}_${coachID}`,
+        {
+          type: 'invitation_accepted',
+          title: 'Athlete Accepted Your Invitation',
+          body,
+          senderName: athleteName,
+          senderID: athleteID,
+          targetID: folderID || invitationId,
+          targetType: folderID ? 'folder' : 'invitation',
+          folderID: folderID || undefined,
+        }
+      );
+      await sendPushNotification(
+        coachID,
+        'Athlete Accepted Your Invitation',
+        body,
+        { type: 'invitation_accepted', folderID: folderID || '' },
+        'INVITATION'
+      );
+    }
   });
 
 /**
@@ -834,49 +994,46 @@ export const backfillInvitationsOnSignup = functions.auth.user().onCreate(async 
 
     if (c2aSnap.empty && a2cSnap.empty) return;
 
-    const batch = admin.firestore().batch();
-
+    // Use the same deterministic IDs as onInvitationCreated so if a pending
+    // invitation already has a notification written (e.g., signup raced the
+    // onInvitationCreated trigger), .create() hits ALREADY_EXISTS and we skip.
     for (const doc of c2aSnap.docs) {
       const data = doc.data();
-      const ref = admin.firestore()
-        .collection('notifications')
-        .doc(user.uid)
-        .collection('items')
-        .doc();
-      batch.set(ref, {
-        type: 'invitation_received',
-        title: 'New Coach Invitation',
-        body: `${data.coachName || 'A coach'} wants to connect with you on PlayerPath`,
-        senderName: data.coachName || 'Coach',
-        senderID: data.coachID || '',
-        targetID: doc.id,
-        targetType: 'invitation',
-        isRead: false,
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
+      const coachName = data.coachName || 'A coach';
+      await writeActivityNotification(
+        user.uid,
+        `invreceived_${doc.id}_${user.uid}`,
+        {
+          type: 'invitation_received',
+          title: 'New Coach Invitation',
+          body: `${coachName} wants to connect with you on PlayerPath`,
+          senderName: coachName,
+          senderID: data.coachID || '',
+          targetID: doc.id,
+          targetType: 'invitation',
+        }
+      );
     }
 
     for (const doc of a2cSnap.docs) {
       const data = doc.data();
-      const ref = admin.firestore()
-        .collection('notifications')
-        .doc(user.uid)
-        .collection('items')
-        .doc();
-      batch.set(ref, {
-        type: 'invitation_received',
-        title: 'New Folder Invitation',
-        body: `${data.athleteName || 'An athlete'} invited you to collaborate on PlayerPath`,
-        senderName: data.athleteName || 'Athlete',
-        senderID: data.athleteID || '',
-        targetID: doc.id,
-        targetType: 'invitation',
-        isRead: false,
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
+      const athleteName = data.athleteName || 'An athlete';
+      const folderName = data.folderName || `${athleteName}'s folder`;
+      await writeActivityNotification(
+        user.uid,
+        `invreceived_${doc.id}_${user.uid}`,
+        {
+          type: 'invitation_received',
+          title: 'New Folder Invitation',
+          body: `${athleteName} invited you to view their folder "${folderName}"`,
+          senderName: athleteName,
+          senderID: data.athleteID || '',
+          targetID: doc.id,
+          targetType: 'invitation',
+        }
+      );
     }
 
-    await batch.commit();
     console.log(`✅ Backfilled ${c2aSnap.size} coach→athlete and ${a2cSnap.size} athlete→coach invitation notification(s) for ${email}`);
   } catch (error) {
     console.warn('⚠️ backfillInvitationsOnSignup failed:', error);
@@ -960,21 +1117,8 @@ async function sendAthleteToCoachEmail(
     emailSentAt: admin.firestore.FieldValue.serverTimestamp(),
     emailSent: true
   });
-
-  // Also send FCM push to coach (if they already have an account)
-  const coachSnap = await admin.firestore().collection('users')
-    .where('email', '==', invitation.coachEmail.toLowerCase())
-    .limit(1)
-    .get();
-  if (!coachSnap.empty) {
-    await sendPushNotification(
-      coachSnap.docs[0].id,
-      'New Invitation',
-      `${invitation.athleteName} invited you to collaborate on PlayerPath`,
-      { type: 'invitation_received', invitationID: invitationId },
-      'INVITATION'
-    );
-  }
+  // In-app notification + FCM push are handled by the onInvitationCreated
+  // trigger on the same invitation doc — this function only owns email.
 }
 
 /**
@@ -1007,76 +1151,8 @@ async function sendCoachToAthleteEmail(
     emailSentAt: admin.firestore.FieldValue.serverTimestamp(),
     emailSent: true
   });
-
-  // Write an in-app notification so the athlete sees it immediately via
-  // ActivityNotificationService's real-time Firestore listener.
-  await writeInvitationNotification(
-    invitation.athleteEmail,
-    invitation.coachName,
-    invitation.coachID,
-    invitationId
-  );
-
-  // Also send FCM push to athlete (if they have an account)
-  const athleteSnap = await admin.firestore().collection('users')
-    .where('email', '==', invitation.athleteEmail.toLowerCase())
-    .limit(1)
-    .get();
-  if (!athleteSnap.empty) {
-    await sendPushNotification(
-      athleteSnap.docs[0].id,
-      'New Coach Invitation',
-      `Coach ${invitation.coachName} wants to connect with you on PlayerPath`,
-      { type: 'invitation_received', invitationID: invitationId },
-      'INVITATION'
-    );
-  }
-}
-
-/**
- * Writes an in-app notification to Firestore for an athlete who received
- * a coach invitation. The athlete's ActivityNotificationService listener
- * picks this up in real-time and shows a banner/badge.
- * Gracefully skips if the athlete doesn't have an account yet.
- */
-async function writeInvitationNotification(
-  athleteEmail: string,
-  coachName: string,
-  coachID: string,
-  invitationId: string
-) {
-  try {
-    const usersSnap = await admin.firestore().collection('users')
-      .where('email', '==', athleteEmail.toLowerCase())
-      .limit(1)
-      .get();
-
-    if (usersSnap.empty) {
-      console.log(`ℹ️ No user found for ${athleteEmail} — skipping in-app notification`);
-      return;
-    }
-
-    const athleteUserID = usersSnap.docs[0].id;
-
-    await admin.firestore()
-      .collection('notifications').doc(athleteUserID)
-      .collection('items').add({
-        type: 'invitation_received',
-        title: 'New Coach Invitation',
-        body: `${coachName} wants to connect with you on PlayerPath`,
-        senderName: coachName,
-        senderID: coachID,
-        targetID: invitationId,
-        targetType: 'invitation',
-        isRead: false,
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
-
-    console.log(`✅ In-app notification written for ${athleteEmail}`);
-  } catch (error) {
-    // Best-effort — don't fail the invitation flow
-    console.warn('⚠️ Failed to write in-app notification:', error);
-  }
+  // In-app notification + FCM push are handled by the onInvitationCreated
+  // trigger on the same invitation doc — this function only owns email.
 }
 
 /**
@@ -1608,6 +1684,46 @@ export const sendCoachAccessRevokedEmail = functions.firestore
         emailError: error instanceof Error ? error.message : 'Unknown error',
         emailSent: false
       });
+    }
+
+    // In-app activity notification + FCM.
+    // Athlete-initiated revocation (no `reason` field or reason !== 'downgrade')
+    // → notify the coach. Coach-initiated downgrades flow through a different
+    // notification (athlete-side "Coach Access Ended") which the client still
+    // writes today; that path will migrate in a later chunk.
+    if (revocation.reason !== 'downgrade') {
+      const folderID = revocation.folderID as string;
+      const coachID = revocation.coachID as string;
+      const athleteID = (revocation.athleteID as string) || '';
+      const athleteName = (revocation.athleteName as string) || 'An athlete';
+      const folderName = (revocation.folderName as string) || 'a folder';
+      if (folderID && coachID) {
+        const body = `${athleteName} has removed your access to "${folderName}"`;
+        // Shares the `revoked_{folderID}_{coachID}` key with onSharedFolderDeleted
+        // and the Swift client's postAccessRevokedNotification so a delete-cascade
+        // revocation produces exactly one notification doc.
+        await writeActivityNotification(
+          coachID,
+          `revoked_${folderID}_${coachID}`,
+          {
+            type: 'access_revoked',
+            title: 'Folder Access Removed',
+            body,
+            senderName: athleteName,
+            senderID: athleteID,
+            targetID: folderID,
+            targetType: 'folder',
+            folderID,
+          }
+        );
+        await sendPushNotification(
+          coachID,
+          'Folder Access Removed',
+          body,
+          { type: 'access_revoked', folderID },
+          'ACCESS_REVOKED'
+        );
+      }
     }
   });
 
