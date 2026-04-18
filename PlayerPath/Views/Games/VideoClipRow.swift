@@ -112,12 +112,10 @@ struct VideoClipRow: View {
         }
         .padding(.vertical, 10)
         .contextMenu {
-            if AppFeatureFlags.isCoachEnabled {
-                Button {
-                    showingShareToFolder = true
-                } label: {
-                    Label("Share to Coach Folder", systemImage: hasCoachingAccess ? "folder.badge.person.crop" : "lock.fill")
-                }
+            Button {
+                showingShareToFolder = true
+            } label: {
+                Label("Share to Coach Folder", systemImage: hasCoachingAccess ? "folder.badge.person.crop" : "lock.fill")
             }
 
             Button {

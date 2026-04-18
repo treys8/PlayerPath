@@ -195,9 +195,7 @@ final class OnboardingManager: ObservableObject {
     // MARK: - Coach Announcement
 
     var shouldShowCoachAnnouncement: Bool {
-        AppFeatureFlags.isCoachEnabled
-        && hasCompletedInitialOnboarding
-        && !hasSeenCoachAnnouncement
+        hasCompletedInitialOnboarding && !hasSeenCoachAnnouncement
     }
 
     // MARK: - Progress Tracking

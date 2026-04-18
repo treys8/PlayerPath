@@ -487,47 +487,45 @@ struct MainTabView: View {
                         Label("Seasons", systemImage: "calendar")
                             .foregroundColor(.primary)
                     }
-                    if AppFeatureFlags.isCoachEnabled {
-                        NavigationLink(value: MoreDestination.coaches) {
-                            Label {
-                                HStack {
-                                    Text("Coaches")
-                                    if authManager.currentTier != .pro {
-                                        Text("PRO")
-                                            .font(.caption2)
-                                            .fontWeight(.bold)
-                                            .foregroundColor(.orange)
-                                            .padding(.horizontal, 5)
-                                            .padding(.vertical, 2)
-                                            .background(Capsule().fill(.orange.opacity(0.12)))
-                                    }
+                    NavigationLink(value: MoreDestination.coaches) {
+                        Label {
+                            HStack {
+                                Text("Coaches")
+                                if authManager.currentTier != .pro {
+                                    Text("PRO")
+                                        .font(.caption2)
+                                        .fontWeight(.bold)
+                                        .foregroundColor(.orange)
+                                        .padding(.horizontal, 5)
+                                        .padding(.vertical, 2)
+                                        .background(Capsule().fill(.orange.opacity(0.12)))
                                 }
-                            } icon: {
-                                Image(systemName: "person.3.fill")
                             }
-                            .foregroundColor(.primary)
+                        } icon: {
+                            Image(systemName: "person.3.fill")
                         }
-                        NavigationLink(value: MoreDestination.sharedFolders) {
-                            Label {
-                                HStack {
-                                    Text("Shared Folders")
-                                    if authManager.currentTier != .pro {
-                                        Text("PRO")
-                                            .font(.caption2)
-                                            .fontWeight(.bold)
-                                            .foregroundColor(.orange)
-                                            .padding(.horizontal, 5)
-                                            .padding(.vertical, 2)
-                                            .background(Capsule().fill(.orange.opacity(0.12)))
-                                    }
-                                    Spacer()
-                                    SharedFoldersBadge()
+                        .foregroundColor(.primary)
+                    }
+                    NavigationLink(value: MoreDestination.sharedFolders) {
+                        Label {
+                            HStack {
+                                Text("Shared Folders")
+                                if authManager.currentTier != .pro {
+                                    Text("PRO")
+                                        .font(.caption2)
+                                        .fontWeight(.bold)
+                                        .foregroundColor(.orange)
+                                        .padding(.horizontal, 5)
+                                        .padding(.vertical, 2)
+                                        .background(Capsule().fill(.orange.opacity(0.12)))
                                 }
-                            } icon: {
-                                Image(systemName: "folder.badge.person.crop")
+                                Spacer()
+                                SharedFoldersBadge()
                             }
-                            .foregroundColor(.primary)
+                        } icon: {
+                            Image(systemName: "folder.badge.person.crop")
                         }
+                        .foregroundColor(.primary)
                     }
                 }
 

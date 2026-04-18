@@ -340,14 +340,12 @@ struct VideoClipCard: View {
             }
         }
 
-        if AppFeatureFlags.isCoachEnabled {
-            Divider()
+        Divider()
 
-            Button {
-                showingShareToFolder = true
-            } label: {
-                Label("Share to Coach Folder", systemImage: hasCoachingAccess ? "folder.badge.person.crop" : "lock.fill")
-            }
+        Button {
+            showingShareToFolder = true
+        } label: {
+            Label("Share to Coach Folder", systemImage: hasCoachingAccess ? "folder.badge.person.crop" : "lock.fill")
         }
 
         Divider()

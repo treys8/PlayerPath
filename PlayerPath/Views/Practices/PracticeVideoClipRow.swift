@@ -113,12 +113,10 @@ struct PracticeVideoClipRow: View {
             } label: {
                 Label(clip.note?.isEmpty == false ? "Edit Note" : "Add Note", systemImage: "note.text")
             }
-            if AppFeatureFlags.isCoachEnabled {
-                Button {
-                    showingShareToFolder = true
-                } label: {
-                    Label("Share to Coach Folder", systemImage: hasCoachingAccess ? "folder.badge.person.crop" : "lock.fill")
-                }
+            Button {
+                showingShareToFolder = true
+            } label: {
+                Label("Share to Coach Folder", systemImage: hasCoachingAccess ? "folder.badge.person.crop" : "lock.fill")
             }
             Divider()
             Button {

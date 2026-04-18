@@ -119,13 +119,11 @@ struct VideoPlayerView: View {
             }
         }
 
-        if AppFeatureFlags.isCoachEnabled {
-            Divider()
-            Button {
-                showingShareToFolder = true
-            } label: {
-                Label("Share to Coach Folder", systemImage: authManager.hasCoachingAccess ? "folder.badge.person.crop" : "lock.fill")
-            }
+        Divider()
+        Button {
+            showingShareToFolder = true
+        } label: {
+            Label("Share to Coach Folder", systemImage: authManager.hasCoachingAccess ? "folder.badge.person.crop" : "lock.fill")
         }
 
         Divider()

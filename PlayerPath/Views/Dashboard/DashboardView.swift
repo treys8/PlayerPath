@@ -206,10 +206,8 @@ struct DashboardView: View {
     private func dashboardContent(viewModel: GamesDashboardViewModel) -> some View {
         ScrollView {
             LazyVStack(spacing: 32) {
-                if AppFeatureFlags.isCoachEnabled {
-                    AthleteInvitationsBanner()
-                        .padding(.horizontal, dashboardHorizontalPadding)
-                }
+                AthleteInvitationsBanner()
+                    .padding(.horizontal, dashboardHorizontalPadding)
 
                 if seasonRecommendation.message != nil {
                     SeasonRecommendationBanner(athlete: athlete, recommendation: seasonRecommendation)
@@ -374,24 +372,22 @@ struct DashboardView: View {
                         NotificationCenter.default.post(name: .showSubscriptionPaywall, object: nil)
                     }
                 }
-                if AppFeatureFlags.isCoachEnabled {
-                    DashboardPremiumFeatureCard(
-                        icon: "person.3.fill",
-                        title: "Coaches",
-                        subtitle: coachCardSubtitle,
-                        color: .brandGold,
-                        isPremium: authManager.currentTier >= .pro,
-                        notificationCount: activityNotifService.unreadFolderVideoCount
-                    ) {
-                        if authManager.currentTier >= .pro {
-                            postSwitchTab(.home)
-                            Task { @MainActor in
-                                post(.presentCoachVideos(athlete))
-                            }
-                        } else {
-                            Haptics.warning()
-                            NotificationCenter.default.post(name: .showSubscriptionPaywall, object: nil)
+                DashboardPremiumFeatureCard(
+                    icon: "person.3.fill",
+                    title: "Coaches",
+                    subtitle: coachCardSubtitle,
+                    color: .brandGold,
+                    isPremium: authManager.currentTier >= .pro,
+                    notificationCount: activityNotifService.unreadFolderVideoCount
+                ) {
+                    if authManager.currentTier >= .pro {
+                        postSwitchTab(.home)
+                        Task { @MainActor in
+                            post(.presentCoachVideos(athlete))
                         }
+                    } else {
+                        Haptics.warning()
+                        NotificationCenter.default.post(name: .showSubscriptionPaywall, object: nil)
                     }
                 }
             }

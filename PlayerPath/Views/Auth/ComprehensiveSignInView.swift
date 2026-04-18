@@ -178,14 +178,8 @@ struct ComprehensiveSignInView: View {
                 RoleSelectionButton(role: .athlete, isSelected: selectedRole == .athlete, icon: "figure.baseball", title: "Athlete", description: "Track my progress") {
                     Haptics.light(); selectedRole = .athlete
                 }
-                if AppFeatureFlags.isCoachEnabled {
-                    RoleSelectionButton(role: .coach, isSelected: selectedRole == .coach, icon: "person.2.fill", title: "Coach", description: "Work with athletes") {
-                        Haptics.light(); selectedRole = .coach
-                    }
-                } else {
-                    RoleSelectionButton(role: .coach, isSelected: false, icon: "person.2.fill", title: "Coach", description: "Coming Soon") {}
-                        .opacity(0.5)
-                        .allowsHitTesting(false)
+                RoleSelectionButton(role: .coach, isSelected: selectedRole == .coach, icon: "person.2.fill", title: "Coach", description: "Work with athletes") {
+                    Haptics.light(); selectedRole = .coach
                 }
             }
         }

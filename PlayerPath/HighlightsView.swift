@@ -247,12 +247,10 @@ struct HighlightsView: View {
                         } label: {
                             Label("Share", systemImage: "square.and.arrow.up")
                         }
-                        if AppFeatureFlags.isCoachEnabled {
-                            Button {
-                                clipToShareToFolder = clip
-                            } label: {
-                                Label("Share to Coach Folder", systemImage: hasCoachingAccess ? "folder.badge.person.crop" : "lock.fill")
-                            }
+                        Button {
+                            clipToShareToFolder = clip
+                        } label: {
+                            Label("Share to Coach Folder", systemImage: hasCoachingAccess ? "folder.badge.person.crop" : "lock.fill")
                         }
                         Button {
                             clipToMove = clip

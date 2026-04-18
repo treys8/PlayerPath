@@ -306,48 +306,46 @@ struct ProfileView: View {
             )
         ))
 
-        if AppFeatureFlags.isCoachEnabled {
-            // Resolve a real Athlete once — never synthesise a throwaway record, as the
-            // NavigationLink destination is evaluated eagerly and would churn SwiftData.
-            let resolvedAthlete = selectedAthlete ?? user.athletes?.first
-            if authManager.hasCoachingAccess, let folderAthlete = resolvedAthlete {
-                items.append(SearchResult(
-                    title: "Shared Folders",
-                    icon: "folder.badge.person.crop",
-                    keywords: ["shared", "folders", "coach", "sharing"],
-                    link: AnyView(
-                        NavigationLink {
-                            AthleteFoldersListView(userID: authManager.userID, athlete: folderAthlete)
-                        } label: {
+        // Resolve a real Athlete once — never synthesise a throwaway record, as the
+        // NavigationLink destination is evaluated eagerly and would churn SwiftData.
+        let resolvedAthlete = selectedAthlete ?? user.athletes?.first
+        if authManager.hasCoachingAccess, let folderAthlete = resolvedAthlete {
+            items.append(SearchResult(
+                title: "Shared Folders",
+                icon: "folder.badge.person.crop",
+                keywords: ["shared", "folders", "coach", "sharing"],
+                link: AnyView(
+                    NavigationLink {
+                        AthleteFoldersListView(userID: authManager.userID, athlete: folderAthlete)
+                    } label: {
+                        Label("Shared Folders", systemImage: "folder.badge.person.crop")
+                    }
+                )
+            ))
+        } else if !authManager.hasCoachingAccess {
+            items.append(SearchResult(
+                title: "Shared Folders",
+                icon: "folder.badge.person.crop",
+                keywords: ["shared", "folders", "coach", "sharing"],
+                link: AnyView(
+                    Button {
+                        showingPaywall = true
+                    } label: {
+                        HStack {
                             Label("Shared Folders", systemImage: "folder.badge.person.crop")
-                        }
-                    )
-                ))
-            } else if !authManager.hasCoachingAccess {
-                items.append(SearchResult(
-                    title: "Shared Folders",
-                    icon: "folder.badge.person.crop",
-                    keywords: ["shared", "folders", "coach", "sharing"],
-                    link: AnyView(
-                        Button {
-                            showingPaywall = true
-                        } label: {
-                            HStack {
-                                Label("Shared Folders", systemImage: "folder.badge.person.crop")
-                                Spacer()
-                                HStack(spacing: 4) {
-                                    Image(systemName: "crown.fill")
-                                        .font(.caption)
-                                    Text("Pro")
-                                        .font(.caption)
-                                }
-                                .foregroundColor(.brandNavy)
+                            Spacer()
+                            HStack(spacing: 4) {
+                                Image(systemName: "crown.fill")
+                                    .font(.caption)
+                                Text("Pro")
+                                    .font(.caption)
                             }
+                            .foregroundColor(.brandNavy)
                         }
-                        .foregroundColor(.primary)
-                    )
-                ))
-            }
+                    }
+                    .foregroundColor(.primary)
+                )
+            ))
         }
 
         items.append(SearchResult(
@@ -485,9 +483,7 @@ struct ProfileView: View {
                     Image(systemName: "crown.fill")
                         .foregroundColor(.yellow)
                         .font(.caption)
-                    Text(AppFeatureFlags.isCoachEnabled
-                        ? "Upgrade to Pro for up to 5 athletes"
-                        : "Upgrade to Plus for up to \(SubscriptionTier.plus.athleteLimit) athletes")
+                    Text("Upgrade to Pro for up to 5 athletes")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
@@ -503,33 +499,31 @@ struct ProfileView: View {
 
     private var settingsSection: some View {
         Section("Settings") {
-            // Coach Sharing Feature (requires Pro tier + coach features enabled)
-            if AppFeatureFlags.isCoachEnabled {
-                if authManager.hasCoachingAccess, let folderAthlete = selectedAthlete ?? user.athletes?.first {
-                    NavigationLink {
-                        AthleteFoldersListView(userID: authManager.userID, athlete: folderAthlete)
-                    } label: {
-                        Label("Shared Folders", systemImage: "folder.badge.person.crop")
-                    }
-                } else if !authManager.hasCoachingAccess {
-                    Button {
-                        Haptics.warning()
-                        showingPaywall = true
-                    } label: {
-                        HStack {
-                            Label("Shared Folders", systemImage: "folder.badge.person.crop")
-                            Spacer()
-                            HStack(spacing: 4) {
-                                Image(systemName: "crown.fill")
-                                    .font(.caption)
-                                Text("Pro")
-                                    .font(.caption)
-                            }
-                            .foregroundColor(.brandNavy)
-                        }
-                    }
-                    .foregroundColor(.primary)
+            // Coach Sharing Feature (requires Pro tier)
+            if authManager.hasCoachingAccess, let folderAthlete = selectedAthlete ?? user.athletes?.first {
+                NavigationLink {
+                    AthleteFoldersListView(userID: authManager.userID, athlete: folderAthlete)
+                } label: {
+                    Label("Shared Folders", systemImage: "folder.badge.person.crop")
                 }
+            } else if !authManager.hasCoachingAccess {
+                Button {
+                    Haptics.warning()
+                    showingPaywall = true
+                } label: {
+                    HStack {
+                        Label("Shared Folders", systemImage: "folder.badge.person.crop")
+                        Spacer()
+                        HStack(spacing: 4) {
+                            Image(systemName: "crown.fill")
+                                .font(.caption)
+                            Text("Pro")
+                                .font(.caption)
+                        }
+                        .foregroundColor(.brandNavy)
+                    }
+                }
+                .foregroundColor(.primary)
             }
 
             NavigationLink {
