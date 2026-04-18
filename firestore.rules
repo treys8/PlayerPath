@@ -427,10 +427,13 @@ service cloud.firestore {
                     && request.resource.data.keys().hasAll(['senderID', 'type', 'title', 'body', 'createdAt', 'isRead'])
                     && request.resource.data.isRead == false
                     && (
-                      // Coach writes an upload_failed record to their own feed.
+                      // Coach's upload queue writes an upload_failed record to
+                      // their own feed after retry exhaustion. System-authored
+                      // from the device — senderID is blank (by convention for
+                      // PlayerPath-authored journal entries).
                       (request.resource.data.type == 'upload_failed'
                         && userID == request.auth.uid
-                        && request.resource.data.senderID == request.auth.uid)
+                        && request.resource.data.senderID == '')
                       ||
                       // Coach writes a clip-not-uploaded (access_revoked) record
                       // to their own feed when a folder upload hits a permission
