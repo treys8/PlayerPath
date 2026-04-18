@@ -212,11 +212,16 @@ struct AthleteInvitationsSheet: View {
             log.warning("DECLINE blocked: already processing \(processingInvitationID ?? "nil")")
             return
         }
+        guard let currentUID = authManager.userID, !currentUID.isEmpty else {
+            errorMessage = "Not signed in. Please sign in and try again."
+            Haptics.error()
+            return
+        }
         log.debug("DECLINE starting for invitation \(invitation.id ?? "nil") from coach \(invitation.coachName, privacy: .private)")
         processingInvitationID = invitation.id
 
         do {
-            try await AthleteInvitationManager.shared.declineInvitation(invitation)
+            try await AthleteInvitationManager.shared.declineInvitation(invitation, userID: currentUID)
             Haptics.light()
         } catch {
             errorMessage = AthleteInvitationManager.errorMessage(for: error, action: "decline")

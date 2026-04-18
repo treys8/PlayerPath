@@ -21,7 +21,6 @@ class AthleteInvitationManager {
 
     var pendingInvitations: [CoachToAthleteInvitation] = []
     var pendingCount: Int { pendingInvitations.count }
-    var listenerError: String?
 
     private var listener: ListenerRegistration?
     private var listeningEmail: String?
@@ -48,6 +47,9 @@ class AthleteInvitationManager {
         listener?.remove()
         listener = nil
         listeningEmail = nil
+        // Clear cached invitations so a subsequent role switch or login on the
+        // same device doesn't briefly render the previous session's data.
+        pendingInvitations = []
     }
 
     // MARK: - Result Type
@@ -193,18 +195,18 @@ class AthleteInvitationManager {
 
     // MARK: - Decline
 
-    func declineInvitation(_ invitation: CoachToAthleteInvitation) async throws {
-        guard let invitationID = invitation.id else { return }
+    func declineInvitation(_ invitation: CoachToAthleteInvitation, userID: String) async throws {
+        guard let invitationID = invitation.id else {
+            throw NSError(domain: "PlayerPath", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid invitation"])
+        }
         try await FirestoreManager.shared.declineCoachToAthleteInvitation(invitationID: invitationID)
 
         pendingInvitations.removeAll { $0.id == invitationID }
 
-        if let uid = Auth.auth().currentUser?.uid {
-            await ActivityNotificationService.shared.markInvitationRead(
-                invitationID: invitationID,
-                forUserID: uid
-            )
-        }
+        await ActivityNotificationService.shared.markInvitationRead(
+            invitationID: invitationID,
+            forUserID: userID
+        )
 
         invitationLog.info("Declined invitation \(invitationID) from coach \(invitation.coachName)")
     }

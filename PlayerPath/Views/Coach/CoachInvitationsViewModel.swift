@@ -7,6 +7,7 @@
 //
 
 import Foundation
+import FirebaseAuth
 
 @MainActor
 @Observable
@@ -97,6 +98,12 @@ class CoachInvitationsViewModel {
         do {
             try await SharedFolderManager.shared.acceptInvitation(invitation, authManager: authManager)
 
+            // Parity with AthleteInvitationManager: clear the coach's own
+            // "invitation_received" activity notification so the bell/badge
+            // updates immediately without waiting for the coach to open the
+            // notifications list.
+            await markInvitationNotificationRead(invitation)
+
             if let email = lastCoachEmail, let coachID = lastCoachID {
                 await loadInvitations(forCoachEmail: email, coachID: coachID)
             }
@@ -115,6 +122,8 @@ class CoachInvitationsViewModel {
         do {
             try await SharedFolderManager.shared.declineInvitation(invitation)
 
+            await markInvitationNotificationRead(invitation)
+
             if let email = lastCoachEmail, let coachID = lastCoachID {
                 await loadInvitations(forCoachEmail: email, coachID: coachID)
             }
@@ -124,6 +133,15 @@ class CoachInvitationsViewModel {
             errorMessage = invitationErrorMessage(error, action: "decline")
             ErrorHandlerService.shared.handle(error, context: "CoachInvitationsViewModel.declineInvitation", showAlert: false)
         }
+    }
+
+    private func markInvitationNotificationRead(_ invitation: CoachInvitation) async {
+        guard let invitationID = invitation.id,
+              let uid = Auth.auth().currentUser?.uid else { return }
+        await ActivityNotificationService.shared.markInvitationRead(
+            invitationID: invitationID,
+            forUserID: uid
+        )
     }
 
     func cancelInvitation(_ invitation: CoachToAthleteInvitation) async {

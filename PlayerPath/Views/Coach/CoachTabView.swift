@@ -56,8 +56,12 @@ struct CoachTabView: View {
                     if newTab == .dashboard {
                         await ActivityNotificationService.shared.markDashboardNotificationsRead(forUserID: coachID)
                     } else if newTab == .athletes {
+                        // Only mark invitation-type notifications read — switching to
+                        // the Athletes tab implies the coach has seen any pending
+                        // invitations listed there. Per-folder unread badges are
+                        // preserved and cleared individually when the coach opens
+                        // each folder (see CoachFolderDetailView).
                         await ActivityNotificationService.shared.markInvitationNotificationsRead(forUserID: coachID)
-                        await ActivityNotificationService.shared.markFolderNotificationsRead(forUserID: coachID)
                     }
                 }
             }

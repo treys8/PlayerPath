@@ -2,8 +2,12 @@
 //  CoachInvitationManager.swift
 //  PlayerPath
 //
-//  Real-time listener for pending coach invitations.
+//  Real-time listener for pending athlete-to-coach invitations.
 //  Singleton used by CoachDashboardView and CoachInvitationsView.
+//
+//  Accept/decline are NOT handled here — callers go through
+//  CoachInvitationsViewModel → SharedFolderManager directly, which
+//  also handles marking the paired activity notification as read.
 //
 
 import Foundation
@@ -17,9 +21,8 @@ private let invitationLog = Logger(subsystem: "com.playerpath.app", category: "C
 class CoachInvitationManager {
     static let shared = CoachInvitationManager()
 
-    var pendingInvitationsCount: Int = 0
     var pendingInvitations: [CoachInvitation] = []
-    var listenerError: String?
+    var pendingInvitationsCount: Int { pendingInvitations.count }
 
     private var listener: ListenerRegistration?
     private var listeningEmail: String?
@@ -37,7 +40,6 @@ class CoachInvitationManager {
         listener = FirestoreManager.shared.listenPendingAthleteInvitations(forCoachEmail: normalized) { [weak self] invitations in
             guard let self else { return }
             self.pendingInvitations = invitations
-            self.pendingInvitationsCount = invitations.count
         }
     }
 
@@ -45,36 +47,18 @@ class CoachInvitationManager {
         listener?.remove()
         listener = nil
         listeningEmail = nil
+        // Clear cached invitations so a subsequent role switch or login on the
+        // same device doesn't briefly render the previous session's data.
+        pendingInvitations = []
     }
 
     func checkPendingInvitations(forCoachEmail email: String) async {
         do {
-            let invitations = try await FirestoreManager.shared.fetchPendingInvitations(forEmail: email)
-            pendingInvitations = invitations
-            pendingInvitationsCount = invitations.count
+            pendingInvitations = try await FirestoreManager.shared.fetchPendingInvitations(forEmail: email)
         } catch {
             invitationLog.error("Failed to check pending invitations: \(error.localizedDescription)")
-            pendingInvitationsCount = 0
-            pendingInvitations = []
+            // Keep existing cached data on transient failures; the real-time
+            // listener will converge when the network recovers.
         }
-    }
-
-    func acceptInvitation(_ invitation: CoachInvitation, authManager: ComprehensiveAuthManager? = nil) async throws {
-        try await SharedFolderManager.shared.acceptInvitation(invitation, authManager: authManager)
-        // Optimistic removal — listener will converge when Firestore reflects status change
-        if let id = invitation.id {
-            pendingInvitations.removeAll { $0.id == id }
-            pendingInvitationsCount = pendingInvitations.count
-        }
-        Haptics.success()
-    }
-
-    func declineInvitation(_ invitation: CoachInvitation) async throws {
-        try await SharedFolderManager.shared.declineInvitation(invitation)
-        if let id = invitation.id {
-            pendingInvitations.removeAll { $0.id == id }
-            pendingInvitationsCount = pendingInvitations.count
-        }
-        Haptics.light()
     }
 }
