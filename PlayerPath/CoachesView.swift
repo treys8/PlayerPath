@@ -129,7 +129,10 @@ struct CoachesView: View {
             }
         }
         .onAppear { AnalyticsService.shared.trackScreenView(screenName: "Coaches", screenClass: "CoachesView") }
-        .task { await refreshInvitationStatuses() }
+        .task {
+            await refreshInvitationStatuses()
+            await reconcileSharedFolderIDs()
+        }
         .navigationTitle("Coaches")
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
@@ -287,6 +290,36 @@ struct CoachesView: View {
         }
     }
 
+    /// Reconciles each coach's cached `sharedFolderIDs` against the authoritative
+    /// `SharedFolder.permissions` map in Firestore. Fixes drift when folders were
+    /// shared outside the invitation-acceptance path, or when the acceptance CF
+    /// returned partial folder IDs.
+    private func reconcileSharedFolderIDs() async {
+        guard let athleteUID = authManager.userID else { return }
+
+        let folderManager = SharedFolderManager.shared
+        if folderManager.athleteFolders.isEmpty {
+            try? await folderManager.loadAthleteFolders(athleteID: athleteUID)
+        }
+
+        var didChange = false
+        for coach in coaches {
+            guard let coachID = coach.firebaseCoachID, !coachID.isEmpty else { continue }
+            let derived = folderManager.athleteFolders
+                .filter { $0.permissions[coachID] != nil }
+                .compactMap { $0.id }
+            if Set(derived) != Set(coach.sharedFolderIDs) {
+                coach.sharedFolderIDs = derived
+                coach.needsSync = true
+                didChange = true
+            }
+        }
+
+        if didChange {
+            ErrorHandlerService.shared.saveContext(modelContext, caller: "CoachesView.reconcileSharedFolderIDs")
+        }
+    }
+
     /// Checks Firestore for updated invitation statuses and updates local Coach models.
     /// Called when CoachesView appears so the athlete sees when a coach accepts/declines.
     private func refreshInvitationStatuses() async {
@@ -309,9 +342,14 @@ struct CoachesView: View {
 
                     switch invitation.status {
                     case .accepted:
+                        guard let coachID = invitation.acceptedByCoachID, !coachID.isEmpty,
+                              let folderID = invitation.folderID, !folderID.isEmpty else {
+                            // Server marked accepted without identity/folder — skip and retry next refresh.
+                            break
+                        }
                         coach.markInvitationAccepted(
-                            firebaseCoachID: invitation.acceptedByCoachID ?? "",
-                            folderID: invitation.folderID ?? ""
+                            firebaseCoachID: coachID,
+                            folderID: folderID
                         )
                     case .declined:
                         coach.lastInvitationStatus = "declined"

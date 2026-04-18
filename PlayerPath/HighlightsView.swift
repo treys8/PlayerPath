@@ -23,8 +23,6 @@ struct HighlightsView: View {
     @State private var editMode: EditMode = .inactive
     @State private var showingAutoHighlightSettings = false
 
-    @State private var clipToShareToFolder: VideoClip?
-    @State private var clipToMove: VideoClip?
     @State private var viewModel = HighlightsViewModel()
     @State private var selection = Set<VideoClip.ID>()
     @AppStorage("hasCompletedHighlightMigration") private var hasCompletedMigration = false
@@ -56,12 +54,6 @@ struct HighlightsView: View {
             if let clip: VideoClip = selectedClip {
                 VideoPlayerView(clip: clip)
             }
-        }
-        .sheet(item: $clipToShareToFolder) { clip in
-            ShareToCoachFolderView(clip: clip)
-        }
-        .sheet(item: $clipToMove) { clip in
-            MoveClipSheet(clip: clip)
         }
         .alert("Delete Highlight", isPresented: $showingDeleteAlert) {
             Button("Cancel", role: .cancel) {
@@ -222,10 +214,12 @@ struct HighlightsView: View {
                 spacing: 16
             ) {
                 ForEach(viewModel.highlights) { clip in
-                    HighlightCard(
-                        clip: clip,
-                        editMode: editMode,
-                        onTap: {
+                    VideoClipCard(
+                        video: clip,
+                        isSelectionMode: editMode == .active,
+                        isSelected: selection.contains(clip.id),
+                        hasCoachingAccess: hasCoachingAccess,
+                        onPlay: {
                             if editMode == .inactive {
                                 selectedClip = clip
                                 showingVideoPlayer = true
@@ -233,57 +227,12 @@ struct HighlightsView: View {
                                 toggleSelection(clip)
                             }
                         },
-                        hasCoachingAccess: hasCoachingAccess
-                    )
-                    .contextMenu {
-                        Button {
-                            selectedClip = clip
-                            showingVideoPlayer = true
-                        } label: {
-                            Label("Play", systemImage: "play.fill")
-                        }
-                        Button {
-                            shareClip(clip)
-                        } label: {
-                            Label("Share", systemImage: "square.and.arrow.up")
-                        }
-                        Button {
-                            clipToShareToFolder = clip
-                        } label: {
-                            Label("Share to Coach Folder", systemImage: hasCoachingAccess ? "folder.badge.person.crop" : "lock.fill")
-                        }
-                        Button {
-                            clipToMove = clip
-                        } label: {
-                            Label("Move to Athlete", systemImage: "arrow.right.arrow.left")
-                        }
-                        Divider()
-                        Button {
-                            removeClipFromHighlights(clip)
-                        } label: {
-                            Label("Remove from Highlights", systemImage: "star.slash")
-                        }
-                        Divider()
-                        Button(role: .destructive) {
+                        onDelete: {
                             clipToDelete = clip
                             showingDeleteAlert = true
-                        } label: {
-                            Label("Delete", systemImage: "trash")
-                        }
-                    }
-                    .overlay(alignment: .topLeading) {
-                        if editMode == .active {
-                            Button {
-                                toggleSelection(clip)
-                            } label: {
-                                Image(systemName: selection.contains(clip.id) ? "checkmark.circle.fill" : "circle")
-                                    .font(.title2)
-                                    .foregroundColor(selection.contains(clip.id) ? .brandNavy : .white)
-                                    .shadow(color: .black.opacity(0.3), radius: 4)
-                            }
-                            .padding(8)
-                        }
-                    }
+                        },
+                        onToggleSelection: { toggleSelection(clip) }
+                    )
                     .onAppear { viewModel.onItemAppear(clip) }
                 }
             }
@@ -510,31 +459,6 @@ struct HighlightsView: View {
 
         selection.removeAll()
         withAnimation { editMode = .inactive }
-    }
-
-    private func removeClipFromHighlights(_ clip: VideoClip) {
-        clip.isHighlight = false
-        clip.needsSync = true
-        do {
-            try modelContext.save()
-            Haptics.success()
-        } catch {
-            ErrorHandlerService.shared.handle(error, context: "HighlightsView.removeClipFromHighlights", showAlert: false)
-        }
-    }
-
-    private func shareClip(_ clip: VideoClip) {
-        guard FileManager.default.fileExists(atPath: clip.resolvedFilePath) else {
-            ErrorHandlerService.shared.reportWarning(
-                "Video file is missing.",
-                context: "HighlightsView.shareClip",
-                message: $errorAlertMessage,
-                isPresented: $errorAlertShown
-            )
-            return
-        }
-        presentShareSheet(items: [clip.resolvedFileURL])
-        Haptics.light()
     }
 
     private func presentShareSheet(items: [Any]) {

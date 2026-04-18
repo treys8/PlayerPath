@@ -57,6 +57,8 @@ final class Coach {
     var connectionStatus: String {
         if hasFirebaseAccount && hasFolderAccess {
             return "Connected"
+        } else if hasFirebaseAccount {
+            return "No Folders Shared"
         } else if isInvitationExpired {
             return "Invitation Expired"
         } else if invitationSentAt != nil && lastInvitationStatus == "pending" {
@@ -72,6 +74,8 @@ final class Coach {
     var connectionStatusColor: String {
         if hasFirebaseAccount && hasFolderAccess {
             return "green"
+        } else if hasFirebaseAccount {
+            return "orange"
         } else if isInvitationExpired {
             return "red"
         } else if invitationSentAt != nil && lastInvitationStatus == "pending" {
