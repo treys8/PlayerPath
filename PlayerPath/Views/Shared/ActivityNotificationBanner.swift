@@ -30,14 +30,14 @@ struct ActivityNotificationBanner: View {
                         .clipShape(Circle())
 
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(notification.title)
+                        Text(notification.displayTitle)
                             .font(.subheadline)
                             .fontWeight(.semibold)
                             .foregroundColor(.primary)
                             .lineLimit(1)
                             .truncationMode(.tail)
 
-                        Text(notification.body)
+                        Text(notification.displayBody)
                             .font(.caption)
                             .foregroundColor(.secondary)
                             .lineLimit(2)

@@ -141,6 +141,11 @@ struct CoachTabView: View {
     private var dashboardTab: some View {
         NavigationStack(path: $coordinator.dashboardPath) {
             CoachDashboardView()
+                .toolbar {
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        NotificationBellToolbarButton()
+                    }
+                }
         }
         .tabItem {
             Label(CoachTab.dashboard.title, systemImage: CoachTab.dashboard.icon)

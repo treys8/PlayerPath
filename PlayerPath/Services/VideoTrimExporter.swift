@@ -79,10 +79,12 @@ enum VideoTrimExporter {
             }
 
             if let transform, let naturalSize, let assetDuration {
-                // Only apply a video composition when the track has a rotation transform.
-                // Identity-transform videos export correctly without one.
-                let needsRotation = transform.b != 0 || transform.c != 0
-                if needsRotation {
+                // Apply a video composition whenever the track has a non-identity
+                // preferredTransform. The prior check (b != 0 || c != 0) only caught
+                // pure rotation and silently dropped mirror/flip/scale transforms
+                // (e.g. front-camera mirrored captures and some Photos imports).
+                let needsComposition = !transform.isIdentity
+                if needsComposition {
                     let size = naturalSize.applying(transform)
                     let renderSize = CGSize(width: abs(size.width), height: abs(size.height))
                     // Use the source track's actual frame rate instead of hardcoding 30 fps,

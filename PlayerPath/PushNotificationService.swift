@@ -752,10 +752,12 @@ extension PushNotificationService: UNUserNotificationCenterDelegate {
                 // Post both role-scoped notifications — only the active tab bar observes its own.
                 NotificationCenter.default.post(name: .navigateToCoachFolder, object: folderID)
                 NotificationCenter.default.post(name: .navigateToSharedFolder, object: folderID)
+                markFolderNotificationsReadOnTap(folderID: folderID)
             }
 
         case "VIEW_INVITATION":
             NotificationCenter.default.post(name: .openCoachInvitations, object: nil)
+            markInvitationNotificationsReadOnTap()
 
         case "REVIEW_CLIPS":
             NotificationCenter.default.post(name: .switchCoachTab, object: 1) // Athletes tab
@@ -786,11 +788,17 @@ extension PushNotificationService: UNUserNotificationCenterDelegate {
                     // Post both role-scoped notifications — only the active tab bar observes its own.
                     NotificationCenter.default.post(name: .navigateToCoachFolder, object: folderID)
                     NotificationCenter.default.post(name: .navigateToSharedFolder, object: folderID)
+                    markFolderNotificationsReadOnTap(folderID: folderID)
                 }
             case "invitation_received", "invitation_accepted":
                 NotificationCenter.default.post(name: .openCoachInvitations, object: nil)
+                markInvitationNotificationsReadOnTap()
             case "access_revoked", "access_lapsed":
-                break
+                // Orphan case: the folder may already be gone, so the destination
+                // view's mark-read can't run. Clear the badge here instead.
+                if let folderID = userInfo["folderID"] as? String {
+                    markFolderNotificationsReadOnTap(folderID: folderID)
+                }
             case "coach_review_reminder":
                 NotificationCenter.default.post(name: .switchCoachTab, object: 1)
             default:
@@ -799,6 +807,31 @@ extension PushNotificationService: UNUserNotificationCenterDelegate {
 
         default:
             logger.info("Unhandled notification action: \(actionIdentifier)")
+        }
+    }
+
+    // MARK: - Mark-Read On Tap
+    //
+    // When the user taps a notification from the lock screen or notification
+    // center, clear the corresponding in-app badge immediately. The destination
+    // view's own `.task` mark-read is usually enough, but (a) it doesn't run
+    // until the view appears, and (b) for access-revoked cases the destination
+    // folder may no longer exist. Running mark-read here closes both gaps.
+    //
+    // Silently no-ops on cold launch before auth is restored; the destination
+    // view's mark-read will run once the view appears.
+
+    private func markFolderNotificationsReadOnTap(folderID: String) {
+        guard let userID = Auth.auth().currentUser?.uid else { return }
+        Task {
+            await ActivityNotificationService.shared.markFolderRead(folderID: folderID, forUserID: userID)
+        }
+    }
+
+    private func markInvitationNotificationsReadOnTap() {
+        guard let userID = Auth.auth().currentUser?.uid else { return }
+        Task {
+            await ActivityNotificationService.shared.markInvitationNotificationsRead(forUserID: userID)
         }
     }
 }

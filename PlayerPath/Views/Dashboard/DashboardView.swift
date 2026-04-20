@@ -142,6 +142,10 @@ struct DashboardView: View {
                 }
                 .popoverTipIfEnabled(athletePickerTip, arrowEdge: .top, enabled: tipsEnabled)
             }
+
+            ToolbarItem(placement: .navigationBarTrailing) {
+                NotificationBellToolbarButton()
+            }
         }
         .task {
             loadTipsEnabled()

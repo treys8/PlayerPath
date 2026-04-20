@@ -48,14 +48,19 @@ enum OrientationLocker {
             mask = .portrait
             target = .portrait
         case .landscape:
+            // UIDeviceOrientation and UIInterfaceOrientation are INVERTED by iOS
+            // convention: when the device's left edge is up (UIDevice.landscapeLeft),
+            // the interface's right edge is up (UIInterface.landscapeRight), and
+            // vice-versa. Using the same-named case here produced a 180° rotation
+            // — the "upside down" symptom after recording landscape.
             let current = UIDevice.current.orientation
             switch current {
             case .landscapeLeft:
                 mask = .landscape
-                target = .landscapeLeft
+                target = .landscapeRight
             case .landscapeRight:
                 mask = .landscape
-                target = .landscapeRight
+                target = .landscapeLeft
             default:
                 mask = .landscape
                 target = .landscapeRight

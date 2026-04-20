@@ -22,6 +22,7 @@ struct ProfileView: View {
     @Environment(\.modelContext) private var modelContext
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @ObservedObject private var storeManager = StoreKitManager.shared
+    @ObservedObject private var activityNotifService = ActivityNotificationService.shared
     @State private var showingAddAthlete = false
     @State private var showingSignOutAlert = false
     @State private var athletePendingDelete: Athlete?
@@ -536,6 +537,24 @@ struct ProfileView: View {
                 VideoRecordingSettingsView()
             } label: {
                 Label("Video Recording", systemImage: "video.fill")
+            }
+
+            NavigationLink {
+                NotificationInboxView()
+            } label: {
+                HStack {
+                    Label("Activity", systemImage: "bell.badge")
+                    Spacer()
+                    if activityNotifService.unreadCount > 0 {
+                        Text("\(activityNotifService.unreadCount)")
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 2)
+                            .background(Color.red, in: Capsule())
+                    }
+                }
             }
 
             NavigationLink {

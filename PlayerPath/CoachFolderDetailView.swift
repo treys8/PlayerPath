@@ -100,6 +100,8 @@ struct CoachFolderDetailView: View {
                     DirectCameraRecorderView(
                         coachContext: CoachSessionContext(sessionID: session.id ?? "", session: session)
                     )
+                } else {
+                    Color.clear.onAppear { showingQuickRecord = false }
                 }
             }
             .alert("Session In Progress", isPresented: $showingActiveSessionAlert) {
@@ -216,15 +218,17 @@ struct CoachFolderDetailView: View {
             coordinator.pendingFolderTab = nil
         }
 
+        // Always clear this folder's unread badge on open, even if we skip the
+        // video refetch below. Without this, a second device opening the folder
+        // within the 60s dedup window keeps showing stale unread indicators.
+        if let folderID = folder.id, let userID = authManager.userID {
+            await activityNotifService.markFolderRead(folderID: folderID, forUserID: userID)
+        }
+
         if let lastFetch = lastFetchDate, Date().timeIntervalSince(lastFetch) < 60 { return }
         await viewModel.loadVideos()
         await verifyPermissionsInBackground()
         lastFetchDate = Date()
-
-        // Mark this folder's notifications as read
-        if let folderID = folder.id, let userID = authManager.userID {
-            await activityNotifService.markFolderRead(folderID: folderID, forUserID: userID)
-        }
     }
 
     // MARK: - Folder Content

@@ -14,6 +14,7 @@ struct CoachProfileView: View {
     private var sharedFolderManager: SharedFolderManager { .shared }
     @ObservedObject private var storeManager = StoreKitManager.shared
     private var invitationManager: CoachInvitationManager { .shared }
+    @ObservedObject private var activityNotifService = ActivityNotificationService.shared
     @State private var showingSignOutAlert = false
     @State private var isSigningOut = false
     @State private var showingPaywall = false
@@ -145,6 +146,27 @@ struct CoachProfileView: View {
                             .controlSize(.small)
                         }
                     }
+                }
+
+                // Notification Inbox
+                Section {
+                    NavigationLink(destination: NotificationInboxView()) {
+                        HStack {
+                            Label("Activity", systemImage: "bell.badge")
+                            Spacer()
+                            if activityNotifService.unreadCount > 0 {
+                                Text("\(activityNotifService.unreadCount)")
+                                    .font(.caption)
+                                    .fontWeight(.semibold)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 3)
+                                    .background(Color.red)
+                                    .foregroundStyle(.white)
+                                    .clipShape(Capsule())
+                            }
+                        }
+                    }
+                    .foregroundStyle(.primary)
                 }
 
                 // Invitations Section

@@ -13,6 +13,7 @@
 import Foundation
 import FirebaseFirestore
 import Combine
+import UserNotifications
 import os
 
 private let log = Logger(subsystem: "com.playerpath.app", category: "ActivityNotifications")
@@ -46,6 +47,95 @@ struct ActivityNotification: Identifiable, Codable {
         case folder     = "folder"
         case video      = "video"
         case invitation = "invitation"
+    }
+}
+
+extension ActivityNotification {
+    /// Title with raw video filenames rewritten to "your <date> clip" / "your clip".
+    /// Covers legacy notifications whose server-generated titles embedded UUID or
+    /// ISO-date filenames (e.g. "Coach Feedback on F9FB5711-…mov").
+    var displayTitle: String { NotificationTextSanitizer.sanitize(title) }
+
+    /// Body with trailing " — <filename>.ext" fragments rewritten the same way.
+    var displayBody: String { NotificationTextSanitizer.sanitize(body) }
+}
+
+/// Rewrites raw `.mov`/`.mp4` filename fragments embedded in notification
+/// title/body strings into a friendlier "your Mar 28, 2026 clip" phrase.
+/// Needed because Cloud Functions historically inlined `video.fileName` directly
+/// into notification records — UUID-named clips produced unreadable text.
+enum NotificationTextSanitizer {
+    /// Matches a filename token preceded by a connector (" on ", " — ", etc.)
+    /// and captures the filename for date extraction.
+    private static let regex: NSRegularExpression? = try? NSRegularExpression(
+        pattern: #"(\s+(?:on|to|from|in|for)\s+|\s*[—–\-:]\s*)([A-Za-z0-9_\-]+)\.(?:mov|mp4|m4v)"#,
+        options: [.caseInsensitive]
+    )
+
+    /// Parses `instruction_YYYY-MM-DD_…` filenames produced by coach recording.
+    private static let dateInFilename: NSRegularExpression? = try? NSRegularExpression(
+        pattern: #"(?:^|_)(\d{4})-(\d{2})-(\d{2})(?:_|$)"#
+    )
+
+    private static let displayFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "MMM d, yyyy"
+        return f
+    }()
+
+    private static let parseFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        f.timeZone = TimeZone(secondsFromGMT: 0)
+        return f
+    }()
+
+    static func sanitize(_ text: String) -> String {
+        guard let regex else { return text }
+        let ns = text as NSString
+        let fullRange = NSRange(location: 0, length: ns.length)
+        let matches = regex.matches(in: text, range: fullRange)
+        guard !matches.isEmpty else { return text }
+
+        var result = text
+        // Replace from the tail so earlier match ranges remain valid.
+        for match in matches.reversed() {
+            let connectorRange = match.range(at: 1)
+            let fileStem = ns.substring(with: match.range(at: 2))
+            let connector = ns.substring(with: connectorRange).lowercased()
+            let replacement = phrase(forConnector: connector, fileStem: fileStem)
+            if let swiftRange = Range(match.range, in: result) {
+                result.replaceSubrange(swiftRange, with: replacement)
+            }
+        }
+        return result
+    }
+
+    private static func phrase(forConnector connector: String, fileStem: String) -> String {
+        let clipPhrase: String = {
+            if let date = extractDate(from: fileStem) {
+                return "your \(displayFormatter.string(from: date)) clip"
+            }
+            return "your clip"
+        }()
+        // Preserve the connector word when it carries meaning; collapse bare
+        // dashes/em-dashes into a natural "— <clip>" fragment.
+        let trimmed = connector.trimmingCharacters(in: .whitespaces)
+        switch trimmed {
+        case "on", "to", "from", "in", "for":
+            return " \(trimmed) \(clipPhrase)"
+        default:
+            return " — \(clipPhrase)"
+        }
+    }
+
+    private static func extractDate(from fileStem: String) -> Date? {
+        guard let dateInFilename else { return nil }
+        let ns = fileStem as NSString
+        let range = NSRange(location: 0, length: ns.length)
+        guard let match = dateInFilename.firstMatch(in: fileStem, range: range) else { return nil }
+        let iso = ns.substring(with: match.range).trimmingCharacters(in: CharacterSet(charactersIn: "_"))
+        return parseFormatter.date(from: iso)
     }
 }
 
@@ -138,9 +228,14 @@ final class ActivityNotificationService: ObservableObject {
                     let unread = notifications.filter { !$0.isRead }
                     self.unreadCount = unread.count
                     self.unreadVideoCount = unread.filter { $0.type == .newVideo || $0.type == .coachComment }.count
+                    // Athletes-tab badge reflects athlete-initiated actions pending
+                    // the coach's attention. Upload failures are the coach's own
+                    // problem and surface through the Dashboard tab's unreadCount
+                    // and per-folder indicators instead.
                     self.unreadFolderVideoCount = unread.filter {
-                        ($0.type == .newVideo || $0.type == .coachComment || $0.type == .uploadFailed) && $0.targetType == .folder
+                        ($0.type == .newVideo || $0.type == .coachComment) && $0.targetType == .folder
                     }.count
+                    Self.syncAppIconBadge(to: self.unreadCount)
 
                     // Per-folder unread counts and per-video unread set
                     // Includes coachComment (folderID field), newVideo (targetID is folderID),
@@ -189,6 +284,20 @@ final class ActivityNotificationService: ObservableObject {
         listenerError = nil
         currentUserID = nil
         retryAttempt = 0
+        unreadCount = 0
+        unreadVideoCount = 0
+        unreadFolderVideoCount = 0
+        unreadCountByFolder = [:]
+        unreadVideoIDs = []
+        Self.syncAppIconBadge(to: 0)
+    }
+
+    /// Mirrors the current unread count onto the home-screen app icon badge.
+    /// Uses `UNUserNotificationCenter.setBadgeCount` (the `UIApplication`
+    /// equivalent is deprecated on iOS 17+). Silently no-ops if authorization
+    /// hasn't been granted.
+    private static func syncAppIconBadge(to count: Int) {
+        UNUserNotificationCenter.current().setBadgeCount(count)
     }
 
     private func scheduleListenerRetry() {
@@ -243,6 +352,12 @@ final class ActivityNotificationService: ObservableObject {
 
     func markNewVideoNotificationsRead(forUserID userID: String) async {
         await markBatchRead(forUserID: userID, label: "new-video") { $0.type == .newVideo }
+    }
+
+    /// Marks every unread notification in the local cache as read. Backs the
+    /// "Mark All Read" action in NotificationInboxView.
+    func markAllRead(forUserID userID: String) async {
+        await markBatchRead(forUserID: userID, label: "all") { _ in true }
     }
 
     func markFolderNotificationsRead(forUserID userID: String) async {

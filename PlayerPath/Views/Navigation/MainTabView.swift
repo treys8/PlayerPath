@@ -192,6 +192,15 @@ struct MainTabView: View {
                         await ActivityNotificationService.shared.markNewVideoNotificationsRead(forUserID: userID)
                     }
                 }
+                // Home tab shows the AthleteInvitationsBanner — landing there
+                // implies the athlete has seen any pending invitation prompts,
+                // so clear invitation-type badges. Per-invitation accept/decline
+                // paths still clear individually via markInvitationRead.
+                if newValue == MainTab.home.rawValue, let userID = authManager.userID {
+                    Task {
+                        await ActivityNotificationService.shared.markInvitationNotificationsRead(forUserID: userID)
+                    }
+                }
                 // Reset when leaving Videos tab
                 if newValue != MainTab.videos.rawValue {
                     hideFloatingRecordButton = false

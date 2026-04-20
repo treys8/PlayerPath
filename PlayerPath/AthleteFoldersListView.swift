@@ -552,6 +552,14 @@ struct AthleteFolderDetailContent: View {
                 }
             }
         }
+        .task {
+            // Clear this folder's unread badge on open. Covers newVideo,
+            // coachComment, accessRevoked, accessLapsed, and uploadFailed
+            // notifications whose folderID matches (see markFolderRead).
+            if let folderID = folder.id {
+                await activityNotifService.markFolderRead(folderID: folderID, forUserID: athleteID)
+            }
+        }
         .sheet(item: $activeSheet) { sheet in
             switch sheet {
             case .inviteCoach:

@@ -24,6 +24,13 @@ struct ModernCameraView: View {
     @State private var showingSettings = false
     @State private var showingTutorial = false
     @State private var dragOffset: CGFloat = 0
+    // Frozen landscape flag while recording so controls don't rearrange mid-take.
+    @State private var recordingLandscape: Bool? = nil
+    // Frozen device orientation while recording. The capture connection's orientation
+    // is locked at startRecording() in CameraViewModel, so if the user rotates mid-take
+    // the preview layer would diverge from the recorded frames. Freezing the preview
+    // to the record-start orientation keeps preview and file aligned.
+    @State private var recordingOrientation: UIDeviceOrientation? = nil
 
     @MainActor
     init(
@@ -45,11 +52,18 @@ struct ModernCameraView: View {
         viewModel.currentOrientation == .landscapeLeft || viewModel.currentOrientation == .landscapeRight
     }
 
+    /// Landscape flag used for overlay layout. Frozen while recording so the
+    /// record button and surrounding controls don't shift if the user rotates
+    /// mid-take.
+    private var effectiveLandscape: Bool {
+        recordingLandscape ?? isLandscape
+    }
+
     var body: some View {
         GeometryReader { geometry in
         ZStack {
             // Camera Preview Layer
-            CameraPreviewLayer(session: viewModel.captureSession, orientation: viewModel.currentOrientation)
+            CameraPreviewLayer(session: viewModel.captureSession, orientation: recordingOrientation ?? viewModel.currentOrientation)
                 .ignoresSafeArea()
                 .opacity(viewModel.isSessionReady ? 1 : 0)
                 .animation(.easeInOut(duration: 0.3), value: viewModel.isSessionReady)
@@ -84,13 +98,22 @@ struct ModernCameraView: View {
             }
 
             // Camera Controls Overlay
-            if isLandscape {
+            if effectiveLandscape {
                 landscapeLayout
             } else {
                 portraitLayout
             }
         }
-        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: isLandscape)
+        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: effectiveLandscape)
+        .onChange(of: viewModel.isRecording) { _, isRecording in
+            if isRecording {
+                recordingLandscape = isLandscape
+                recordingOrientation = viewModel.currentOrientation
+            } else {
+                recordingLandscape = nil
+                recordingOrientation = nil
+            }
+        }
         .statusBar(hidden: true)
         .onDisappear {
             viewModel.stopSession()
@@ -162,6 +185,8 @@ struct ModernCameraView: View {
         }
         .disabled(viewModel.isRecording)
         .opacity(viewModel.isRecording ? 0.5 : 1)
+        .accessibilityLabel(viewModel.isRecording ? "Stop recording to cancel" : "Cancel")
+        .help(viewModel.isRecording ? "Stop recording first" : "Cancel")
     }
 
     @ViewBuilder
@@ -584,6 +609,16 @@ struct CameraSettingsView: View {
                     }
 
                     Toggle("Audio Recording", isOn: $viewModel.settings.audioEnabled)
+
+                    Picker("Format", selection: $viewModel.settings.format) {
+                        ForEach(VideoFormat.allCases) { format in
+                            Text(format.displayName).tag(format)
+                        }
+                    }
+
+                    Text(viewModel.settings.format.description)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
 
                     Picker("Stabilization", selection: $viewModel.settings.stabilizationMode) {
                         ForEach(StabilizationMode.allCases) { mode in

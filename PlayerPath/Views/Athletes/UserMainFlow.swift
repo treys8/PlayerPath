@@ -267,50 +267,8 @@ struct UserMainFlow: View {
     // MARK: - Activity Notification Tap Handling
 
     private func handleActivityNotificationTap(_ notification: ActivityNotification) {
-        let isCoach = authManager.userRole == .coach
-
-        switch notification.type {
-        case .coachComment, .newVideo:
-            let folderID = notification.folderID
-                ?? (notification.targetType == .folder ? notification.targetID : nil)
-            if let folderID {
-                if isCoach {
-                    NotificationCenter.default.post(name: .navigateToCoachFolder, object: folderID)
-                } else {
-                    NotificationCenter.default.post(name: .navigateToSharedFolder, object: folderID)
-                }
-            } else {
-                postSwitchTab(.more)
-            }
-        case .invitationAccepted:
-            if isCoach, let folderID = notification.targetID, notification.targetType == .folder {
-                NotificationCenter.default.post(name: .navigateToCoachFolder, object: folderID)
-            } else {
-                postSwitchTab(.more)
-            }
-        case .invitationReceived:
-            if isCoach {
-                NotificationCenter.default.post(name: .openCoachInvitations, object: nil)
-            } else {
-                postSwitchTab(.more)
-            }
-        case .accessRevoked, .accessLapsed:
-            if isCoach {
-                NotificationCenter.default.post(name: .switchCoachTab, object: CoachTab.athletes.rawValue)
-            }
-        case .uploadFailed:
-            let folderID = notification.folderID
-                ?? (notification.targetType == .folder ? notification.targetID : nil)
-            if isCoach, let folderID {
-                NotificationCenter.default.post(name: .navigateToCoachFolder, object: folderID)
-            } else if isCoach {
-                NotificationCenter.default.post(name: .switchCoachTab, object: CoachTab.athletes.rawValue)
-            } else {
-                postSwitchTab(.more)
-            }
-        }
-
-        // Mark-read is handled by the banner's onDismiss closure
+        // Mark-read is handled by the banner's onDismiss closure; this only routes.
+        ActivityNotificationRouter.route(notification, isCoach: authManager.userRole == .coach)
     }
 
     // MARK: - NotificationCenter Management

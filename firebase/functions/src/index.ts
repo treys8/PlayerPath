@@ -41,6 +41,38 @@ function escapeHtml(str: string): string {
 }
 
 /**
+ * Builds a human-readable clip reference for notification text.
+ * Prefers a date parsed from the filename (coach-recorded `instruction_YYYY-MM-DD_…`),
+ * falling back to the video's createdAt and finally a generic "your clip".
+ * Avoids embedding raw UUID filenames in user-facing notification titles/bodies.
+ */
+function clipDescription(video: FirebaseFirestore.DocumentData | undefined | null): string {
+  const fileName: string = (video?.fileName || video?.name || '') as string;
+  const fromName = parseDateFromFileName(fileName);
+  if (fromName) return `your ${formatClipDate(fromName)} clip`;
+
+  const created = video?.createdAt;
+  const createdDate: Date | null = created?.toDate ? created.toDate() : (created instanceof Date ? created : null);
+  if (createdDate) return `your ${formatClipDate(createdDate)} clip`;
+
+  return 'your clip';
+}
+
+function parseDateFromFileName(fileName: string): Date | null {
+  const m = fileName.match(/(?:^|_)(\d{4})-(\d{2})-(\d{2})(?:_|\.|$)/);
+  if (!m) return null;
+  const [, y, mo, d] = m;
+  const date = new Date(Date.UTC(Number(y), Number(mo) - 1, Number(d)));
+  return isNaN(date.getTime()) ? null : date;
+}
+
+function formatClipDate(date: Date): string {
+  return date.toLocaleDateString('en-US', {
+    month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC',
+  });
+}
+
+/**
  * Sanitizes a file name to prevent path traversal.
  * Strips directory separators and ".." sequences.
  */
@@ -313,7 +345,7 @@ export const onNewSharedVideo = functions.firestore
     const uploaderID: string = video.uploadedBy || '';
     const uploaderType = video.uploadedByType; // "athlete" or "coach"
     const folderName: string = folder.name || 'a folder';
-    const videoFileName: string = video.fileName || video.name || 'the video';
+    const clipRef: string = clipDescription(video);
 
     if (uploaderType === 'athlete') {
       // Notify all coaches with folder access
@@ -333,7 +365,7 @@ export const onNewSharedVideo = functions.firestore
           {
             type: 'new_video',
             title: `New Video in ${folderName}`,
-            body: `${uploaderName} uploaded a new clip — ${videoFileName}`,
+            body: `${uploaderName} uploaded ${clipRef}`,
             senderName: uploaderName,
             senderID: uploaderID,
             targetID: folderID,
@@ -767,7 +799,7 @@ export const onNewComment = functions.firestore
     const commenterID: string = comment.authorId || '';
     const preview: string = (comment.text || '').substring(0, 80);
     const folderID: string = video.sharedFolderID || '';
-    const videoFileName: string = video.fileName || video.name || 'the video';
+    const clipRef: string = clipDescription(video);
 
     await sendPushToMultipleUsers(
       recipients,
@@ -784,8 +816,8 @@ export const onNewComment = functions.firestore
     // Athlete→coach comments previously had only an FCM push with no in-app record;
     // we now write an in-app record in both directions for parity.
     const title = comment.authorRole === 'coach'
-      ? `Coach Feedback on ${videoFileName}`
-      : `New Comment on ${videoFileName}`;
+      ? `Coach Feedback on ${clipRef}`
+      : `New Comment on ${clipRef}`;
     await writeActivityNotifications(
       recipients,
       (rid) => `comment_${videoId}_${commentId}_${rid}`,
@@ -839,7 +871,7 @@ export const onNewAnnotation = functions.firestore
       ? `${authorName} added a drawing`
       : `${authorName}: ${(annotation.text || '').substring(0, 80)}`;
     const folderID: string = video.sharedFolderID || '';
-    const videoFileName: string = video.fileName || video.name || 'the video';
+    const clipRef: string = clipDescription(video);
 
     await sendPushToMultipleUsers(
       recipients,
@@ -853,8 +885,8 @@ export const onNewAnnotation = functions.firestore
       'COACH_COMMENT'
     );
     const title = authorRole === 'coach'
-      ? `Coach Feedback on ${videoFileName}`
-      : `New Feedback on ${videoFileName}`;
+      ? `Coach Feedback on ${clipRef}`
+      : `New Feedback on ${clipRef}`;
     await writeActivityNotifications(
       recipients,
       (rid) => `annotation_${videoId}_${annotationId}_${rid}`,
@@ -895,7 +927,7 @@ export const onCoachNoteUpdated = functions.firestore
 
     const videoId = context.params.videoId;
     const folderID: string = after.sharedFolderID || '';
-    const videoFileName: string = after.fileName || after.name || 'the video';
+    const clipRef: string = clipDescription(after);
     const preview = afterNote.substring(0, 80);
 
     await sendPushToMultipleUsers(
@@ -917,7 +949,7 @@ export const onCoachNoteUpdated = functions.firestore
       (rid) => `note_${videoId}_${rid}`,
       {
         type: 'coach_comment',
-        title: `Coach Feedback on ${videoFileName}`,
+        title: `Coach Feedback on ${clipRef}`,
         body: `${authorName}: ${preview}`,
         senderName: authorName,
         senderID: authorId,
@@ -952,7 +984,7 @@ export const onNewDrillCard = functions.firestore
     const coachID: string = card.coachID || '';
     const folderID: string = video.sharedFolderID;
     const templateName: string = card.templateName || 'drill card';
-    const videoFileName: string = video.fileName || video.name || 'the video';
+    const clipRef: string = clipDescription(video);
 
     // Notify the athlete (folder owner)
     if (folder.ownerAthleteID && folder.ownerAthleteID !== card.coachID) {
@@ -975,7 +1007,7 @@ export const onNewDrillCard = functions.firestore
         {
           type: 'coach_comment',
           title: 'New Drill Card',
-          body: `${coachName} added a ${templateName} to ${videoFileName}`,
+          body: `${coachName} added a ${templateName} to ${clipRef}`,
           senderName: coachName,
           senderID: coachID,
           targetID: videoId,

@@ -195,6 +195,12 @@ final class ClipPersistenceService {
             guard naturalSize.width > 0 && naturalSize.height > 0 else {
                 throw NSError(domain: "ClipPersistence", code: -3, userInfo: [NSLocalizedDescriptionKey: "Video track has invalid dimensions"])
             }
+
+            // Diagnostic: log preferredTransform so silent orientation loss is
+            // detectable in field logs. Does NOT throw — unusual transforms
+            // shouldn't reject an otherwise-valid clip.
+            let transform = try await firstVideoTrack.load(.preferredTransform)
+            clipLog.info("verifyVideoPlayability: url=\(url.lastPathComponent) natural=\(Int(naturalSize.width))x\(Int(naturalSize.height)) transform=[a:\(transform.a) b:\(transform.b) c:\(transform.c) d:\(transform.d) tx:\(transform.tx) ty:\(transform.ty)] identity=\(transform.isIdentity)")
         }
 
         // Check 4: Verify asset is playable

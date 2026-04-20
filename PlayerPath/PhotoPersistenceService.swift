@@ -212,20 +212,9 @@ final class PhotoPersistenceService {
             throw PhotoPersistenceError.failedToEncode
         }
 
-        // Write full-size JPEG via CGImageDestination
-        guard let destination = CGImageDestinationCreateWithURL(
-            photoURL as CFURL,
-            UTType.jpeg.identifier as CFString,
-            1,
-            nil
-        ) else {
-            throw PhotoPersistenceError.failedToEncode
-        }
-        let jpegProps: [CFString: Any] = [kCGImageDestinationLossyCompressionQuality: Constants.jpegQuality]
-        CGImageDestinationAddImage(destination, fullCG, jpegProps as CFDictionary)
-        guard CGImageDestinationFinalize(destination) else {
-            throw PhotoPersistenceError.failedToEncode
-        }
+        // JPEG is opaque — strip alpha before writing to avoid 2x decode memory.
+        let fullOpaque = Self.opaqueCopy(of: fullCG) ?? fullCG
+        try Self.writeJPEG(fullOpaque, to: photoURL, quality: Constants.jpegQuality)
 
         // Thumbnail (600px max)
         let thumbOptions: [CFString: Any] = [
@@ -233,9 +222,9 @@ final class PhotoPersistenceService {
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true
         ]
-        if let thumbCG = CGImageSourceCreateThumbnailAtIndex(source, 0, thumbOptions as CFDictionary),
-           let thumbData = UIImage(cgImage: thumbCG).jpegData(compressionQuality: Constants.thumbnailQuality) {
-            try thumbData.write(to: thumbURL, options: .atomic)
+        if let thumbCG = CGImageSourceCreateThumbnailAtIndex(source, 0, thumbOptions as CFDictionary) {
+            let thumbOpaque = Self.opaqueCopy(of: thumbCG) ?? thumbCG
+            try? Self.writeJPEG(thumbOpaque, to: thumbURL, quality: Constants.thumbnailQuality)
         }
 
         return ProcessedPhoto(photoURL: photoURL, thumbURL: thumbURL)
@@ -249,6 +238,44 @@ final class PhotoPersistenceService {
     }
 
     // MARK: - Image Helpers (nonisolated for background processing)
+
+    /// Redraws `cgImage` into an opaque RGB bitmap so JPEG encoding doesn't carry
+    /// a premultiplied alpha channel (which ImageIO warns about and which doubles
+    /// decode memory).
+    private nonisolated static func opaqueCopy(of cgImage: CGImage) -> CGImage? {
+        let width = cgImage.width
+        let height = cgImage.height
+        guard width > 0, height > 0 else { return nil }
+        let colorSpace = cgImage.colorSpace ?? CGColorSpaceCreateDeviceRGB()
+        let bitmapInfo = CGImageAlphaInfo.noneSkipLast.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
+        guard let ctx = CGContext(
+            data: nil,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: colorSpace,
+            bitmapInfo: bitmapInfo
+        ) else { return nil }
+        ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+        return ctx.makeImage()
+    }
+
+    private nonisolated static func writeJPEG(_ cgImage: CGImage, to url: URL, quality: CGFloat) throws {
+        guard let destination = CGImageDestinationCreateWithURL(
+            url as CFURL,
+            UTType.jpeg.identifier as CFString,
+            1,
+            nil
+        ) else {
+            throw PhotoPersistenceError.failedToEncode
+        }
+        let props: [CFString: Any] = [kCGImageDestinationLossyCompressionQuality: quality]
+        CGImageDestinationAddImage(destination, cgImage, props as CFDictionary)
+        guard CGImageDestinationFinalize(destination) else {
+            throw PhotoPersistenceError.failedToEncode
+        }
+    }
 
     private nonisolated static func normalizedImage(_ image: UIImage) -> UIImage {
         // Always redraw through a renderer so orientation is baked into the pixels.

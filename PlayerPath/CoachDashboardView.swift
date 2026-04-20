@@ -292,7 +292,12 @@ struct CoachDashboardView: View {
                     isEnding: isEndingSession,
                     onEnd: { endActiveSession(session) },
                     onEditNotes: { editingSessionNotes = session },
-                    onRecord: session.status == .live ? { showingCamera = true } : nil
+                    onRecord: session.status == .live ? {
+                        guard sessionManager.activeSession?.status == .live,
+                              let id = sessionManager.activeSession?.id,
+                              !id.isEmpty else { return }
+                        showingCamera = true
+                    } : nil
                 )
                 .contentShape(Rectangle())
                 .onTapGesture {
