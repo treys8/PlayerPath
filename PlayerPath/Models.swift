@@ -113,11 +113,6 @@ final class Game {
     /// Version number for conflict resolution
     var version: Int = 0
 
-    /// Computed sync status
-    var isSynced: Bool {
-        needsSync == false && firestoreId != nil
-    }
-
     init(date: Date, opponent: String) {
         self.id = UUID()
         self.date = date
@@ -185,11 +180,6 @@ final class Practice {
 
     /// Version number for conflict resolution
     var version: Int = 0
-
-    /// Computed sync status
-    var isSynced: Bool {
-        needsSync == false && firestoreId != nil
-    }
 
     init(date: Date) {
         self.id = UUID()

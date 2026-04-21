@@ -8,6 +8,7 @@
 
 import SwiftUI
 import AVKit
+import PencilKit
 
 struct ClipReviewSheet: View {
     let video: CoachVideoItem
@@ -15,6 +16,7 @@ struct ClipReviewSheet: View {
     var onShared: (() -> Void)?
     var onDiscarded: (() -> Void)?
 
+    @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @Environment(\.dismiss) private var dismiss
     @State private var notes: String
     @State private var isPublishing = false
@@ -26,6 +28,14 @@ struct ClipReviewSheet: View {
     @State private var player: AVPlayer?
     @State private var isLoadingVideo = true
     @State private var videoError: String?
+    @State private var videoAspectRatio: CGFloat = 16.0 / 9.0
+
+    // Telestration
+    @State private var showingTelestration = false
+
+    private var currentPlaybackTime: Double {
+        player?.currentTime().seconds ?? 0
+    }
 
     private var folderID: String { folder.id ?? "" }
 
@@ -38,6 +48,13 @@ struct ClipReviewSheet: View {
     }
 
     var body: some View {
+        ZStack {
+            navigationContent
+            telestrationOverlay
+        }
+    }
+
+    private var navigationContent: some View {
         NavigationStack {
             VStack(spacing: 0) {
                 ScrollView {
@@ -134,6 +151,17 @@ struct ClipReviewSheet: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { dismiss() }
                 }
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        player?.pause()
+                        showingTelestration = true
+                    } label: {
+                        Image(systemName: "pencil.tip")
+                            .foregroundColor(.brandNavy)
+                    }
+                    .disabled(player == nil || isLoadingVideo)
+                    .accessibilityLabel("Draw on video frame")
+                }
             }
             .alert("Discard this clip?", isPresented: $showingDiscardConfirmation) {
                 Button("Discard", role: .destructive) { discardClip() }
@@ -196,6 +224,33 @@ struct ClipReviewSheet: View {
         .padding(.top, 8)
     }
 
+    @ViewBuilder
+    private var telestrationOverlay: some View {
+        if showingTelestration {
+            TelestrationOverlayView(
+                timestamp: currentPlaybackTime,
+                videoAspectRatio: videoAspectRatio,
+                onSave: { drawing, timestamp, canvasSize in
+                    guard let userID = authManager.userID,
+                          let userName = authManager.userDisplayName ?? authManager.userEmail else { return false }
+                    let saved = await saveDrawing(
+                        drawing: drawing,
+                        timestamp: timestamp,
+                        canvasSize: canvasSize,
+                        userID: userID,
+                        userName: userName
+                    )
+                    if saved { showingTelestration = false }
+                    return saved
+                },
+                onCancel: { showingTelestration = false }
+            )
+            .ignoresSafeArea()
+            .transition(.opacity)
+            .zIndex(1)
+        }
+    }
+
     // MARK: - Info Row
 
     private func infoRow(label: String, value: String) -> some View {
@@ -235,8 +290,58 @@ struct ClipReviewSheet: View {
             }
         }
 
-        player = AVPlayer(url: playbackURL)
+        let newPlayer = AVPlayer(url: playbackURL)
+        player = newPlayer
+
+        if let track = try? await newPlayer.currentItem?.asset.loadTracks(withMediaType: .video).first,
+           let size = try? await track.load(.naturalSize),
+           size.height > 0 {
+            videoAspectRatio = size.width / size.height
+        }
+
         isLoadingVideo = false
+    }
+
+    // MARK: - Telestration
+
+    @MainActor
+    private func saveDrawing(
+        drawing: PKDrawing,
+        timestamp: Double,
+        canvasSize: CGSize,
+        userID: String,
+        userName: String
+    ) async -> Bool {
+        let rawData = drawing.dataRepresentation()
+        guard rawData.count <= 200_000 else {
+            errorMessage = "Drawing is too complex. Try simplifying and saving again."
+            return false
+        }
+
+        let base64 = rawData.base64EncodedString()
+        let videoID = video.id
+        guard !videoID.isEmpty else { return false }
+
+        do {
+            _ = try await FirestoreManager.shared.createAnnotation(
+                videoID: videoID,
+                text: "Drawing annotation",
+                timestamp: timestamp,
+                userID: userID,
+                userName: userName,
+                isCoachComment: true,
+                type: "drawing",
+                drawingData: base64,
+                drawingCanvasWidth: canvasSize.width > 0 ? Double(canvasSize.width) : nil,
+                drawingCanvasHeight: canvasSize.height > 0 ? Double(canvasSize.height) : nil
+            )
+            Haptics.success()
+            return true
+        } catch {
+            errorMessage = "Failed to save drawing: \(error.localizedDescription)"
+            ErrorHandlerService.shared.handle(error, context: "ClipReviewSheet.saveDrawing", showAlert: false)
+            return false
+        }
     }
 
     // MARK: - Actions

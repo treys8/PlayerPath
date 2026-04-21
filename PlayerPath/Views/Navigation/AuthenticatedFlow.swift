@@ -323,7 +323,7 @@ struct AuthenticatedFlow: View {
         // New users (isNewUser = true from signUp()) need a clean slate — clear any stale
         // UserDefaults that may have been left by a previous account on this device.
         if !authManager.isNewUser {
-            OnboardingManager.shared.markMilestoneComplete(.welcomeTutorial)
+            OnboardingManager.shared.markWelcomeTutorialSeen()
             // Ensure existing users always skip onboarding even if their
             // OnboardingProgress record was lost (reinstall, data migration, etc.)
             if !hasCompletedOnboarding {

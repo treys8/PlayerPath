@@ -50,11 +50,6 @@ final class VideoClip {
     /// Version number for conflict resolution
     var version: Int = 0
 
-    /// Computed sync status for metadata
-    var isSynced: Bool {
-        needsSync == false && firestoreId != nil
-    }
-
     init(fileName: String, filePath: String) {
         self.id = UUID()
         self.fileName = fileName

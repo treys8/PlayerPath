@@ -61,7 +61,7 @@ struct CoachAnnouncementFlow: View {
             showingInviteSheet = true
         } else {
             // Dismiss announcement, then show subscription paywall from MainTabView
-            OnboardingManager.shared.markMilestoneComplete(.coachAnnouncement)
+            OnboardingManager.shared.markCoachAnnouncementSeen()
             onDismiss()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 NotificationCenter.default.post(name: .showSubscriptionPaywall, object: nil)
@@ -70,7 +70,7 @@ struct CoachAnnouncementFlow: View {
     }
 
     private func dismissFlow() {
-        OnboardingManager.shared.markMilestoneComplete(.coachAnnouncement)
+        OnboardingManager.shared.markCoachAnnouncementSeen()
         Haptics.light()
         onDismiss()
     }

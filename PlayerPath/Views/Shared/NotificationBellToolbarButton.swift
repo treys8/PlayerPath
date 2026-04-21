@@ -19,7 +19,6 @@ struct NotificationBellToolbarButton: View {
             ZStack(alignment: .topTrailing) {
                 Image(systemName: "bell")
                     .font(.body)
-                    .frame(width: 28, height: 28)
 
                 if service.unreadCount > 0 {
                     Text("\(min(service.unreadCount, 99))")
@@ -28,7 +27,7 @@ struct NotificationBellToolbarButton: View {
                         .padding(.horizontal, 5)
                         .padding(.vertical, 1)
                         .background(Color.red, in: Capsule())
-                        .offset(x: 4, y: -2)
+                        .offset(x: 6, y: -6)
                 }
             }
             .frame(width: 36, height: 32)

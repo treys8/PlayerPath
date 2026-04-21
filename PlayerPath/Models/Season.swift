@@ -49,11 +49,6 @@ final class Season {
     /// Version number for conflict resolution
     var version: Int = 0
 
-    /// Computed sync status
-    var isSynced: Bool {
-        needsSync == false && firestoreId != nil
-    }
-
     private static let yearFormatter: DateFormatter = {
         let f = DateFormatter()
         f.dateFormat = "yyyy"

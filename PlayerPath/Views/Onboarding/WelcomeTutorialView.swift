@@ -64,7 +64,7 @@ struct WelcomeTutorialView: View {
         .interactiveDismissDisabled(true)
         .onDisappear {
             if !onboardingManager.hasSeenWelcomeTutorial {
-                onboardingManager.markMilestoneComplete(.welcomeTutorial)
+                onboardingManager.markWelcomeTutorialSeen()
             }
         }
     }
@@ -76,7 +76,7 @@ struct WelcomeTutorialView: View {
 
     private func completeWalkthrough() {
         Haptics.medium()
-        onboardingManager.markMilestoneComplete(.welcomeTutorial)
+        onboardingManager.markWelcomeTutorialSeen()
         dismiss()
     }
 }

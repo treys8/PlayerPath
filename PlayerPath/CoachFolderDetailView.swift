@@ -85,7 +85,7 @@ struct CoachFolderDetailView: View {
                 folderName: folder.name,
                 onLeave: { Task { await leaveFolder() } }
             ))
-            .sheet(item: $reviewingClip) { clip in
+            .fullScreenCover(item: $reviewingClip) { clip in
                 ClipReviewSheet(
                     video: clip,
                     folder: folder,

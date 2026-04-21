@@ -6,7 +6,7 @@
 //  Handles session CRUD, clip tracking, and state transitions.
 //
 
-import SwiftUI
+import Foundation
 import FirebaseFirestore
 import FirebaseAuth
 import os
@@ -15,13 +15,13 @@ private let sessionLog = Logger(subsystem: "com.playerpath.app", category: "Coac
 
 @MainActor
 @Observable
-class CoachSessionManager {
+final class CoachSessionManager {
     static let shared = CoachSessionManager()
 
-    var activeSession: CoachSession?
-    var sessions: [CoachSession] = []
-    var scheduledSessions: [CoachSession] = []
-    var isLoading = false
+    private(set) var activeSession: CoachSession?
+    private(set) var sessions: [CoachSession] = []
+    private(set) var scheduledSessions: [CoachSession] = []
+    private(set) var isLoading = false
 
     private let db = Firestore.firestore()
     private var activeListener: ListenerRegistration?
@@ -70,7 +70,6 @@ class CoachSessionManager {
             sessions[idx].status = .reviewing
             sessions[idx].endedAt = Date()
         }
-        NotificationCenter.default.post(name: .sessionEnded, object: sessionID)
     }
 
     /// Marks session as completed.
@@ -166,13 +165,12 @@ class CoachSessionManager {
         scheduledSessions.append(session)
         scheduledSessions.sort { ($0.scheduledDate ?? .distantFuture) < ($1.scheduledDate ?? .distantFuture) }
 
-        NotificationCenter.default.post(name: .sessionScheduled, object: docRef.documentID)
         return docRef.documentID
     }
 
     /// Transitions a reviewing session back to live so the coach can record more clips
     /// in the same session. Resets startedAt so the LiveSessionCard timer reflects the
-    /// new segment, clears endedAt. Posts `.sessionBecameLive`.
+    /// new segment, clears endedAt.
     func resumeReviewingSession(sessionID: String) async throws {
         let now = Date()
         try await db.collection(FC.coachSessions).document(sessionID).updateData([
@@ -191,8 +189,6 @@ class CoachSessionManager {
             activeSession?.startedAt = now
             activeSession?.endedAt = nil
         }
-
-        NotificationCenter.default.post(name: .sessionBecameLive, object: sessionID)
     }
 
     /// Transitions a scheduled session to live, ending any existing live session first.
@@ -215,8 +211,6 @@ class CoachSessionManager {
             activeSession = session
             sessions.insert(session, at: 0)
         }
-
-        NotificationCenter.default.post(name: .sessionBecameLive, object: sessionID)
     }
 
     /// Cancels a scheduled session (deletes it).
@@ -568,14 +562,11 @@ class CoachSessionManager {
 
 enum CoachSessionError: LocalizedError {
     case athleteLimitExceeded(limit: Int)
-    case sessionNotActive
 
     var errorDescription: String? {
         switch self {
         case .athleteLimitExceeded(let limit):
             return "Your plan supports up to \(limit) athletes. Upgrade to add more."
-        case .sessionNotActive:
-            return "This session is no longer active."
         }
     }
 }

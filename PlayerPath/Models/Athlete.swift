@@ -7,7 +7,6 @@
 
 import Foundation
 import SwiftData
-import os
 
 enum AthleteRole: String, Codable, CaseIterable {
     case batter
@@ -54,11 +53,6 @@ final class Athlete {
     /// The currently active season for this athlete (only one can be active at a time)
     var activeSeason: Season? {
         seasons?.first(where: { $0.isActive })
-    }
-
-    /// Whether this athlete is synced to Firestore
-    var isSynced: Bool {
-        needsSync == false && firestoreId != nil
     }
 
     /// All archived (completed) seasons, sorted by start date descending
