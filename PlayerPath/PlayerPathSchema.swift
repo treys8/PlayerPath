@@ -307,12 +307,30 @@ enum SchemaV16: VersionedSchema {
     static var models: [any PersistentModel.Type] { SchemaV1.models }
 }
 
+// MARK: - Schema V17 (2026-04-21 — Drop unused UserPreferences fields)
+//
+//  Changes from V16:
+//    • UserPreferences.enableHapticFeedback (Bool) removed — now read/written
+//      exclusively via UserDefaults "hapticFeedbackEnabled" (Haptics.swift is
+//      the sole consumer and already reads that key directly).
+//    • UserPreferences.preferredTheme (AppTheme?) removed — now read/written
+//      exclusively via UserDefaults "appTheme" (ThemeManager reads that key
+//      directly at launch).
+//
+//  Both fields had zero consumers outside UserPreferencesView, so the SwiftData
+//  copies were write-only dead data. Property removals → lightweight migration.
+
+enum SchemaV17: VersionedSchema {
+    static var versionIdentifier = Schema.Version(17, 0, 0)
+    static var models: [any PersistentModel.Type] { SchemaV1.models }
+}
+
 // MARK: - Migration Plan
 
 enum PlayerPathMigrationPlan: SchemaMigrationPlan {
     /// All schema versions in chronological order (oldest first).
     static var schemas: [any VersionedSchema.Type] {
-        [SchemaV1.self, SchemaV2.self, SchemaV3.self, SchemaV4.self, SchemaV5.self, SchemaV6.self, SchemaV7.self, SchemaV8.self, SchemaV9.self, SchemaV10.self, SchemaV11.self, SchemaV12.self, SchemaV13.self, SchemaV14.self, SchemaV15.self, SchemaV16.self]
+        [SchemaV1.self, SchemaV2.self, SchemaV3.self, SchemaV4.self, SchemaV5.self, SchemaV6.self, SchemaV7.self, SchemaV8.self, SchemaV9.self, SchemaV10.self, SchemaV11.self, SchemaV12.self, SchemaV13.self, SchemaV14.self, SchemaV15.self, SchemaV16.self, SchemaV17.self]
     }
 
     /// Migration stages between consecutive versions.
@@ -332,7 +350,8 @@ enum PlayerPathMigrationPlan: SchemaMigrationPlan {
             .lightweight(fromVersion: SchemaV12.self, toVersion: SchemaV13.self),
             .lightweight(fromVersion: SchemaV13.self, toVersion: SchemaV14.self),
             .lightweight(fromVersion: SchemaV14.self, toVersion: SchemaV15.self),
-            .lightweight(fromVersion: SchemaV15.self, toVersion: SchemaV16.self)
+            .lightweight(fromVersion: SchemaV15.self, toVersion: SchemaV16.self),
+            .lightweight(fromVersion: SchemaV16.self, toVersion: SchemaV17.self)
         ]
     }
 }

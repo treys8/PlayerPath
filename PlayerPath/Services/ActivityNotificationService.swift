@@ -201,7 +201,8 @@ final class ActivityNotificationService: ObservableObject {
             .limit(to: 50)
             .addSnapshotListener { [weak self] snapshot, error in
                 guard let self else { return }
-                if error != nil {
+                if let error {
+                    log.error("Notification listener error: \(error.localizedDescription)")
                     Task { @MainActor in
                         self.listenerError = "Unable to refresh notifications."
                         self.scheduleListenerRetry()
@@ -354,10 +355,35 @@ final class ActivityNotificationService: ObservableObject {
         await markBatchRead(forUserID: userID, label: "new-video") { $0.type == .newVideo }
     }
 
-    /// Marks every unread notification in the local cache as read. Backs the
-    /// "Mark All Read" action in NotificationInboxView.
+    /// Marks every unread notification as read. Backs the "Mark All Read" action
+    /// in NotificationInboxView. Queries Firestore directly (not the 50-item
+    /// listener cache) so users with large backlogs don't get left with stragglers.
     func markAllRead(forUserID userID: String) async {
-        await markBatchRead(forUserID: userID, label: "all") { _ in true }
+        do {
+            let snapshot = try await db
+                .collection(FC.notifications)
+                .document(userID)
+                .collection(FC.items)
+                .whereField("isRead", isEqualTo: false)
+                .getDocuments()
+
+            let docs = snapshot.documents
+            guard !docs.isEmpty else { return }
+
+            // Firestore caps batches at 500 writes; chunk for safety.
+            var index = 0
+            while index < docs.count {
+                let end = min(index + 450, docs.count)
+                let batch = db.batch()
+                for doc in docs[index..<end] {
+                    batch.updateData(["isRead": true], forDocument: doc.reference)
+                }
+                try await batch.commit()
+                index = end
+            }
+        } catch {
+            log.error("Failed to mark all notifications read: \(error.localizedDescription)")
+        }
     }
 
     func markFolderNotificationsRead(forUserID userID: String) async {
@@ -575,6 +601,7 @@ final class ActivityNotificationService: ObservableObject {
                 .getDocuments()
             return snapshot.documents.first?.documentID
         } catch {
+            log.error("User lookup by email failed: \(error.localizedDescription)")
             return nil
         }
     }

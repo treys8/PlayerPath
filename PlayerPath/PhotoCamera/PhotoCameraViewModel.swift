@@ -32,6 +32,8 @@ class PhotoCameraViewModel: NSObject, ObservableObject {
 
     @Published var lastFocusPoint: CGPoint?
 
+    @Published var showGrid: Bool = false
+
     @Published var showingError = false
     @Published var currentError: String?
     @Published var errorNeedsSettings = false
@@ -295,6 +297,13 @@ class PhotoCameraViewModel: NSObject, ObservableObject {
         }
 
         let output = AVCapturePhotoOutput()
+        // Opt into Smart HDR / Deep Fusion / Night Mode when the device
+        // supports them. Default is `.balanced`, which caps per-shot settings
+        // at the same level — bumping this to `.quality` is a prerequisite
+        // for requesting `.quality` on AVCapturePhotoSettings. Must be set
+        // BEFORE addOutput(_:) — Apple's documented pattern; some iOS versions
+        // ignore the assignment if it happens after the output joins the session.
+        output.maxPhotoQualityPrioritization = .quality
         if captureSession.canAddOutput(output) {
             captureSession.addOutput(output)
             photoOutput = output
@@ -369,11 +378,14 @@ class PhotoCameraViewModel: NSObject, ObservableObject {
 
     func toggleFlash() {
         // Haptic is fired by the calling button (`PhotoChromeIconButton`).
+        // Cycle order matches native iOS Camera: auto → on → off → auto.
+        // Starting from the default (.auto), the first tap turns flash ON,
+        // which is what users expect from a quick-shot flash tap.
         switch flashMode {
-        case .off: flashMode = .on
-        case .on: flashMode = .auto
-        case .auto: flashMode = .off
-        @unknown default: flashMode = .off
+        case .auto: flashMode = .on
+        case .on: flashMode = .off
+        case .off: flashMode = .auto
+        @unknown default: flashMode = .auto
         }
     }
 
@@ -388,11 +400,28 @@ class PhotoCameraViewModel: NSObject, ObservableObject {
         zoomGestureBase = currentZoom
     }
 
+    /// Pill taps — ramp smoothly to the target factor so the preview glides
+    /// instead of snapping. The pill highlight updates instantly (currentZoom
+    /// is set to the target on the main actor) while the device catches up
+    /// over ~100–250ms depending on the jump size.
     func jumpToZoom(_ factor: CGFloat) {
         let clamped = min(max(factor, minZoom), maxZoom)
-        setZoom(clamped)
+        currentZoom = clamped
         zoomGestureBase = clamped
         Haptics.light()
+
+        guard let device = videoDevice else { return }
+        sessionQueue.async {
+            do {
+                try device.lockForConfiguration()
+                // Rate ~8.0 = zoom doubles/halves ~8× per second — a 1×→2×
+                // jump lands in ~125ms, which reads as smooth but snappy.
+                device.ramp(toVideoZoomFactor: clamped, withRate: 8.0)
+                device.unlockForConfiguration()
+            } catch {
+                photoLog.warning("Zoom ramp failed: \(error.localizedDescription)")
+            }
+        }
     }
 
     func setZoom(_ zoom: CGFloat) {
@@ -401,6 +430,11 @@ class PhotoCameraViewModel: NSObject, ObservableObject {
         sessionQueue.async {
             do {
                 try device.lockForConfiguration()
+                // Cancel any in-flight ramp from a recent pill tap — setting
+                // videoZoomFactor while a ramp is active produces undefined
+                // behavior per AVFoundation, so pinch-during-ramp must stop
+                // the ramp before writing the new factor.
+                device.cancelVideoZoomRamp()
                 device.videoZoomFactor = zoom
                 device.unlockForConfiguration()
             } catch {
@@ -488,6 +522,11 @@ class PhotoCameraViewModel: NSObject, ObservableObject {
             } else {
                 settings.flashMode = .off
             }
+            // Opt into Smart HDR / Deep Fusion / Night Mode. Adds 100ms–1s of
+            // processing before the delegate fires on older devices or in low
+            // light, but produces noticeably better output for profile pics,
+            // posed shots, and dim-gym action — the domains this camera serves.
+            settings.photoQualityPrioritization = .quality
 
             output.capturePhoto(with: settings, delegate: self)
         }

@@ -49,6 +49,7 @@ struct MainTabView: View {
     enum MoreDestination: Hashable {
         case practice, highlights, seasons, photos, coaches, sharedFolders
         case sharedFolder(String) // navigate to a specific folder by ID
+        case storageSettings      // deep link target for cloud-backup push taps
     }
     
     // NotificationCenter observer management using StateObject for lifecycle safety
@@ -362,6 +363,12 @@ struct MainTabView: View {
             }
         }
 
+        notificationManager.observe(name: Notification.Name.navigateToCloudStorage) { _ in
+            MainActor.assumeIsolated { [self] in
+                navigateToMore(.storageSettings)
+            }
+        }
+
         // Refresh the baked-in weekly-summary body whenever the underlying
         // stats change. Each call cancel+adds the pending notification,
         // which is cheap and idempotent.
@@ -560,6 +567,8 @@ struct MainTabView: View {
                     } else {
                         AthleteFoldersListView(userID: authManager.userID, athlete: selectedAthlete).id(selectedAthlete.id).proRequired()
                     }
+                case .storageSettings:
+                    StorageSettingsView()
                 }
             }
         }

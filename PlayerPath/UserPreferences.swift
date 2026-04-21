@@ -20,7 +20,6 @@ final class UserPreferences {
     // MARK: - Video Recording Preferences
     var autoUploadMode: AutoUploadMode? { didSet { markAsModified() } }
     var saveToPhotosLibrary: Bool = false { didSet { markAsModified() } }
-    var enableHapticFeedback: Bool = true { didSet { markAsModified() } }
 
     // Legacy property for backwards compatibility - computed from autoUploadMode
     var autoUploadToCloud: Bool {
@@ -29,16 +28,24 @@ final class UserPreferences {
     }
 
     // Legacy property for backwards compatibility - computed from autoUploadMode.
-    // Precondition: the setter is a no-op when autoUploadMode == .off. Callers
-    // must enable uploads (autoUploadMode = .wifiOnly or .always) first. The UI
-    // gates this toggle behind the auto-upload switch.
+    // true  ↔ autoUploadMode == .always
+    // false ↔ autoUploadMode == .wifiOnly
+    // Setting true when mode is .off is still a no-op — the UI gates this toggle
+    // behind the auto-upload switch, so enabling cellular first requires enabling
+    // auto-upload.
     var allowCellularUploads: Bool {
         get { autoUploadMode == .always }
-        set { if newValue && autoUploadMode != .off { autoUploadMode = .always } }
+        set {
+            switch (newValue, autoUploadMode) {
+            case (true, .off), (true, nil): break
+            case (true, _): autoUploadMode = .always
+            case (false, .always): autoUploadMode = .wifiOnly
+            case (false, _): break
+            }
+        }
     }
 
     // MARK: - UI Preferences
-    var preferredTheme: AppTheme? { didSet { markAsModified() } }
     var showOnboardingTips: Bool = true { didSet { markAsModified() } }
 
     // MARK: - Cloud Sync Preferences
@@ -63,7 +70,6 @@ final class UserPreferences {
     // MARK: - Init
     init() {
         self.autoUploadMode = .wifiOnly
-        self.preferredTheme = .system
         self.lastModified = Date()
     }
 

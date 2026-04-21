@@ -105,6 +105,24 @@ extension SyncCoordinator {
         let athletes = user.athletes ?? []
         let allLocalSeasons = athletes.flatMap { $0.seasons ?? [] }
 
+        // Detect seasons deleted on another device. Match local delete semantics
+        // (SeasonDetailView): only the season is removed — games, practices, clips, and
+        // photos survive as standalone records via SwiftData inverse-relationship nullification.
+        // Safety: skip if remote count is suspiciously low (transient fetch failure).
+        let remoteSeasonIds = Set(remoteSeasons.compactMap { $0.id })
+        let syncedLocalSeasons = allLocalSeasons.filter { $0.firestoreId != nil }
+        let remoteReturnedTooFew = !syncedLocalSeasons.isEmpty
+            && remoteSeasonIds.count < syncedLocalSeasons.count / 2
+        if remoteReturnedTooFew {
+            syncLog.warning("Remote returned \(remoteSeasonIds.count) seasons but \(syncedLocalSeasons.count) synced locally — skipping deletion pass to prevent data loss")
+        } else {
+            for localSeason in syncedLocalSeasons {
+                guard let fsId = localSeason.firestoreId, !remoteSeasonIds.contains(fsId) else { continue }
+                if let seasonStats = localSeason.seasonStatistics { context.delete(seasonStats) }
+                context.delete(localSeason)
+            }
+        }
+
         for remoteSeason in remoteSeasons {
             // Find local season by firestoreId
             let localSeason = allLocalSeasons.first {

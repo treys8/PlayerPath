@@ -286,7 +286,6 @@ struct PlayResultActionButton: View {
     enum ActionStyle {
         case primary
         case secondary
-        case destructive
     }
 
     @State private var isPressed = false
@@ -295,7 +294,6 @@ struct PlayResultActionButton: View {
         switch style {
         case .primary: return .brandNavy.opacity(0.4)
         case .secondary: return .clear
-        case .destructive: return .red.opacity(0.4)
         }
     }
 
@@ -308,15 +306,6 @@ struct PlayResultActionButton: View {
         case .secondary:
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(Color.white.opacity(0.15))
-        case .destructive:
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [.red, .red.opacity(0.8)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
         }
     }
 

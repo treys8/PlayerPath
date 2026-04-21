@@ -18,23 +18,23 @@ class CameraViewModel: NSObject, ObservableObject {
 
     // MARK: - Published Properties
 
-    @MainActor @Published var isSessionReady = false
-    @MainActor @Published var isRecording = false
-    @MainActor @Published var currentZoom: CGFloat = 1.0
-    @MainActor @Published var showGrid = false
-    @MainActor @Published var flashMode: AVCaptureDevice.FlashMode = .off
-    @MainActor @Published var lastFocusPoint: CGPoint?
-    @MainActor @Published var recordingTimeString = "0:00"
-    @MainActor @Published var recordingPulse = false
-    @MainActor @Published var showingError = false
+    @Published var isSessionReady = false
+    @Published var isRecording = false
+    @Published var currentZoom: CGFloat = 1.0
+    @Published var showGrid = false
+    @Published var flashMode: AVCaptureDevice.FlashMode = .off
+    @Published var lastFocusPoint: CGPoint?
+    @Published var recordingTimeString = "0:00"
+    @Published var recordingPulse = false
+    @Published var showingError = false
     /// True when the current error is recoverable by opening the system Settings app
     /// (e.g., camera/microphone permission was denied). Drives the "Open Settings"
     /// button on the error alert.
-    @MainActor @Published var errorNeedsSettings = false
-    @MainActor @Published var currentError: String?
-    @MainActor @Published var isFatalError = false
-    @MainActor @Published var recordedVideoURL: URL?
-    @MainActor @Published var settings: VideoRecordingSettings
+    @Published var errorNeedsSettings = false
+    @Published var currentError: String?
+    @Published var isFatalError = false
+    @Published var recordedVideoURL: URL?
+    @Published var settings: VideoRecordingSettings
 
     // MARK: - AVFoundation Properties
 
@@ -49,20 +49,20 @@ class CameraViewModel: NSObject, ObservableObject {
     private var recordingStartTime: Date?
     private var recordingTimer: Timer?
     private var pulseTimer: Timer?
-    private var sessionQueue = DispatchQueue(label: "com.playerpath.camera")
+    private let sessionQueue = DispatchQueue(label: "com.playerpath.camera")
     private var orientationObserver: NSObjectProtocol?
     private var interruptionObserver: NSObjectProtocol?
     private var interruptionEndObserver: NSObjectProtocol?
     private var hasShownTimeWarning = false
-    @MainActor private var stoppingRecording = false
-    @MainActor @Published var currentOrientation: UIDeviceOrientation = .portrait
+    private var stoppingRecording = false
+    @Published var currentOrientation: UIDeviceOrientation = .portrait
 
     var minZoom: CGFloat = 1.0
     var maxZoom: CGFloat = 10.0
     private var zoomGestureBase: CGFloat = 1.0  // Zoom captured at gesture start
     private var focusTask: Task<Void, Never>?
     private var startupTask: Task<Void, Never>?
-    @MainActor private var hasStartedSession = false
+    private var hasStartedSession = false
 
     // MARK: - Constants
 
@@ -287,7 +287,16 @@ class CameraViewModel: NSObject, ObservableObject {
             forName: AVCaptureSession.interruptionEndedNotification,
             object: captureSession,
             queue: .main
-        ) { _ in
+        ) { [weak self] _ in
+            // AVFoundation requires an explicit `startRunning()` to resume
+            // after an interruption — the session does not auto-recover.
+            guard let self else { return }
+            self.sessionQueue.async { [weak self] in
+                guard let self else { return }
+                if !self.captureSession.isRunning {
+                    self.captureSession.startRunning()
+                }
+            }
         }
     }
 
@@ -607,6 +616,7 @@ class CameraViewModel: NSObject, ObservableObject {
 
         currentCameraPosition = currentCameraPosition == .back ? .front : .back
         zoomGestureBase = 1.0
+        currentZoom = 1.0
 
         let targetFrameRate = settings.frameRate.fps
 

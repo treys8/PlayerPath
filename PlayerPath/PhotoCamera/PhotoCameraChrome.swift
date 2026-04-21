@@ -125,11 +125,35 @@ struct PhotoFlashButton: View {
     @ObservedObject var viewModel: PhotoCameraViewModel
 
     var body: some View {
+        // Front cameras on iPhone report `supportedFlashModes = [.off]`, so
+        // tapping flash on the selfie camera would silently do nothing. Hide
+        // the control entirely on front to avoid the misleading tap.
+        if viewModel.cameraPosition == .back {
+            PhotoChromeIconButton(
+                icon: photoFlashIconName(viewModel.flashMode),
+                highlighted: viewModel.flashMode == .on,
+                action: { viewModel.toggleFlash() }
+            )
+        }
+    }
+}
+
+// MARK: - Grid
+
+struct PhotoGridButton: View {
+    @ObservedObject var viewModel: PhotoCameraViewModel
+
+    var body: some View {
         PhotoChromeIconButton(
-            icon: photoFlashIconName(viewModel.flashMode),
-            highlighted: viewModel.flashMode == .on,
-            action: { viewModel.toggleFlash() }
+            icon: "square.grid.3x3",
+            highlighted: viewModel.showGrid,
+            action: {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    viewModel.showGrid.toggle()
+                }
+            }
         )
+        .accessibilityLabel(viewModel.showGrid ? "Hide Grid" : "Show Grid")
     }
 }
 

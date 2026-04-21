@@ -48,6 +48,13 @@ struct PhotoCameraLayout: View {
                         }
                 )
 
+            if viewModel.showGrid {
+                GridOverlayView()
+                    .ignoresSafeArea()
+                    .allowsHitTesting(false)
+                    .transition(.opacity)
+            }
+
             if let focusPoint = viewModel.lastFocusPoint {
                 PhotoFocusReticle(point: focusPoint)
                     .id("\(focusPoint.x),\(focusPoint.y)")
@@ -65,10 +72,11 @@ struct PhotoCameraLayout: View {
 
     private var portraitControls: some View {
         VStack(spacing: 0) {
-            // Top: cancel left, flash right
-            HStack {
+            // Top: cancel left; grid + flash right. Flash hides on front camera.
+            HStack(spacing: 12) {
                 PhotoCancelButton(action: onCancel)
                 Spacer()
+                PhotoGridButton(viewModel: viewModel)
                 PhotoFlashButton(viewModel: viewModel)
             }
             .padding(.horizontal, 20)
@@ -99,9 +107,11 @@ struct PhotoCameraLayout: View {
 
     private var landscapeControls: some View {
         HStack(spacing: 0) {
-            // Left: cancel + flash clustered at top (matches portrait's top bar).
+            // Left: cancel + grid + flash clustered at top (matches portrait's
+            // top bar). Flash hides on front camera.
             VStack(spacing: 12) {
                 PhotoCancelButton(action: onCancel)
+                PhotoGridButton(viewModel: viewModel)
                 PhotoFlashButton(viewModel: viewModel)
                 Spacer()
             }

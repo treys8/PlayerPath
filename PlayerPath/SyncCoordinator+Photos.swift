@@ -133,41 +133,50 @@ extension SyncCoordinator {
                 context.insert(newPhoto)
 
                 // Download the image file in the background if not already present.
-                // Task self-removes on completion.
+                // Outer Task inherits @MainActor; CPU-bound thumbnail work is offloaded
+                // to a detached utility-priority task to keep the main thread responsive.
                 let taskID = UUID()
                 let photoRef = newPhoto
+                let resolvedPath = newPhoto.resolvedFilePath
+                let photoID = newPhoto.id
                 pendingDownloadTasks[taskID] = Task { [weak self] in
                     do {
-                        try await VideoCloudManager.shared.downloadPhoto(from: downloadURL, to: photoRef.resolvedFilePath)
-                        // Generate aspect-preserving thumbnail via CGImageSource (max 600px).
-                        let photoURL = URL(fileURLWithPath: photoRef.resolvedFilePath)
-                        if let source = CGImageSourceCreateWithURL(photoURL as CFURL, nil) {
+                        try await VideoCloudManager.shared.downloadPhoto(from: downloadURL, to: resolvedPath)
+                        // Generate aspect-preserving thumbnail via CGImageSource (max 600px)
+                        // off the main actor — CGImageSource decode + JPEG encode + disk write.
+                        let thumbRelPath = await Task.detached(priority: .utility) { () -> String? in
+                            let photoURL = URL(fileURLWithPath: resolvedPath)
+                            guard let source = CGImageSourceCreateWithURL(photoURL as CFURL, nil) else { return nil }
                             let options: [CFString: Any] = [
                                 kCGImageSourceThumbnailMaxPixelSize: 600,
                                 kCGImageSourceCreateThumbnailFromImageAlways: true,
                                 kCGImageSourceCreateThumbnailWithTransform: true
                             ]
-                            if let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary),
-                               let thumbData = UIImage(cgImage: cgImage).jpegData(compressionQuality: 0.7) {
-                                guard let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
-                                let thumbDir = documentsURL.appendingPathComponent("PhotoThumbnails", isDirectory: true)
-                                do {
-                                    try FileManager.default.createDirectory(at: thumbDir, withIntermediateDirectories: true)
-                                    let thumbPath = thumbDir.appendingPathComponent("thumb_\(photoRef.id.uuidString).jpg")
-                                    try thumbData.write(to: thumbPath, options: .atomic)
-                                    let relativeThumbPath = "PhotoThumbnails/thumb_\(photoRef.id.uuidString).jpg"
-                                    await MainActor.run { photoRef.thumbnailPath = relativeThumbPath }
-                                } catch {
-                                    syncLog.error("Failed to save photo thumbnail for \(photoRef.id): \(error.localizedDescription)")
-                                }
+                            guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary),
+                                  let thumbData = UIImage(cgImage: cgImage).jpegData(compressionQuality: 0.7),
+                                  let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
+                                return nil
                             }
+                            let thumbDir = documentsURL.appendingPathComponent("PhotoThumbnails", isDirectory: true)
+                            do {
+                                try FileManager.default.createDirectory(at: thumbDir, withIntermediateDirectories: true)
+                                let thumbPath = thumbDir.appendingPathComponent("thumb_\(photoID.uuidString).jpg")
+                                try thumbData.write(to: thumbPath, options: .atomic)
+                                return "PhotoThumbnails/thumb_\(photoID.uuidString).jpg"
+                            } catch {
+                                syncLog.error("Failed to save photo thumbnail for \(photoID): \(error.localizedDescription)")
+                                return nil
+                            }
+                        }.value
+                        if let thumbRelPath {
+                            photoRef.thumbnailPath = thumbRelPath
                         }
                     } catch {
                         // Mark for re-download on next sync so the photo doesn't remain as a ghost record
-                        syncLog.error("Failed to download photo \(photoRef.id): \(error.localizedDescription)")
-                        await MainActor.run { photoRef.needsSync = true }
+                        syncLog.error("Failed to download photo \(photoID): \(error.localizedDescription)")
+                        photoRef.needsSync = true
                     }
-                    await MainActor.run { _ = self?.pendingDownloadTasks.removeValue(forKey: taskID) }
+                    _ = self?.pendingDownloadTasks.removeValue(forKey: taskID)
                 }
             }
 

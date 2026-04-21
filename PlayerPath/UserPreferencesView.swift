@@ -7,19 +7,23 @@
 
 import SwiftUI
 import SwiftData
-import UIKit
 
 struct UserPreferencesView: View {
     @Environment(\.modelContext) private var modelContext
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @State private var viewModel = UserPreferencesViewModel()
 
+    // Haptics.swift and ThemeManager read these UserDefaults keys directly, so
+    // the view writes to them directly too — no SwiftData mirroring.
+    @AppStorage("hapticFeedbackEnabled") private var hapticFeedbackEnabled: Bool = true
+    @AppStorage("appTheme") private var appThemeRaw: String = AppTheme.system.rawValue
+
     private var isCoach: Bool { authManager.userRole == .coach }
 
     var body: some View {
         NavigationStack {
             Group {
-                if let prefs = viewModel.preferences {
+                if viewModel.preferences != nil {
                     Form {
                         if !isCoach {
                             videoRecordingSection()
@@ -28,7 +32,7 @@ struct UserPreferencesView: View {
                         }
                         uiPreferencesSection()
                         if !isCoach {
-                            cloudSyncSection(preferences: prefs)
+                            cloudSyncSection()
                         }
                         privacyAnalyticsSection()
                     }
@@ -88,13 +92,7 @@ struct UserPreferencesView: View {
                 set: { viewModel.update(\.saveToPhotosLibrary, to: $0) }
             ))
 
-            Toggle("Haptic Feedback", isOn: Binding(
-                get: { viewModel.preferences?.enableHapticFeedback ?? true },
-                set: {
-                    viewModel.update(\.enableHapticFeedback, to: $0)
-                    UserDefaults.standard.set($0, forKey: "hapticFeedbackEnabled")
-                }
-            ))
+            Toggle("Haptic Feedback", isOn: $hapticFeedbackEnabled)
         } header: {
             Text("Video Recording")
         } footer: {
@@ -106,13 +104,7 @@ struct UserPreferencesView: View {
 
     private func generalSection() -> some View {
         Section {
-            Toggle("Haptic Feedback", isOn: Binding(
-                get: { viewModel.preferences?.enableHapticFeedback ?? true },
-                set: {
-                    viewModel.update(\.enableHapticFeedback, to: $0)
-                    UserDefaults.standard.set($0, forKey: "hapticFeedbackEnabled")
-                }
-            ))
+            Toggle("Haptic Feedback", isOn: $hapticFeedbackEnabled)
         } header: {
             Text("General")
         }
@@ -121,10 +113,9 @@ struct UserPreferencesView: View {
     private func uiPreferencesSection() -> some View {
         Section {
             Picker("App Theme", selection: Binding<AppTheme>(
-                get: { viewModel.preferences?.preferredTheme ?? AppTheme.system },
+                get: { AppTheme(rawValue: appThemeRaw) ?? .system },
                 set: {
-                    viewModel.update(\.preferredTheme, to: $0)
-                    UserDefaults.standard.set($0.rawValue, forKey: "appTheme")
+                    appThemeRaw = $0.rawValue
                     ThemeManager.shared.reload()
                 }
             )) {
@@ -142,7 +133,7 @@ struct UserPreferencesView: View {
         }
     }
 
-    private func cloudSyncSection(preferences: UserPreferences) -> some View {
+    private func cloudSyncSection() -> some View {
         Section {
             Toggle("Sync Highlights Only", isOn: Binding(
                 get: { viewModel.preferences?.syncHighlightsOnly ?? false },
@@ -152,7 +143,7 @@ struct UserPreferencesView: View {
             HStack {
                 Text("Max File Size")
                 Spacer()
-                Text("\(preferences.maxVideoFileSize) MB")
+                Text("\(viewModel.preferences?.maxVideoFileSize ?? 500) MB")
                     .foregroundColor(.secondary)
             }
 

@@ -857,8 +857,6 @@ struct NotificationSettings {
 // MARK: - Notification Names for Navigation
 
 extension Notification.Name {
-    static let navigateToPremiumFeatures = Notification.Name("navigateToPremiumFeatures")
-    static let navigateToStatistics = Notification.Name("navigateToStatistics")
     static let navigateToCloudStorage = Notification.Name("navigateToCloudStorage")
     static let navigateToWeeklySummary = Notification.Name("navigateToWeeklySummary")
     static let startRecordingForGame = Notification.Name("startRecordingForGame")

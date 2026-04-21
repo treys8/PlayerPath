@@ -24,6 +24,12 @@ struct VideoMetadata: Sendable {
         }
         return String(format: "%.1f MB", mb)
     }
+
+    var accessibilityDescription: String {
+        var parts = [formattedDuration, formattedFileSize]
+        if let resolution { parts.append(resolution) }
+        return parts.joined(separator: ", ")
+    }
 }
 
 struct VideoMetadataView: View {
@@ -38,7 +44,7 @@ struct VideoMetadataView: View {
             }
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Video info: \(metadata.formattedDuration), \(metadata.formattedFileSize)")
+        .accessibilityLabel("Video info: \(metadata.accessibilityDescription)")
     }
 }
 
