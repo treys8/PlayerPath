@@ -194,11 +194,9 @@ class CameraViewModel: NSObject, ObservableObject {
 
             self.captureSession.beginConfiguration()
 
-            // Set session preset based on quality
             if self.captureSession.canSetSessionPreset(qualityPreset) {
                 self.captureSession.sessionPreset = qualityPreset
             }
-
             self.setupCamera(targetFrameRate: targetFrameRate)
             self.setupAudio(audioEnabled: audioEnabled)
             self.setupOutput(stabilizationMode: stabilizationMode, codec: videoCodec)
@@ -380,7 +378,7 @@ class CameraViewModel: NSObject, ObservableObject {
         do {
             try camera.lockForConfiguration()
 
-            // Pick highest-resolution format that supports the target frame rate
+            // Pick highest-resolution format matching the target fps.
             let matchingFormats = camera.formats.filter { format in
                 format.videoSupportedFrameRateRanges.contains(where: { range in
                     range.minFrameRate <= Double(targetFrameRate) &&

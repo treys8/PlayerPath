@@ -308,7 +308,7 @@ service cloud.firestore {
                     && (!('annotationCount' in request.resource.data.diff(resource.data).affectedKeys())
                         || (request.resource.data.annotationCount is int
                             && request.resource.data.annotationCount >= 0
-                            && request.resource.data.annotationCount <= resource.data.annotationCount + 10));
+                            && request.resource.data.annotationCount <= resource.data.get('annotationCount', 0) + 10));
 
       // Delete: uploader can delete their own videos; folder members with delete permission
       allow delete: if isAuthenticated() && (

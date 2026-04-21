@@ -232,6 +232,7 @@ struct EditableProfileImageView: View {
     
     @State private var profileImage: UIImage?
     @State private var showingImagePicker = false
+    @State private var showingCameraCapture = false
     @State private var showingActionSheet = false
     @State private var imageSourceType: UIImagePickerController.SourceType = .photoLibrary
     @State private var isLoading = false
@@ -299,26 +300,35 @@ struct EditableProfileImageView: View {
         }
         .confirmationDialog("Change Profile Picture", isPresented: $showingActionSheet) {
             Button("Take Photo") {
-                if UIImagePickerController.isSourceTypeAvailable(.camera) {
-                    imageSourceType = .camera
+                if PhotoCameraAvailability.isCameraAvailable {
+                    showingCameraCapture = true
                 } else {
                     imageSourceType = .photoLibrary
+                    showingImagePicker = true
                 }
-                showingImagePicker = true
             }
-            
+
             Button("Choose from Library") {
                 imageSourceType = .photoLibrary
                 showingImagePicker = true
             }
-            
+
             if user.profileImagePath != nil {
                 Button("Remove Current Photo", role: .destructive) {
                     removeProfileImage()
                 }
             }
-            
+
             Button("Cancel", role: .cancel) { }
+        }
+        .fullScreenCover(isPresented: $showingCameraCapture) {
+            PhotoCameraView(
+                onPhotoCaptured: { image in
+                    saveProfileImage(image)
+                    showingCameraCapture = false
+                },
+                onCancel: { showingCameraCapture = false }
+            )
         }
         .sheet(isPresented: $showingImagePicker) {
             ImagePicker(sourceType: imageSourceType) { image in

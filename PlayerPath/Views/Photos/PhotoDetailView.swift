@@ -22,6 +22,14 @@ struct PhotoDetailView: View {
     @State private var captionText: String = ""
     @State private var scale: CGFloat = 1.0
     @State private var lastScale: CGFloat = 1.0
+    /// Separate from `scale`: `.fill` = photo crops to fill the screen (no
+    /// letterbox), `.fit` = photo letterboxes to show every pixel. Double-tap
+    /// toggles between these two — pinch only adjusts zoom on top.
+    @State private var photoContentMode: ContentMode = .fill
+    /// Pan offset when the photo is zoomed in. Reset to `.zero` any time
+    /// scale returns to 1× so the next zoom-in starts centered.
+    @State private var offset: CGSize = .zero
+    @State private var lastOffset: CGSize = .zero
     @State private var showingSavedToast = false
     @State private var saveError: String?
 
@@ -32,37 +40,68 @@ struct PhotoDetailView: View {
             Color.black.ignoresSafeArea()
 
             if let fullImage {
-                Image(uiImage: fullImage)
-                    .resizable()
-                    .scaledToFit()
-                    .scaleEffect(scale)
-                    .gesture(
-                        MagnificationGesture()
-                            .onChanged { value in
-                                scale = lastScale * value
-                            }
-                            .onEnded { value in
-                                lastScale = scale
-                                // Snap back if zoomed out too far
-                                if scale < 1.0 {
-                                    withAnimation(.spring(response: 0.3)) {
-                                        scale = 1.0
-                                        lastScale = 1.0
+                // Fill the screen by default (no letterbox). Double-tap toggles
+                // fit (see the whole photo, letterboxed) vs fill (cropped). Pinch
+                // adjusts zoom from 1× to 5× on top of whichever mode is active.
+                // Drag pans when zoomed in.
+                GeometryReader { geometry in
+                    Image(uiImage: fullImage)
+                        .resizable()
+                        .aspectRatio(contentMode: photoContentMode)
+                        .scaleEffect(scale)
+                        .offset(offset)
+                        .frame(width: geometry.size.width, height: geometry.size.height)
+                        .clipped()
+                        .contentShape(Rectangle())
+                        .gesture(
+                            MagnificationGesture()
+                                .onChanged { value in
+                                    scale = min(5.0, max(1.0, lastScale * value))
+                                }
+                                .onEnded { _ in
+                                    lastScale = scale
+                                    if scale == 1.0 {
+                                        // Zoomed back to default — drop any pan
+                                        // so the next zoom starts centered.
+                                        withAnimation(.spring(response: 0.3)) {
+                                            offset = .zero
+                                            lastOffset = .zero
+                                        }
                                     }
                                 }
-                            }
-                    )
-                    .onTapGesture(count: 2) {
-                        withAnimation(.spring(response: 0.3)) {
-                            if scale > 1.0 {
-                                scale = 1.0
-                                lastScale = 1.0
-                            } else {
-                                scale = 2.5
-                                lastScale = 2.5
+                        )
+                        .simultaneousGesture(
+                            DragGesture()
+                                .onChanged { value in
+                                    // Pan only when zoomed in; at 1× a drag
+                                    // would uselessly shove a screen-filling
+                                    // image around empty canvas.
+                                    guard scale > 1.0 else { return }
+                                    let proposed = CGSize(
+                                        width: lastOffset.width + value.translation.width,
+                                        height: lastOffset.height + value.translation.height
+                                    )
+                                    offset = clampOffset(proposed, scale: scale, in: geometry.size)
+                                }
+                                .onEnded { _ in
+                                    lastOffset = offset
+                                }
+                        )
+                        .onTapGesture(count: 2) {
+                            withAnimation(.spring(response: 0.3)) {
+                                if scale > 1.0 {
+                                    // Zoomed in → reset to default zoom + pan.
+                                    scale = 1.0
+                                    lastScale = 1.0
+                                    offset = .zero
+                                    lastOffset = .zero
+                                } else {
+                                    // At default zoom → toggle fit/fill.
+                                    photoContentMode = photoContentMode == .fill ? .fit : .fill
+                                }
                             }
                         }
-                    }
+                }
             } else if loadFailed {
                 VStack(spacing: 8) {
                     Image(systemName: photo.cloudURL != nil ? "icloud.and.arrow.down" : "photo")
@@ -173,6 +212,10 @@ struct PhotoDetailView: View {
 
     @ViewBuilder
     private var metadataOverlay: some View {
+        // Modifier order is intentional: padding → frame(maxWidth: .infinity)
+        // → background. Putting padding AFTER the infinity frame expands the
+        // view past the container by 2×padding.horizontal, which clips content
+        // on the leading edge (e.g. "Apr " disappearing from the date label).
         VStack(alignment: .leading, spacing: 6) {
             if let caption = photo.caption, !caption.isEmpty {
                 Text(caption)
@@ -192,12 +235,27 @@ struct PhotoDetailView: View {
                 }
             }
             .font(.caption)
-            .foregroundColor(.white.opacity(0.7))
+            .foregroundColor(.white.opacity(0.85))
         }
+        .padding(.horizontal, 16)
+        .padding(.top, 14)
+        .padding(.bottom, 20)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding()
-        .background(
-            LinearGradient(colors: [.clear, .black.opacity(0.6)], startPoint: .top, endPoint: .bottom)
+        .background(.ultraThinMaterial)
+        .environment(\.colorScheme, .dark)
+    }
+
+    /// Clamps a proposed pan offset so the zoomed image's edges can't be
+    /// dragged past the corresponding screen edges. The extra-per-side is
+    /// `(scale - 1) * viewport / 2` in each dimension, assuming the image's
+    /// base size at scale 1× is at least the viewport (true for `.fill`; for
+    /// `.fit` the bound is tighter but this cap is safe and intuitive).
+    private func clampOffset(_ proposed: CGSize, scale: CGFloat, in viewport: CGSize) -> CGSize {
+        let maxX = max(0, (scale - 1) * viewport.width / 2)
+        let maxY = max(0, (scale - 1) * viewport.height / 2)
+        return CGSize(
+            width: min(maxX, max(-maxX, proposed.width)),
+            height: min(maxY, max(-maxY, proposed.height))
         )
     }
 
@@ -215,7 +273,7 @@ struct PhotoDetailView: View {
                     return
                 }
             } catch {
-                // Download failed — fall through to loadFailed
+                ErrorHandlerService.shared.handle(error, context: "PhotoDetail.downloadPhoto", showAlert: false)
             }
         }
         loadFailed = true

@@ -379,10 +379,13 @@ struct GameDetailView: View {
             EditGameSheet(game: game)
         }
         .fullScreenCover(isPresented: $showingPhotoCamera) {
-            ImagePicker(sourceType: .camera, allowsEditing: false) { image in
-                saveGamePhoto(image)
-            }
-            .ignoresSafeArea()
+            PhotoCameraView(
+                onPhotoCaptured: { image in
+                    saveGamePhoto(image)
+                    showingPhotoCamera = false
+                },
+                onCancel: { showingPhotoCamera = false }
+            )
         }
         .fullScreenCover(isPresented: $showingPhotoLibrary) {
             ImagePicker(sourceType: .photoLibrary, allowsEditing: false) { image in
@@ -397,8 +400,10 @@ struct GameDetailView: View {
 
     private var addPhotoMenu: some View {
         Menu {
-            Button(action: { showingPhotoCamera = true }) {
-                Label("Take Photo", systemImage: "camera")
+            if PhotoCameraAvailability.isCameraAvailable {
+                Button(action: { showingPhotoCamera = true }) {
+                    Label("Take Photo", systemImage: "camera")
+                }
             }
             Button(action: { showingPhotoLibrary = true }) {
                 Label("Choose from Library", systemImage: "photo.on.rectangle")
@@ -510,16 +515,18 @@ private struct GamePhotoRow: View {
                 return
             }
         }
-        let url = URL(fileURLWithPath: photo.resolvedFilePath) as CFURL
-        if let source = CGImageSourceCreateWithURL(url, nil) {
+        let path = photo.resolvedFilePath
+        let image = await Task.detached(priority: .userInitiated) { () -> UIImage? in
+            let url = URL(fileURLWithPath: path) as CFURL
+            guard let source = CGImageSourceCreateWithURL(url, nil) else { return nil }
             let options: [CFString: Any] = [
                 kCGImageSourceThumbnailMaxPixelSize: 150,
                 kCGImageSourceCreateThumbnailFromImageAlways: true,
                 kCGImageSourceCreateThumbnailWithTransform: true
             ]
-            if let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) {
-                thumbnail = UIImage(cgImage: cgImage)
-            }
-        }
+            guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
+            return UIImage(cgImage: cgImage)
+        }.value
+        thumbnail = image
     }
 }

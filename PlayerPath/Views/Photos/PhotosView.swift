@@ -169,8 +169,10 @@ struct PhotosView: View {
             filterSheet
         }
         .confirmationDialog("Add Photo", isPresented: $showingSourcePicker) {
-            Button("Take Photo") {
-                showingCamera = true
+            if PhotoCameraAvailability.isCameraAvailable {
+                Button("Take Photo") {
+                    showingCamera = true
+                }
             }
             Button("Choose from Library") {
                 showingLibraryPicker = true
@@ -178,10 +180,13 @@ struct PhotosView: View {
             Button("Cancel", role: .cancel) { }
         }
         .fullScreenCover(isPresented: $showingCamera) {
-            ImagePicker(sourceType: .camera, allowsEditing: false) { image in
-                savePhoto(image)
-            }
-            .ignoresSafeArea()
+            PhotoCameraView(
+                onPhotoCaptured: { image in
+                    savePhoto(image)
+                    showingCamera = false
+                },
+                onCancel: { showingCamera = false }
+            )
         }
         .photosPicker(
             isPresented: $showingLibraryPicker,
@@ -357,7 +362,11 @@ struct PhotosView: View {
 
     private func refreshPhotos() async {
         if let user = athlete.user {
-            try? await SyncCoordinator.shared.syncPhotos(for: user)
+            do {
+                try await SyncCoordinator.shared.syncPhotos(for: user)
+            } catch {
+                ErrorHandlerService.shared.handle(error, context: "PhotosView.refreshPhotos", showAlert: false)
+            }
         }
         updatePhotosCache()
     }
