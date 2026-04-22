@@ -49,11 +49,18 @@ struct AllVideosTabView: View {
     var hasMoreVideos: Bool = false
     var errorMessage: String? = nil
     var unreadVideoIDs: Set<String> = []
+    var targetVideoID: String? = nil
     let onRefresh: () async -> Void
     var onLoadMore: (() async -> Void)?
     var onEditTags: ((CoachVideoItem) -> Void)?
 
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+    /// The row ID currently pulsing with a highlight after deep-link scroll.
+    @State private var highlightedVideoID: String?
+    /// Remembers which target we've already highlighted so returning from the
+    /// video player doesn't re-pulse the card.
+    @State private var handledTargetID: String?
 
     private var videoGridColumns: [GridItem] {
         if horizontalSizeClass == .regular {
@@ -81,43 +88,70 @@ struct AllVideosTabView: View {
                     message: "Videos will appear here once you or the athlete uploads them."
                 )
             } else {
-                ScrollView {
-                    LazyVGrid(columns: videoGridColumns, spacing: 16) {
-                        ForEach(videos) { video in
-                            videoNavigationLink(folder: folder, video: video)
-                        }
-
-                        if hasMoreVideos {
-                            Button {
-                                Task { await onLoadMore?() }
-                            } label: {
-                                if isLoadingMore {
-                                    ProgressView()
-                                        .frame(maxWidth: .infinity)
-                                        .padding()
-                                } else {
-                                    Text("Load More Videos")
-                                        .font(.subheadline.weight(.medium))
-                                        .foregroundColor(.brandNavy)
-                                        .frame(maxWidth: .infinity)
-                                        .padding()
-                                }
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVGrid(columns: videoGridColumns, spacing: 16) {
+                            ForEach(videos) { video in
+                                videoNavigationLink(folder: folder, video: video)
+                                    .id(video.id)
                             }
-                            .disabled(isLoadingMore)
+
+                            if hasMoreVideos {
+                                Button {
+                                    Task { await onLoadMore?() }
+                                } label: {
+                                    if isLoadingMore {
+                                        ProgressView()
+                                            .frame(maxWidth: .infinity)
+                                            .padding()
+                                    } else {
+                                        Text("Load More Videos")
+                                            .font(.subheadline.weight(.medium))
+                                            .foregroundColor(.brandNavy)
+                                            .frame(maxWidth: .infinity)
+                                            .padding()
+                                    }
+                                }
+                                .disabled(isLoadingMore)
+                            }
                         }
+                        .padding(.vertical)
+                        .padding(.horizontal, horizontalSizeClass == .regular ? 32 : 16)
                     }
-                    .padding(.vertical)
-                    .padding(.horizontal, horizontalSizeClass == .regular ? 32 : 16)
+                    .refreshable { await onRefresh() }
+                    .onAppear { scrollToTargetIfNeeded(proxy: proxy) }
+                    .onChange(of: videos.map(\.id)) { _, _ in
+                        scrollToTargetIfNeeded(proxy: proxy)
+                    }
                 }
-                .refreshable { await onRefresh() }
             }
+        }
+    }
+
+    private func scrollToTargetIfNeeded(proxy: ScrollViewProxy) {
+        guard let target = targetVideoID,
+              handledTargetID != target,
+              videos.contains(where: { $0.id == target })
+        else { return }
+        handledTargetID = target
+        withAnimation(.easeInOut(duration: 0.35)) {
+            proxy.scrollTo(target, anchor: .center)
+            highlightedVideoID = target
+        }
+        Task {
+            try? await Task.sleep(nanoseconds: 1_400_000_000)
+            await MainActor.run { highlightedVideoID = nil }
         }
     }
 
     @ViewBuilder
     private func videoNavigationLink(folder: SharedFolder, video: CoachVideoItem) -> some View {
         let link = NavigationLink(destination: CoachVideoPlayerView(folder: folder, video: video)) {
-            CoachVideoCard(video: video, isUnread: unreadVideoIDs.contains(video.id))
+            CoachVideoCard(
+                video: video,
+                isUnread: unreadVideoIDs.contains(video.id),
+                isHighlighted: highlightedVideoID == video.id
+            )
         }
         .buttonStyle(PressableCardButtonStyle())
 
@@ -140,6 +174,7 @@ struct AllVideosTabView: View {
 struct CoachVideoCard: View {
     let video: CoachVideoItem
     var isUnread: Bool = false
+    var isHighlighted: Bool = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -244,6 +279,11 @@ struct CoachVideoCard: View {
         .clipShape(RoundedRectangle(cornerRadius: .cornerLarge, style: .continuous))
         .shadow(color: .black.opacity(0.08), radius: 12, x: 0, y: 4)
         .shadow(color: .black.opacity(0.04), radius: 2, x: 0, y: 1)
+        .overlay(
+            RoundedRectangle(cornerRadius: .cornerLarge, style: .continuous)
+                .stroke(Color.brandNavy.opacity(isHighlighted ? 0.9 : 0), lineWidth: 3)
+        )
+        .animation(.easeInOut(duration: 0.45), value: isHighlighted)
     }
 }
 

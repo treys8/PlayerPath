@@ -69,6 +69,10 @@ struct NotificationInboxView: View {
 private struct NotificationInboxRow: View {
     let notification: ActivityNotification
 
+    private var iconColor: Color {
+        ActivityNotificationRouter.iconColor(for: notification.type)
+    }
+
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             Image(systemName: ActivityNotificationRouter.iconName(for: notification.type))
@@ -111,15 +115,4 @@ private struct NotificationInboxRow: View {
         .contentShape(Rectangle())
     }
 
-    private var iconColor: Color {
-        switch notification.type {
-        case .newVideo:           return .brandNavy
-        case .coachComment:       return .green
-        case .invitationReceived: return .indigo
-        case .invitationAccepted: return .green
-        case .accessRevoked:      return .orange
-        case .accessLapsed:       return .yellow
-        case .uploadFailed:       return .red
-        }
-    }
 }

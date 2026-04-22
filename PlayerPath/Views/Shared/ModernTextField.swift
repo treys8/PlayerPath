@@ -163,64 +163,6 @@ struct ModernTextField: View {
     }
 }
 
-// MARK: - Modern Text Field with Label
-
-struct LabeledModernTextField: View {
-    let label: String
-    let placeholder: String
-    @Binding var text: String
-    var icon: String? = nil
-    var isSecure: Bool = false
-    var keyboardType: UIKeyboardType = .default
-    var textContentType: UITextContentType? = nil
-    var autocapitalization: TextInputAutocapitalization = .sentences
-    var validationState: FieldValidationState = .idle
-    var validationMessage: String? = nil
-    var submitLabel: SubmitLabel = .return
-    var onSubmit: (() -> Void)? = nil
-    var focusedBinding: FocusState<Bool>.Binding? = nil
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            // Label
-            Text(label)
-                .font(.subheadline)
-                .fontWeight(.medium)
-                .foregroundColor(.secondary)
-
-            // Text field
-            ModernTextField(
-                placeholder: placeholder,
-                text: $text,
-                icon: icon,
-                isSecure: isSecure,
-                keyboardType: keyboardType,
-                textContentType: textContentType,
-                autocapitalization: autocapitalization,
-                validationState: validationState,
-                submitLabel: submitLabel,
-                onSubmit: onSubmit,
-                focusedBinding: focusedBinding
-            )
-
-            // Validation message
-            if let message = validationMessage, !text.isEmpty {
-                HStack(spacing: 4) {
-                    if let iconName = validationState.iconName {
-                        Image(systemName: iconName)
-                            .font(.caption2)
-                    }
-                    Text(message)
-                        .font(.caption)
-                }
-                .foregroundColor(validationState.iconColor)
-                .transition(.move(edge: .top).combined(with: .opacity))
-                .animation(.easeInOut(duration: 0.2), value: validationMessage)
-            }
-        }
-    }
-}
-
 // MARK: - Password Strength Indicator
 
 struct PasswordStrengthIndicator: View {
@@ -323,19 +265,6 @@ struct PasswordRequirementsList: View {
             validationState: .warning
         )
     }
-    .padding()
-}
-
-#Preview("Labeled Field") {
-    LabeledModernTextField(
-        label: "Email",
-        placeholder: "you@example.com",
-        text: .constant("test@example.com"),
-        icon: "envelope.fill",
-        keyboardType: .emailAddress,
-        validationState: .valid,
-        validationMessage: "Valid email address"
-    )
     .padding()
 }
 

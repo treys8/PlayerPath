@@ -171,9 +171,9 @@ struct UserMainFlow: View {
                 }
                 if let banner = activityNotifService.incomingBanner {
                     ActivityNotificationBanner(notification: banner, onDismiss: {
-                        if let notifID = banner.id, let userID = authManager.userID {
-                            Task { await activityNotifService.markRead(notifID, forUserID: userID) }
-                        }
+                        // Banner dismissal (tap, X, or auto-timeout) does NOT mark the
+                        // notification as read. Read state flips only on inbox row tap
+                        // or when the athlete opens the specific video.
                         activityNotifService.dismissBanner()
                     }, onTap: {
                         handleActivityNotificationTap(banner)

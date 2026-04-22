@@ -856,6 +856,10 @@ export const onNewAnnotation = functions.firestore
     if (!videoDoc.exists) return;
     const video = videoDoc.data()!;
 
+    // Draft annotations on still-private coach clips must not page the athlete;
+    // onVideoPublished sends a single cohesive push when the clip is shared.
+    if (video.visibility === 'private') return;
+
     const authorRole = annotation.isCoachComment === true ? 'coach' : 'athlete';
     const recipients = await resolveFeedbackRecipients(
       video,
@@ -973,6 +977,10 @@ export const onNewDrillCard = functions.firestore
     const videoDoc = await admin.firestore().collection('videos').doc(videoId).get();
     if (!videoDoc.exists) return;
     const video = videoDoc.data()!;
+
+    // Draft drill cards on still-private coach clips must not page the athlete;
+    // onVideoPublished sends a single cohesive push when the clip is shared.
+    if (video.visibility === 'private') return;
 
     if (!video.sharedFolderID) return;
 

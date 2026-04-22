@@ -2,8 +2,11 @@
 //  ClipReviewSheet.swift
 //  PlayerPath
 //
-//  Review sheet for a single coach clip in the Needs Review tab.
-//  Lets the coach watch the clip, add notes, then share or discard.
+//  Unified review sheet for a coach-owned private clip. Coach can draft
+//  notes, drill cards, and telestration drawings in one pass, then
+//  "Share Now" (atomic publish) or "Save for Later" (keep private).
+//  Drafts persist on the private clip; the athlete only sees anything
+//  once the clip is published.
 //
 
 import SwiftUI
@@ -15,11 +18,13 @@ struct ClipReviewSheet: View {
     let folder: SharedFolder
     var onShared: (() -> Void)?
     var onDiscarded: (() -> Void)?
+    var onSavedDraft: (() -> Void)?
 
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @Environment(\.dismiss) private var dismiss
     @State private var notes: String
     @State private var isPublishing = false
+    @State private var isSavingDraft = false
     @State private var isDiscarding = false
     @State private var showingDiscardConfirmation = false
     @State private var errorMessage: String?
@@ -32,6 +37,16 @@ struct ClipReviewSheet: View {
 
     // Telestration
     @State private var showingTelestration = false
+    @State private var telestrationFrameImage: UIImage?
+    @State private var isPreparingTelestration = false
+
+    // Drafts (drill cards + drawings attached to the still-private clip)
+    @State private var drillCards: [DrillCard] = []
+    @State private var drawingAnnotations: [VideoAnnotation] = []
+    @State private var isLoadingDrafts = false
+    @State private var showingDrillEditor = false
+    @State private var drillExpanded = false
+    @State private var telestrationExpanded = false
 
     private var currentPlaybackTime: Double {
         player?.currentTime().seconds ?? 0
@@ -39,18 +54,75 @@ struct ClipReviewSheet: View {
 
     private var folderID: String { folder.id ?? "" }
 
-    init(video: CoachVideoItem, folder: SharedFolder, onShared: (() -> Void)? = nil, onDiscarded: (() -> Void)? = nil) {
+    private var hasDrafts: Bool {
+        !drillCards.isEmpty || !drawingAnnotations.isEmpty
+    }
+
+    private var trimmedNotes: String {
+        notes.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var notesDirty: Bool {
+        trimmedNotes != (video.notes?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "")
+    }
+
+    init(
+        video: CoachVideoItem,
+        folder: SharedFolder,
+        onShared: (() -> Void)? = nil,
+        onDiscarded: (() -> Void)? = nil,
+        onSavedDraft: (() -> Void)? = nil
+    ) {
         self.video = video
         self.folder = folder
         self.onShared = onShared
         self.onDiscarded = onDiscarded
+        self.onSavedDraft = onSavedDraft
         self._notes = State(initialValue: video.notes ?? "")
     }
 
     var body: some View {
-        ZStack {
-            navigationContent
-            telestrationOverlay
+        navigationContent
+            .fullScreenCover(isPresented: $showingTelestration, onDismiss: {
+                telestrationFrameImage = nil
+            }) {
+                TelestrationOverlayView(
+                    timestamp: currentPlaybackTime,
+                    videoAspectRatio: videoAspectRatio,
+                    onSave: { drawing, timestamp, canvasSize in
+                        guard let userID = authManager.userID,
+                              let userName = authManager.userDisplayName ?? authManager.userEmail else { return false }
+                        let saved = await saveDrawing(
+                            drawing: drawing,
+                            timestamp: timestamp,
+                            canvasSize: canvasSize,
+                            userID: userID,
+                            userName: userName
+                        )
+                        if saved { showingTelestration = false }
+                        return saved
+                    },
+                    onCancel: { showingTelestration = false },
+                    frameImage: telestrationFrameImage
+                )
+            }
+            .sheet(isPresented: $showingDrillEditor) {
+                drillEditorSheet
+            }
+    }
+
+    @ViewBuilder
+    private var drillEditorSheet: some View {
+        if let coachID = authManager.userID {
+            DrillCardView(
+                videoID: video.id,
+                coachID: coachID,
+                coachName: authManager.userDisplayName ?? authManager.userEmail ?? "Coach",
+                onSave: { card in
+                    drillCards.insert(card, at: 0)
+                    drillExpanded = true
+                }
+            )
         }
     }
 
@@ -59,34 +131,26 @@ struct ClipReviewSheet: View {
             VStack(spacing: 0) {
                 ScrollView {
                     VStack(spacing: 16) {
-                        // Video player
                         videoPlayerSection
 
-                        // Notes
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Instruction Notes")
-                                .font(.subheadline)
-                                .fontWeight(.semibold)
-                                .foregroundColor(.secondary)
+                        notesSection
 
-                            TextField("What should the athlete focus on?", text: $notes, axis: .vertical)
-                                .lineLimit(4...8)
-                                .textFieldStyle(.roundedBorder)
-                                .onChange(of: notes) { _, new in
-                                    if new.count > CoachNoteLimits.plainNoteCharLimit {
-                                        notes = String(new.prefix(CoachNoteLimits.plainNoteCharLimit))
-                                    }
-                                }
-                            HStack {
-                                Spacer()
-                                Text("\(notes.count)/\(CoachNoteLimits.plainNoteCharLimit)")
-                                    .font(.caption2)
-                                    .foregroundColor(notes.count >= CoachNoteLimits.plainNoteCharLimit ? .red : .secondary)
-                            }
-                        }
-                        .padding(.horizontal)
+                        ClipReviewDrillSection(
+                            drillCards: drillCards,
+                            isLoading: isLoadingDrafts,
+                            isExpanded: $drillExpanded,
+                            onAdd: { showingDrillEditor = true }
+                        )
 
-                        // Info
+                        ClipReviewTelestrationSection(
+                            drawings: drawingAnnotations,
+                            isLoading: isLoadingDrafts,
+                            isStartingTelestration: isPreparingTelestration,
+                            canStart: player != nil && !isLoadingVideo,
+                            isExpanded: $telestrationExpanded,
+                            onStartDrawing: { startTelestration() }
+                        )
+
                         if video.createdAt != nil || (video.fileSize ?? 0) > 0 {
                             VStack(spacing: 0) {
                                 if let createdAt = video.createdAt {
@@ -102,47 +166,17 @@ struct ClipReviewSheet: View {
                             .padding(.horizontal)
                         }
                     }
+                    .padding(.bottom, 8)
                 }
 
-                // Actions pinned to bottom
-                VStack(spacing: 12) {
-                    Button {
-                        shareClip()
-                    } label: {
-                        HStack {
-                            if isPublishing {
-                                ProgressView()
-                                    .controlSize(.small)
-                                    .tint(.white)
-                            }
-                            Label("Share with Athlete", systemImage: "paperplane.fill")
-                                .fontWeight(.semibold)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 50)
-                        .background(Color.brandNavy)
-                        .foregroundColor(.white)
-                        .cornerRadius(12)
-                    }
-                    .disabled(isPublishing || isDiscarding)
-
-                    Button(role: .destructive) {
-                        showingDiscardConfirmation = true
-                    } label: {
-                        HStack {
-                            if isDiscarding {
-                                ProgressView()
-                                    .controlSize(.small)
-                            }
-                            Label("Discard Clip", systemImage: "trash")
-                        }
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 44)
-                    }
-                    .disabled(isPublishing || isDiscarding)
-                }
-                .padding(.horizontal)
-                .padding(.bottom, 8)
+                ClipReviewPublishBar(
+                    isPublishing: isPublishing,
+                    isSavingDraft: isSavingDraft,
+                    isDiscarding: isDiscarding,
+                    onShareNow: { shareNow() },
+                    onSaveForLater: { saveForLater() },
+                    onDiscard: { showingDiscardConfirmation = true }
+                )
             }
             .background(Color(.systemGroupedBackground))
             .navigationTitle("Review Clip")
@@ -151,23 +185,12 @@ struct ClipReviewSheet: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { dismiss() }
                 }
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        player?.pause()
-                        showingTelestration = true
-                    } label: {
-                        Image(systemName: "pencil.tip")
-                            .foregroundColor(.brandNavy)
-                    }
-                    .disabled(player == nil || isLoadingVideo)
-                    .accessibilityLabel("Draw on video frame")
-                }
             }
             .alert("Discard this clip?", isPresented: $showingDiscardConfirmation) {
                 Button("Discard", role: .destructive) { discardClip() }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("This clip will be permanently deleted.")
+                Text(discardMessage)
             }
             .alert("Something Went Wrong", isPresented: .init(
                 get: { errorMessage != nil },
@@ -178,13 +201,57 @@ struct ClipReviewSheet: View {
                 Text(errorMessage ?? "")
             }
             .task {
-                await loadVideo()
+                async let videoLoad: Void = loadVideo()
+                async let draftsLoad: Void = loadDrafts()
+                _ = await (videoLoad, draftsLoad)
             }
             .onDisappear {
                 player?.pause()
                 player = nil
             }
         }
+    }
+
+    private var discardMessage: String {
+        if !hasDrafts {
+            return "This clip will be permanently deleted."
+        }
+        var pieces: [String] = []
+        if !drillCards.isEmpty {
+            pieces.append(drillCards.count == 1 ? "your drill card" : "\(drillCards.count) drill cards")
+        }
+        if !drawingAnnotations.isEmpty {
+            pieces.append(drawingAnnotations.count == 1 ? "1 drawing" : "\(drawingAnnotations.count) drawings")
+        }
+        let tail = pieces.joined(separator: " and ")
+        return "This clip and \(tail) will be permanently deleted."
+    }
+
+    // MARK: - Notes Section
+
+    private var notesSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Instruction Notes")
+                .font(.subheadline)
+                .fontWeight(.semibold)
+                .foregroundColor(.secondary)
+
+            TextField("What should the athlete focus on?", text: $notes, axis: .vertical)
+                .lineLimit(4...8)
+                .textFieldStyle(.roundedBorder)
+                .onChange(of: notes) { _, new in
+                    if new.count > CoachNoteLimits.plainNoteCharLimit {
+                        notes = String(new.prefix(CoachNoteLimits.plainNoteCharLimit))
+                    }
+                }
+            HStack {
+                Spacer()
+                Text("\(notes.count)/\(CoachNoteLimits.plainNoteCharLimit)")
+                    .font(.caption2)
+                    .foregroundColor(notes.count >= CoachNoteLimits.plainNoteCharLimit ? .red : .secondary)
+            }
+        }
+        .padding(.horizontal)
     }
 
     // MARK: - Video Player
@@ -218,37 +285,10 @@ struct ClipReviewSheet: View {
                 EnhancedVideoPlayer(player: player, preloadedDuration: video.duration)
             }
         }
-        .aspectRatio(4/3, contentMode: .fit)
+        .aspectRatio(videoAspectRatio, contentMode: .fit)
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .padding(.horizontal)
         .padding(.top, 8)
-    }
-
-    @ViewBuilder
-    private var telestrationOverlay: some View {
-        if showingTelestration {
-            TelestrationOverlayView(
-                timestamp: currentPlaybackTime,
-                videoAspectRatio: videoAspectRatio,
-                onSave: { drawing, timestamp, canvasSize in
-                    guard let userID = authManager.userID,
-                          let userName = authManager.userDisplayName ?? authManager.userEmail else { return false }
-                    let saved = await saveDrawing(
-                        drawing: drawing,
-                        timestamp: timestamp,
-                        canvasSize: canvasSize,
-                        userID: userID,
-                        userName: userName
-                    )
-                    if saved { showingTelestration = false }
-                    return saved
-                },
-                onCancel: { showingTelestration = false }
-            )
-            .ignoresSafeArea()
-            .transition(.opacity)
-            .zIndex(1)
-        }
     }
 
     // MARK: - Info Row
@@ -302,7 +342,63 @@ struct ClipReviewSheet: View {
         isLoadingVideo = false
     }
 
+    // MARK: - Drafts Loading
+
+    @MainActor
+    private func loadDrafts() async {
+        let videoID = video.id
+        guard !videoID.isEmpty else { return }
+        isLoadingDrafts = true
+        defer { isLoadingDrafts = false }
+
+        async let cardsResult = FirestoreManager.shared.fetchDrillCards(forVideo: videoID)
+        async let annotationsResult = FirestoreManager.shared.fetchAnnotations(forVideo: videoID)
+
+        do {
+            drillCards = try await cardsResult
+        } catch {
+            ErrorHandlerService.shared.handle(error, context: "ClipReviewSheet.loadDrafts.drillCards", showAlert: false)
+        }
+
+        do {
+            let all = try await annotationsResult
+            drawingAnnotations = all.filter { $0.type == "drawing" }
+        } catch {
+            ErrorHandlerService.shared.handle(error, context: "ClipReviewSheet.loadDrafts.annotations", showAlert: false)
+        }
+    }
+
     // MARK: - Telestration
+
+    @MainActor
+    private func startTelestration() {
+        guard let player, !isPreparingTelestration else { return }
+        player.pause()
+        isPreparingTelestration = true
+        let captureTime = player.currentTime()
+        let asset = player.currentItem?.asset
+        Task {
+            let image = await captureFrame(from: asset, at: captureTime)
+            telestrationFrameImage = image
+            isPreparingTelestration = false
+            showingTelestration = true
+        }
+    }
+
+    private func captureFrame(from asset: AVAsset?, at time: CMTime) async -> UIImage? {
+        guard let asset else { return nil }
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.appliesPreferredTrackTransform = true
+        generator.requestedTimeToleranceBefore = .zero
+        generator.requestedTimeToleranceAfter = .zero
+        do {
+            let cgImage = try await generator.image(at: time).image
+            return UIImage(cgImage: cgImage)
+        } catch {
+            ErrorHandlerService.shared.handle(error, context: "ClipReviewSheet.captureFrame", showAlert: false)
+            return nil
+        }
+    }
 
     @MainActor
     private func saveDrawing(
@@ -323,7 +419,7 @@ struct ClipReviewSheet: View {
         guard !videoID.isEmpty else { return false }
 
         do {
-            _ = try await FirestoreManager.shared.createAnnotation(
+            let annotation = try await FirestoreManager.shared.createAnnotation(
                 videoID: videoID,
                 text: "Drawing annotation",
                 timestamp: timestamp,
@@ -335,6 +431,8 @@ struct ClipReviewSheet: View {
                 drawingCanvasWidth: canvasSize.width > 0 ? Double(canvasSize.width) : nil,
                 drawingCanvasHeight: canvasSize.height > 0 ? Double(canvasSize.height) : nil
             )
+            drawingAnnotations.append(annotation)
+            telestrationExpanded = true
             Haptics.success()
             return true
         } catch {
@@ -346,28 +444,58 @@ struct ClipReviewSheet: View {
 
     // MARK: - Actions
 
-    private func shareClip() {
+    private func shareNow() {
         let videoID = video.id
         isPublishing = true
 
         Task {
             do {
-                let trimmedNotes = notes.trimmingCharacters(in: .whitespacesAndNewlines)
+                let notesArg = trimmedNotes.isEmpty ? nil : trimmedNotes
                 try await FirestoreManager.shared.publishPrivateVideo(
                     videoID: videoID,
                     sharedFolderID: folderID,
-                    notes: trimmedNotes.isEmpty ? nil : trimmedNotes
+                    notes: notesArg
                 )
-
-                // Athlete is notified by the server-side onVideoPublished CF which
-                // fires on the visibility transition private→shared.
                 Haptics.success()
                 dismiss()
                 onShared?()
             } catch {
                 errorMessage = "Failed to share clip: \(error.localizedDescription)"
-                ErrorHandlerService.shared.handle(error, context: "ClipReviewSheet.shareClip", showAlert: false)
+                ErrorHandlerService.shared.handle(error, context: "ClipReviewSheet.shareNow", showAlert: false)
                 isPublishing = false
+            }
+        }
+    }
+
+    private func saveForLater() {
+        guard notesDirty else {
+            Haptics.light()
+            dismiss()
+            onSavedDraft?()
+            return
+        }
+        guard let authorID = authManager.userID,
+              let authorName = authManager.userDisplayName ?? authManager.userEmail else {
+            dismiss()
+            return
+        }
+        let videoID = video.id
+        isSavingDraft = true
+        Task {
+            do {
+                try await FirestoreManager.shared.setCoachNote(
+                    videoID: videoID,
+                    text: trimmedNotes.isEmpty ? nil : trimmedNotes,
+                    authorID: authorID,
+                    authorName: authorName
+                )
+                Haptics.success()
+                dismiss()
+                onSavedDraft?()
+            } catch {
+                errorMessage = "Failed to save note: \(error.localizedDescription)"
+                ErrorHandlerService.shared.handle(error, context: "ClipReviewSheet.saveForLater", showAlert: false)
+                isSavingDraft = false
             }
         }
     }

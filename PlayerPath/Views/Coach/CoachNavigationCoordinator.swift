@@ -43,8 +43,13 @@ class CoachNavigationCoordinator {
     /// When set, the next CoachFolderDetailView for this folder should open on this tab.
     var pendingFolderTab: (folderID: String, tab: CoachFolderDetailView.FolderTab)?
 
-    func navigateToFolder(_ folderID: String, folders: [SharedFolder], initialTab: CoachFolderDetailView.FolderTab? = nil) {
+    /// When set, the next CoachFolderDetailView for this folder should scroll to
+    /// and highlight this video. Consumed once on folder appear.
+    var pendingFolderVideoID: (folderID: String, videoID: String)?
+
+    func navigateToFolder(_ folderID: String, folders: [SharedFolder], initialTab: CoachFolderDetailView.FolderTab? = nil, targetVideoID: String? = nil) {
         pendingFolderTab = initialTab.map { (folderID: folderID, tab: $0) }
+        pendingFolderVideoID = targetVideoID.map { (folderID: folderID, videoID: $0) }
         if let folder = folders.first(where: { $0.id == folderID }) {
             selectedTab = .athletes
             // Reset path then push folder on next tick so tab switch completes first

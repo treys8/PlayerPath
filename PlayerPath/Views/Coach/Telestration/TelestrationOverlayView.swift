@@ -14,6 +14,10 @@ struct TelestrationOverlayView: View {
     let videoAspectRatio: CGFloat
     let onSave: (PKDrawing, Double, CGSize) async -> Bool
     let onCancel: () -> Void
+    /// Freeze-frame rendered behind the canvas when the overlay is presented
+    /// full-screen (e.g. from ClipReviewSheet). Nil when another video view
+    /// is already visible behind the overlay (e.g. CoachVideoPlayerView).
+    var frameImage: UIImage? = nil
 
     @State private var drawing = PKDrawing()
     @State private var selectedColor: Color = .red
@@ -35,8 +39,10 @@ struct TelestrationOverlayView: View {
 
     var body: some View {
         ZStack {
-            // Semi-transparent background to dim the video behind the canvas
-            Color.black.opacity(0.3)
+            // Background: opaque when we own the freeze-frame, else a gentle
+            // dim over whatever video view is already visible behind us.
+            (frameImage != nil ? Color.black : Color.black.opacity(0.3))
+                .ignoresSafeArea()
 
             VStack(spacing: 0) {
                 // Toolbar at top
@@ -58,12 +64,20 @@ struct TelestrationOverlayView: View {
                         in: containerSize
                     )
 
-                    TelestrationCanvasView(
-                        drawing: $drawing,
-                        tool: currentTool,
-                        isEnabled: !isSaving && strokeCount < maxStrokes
-                    )
-                    .frame(width: fittedCanvas.width, height: fittedCanvas.height)
+                    ZStack {
+                        if let frameImage {
+                            Image(uiImage: frameImage)
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .frame(width: fittedCanvas.width, height: fittedCanvas.height)
+                        }
+                        TelestrationCanvasView(
+                            drawing: $drawing,
+                            tool: currentTool,
+                            isEnabled: !isSaving && strokeCount < maxStrokes
+                        )
+                        .frame(width: fittedCanvas.width, height: fittedCanvas.height)
+                    }
                     .position(x: containerSize.width / 2, y: containerSize.height / 2)
                     .onAppear { canvasSize = fittedCanvas }
                     .onChange(of: fittedCanvas) { _, newValue in canvasSize = newValue }

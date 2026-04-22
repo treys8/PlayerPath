@@ -22,11 +22,11 @@ struct ActivityNotificationBanner: View {
                 onDismiss()
             } label: {
                 HStack(spacing: 12) {
-                    Image(systemName: iconName)
+                    Image(systemName: ActivityNotificationRouter.iconName(for: notification.type))
                         .font(.title3)
-                        .foregroundColor(iconColor)
+                        .foregroundColor(ActivityNotificationRouter.iconColor(for: notification.type))
                         .frame(width: 36, height: 36)
-                        .background(iconColor.opacity(0.15))
+                        .background(ActivityNotificationRouter.iconColor(for: notification.type).opacity(0.15))
                         .clipShape(Circle())
 
                     VStack(alignment: .leading, spacing: 2) {
@@ -81,29 +81,6 @@ struct ActivityNotificationBanner: View {
         }
     }
 
-    private var iconName: String {
-        switch notification.type {
-        case .newVideo:           return "video.fill"
-        case .coachComment:       return "bubble.left.fill"
-        case .invitationReceived: return "envelope.fill"
-        case .invitationAccepted: return "checkmark.circle.fill"
-        case .accessRevoked:      return "minus.circle.fill"
-        case .accessLapsed:       return "exclamationmark.triangle.fill"
-        case .uploadFailed:       return "exclamationmark.arrow.triangle.2.circlepath"
-        }
-    }
-
-    private var iconColor: Color {
-        switch notification.type {
-        case .newVideo:           return .brandNavy
-        case .coachComment:       return .green
-        case .invitationReceived: return .indigo
-        case .invitationAccepted: return .green
-        case .accessRevoked:      return .orange
-        case .accessLapsed:       return .yellow
-        case .uploadFailed:       return .red
-        }
-    }
 }
 
 #Preview {

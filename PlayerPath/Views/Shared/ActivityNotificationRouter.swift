@@ -7,6 +7,7 @@
 //
 
 import Foundation
+import SwiftUI
 
 enum ActivityNotificationRouter {
 
@@ -19,11 +20,15 @@ enum ActivityNotificationRouter {
         case .coachComment, .newVideo:
             let folderID = notification.folderID
                 ?? (notification.targetType == .folder ? notification.targetID : nil)
+            // When the notification targets a specific video, forward its ID so
+            // the folder view can scroll to and highlight that clip.
+            let videoID: String? = (notification.targetType == .video) ? notification.targetID : nil
             if let folderID {
+                let userInfo: [AnyHashable: Any]? = videoID.map { ["videoID": $0] }
                 if isCoach {
-                    NotificationCenter.default.post(name: .navigateToCoachFolder, object: folderID)
+                    NotificationCenter.default.post(name: .navigateToCoachFolder, object: folderID, userInfo: userInfo)
                 } else {
-                    NotificationCenter.default.post(name: .navigateToSharedFolder, object: folderID)
+                    NotificationCenter.default.post(name: .navigateToSharedFolder, object: folderID, userInfo: userInfo)
                 }
             } else {
                 postSwitchTab(.more)
@@ -66,6 +71,18 @@ enum ActivityNotificationRouter {
         case .accessRevoked:      return "minus.circle.fill"
         case .accessLapsed:       return "exclamationmark.triangle.fill"
         case .uploadFailed:       return "exclamationmark.arrow.triangle.2.circlepath"
+        }
+    }
+
+    static func iconColor(for type: ActivityNotification.NotificationType) -> Color {
+        switch type {
+        case .newVideo:           return .brandNavy
+        case .coachComment:       return .green
+        case .invitationReceived: return .indigo
+        case .invitationAccepted: return .green
+        case .accessRevoked:      return .orange
+        case .accessLapsed:       return .yellow
+        case .uploadFailed:       return .red
         }
     }
 }

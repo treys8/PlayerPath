@@ -40,6 +40,9 @@ struct CoachFolderDetailView: View {
     @State private var showingQuickRecord = false
     @State private var showingActiveSessionAlert = false
     @State private var gamesFilter: GamesFolderFilter = .needsReview
+    /// Consumed once from the coordinator on first appear — routes a bell/inbox
+    /// tap for a specific video into the matching row with a pulse highlight.
+    @State private var targetVideoID: String?
     private var archiveManager: CoachFolderArchiveManager { .shared }
 
     init(folder: SharedFolder, initialTab: FolderTab = .review) {
@@ -90,7 +93,8 @@ struct CoachFolderDetailView: View {
                     video: clip,
                     folder: folder,
                     onShared: { Task { await viewModel.loadVideos() } },
-                    onDiscarded: { Task { await viewModel.loadVideos() } }
+                    onDiscarded: { Task { await viewModel.loadVideos() } },
+                    onSavedDraft: { Task { await viewModel.loadVideos() } }
                 )
             }
             .fullScreenCover(isPresented: $showingQuickRecord, onDismiss: {
@@ -181,6 +185,15 @@ struct CoachFolderDetailView: View {
                 )
             }
 
+            if folderUnreadCount > 0 {
+                Divider()
+                Button {
+                    markAllFolderNotificationsRead()
+                } label: {
+                    Label("Mark All as Read", systemImage: "checkmark.circle")
+                }
+            }
+
             Button(role: .destructive) {
                 showingLeaveConfirmation = true
             } label: {
@@ -190,6 +203,17 @@ struct CoachFolderDetailView: View {
             Image(systemName: "ellipsis.circle")
                 .foregroundColor(.primary)
         }
+    }
+
+    private var folderUnreadCount: Int {
+        guard let folderID = folder.id else { return 0 }
+        return activityNotifService.unreadCountByFolder[folderID] ?? 0
+    }
+
+    private func markAllFolderNotificationsRead() {
+        guard let folderID = folder.id, let userID = authManager.userID else { return }
+        Haptics.light()
+        Task { await activityNotifService.markFolderRead(folderID: folderID, forUserID: userID) }
     }
 
     // MARK: - Overlays
@@ -218,12 +242,16 @@ struct CoachFolderDetailView: View {
             coordinator.pendingFolderTab = nil
         }
 
-        // Always clear this folder's unread badge on open, even if we skip the
-        // video refetch below. Without this, a second device opening the folder
-        // within the 60s dedup window keeps showing stale unread indicators.
-        if let folderID = folder.id, let userID = authManager.userID {
-            await activityNotifService.markFolderRead(folderID: folderID, forUserID: userID)
+        // Consume a deep-link target video once — AllVideosTabView scrolls to
+        // it and pulses the matching card on appear.
+        if let pendingVideo = coordinator.pendingFolderVideoID, pendingVideo.folderID == folder.id {
+            targetVideoID = pendingVideo.videoID
+            coordinator.pendingFolderVideoID = nil
         }
+
+        // Folder open no longer auto-marks notifications read — matches athlete-side rule.
+        // Read state flips only on inbox row tap, video open, or the explicit
+        // "Mark All as Read" menu item below.
 
         if let lastFetch = lastFetchDate, Date().timeIntervalSince(lastFetch) < 60 { return }
         await viewModel.loadVideos()
@@ -286,7 +314,7 @@ struct CoachFolderDetailView: View {
                     case .review:
                         reviewContent
                     case .shared:
-                        AllVideosTabView(folder: folder, videos: filterByTag(viewModel.sharedVideos), isLoading: viewModel.isLoading, isLoadingMore: viewModel.isLoadingMore, hasMoreVideos: viewModel.hasMoreVideos, errorMessage: viewModel.errorMessage, unreadVideoIDs: activityNotifService.unreadVideoIDs, onRefresh: {
+                        AllVideosTabView(folder: folder, videos: filterByTag(viewModel.sharedVideos), isLoading: viewModel.isLoading, isLoadingMore: viewModel.isLoadingMore, hasMoreVideos: viewModel.hasMoreVideos, errorMessage: viewModel.errorMessage, unreadVideoIDs: activityNotifService.unreadVideoIDs, targetVideoID: targetVideoID, onRefresh: {
                             await viewModel.loadVideos()
                         }, onLoadMore: {
                             await viewModel.loadMoreVideos()
@@ -309,7 +337,7 @@ struct CoachFolderDetailView: View {
                             message: "No clips waiting for your review in this folder."
                         )
                     } else {
-                        AllVideosTabView(folder: folder, videos: filterByTag(sourceVideos), isLoading: viewModel.isLoading, isLoadingMore: viewModel.isLoadingMore, hasMoreVideos: viewModel.hasMoreVideos, errorMessage: viewModel.errorMessage, unreadVideoIDs: activityNotifService.unreadVideoIDs, onRefresh: {
+                        AllVideosTabView(folder: folder, videos: filterByTag(sourceVideos), isLoading: viewModel.isLoading, isLoadingMore: viewModel.isLoadingMore, hasMoreVideos: viewModel.hasMoreVideos, errorMessage: viewModel.errorMessage, unreadVideoIDs: activityNotifService.unreadVideoIDs, targetVideoID: targetVideoID, onRefresh: {
                             await viewModel.loadVideos()
                         }, onLoadMore: {
                             await viewModel.loadMoreVideos()

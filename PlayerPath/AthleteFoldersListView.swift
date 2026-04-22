@@ -428,12 +428,15 @@ struct FolderRow: View {
 /// Detail view for athlete to manage their folder and see videos
 struct AthleteFolderDetailView: View {
     let folder: SharedFolder
+    /// When set, the folder opens scrolled to this video with a brief highlight pulse.
+    /// Passed through from deep-link notifications (inbox tap, banner tap).
+    var targetVideoID: String? = nil
 
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
 
     var body: some View {
         if let athleteID = authManager.userID {
-            AthleteFolderDetailContent(folder: folder, athleteID: athleteID)
+            AthleteFolderDetailContent(folder: folder, athleteID: athleteID, targetVideoID: targetVideoID)
         } else {
             ContentUnavailableView(
                 "Not signed in",
@@ -447,6 +450,7 @@ struct AthleteFolderDetailView: View {
 struct AthleteFolderDetailContent: View {
     let folder: SharedFolder
     let athleteID: String
+    let targetVideoID: String?
 
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @ObservedObject private var activityNotifService = ActivityNotificationService.shared
@@ -472,9 +476,10 @@ struct AthleteFolderDetailContent: View {
     @State private var activeSheet: SheetType?
     @State private var lastFetchDate: Date?
 
-    init(folder: SharedFolder, athleteID: String) {
+    init(folder: SharedFolder, athleteID: String, targetVideoID: String? = nil) {
         self.folder = folder
         self.athleteID = athleteID
+        self.targetVideoID = targetVideoID
         _viewModel = State(initialValue: CoachFolderViewModel(folder: folder))
     }
 
@@ -500,7 +505,8 @@ struct AthleteFolderDetailContent: View {
                 AthleteVideoListView(
                     folder: folder,
                     videos: viewModel.videos,
-                    unreadVideoIDs: activityNotifService.unreadVideoIDs
+                    unreadVideoIDs: activityNotifService.unreadVideoIDs,
+                    targetVideoID: targetVideoID
                 ) {
                     await viewModel.loadVideos()
                 }
@@ -550,14 +556,6 @@ struct AthleteFolderDetailContent: View {
                         Image(systemName: "ellipsis.circle")
                     }
                 }
-            }
-        }
-        .task {
-            // Clear this folder's unread badge on open. Covers newVideo,
-            // coachComment, accessRevoked, accessLapsed, and uploadFailed
-            // notifications whose folderID matches (see markFolderRead).
-            if let folderID = folder.id {
-                await activityNotifService.markFolderRead(folderID: folderID, forUserID: athleteID)
             }
         }
         .sheet(item: $activeSheet) { sheet in

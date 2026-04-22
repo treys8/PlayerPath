@@ -233,8 +233,12 @@ final class ActivityNotificationService: ObservableObject {
                     // the coach's attention. Upload failures are the coach's own
                     // problem and surface through the Dashboard tab's unreadCount
                     // and per-folder indicators instead.
-                    self.unreadFolderVideoCount = unread.filter {
-                        ($0.type == .newVideo || $0.type == .coachComment) && $0.targetType == .folder
+                    // Covers both forms the Cloud Function emits:
+                    //   - Coach-side: targetType == .folder, targetID == folderID
+                    //   - Athlete-side: targetType == .video, folderID set alongside
+                    self.unreadFolderVideoCount = unread.filter { n in
+                        guard n.type == .newVideo || n.type == .coachComment else { return false }
+                        return n.folderID != nil || (n.targetType == .folder && n.targetID != nil)
                     }.count
                     Self.syncAppIconBadge(to: self.unreadCount)
 

@@ -24,6 +24,8 @@ struct TelestrationCanvasView: UIViewRepresentable {
         canvas.isOpaque = false
         canvas.backgroundColor = .clear
         canvas.isScrollEnabled = false
+        canvas.minimumZoomScale = 1
+        canvas.maximumZoomScale = 1
         canvas.isUserInteractionEnabled = isEnabled
         canvas.overrideUserInterfaceStyle = .dark
         return canvas

@@ -48,8 +48,9 @@ struct MainTabView: View {
 
     enum MoreDestination: Hashable {
         case practice, highlights, seasons, photos, coaches, sharedFolders
-        case sharedFolder(String) // navigate to a specific folder by ID
-        case storageSettings      // deep link target for cloud-backup push taps
+        case sharedFolder(String)                                   // folder by ID
+        case sharedFolderVideo(folderID: String, videoID: String)   // folder + target video to highlight
+        case storageSettings                                        // deep link target for cloud-backup push taps
     }
     
     // NotificationCenter observer management using StateObject for lifecycle safety
@@ -358,7 +359,11 @@ struct MainTabView: View {
         notificationManager.observe(name: Notification.Name.navigateToSharedFolder) { note in
             MainActor.assumeIsolated { [self] in
                 if let folderID = note.object as? String {
-                    navigateToMore(.sharedFolder(folderID))
+                    if let videoID = note.userInfo?["videoID"] as? String {
+                        navigateToMore(.sharedFolderVideo(folderID: folderID, videoID: videoID))
+                    } else {
+                        navigateToMore(.sharedFolder(folderID))
+                    }
                 }
             }
         }
@@ -456,7 +461,6 @@ struct MainTabView: View {
             VideoClipsView(athlete: selectedAthlete)
                 .id(videosAthleteID ?? selectedAthlete.id)
         }
-        .modifier(UnreadBadgeModifier())
         .tabItem {
             Label("Videos", systemImage: "video.fill")
         }
@@ -567,6 +571,12 @@ struct MainTabView: View {
                     } else {
                         AthleteFoldersListView(userID: authManager.userID, athlete: selectedAthlete).id(selectedAthlete.id).proRequired()
                     }
+                case .sharedFolderVideo(let folderID, let videoID):
+                    if let folder = SharedFolderManager.shared.athleteFolders.first(where: { $0.id == folderID }) {
+                        AthleteFolderDetailView(folder: folder, targetVideoID: videoID).proRequired()
+                    } else {
+                        AthleteFoldersListView(userID: authManager.userID, athlete: selectedAthlete).id(selectedAthlete.id).proRequired()
+                    }
                 case .storageSettings:
                     StorageSettingsView()
                 }
@@ -668,23 +678,6 @@ struct MainTabView: View {
         }
     }
 
-}
-
-/// Isolates the badge observation so that changes to unread count
-/// only invalidate this modifier's body — not the entire MainTabView.
-/// Only counts newVideo notifications — coach feedback badges now
-/// live on the Shared Folders list and individual video cards.
-private struct UnreadBadgeModifier: ViewModifier {
-    @ObservedObject private var activityNotifService = ActivityNotificationService.shared
-
-    private var newVideoCount: Int {
-        activityNotifService.recentNotifications.filter { !$0.isRead && $0.type == .newVideo }.count
-    }
-
-    func body(content: Content) -> some View {
-        content
-            .badge(newVideoCount > 0 ? newVideoCount : 0)
-    }
 }
 
 /// Shows a badge on the Home tab when there are pending coach invitations.

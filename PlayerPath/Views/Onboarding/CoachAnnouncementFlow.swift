@@ -86,8 +86,8 @@ private struct AnnouncementIntroPage: View {
         ZStack {
             LinearGradient(
                 colors: [
-                    Color(red: 0.04, green: 0.08, blue: 0.20),
-                    Color(red: 0.06, green: 0.06, blue: 0.12)
+                    Color(red: 0.10, green: 0.18, blue: 0.36),
+                    Color(red: 0.08, green: 0.12, blue: 0.22)
                 ],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
@@ -100,7 +100,7 @@ private struct AnnouncementIntroPage: View {
                 // Icon
                 ZStack {
                     Circle()
-                        .fill(Color.brandNavy.opacity(0.15))
+                        .fill(Color.brandNavy.opacity(0.35))
                         .frame(width: 180, height: 180)
                         .blur(radius: 30)
 
@@ -108,7 +108,7 @@ private struct AnnouncementIntroPage: View {
                         Circle()
                             .fill(
                                 LinearGradient(
-                                    colors: [Color.brandNavy.opacity(0.25), Color.brandNavy.opacity(0.15)],
+                                    colors: [Color.brandNavy.opacity(0.5), Color.brandNavy.opacity(0.3)],
                                     startPoint: .topLeading,
                                     endPoint: .bottomTrailing
                                 )
@@ -116,7 +116,7 @@ private struct AnnouncementIntroPage: View {
                             .frame(width: 130, height: 130)
                             .overlay(
                                 Circle()
-                                    .stroke(Color.brandNavy.opacity(0.4), lineWidth: 1)
+                                    .stroke(Color.brandNavy.opacity(0.7), lineWidth: 1)
                             )
 
                         Image(systemName: "person.2.fill")
@@ -209,8 +209,8 @@ private struct AnnouncementFeaturesPage: View {
         ZStack {
             LinearGradient(
                 colors: [
-                    Color(red: 0.04, green: 0.06, blue: 0.18),
-                    Color(red: 0.06, green: 0.08, blue: 0.12)
+                    Color(red: 0.10, green: 0.16, blue: 0.34),
+                    Color(red: 0.08, green: 0.12, blue: 0.22)
                 ],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
@@ -337,8 +337,8 @@ private struct AnnouncementInvitePage: View {
         ZStack {
             LinearGradient(
                 colors: [
-                    Color(red: 0.05, green: 0.12, blue: 0.08),
-                    Color(red: 0.04, green: 0.07, blue: 0.12)
+                    Color(red: 0.08, green: 0.20, blue: 0.18),
+                    Color(red: 0.08, green: 0.14, blue: 0.24)
                 ],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
@@ -351,17 +351,17 @@ private struct AnnouncementInvitePage: View {
                 // Icon
                 ZStack {
                     Circle()
-                        .fill(Color.brandNavy.opacity(0.15))
+                        .fill(Color.brandNavy.opacity(0.35))
                         .frame(width: 140, height: 140)
                         .blur(radius: 25)
 
                     ZStack {
                         Circle()
-                            .fill(Color.brandNavy.opacity(0.2))
+                            .fill(Color.brandNavy.opacity(0.4))
                             .frame(width: 100, height: 100)
                             .overlay(
                                 Circle()
-                                    .stroke(Color.brandNavy.opacity(0.4), lineWidth: 1)
+                                    .stroke(Color.brandNavy.opacity(0.7), lineWidth: 1)
                             )
 
                         Image(systemName: "paperplane.fill")

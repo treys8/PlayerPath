@@ -192,7 +192,8 @@ struct CoachTabView: View {
         notificationManager.observe(name: .navigateToCoachFolder) { note in
             MainActor.assumeIsolated {
                 if let folderID = note.object as? String {
-                    coordinator.navigateToFolder(folderID, folders: sharedFolderManager.coachFolders)
+                    let videoID = note.userInfo?["videoID"] as? String
+                    coordinator.navigateToFolder(folderID, folders: sharedFolderManager.coachFolders, targetVideoID: videoID)
                 }
             }
         }

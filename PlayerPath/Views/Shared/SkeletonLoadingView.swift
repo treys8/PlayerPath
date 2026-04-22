@@ -215,39 +215,6 @@ struct ListSkeletonView: View {
     }
 }
 
-// MARK: - Skeleton Loading Modifier
-
-/// View modifier to show skeleton in place of content while loading
-struct SkeletonLoadingModifier<Placeholder: View>: ViewModifier {
-    let isLoading: Bool
-    let placeholder: Placeholder
-
-    init(isLoading: Bool, @ViewBuilder placeholder: () -> Placeholder) {
-        self.isLoading = isLoading
-        self.placeholder = placeholder()
-    }
-
-    func body(content: Content) -> some View {
-        if isLoading {
-            placeholder
-                .transition(.opacity)
-        } else {
-            content
-                .transition(.opacity)
-        }
-    }
-}
-
-extension View {
-    /// Replace view content with a skeleton placeholder while loading
-    func skeletonLoading<Placeholder: View>(
-        isLoading: Bool,
-        @ViewBuilder placeholder: () -> Placeholder
-    ) -> some View {
-        modifier(SkeletonLoadingModifier(isLoading: isLoading, placeholder: placeholder))
-    }
-}
-
 // MARK: - Previews
 
 #Preview("Dashboard Skeleton") {
