@@ -25,7 +25,6 @@ struct VideoClipCard: View {
     @State private var showingMoveSheet = false
     @State private var showingGameLinker = false
     @State private var showingRetrimFlow = false
-    private let uploadManager = UploadQueueManager.shared
     @State private var isSavingToPhotos = false
     @State private var showingTagSheet = false
 
@@ -81,12 +80,19 @@ struct VideoClipCard: View {
                     // Selection overlay
                     selectionOverlay
 
-                    // Backup status badge (top-left, moved from top-right to not conflict with play result)
+                    // Backup status badge (top-left, moved from top-right to not conflict with play result).
+                    // Factored into its own View struct so SwiftUI scopes UploadQueueManager
+                    // observation to the badge — upload progress ticks (~4/sec) no longer
+                    // invalidate the entire card body across every visible cell.
                     if !isSelectionMode {
                         VStack {
                             HStack {
-                                backupStatusBadge
-                                    .padding(8)
+                                BackupStatusBadge(
+                                    clipId: video.id,
+                                    isUploaded: video.isUploaded,
+                                    firestoreId: video.firestoreId
+                                )
+                                .padding(8)
                                 Spacer()
                             }
                             Spacer()
@@ -192,13 +198,12 @@ struct VideoClipCard: View {
                 }
             .background(Color(.systemGray6))
             .clipShape(RoundedRectangle(cornerRadius: .cornerLarge, style: .continuous))
-            .shadow(color: .black.opacity(0.08), radius: 12, x: 0, y: 4)
-            .shadow(color: .black.opacity(0.04), radius: 2, x: 0, y: 1)
+            .shadow(color: .black.opacity(0.1), radius: 8, x: 0, y: 3)
         }
         .buttonStyle(PressableCardButtonStyle())
         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isSelected)
         .contextMenu {
-            videoMenuItems
+            if !isSelectionMode { videoMenuItems }
         }
         .sheet(isPresented: $showingShareToFolder) {
             ShareToCoachFolderView(clip: video)
@@ -377,29 +382,26 @@ struct VideoClipCard: View {
         isSavingToPhotos = true
         let videoURL = video.resolvedFileURL
 
-        PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
+        Task { @MainActor in
+            let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
             guard status == .authorized || status == .limited else {
-                DispatchQueue.main.async {
-                    self.isSavingToPhotos = false
-                    self.errorMessage = "Photo library access is required to save videos. Please enable it in Settings > PlayerPath > Photos."
-                    self.showingError = true
-                }
+                isSavingToPhotos = false
+                errorMessage = "Photo library access is required to save videos. Please enable it in Settings > PlayerPath > Photos."
+                showingError = true
                 return
             }
 
-            PHPhotoLibrary.shared().performChanges {
-                PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: videoURL)
-            } completionHandler: { success, error in
-                DispatchQueue.main.async {
-                    self.isSavingToPhotos = false
-                    if success {
-                        Haptics.success()
-                        self.showingSaveSuccess = true
-                    } else {
-                        self.errorMessage = "Could not save video to Photos. \(error?.localizedDescription ?? "Please try again.")"
-                        self.showingError = true
-                    }
+            do {
+                try await PHPhotoLibrary.shared().performChanges {
+                    PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: videoURL)
                 }
+                isSavingToPhotos = false
+                Haptics.success()
+                showingSaveSuccess = true
+            } catch {
+                isSavingToPhotos = false
+                errorMessage = "Could not save video to Photos. \(error.localizedDescription)"
+                showingError = true
             }
         }
     }
@@ -427,36 +429,49 @@ struct VideoClipCard: View {
         }
     }
 
-    // MARK: - Backup Status Badge
+    private func formatDuration(_ seconds: Double) -> String {
+        let mins = Int(seconds) / 60
+        let secs = Int(seconds) % 60
+        return String(format: "%d:%02d", mins, secs)
+    }
+}
 
-    @ViewBuilder
-    private var backupStatusBadge: some View {
-        if video.isUploaded && video.firestoreId != nil {
+// MARK: - Pressable Card Button Style
+
+struct PressableCardButtonStyle: ButtonStyle {
+    // Opacity-only feedback: SwiftUI's `configuration.isPressed` is true for
+    // both taps and long-presses, so `.scaleEffect` would shrink the card
+    // during a long-press-to-context-menu gesture — a visual glitch where the
+    // cell reflows under the user's finger just before the menu appears.
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .opacity(configuration.isPressed ? 0.9 : 1.0)
+            .animation(.easeOut(duration: 0.15), value: configuration.isPressed)
+    }
+}
+
+// MARK: - Backup Status Badge
+
+/// Per-clip upload / backup indicator. Factored out of `VideoClipCard` so
+/// SwiftUI's `@Observable` tracking scopes `UploadQueueManager` reads to
+/// this tiny view — a progress tick invalidates only the badge, not the
+/// whole card across every visible cell in the grid.
+struct BackupStatusBadge: View {
+    let clipId: UUID
+    let isUploaded: Bool
+    let firestoreId: String?
+
+    private let uploadManager = UploadQueueManager.shared
+
+    var body: some View {
+        if isUploaded && firestoreId != nil {
             // Fully synced — Storage uploaded + Firestore metadata written (cross-device ready)
-            HStack(spacing: 3) {
-                Image(systemName: "checkmark.icloud.fill")
-                    .font(.system(size: 12))
-            }
-            .foregroundColor(.white)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 4)
-            .background(.green)
-            .cornerRadius(6)
-            .shadow(color: .black.opacity(0.3), radius: 2, x: 0, y: 1)
-        } else if video.isUploaded && video.firestoreId == nil {
+            badge(icon: "checkmark.icloud.fill", iconSize: 12, background: .green, shadowOpacity: 0.3)
+        } else if isUploaded && firestoreId == nil {
             // Storage upload done but Firestore metadata not yet written — not cross-device accessible yet
-            HStack(spacing: 3) {
-                Image(systemName: "exclamationmark.icloud.fill")
-                    .font(.system(size: 12))
-            }
-            .foregroundColor(.white)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 4)
-            .background(.yellow)
-            .cornerRadius(6)
-            .shadow(color: .black.opacity(0.3), radius: 2, x: 0, y: 1)
-        } else if let progress = uploadManager.activeUploads[video.id] {
-            // Currently uploading - blue with percentage
+            badge(icon: "exclamationmark.icloud.fill", iconSize: 12, background: .yellow, shadowOpacity: 0.3)
+        } else if let progress = uploadManager.activeUploads[clipId] {
+            // Currently uploading — blue with percentage
             HStack(spacing: 3) {
                 ProgressView()
                     .scaleEffect(0.7)
@@ -470,47 +485,25 @@ struct VideoClipCard: View {
             .background(Color.brandNavy)
             .cornerRadius(6)
             .shadow(color: .black.opacity(0.3), radius: 2, x: 0, y: 1)
-        } else if uploadManager.pendingUploads.contains(where: { $0.clipId == video.id }) {
-            // Queued for upload - orange clock
-            HStack(spacing: 3) {
-                Image(systemName: "clock.fill")
-                    .font(.system(size: 12))
-            }
-            .foregroundColor(.white)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 4)
-            .background(.orange)
-            .cornerRadius(6)
-            .shadow(color: .black.opacity(0.3), radius: 2, x: 0, y: 1)
+        } else if uploadManager.pendingUploads.contains(where: { $0.clipId == clipId }) {
+            // Queued for upload — orange clock
+            badge(icon: "clock.fill", iconSize: 12, background: .orange, shadowOpacity: 0.3)
         } else {
-            // Local only - subtle gray device icon
-            HStack(spacing: 3) {
-                Image(systemName: "iphone")
-                    .font(.system(size: 11))
-            }
-            .foregroundColor(.white)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 4)
-            .background(Color.gray.opacity(0.7))
-            .cornerRadius(6)
-            .shadow(color: .black.opacity(0.2), radius: 2, x: 0, y: 1)
+            // Local only — subtle gray device icon
+            badge(icon: "iphone", iconSize: 11, background: Color.gray.opacity(0.7), shadowOpacity: 0.2)
         }
     }
 
-    private func formatDuration(_ seconds: Double) -> String {
-        let mins = Int(seconds) / 60
-        let secs = Int(seconds) % 60
-        return String(format: "%d:%02d", mins, secs)
-    }
-}
-
-// MARK: - Pressable Card Button Style
-
-struct PressableCardButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
-            .opacity(configuration.isPressed ? 0.9 : 1.0)
-            .animation(.spring(response: 0.25, dampingFraction: 0.7), value: configuration.isPressed)
+    private func badge(icon: String, iconSize: CGFloat, background: Color, shadowOpacity: Double) -> some View {
+        HStack(spacing: 3) {
+            Image(systemName: icon)
+                .font(.system(size: iconSize))
+        }
+        .foregroundColor(.white)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 4)
+        .background(background)
+        .cornerRadius(6)
+        .shadow(color: .black.opacity(shadowOpacity), radius: 2, x: 0, y: 1)
     }
 }

@@ -136,7 +136,11 @@ final class BulkVideoImportViewModel {
             clip.seasonName = matchedSeason?.displayName
             clip.thumbnailPath = thumbnailPath
             clip.duration = durationSeconds
-            clip.createdAt = originalDate
+            // Photos library creation dates are usually second-precision;
+            // bulk imports from the same second tie on `createdAt` and break
+            // the list's stable-sort tie-break. Nudge by a microsecond per
+            // index — invisible to users, unique within the batch.
+            clip.createdAt = originalDate.addingTimeInterval(Double(index) / 1_000_000.0)
             clip.game = game
             clip.practice = practice
             // Denormalize game/practice display fields so data survives cross-device sync

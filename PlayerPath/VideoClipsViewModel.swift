@@ -76,13 +76,18 @@ final class VideoClipsViewModel {
             }
         }
 
-        // Sort by creation date (newest first)
+        // Sort by creation date (newest first). Tie-break on UUID so the order
+        // is deterministic when multiple clips share a `createdAt` — Photos
+        // library imports often land on the same second-precision capture date
+        // and `Array.sorted(by:)` is not stable.
         let sorted = videos.sorted { (lhs: VideoClip, rhs: VideoClip) in
             switch (lhs.createdAt, rhs.createdAt) {
-            case let (l?, r?): return l > r
+            case let (l?, r?):
+                if l != r { return l > r }
+                return lhs.id.uuidString < rhs.id.uuidString
             case (nil, _?): return false
             case (_?, nil): return true
-            case (nil, nil): return false
+            case (nil, nil): return lhs.id.uuidString < rhs.id.uuidString
             }
         }
         allFilteredVideos = sorted

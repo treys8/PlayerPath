@@ -387,7 +387,7 @@ struct DashboardView: View {
                     if authManager.currentTier >= .pro {
                         postSwitchTab(.home)
                         Task { @MainActor in
-                            post(.presentCoachVideos(athlete))
+                            NotificationCenter.default.post(name: .presentCoachVideos, object: athlete)
                         }
                     } else {
                         Haptics.warning()

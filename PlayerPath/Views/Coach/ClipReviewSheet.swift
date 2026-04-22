@@ -335,8 +335,11 @@ struct ClipReviewSheet: View {
 
         if let track = try? await newPlayer.currentItem?.asset.loadTracks(withMediaType: .video).first,
            let size = try? await track.load(.naturalSize),
-           size.height > 0 {
-            videoAspectRatio = size.width / size.height
+           let transform = try? await track.load(.preferredTransform) {
+            let rendered = size.applying(transform)
+            let w = abs(rendered.width)
+            let h = abs(rendered.height)
+            if h > 0 { videoAspectRatio = w / h }
         }
 
         isLoadingVideo = false

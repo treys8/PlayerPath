@@ -27,8 +27,10 @@ struct VideoThumbnailView: View {
 
     private let maxGenerationAttempts = 2
     private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.playerpath", category: "VideoThumbnailView")
-    private static var activeGenerations = 0
-    private static let maxConcurrentGenerations = 4
+    // @MainActor-isolated: all read/write sites live in @MainActor methods on
+    // this struct. Declaring it explicitly keeps Swift 6 strict-concurrency happy.
+    @MainActor private static var activeGenerations = 0
+    @MainActor private static let maxConcurrentGenerations = 4
 
     // MARK: - Initializers
 
@@ -159,7 +161,7 @@ struct VideoThumbnailView: View {
         .accessibilityIgnoresInvertColors()
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityDescription)
-        .task {
+        .task(id: clip.id) {
             await loadThumbnail()
         }
         .onChange(of: clip.thumbnailPath) { _, newPath in
@@ -466,17 +468,13 @@ struct VideoThumbnailView: View {
 
         switch result {
         case .success(let thumbnailPath):
-            // Guard save — only write if the path changed to reduce concurrent save races.
+            // Guard mutation — only write if the path changed.
+            // Saves are coalesced via ThumbnailSaveDebouncer so fast scrolling
+            // through clips missing thumbnails doesn't hammer modelContext.save()
+            // on the main thread for every cell.
             if clip.thumbnailPath != thumbnailPath {
                 clip.thumbnailPath = thumbnailPath
-                Task {
-                    do {
-                        try modelContext.save()
-                        Self.logger.debug("Thumbnail path saved for \(self.clip.fileName, privacy: .public)")
-                    } catch {
-                        Self.logger.error("Failed to save thumbnail path: \(error.localizedDescription, privacy: .public)")
-                    }
-                }
+                ThumbnailSaveDebouncer.shared.scheduleSave(modelContext)
             }
             do {
                 let image = try await ThumbnailCache.shared.loadThumbnail(at: thumbnailPath)
@@ -503,6 +501,47 @@ struct VideoThumbnailView: View {
 
     private func scaledSpacing(_ baseSpacing: CGFloat) -> CGFloat {
         scaledValue(baseSpacing)
+    }
+}
+
+// MARK: - Thumbnail Save Debouncer
+
+/// Coalesces `modelContext.save()` calls triggered by thumbnail generation
+/// during scroll. Without this, fast scrolling through clips missing
+/// thumbnails triggers one save per cell as each one generates its thumbnail,
+/// causing main-thread micro-stutters.
+@MainActor
+final class ThumbnailSaveDebouncer {
+    static let shared = ThumbnailSaveDebouncer()
+
+    private var pendingContext: ModelContext?
+    private var flushTask: Task<Void, Never>?
+    private static let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.playerpath", category: "ThumbnailSaveDebouncer")
+    private static let flushDelay: Duration = .milliseconds(500)
+
+    private init() {}
+
+    /// Schedule a save. Successive calls within `flushDelay` coalesce into
+    /// a single save at the end of the window.
+    func scheduleSave(_ context: ModelContext) {
+        pendingContext = context
+        flushTask?.cancel()
+        flushTask = Task { @MainActor in
+            try? await Task.sleep(for: Self.flushDelay)
+            guard !Task.isCancelled else { return }
+            flush()
+        }
+    }
+
+    /// Force-flush the pending save immediately (e.g., on app backgrounding).
+    func flush() {
+        guard let context = pendingContext else { return }
+        pendingContext = nil
+        do {
+            try context.save()
+        } catch {
+            Self.log.error("Failed to flush coalesced thumbnail saves: \(error.localizedDescription, privacy: .public)")
+        }
     }
 }
 

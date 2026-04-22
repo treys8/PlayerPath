@@ -45,7 +45,46 @@ final class UploadQueueManager {
     private var cachedPreferences: UserPreferences?
     private var preferencesLastFetched: Date?
 
+    /// Last time progress was written to `activeUploads` for each clip. Used to
+    /// coalesce high-frequency progress ticks from the Storage SDK (can fire
+    /// tens of times per second) down to one write per ~250ms per clip —
+    /// otherwise every card observing `activeUploads` invalidates on each tick.
+    /// Cleared when the clip's upload completes or is cancelled.
+    private var lastProgressWrite: [UUID: Date] = [:]
+    private static let progressThrottleInterval: TimeInterval = 0.25
+
     private init() {}
+
+    /// Publish an upload progress value, coalescing fast tick streams. Always
+    /// publishes the terminal (1.0) value so UI reliably sees completion.
+    /// Called from the poll loop in athlete uploads and the SDK callback in coach uploads.
+    private func publishProgress(_ progress: Double, for clipId: UUID) {
+        if progress >= 1.0 {
+            lastProgressWrite[clipId] = Date()
+            activeUploads[clipId] = progress
+            return
+        }
+        let now = Date()
+        if let last = lastProgressWrite[clipId],
+           now.timeIntervalSince(last) < Self.progressThrottleInterval {
+            return
+        }
+        lastProgressWrite[clipId] = now
+        activeUploads[clipId] = progress
+    }
+
+    /// Remove a clip's active-upload entry and throttle bookkeeping in one place.
+    /// All terminal paths (success, cancel, failure) should call this so the
+    /// throttle map stays bounded.
+    private func clearActiveUpload(for clipId: UUID) {
+        activeUploads.removeValue(forKey: clipId)
+        lastProgressWrite.removeValue(forKey: clipId)
+    }
+
+    private func clearAllActiveUploads() {
+        activeUploads.removeAll()
+        lastProgressWrite.removeAll()
+    }
 
     /// Configure the manager with a ModelContext (call once at app startup)
     func configure(modelContext: ModelContext) {
@@ -452,7 +491,7 @@ final class UploadQueueManager {
     /// Cancels a pending upload
     func cancel(_ clipId: UUID) {
         pendingUploads.removeAll { $0.clipId == clipId }
-        activeUploads.removeValue(forKey: clipId)
+        clearActiveUpload(for: clipId)
         queueIsDirty = true
     }
 
@@ -486,7 +525,7 @@ final class UploadQueueManager {
         // Clear in-memory queues
         pendingUploads.removeAll()
         failedUploads.removeAll()
-        activeUploads.removeAll()
+        clearAllActiveUploads()
         isProcessing = false
         queueIsDirty = true
 
@@ -597,7 +636,9 @@ final class UploadQueueManager {
         pendingUploads.removeAll { $0.clipId == upload.clipId }
         queueIsDirty = true
 
-        // Mark as active
+        // Mark as active. Reset the throttle bookkeeping so the first real
+        // progress tick isn't skipped by a stale timestamp from a prior attempt.
+        lastProgressWrite.removeValue(forKey: upload.clipId)
         activeUploads[upload.clipId] = 0.0
 
         let uploadStartTime = Date()
@@ -621,7 +662,7 @@ final class UploadQueueManager {
                 try await processCoachUpload(upload)
                 progressTask?.cancel()
                 progressTask = nil
-                activeUploads.removeValue(forKey: upload.clipId)
+                clearActiveUpload(for: upload.clipId)
                 return
             }
 
@@ -693,7 +734,7 @@ final class UploadQueueManager {
                 try context.save()
                 reservedBytes = 0 // Quota committed only after successful save
                 progressTask?.cancel()
-                activeUploads.removeValue(forKey: upload.clipId)
+                clearActiveUpload(for: upload.clipId)
                 uploadLog.info("Recovered already-uploaded clip \(clipDocId) from Firestore — skipped re-upload")
                 return
             }
@@ -720,11 +761,13 @@ final class UploadQueueManager {
             // Perform upload with progress updates
             let cloudManager = VideoCloudManager.shared
 
-            // Start progress monitor BEFORE the upload so UI gets incremental updates
+            // Start progress monitor BEFORE the upload so UI gets incremental updates.
+            // Writes go through `publishProgress` so the 10 Hz poll tick is coalesced
+            // down to ~4 Hz, matching the throttle on the coach-upload SDK callback.
             progressTask = Task { @MainActor in
                 while activeUploads[upload.clipId] != nil && !Task.isCancelled {
                     if let progress = cloudManager.uploadProgress[upload.clipId] {
-                        activeUploads[upload.clipId] = progress
+                        publishProgress(progress, for: upload.clipId)
                     }
                     try? await Task.sleep(for: .milliseconds(100))
                 }
@@ -789,7 +832,7 @@ final class UploadQueueManager {
             // Stop progress monitoring
             progressTask?.cancel()
             progressTask = nil
-            activeUploads.removeValue(forKey: upload.clipId)
+            clearActiveUpload(for: upload.clipId)
 
             // Track upload duration from actual start of this attempt
             let uploadDuration = Date().timeIntervalSince(uploadStartTime)
@@ -802,7 +845,7 @@ final class UploadQueueManager {
             // Stop progress monitoring on failure
             progressTask?.cancel()
             progressTask = nil
-            activeUploads.removeValue(forKey: upload.clipId)
+            clearActiveUpload(for: upload.clipId)
 
             // Release reserved storage quota on failure
             if reservedBytes > 0 {
@@ -963,7 +1006,7 @@ final class UploadQueueManager {
                         folderID: folderID,
                         progressHandler: { [weak self] progress in
                             Task { @MainActor [weak self] in
-                                self?.activeUploads[upload.clipId] = progress
+                                self?.publishProgress(progress, for: upload.clipId)
                             }
                         }
                     )

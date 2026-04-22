@@ -7,7 +7,6 @@
 
 import SwiftUI
 import SwiftData
-import AVKit
 import TipKit
 
 struct VideoClipsView: View {
@@ -112,8 +111,14 @@ struct VideoClipsView: View {
             }
 
             ToolbarItem(placement: .principal) {
-                Text("\(selectedVideos.count) selected")
-                    .font(.headline)
+                if selectedVideos.isEmpty {
+                    Text("Tap videos to select")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("\(selectedVideos.count) selected")
+                        .font(.headline)
+                }
             }
 
             ToolbarItem(placement: .topBarTrailing) {
@@ -613,16 +618,28 @@ struct VideoClipsView: View {
     @MainActor
     private func refreshVideos() async {
         Haptics.light()
+        if let user = athlete.user, user.firebaseAuthUid != nil {
+            do {
+                try await SyncCoordinator.shared.syncAll(for: user)
+            } catch {
+                ErrorHandlerService.shared.handle(error, context: "VideoClipsView.refreshable", showAlert: false)
+            }
+        }
         viewModel.update(videos: athlete.videoClips ?? [])
     }
 
     /// Composite key for `.onChange` that reacts to property mutations the
     /// filter depends on, not just add/remove. A count-only key misses edits
-    /// like toggling isHighlight or tagging a playResult.
-    private var videoClipsChangeKey: String {
-        (athlete.videoClips ?? [])
-            .map { "\($0.id):\($0.isHighlight ? 1 : 0):\($0.playResult?.type.rawValue ?? -1)" }
-            .joined(separator: "|")
+    /// like toggling isHighlight or tagging a playResult. Uses `Hasher` to
+    /// avoid allocating a multi-KB string on every SwiftUI body re-eval.
+    private var videoClipsChangeKey: Int {
+        var hasher = Hasher()
+        for clip in (athlete.videoClips ?? []) {
+            hasher.combine(clip.id)
+            hasher.combine(clip.isHighlight)
+            hasher.combine(clip.playResult?.type.rawValue)
+        }
+        return hasher.finalize()
     }
 
     /// Prefetch thumbnails for videos near the current index for smooth scrolling

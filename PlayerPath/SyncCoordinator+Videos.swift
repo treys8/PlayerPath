@@ -143,6 +143,10 @@ extension SyncCoordinator {
         var athletesWithNewClips: [Athlete] = []
         /// Game IDs that received new or updated clips — only these need stats recalculation.
         var gamesWithNewClips: Set<UUID> = []
+        /// Athletes whose stats need recalculation because clips were deleted remotely.
+        var athletesWithDeletedClips: Set<PersistentIdentifier> = []
+        /// Game IDs whose stats need recalculation because clips were deleted remotely.
+        var gamesWithDeletedClips: Set<UUID> = []
 
         for athlete in athletes {
             // Get video metadata from Firestore
@@ -162,10 +166,12 @@ extension SyncCoordinator {
             if remoteReturnedTooFew {
                 syncLog.warning("Remote returned \(remoteVideoIds.count) videos but \(syncedLocalClips.count) synced clips exist locally — skipping deletion pass to prevent data loss from partial fetch")
             } else {
-                for localClip in syncedLocalClips {
-                    if !remoteVideoIds.contains(localClip.id) {
-                        localClip.delete(in: context)
-                    }
+                for localClip in syncedLocalClips where !remoteVideoIds.contains(localClip.id) {
+                    // Track affected game + athlete before the delete — accessing
+                    // SwiftData properties after `context.delete` is undefined.
+                    if let game = localClip.game { gamesWithDeletedClips.insert(game.id) }
+                    athletesWithDeletedClips.insert(athlete.persistentModelID)
+                    localClip.delete(in: context)
                 }
             }
 
@@ -309,12 +315,17 @@ extension SyncCoordinator {
 
         if context.hasChanges { try context.save() }
 
-        // Rebuild derived statistics only for games that actually received new clips.
-        // GameStatistics and AthleteStatistics are not stored in Firestore — they are
-        // computed from VideoClip.playResult relationships. After downloading clips we
-        // must reconstruct them so stats are correct on a new device or after reinstall.
-        for athlete in athletesWithNewClips {
-            let affectedGames = (athlete.games ?? []).filter { gamesWithNewClips.contains($0.id) }
+        // Rebuild derived statistics for games whose clips changed (additions or
+        // deletions). GameStatistics and AthleteStatistics are not stored in
+        // Firestore — they are computed from VideoClip.playResult relationships.
+        // After syncing clips we must reconstruct them so stats stay consistent
+        // across devices (and after reinstall).
+        let athleteIDsNeedingRecalc = Set(athletesWithNewClips.map(\.persistentModelID))
+            .union(athletesWithDeletedClips)
+        let gameIDsNeedingRecalc = gamesWithNewClips.union(gamesWithDeletedClips)
+        for athleteID in athleteIDsNeedingRecalc {
+            guard let athlete = athletes.first(where: { $0.persistentModelID == athleteID }) else { continue }
+            let affectedGames = (athlete.games ?? []).filter { gameIDsNeedingRecalc.contains($0.id) }
             for game in affectedGames {
                 do {
                     try StatisticsService.shared.recalculateGameStatistics(for: game, context: context)
@@ -331,7 +342,7 @@ extension SyncCoordinator {
         }
 
         // Persist the recalculated statistics
-        if !athletesWithNewClips.isEmpty {
+        if !athleteIDsNeedingRecalc.isEmpty {
             if context.hasChanges { try context.save() }
         }
     }

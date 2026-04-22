@@ -19,13 +19,9 @@ struct EmptyHighlightsView: View {
             actionTitle: "Go to Videos",
             buttonIcon: "video.fill",
             action: {
-                NotificationCenter.default.post(name: .switchToVideosTab, object: nil)
+                NotificationCenter.default.post(name: .switchTab, object: MainTab.videos.rawValue)
                 dismiss()
             }
         )
     }
-}
-
-extension Notification.Name {
-    static let switchToVideosTab = Notification.Name("switchToVideosTab")
 }

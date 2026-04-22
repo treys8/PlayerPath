@@ -111,6 +111,12 @@ extension SyncCoordinator {
         let athletes = user.athletes ?? []
         let remotePracticeIds = Set(remotePractices.compactMap { $0.id })
 
+        /// Athletes whose stats need recalculation because practices were deleted
+        /// remotely. The practice cascade removes attached clips + their play
+        /// results, so athlete totals shift. Practices don't have game-level
+        /// stats, so only athlete recalc is needed.
+        var athletesAffectedByPracticeDeletion: Set<PersistentIdentifier> = []
+
         // Detect practices deleted on another device — remote set no longer contains them.
         // Safety: skip bulk deletion if remote returned empty but local has synced practices,
         // which can happen on transient Firestore failures or network timeouts.
@@ -121,13 +127,29 @@ extension SyncCoordinator {
             } else {
                 for localPractice in syncedLocalPractices {
                     if let firestoreId = localPractice.firestoreId, !remotePracticeIds.contains(firestoreId) {
+                        athletesAffectedByPracticeDeletion.insert(athlete.persistentModelID)
                         localPractice.delete(in: context)
                     }
                 }
             }
         }
 
+        // Recalculate athlete stats before the early return so deletions still
+        // flush when the remote set is empty (or contained only already-known practices).
+        func recalcAffectedAthletes() {
+            for athleteID in athletesAffectedByPracticeDeletion {
+                guard let athlete = athletes.first(where: { $0.persistentModelID == athleteID }) else { continue }
+                do {
+                    try StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: context)
+                } catch {
+                    syncLog.error("Failed to recalculate athlete stats after remote practice deletion for '\(athlete.name)': \(error.localizedDescription)")
+                }
+            }
+        }
+
         guard !remotePractices.isEmpty else {
+            if context.hasChanges { try context.save() }
+            recalcAffectedAthletes()
             if context.hasChanges { try context.save() }
             return
         }
@@ -191,6 +213,8 @@ extension SyncCoordinator {
             }
         }
 
+        if context.hasChanges { try context.save() }
+        recalcAffectedAthletes()
         if context.hasChanges { try context.save() }
     }
 

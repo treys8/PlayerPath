@@ -247,19 +247,12 @@ final class VideoClip {
             }
         }
 
-        // Delete associated play result and recalculate stats
+        // Delete associated play result. Stats recalculation is the caller's
+        // responsibility — after `context.save()`, callers must call
+        // `StatisticsService.recalculateGameStatistics` (if the clip had a game)
+        // and `recalculateAthleteStatistics` for the parent athlete.
         if let playResult = playResult {
-            let athleteForRecalc = athlete ?? game?.athlete
-            let gameForRecalc = game
             context.delete(playResult)
-            // Recalculate game stats so they don't retain the deleted clip's contribution
-            if let game = gameForRecalc {
-                try? StatisticsService.shared.recalculateGameStatistics(for: game, context: context)
-            }
-            // Recalculate athlete stats so they don't drift from actual play results
-            if let athlete = athleteForRecalc {
-                try? StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: context, skipSave: true)
-            }
         }
 
         // Delete video clip database record

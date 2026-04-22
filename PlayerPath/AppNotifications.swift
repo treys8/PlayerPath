@@ -1,23 +1,7 @@
 import Foundation
 import SwiftUI
 
-// Centralized, typed helpers for app-wide notifications.
-// This is additive and optional: existing NotificationCenter posts still work.
-
-enum AppEvent {
-    case switchTab(MainTab)
-    case presentVideoRecorder
-    case showAthleteSelection
-    case switchAthlete(Athlete)
-    case recordedHitResult([String: Any])
-    case videosManageOwnControls(Bool)
-    case presentAddGame(Any?)
-    case presentFullscreenVideo(Any?)
-    case reactivateGame(Any?)
-    case presentSeasons(Athlete)
-    case presentCoaches(Athlete)
-    case presentCoachVideos(Athlete)
-}
+// Centralized Notification.Name constants for app-wide events.
 
 extension Notification.Name {
     static let gameCreated = Notification.Name("GameCreated")
@@ -51,35 +35,3 @@ extension Notification.Name {
     static let videoRecorded = Notification.Name("VideoRecorded")
     static let presentAddPractice = Notification.Name("presentAddPractice")
 }
-
-@inline(__always)
-func post(_ event: AppEvent) {
-    switch event {
-    case .switchTab(let tab):
-        NotificationCenter.default.post(name: .switchTab, object: tab.rawValue)
-    case .presentVideoRecorder:
-        NotificationCenter.default.post(name: .presentVideoRecorder, object: nil)
-    case .showAthleteSelection:
-        NotificationCenter.default.post(name: .showAthleteSelection, object: nil)
-    case .switchAthlete(let athlete):
-        NotificationCenter.default.post(name: .switchAthlete, object: athlete)
-    case .recordedHitResult(let info):
-        NotificationCenter.default.post(name: .recordedHitResult, object: info)
-    case .videosManageOwnControls(let flag):
-        NotificationCenter.default.post(name: .videosManageOwnControls, object: flag)
-    case .presentAddGame(let payload):
-        NotificationCenter.default.post(name: .presentAddGame, object: payload)
-    case .presentFullscreenVideo(let payload):
-        NotificationCenter.default.post(name: .presentFullscreenVideo, object: payload)
-    case .reactivateGame(let payload):
-        NotificationCenter.default.post(name: .reactivateGame, object: payload)
-    case .presentSeasons(let athlete):
-        NotificationCenter.default.post(name: .presentSeasons, object: athlete)
-    case .presentCoaches(let athlete):
-        NotificationCenter.default.post(name: .presentCoaches, object: athlete)
-    case .presentCoachVideos(let athlete):
-        NotificationCenter.default.post(name: .presentCoachVideos, object: athlete)
-    }
-}
-
-// Optional: typed subscribers can be added later if desired.

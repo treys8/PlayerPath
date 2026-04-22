@@ -26,12 +26,15 @@ final class HighlightsViewModel {
 
     // MARK: - Results
     private(set) var highlights: [VideoClip] = []
+    private(set) var highlightsIndex: [UUID: Int] = [:]
     private(set) var availableSeasons: [Season] = []
     private(set) var hasNoSeasonClips: Bool = false
 
     // MARK: - Private
     private var allVideoClips: [VideoClip] = []
     private var allFilteredHighlights: [VideoClip] = []
+    private static let searchDateFormatter = DateFormatter.mediumDate
+    private static let searchShortFormatter = DateFormatter.compactDate
 
     // MARK: - Public API
 
@@ -73,13 +76,18 @@ final class HighlightsViewModel {
         }
 
         // Search filter
-        if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            let q = searchText.lowercased()
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if !query.isEmpty {
             filtered = filtered.filter { clip in
-                let opponent = clip.game?.opponent.lowercased() ?? ""
-                let result = clip.playResult?.type.displayName.lowercased() ?? ""
-                let fileName = clip.fileName.lowercased()
-                return opponent.contains(q) || result.contains(q) || fileName.contains(q)
+                clip.fileName.lowercased().contains(query) ||
+                (clip.playResult?.type.displayName.lowercased().contains(query) ?? false) ||
+                (clip.game?.opponent.lowercased().contains(query) ?? false) ||
+                (clip.game?.location?.lowercased().contains(query) ?? false) ||
+                (clip.game?.season?.displayName.lowercased().contains(query) ?? false) ||
+                (clip.practice?.season?.displayName.lowercased().contains(query) ?? false) ||
+                (clip.note?.lowercased().contains(query) ?? false) ||
+                (clip.createdAt.map { Self.searchDateFormatter.string(from: $0).lowercased() }?.contains(query) ?? false) ||
+                (clip.createdAt.map { Self.searchShortFormatter.string(from: $0).lowercased() }?.contains(query) ?? false)
             }
         }
 
@@ -92,19 +100,30 @@ final class HighlightsViewModel {
         allFilteredHighlights = sorted
         displayLimit = 50
         highlights = Array(sorted.prefix(displayLimit))
+        rebuildHighlightsIndex()
         isLoading = false
     }
 
     func loadMore() {
         displayLimit += 50
         highlights = Array(allFilteredHighlights.prefix(displayLimit))
+        rebuildHighlightsIndex()
+    }
+
+    private func rebuildHighlightsIndex() {
+        var indexMap: [UUID: Int] = [:]
+        indexMap.reserveCapacity(highlights.count)
+        for (i, clip) in highlights.enumerated() {
+            indexMap[clip.id] = i
+        }
+        highlightsIndex = indexMap
     }
 
     /// Call from `.onAppear` on each grid item. Loads the next page when the
     /// user scrolls within 10 items of the current display limit.
     func onItemAppear(_ clip: VideoClip) {
         guard hasMore,
-              let index = highlights.firstIndex(where: { $0.id == clip.id }),
+              let index = highlightsIndex[clip.id],
               index >= displayLimit - 10 else { return }
         loadMore()
     }

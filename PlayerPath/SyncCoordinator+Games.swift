@@ -121,11 +121,20 @@ extension SyncCoordinator {
         }
         let remoteReturnedTooFew = !syncedLocalGames.isEmpty
             && remoteGameIds.count < syncedLocalGames.count / 2
+        /// Athletes whose stats need recalculation because games were deleted remotely.
+        /// The deleted games take their clips' play results with them, so athlete
+        /// totals shift — game-level stats aren't needed because the games are gone.
+        var athletesAffectedByGameDeletion: Set<PersistentIdentifier> = []
         if remoteReturnedTooFew {
             syncLog.warning("Remote returned \(remoteGameIds.count) games but \(syncedLocalGames.count) synced locally — skipping deletion pass to prevent data loss")
         } else {
             for localGame in syncedLocalGames {
                 guard let fsId = localGame.firestoreId, !remoteGameIds.contains(fsId) else { continue }
+                // Capture athlete identity before the cascade — accessing SwiftData
+                // properties after `context.delete` is undefined behavior.
+                if let athlete = localGame.athlete {
+                    athletesAffectedByGameDeletion.insert(athlete.persistentModelID)
+                }
                 for clip in localGame.videoClips ?? [] { clip.delete(in: context) }
                 for photo in localGame.photos ?? [] { photo.delete(in: context) }
                 if let gameStats = localGame.gameStats { context.delete(gameStats) }
@@ -208,6 +217,19 @@ extension SyncCoordinator {
             }
         }
 
+        if context.hasChanges { try context.save() }
+
+        // Recalculate athlete stats for any athlete whose games were deleted
+        // remotely. Game-level stats aren't needed — the games themselves are
+        // gone — but athlete totals aggregate across all remaining games.
+        for athleteID in athletesAffectedByGameDeletion {
+            guard let athlete = athletes.first(where: { $0.persistentModelID == athleteID }) else { continue }
+            do {
+                try StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: context)
+            } catch {
+                syncLog.error("Failed to recalculate athlete stats after remote game deletion for '\(athlete.name)': \(error.localizedDescription)")
+            }
+        }
         if context.hasChanges { try context.save() }
     }
 
