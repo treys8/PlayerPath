@@ -142,6 +142,25 @@ struct AddGameView: View {
             return
         }
 
+        // Bound the game date by the selected season when one is chosen.
+        // Active season has nil endDate — use distantFuture so same-day games aren't rejected.
+        if let selectedSeason {
+            let start = selectedSeason.startDate ?? .distantPast
+            let end = selectedSeason.endDate ?? .distantFuture
+            if date < start {
+                errorMessage = "Game date is before the selected season starts."
+                isSeasonError = false
+                showingError = true
+                return
+            }
+            if date > end {
+                errorMessage = "Game date is after the selected season ends."
+                isSeasonError = false
+                showingError = true
+                return
+            }
+        }
+
         let trimmedOpponent = opponent.trimmingCharacters(in: .whitespacesAndNewlines)
 
         log.debug("saveGame() called for athlete: \(athlete.name, privacy: .private)")
@@ -162,23 +181,8 @@ struct AddGameView: View {
 
             await MainActor.run {
                 switch result {
-                case .success(let createdGame):
+                case .success:
                     log.info("Game created successfully")
-                    // Schedule a reminder if the game is in the future and reminders are enabled
-                    let prefs = try? modelContext.fetch(FetchDescriptor<UserPreferences>()).first
-                    let reminderMinutes = prefs?.gameReminderMinutes ?? 30
-                    if prefs?.enableGameReminders ?? true,
-                       let gameDate = createdGame.date,
-                       gameDate > Date().addingTimeInterval(TimeInterval(reminderMinutes * 60)) {
-                        Task {
-                            await PushNotificationService.shared.scheduleGameReminder(
-                                gameId: createdGame.id.uuidString,
-                                opponent: trimmedOpponent,
-                                scheduledTime: gameDate,
-                                reminderMinutes: reminderMinutes
-                            )
-                        }
-                    }
                     dismiss()
                 case .failure(let error):
                     log.warning("Game creation failed: \(error.localizedDescription), isSeasonError: \(error == .noActiveSeason)")
@@ -221,23 +225,7 @@ struct AddGameView: View {
 
             await MainActor.run {
                 switch result {
-                case .success(let createdGame):
-                    // Success - dismiss
-                    // Schedule a reminder if the game is in the future and reminders are enabled
-                    let prefs = try? modelContext.fetch(FetchDescriptor<UserPreferences>()).first
-                    let reminderMinutes = prefs?.gameReminderMinutes ?? 30
-                    if prefs?.enableGameReminders ?? true,
-                       let gameDate = createdGame.date,
-                       gameDate > Date().addingTimeInterval(TimeInterval(reminderMinutes * 60)) {
-                        Task {
-                            await PushNotificationService.shared.scheduleGameReminder(
-                                gameId: createdGame.id.uuidString,
-                                opponent: trimmedOpponent,
-                                scheduledTime: gameDate,
-                                reminderMinutes: reminderMinutes
-                            )
-                        }
-                    }
+                case .success:
                     dismiss()
                 case .failure(let error):
                     // Show error alert

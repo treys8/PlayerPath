@@ -178,6 +178,8 @@ class GameService {
 
             NotificationCenter.default.post(name: .gameCreated, object: game)
 
+            await scheduleReminderIfNeeded(for: game)
+
             if game.isLive {
                 NotificationCenter.default.post(name: .gameBecameLive, object: game)
                 await GameAlertService.shared.requestPermissionIfNeeded()
@@ -190,7 +192,24 @@ class GameService {
             return .failure(.saveFailed)
         }
     }
-    
+
+    /// Schedule a local reminder for the game if user preferences allow and
+    /// the game is far enough in the future. Centralizes what used to be
+    /// duplicated across AddGameView, GamesView, and GameCreationView callers.
+    func scheduleReminderIfNeeded(for game: Game) async {
+        let prefs = try? modelContext.fetch(FetchDescriptor<UserPreferences>()).first
+        guard prefs?.enableGameReminders ?? true else { return }
+        let minutes = prefs?.gameReminderMinutes ?? 30
+        guard let gameDate = game.date,
+              gameDate > Date().addingTimeInterval(TimeInterval(minutes * 60)) else { return }
+        await PushNotificationService.shared.scheduleGameReminder(
+            gameId: game.id.uuidString,
+            opponent: game.opponent,
+            scheduledTime: gameDate,
+            reminderMinutes: minutes
+        )
+    }
+
     // MARK: - Game Lifecycle Management
     
     func start(_ game: Game) async {

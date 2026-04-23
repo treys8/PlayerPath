@@ -228,7 +228,20 @@ struct ManualStatisticsEntryView: View {
             }
         }
 
+        // Mark for Firestore sync — other game mutation paths all set this,
+        // but manual stats entry was silently skipping it, leaving edits local-only.
+        game.needsSync = true
+
         if ErrorHandlerService.shared.saveContext(modelContext, caller: "ManualStatisticsEntryView.save") {
+            if let user = game.athlete?.user {
+                Task {
+                    do {
+                        try await SyncCoordinator.shared.syncGames(for: user)
+                    } catch {
+                        ErrorHandlerService.shared.handle(error, context: "ManualStatisticsEntryView.syncGames", showAlert: false)
+                    }
+                }
+            }
             dismiss()
         } else {
             alertMessage = "Failed to save statistics. Please try again."

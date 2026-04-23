@@ -25,6 +25,8 @@ struct AddPracticeView: View {
     @State private var date: Date = Date()
     @State private var selectedSeason: Season?
     @State private var didInitSeason = false
+    @State private var showingValidationError = false
+    @State private var validationMessage = ""
 
     private var hasMultipleSeasons: Bool {
         (athlete.seasons?.count ?? 0) > 1
@@ -69,10 +71,31 @@ struct AddPracticeView: View {
                 selectedSeason = athlete.activeSeason
                 didInitSeason = true
             }
+            .alert("Validation Error", isPresented: $showingValidationError) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text(validationMessage)
+            }
         }
     }
 
     private func save() {
+        // Bound the practice date by the selected season when one is chosen.
+        if let selectedSeason {
+            let start = selectedSeason.startDate ?? .distantPast
+            let end = selectedSeason.endDate ?? .distantFuture
+            if date < start {
+                validationMessage = "Practice date is before the selected season starts."
+                showingValidationError = true
+                return
+            }
+            if date > end {
+                validationMessage = "Practice date is after the selected season ends."
+                showingValidationError = true
+                return
+            }
+        }
+
         let practice = Practice(date: date)
         practice.practiceType = practiceType.rawValue
         practice.athlete = athlete

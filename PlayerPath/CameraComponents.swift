@@ -19,7 +19,9 @@ enum CameraOrientation {
     /// Applies the rotation that matches `orientation` to `connection`.
     /// Shared by `CameraPreviewLayer` (preview) and `CameraViewModel` (capture output)
     /// so both stay in lockstep if the mapping ever changes.
-    static func apply(_ orientation: UIDeviceOrientation, to connection: AVCaptureConnection) {
+    /// `nonisolated` because it only mutates its `connection` argument — called from
+    /// AVFoundation callbacks that aren't on the main actor.
+    nonisolated static func apply(_ orientation: UIDeviceOrientation, to connection: AVCaptureConnection) {
         if #available(iOS 17.0, *) {
             let angle: CGFloat = switch orientation {
             case .landscapeLeft: 0       // Home button on right → natural landscape

@@ -7,6 +7,7 @@
 //
 
 import SwiftUI
+import SwiftData
 import AVKit
 import PencilKit
 

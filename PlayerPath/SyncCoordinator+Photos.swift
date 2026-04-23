@@ -4,7 +4,9 @@ import FirebaseAuth
 import UIKit
 import os
 
-private let syncLog = Logger(subsystem: "com.playerpath.app", category: "Sync")
+// `nonisolated` so the logger can be used from the `Task.detached` thumbnail-encoding
+// closure below without tripping Swift 6 main-actor isolation. Logger is Sendable.
+nonisolated private let syncLog = Logger(subsystem: "com.playerpath.app", category: "Sync")
 
 extension SyncCoordinator {
 

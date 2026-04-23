@@ -81,8 +81,8 @@ struct GameCreationView: View {
                     DatePicker("Date & Time", selection: $date)
                 }
 
-                // Opponent Suggestions
-                if !filteredOpponents.isEmpty && (opponent.count < 3 || !filteredOpponents.filter({ $0.localizedCaseInsensitiveContains(opponent) && $0 != opponent }).isEmpty) {
+                // Opponent Suggestions — show when there are matches and at least one differs from the current input.
+                if !filteredOpponents.isEmpty && !filteredOpponents.allSatisfy({ $0 == opponent }) {
                     Section("Recent Opponents") {
                         ForEach(filteredOpponents, id: \.self) { suggestion in
                             Button {
@@ -193,7 +193,8 @@ struct GameCreationView: View {
         // games onto a past season (e.g., "Spring 2024") without bumping the year cap.
         if let selectedSeason {
             let start = selectedSeason.startDate ?? .distantPast
-            let end = selectedSeason.endDate ?? Date()
+            // Active season has nil endDate; don't cap at "now" — users can schedule later today.
+            let end = selectedSeason.endDate ?? .distantFuture
             if date < start {
                 validationMessage = "Game date is before the selected season starts."
                 showingValidationError = true

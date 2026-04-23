@@ -54,9 +54,6 @@ struct GamesView: View {
     
     // Game creation states
     @State private var showingGameCreation = false
-    @State private var newGameOpponent = ""
-    @State private var newGameDate = Date()
-    @State private var makeGameLive = false
 
     // Season check states
     @State private var showingSeasonCreation = false
@@ -295,6 +292,14 @@ struct GamesView: View {
                     NavigationLink(destination: GameDetailView(game: game)) {
                         GameRow(game: game)
                     }
+                    .swipeActions(edge: .leading) {
+                        Button(role: .destructive) {
+                            gameToDelete = game
+                            showingDeleteGameConfirmation = true
+                        } label: {
+                            Text("Delete")
+                        }
+                    }
                     .onAppear {
                         if game.id == cachedCompletedGames.last?.id,
                            viewModelHolder.viewModel?.hasMoreCompleted == true {
@@ -488,14 +493,6 @@ struct GamesView: View {
         refreshGames()
     }
     
-    private func deleteGames(from games: [Game], at indexSet: IndexSet) {
-        for index in indexSet {
-            guard index < games.count else { continue }
-            viewModelHolder.viewModel?.deleteDeep(games[index])
-        }
-        refreshGames()
-    }
-    
     private func createGame(opponent: String, date: Date, isLive: Bool, season: Season? = nil) {
         viewModelHolder.viewModel?.create(
             opponent: opponent,
@@ -504,28 +501,6 @@ struct GamesView: View {
             season: season,
             onError: { errorMessage in
                 showError(errorMessage)
-            },
-            onSuccess: { createdGame in
-                let prefs: UserPreferences?
-                do {
-                    prefs = try modelContext.fetch(FetchDescriptor<UserPreferences>()).first
-                } catch {
-                    ErrorHandlerService.shared.handle(error, context: "GamesView.fetchGameReminderPrefs", showAlert: false)
-                    prefs = nil
-                }
-                let remindersEnabled = prefs?.enableGameReminders ?? true
-                let reminderMinutes = prefs?.gameReminderMinutes ?? 30
-                guard remindersEnabled,
-                      let gameDate = createdGame.date,
-                      gameDate > Date().addingTimeInterval(TimeInterval(reminderMinutes * 60)) else { return }
-                Task {
-                    await PushNotificationService.shared.scheduleGameReminder(
-                        gameId: createdGame.id.uuidString,
-                        opponent: opponent,
-                        scheduledTime: gameDate,
-                        reminderMinutes: reminderMinutes
-                    )
-                }
             }
         )
         refreshGames()

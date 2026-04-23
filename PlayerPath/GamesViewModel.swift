@@ -68,7 +68,9 @@ final class GamesViewModel: ObservableObject {
         let now = Date()
         liveGames = sortedGames.filter { $0.isLive }
         allCompletedGames = sortedGames.filter { $0.isComplete }
-        completedDisplayLimit = 50
+        // Preserve the user's scroll-loaded count across updates so a new game
+        // or live-game end doesn't snap them back to the first 50.
+        completedDisplayLimit = max(completedDisplayLimit, 50)
         completedGames = Array(allCompletedGames.prefix(completedDisplayLimit))
         upcomingGames = sortedGames.filter { game in
             guard !game.isLive, !game.isComplete else { return false }
@@ -98,14 +100,11 @@ final class GamesViewModel: ObservableObject {
         }
     }
     
-    func create(opponent: String, date: Date, isLive: Bool, season: Season? = nil, onError: @escaping (String) -> Void, onSuccess: ((Game) -> Void)? = nil) {
+    func create(opponent: String, date: Date, isLive: Bool, season: Season? = nil, onError: @escaping (String) -> Void) {
         guard let athlete = self.athlete else { return }
         Task {
             let result = await gameService.createGame(for: athlete, opponent: opponent, date: date, isLive: isLive, season: season)
-            switch result {
-            case .success(let game):
-                onSuccess?(game)
-            case .failure(let error):
+            if case .failure(let error) = result {
                 onError(error.localizedDescription)
             }
         }

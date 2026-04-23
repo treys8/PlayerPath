@@ -11,7 +11,6 @@ import SwiftData
 // MARK: - Game Row View
 struct GameRow: View {
     let game: Game
-    @State private var livePulse = false
 
     var body: some View {
         HStack(spacing: 0) {

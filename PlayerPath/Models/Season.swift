@@ -165,7 +165,10 @@ final class Season {
 
     /// End this season and archive it
     func archive(endDate: Date? = nil) {
-        self.endDate = endDate ?? Date()
+        // Normalize stamped endDate to end-of-day so same-day games/videos
+        // (or backfills filed earlier today) still fall within the season.
+        let stamped = endDate ?? Date()
+        self.endDate = Calendar.current.date(bySettingHour: 23, minute: 59, second: 59, of: stamped) ?? stamped
         self.isActive = false
 
         // Calculate and save season statistics
@@ -210,9 +213,11 @@ final class Season {
     func activate() {
         // Deactivate all other seasons for this athlete and stamp their end date
         if let athlete = self.athlete {
+            let now = Date()
+            let endOfToday = Calendar.current.date(bySettingHour: 23, minute: 59, second: 59, of: now) ?? now
             for season in (athlete.seasons ?? []) where season.id != self.id {
                 if season.isActive && season.endDate == nil {
-                    season.endDate = Date()
+                    season.endDate = endOfToday
                 }
                 season.isActive = false
             }

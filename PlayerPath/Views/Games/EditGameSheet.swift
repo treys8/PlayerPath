@@ -23,6 +23,8 @@ struct EditGameSheet: View {
     enum Field: Hashable { case opponent, location, notes }
     @FocusState private var focusedField: Field?
     @State private var showingSaveError = false
+    @State private var showingValidationError = false
+    @State private var validationMessage = ""
 
     private var isValidOpponent: Bool {
         let trimmed = opponent.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -120,10 +122,31 @@ struct EditGameSheet: View {
             } message: {
                 Text("Failed to save changes. Please try again.")
             }
+            .alert("Validation Error", isPresented: $showingValidationError) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text(validationMessage)
+            }
         }
     }
 
     private func saveChanges() {
+        // Bound the edited date by the game's season when one is assigned.
+        if let season = game.season {
+            let start = season.startDate ?? .distantPast
+            let end = season.endDate ?? .distantFuture
+            if date < start {
+                validationMessage = "Game date is before the season starts."
+                showingValidationError = true
+                return
+            }
+            if date > end {
+                validationMessage = "Game date is after the season ends."
+                showingValidationError = true
+                return
+            }
+        }
+
         let dateChanged = date != (game.date ?? Date())
         let gameId = game.id.uuidString
         let newOpponent = opponent.trimmingCharacters(in: .whitespacesAndNewlines)

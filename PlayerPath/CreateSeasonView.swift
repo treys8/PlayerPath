@@ -184,7 +184,8 @@ struct CreateSeasonView: View {
             // Past season: stamp an explicit end date so it's a closed interval.
             // BulkVideoImportViewModel.season(containing:) treats nil endDate as
             // distantFuture, which would let current-date videos leak in.
-            newSeason.endDate = endDate
+            // Normalize to end-of-day so same-day games/videos aren't excluded.
+            newSeason.endDate = Calendar.current.date(bySettingHour: 23, minute: 59, second: 59, of: endDate) ?? endDate
         }
 
         // Link to athlete
