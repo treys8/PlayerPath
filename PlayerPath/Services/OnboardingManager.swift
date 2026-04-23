@@ -2,7 +2,7 @@
 //  OnboardingManager.swift
 //  PlayerPath
 //
-//  Manages welcome tutorial, coach announcement, and feature-tip state,
+//  Manages welcome tutorial and feature-tip state,
 //  persisted to UserDefaults with per-user key scoping.
 //
 
@@ -17,7 +17,6 @@ final class OnboardingManager: ObservableObject {
     // MARK: - Published State
 
     @Published var hasSeenWelcomeTutorial: Bool = false
-    @Published var hasSeenCoachAnnouncement: Bool = false
     @Published var dismissedTips: Set<String> = []
 
     // MARK: - UserDefaults Keys
@@ -31,7 +30,6 @@ final class OnboardingManager: ObservableObject {
 
     private enum BaseKeys {
         static let hasSeenWelcomeTutorial = "hasSeenWelcomeTutorial"
-        static let hasSeenCoachAnnouncement = "hasSeenCoachAnnouncement"
         static let dismissedTips = "dismissedTips"
     }
 
@@ -47,7 +45,6 @@ final class OnboardingManager: ObservableObject {
 
     private func reloadState() {
         hasSeenWelcomeTutorial = UserDefaults.standard.bool(forKey: key(BaseKeys.hasSeenWelcomeTutorial))
-        hasSeenCoachAnnouncement = UserDefaults.standard.bool(forKey: key(BaseKeys.hasSeenCoachAnnouncement))
 
         if let tipsData = UserDefaults.standard.array(forKey: key(BaseKeys.dismissedTips)) as? [String] {
             dismissedTips = Set(tipsData)
@@ -66,17 +63,6 @@ final class OnboardingManager: ObservableObject {
     func resetWelcomeTutorial() {
         hasSeenWelcomeTutorial = false
         UserDefaults.standard.removeObject(forKey: key(BaseKeys.hasSeenWelcomeTutorial))
-    }
-
-    // MARK: - Coach Announcement
-
-    func markCoachAnnouncementSeen() {
-        hasSeenCoachAnnouncement = true
-        UserDefaults.standard.set(true, forKey: key(BaseKeys.hasSeenCoachAnnouncement))
-    }
-
-    var shouldShowCoachAnnouncement: Bool {
-        hasSeenWelcomeTutorial && !hasSeenCoachAnnouncement
     }
 
     // MARK: - Feature Tips

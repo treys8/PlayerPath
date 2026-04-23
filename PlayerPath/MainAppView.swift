@@ -4,13 +4,6 @@
 //
 //  Created by Trey Schilling on 10/23/25.
 //
-//  CRITICAL FIXES APPLIED:
-//  1. ✅ NotificationCenter Memory Leak Prevention - Using @StateObject NotificationObserverManager for lifecycle safety
-//  2. ✅ SwiftData Relationship Race Condition - Set relationships before insert, let inverse handle array
-//  3. ✅ Safe Predicate Implementation - Removed force unwrap, using Swift filter instead
-//  4. ✅ Task Cancellation - All async tasks check for cancellation and store references for cleanup
-//  5. ✅ Observer Duplication Prevention - Dedicated ObservableObject manages observers with automatic cleanup
-//
 
 import SwiftUI
 import SwiftData
@@ -53,15 +46,9 @@ enum MainTab: Int {
     case videos = 2
     case stats = 3
     case more = 4
-
-    // Legacy compatibility aliases
-    static var profile: MainTab { .more }
-    static var practice: MainTab { .more }
-    static var highlights: MainTab { .more }
 }
 
 // Convenience helper to switch tabs via NotificationCenter
-@inline(__always)
 func postSwitchTab(_ tab: MainTab) {
     NotificationCenter.default.post(name: .switchTab, object: tab.rawValue)
 }
@@ -132,9 +119,6 @@ struct PlayerPathMainView: View {
             }
         }
         .task {
-            // One-shot cleanup: drop the legacy biometric flag from removed Face ID feature
-            UserDefaults.standard.removeObject(forKey: "biometric_enabled")
-
             // Enforce singleton UserPreferences on every launch (dedup + create if missing)
             let prefs = UserPreferences.shared(in: modelContext)
 

@@ -14,6 +14,7 @@ struct FilmstripScrubberView: View {
     let duration: Double
     let onSeek: (Double) -> Void
     let isLoading: Bool
+    let isPlaying: Bool
 
     private let thumbWidth: CGFloat = 80
     private let thumbHeight: CGFloat = 45
@@ -38,7 +39,7 @@ struct FilmstripScrubberView: View {
                 .padding(.horizontal, 8)
             }
             .onChange(of: activeIndex) { _, newIndex in
-                guard let newIndex else { return }
+                guard !isPlaying, let newIndex else { return }
                 withAnimation(.easeInOut(duration: 0.2)) {
                     proxy.scrollTo(newIndex, anchor: .center)
                 }

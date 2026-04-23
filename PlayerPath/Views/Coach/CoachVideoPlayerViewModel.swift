@@ -62,6 +62,7 @@ class CoachVideoPlayerViewModel {
     var filmstripThumbnails: [FilmstripThumbnail] = []
     var isGeneratingFilmstrip = false
     var observedPlaybackTime: Double = 0
+    var isPlaying: Bool = false
 
     // Telestration state. `ActiveDrawingOverlay` is defined in
     // Views/Coach/Telestration/AnnotationPlaybackViews.swift so the athlete's
@@ -72,6 +73,7 @@ class CoachVideoPlayerViewModel {
     private var durationTask: Task<Void, Never>?
     private var filmstripTask: Task<Void, Never>?
     private var statusObservation: NSKeyValueObservation?
+    private var playingObservation: NSKeyValueObservation?
     private var timeObserver: Any?
     private var filmstripTimeObserver: Any?
     private var annotationsListener: ListenerRegistration?
@@ -110,6 +112,7 @@ class CoachVideoPlayerViewModel {
                 player?.removeTimeObserver(observer)
             }
             statusObservation?.invalidate()
+            playingObservation?.invalidate()
             annotationsListener?.remove()
             player?.pause()
         }
@@ -381,6 +384,13 @@ class CoachVideoPlayerViewModel {
                 }
             }
         }
+
+        playingObservation = player.observe(\.timeControlStatus, options: [.initial, .new]) { [weak self] player, _ in
+            let playing = player.timeControlStatus == .playing
+            Task { @MainActor [weak self] in
+                self?.isPlaying = playing
+            }
+        }
     }
 
     func stopTimeObserver() {
@@ -390,6 +400,8 @@ class CoachVideoPlayerViewModel {
             player?.removeTimeObserver(observer)
             timeObserver = nil
         }
+        playingObservation?.invalidate()
+        playingObservation = nil
     }
 
     func seekToTimestamp(_ timestamp: Double) {

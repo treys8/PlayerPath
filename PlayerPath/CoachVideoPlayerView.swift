@@ -305,7 +305,8 @@ struct CoachVideoPlayerView: View {
                 onSeek: { timestamp in
                     viewModel.seekToTimestampPaused(timestamp)
                 },
-                isLoading: viewModel.isGeneratingFilmstrip
+                isLoading: viewModel.isGeneratingFilmstrip,
+                isPlaying: viewModel.isPlaying
             )
             .onAppear { viewModel.startFilmstripTimeObserver() }
             .onDisappear { viewModel.stopFilmstripTimeObserver() }

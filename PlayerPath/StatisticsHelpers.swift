@@ -35,10 +35,11 @@ struct StatisticsHelpers {
     static func ensureStatistics(for athlete: Athlete, in modelContext: ModelContext) -> AthleteStatistics {
         if let stats = athlete.statistics { return stats }
         let stats = AthleteStatistics()
-        // Establish relationships (adjust if your model uses different names)
-        athlete.statistics = stats
-        stats.athlete = athlete
+        // Insert before wiring the relationship. Athlete.statistics owns the @Relationship,
+        // so the inverse (stats.athlete) auto-populates — setting both sides tripped a
+        // SwiftData assertion inside .modify accessors on iOS 26.
         modelContext.insert(stats)
+        athlete.statistics = stats
         return stats
     }
 

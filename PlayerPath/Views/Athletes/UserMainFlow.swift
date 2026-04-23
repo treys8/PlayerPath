@@ -33,10 +33,6 @@ struct UserMainFlow: View {
     // Quick Actions manager
     @ObservedObject private var quickActionsManager = QuickActionsManager.shared
 
-    // Coach announcement
-    @ObservedObject private var onboardingManager = OnboardingManager.shared
-    @State private var showingCoachAnnouncement = false
-
     // Onboarding (tutorial shown from MainTabView after setup is complete)
 
     init(user: User, isNewUserFlag: Bool, hasCompletedOnboarding: Bool) {
@@ -116,15 +112,6 @@ struct UserMainFlow: View {
                         set: { selectedAthlete = $0 }
                     )
                 )
-                .fullScreenCover(isPresented: $showingCoachAnnouncement) {
-                    CoachAnnouncementFlow(
-                        athlete: selectedAthlete ?? athlete,
-                        onDismiss: { showingCoachAnnouncement = false }
-                    )
-                    .environmentObject(authManager)
-                }
-                .onAppear {
-                }
             } else if athletesForUser.isEmpty && isNewUserFlag {
                 // New athletes need to create their first athlete profile
                 AddAthleteView(
@@ -237,12 +224,6 @@ struct UserMainFlow: View {
                 SyncCoordinator.shared.activeAthleteID = athlete.id.uuidString
             }
             hasRestoredSelection = true
-
-            // Show coach announcement for existing athletes after coach features are enabled
-            if onboardingManager.shouldShowCoachAnnouncement
-               && authManager.userRole == .athlete {
-                showingCoachAnnouncement = true
-            }
         }
         .onChange(of: selectedAthlete) { _, newValue in
             // Persist athlete selection
