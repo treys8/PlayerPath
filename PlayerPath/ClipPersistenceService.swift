@@ -218,45 +218,20 @@ final class ClipPersistenceService {
 
     }
 
+    /// Delegates to `VideoFileManager.generateThumbnail` so every clip in the app
+    /// — recorded, imported, trimmed, sync-regenerated — gets the same native-aspect
+    /// bounded output. Previously this path produced full-resolution native-aspect
+    /// thumbs while `VideoFileManager` produced letterboxed 480×270; the two
+    /// diverged visually (black bars on imported portrait clips) and on disk
+    /// (multi-MB thumbnails for recorded 4K video).
     func generateThumbnail(for videoURL: URL, at time: CMTime = CMTime(seconds: 1.0, preferredTimescale: 600)) async throws -> String {
-        let asset = AVURLAsset(url: videoURL)
-        let imageGenerator = AVAssetImageGenerator(asset: asset)
-        imageGenerator.appliesPreferredTrackTransform = true
-        imageGenerator.requestedTimeToleranceAfter = .zero
-        imageGenerator.requestedTimeToleranceBefore = .zero
-
-        // Generate thumbnail image
-        let cgImage = try await imageGenerator.image(at: time).image
-
-        // Create thumbnails directory
-        let documentsURL = try fileManager.url(
-            for: .documentDirectory,
-            in: .userDomainMask,
-            appropriateFor: nil,
-            create: true
-        )
-        let thumbnailsDirectory = documentsURL.appendingPathComponent("Thumbnails", isDirectory: true)
-        if !fileManager.fileExists(atPath: thumbnailsDirectory.path) {
-            try fileManager.createDirectory(at: thumbnailsDirectory, withIntermediateDirectories: true)
+        let result = await VideoFileManager.generateThumbnail(from: videoURL, at: time)
+        switch result {
+        case .success(let path):
+            return path
+        case .failure(let error):
+            throw error
         }
-
-        // Generate thumbnail filename based on video filename
-        let videoFileName = videoURL.deletingPathExtension().lastPathComponent
-        let thumbnailFileName = "\(videoFileName)_thumb.jpg"
-        let thumbnailURL = thumbnailsDirectory.appendingPathComponent(thumbnailFileName)
-
-        // Convert CGImage to JPEG and save
-        #if os(iOS)
-        let uiImage = UIImage(cgImage: cgImage)
-        guard let jpegData = uiImage.jpegData(compressionQuality: 0.8) else {
-            throw ClipPersistenceError.failedToCreateAsset(thumbnailURL, underlying: nil)
-        }
-        try jpegData.write(to: thumbnailURL)
-        #endif
-
-        // Store as a path relative to Documents so the reference survives app
-        // reinstalls / backup restores (which change the sandbox container path).
-        return VideoClip.toRelativePath(thumbnailURL.path)
     }
 
     func saveClip(

@@ -50,6 +50,13 @@ final class VideoClip {
     /// Version number for conflict resolution
     var version: Int = 0
 
+    /// When this clip was saved from a coach's shared folder, this holds the
+    /// Firestore document ID of the original coach-uploaded video so the
+    /// athlete player can load the coach's annotations (drawings, notes) from
+    /// `videos/{sourceCoachVideoID}/annotations/`. Nil for athlete-recorded
+    /// and camera-roll-imported clips.
+    var sourceCoachVideoID: String? = nil
+
     init(fileName: String, filePath: String) {
         self.id = UUID()
         self.fileName = fileName

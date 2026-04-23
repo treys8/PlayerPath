@@ -87,12 +87,8 @@ struct VideoClipCard: View {
                     if !isSelectionMode {
                         VStack {
                             HStack {
-                                BackupStatusBadge(
-                                    clipId: video.id,
-                                    isUploaded: video.isUploaded,
-                                    firestoreId: video.firestoreId
-                                )
-                                .padding(8)
+                                BackupStatusBadge(clip: video)
+                                    .padding(8)
                                 Spacer()
                             }
                             Spacer()
@@ -199,6 +195,12 @@ struct VideoClipCard: View {
             .background(Color(.systemGray6))
             .clipShape(RoundedRectangle(cornerRadius: .cornerLarge, style: .continuous))
             .shadow(color: .black.opacity(0.1), radius: 8, x: 0, y: 3)
+            // Force the Button's tappable region to cover the entire rendered frame.
+            // Without this, SwiftUI's default hit-test is the union of child text
+            // regions — leaving Spacer-filled gaps in the info section as dead zones
+            // that fall through to the next card (opening the wrong clip on
+            // long-press or tap near those gaps).
+            .contentShape(Rectangle())
         }
         .buttonStyle(PressableCardButtonStyle())
         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isSelected)
@@ -457,20 +459,23 @@ struct PressableCardButtonStyle: ButtonStyle {
 /// this tiny view — a progress tick invalidates only the badge, not the
 /// whole card across every visible cell in the grid.
 struct BackupStatusBadge: View {
-    let clipId: UUID
-    let isUploaded: Bool
-    let firestoreId: String?
+    let clip: VideoClip
 
     private let uploadManager = UploadQueueManager.shared
 
     var body: some View {
-        if isUploaded && firestoreId != nil {
+        // Reading clip.isUploaded / clip.firestoreId here — instead of in the
+        // parent VideoClipCard — scopes SwiftData's @Observable dependency
+        // tracking to this subview. Upload completion invalidates just the
+        // badge instead of the whole card (and, transitively, the whole grid),
+        // which was previously causing the post-upload "shutter" effect.
+        if clip.isUploaded && clip.firestoreId != nil {
             // Fully synced — Storage uploaded + Firestore metadata written (cross-device ready)
             badge(icon: "checkmark.icloud.fill", iconSize: 12, background: .green, shadowOpacity: 0.3)
-        } else if isUploaded && firestoreId == nil {
+        } else if clip.isUploaded && clip.firestoreId == nil {
             // Storage upload done but Firestore metadata not yet written — not cross-device accessible yet
             badge(icon: "exclamationmark.icloud.fill", iconSize: 12, background: .yellow, shadowOpacity: 0.3)
-        } else if let progress = uploadManager.activeUploads[clipId] {
+        } else if let progress = uploadManager.activeUploads[clip.id] {
             // Currently uploading — blue with percentage
             HStack(spacing: 3) {
                 ProgressView()
@@ -485,7 +490,7 @@ struct BackupStatusBadge: View {
             .background(Color.brandNavy)
             .cornerRadius(6)
             .shadow(color: .black.opacity(0.3), radius: 2, x: 0, y: 1)
-        } else if uploadManager.pendingUploads.contains(where: { $0.clipId == clipId }) {
+        } else if uploadManager.pendingUploads.contains(where: { $0.clipId == clip.id }) {
             // Queued for upload — orange clock
             badge(icon: "clock.fill", iconSize: 12, background: .orange, shadowOpacity: 0.3)
         } else {

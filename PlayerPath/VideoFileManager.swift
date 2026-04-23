@@ -225,8 +225,11 @@ class VideoFileManager {
                 }.value
             }
             
-            let baseImage = UIImage(cgImage: cgImage)
-            let image = normalizedThumbnail(baseImage, size: safeSize)
+            // The image generator's `maximumSize` already bounds the output while
+            // preserving native aspect. Keep the native-aspect UIImage so the grid's
+            // `.aspectRatio(.fill) + .clipped()` renders consistently across recorded
+            // and imported clips (no letterbox bars on portrait content).
+            let image = UIImage(cgImage: cgImage)
 
             // Check for cancellation before saving
             guard !Task.isCancelled else {

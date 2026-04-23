@@ -185,6 +185,20 @@ struct ClipReviewSheet: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { dismiss() }
                 }
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        startTelestration()
+                    } label: {
+                        if isPreparingTelestration {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Image(systemName: "pencil.tip")
+                                .foregroundColor(.brandNavy)
+                        }
+                    }
+                    .disabled(player == nil || isLoadingVideo || isPreparingTelestration)
+                    .accessibilityLabel("Draw on video frame")
+                }
             }
             .alert("Discard this clip?", isPresented: $showingDiscardConfirmation) {
                 Button("Discard", role: .destructive) { discardClip() }

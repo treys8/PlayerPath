@@ -489,6 +489,7 @@ struct VideoClipMetadata {
     let fileSize: Int64
     let thumbnailURL: String?
     let isDeleted: Bool
+    let sourceCoachVideoID: String?
 
     /// Parses a Firestore document into VideoClipMetadata, returning nil if required fields are missing.
     init?(from data: [String: Any]) {
@@ -530,5 +531,6 @@ struct VideoClipMetadata {
         self.fileSize = data["fileSize"] as? Int64 ?? 0
         self.thumbnailURL = data["thumbnailURL"] as? String
         self.isDeleted = data["isDeleted"] as? Bool ?? false
+        self.sourceCoachVideoID = data["sourceCoachVideoID"] as? String
     }
 }

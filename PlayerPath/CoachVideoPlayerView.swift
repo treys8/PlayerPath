@@ -27,6 +27,7 @@ struct CoachVideoPlayerView: View {
     @State private var showingTelestration = false
     @State private var drillCards: [DrillCard] = []
     private var templateService: CoachTemplateService { .shared }
+    @Environment(\.modelContext) private var modelContext
     @Environment(\.verticalSizeClass) private var vSizeClass
     @Environment(\.horizontalSizeClass) private var hSizeClass
     @Environment(\.scenePhase) private var scenePhase
@@ -99,6 +100,27 @@ struct CoachVideoPlayerView: View {
                         .accessibilityLabel("Draw on video frame")
                     }
 
+                    // Save to My Videos button — folder owner (athlete) only.
+                    // Brings the clip into the athlete's in-app Videos tab
+                    // with a link back to coach annotations.
+                    if isFolderOwner {
+                        Button {
+                            Task { await viewModel.saveToMyVideos(modelContext: modelContext) }
+                        } label: {
+                            if viewModel.isSavingToMyVideos {
+                                ProgressView().scaleEffect(0.8)
+                            } else if viewModel.alreadySavedToMyVideos {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundColor(.green)
+                            } else {
+                                Image(systemName: "folder.fill.badge.plus")
+                                    .foregroundColor(.brandNavy)
+                            }
+                        }
+                        .disabled(viewModel.isSavingToMyVideos || !viewModel.isPlayerReady || viewModel.alreadySavedToMyVideos)
+                        .accessibilityLabel(viewModel.alreadySavedToMyVideos ? "Already saved to your videos" : "Save to your videos")
+                    }
+
                     // Save to device button
                     Button {
                         Task { await viewModel.saveToPhotos() }
@@ -134,6 +156,7 @@ struct CoachVideoPlayerView: View {
             }
         }
         .toast(isPresenting: $viewModel.didSaveSuccessfully, message: "Video Saved")
+        .toast(isPresenting: $viewModel.didSaveToMyVideosSuccessfully, message: "Added to Your Videos")
         .alert("Save Failed", isPresented: .init(
             get: { viewModel.saveError != nil },
             set: { if !$0 { viewModel.saveError = nil } }
@@ -141,6 +164,14 @@ struct CoachVideoPlayerView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(viewModel.saveError ?? "An unknown error occurred.")
+        }
+        .alert("Couldn't Save to Your Videos", isPresented: .init(
+            get: { viewModel.saveToMyVideosError != nil },
+            set: { if !$0 { viewModel.saveToMyVideosError = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(viewModel.saveToMyVideosError ?? "An unknown error occurred.")
         }
         .alert("Couldn't Mark Reviewed", isPresented: .init(
             get: { markReviewedError != nil },
@@ -187,6 +218,13 @@ struct CoachVideoPlayerView: View {
             drillCardEditorSheet
         }
         .task {
+            // Surface the "already saved to My Videos" badge immediately so
+            // the athlete doesn't see a "save" prompt for a clip they already
+            // brought in. Local SwiftData query — cheap.
+            if isFolderOwner {
+                viewModel.refreshAlreadySavedToMyVideos(modelContext: modelContext)
+            }
+
             // Load video first (always needed)
             await viewModel.loadVideo()
 
@@ -346,23 +384,16 @@ struct CoachVideoPlayerView: View {
                         viewModel.stopFilmstripTimeObserver()
                     }
 
-                // Annotation markers overlay
+                // Annotation markers overlay (shared with VideoPlayerView).
+                // Non-interactive here — coach/athlete open drawings from the
+                // Notes tab on this view.
                 if !showingTelestration, viewModel.activeDrawingOverlay == nil,
                    !viewModel.annotations.isEmpty,
                    let duration = viewModel.videoDuration, duration > 0 {
-                    GeometryReader { geometry in
-                        ZStack(alignment: .bottomLeading) {
-                            ForEach(viewModel.annotations) { annotation in
-                                Rectangle()
-                                    .fill(annotation.isCoachComment ? Color.brandNavy : Color.orange)
-                                    .frame(width: 3, height: 20)
-                                    .shadow(color: .black.opacity(0.5), radius: 2)
-                                    .offset(x: (CGFloat(annotation.timestamp) / CGFloat(duration)) * geometry.size.width)
-                            }
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
-                    }
-                    .allowsHitTesting(false)
+                    AnnotationMarkersOverlay(
+                        annotations: viewModel.annotations,
+                        duration: duration
+                    )
                 }
 
                 // Telestration drawing canvas overlay
@@ -590,6 +621,14 @@ struct CoachVideoPlayerView: View {
         guard let userID = authManager.userID else { return false }
         if userID == folder.ownerAthleteID { return true }
         return folder.getPermissions(for: userID)?.canComment ?? false
+    }
+
+    /// True when the current user owns this folder (i.e. the athlete whose
+    /// coaches are sharing clips with them). Controls visibility of the
+    /// "Save to My Videos" toolbar button.
+    private var isFolderOwner: Bool {
+        guard let userID = authManager.userID else { return false }
+        return userID == folder.ownerAthleteID
     }
     
     private func markReviewed() {

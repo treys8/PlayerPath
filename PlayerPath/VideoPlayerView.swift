@@ -12,6 +12,7 @@ import SwiftUI
 import AVKit
 import SwiftData
 import Photos
+import FirebaseFirestore
 
 struct VideoPlayerView: View {
     let clip: VideoClip
@@ -33,6 +34,15 @@ struct VideoPlayerView: View {
     @State private var saveErrorMessage: String?
     @State private var isSavingToPhotos = false
     @State private var videoDuration: Double?
+
+    // Coach-annotation playback state — only populated when
+    // `clip.sourceCoachVideoID` is set (clip was saved from a coach's shared
+    // folder). Loads the original coach doc's annotations so saved-in-app
+    // playback preserves drawings + coach notes.
+    @State private var coachAnnotations: [VideoAnnotation] = []
+    @State private var coachAnnotationsListener: ListenerRegistration?
+    @State private var activeDrawingOverlay: ActiveDrawingOverlay?
+    @State private var videoAspectRatio: CGFloat = 16.0 / 9.0
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.modelContext) private var modelContext
     @Environment(\.verticalSizeClass) private var vSizeClass
@@ -222,8 +232,84 @@ struct VideoPlayerView: View {
     }
 
     private func activePlayerView(player: AVPlayer) -> some View {
-        EnhancedVideoPlayer(player: player, preloadedDuration: videoDuration, onClose: { dismiss() })
-            .accessibilityLabel("Video player")
+        ZStack {
+            EnhancedVideoPlayer(player: player, preloadedDuration: videoDuration, onClose: { dismiss() })
+                .accessibilityLabel("Video player")
+
+            // Tappable timeline markers for coach annotations (drawings only
+            // are interactive; text annotations render as inert markers).
+            if activeDrawingOverlay == nil,
+               !coachAnnotations.isEmpty,
+               let duration = videoDuration, duration > 0 {
+                AnnotationMarkersOverlay(
+                    annotations: coachAnnotations,
+                    duration: duration,
+                    onTapDrawing: { annotation in showDrawing(for: annotation) }
+                )
+            }
+
+            // Read-only drawing overlay — shown when user taps a drawing marker.
+            if let overlay = activeDrawingOverlay {
+                DrawingAnnotationOverlay(
+                    drawingData: overlay.data,
+                    videoAspectRatio: videoAspectRatio,
+                    canvasSize: overlay.canvasSize,
+                    onDismiss: { activeDrawingOverlay = nil }
+                )
+            }
+        }
+    }
+
+    private func showDrawing(for annotation: VideoAnnotation) {
+        guard let data = annotation.drawingPKData else { return }
+        player?.pause()
+        let size: CGSize? = {
+            guard let w = annotation.drawingCanvasWidth,
+                  let h = annotation.drawingCanvasHeight,
+                  w > 0, h > 0 else { return nil }
+            return CGSize(width: w, height: h)
+        }()
+        activeDrawingOverlay = ActiveDrawingOverlay(data: data, canvasSize: size)
+    }
+
+    /// Loads coach-authored annotations for this clip from the original coach
+    /// video doc (pointed at by `clip.sourceCoachVideoID`). Also attaches a
+    /// live listener so new coach drawings appear without a refetch.
+    private func loadCoachAnnotationsIfNeeded() {
+        guard let sourceID = clip.sourceCoachVideoID, !sourceID.isEmpty else { return }
+
+        Task {
+            if let fetched = try? await FirestoreManager.shared.fetchAnnotations(forVideo: sourceID) {
+                await MainActor.run { coachAnnotations = fetched.sorted { $0.timestamp < $1.timestamp } }
+            }
+        }
+
+        coachAnnotationsListener?.remove()
+        coachAnnotationsListener = FirestoreManager.shared.listenToAnnotations(forVideo: sourceID) { updated in
+            coachAnnotations = updated.sorted { $0.timestamp < $1.timestamp }
+        }
+    }
+
+    /// Computes the display aspect ratio by applying the video's preferred
+    /// transform to its natural size. Required for correct drawing-overlay
+    /// scaling when the clip was originally recorded in portrait.
+    ///
+    /// Prefers the player's already-loaded asset (set up by `setupPlayer`) so
+    /// we don't refetch remote metadata for cloud-streamed clips. Falls back
+    /// to a fresh local asset only if the player isn't ready yet.
+    private func loadVideoAspectRatio() async {
+        let asset: AVAsset = player?.currentItem?.asset
+            ?? AVURLAsset(url: clip.resolvedFileURL)
+        if let track = try? await asset.loadTracks(withMediaType: .video).first,
+           let size = try? await track.load(.naturalSize),
+           let transform = try? await track.load(.preferredTransform) {
+            let rendered = size.applying(transform)
+            let w = abs(rendered.width)
+            let h = abs(rendered.height)
+            if h > 0 {
+                await MainActor.run { videoAspectRatio = w / h }
+            }
+        }
     }
 
     private var errorView: some View {
@@ -294,9 +380,17 @@ struct VideoPlayerView: View {
         }
         .task(id: clip.version) {
             await setupPlayer()
+            // Coach-annotation + aspect-ratio loading is only meaningful for
+            // clips saved from a coach's shared folder — gated internally.
+            loadCoachAnnotationsIfNeeded()
+            if clip.sourceCoachVideoID != nil {
+                await loadVideoAspectRatio()
+            }
         }
         .onDisappear {
             player?.pause()
+            coachAnnotationsListener?.remove()
+            coachAnnotationsListener = nil
         }
         .sheet(isPresented: $showingPlayResultEditor) {
             PlayResultEditorView(clip: clip, modelContext: modelContext)

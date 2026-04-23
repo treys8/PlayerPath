@@ -7,6 +7,7 @@
 //
 
 import SwiftUI
+import SwiftData
 import AVKit
 import CoreMedia
 import Photos
@@ -49,16 +50,22 @@ class CoachVideoPlayerViewModel {
     var didSaveSuccessfully = false
     var saveError: String?
 
+    // Save-to-my-videos state (athlete-only; brings a coach-shared clip into
+    // the athlete's in-app Videos tab and preserves the link to coach
+    // annotations via VideoClip.sourceCoachVideoID).
+    var isSavingToMyVideos = false
+    var didSaveToMyVideosSuccessfully = false
+    var saveToMyVideosError: String?
+    var alreadySavedToMyVideos = false
+
     // Filmstrip scrubber state
     var filmstripThumbnails: [FilmstripThumbnail] = []
     var isGeneratingFilmstrip = false
     var observedPlaybackTime: Double = 0
 
-    // Telestration state
-    struct ActiveDrawingOverlay: Equatable {
-        let data: Data
-        let canvasSize: CGSize?
-    }
+    // Telestration state. `ActiveDrawingOverlay` is defined in
+    // Views/Coach/Telestration/AnnotationPlaybackViews.swift so the athlete's
+    // VideoPlayerView can reuse the same type for saved-from-coach clips.
     var activeDrawingOverlay: ActiveDrawingOverlay?
     var videoNaturalSize: CGSize?
 
@@ -620,5 +627,185 @@ class CoachVideoPlayerViewModel {
         }
 
         isSaving = false
+    }
+
+    // MARK: - Save to My Videos (athlete only)
+
+    /// Checks whether this coach clip has already been pulled into the athlete's
+    /// in-app Videos tab. Called on view appear so the toolbar button can show
+    /// its "saved" state without waiting for a tap.
+    func refreshAlreadySavedToMyVideos(modelContext: ModelContext) {
+        let coachVideoID = video.id
+        guard !coachVideoID.isEmpty else {
+            alreadySavedToMyVideos = false
+            return
+        }
+        let descriptor = FetchDescriptor<VideoClip>(
+            predicate: #Predicate<VideoClip> { $0.sourceCoachVideoID == coachVideoID }
+        )
+        let matches = (try? modelContext.fetch(descriptor)) ?? []
+        alreadySavedToMyVideos = !matches.isEmpty
+    }
+
+    /// Saves the current coach-shared clip as a new `VideoClip` in the athlete's
+    /// local library. Downloads the file if not cached, copies it to the
+    /// athlete's Clips directory, generates a thumbnail, creates the SwiftData
+    /// record, and (respecting user preferences) enqueues for cloud upload.
+    /// Stores `sourceCoachVideoID` so the athlete's player can load coach
+    /// annotations from the original shared doc.
+    func saveToMyVideos(modelContext: ModelContext) async {
+        let coachVideoID = video.id
+        guard !coachVideoID.isEmpty else {
+            saveToMyVideosError = "This video is not available to save."
+            return
+        }
+
+        isSavingToMyVideos = true
+        saveToMyVideosError = nil
+        didSaveToMyVideosSuccessfully = false
+
+        // 1. Duplicate check
+        let existingDescriptor = FetchDescriptor<VideoClip>(
+            predicate: #Predicate<VideoClip> { $0.sourceCoachVideoID == coachVideoID }
+        )
+        if let existing = try? modelContext.fetch(existingDescriptor), !existing.isEmpty {
+            alreadySavedToMyVideos = true
+            didSaveToMyVideosSuccessfully = true
+            isSavingToMyVideos = false
+            return
+        }
+
+        // 2. Resolve target athlete
+        guard let athlete = resolveAthleteForFolder(modelContext: modelContext) else {
+            saveToMyVideosError = "Couldn't find an athlete to save this clip to."
+            isSavingToMyVideos = false
+            return
+        }
+
+        // 3. Quota check (enforced against athlete owner's user quota)
+        let fileSize = video.fileSize ?? 0
+        if let user = athlete.user, fileSize > 0 {
+            let tier = StoreKitManager.shared.currentTier
+            let limitBytes = Int64(tier.storageLimitGB) * StorageConstants.bytesPerGB
+            if user.cloudStorageUsedBytes + fileSize > limitBytes {
+                saveToMyVideosError = "Storage full. Upgrade or free space to save this clip."
+                isSavingToMyVideos = false
+                return
+            }
+        }
+
+        // 4. Acquire file (cache hit or signed-URL download)
+        let folderID = folder.id ?? ""
+        let cache = CoachVideoCacheService.shared
+        let sourceURL: URL
+        if let cached = cache.cachedURL(folderID: folderID, fileName: video.fileName) {
+            sourceURL = cached
+        } else {
+            do {
+                let signedURL = try await SecureURLManager.shared.getSecureVideoURL(
+                    fileName: video.fileName,
+                    folderID: folderID
+                )
+                sourceURL = try await cache.downloadAndCache(
+                    signedURLString: signedURL,
+                    folderID: folderID,
+                    fileName: video.fileName
+                )
+            } catch {
+                saveToMyVideosError = "Failed to download video: \(error.localizedDescription)"
+                isSavingToMyVideos = false
+                return
+            }
+        }
+
+        // 5. Copy into athlete's Clips/ directory with a fresh UUID filename
+        let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        let clipsDir = documents.appendingPathComponent("Clips", isDirectory: true)
+        try? FileManager.default.createDirectory(at: clipsDir, withIntermediateDirectories: true)
+        let ext = sourceURL.pathExtension.isEmpty ? "mov" : sourceURL.pathExtension
+        let destURL = clipsDir.appendingPathComponent("\(UUID().uuidString).\(ext)")
+
+        do {
+            let source = sourceURL
+            let dest = destURL
+            try await Task.detached(priority: .userInitiated) {
+                try FileManager.default.copyItem(at: source, to: dest)
+            }.value
+        } catch {
+            saveToMyVideosError = "Failed to copy video: \(error.localizedDescription)"
+            isSavingToMyVideos = false
+            return
+        }
+
+        // 6. Generate a thumbnail (non-fatal if it fails — grid will regenerate on-demand)
+        var thumbnailPath: String?
+        switch await VideoFileManager.generateThumbnail(from: destURL) {
+        case .success(let path): thumbnailPath = path
+        case .failure: thumbnailPath = nil
+        }
+
+        // 7. Create the SwiftData record
+        let activeSeason = SeasonManager.ensureActiveSeason(for: athlete, in: modelContext)
+        let clip = VideoClip(
+            fileName: destURL.lastPathComponent,
+            filePath: VideoClip.toRelativePath(destURL.path)
+        )
+        clip.athlete = athlete
+        clip.season = activeSeason
+        clip.seasonName = activeSeason?.displayName
+        clip.thumbnailPath = thumbnailPath
+        clip.duration = video.duration
+        clip.createdAt = video.createdAt ?? Date()
+        clip.sourceCoachVideoID = coachVideoID
+        clip.needsSync = true
+        modelContext.insert(clip)
+
+        do {
+            try modelContext.save()
+        } catch {
+            // Rollback on save failure — remove local files and the inserted clip
+            try? FileManager.default.removeItem(at: destURL)
+            if let tp = thumbnailPath {
+                try? FileManager.default.removeItem(atPath: ThumbnailCache.resolveLocalPath(tp))
+            }
+            modelContext.delete(clip)
+            saveToMyVideosError = "Failed to save: \(error.localizedDescription)"
+            isSavingToMyVideos = false
+            return
+        }
+
+        // 8. Auto-upload gate (mirrors BulkVideoImportViewModel behavior)
+        let preferences = (try? modelContext.fetch(FetchDescriptor<UserPreferences>()))?.first
+        let fileSizeMB = fileSize / StorageConstants.bytesPerMB
+        let shouldEnqueue: Bool = {
+            guard let prefs = preferences else { return false }
+            guard prefs.autoUploadToCloud else { return false }
+            guard fileSizeMB <= prefs.maxVideoFileSize else { return false }
+            guard !prefs.syncHighlightsOnly || clip.isHighlight else { return false }
+            return true
+        }()
+        if shouldEnqueue {
+            UploadQueueManager.shared.enqueue(clip, athlete: athlete, priority: .normal)
+        }
+
+        Haptics.success()
+        didSaveToMyVideosSuccessfully = true
+        alreadySavedToMyVideos = true
+        isSavingToMyVideos = false
+    }
+
+    /// Resolves the local SwiftData `Athlete` a coach folder maps to.
+    /// Prefers `folder.athleteUUID` (modern, per-athlete-scoped folders) and
+    /// falls back to the user's first athlete (legacy folders created before
+    /// per-athlete scoping existed).
+    private func resolveAthleteForFolder(modelContext: ModelContext) -> Athlete? {
+        guard let athletes = try? modelContext.fetch(FetchDescriptor<Athlete>()) else { return nil }
+        if let athleteUUIDString = folder.athleteUUID,
+           let athleteUUID = UUID(uuidString: athleteUUIDString),
+           let match = athletes.first(where: { $0.id == athleteUUID }) {
+            return match
+        }
+        // Legacy fallback: first athlete whose user owns this folder
+        return athletes.first { $0.user?.firebaseAuthUid == folder.ownerAthleteID }
     }
 }

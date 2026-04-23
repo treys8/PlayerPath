@@ -237,16 +237,7 @@ struct VideoClipsView: View {
     var body: some View {
         videosContent
         .safeAreaInset(edge: .top, spacing: 0) {
-            VStack(spacing: 8) {
-                UploadStatusBanner()
-                if untaggedCount >= 3 && viewModel.selectedFilter != .untagged {
-                    UntaggedClipsBanner(count: untaggedCount) {
-                        withAnimation {
-                            viewModel.selectedFilter = .untagged
-                        }
-                    }
-                }
-            }
+            UploadStatusBanner()
         }
         .navigationTitle("Videos")
         .navigationBarTitleDisplayMode(.large)
@@ -564,6 +555,17 @@ struct VideoClipsView: View {
     private var videoListView: some View {
         ScrollView {
             LazyVStack(spacing: 0) {
+                // Tagging nudge scrolls with the grid so it's out of the way
+                // once the user starts reviewing clips.
+                if untaggedCount >= 3 && viewModel.selectedFilter != .untagged {
+                    UntaggedClipsBanner(count: untaggedCount) {
+                        withAnimation {
+                            viewModel.selectedFilter = .untagged
+                        }
+                    }
+                    .padding(.top, 8)
+                }
+
                 // Upload status filter picker
                 if hasAnyVideos {
                     uploadStatusFilterPicker

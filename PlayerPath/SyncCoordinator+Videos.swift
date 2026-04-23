@@ -237,6 +237,11 @@ extension SyncCoordinator {
                 if let duration = remoteVideo.duration {
                     localClip.duration = duration
                 }
+                // Coach-source link is immutable once set — don't clobber an existing
+                // value with nil from a remote doc that predates the field.
+                if let sourceCoachVideoID = remoteVideo.sourceCoachVideoID {
+                    localClip.sourceCoachVideoID = sourceCoachVideoID
+                }
                 localClip.cloudURL = remoteVideo.downloadURL
                 localClip.lastSyncDate = Date()
             }
@@ -266,6 +271,7 @@ extension SyncCoordinator {
                 newClip.pitchType = remoteVideo.pitchType
                 newClip.duration = remoteVideo.duration
                 newClip.firestoreId = remoteVideo.id.uuidString
+                newClip.sourceCoachVideoID = remoteVideo.sourceCoachVideoID
                 newClip.needsSync = false
                 newClip.athlete = athlete
 

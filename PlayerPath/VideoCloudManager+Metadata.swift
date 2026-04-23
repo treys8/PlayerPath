@@ -37,6 +37,7 @@ extension VideoCloudManager {
         let practiceId = videoClip.practice?.id
         let seasonId = videoClip.season.map { $0.firestoreId ?? $0.id.uuidString }
         let seasonName = videoClip.seasonName ?? videoClip.season?.displayName
+        let sourceCoachVideoID = videoClip.sourceCoachVideoID
         let athleteStableId = athlete.firestoreId ?? athlete.id.uuidString
         let athleteName = athlete.name
 
@@ -103,6 +104,9 @@ extension VideoCloudManager {
         if let pitchType = clipPitchType {
             data["pitchType"] = pitchType
         }
+        if let sourceCoachVideoID {
+            data["sourceCoachVideoID"] = sourceCoachVideoID
+        }
 
         // Upload thumbnail to Storage if exists, then add URL to metadata
         if let thumbnailPath = clipThumbnailPath,
@@ -150,6 +154,7 @@ extension VideoCloudManager {
         let practiceId = videoClip.practice?.id
         let seasonId = videoClip.season.map { $0.firestoreId ?? $0.id.uuidString }
         let seasonName = videoClip.seasonName ?? videoClip.season?.displayName
+        let sourceCoachVideoID = videoClip.sourceCoachVideoID
         let athleteStableId = athlete.firestoreId ?? athlete.id.uuidString
         let athleteName = athlete.name
 
@@ -213,6 +218,9 @@ extension VideoCloudManager {
         }
         if let pitchType = clipPitchType {
             data["pitchType"] = pitchType
+        }
+        if let sourceCoachVideoID {
+            data["sourceCoachVideoID"] = sourceCoachVideoID
         }
 
         try await db.collection(FC.videos).document(clipId.uuidString).setData(data)
