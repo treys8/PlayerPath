@@ -15,6 +15,10 @@ struct RemoteThumbnailView: View {
     var cornerRadius: CGFloat = 12
     var duration: Double?
     var annotationCount: Int?
+    /// Count of drawing-type annotations (subset of annotationCount). When nil
+    /// the caller hasn't split the fields yet (legacy video) — we render the
+    /// lumped annotation badge instead of splitting so nothing disappears.
+    var drawingCount: Int?
     var contextLabel: String?
     var isHighlight: Bool = false
     var hasNotes: Bool = false
@@ -112,16 +116,11 @@ struct RemoteThumbnailView: View {
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
             .overlay(playButtonOverlay)
 
-            // Annotation count (top-right)
-            if let count = annotationCount, count > 0 {
-                VStack {
-                    HStack {
-                        Spacer()
-                        annotationBadge(count: count)
-                    }
-                    Spacer()
-                }
-            }
+            // Annotation badges (top-right). When drawingCount is available
+            // (modern videos), we split: pencil badge for drawings + bubble
+            // badge for remaining comments. Legacy videos (drawingCount nil)
+            // fall back to the single lumped bubble so nothing disappears.
+            badgeCluster
 
             // Bottom-left: context label + duration
             VStack {
@@ -295,24 +294,22 @@ struct RemoteThumbnailView: View {
             .shadow(color: .black.opacity(0.3), radius: 8, x: 0, y: 4)
     }
 
-    private func annotationBadge(count: Int) -> some View {
-        HStack(spacing: 3) {
-            Image(systemName: "bubble.left.fill")
-                .font(.system(size: 8))
-            Text("\(count)")
-                .font(.system(size: 10, weight: .bold))
-        }
-        .foregroundColor(.white)
-        .badgeSmall()
-        .background {
-            ZStack {
-                Capsule().fill(.ultraThinMaterial)
-                Capsule().fill(.black.opacity(0.3))
+    /// Positions the drawing + comment badges in the top-right corner.
+    @ViewBuilder
+    private var badgeCluster: some View {
+        VStack {
+            HStack {
+                Spacer()
+                AnnotationBadgeCluster(
+                    annotationCount: annotationCount ?? 0,
+                    drawingCount: drawingCount,
+                    style: .thumbnail
+                )
             }
+            .padding(.top, 8)
+            .padding(.trailing, 8)
+            Spacer()
         }
-        .shadow(color: .black.opacity(0.25), radius: 4, x: 0, y: 2)
-        .padding(.top, 8)
-        .padding(.trailing, 8)
     }
 
     private func contextBadge(text: String) -> some View {

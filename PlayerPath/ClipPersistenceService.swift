@@ -118,7 +118,7 @@ final class ClipPersistenceService {
                 let clips = try context.fetch(descriptor)
 
                 for clip in clips {
-                    clip.filePath = VideoClip.toRelativePath(newVideoURL.path)
+                    clip.updateFilePath(VideoClip.toRelativePath(newVideoURL.path))
                 }
 
                 // Save after each file so paths stay in sync with moved files

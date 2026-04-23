@@ -26,7 +26,8 @@ extension FirestoreManager {
         type: String? = nil,
         drawingData: String? = nil,
         drawingCanvasWidth: Double? = nil,
-        drawingCanvasHeight: Double? = nil
+        drawingCanvasHeight: Double? = nil,
+        shapes: String? = nil
     ) async throws -> String {
         var annotationData: [String: Any] = [
             "userID": userID,
@@ -42,6 +43,7 @@ extension FirestoreManager {
         if let drawingData { annotationData["drawingData"] = drawingData }
         if let drawingCanvasWidth { annotationData["drawingCanvasWidth"] = drawingCanvasWidth }
         if let drawingCanvasHeight { annotationData["drawingCanvasHeight"] = drawingCanvasHeight }
+        if let shapes { annotationData["shapes"] = shapes }
 
         do {
             // Batch the annotation insert and the video-doc counter increment
@@ -56,10 +58,16 @@ extension FirestoreManager {
 
             let batch = db.batch()
             batch.setData(annotationData, forDocument: annotationRef)
-            batch.updateData(
-                ["annotationCount": FieldValue.increment(Int64(1))],
-                forDocument: videoRef
-            )
+            // Bump the lumped annotationCount and, for drawings, the split
+            // drawingCount so thumbnails can render a pencil badge separate
+            // from the comment-bubble badge.
+            var videoUpdates: [String: Any] = [
+                "annotationCount": FieldValue.increment(Int64(1))
+            ]
+            if type == "drawing" {
+                videoUpdates["drawingCount"] = FieldValue.increment(Int64(1))
+            }
+            batch.updateData(videoUpdates, forDocument: videoRef)
             try await batch.commit()
 
             return annotationRef.documentID
@@ -209,14 +217,23 @@ extension FirestoreManager {
                 }
             }
 
-            // Decrement annotationCount, floored at 0 via transaction
+            // Decrement annotationCount — and drawingCount if the deleted
+            // annotation was a drawing — floored at 0 in a single transaction.
+            let wasDrawing = (annotationData?["type"] as? String) == "drawing"
             let videoRef = db.collection(FC.videos).document(videoID)
             do {
                 _ = try await db.runTransaction { transaction, errorPointer in
                     do {
                         let doc = try transaction.getDocument(videoRef)
-                        let current = doc.data()?["annotationCount"] as? Int64 ?? 0
-                        transaction.updateData(["annotationCount": max(Int64(0), current - 1)], forDocument: videoRef)
+                        let currentAC = doc.data()?["annotationCount"] as? Int64 ?? 0
+                        var updates: [String: Any] = [
+                            "annotationCount": max(Int64(0), currentAC - 1)
+                        ]
+                        if wasDrawing {
+                            let currentDC = doc.data()?["drawingCount"] as? Int64 ?? 0
+                            updates["drawingCount"] = max(Int64(0), currentDC - 1)
+                        }
+                        transaction.updateData(updates, forDocument: videoRef)
                     } catch let fetchError as NSError {
                         errorPointer?.pointee = fetchError
                     }
@@ -246,7 +263,8 @@ extension FirestoreManager {
         type: String? = nil,
         drawingData: String? = nil,
         drawingCanvasWidth: Double? = nil,
-        drawingCanvasHeight: Double? = nil
+        drawingCanvasHeight: Double? = nil,
+        shapes: String? = nil
     ) async throws -> VideoAnnotation {
         let annotationID = try await addAnnotation(
             videoID: videoID,
@@ -260,7 +278,8 @@ extension FirestoreManager {
             type: type,
             drawingData: drawingData,
             drawingCanvasWidth: drawingCanvasWidth,
-            drawingCanvasHeight: drawingCanvasHeight
+            drawingCanvasHeight: drawingCanvasHeight,
+            shapes: shapes
         )
 
         return VideoAnnotation(
@@ -276,7 +295,8 @@ extension FirestoreManager {
             type: type,
             drawingData: drawingData,
             drawingCanvasWidth: drawingCanvasWidth,
-            drawingCanvasHeight: drawingCanvasHeight
+            drawingCanvasHeight: drawingCanvasHeight,
+            shapes: shapes
         )
     }
 }

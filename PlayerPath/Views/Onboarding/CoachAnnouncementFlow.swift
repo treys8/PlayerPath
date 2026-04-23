@@ -97,10 +97,10 @@ private struct AnnouncementIntroPage: View {
             VStack(spacing: 0) {
                 Spacer()
 
-                // Icon
+                // Icon — green accent matches CTA gradient endpoint, fixes navy-on-navy invisibility
                 ZStack {
                     Circle()
-                        .fill(Color.brandNavy.opacity(0.35))
+                        .fill(Color(red: 0.2, green: 0.85, blue: 0.55).opacity(0.3))
                         .frame(width: 180, height: 180)
                         .blur(radius: 30)
 
@@ -108,7 +108,10 @@ private struct AnnouncementIntroPage: View {
                         Circle()
                             .fill(
                                 LinearGradient(
-                                    colors: [Color.brandNavy.opacity(0.5), Color.brandNavy.opacity(0.3)],
+                                    colors: [
+                                        Color(red: 0.2, green: 0.85, blue: 0.55).opacity(0.28),
+                                        Color(red: 0.2, green: 0.85, blue: 0.55).opacity(0.12)
+                                    ],
                                     startPoint: .topLeading,
                                     endPoint: .bottomTrailing
                                 )
@@ -116,14 +119,17 @@ private struct AnnouncementIntroPage: View {
                             .frame(width: 130, height: 130)
                             .overlay(
                                 Circle()
-                                    .stroke(Color.brandNavy.opacity(0.7), lineWidth: 1)
+                                    .stroke(Color(red: 0.2, green: 0.85, blue: 0.55).opacity(0.55), lineWidth: 1)
                             )
 
                         Image(systemName: "person.2.fill")
                             .font(.system(size: 54))
                             .foregroundStyle(
                                 LinearGradient(
-                                    colors: [.brandNavy, .brandNavy.opacity(0.7)],
+                                    colors: [
+                                        Color(red: 0.35, green: 0.95, blue: 0.65),
+                                        Color(red: 0.2, green: 0.85, blue: 0.55)
+                                    ],
                                     startPoint: .topLeading,
                                     endPoint: .bottomTrailing
                                 )
@@ -348,27 +354,30 @@ private struct AnnouncementInvitePage: View {
             VStack(spacing: 0) {
                 Spacer()
 
-                // Icon
+                // Icon — green accent matches CTA, same treatment as intro page
                 ZStack {
                     Circle()
-                        .fill(Color.brandNavy.opacity(0.35))
+                        .fill(Color(red: 0.2, green: 0.85, blue: 0.55).opacity(0.3))
                         .frame(width: 140, height: 140)
                         .blur(radius: 25)
 
                     ZStack {
                         Circle()
-                            .fill(Color.brandNavy.opacity(0.4))
+                            .fill(Color(red: 0.2, green: 0.85, blue: 0.55).opacity(0.22))
                             .frame(width: 100, height: 100)
                             .overlay(
                                 Circle()
-                                    .stroke(Color.brandNavy.opacity(0.7), lineWidth: 1)
+                                    .stroke(Color(red: 0.2, green: 0.85, blue: 0.55).opacity(0.55), lineWidth: 1)
                             )
 
                         Image(systemName: "paperplane.fill")
                             .font(.system(size: 44))
                             .foregroundStyle(
                                 LinearGradient(
-                                    colors: [.brandNavy, .brandNavy.opacity(0.7)],
+                                    colors: [
+                                        Color(red: 0.35, green: 0.95, blue: 0.65),
+                                        Color(red: 0.2, green: 0.85, blue: 0.55)
+                                    ],
                                     startPoint: .topLeading,
                                     endPoint: .bottomTrailing
                                 )

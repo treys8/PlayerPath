@@ -73,7 +73,6 @@ struct DrillCard: Codable, Identifiable {
     var summary: String?
     let createdAt: Date?
     var updatedAt: Date?
-    var isVisibleToAthlete: Bool = true
 
     var template: DrillCardTemplate? {
         DrillCardTemplate(rawValue: templateType)
@@ -82,7 +81,7 @@ struct DrillCard: Codable, Identifiable {
 
 struct DrillCardCategory: Codable {
     let name: String
-    var rating: Int // 1-5
+    var rating: Int // 0-5 (0 = unrated)
     var notes: String?
 }
 

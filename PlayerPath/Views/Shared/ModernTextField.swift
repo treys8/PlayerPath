@@ -107,20 +107,6 @@ struct ModernTextField: View {
                     Button {
                         Haptics.light()
                         showPassword.toggle()
-                        // Re-focus after the SecureField/TextField swap to prevent keyboard dismissal
-                        if let binding = focusedBinding {
-                            binding.wrappedValue = false
-                            Task { @MainActor in
-                                try? await Task.sleep(for: .milliseconds(100))
-                                binding.wrappedValue = true
-                            }
-                        } else {
-                            internalFocus = false
-                            Task { @MainActor in
-                                try? await Task.sleep(for: .milliseconds(100))
-                                internalFocus = true
-                            }
-                        }
                     } label: {
                         Image(systemName: showPassword ? "eye.slash.fill" : "eye.fill")
                             .font(.system(size: 16))

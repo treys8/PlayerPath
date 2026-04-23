@@ -57,6 +57,15 @@ final class VideoClip {
     /// and camera-roll-imported clips.
     var sourceCoachVideoID: String? = nil
 
+    /// Mirrored from the Firestore `videos/{id}` doc's annotationCount on
+    /// pull sync — used by the athlete grid to render coach-feedback badges
+    /// without re-querying the annotations subcollection per cell.
+    var annotationCount: Int = 0
+
+    /// Drawing-type annotation count (subset of annotationCount). Powers the
+    /// pencil badge on the athlete's own video grid.
+    var drawingCount: Int = 0
+
     init(fileName: String, filePath: String) {
         self.id = UUID()
         self.fileName = fileName
@@ -133,14 +142,18 @@ final class VideoClip {
         URL(fileURLWithPath: resolvedFilePath)
     }
 
-    /// Invalidates the cached resolved file path. Call this after replacing
-    /// the local file in place (e.g., re-trim) so consumers re-verify the path.
-    func _invalidateResolvedPathCache() {
+    /// Updates filePath and invalidates the cached resolved path so consumers
+    /// re-verify against the new location. Always use this for filePath
+    /// changes — direct assignment leaves `_cachedResolvedPath` stale.
+    func updateFilePath(_ newPath: String) {
+        filePath = newPath
         _cachedResolvedPath = nil
     }
 
-    var isAvailableOffline: Bool {
-        return FileManager.default.fileExists(atPath: resolvedFilePath)
+    /// Invalidates the cached resolved file path. Call after replacing the
+    /// local file in place without changing filePath (e.g., re-trim).
+    func invalidateResolvedPathCache() {
+        _cachedResolvedPath = nil
     }
 
     /// Resolves `thumbnailPath` to an absolute path. New clips store a path relative
@@ -208,11 +221,9 @@ final class VideoClip {
             }
         }
 
-        // Remove thumbnail from in-memory cache on main actor
+        // Remove thumbnail from in-memory cache (already on @MainActor)
         if let thumbPath = capturedThumbPath {
-            Task { @MainActor in
-                ThumbnailCache.shared.removeThumbnail(at: thumbPath)
-            }
+            ThumbnailCache.shared.removeThumbnail(at: thumbPath)
         }
 
         // Delete from cloud storage if uploaded.

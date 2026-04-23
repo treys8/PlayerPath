@@ -304,11 +304,16 @@ service cloud.firestore {
                     && canAccessFolder(resource.data.sharedFolderID)
                     && request.resource.data.diff(resource.data).affectedKeys()
                          .hasOnly(['coachNote', 'coachNoteAuthorID', 'coachNoteAuthorName',
-                                   'coachNoteUpdatedAt', 'reviewedBy', 'annotationCount', 'updatedAt'])
+                                   'coachNoteUpdatedAt', 'reviewedBy', 'annotationCount',
+                                   'drawingCount', 'updatedAt'])
                     && (!('annotationCount' in request.resource.data.diff(resource.data).affectedKeys())
                         || (request.resource.data.annotationCount is int
                             && request.resource.data.annotationCount >= 0
-                            && request.resource.data.annotationCount <= resource.data.get('annotationCount', 0) + 10));
+                            && request.resource.data.annotationCount <= resource.data.get('annotationCount', 0) + 10))
+                    && (!('drawingCount' in request.resource.data.diff(resource.data).affectedKeys())
+                        || (request.resource.data.drawingCount is int
+                            && request.resource.data.drawingCount >= 0
+                            && request.resource.data.drawingCount <= resource.data.get('drawingCount', 0) + 10));
 
       // Delete: uploader can delete their own videos; folder members with delete permission
       allow delete: if isAuthenticated() && (

@@ -33,6 +33,7 @@ struct CoachVideoItem: Identifiable, Equatable {
     let reviewedBy: [String: Date]?
     let uploadedByType: UploadedByType?
     let annotationCount: Int?
+    let drawingCount: Int?
     let tags: [String]
     let drillType: String?
     let visibility: String?
@@ -89,6 +90,7 @@ struct CoachVideoItem: Identifiable, Equatable {
         self.reviewedBy = metadata.reviewedBy
         self.uploadedByType = metadata.uploadedByType
         self.annotationCount = metadata.annotationCount
+        self.drawingCount = metadata.drawingCount
         self.tags = metadata.tags ?? []
         self.drillType = metadata.drillType
         self.visibility = metadata.visibility

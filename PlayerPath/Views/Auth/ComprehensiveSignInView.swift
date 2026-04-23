@@ -19,9 +19,6 @@ struct ComprehensiveSignInView: View {
     @State private var password = ""
     @State private var displayName = ""
 
-    // Lockout countdown timer (ticks every second to update remaining time)
-    @State private var lockoutTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
-    @State private var lockoutTick = false // toggled to force view update
     @State private var showingResetPasswordSheet = false
     @State private var selectedRole: UserRole = .athlete
 
@@ -117,8 +114,12 @@ struct ComprehensiveSignInView: View {
                     }
                 }
                 .onAppear {
-                    Task {
-                        try? await Task.sleep(for: .milliseconds(600))
+                    Task { @MainActor in
+                        // Without this delay, the focus mutation can land during
+                        // _reloadInputViewsForKeyWindowSceneResponder and deadlock
+                        // SwiftUI's Update lock against CALayer's unfair lock.
+                        try? await Task.sleep(for: .milliseconds(750))
+                        guard !Task.isCancelled else { return }
                         if isSignUpMode { nameFocused = true } else { emailFocused = true }
                     }
                 }
@@ -133,17 +134,6 @@ struct ComprehensiveSignInView: View {
                     try? await Task.sleep(for: .milliseconds(100))
                     dismiss()
                 }
-            }
-        }
-        .onReceive(lockoutTimer) { _ in
-            if authManager.isSignInLocked {
-                // Update countdown in error message and re-evaluate button state
-                authManager.errorMessage = "Too many failed attempts. Please wait \(authManager.lockoutRemainingSeconds) seconds before trying again."
-                lockoutTick.toggle()
-            } else if lockoutTick {
-                // Lockout just expired — clear error and reset tick
-                authManager.errorMessage = nil
-                lockoutTick = false
             }
         }
     }
@@ -411,8 +401,8 @@ struct ComprehensiveSignInView: View {
     }
 
     private func canSubmitForm() -> Bool {
-        // Use lockoutTick to ensure SwiftUI re-evaluates when timer fires
-        let _ = lockoutTick
+        // Read authManager.lockoutTick so SwiftUI re-evaluates each tick.
+        let _ = authManager.lockoutTick
         if authManager.isSignInLocked { return false }
 
         let emailValid = isValidEmail(email)

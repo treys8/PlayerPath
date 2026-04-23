@@ -89,11 +89,12 @@ struct ClipReviewSheet: View {
                 TelestrationOverlayView(
                     timestamp: currentPlaybackTime,
                     videoAspectRatio: videoAspectRatio,
-                    onSave: { drawing, timestamp, canvasSize in
+                    onSave: { drawing, shapes, timestamp, canvasSize in
                         guard let userID = authManager.userID,
                               let userName = authManager.userDisplayName ?? authManager.userEmail else { return false }
                         let saved = await saveDrawing(
                             drawing: drawing,
+                            shapes: shapes,
                             timestamp: timestamp,
                             canvasSize: canvasSize,
                             userID: userID,
@@ -420,6 +421,7 @@ struct ClipReviewSheet: View {
     @MainActor
     private func saveDrawing(
         drawing: PKDrawing,
+        shapes: [TelestrationShape],
         timestamp: Double,
         canvasSize: CGSize,
         userID: String,
@@ -432,6 +434,7 @@ struct ClipReviewSheet: View {
         }
 
         let base64 = rawData.base64EncodedString()
+        let shapesJSON = TelestrationShapesCodec.encode(shapes)
         let videoID = video.id
         guard !videoID.isEmpty else { return false }
 
@@ -446,7 +449,8 @@ struct ClipReviewSheet: View {
                 type: "drawing",
                 drawingData: base64,
                 drawingCanvasWidth: canvasSize.width > 0 ? Double(canvasSize.width) : nil,
-                drawingCanvasHeight: canvasSize.height > 0 ? Double(canvasSize.height) : nil
+                drawingCanvasHeight: canvasSize.height > 0 ? Double(canvasSize.height) : nil,
+                shapes: shapesJSON
             )
             drawingAnnotations.append(annotation)
             telestrationExpanded = true

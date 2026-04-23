@@ -11,8 +11,13 @@ import SwiftUI
 struct TelestrationToolbar: View {
     @Binding var selectedColor: Color
     @Binding var lineWidth: CGFloat
-    let strokeCount: Int
+    @Binding var toolMode: TelestrationToolMode
+    let elementCount: Int
+    let shapeCount: Int
+    let canUndo: Bool
+    let canRedo: Bool
     let onUndo: () -> Void
+    let onRedo: () -> Void
     let onClear: () -> Void
     let onSave: () -> Void
     let onCancel: () -> Void
@@ -27,14 +32,20 @@ struct TelestrationToolbar: View {
     ]
 
     private var maxStrokes: Int { TelestrationConstants.maxStrokes }
+    private var maxShapes: Int { TelestrationConstants.maxShapes }
 
     var body: some View {
         VStack(spacing: 8) {
-            // Stroke limit warning
-            if strokeCount >= maxStrokes - 5 {
-                Text("Drawing limit: \(strokeCount)/\(maxStrokes) strokes")
+            // Stroke limit warning — only when near the element cap or the
+            // shape-specific cap is exhausted while that tool is selected.
+            if elementCount >= maxStrokes - 5 {
+                Text("Drawing limit: \(elementCount)/\(maxStrokes)")
                     .font(.caption2)
-                    .foregroundColor(strokeCount >= maxStrokes ? .red : .orange)
+                    .foregroundColor(elementCount >= maxStrokes ? .red : .orange)
+            } else if toolMode != .freehand, shapeCount >= maxShapes {
+                Text("Shape limit reached (\(maxShapes)). Switch to freehand to keep drawing.")
+                    .font(.caption2)
+                    .foregroundColor(.orange)
             }
 
             HStack(spacing: 8) {
@@ -55,9 +66,38 @@ struct TelestrationToolbar: View {
                     .frame(height: 28)
                     .background(Color.white.opacity(0.3))
 
-                // Scrollable tools section (colors, widths, undo, clear)
+                // Scrollable tools section (tool picker, colors, widths, undo, clear)
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
+                        // Tool mode picker — freehand + 4 shape tools
+                        ForEach(TelestrationToolMode.allCases) { mode in
+                            Button {
+                                Haptics.light()
+                                toolMode = mode
+                            } label: {
+                                Image(systemName: mode.icon)
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundColor(.white)
+                                    .frame(width: 32, height: 32)
+                                    .background(
+                                        Circle().fill(
+                                            toolMode == mode
+                                                ? Color.white.opacity(0.35)
+                                                : Color.white.opacity(0.15)
+                                        )
+                                    )
+                                    .overlay(
+                                        Circle()
+                                            .stroke(Color.white, lineWidth: toolMode == mode ? 1.5 : 0)
+                                    )
+                            }
+                            .accessibilityLabel(mode.accessibilityLabel)
+                        }
+
+                        Divider()
+                            .frame(height: 28)
+                            .background(Color.white.opacity(0.3))
+
                         ForEach(colors, id: \.self) { color in
                             Button {
                                 Haptics.light()
@@ -104,8 +144,23 @@ struct TelestrationToolbar: View {
                                 .background(Color.white.opacity(0.2))
                                 .clipShape(Circle())
                         }
-                        .disabled(strokeCount == 0)
-                        .opacity(strokeCount == 0 ? 0.4 : 1)
+                        .disabled(!canUndo)
+                        .opacity(canUndo ? 1 : 0.4)
+                        .accessibilityLabel("Undo")
+
+                        Button {
+                            onRedo()
+                        } label: {
+                            Image(systemName: "arrow.uturn.forward")
+                                .font(.subheadline)
+                                .foregroundColor(.white)
+                                .frame(width: 36, height: 36)
+                                .background(Color.white.opacity(0.2))
+                                .clipShape(Circle())
+                        }
+                        .disabled(!canRedo)
+                        .opacity(canRedo ? 1 : 0.4)
+                        .accessibilityLabel("Redo")
 
                         Button {
                             showingClearConfirm = true
@@ -117,8 +172,9 @@ struct TelestrationToolbar: View {
                                 .background(Color.white.opacity(0.2))
                                 .clipShape(Circle())
                         }
-                        .disabled(strokeCount == 0)
-                        .opacity(strokeCount == 0 ? 0.4 : 1)
+                        .disabled(elementCount == 0)
+                        .opacity(elementCount == 0 ? 0.4 : 1)
+                        .accessibilityLabel("Clear")
                     }
                 }
 
@@ -136,8 +192,8 @@ struct TelestrationToolbar: View {
                         .background(Color.brandNavy)
                         .clipShape(Capsule())
                 }
-                .disabled(strokeCount == 0)
-                .opacity(strokeCount == 0 ? 0.5 : 1)
+                .disabled(elementCount == 0)
+                .opacity(elementCount == 0 ? 0.5 : 1)
             }
         }
         .padding(.horizontal, 12)

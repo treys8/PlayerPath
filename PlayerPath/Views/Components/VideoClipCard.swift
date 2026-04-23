@@ -94,6 +94,27 @@ struct VideoClipCard: View {
                             Spacer()
                         }
                     }
+
+                    // Coach-feedback badges (top-right). Populated via sync from
+                    // the Firestore videos/{id} doc, so clips not yet uploaded
+                    // render no badge (both counts default to 0). Local clips
+                    // always know their split post-sync — we pass drawingCount
+                    // directly, so comment-only clips show a comment badge
+                    // (never the legacy lumped variant).
+                    if !isSelectionMode {
+                        VStack {
+                            HStack {
+                                Spacer()
+                                AnnotationBadgeCluster(
+                                    annotationCount: video.annotationCount,
+                                    drawingCount: video.drawingCount,
+                                    style: .thumbnail
+                                )
+                                .padding(8)
+                            }
+                            Spacer()
+                        }
+                    }
                 }
                 .aspectRatio(16/9, contentMode: .fit)
                 .clipShape(UnevenRoundedRectangle(topLeadingRadius: 12, bottomLeadingRadius: 0, bottomTrailingRadius: 0, topTrailingRadius: 12))
@@ -421,8 +442,9 @@ struct VideoClipCard: View {
                         Spacer()
                         Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                             .font(.system(size: 28))
-                            .foregroundColor(isSelected ? .brandNavy : .white)
-                            .shadow(color: .black.opacity(0.3), radius: 2, x: 0, y: 1)
+                            .symbolRenderingMode(.palette)
+                            .foregroundStyle(Color.white, Color.blue)
+                            .shadow(color: .black.opacity(0.35), radius: 2, x: 0, y: 1)
                             .padding(10)
                     }
                     Spacer()

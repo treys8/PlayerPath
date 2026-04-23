@@ -144,7 +144,7 @@ enum ClipTrimService {
         }
 
         // Clear cached resolved path so late consumers re-verify the file.
-        clip._invalidateResolvedPathCache()
+        clip.invalidateResolvedPathCache()
 
         // === Regenerate thumbnail ===
         onProgress(Progress(stage: .regeneratingThumbnail))

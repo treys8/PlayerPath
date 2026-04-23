@@ -512,6 +512,7 @@ class CoachVideoPlayerViewModel {
     @discardableResult
     func addDrawingAnnotation(
         drawing: PKDrawing,
+        shapes: [TelestrationShape],
         timestamp: Double,
         canvasSize: CGSize,
         userID: String,
@@ -525,6 +526,7 @@ class CoachVideoPlayerViewModel {
         }
 
         let base64 = rawData.base64EncodedString()
+        let shapesJSON = TelestrationShapesCodec.encode(shapes)
 
         do {
             let videoID = video.id
@@ -540,7 +542,8 @@ class CoachVideoPlayerViewModel {
                 type: "drawing",
                 drawingData: base64,
                 drawingCanvasWidth: canvasSize.width > 0 ? Double(canvasSize.width) : nil,
-                drawingCanvasHeight: canvasSize.height > 0 ? Double(canvasSize.height) : nil
+                drawingCanvasHeight: canvasSize.height > 0 ? Double(canvasSize.height) : nil,
+                shapes: shapesJSON
             )
 
             // Live listener drives `annotations` — skip local append to avoid flash.
@@ -568,7 +571,11 @@ class CoachVideoPlayerViewModel {
                   w > 0, h > 0 else { return nil }
             return CGSize(width: w, height: h)
         }()
-        activeDrawingOverlay = ActiveDrawingOverlay(data: data, canvasSize: size)
+        activeDrawingOverlay = ActiveDrawingOverlay(
+            data: data,
+            canvasSize: size,
+            shapes: annotation.decodedShapes
+        )
     }
 
     /// Dismisses the drawing overlay.

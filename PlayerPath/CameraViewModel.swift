@@ -139,29 +139,7 @@ class CameraViewModel: NSObject, ObservableObject {
 
     /// Updates an AVCaptureConnection's orientation to match the given device orientation.
     nonisolated private func updateConnectionOrientation(_ connection: AVCaptureConnection, for orientation: UIDeviceOrientation? = nil) {
-        let deviceOrientation = orientation ?? .portrait
-
-        if #available(iOS 17.0, *) {
-            let angle: CGFloat = switch deviceOrientation {
-            case .landscapeLeft: 0       // Home button on right → natural landscape
-            case .landscapeRight: 180    // Home button on left
-            case .portraitUpsideDown: 270
-            default: 90                  // Portrait (default)
-            }
-            if connection.isVideoRotationAngleSupported(angle) {
-                connection.videoRotationAngle = angle
-            }
-        } else {
-            let videoOrientation: AVCaptureVideoOrientation = switch deviceOrientation {
-            case .landscapeLeft: .landscapeRight   // Inverted mapping (camera vs device)
-            case .landscapeRight: .landscapeLeft
-            case .portraitUpsideDown: .portraitUpsideDown
-            default: .portrait
-            }
-            if connection.isVideoOrientationSupported {
-                connection.videoOrientation = videoOrientation
-            }
-        }
+        CameraOrientation.apply(orientation ?? .portrait, to: connection)
     }
 
     // MARK: - Session Management

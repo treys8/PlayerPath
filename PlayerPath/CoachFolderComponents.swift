@@ -186,6 +186,7 @@ struct CoachVideoCard: View {
                     cornerRadius: 0,
                     duration: video.duration,
                     annotationCount: video.annotationCount,
+                    drawingCount: video.drawingCount,
                     contextLabel: video.contextLabel,
                     isHighlight: video.isHighlight,
                     hasNotes: video.notes != nil && !(video.notes?.isEmpty ?? true),

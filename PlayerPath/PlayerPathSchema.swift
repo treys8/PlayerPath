@@ -340,12 +340,27 @@ enum SchemaV18: VersionedSchema {
     static var models: [any PersistentModel.Type] { SchemaV1.models }
 }
 
+// MARK: - Schema V19 (2026-04-23 — Annotation counts mirrored to VideoClip)
+//
+//  Changes from V18:
+//    • VideoClip.annotationCount (Int = 0) added — mirrors the Firestore
+//      videos/{id}.annotationCount value so the athlete's local grid can
+//      render coach-feedback badges without fetching annotation subcollections.
+//    • VideoClip.drawingCount (Int = 0) added — subset for the pencil badge.
+//
+//  Both additions have default value 0 → lightweight migration.
+
+enum SchemaV19: VersionedSchema {
+    static var versionIdentifier = Schema.Version(19, 0, 0)
+    static var models: [any PersistentModel.Type] { SchemaV1.models }
+}
+
 // MARK: - Migration Plan
 
 enum PlayerPathMigrationPlan: SchemaMigrationPlan {
     /// All schema versions in chronological order (oldest first).
     static var schemas: [any VersionedSchema.Type] {
-        [SchemaV1.self, SchemaV2.self, SchemaV3.self, SchemaV4.self, SchemaV5.self, SchemaV6.self, SchemaV7.self, SchemaV8.self, SchemaV9.self, SchemaV10.self, SchemaV11.self, SchemaV12.self, SchemaV13.self, SchemaV14.self, SchemaV15.self, SchemaV16.self, SchemaV17.self, SchemaV18.self]
+        [SchemaV1.self, SchemaV2.self, SchemaV3.self, SchemaV4.self, SchemaV5.self, SchemaV6.self, SchemaV7.self, SchemaV8.self, SchemaV9.self, SchemaV10.self, SchemaV11.self, SchemaV12.self, SchemaV13.self, SchemaV14.self, SchemaV15.self, SchemaV16.self, SchemaV17.self, SchemaV18.self, SchemaV19.self]
     }
 
     /// Migration stages between consecutive versions.
@@ -367,7 +382,8 @@ enum PlayerPathMigrationPlan: SchemaMigrationPlan {
             .lightweight(fromVersion: SchemaV14.self, toVersion: SchemaV15.self),
             .lightweight(fromVersion: SchemaV15.self, toVersion: SchemaV16.self),
             .lightweight(fromVersion: SchemaV16.self, toVersion: SchemaV17.self),
-            .lightweight(fromVersion: SchemaV17.self, toVersion: SchemaV18.self)
+            .lightweight(fromVersion: SchemaV17.self, toVersion: SchemaV18.self),
+            .lightweight(fromVersion: SchemaV18.self, toVersion: SchemaV19.self)
         ]
     }
 }

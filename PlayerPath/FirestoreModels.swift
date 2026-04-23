@@ -114,6 +114,11 @@ struct FirestoreVideoMetadata: Codable, Identifiable {
     // Annotation count (incremented/decremented atomically via FieldValue.increment)
     let annotationCount: Int?
 
+    // Drawing-only count, incremented alongside annotationCount when a coach
+    // saves a telestration drawing. Nil for legacy videos written before this
+    // field existed — UI falls back to the lumped annotationCount badge.
+    let drawingCount: Int?
+
     // Game/Practice context
     let videoType: String? // "game", "practice", or "highlight"
     let gameOpponent: String?
@@ -191,6 +196,7 @@ struct VideoAnnotation: Codable, Identifiable {
     var drawingData: String? = nil // base64-encoded PKDrawing data (telestration)
     var drawingCanvasWidth: Double? = nil // canvas size the drawing was captured on (points)
     var drawingCanvasHeight: Double? = nil
+    var shapes: String? = nil // JSON-encoded [TelestrationShape] placed alongside ink strokes
 
     var annotationCategory: AnnotationCategory? {
         guard let category else { return nil }

@@ -60,15 +60,13 @@ struct AthleteVideoRow: View {
                     }
                 }
 
-                if let count = video.annotationCount, count > 0 {
-                    HStack(spacing: 3) {
-                        Image(systemName: "bubble.left.fill")
-                            .font(.caption2)
-                        Text("\(count)")
-                            .font(.caption2)
-                    }
-                    .foregroundColor(.secondary)
-                }
+                // Annotation counts. When drawingCount is known (modern videos),
+                // split into pencil + bubble; otherwise legacy lumped bubble.
+                AnnotationBadgeCluster(
+                    annotationCount: video.annotationCount ?? 0,
+                    drawingCount: video.drawingCount,
+                    style: .compact
+                )
             }
 
             Spacer(minLength: 0)

@@ -236,9 +236,6 @@ struct VideoClipsView: View {
 
     var body: some View {
         videosContent
-        .safeAreaInset(edge: .top, spacing: 0) {
-            UploadStatusBanner()
-        }
         .navigationTitle("Videos")
         .navigationBarTitleDisplayMode(.large)
         .searchable(text: $viewModel.searchText, prompt: "Search videos")
@@ -555,6 +552,8 @@ struct VideoClipsView: View {
     private var videoListView: some View {
         ScrollView {
             LazyVStack(spacing: 0) {
+                UploadStatusBanner()
+
                 // Tagging nudge scrolls with the grid so it's out of the way
                 // once the user starts reviewing clips.
                 if untaggedCount >= 3 && viewModel.selectedFilter != .untagged {

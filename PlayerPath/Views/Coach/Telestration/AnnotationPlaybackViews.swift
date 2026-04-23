@@ -9,11 +9,19 @@
 
 import SwiftUI
 
-/// Wraps a PKDrawing's base64 Data and the canvas size it was captured on,
-/// for presentation by `DrawingAnnotationOverlay`.
+/// Wraps a PKDrawing's base64 Data, the canvas size it was captured on, and
+/// any geometric shapes placed alongside the ink strokes. Used for presentation
+/// by `DrawingAnnotationOverlay`.
 struct ActiveDrawingOverlay: Equatable {
     let data: Data
     let canvasSize: CGSize?
+    let shapes: [TelestrationShape]
+
+    init(data: Data, canvasSize: CGSize?, shapes: [TelestrationShape] = []) {
+        self.data = data
+        self.canvasSize = canvasSize
+        self.shapes = shapes
+    }
 }
 
 /// Timeline marker strip — one thin rectangle per annotation, positioned along

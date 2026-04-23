@@ -490,6 +490,8 @@ struct VideoClipMetadata {
     let thumbnailURL: String?
     let isDeleted: Bool
     let sourceCoachVideoID: String?
+    let annotationCount: Int?
+    let drawingCount: Int?
 
     /// Parses a Firestore document into VideoClipMetadata, returning nil if required fields are missing.
     init?(from data: [String: Any]) {
@@ -532,5 +534,11 @@ struct VideoClipMetadata {
         self.thumbnailURL = data["thumbnailURL"] as? String
         self.isDeleted = data["isDeleted"] as? Bool ?? false
         self.sourceCoachVideoID = data["sourceCoachVideoID"] as? String
+        // Firestore stores integers as Int64 after atomic increments; accept either
+        // representation so counts survive the FieldValue.increment round-trip.
+        self.annotationCount = (data["annotationCount"] as? Int)
+            ?? (data["annotationCount"] as? Int64).map(Int.init)
+        self.drawingCount = (data["drawingCount"] as? Int)
+            ?? (data["drawingCount"] as? Int64).map(Int.init)
     }
 }

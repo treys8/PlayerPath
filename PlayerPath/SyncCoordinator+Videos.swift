@@ -242,6 +242,15 @@ extension SyncCoordinator {
                 if let sourceCoachVideoID = remoteVideo.sourceCoachVideoID {
                     localClip.sourceCoachVideoID = sourceCoachVideoID
                 }
+                // Annotation counters are authoritative on the server side (coach
+                // writes increment them). Mirror into SwiftData so the athlete's
+                // local grid can render coach-feedback badges without querying.
+                if let ac = remoteVideo.annotationCount {
+                    localClip.annotationCount = ac
+                }
+                if let dc = remoteVideo.drawingCount {
+                    localClip.drawingCount = dc
+                }
                 localClip.cloudURL = remoteVideo.downloadURL
                 localClip.lastSyncDate = Date()
             }
@@ -272,6 +281,8 @@ extension SyncCoordinator {
                 newClip.duration = remoteVideo.duration
                 newClip.firestoreId = remoteVideo.id.uuidString
                 newClip.sourceCoachVideoID = remoteVideo.sourceCoachVideoID
+                newClip.annotationCount = remoteVideo.annotationCount ?? 0
+                newClip.drawingCount = remoteVideo.drawingCount ?? 0
                 newClip.needsSync = false
                 newClip.athlete = athlete
 
@@ -374,7 +385,7 @@ extension SyncCoordinator {
 
         // Skip if already downloaded
         if FileManager.default.fileExists(atPath: localPath) {
-            clip.filePath = VideoClip.toRelativePath(localPath)
+            clip.updateFilePath(VideoClip.toRelativePath(localPath))
             ErrorHandlerService.shared.saveContext(context, caller: "SyncCoordinator.downloadVideo.alreadyExists")
             return
         }
@@ -396,7 +407,7 @@ extension SyncCoordinator {
                 thumbnailPath = nil
             }
 
-            clip.filePath = VideoClip.toRelativePath(localPath)
+            clip.updateFilePath(VideoClip.toRelativePath(localPath))
             if let thumbnailPath {
                 clip.thumbnailPath = thumbnailPath
             }

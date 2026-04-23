@@ -16,6 +16,9 @@ struct DrawingAnnotationOverlay: View {
     /// rendered in that coordinate space and scaled uniformly to fit the video area.
     /// When nil (legacy annotations), falls back to stroke-bounds rendering.
     let canvasSize: CGSize?
+    /// Geometric shapes placed alongside the ink strokes. Empty for annotations
+    /// authored before the shape-tools feature.
+    var shapes: [TelestrationShape] = []
     let onDismiss: () -> Void
 
     @State private var isVisible = false
@@ -39,6 +42,15 @@ struct DrawingAnnotationOverlay: View {
                 if let image = renderedImage {
                     Image(uiImage: image)
                         .resizable()
+                        .frame(width: renderSize.width, height: renderSize.height)
+                        .position(x: containerSize.width / 2, y: containerSize.height / 2)
+                        .allowsHitTesting(false)
+                }
+
+                // Geometric shapes (arrows, lines, circles, rects) layered above
+                // the ink image. Empty for legacy annotations — no layout impact.
+                if !shapes.isEmpty {
+                    TelestrationShapeLayer(shapes: shapes, canvasSize: renderSize)
                         .frame(width: renderSize.width, height: renderSize.height)
                         .position(x: containerSize.width / 2, y: containerSize.height / 2)
                         .allowsHitTesting(false)

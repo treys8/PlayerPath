@@ -112,6 +112,30 @@ extension Color {
     /// Text colors
     static let textPrimary = Color.primary
     static let textSecondary = Color.secondary
+
+    // MARK: - Hex Conversion (used by telestration shape serialization)
+
+    /// Creates a Color from a "#RRGGBB" or "RRGGBB" hex string. Returns red on parse failure.
+    init(hex: String) {
+        let trimmed = hex.trimmingCharacters(in: CharacterSet(charactersIn: "#"))
+        var value: UInt64 = 0
+        Scanner(string: trimmed).scanHexInt64(&value)
+        let r = Double((value >> 16) & 0xFF) / 255.0
+        let g = Double((value >> 8)  & 0xFF) / 255.0
+        let b = Double(value         & 0xFF) / 255.0
+        self = Color(red: r, green: g, blue: b)
+    }
+
+    /// "#RRGGBB" representation of the color's resolved sRGB components.
+    /// Returns nil if the underlying UIColor can't resolve without trait context.
+    func toHex() -> String? {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        guard UIColor(self).getRed(&r, green: &g, blue: &b, alpha: &a) else { return nil }
+        let ri = Int((r * 255).rounded())
+        let gi = Int((g * 255).rounded())
+        let bi = Int((b * 255).rounded())
+        return String(format: "#%02X%02X%02X", ri, gi, bi)
+    }
 }
 
 // MARK: - Gradients

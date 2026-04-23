@@ -13,6 +13,37 @@
 import SwiftUI
 import AVFoundation
 
+// MARK: - Orientation Helper
+
+enum CameraOrientation {
+    /// Applies the rotation that matches `orientation` to `connection`.
+    /// Shared by `CameraPreviewLayer` (preview) and `CameraViewModel` (capture output)
+    /// so both stay in lockstep if the mapping ever changes.
+    static func apply(_ orientation: UIDeviceOrientation, to connection: AVCaptureConnection) {
+        if #available(iOS 17.0, *) {
+            let angle: CGFloat = switch orientation {
+            case .landscapeLeft: 0       // Home button on right → natural landscape
+            case .landscapeRight: 180    // Home button on left
+            case .portraitUpsideDown: 270
+            default: 90                  // Portrait (default)
+            }
+            if connection.isVideoRotationAngleSupported(angle) {
+                connection.videoRotationAngle = angle
+            }
+        } else {
+            let videoOrientation: AVCaptureVideoOrientation = switch orientation {
+            case .landscapeLeft: .landscapeRight   // Inverted mapping (camera vs device)
+            case .landscapeRight: .landscapeLeft
+            case .portraitUpsideDown: .portraitUpsideDown
+            default: .portrait
+            }
+            if connection.isVideoOrientationSupported {
+                connection.videoOrientation = videoOrientation
+            }
+        }
+    }
+}
+
 // MARK: - Camera Preview Layer
 
 struct CameraPreviewLayer: UIViewRepresentable {
@@ -36,28 +67,7 @@ struct CameraPreviewLayer: UIViewRepresentable {
 
     private func updatePreviewOrientation(_ view: PreviewView) {
         guard let connection = view.videoPreviewLayer.connection else { return }
-
-        if #available(iOS 17.0, *) {
-            let angle: CGFloat = switch orientation {
-            case .landscapeLeft: 0
-            case .landscapeRight: 180
-            case .portraitUpsideDown: 270
-            default: 90
-            }
-            if connection.isVideoRotationAngleSupported(angle) {
-                connection.videoRotationAngle = angle
-            }
-        } else {
-            let videoOrientation: AVCaptureVideoOrientation = switch orientation {
-            case .landscapeLeft: .landscapeRight
-            case .landscapeRight: .landscapeLeft
-            case .portraitUpsideDown: .portraitUpsideDown
-            default: .portrait
-            }
-            if connection.isVideoOrientationSupported {
-                connection.videoOrientation = videoOrientation
-            }
-        }
+        CameraOrientation.apply(orientation, to: connection)
     }
 
     class PreviewView: UIView {
@@ -88,17 +98,14 @@ struct FocusReticleView: View {
             .position(point)
             .scaleEffect(scale)
             .opacity(opacity)
-            .onAppear {
+            .task {
                 withAnimation(.easeOut(duration: 0.3)) {
                     scale = 1.0
                 }
-
-                Task {
-                    try? await Task.sleep(for: .milliseconds(1500))
-                    guard !Task.isCancelled else { return }
-                    withAnimation(.easeOut(duration: 0.3)) {
-                        opacity = 0
-                    }
+                try? await Task.sleep(for: .milliseconds(1500))
+                guard !Task.isCancelled else { return }
+                withAnimation(.easeOut(duration: 0.3)) {
+                    opacity = 0
                 }
             }
     }

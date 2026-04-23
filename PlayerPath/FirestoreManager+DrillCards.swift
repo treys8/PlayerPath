@@ -33,7 +33,6 @@ extension FirestoreManager {
                 "rating": $0.rating,
                 "notes": $0.notes as Any
             ] },
-            "isVisibleToAthlete": true,
             "createdAt": FieldValue.serverTimestamp(),
             "updatedAt": FieldValue.serverTimestamp()
         ]
@@ -74,7 +73,6 @@ extension FirestoreManager {
                 "rating": $0.rating,
                 "notes": $0.notes as Any
             ] },
-            "isVisibleToAthlete": true,
             "updatedAt": FieldValue.serverTimestamp()
         ]
         if let overallRating { data["overallRating"] = overallRating }

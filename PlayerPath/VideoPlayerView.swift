@@ -254,6 +254,7 @@ struct VideoPlayerView: View {
                     drawingData: overlay.data,
                     videoAspectRatio: videoAspectRatio,
                     canvasSize: overlay.canvasSize,
+                    shapes: overlay.shapes,
                     onDismiss: { activeDrawingOverlay = nil }
                 )
             }
@@ -269,7 +270,11 @@ struct VideoPlayerView: View {
                   w > 0, h > 0 else { return nil }
             return CGSize(width: w, height: h)
         }()
-        activeDrawingOverlay = ActiveDrawingOverlay(data: data, canvasSize: size)
+        activeDrawingOverlay = ActiveDrawingOverlay(
+            data: data,
+            canvasSize: size,
+            shapes: annotation.decodedShapes
+        )
     }
 
     /// Loads coach-authored annotations for this clip from the original coach
@@ -570,7 +575,7 @@ struct VideoPlayerView: View {
                 progressTask.cancel()
 
                 await MainActor.run {
-                    clip.filePath = VideoClip.toRelativePath(destinationPath)
+                    clip.updateFilePath(VideoClip.toRelativePath(destinationPath))
                     ErrorHandlerService.shared.saveContext(modelContext, caller: "VideoPlayerView.downloadComplete")
                     isDownloadingFromCloud = false
                 }

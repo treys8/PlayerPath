@@ -6,7 +6,7 @@
 //  base64-encoded data on VideoAnnotation documents.
 //
 
-import PencilKit
+import Foundation
 
 // MARK: - VideoAnnotation Drawing Helpers
 
@@ -20,24 +20,11 @@ extension VideoAnnotation {
         guard isDrawing, let base64 = drawingData else { return nil }
         return Data(base64Encoded: base64)
     }
-}
 
-// MARK: - PKDrawing Serialization
-
-extension PKDrawing {
-    /// Base64-encoded string of the drawing's binary representation.
-    var base64String: String {
-        dataRepresentation().base64EncodedString()
-    }
-
-    /// Decodes a drawing from a base64-encoded string.
-    /// Returns nil if the string is invalid or the data can't be parsed.
-    init?(base64String: String) {
-        guard let data = Data(base64Encoded: base64String) else { return nil }
-        do {
-            self = try PKDrawing(data: data)
-        } catch {
-            return nil
-        }
+    /// Decoded geometric shapes placed on this annotation. Empty array for
+    /// non-drawing annotations, drawings authored before shape tools, or
+    /// corrupt JSON.
+    var decodedShapes: [TelestrationShape] {
+        TelestrationShapesCodec.decode(shapes)
     }
 }
