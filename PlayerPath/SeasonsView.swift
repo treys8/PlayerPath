@@ -342,7 +342,7 @@ struct SeasonGameRow: View {
             
             Spacer()
             
-            if game.isComplete {
+            if game.displayStatus == .completed {
                 Image(systemName: "checkmark.circle.fill")
                     .foregroundStyle(.green)
                     .font(.caption)

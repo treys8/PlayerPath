@@ -124,7 +124,7 @@ final class BulkVideoImportViewModel {
             } else if let seasonOverride {
                 matchedSeason = seasonOverride
             } else {
-                matchedSeason = Self.season(containing: originalDate, in: allSeasons) ?? activeSeason
+                matchedSeason = Season.season(containing: originalDate, in: allSeasons) ?? activeSeason
             }
 
             let clip = VideoClip(
@@ -193,22 +193,6 @@ final class BulkVideoImportViewModel {
             stoppedForQuota: stoppedForQuota,
             wasCancelled: isCancelled
         )
-    }
-
-    /// Finds a season whose start/end date range contains the given date.
-    /// Prefers an active match over an archived match when ranges overlap.
-    /// Returns nil if no season's range contains the date.
-    private static func season(containing date: Date, in seasons: [Season]) -> Season? {
-        var bestMatch: Season?
-        for season in seasons {
-            guard let start = season.startDate, start <= date else { continue }
-            let end = season.endDate ?? Date.distantFuture
-            guard date <= end else { continue }
-            if bestMatch == nil || (season.isActive && bestMatch?.isActive == false) {
-                bestMatch = season
-            }
-        }
-        return bestMatch
     }
 
     private func loadAndCopyVideo(item: PhotosPickerItem) async -> URL? {

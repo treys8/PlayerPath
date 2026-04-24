@@ -112,7 +112,8 @@ struct GameRowForStats: View {
                 }
 
                 HStack {
-                    if game.isLive {
+                    switch game.displayStatus {
+                    case .live:
                         Text("LIVE")
                             .font(.caption)
                             .fontWeight(.bold)
@@ -121,7 +122,7 @@ struct GameRowForStats: View {
                             .padding(.vertical, 2)
                             .background(Color.red)
                             .cornerRadius(4)
-                    } else if game.isComplete {
+                    case .completed:
                         Text("COMPLETED")
                             .font(.caption)
                             .fontWeight(.bold)
@@ -130,7 +131,7 @@ struct GameRowForStats: View {
                             .padding(.vertical, 2)
                             .background(Color.gray)
                             .cornerRadius(4)
-                    } else {
+                    case .scheduled:
                         Text("SCHEDULED")
                             .font(.caption)
                             .fontWeight(.bold)

@@ -56,6 +56,22 @@ final class Season {
     }()
     private static let yearPattern: NSRegularExpression? = try? NSRegularExpression(pattern: #"\b\d{4}\b"#)
 
+    /// Finds a season whose start/end date range contains the given date.
+    /// Prefers an active match over an archived match when ranges overlap.
+    /// Returns nil if no season's range contains the date.
+    static func season(containing date: Date, in seasons: [Season]) -> Season? {
+        var bestMatch: Season?
+        for season in seasons {
+            guard let start = season.startDate, start <= date else { continue }
+            let end = season.endDate ?? Date.distantFuture
+            guard date <= end else { continue }
+            if bestMatch == nil || (season.isActive && bestMatch?.isActive == false) {
+                bestMatch = season
+            }
+        }
+        return bestMatch
+    }
+
     /// Computed display name with year range
     var displayName: String {
         // If name already contains a year (4 digits), just return it

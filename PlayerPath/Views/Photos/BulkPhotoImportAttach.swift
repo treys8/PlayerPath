@@ -122,6 +122,7 @@ struct BulkPhotoImportAttach: ViewModifier {
     @MainActor
     private func importPhotos(_ items: [PhotosPickerItem], athlete: Athlete) async {
         let service = PhotoPersistenceService()
+        let allSeasons = athlete.seasons ?? []
         var saved = 0
         var failed = 0
 
@@ -134,11 +135,30 @@ struct BulkPhotoImportAttach: ViewModifier {
                     failed += 1
                     continue
                 }
+
+                // Pull EXIF capture date first so we can route the photo to the
+                // right season. An explicit `season` prop from the call site
+                // wins; otherwise match by capture date; otherwise activeSeason.
+                let exifDate = service.extractCaptureDate(from: data)
+                let resolvedSeason: Season?
+                if let season {
+                    resolvedSeason = season
+                } else if let exifDate {
+                    resolvedSeason = Season.season(containing: exifDate, in: allSeasons) ?? athlete.activeSeason
+                } else {
+                    resolvedSeason = athlete.activeSeason
+                }
+
+                // Second-precision EXIF dates tie on sort for burst imports;
+                // nudge by a microsecond per index so the list remains stable.
+                let nudgedDate = exifDate?.addingTimeInterval(Double(index) / 1_000_000.0)
+
                 _ = try await service.savePhotoFromData(
                     data,
                     context: modelContext,
                     athlete: athlete,
-                    season: season
+                    season: resolvedSeason,
+                    captureDate: nudgedDate
                 )
                 saved += 1
             } catch {

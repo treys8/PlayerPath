@@ -267,7 +267,13 @@ final class CSVExportService {
             for game in games.sorted(by: { ($0.date ?? Date.distantPast) > ($1.date ?? Date.distantPast) }) {
                 let dateStr = game.date?.formatted(date: .abbreviated, time: .omitted) ?? "Unknown"
                 let opponent = escapeCSV(game.opponent)
-                let status = game.isComplete ? "Complete" : (game.isLive ? "Live" : "Scheduled")
+                let status: String = {
+                    switch game.displayStatus {
+                    case .live: return "Live"
+                    case .completed: return "Complete"
+                    case .scheduled: return "Scheduled"
+                    }
+                }()
 
                 csv += "\(dateStr),\(opponent),\(status)"
 

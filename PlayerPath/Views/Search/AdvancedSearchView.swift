@@ -794,7 +794,8 @@ struct GameSearchResultRow: View {
 
                 Spacer()
 
-                if game.isLive {
+                switch game.displayStatus {
+                case .live:
                     Text("LIVE")
                         .font(.caption2)
                         .fontWeight(.bold)
@@ -803,9 +804,11 @@ struct GameSearchResultRow: View {
                         .padding(.vertical, 4)
                         .background(Color.red)
                         .cornerRadius(4)
-                } else if game.isComplete {
+                case .completed:
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundColor(.green)
+                case .scheduled:
+                    EmptyView()
                 }
             }
 

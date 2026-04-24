@@ -63,6 +63,43 @@ final class PhotoPersistenceService {
     private struct ProcessedPhoto: Sendable {
         let photoURL: URL
         let thumbURL: URL
+        let captureDate: Date?
+    }
+
+    /// EXIF/TIFF date strings use `yyyy:MM:dd HH:mm:ss` with POSIX locale.
+    /// The device's current time zone is used — EXIF itself carries no zone.
+    private nonisolated static let exifDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy:MM:dd HH:mm:ss"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = .current
+        return f
+    }()
+
+    /// Reads the original capture date from a CGImageSource's metadata.
+    /// Prefers EXIF `DateTimeOriginal`; falls back to TIFF `DateTime`.
+    private nonisolated static func captureDate(from source: CGImageSource) -> Date? {
+        guard let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] else {
+            return nil
+        }
+        if let exif = props[kCGImagePropertyExifDictionary] as? [CFString: Any],
+           let s = exif[kCGImagePropertyExifDateTimeOriginal] as? String,
+           let date = exifDateFormatter.date(from: s) {
+            return date
+        }
+        if let tiff = props[kCGImagePropertyTIFFDictionary] as? [CFString: Any],
+           let s = tiff[kCGImagePropertyTIFFDateTime] as? String,
+           let date = exifDateFormatter.date(from: s) {
+            return date
+        }
+        return nil
+    }
+
+    /// Lightweight EXIF capture-date probe — no image decode. Safe to call
+    /// before deciding which season to assign on import.
+    nonisolated func extractCaptureDate(from data: Data) -> Date? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        return Self.captureDate(from: source)
     }
 
     /// Performs CPU-intensive image normalization, compression, and thumbnail
@@ -102,7 +139,9 @@ final class PhotoPersistenceService {
             }
         }
 
-        return ProcessedPhoto(photoURL: photoURL, thumbURL: thumbURL)
+        // UIImage source has no EXIF metadata to carry forward — camera-capture path
+        // relies on the Photo init's default `createdAt = Date()`.
+        return ProcessedPhoto(photoURL: photoURL, thumbURL: thumbURL, captureDate: nil)
     }
 
     // MARK: - Save Photo
@@ -154,7 +193,8 @@ final class PhotoPersistenceService {
         athlete: Athlete,
         game: Game? = nil,
         practice: Practice? = nil,
-        season: Season? = nil
+        season: Season? = nil,
+        captureDate: Date? = nil
     ) async throws -> Photo {
         let photoID = UUID()
         let fileName = "\(photoID.uuidString).jpg"
@@ -170,6 +210,11 @@ final class PhotoPersistenceService {
         photo.game = game
         photo.practice = practice
         photo.season = season ?? athlete.activeSeason
+        // Prefer caller-supplied date (bulk import may nudge for tie-break),
+        // then EXIF, then fall back to the upload time the Photo init stamped.
+        if let resolved = captureDate ?? processed.captureDate {
+            photo.createdAt = resolved
+        }
         photo.needsSync = true
 
         context.insert(photo)
@@ -202,6 +247,10 @@ final class PhotoPersistenceService {
             throw PhotoPersistenceError.failedToEncode
         }
 
+        // Pull the original capture date from EXIF/TIFF metadata before we
+        // transcode — the re-encoded JPEG we write below drops EXIF.
+        let captureDate = Self.captureDate(from: source)
+
         // Full-size orientation-correct image (cap at 4000px to avoid enormous output)
         let fullOptions: [CFString: Any] = [
             kCGImageSourceThumbnailMaxPixelSize: 4000,
@@ -227,7 +276,7 @@ final class PhotoPersistenceService {
             try? Self.writeJPEG(thumbOpaque, to: thumbURL, quality: Constants.thumbnailQuality)
         }
 
-        return ProcessedPhoto(photoURL: photoURL, thumbURL: thumbURL)
+        return ProcessedPhoto(photoURL: photoURL, thumbURL: thumbURL, captureDate: captureDate)
     }
 
     // MARK: - Delete Photo

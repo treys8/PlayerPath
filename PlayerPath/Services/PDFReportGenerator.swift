@@ -402,7 +402,13 @@ final class PDFReportGenerator {
 
         let dateStr = game.date?.formatted(date: .numeric, time: .omitted) ?? "Unknown"
         let opponent = String(game.opponent.prefix(20))
-        let status = game.isComplete ? "Complete" : (game.isLive ? "Live" : "Scheduled")
+        let status: String = {
+            switch game.displayStatus {
+            case .live: return "Live"
+            case .completed: return "Complete"
+            case .scheduled: return "Scheduled"
+            }
+        }()
 
         var values = [dateStr, opponent, status]
 

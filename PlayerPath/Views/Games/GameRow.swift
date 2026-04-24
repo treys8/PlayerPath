@@ -35,18 +35,22 @@ struct GameRow: View {
         .shadow(color: .black.opacity(0.04), radius: 2, x: 0, y: 1)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Game against \(game.opponent)")
-        .accessibilityValue(game.isLive ? "Live" : game.isComplete ? "Completed" : "Scheduled")
+        .accessibilityValue(accessibilityStatus)
+    }
+
+    private var accessibilityStatus: String {
+        switch game.displayStatus {
+        case .live: return "Live"
+        case .completed: return "Completed"
+        case .scheduled: return "Scheduled"
+        }
     }
 
     private var statusColor: Color {
-        if game.isLive {
-            return .red
-        } else if game.isComplete {
-            return .green
-        } else if let date = game.date, date < Date() {
-            return .orange
-        } else {
-            return .brandNavy
+        switch game.displayStatus {
+        case .live: return .red
+        case .completed: return .green
+        case .scheduled: return .brandNavy
         }
     }
 
@@ -70,9 +74,10 @@ struct GameRow: View {
 
                 // Status badge
                 Group {
-                    if game.isLive {
+                    switch game.displayStatus {
+                    case .live:
                         LiveBadge()
-                    } else if game.isComplete {
+                    case .completed:
                         Image(systemName: "checkmark.circle.fill")
                             .font(.title3)
                             .foregroundStyle(
@@ -82,7 +87,7 @@ struct GameRow: View {
                                     endPoint: .bottom
                                 )
                             )
-                    } else {
+                    case .scheduled:
                         Image(systemName: "chevron.right")
                             .font(.caption)
                             .foregroundStyle(.tertiary)

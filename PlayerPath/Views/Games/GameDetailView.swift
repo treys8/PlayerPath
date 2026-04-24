@@ -76,21 +76,22 @@ struct GameDetailView: View {
                         Spacer()
 
                         Group {
-                            if game.isLive {
+                            switch game.displayStatus {
+                            case .live:
                                 Text("LIVE")
                                     .foregroundColor(.white)
                                     .padding(.horizontal, 8)
                                     .padding(.vertical, 4)
                                     .background(Color.red)
                                     .cornerRadius(4)
-                            } else if game.isComplete {
+                            case .completed:
                                 Text("COMPLETED")
                                     .foregroundColor(.white)
                                     .padding(.horizontal, 8)
                                     .padding(.vertical, 4)
                                     .background(Color.gray)
                                     .cornerRadius(4)
-                            } else {
+                            case .scheduled:
                                 Text("SCHEDULED")
                                     .foregroundColor(.white)
                                     .padding(.horizontal, 8)

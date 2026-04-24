@@ -58,6 +58,14 @@ struct PhotoTagSheet: View {
                         Button {
                             photo.game = game
                             photo.practice = nil
+                            // Keep the photo's season aligned with the game it
+                            // was just tagged to — otherwise the photo stays on
+                            // its import-time season (often the wrong one for
+                            // old photos). Only overwrite when the game has a
+                            // season; don't clobber on orphaned games.
+                            if let gameSeason = game.season {
+                                photo.season = gameSeason
+                            }
                             save()
                         } label: {
                             HStack {
@@ -100,6 +108,9 @@ struct PhotoTagSheet: View {
                         Button {
                             photo.practice = practice
                             photo.game = nil
+                            if let practiceSeason = practice.season {
+                                photo.season = practiceSeason
+                            }
                             save()
                         } label: {
                             HStack {

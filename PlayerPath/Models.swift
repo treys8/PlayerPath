@@ -138,6 +138,22 @@ final class Game {
         return plateAppearances > 0 || gs.totalPitches > 0
     }
 
+    enum DisplayStatus {
+        case live, completed, scheduled
+    }
+
+    /// Status for badges/labels. A past-dated game shows as `.completed` even
+    /// when `isComplete == false` — first-time users adding historical games
+    /// for the journal/scrapbook flow shouldn't see "Scheduled" on a date
+    /// that has already passed. `isComplete` itself is left untouched so
+    /// `countsTowardStats` keeps gating real stat aggregation.
+    var displayStatus: DisplayStatus {
+        if isLive { return .live }
+        if isComplete { return .completed }
+        if let date, date < Date() { return .completed }
+        return .scheduled
+    }
+
     // MARK: - Firestore Conversion
 
     func toFirestoreData() -> [String: Any] {
