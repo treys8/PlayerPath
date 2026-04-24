@@ -11,14 +11,65 @@ import SwiftData
 struct NotificationSettingsView: View {
     let athleteId: String?
 
-    @AppStorage("notif_gameReminders") private var gameReminders = true
-    @AppStorage("notif_gameReminderMinutes") private var gameReminderMinutes = 30
+    // notif_weeklyStats is single-source (UserDefaults only; WeeklySummaryScheduler
+    // reads directly from UserDefaults), so @AppStorage stays.
     @AppStorage("notif_weeklyStats") private var weeklyStats = true
-    @AppStorage("notif_uploads") private var uploadNotifications = true
     @Environment(\.modelContext) private var modelContext
+    @Query private var allPrefs: [UserPreferences]
 
     @State private var authorizationStatus: UNAuthorizationStatus = .notDetermined
     @Environment(\.scenePhase) private var scenePhase
+
+    /// Canonical prefs accessor. @Query observes changes reactively; shared(in:)
+    /// is a safety net if the singleton somehow isn't present yet (MainAppView
+    /// ensures it is on every launch).
+    private var prefs: UserPreferences {
+        if let first = allPrefs.first { return first }
+        return UserPreferences.shared(in: modelContext)
+    }
+
+    private var gameRemindersBinding: Binding<Bool> {
+        Binding(
+            get: { prefs.enableGameReminders },
+            set: { enabled in
+                prefs.enableGameReminders = enabled
+                if enabled {
+                    Task { @MainActor in
+                        await PushNotificationService.shared.requestAuthorizationIfNeeded()
+                        await GameService(modelContext: modelContext).rescheduleAllGameReminders()
+                    }
+                } else {
+                    UNUserNotificationCenter.current().getPendingNotificationRequests { requests in
+                        let gameReminderIds = requests
+                            .filter { $0.identifier.hasPrefix("game_reminder_") }
+                            .map { $0.identifier }
+                        Task { @MainActor in
+                            PushNotificationService.shared.cancelNotifications(withIdentifiers: gameReminderIds)
+                        }
+                    }
+                }
+            }
+        )
+    }
+
+    private var gameReminderMinutesBinding: Binding<Int> {
+        Binding(
+            get: { prefs.gameReminderMinutes },
+            set: { minutes in
+                prefs.gameReminderMinutes = minutes
+                Task { @MainActor in
+                    await GameService(modelContext: modelContext).rescheduleAllGameReminders()
+                }
+            }
+        )
+    }
+
+    private var uploadNotificationsBinding: Binding<Bool> {
+        Binding(
+            get: { prefs.enableUploadNotifications },
+            set: { prefs.enableUploadNotifications = $0 }
+        )
+    }
 
     var body: some View {
         Form {
@@ -26,33 +77,14 @@ struct NotificationSettingsView: View {
             permissionStatusSection
 
             Section {
-                Toggle("Game Reminders", isOn: $gameReminders)
-                    .onChange(of: gameReminders) { _, enabled in
-                        let prefs = UserPreferences.shared(in: modelContext)
-                        prefs.enableGameReminders = enabled
-                        if !enabled {
-                            // Cancel any pending game reminder notifications
-                            UNUserNotificationCenter.current().getPendingNotificationRequests { requests in
-                                let gameReminderIds = requests
-                                    .filter { $0.identifier.hasPrefix("game_reminder_") }
-                                    .map { $0.identifier }
-                                Task { @MainActor in
-                                    PushNotificationService.shared.cancelNotifications(withIdentifiers: gameReminderIds)
-                                }
-                            }
-                        }
-                    }
+                Toggle("Game Reminders", isOn: gameRemindersBinding)
 
-                if gameReminders {
-                    Picker("Remind Me", selection: $gameReminderMinutes) {
+                if prefs.enableGameReminders {
+                    Picker("Remind Me", selection: gameReminderMinutesBinding) {
                         Text("5 minutes before").tag(5)
                         Text("15 minutes before").tag(15)
                         Text("30 minutes before").tag(30)
                         Text("1 hour before").tag(60)
-                    }
-                    .onChange(of: gameReminderMinutes) { _, minutes in
-                        let prefs = UserPreferences.shared(in: modelContext)
-                        prefs.gameReminderMinutes = minutes
                     }
                 }
             } header: {
@@ -61,11 +93,7 @@ struct NotificationSettingsView: View {
             .disabled(authorizationStatus == .denied)
 
             Section {
-                Toggle("Upload Notifications", isOn: $uploadNotifications)
-                    .onChange(of: uploadNotifications) { _, enabled in
-                        let prefs = UserPreferences.shared(in: modelContext)
-                        prefs.enableUploadNotifications = enabled
-                    }
+                Toggle("Upload Notifications", isOn: uploadNotificationsBinding)
             } header: {
                 Text("Videos")
             } footer: {

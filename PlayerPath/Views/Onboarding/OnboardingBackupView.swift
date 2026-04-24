@@ -7,6 +7,7 @@
 
 import SwiftUI
 import SwiftData
+import OSLog
 
 struct OnboardingBackupView: View {
     let athlete: Athlete
@@ -90,11 +91,12 @@ struct OnboardingBackupView: View {
                             if isSaving {
                                 ProgressView()
                                     .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                            } else {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .font(.title3)
+                                    .fontWeight(.semibold)
                             }
-                            Image(systemName: "checkmark.circle.fill")
-                                .font(.title3)
-                                .fontWeight(.semibold)
-                            Text("Continue")
+                            Text(isSaving ? "Saving..." : "Continue")
                                 .font(.title3)
                                 .fontWeight(.bold)
                         }
@@ -141,30 +143,23 @@ struct OnboardingBackupView: View {
         let prefs = UserPreferences.shared(in: modelContext)
         prefs.autoUploadMode = selectedMode
 
-        Task {
-            do {
-                try modelContext.save()
-
-                #if DEBUG
-                print("🟢 Onboarding backup preference saved: \(selectedMode.rawValue)")
-                #endif
-
-                // Now reset the new user flag - onboarding is complete
-                authManager.resetNewUserFlag()
-
-                #if DEBUG
-                print("🟢 Onboarding complete - new user flag reset")
-                #endif
-
-                Haptics.success()
-                isSaving = false
-            } catch {
-                isSaving = false
-                errorMessage = "Could not save backup preference. Please try again."
-                showingError = true
-                ErrorHandlerService.shared.handle(error, context: "OnboardingBackup.save", showAlert: false)
-            }
+        let saved = ErrorHandlerService.shared.saveContext(modelContext, caller: "OnboardingBackup.save")
+        guard saved else {
+            isSaving = false
+            errorMessage = "Could not save backup preference. Please try again."
+            showingError = true
+            return
         }
+
+        onboardingLog.info("Backup preference saved: \(selectedMode.rawValue)")
+
+        // Now reset the new user flag - onboarding is complete
+        authManager.resetNewUserFlag()
+
+        onboardingLog.info("Onboarding complete — new user flag reset")
+
+        Haptics.success()
+        isSaving = false
     }
 }
 

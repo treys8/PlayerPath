@@ -37,7 +37,7 @@ struct VideoClipsView: View {
 
     // Tips
     private let recordTip = VideoClipsRecordTip()
-    @State private var tipsEnabled: Bool = true
+    private let videoClipOptionsTip = VideoClipOptionsTip()
 
     // Debounce for search-driven filtering
     @State private var filterDebounceTask: Task<Void, Never>?
@@ -265,7 +265,6 @@ struct VideoClipsView: View {
             }
         }
         .task {
-            loadTipsEnabled()
             viewModel.update(videos: athlete.videoClips ?? [])
         }
         .onAppear {
@@ -323,14 +322,6 @@ struct VideoClipsView: View {
                     .padding(.bottom, 32)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
-        }
-    }
-
-    private func loadTipsEnabled() {
-        if let prefs = try? modelContext.fetch(FetchDescriptor<UserPreferences>()).first {
-            tipsEnabled = prefs.showOnboardingTips
-        } else {
-            tipsEnabled = true
         }
     }
 
@@ -490,7 +481,7 @@ struct VideoClipsView: View {
                 showingRecorder = true
             }
         )
-        .popoverTipIfEnabled(recordTip, arrowEdge: .top, enabled: tipsEnabled)
+        .onboardingTip(recordTip, arrowEdge: .top)
         .task {
             VideoClipsRecordTip.hasGames = !(athlete.games ?? []).isEmpty
         }
@@ -598,7 +589,7 @@ struct VideoClipsView: View {
                                 toggleSelection(for: video)
                             }
                         )
-                        .videoClipOptionsTip(isFirst: video.id == viewModel.filteredVideos.first?.id, tipsEnabled: tipsEnabled)
+                        .onboardingTip(videoClipOptionsTip, arrowEdge: .top, also: video.id == viewModel.filteredVideos.first?.id)
                         .onAppear {
                             viewModel.onItemAppear(video)
                             if let index = viewModel.filteredVideoIndex[video.id] {

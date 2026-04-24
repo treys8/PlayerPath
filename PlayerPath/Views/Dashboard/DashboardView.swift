@@ -8,7 +8,9 @@
 import SwiftUI
 import SwiftData
 import TipKit
-import UIKit
+import os
+
+private let dashboardLog = Logger(subsystem: "com.playerpath.app", category: "DashboardView")
 
 struct DashboardView: View {
     let user: User
@@ -37,7 +39,6 @@ struct DashboardView: View {
     @State private var cachedSeasonCount: Int = 0
     @State private var cachedPracticeCount: Int = 0
     @State private var cachedPhotoCount: Int = 0
-    @State private var tipsEnabled: Bool = true
 
     // Dynamic live games query configured via init to safely capture athleteID
     private let athleteID: UUID
@@ -140,7 +141,7 @@ struct DashboardView: View {
                 } label: {
                     AthletePickerLabel(name: athlete.name, initials: athleteInitials)
                 }
-                .popoverTipIfEnabled(athletePickerTip, arrowEdge: .top, enabled: tipsEnabled)
+                .onboardingTip(athletePickerTip, arrowEdge: .top)
             }
 
             ToolbarItem(placement: .navigationBarTrailing) {
@@ -148,7 +149,6 @@ struct DashboardView: View {
             }
         }
         .task {
-            loadTipsEnabled()
             await viewModel.refresh()
         }
         .onAppear {
@@ -385,8 +385,9 @@ struct DashboardView: View {
                     notificationCount: activityNotifService.unreadFolderVideoCount
                 ) {
                     if authManager.currentTier >= .pro {
-                        postSwitchTab(.home)
                         Task { @MainActor in
+                            postSwitchTab(.home)
+                            try? await Task.sleep(for: .milliseconds(150))
                             NotificationCenter.default.post(name: .presentCoachVideos, object: athlete)
                         }
                     } else {
@@ -418,14 +419,10 @@ struct DashboardView: View {
     private func createNewGame() {
         Task { @MainActor in
             postSwitchTab(.games)
-            #if DEBUG
-            print("🎮 New Game quick action - switching to Games tab")
-            #endif
+            dashboardLog.debug("New Game quick action — switching to Games tab")
             try? await Task.sleep(for: .milliseconds(150))
             NotificationCenter.default.post(name: Notification.Name.presentAddGame, object: nil)
-            #if DEBUG
-            print("📣 Posted .presentAddGame notification with no tournament context")
-            #endif
+            dashboardLog.debug("Posted .presentAddGame notification with no tournament context")
             Haptics.light()
         }
     }
@@ -433,8 +430,8 @@ struct DashboardView: View {
     private func updateCachedStats() {
         seasonRecommendation = SeasonManager.checkSeasonStatus(for: athlete)
         if let stats = athlete.statistics {
-            cachedBA = formatBattingAverage(stats.battingAverage)
-            cachedSLG = formatBattingAverage(stats.sluggingPercentage)
+            cachedBA = StatisticsService.shared.formatBattingAverage(stats.battingAverage)
+            cachedSLG = StatisticsService.shared.formatBattingAverage(stats.sluggingPercentage)
             cachedHits = String(stats.hits)
         } else {
             cachedBA = ".000"
@@ -444,24 +441,6 @@ struct DashboardView: View {
         cachedSeasonCount = (athlete.seasons ?? []).count
         cachedPracticeCount = (athlete.practices ?? []).count
         cachedPhotoCount = (athlete.photos ?? []).count
-    }
-
-    private func loadTipsEnabled() {
-        if let prefs = try? modelContext.fetch(FetchDescriptor<UserPreferences>()).first {
-            tipsEnabled = prefs.showOnboardingTips
-        } else {
-            tipsEnabled = true
-        }
-    }
-
-    /// Formats a rate stat in baseball style: ".325" for values < 1.0, "1.400" for SLG/OPS >= 1.0
-    private func formatBattingAverage(_ value: Double) -> String {
-        guard !value.isNaN, !value.isInfinite else { return ".000" }
-        // SLG can exceed 1.0; show full decimal in that case
-        if value >= 1.0 { return String(format: "%.3f", value) }
-        let thousandths = Int((value * 1000).rounded())
-        guard thousandths > 0 else { return ".000" }
-        return String(format: ".%03d", thousandths)
     }
 
 }

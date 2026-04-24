@@ -7,6 +7,7 @@
 
 import SwiftUI
 import SwiftData
+import OSLog
 
 struct OnboardingSeasonCreationView: View {
     let athlete: Athlete
@@ -241,12 +242,14 @@ struct OnboardingSeasonCreationView: View {
     }
 
     private func skipSeasonCreation() {
+        guard !isCreating else { return }
+        isCreating = true
         Haptics.light()
         // Create a default season so the user isn't stuck without one.
         // The onboarding flow advances to OnboardingBackupView via the
         // "has seasons + isNewUser" routing in UserMainFlow.
         let year = Calendar.current.component(.year, from: Date())
-        let season = Season(name: "\(year) Season", startDate: Date(), sport: .baseball)
+        let season = Season(name: "\(year) Season", startDate: Date(), sport: selectedSport)
         season.activate()
         season.athlete = athlete
         season.needsSync = true
@@ -254,13 +257,13 @@ struct OnboardingSeasonCreationView: View {
         let saved = ErrorHandlerService.shared.saveContext(modelContext, caller: "OnboardingSeasonCreation.skip")
         guard saved else {
             modelContext.rollback()
+            isCreating = false
             errorMessage = "Could not create default season. Please try again."
             showingError = true
             return
         }
-        #if DEBUG
-        print("🟡 User skipped — created default '\(year) Season'")
-        #endif
+        onboardingLog.info("User skipped — created default '\(year) Season'")
+        isCreating = false
     }
 
     private func createSeason() {
@@ -289,47 +292,41 @@ struct OnboardingSeasonCreationView: View {
         // Insert into context
         modelContext.insert(season)
 
+        let saved = ErrorHandlerService.shared.saveContext(modelContext, caller: "OnboardingSeasonCreation.create")
+        guard saved else {
+            // Discard the pending insert; simpler and safer than
+            // stacking a delete op on an already-failed context.
+            modelContext.rollback()
+            isCreating = false
+            errorMessage = "Could not create season. Please try again."
+            showingError = true
+            return
+        }
+
+        // Track analytics
+        AnalyticsService.shared.trackSeasonCreated(
+            seasonID: season.id.uuidString,
+            sport: selectedSport.rawValue,
+            isActive: true
+        )
+
+        onboardingLog.info("Season created — proceeding to backup step")
+
+        // DON'T reset new user flag here - let OnboardingBackupView do it
+        // This allows the flow to continue to the backup preferences screen
+
+        // Trigger sync to Firestore
         Task {
+            guard let user = athlete.user else { return }
             do {
-                try modelContext.save()
-
-                // Track analytics
-                AnalyticsService.shared.trackSeasonCreated(
-                    seasonID: season.id.uuidString,
-                    sport: selectedSport.rawValue,
-                    isActive: true
-                )
-
-                #if DEBUG
-                print("🟢 Onboarding season created: \(trimmedName)")
-                print("🟢 Proceeding to backup preferences step...")
-                #endif
-
-                // DON'T reset new user flag here - let OnboardingBackupView do it
-                // This allows the flow to continue to the backup preferences screen
-
-                // Trigger sync to Firestore
-                Task {
-                    guard let user = athlete.user else { return }
-                    do {
-                        try await SyncCoordinator.shared.syncSeasons(for: user)
-                    } catch {
-                        ErrorHandlerService.shared.handle(error, context: "OnboardingSeasonCreation.syncSeasons", showAlert: false)
-                    }
-                }
-
-                Haptics.medium()
-                isCreating = false
+                try await SyncCoordinator.shared.syncSeasons(for: user)
             } catch {
-                // Discard the pending insert; simpler and safer than
-                // stacking a delete op on an already-failed context.
-                modelContext.rollback()
-
-                isCreating = false
-                errorMessage = "Failed to create season: \(error.localizedDescription)"
-                showingError = true
+                ErrorHandlerService.shared.handle(error, context: "OnboardingSeasonCreation.syncSeasons", showAlert: false)
             }
         }
+
+        Haptics.medium()
+        isCreating = false
     }
 }
 

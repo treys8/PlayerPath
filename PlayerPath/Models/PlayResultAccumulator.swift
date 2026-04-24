@@ -13,6 +13,8 @@ import Foundation
 protocol PlayResultAccumulator: AnyObject {
     var atBats: Int { get set }
     var hits: Int { get set }
+    var runs: Int { get set }
+    var rbis: Int { get set }
     var singles: Int { get set }
     var doubles: Int { get set }
     var triples: Int { get set }
@@ -126,5 +128,90 @@ extension PlayResultAccumulator {
             self.offspeedSpeedTotal += speed
             self.offspeedPitchCount += 1
         }
+    }
+
+    /// Applies a manual stat entry (e.g. past-game box-score input) to the counters.
+    /// Shared by AthleteStatistics and GameStatistics — the concrete types wrap this
+    /// to layer on their own side effects (e.g. AthleteStatistics stamping updatedAt).
+    func applyManualStatistic(singles: Int, doubles: Int, triples: Int, homeRuns: Int,
+                              runs: Int, rbis: Int, strikeouts: Int, walks: Int,
+                              groundOuts: Int, flyOuts: Int, hitByPitches: Int) {
+        // HBP does not count as an at-bat.
+        let totalHits = singles + doubles + triples + homeRuns
+        let totalAtBats = totalHits + strikeouts + groundOuts + flyOuts
+
+        self.singles += singles
+        self.doubles += doubles
+        self.triples += triples
+        self.homeRuns += homeRuns
+        self.hits += totalHits
+        self.atBats += totalAtBats
+        self.runs += runs
+        self.rbis += rbis
+        self.strikeouts += strikeouts
+        self.walks += walks
+        self.groundOuts += groundOuts
+        self.flyOuts += flyOuts
+        self.hitByPitches += hitByPitches
+    }
+
+    /// Adds every counter field from another accumulator into this one.
+    /// Used by StatisticsService to roll game-level stats up into athlete/season totals.
+    func addCounts(from other: some PlayResultAccumulator) {
+        atBats += other.atBats
+        hits += other.hits
+        runs += other.runs
+        rbis += other.rbis
+        singles += other.singles
+        doubles += other.doubles
+        triples += other.triples
+        homeRuns += other.homeRuns
+        strikeouts += other.strikeouts
+        walks += other.walks
+        groundOuts += other.groundOuts
+        flyOuts += other.flyOuts
+        hitByPitches += other.hitByPitches
+        totalPitches += other.totalPitches
+        balls += other.balls
+        strikes += other.strikes
+        wildPitches += other.wildPitches
+        pitchingStrikeouts += other.pitchingStrikeouts
+        pitchingWalks += other.pitchingWalks
+        fastballPitchCount += other.fastballPitchCount
+        fastballSpeedTotal += other.fastballSpeedTotal
+        offspeedPitchCount += other.offspeedPitchCount
+        offspeedSpeedTotal += other.offspeedSpeedTotal
+    }
+
+    // MARK: - Derived Statistics
+
+    var battingAverage: Double {
+        atBats > 0 ? Double(hits) / Double(atBats) : 0.0
+    }
+
+    /// OBP = (H + BB + HBP) / (AB + BB + HBP).
+    /// Simplification: sacrifice flies are not tracked for the youth audience, so they
+    /// aren't in the denominator. Players who would have sac flies get a slightly
+    /// inflated OBP — acceptable for this app.
+    var onBasePercentage: Double {
+        let plateAppearances = atBats + walks + hitByPitches
+        guard plateAppearances > 0 else { return 0.0 }
+        return Double(hits + walks + hitByPitches) / Double(plateAppearances)
+    }
+
+    var sluggingPercentage: Double {
+        guard atBats > 0 else { return 0.0 }
+        let totalBases = singles + (doubles * 2) + (triples * 3) + (homeRuns * 4)
+        return Double(totalBases) / Double(atBats)
+    }
+
+    var ops: Double { onBasePercentage + sluggingPercentage }
+
+    var averageFastballSpeed: Double {
+        fastballPitchCount > 0 ? fastballSpeedTotal / Double(fastballPitchCount) : 0.0
+    }
+
+    var averageOffspeedSpeed: Double {
+        offspeedPitchCount > 0 ? offspeedSpeedTotal / Double(offspeedPitchCount) : 0.0
     }
 }

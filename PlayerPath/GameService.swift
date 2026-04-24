@@ -197,6 +197,10 @@ class GameService {
     /// the game is far enough in the future. Centralizes what used to be
     /// duplicated across AddGameView, GamesView, and GameCreationView callers.
     func scheduleReminderIfNeeded(for game: Game) async {
+        // Prompt for permission on first game creation — first concrete
+        // moment the user has a reason to receive a notification.
+        await PushNotificationService.shared.requestAuthorizationIfNeeded()
+
         let prefs = try? modelContext.fetch(FetchDescriptor<UserPreferences>()).first
         guard prefs?.enableGameReminders ?? true else { return }
         let minutes = prefs?.gameReminderMinutes ?? 30
@@ -208,6 +212,33 @@ class GameService {
             scheduledTime: gameDate,
             reminderMinutes: minutes
         )
+    }
+
+    /// Cancels all pending `game_reminder_*` notifications and re-schedules them
+    /// for every future game. Call when the gameReminders toggle is flipped ON
+    /// or when `gameReminderMinutes` changes — both require a full refresh so
+    /// existing games reflect the new preference.
+    func rescheduleAllGameReminders() async {
+        let pending = await UNUserNotificationCenter.current().pendingNotificationRequests()
+        let gameReminderIds = pending
+            .filter { $0.identifier.hasPrefix("game_reminder_") }
+            .map { $0.identifier }
+        if !gameReminderIds.isEmpty {
+            PushNotificationService.shared.cancelNotifications(withIdentifiers: gameReminderIds)
+        }
+
+        // Fetch all games, filter in memory — SwiftData #Predicate support for
+        // optional dates is inconsistent. Future games are a small set.
+        let descriptor = FetchDescriptor<Game>()
+        guard let allGames = try? modelContext.fetch(descriptor) else { return }
+        let now = Date()
+        let futureGames = allGames.filter { game in
+            guard let date = game.date else { return false }
+            return date > now
+        }
+        for game in futureGames {
+            await scheduleReminderIfNeeded(for: game)
+        }
     }
 
     // MARK: - Game Lifecycle Management

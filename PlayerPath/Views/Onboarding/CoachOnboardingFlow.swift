@@ -8,11 +8,10 @@
 
 import SwiftUI
 import SwiftData
-import FirebaseAuth
 
 struct CoachOnboardingFlow: View {
-    let modelContext: ModelContext
-    @ObservedObject var authManager: ComprehensiveAuthManager
+    @Environment(\.modelContext) private var modelContext
+    @EnvironmentObject private var authManager: ComprehensiveAuthManager
     let user: User
 
     @State private var currentPage = 0
@@ -27,12 +26,12 @@ struct CoachOnboardingFlow: View {
             TabView(selection: $currentPage) {
                 CoachWelcomePage(
                     coachEmail: authManager.userEmail ?? user.email,
-                    onNext: { withAnimation { currentPage = 1 } }
+                    onNext: { Haptics.light(); withAnimation { currentPage = 1 } }
                 )
                 .tag(0)
 
                 CoachHowItWorksPage(
-                    onNext: { withAnimation { currentPage = 2 } }
+                    onNext: { Haptics.light(); withAnimation { currentPage = 2 } }
                 )
                 .tag(1)
 
@@ -66,21 +65,15 @@ struct CoachOnboardingFlow: View {
     private func completeCoachOnboarding() {
         guard !isCompleting else { return }
         isCompleting = true
+        Haptics.light()
 
         Task {
-            let progress = OnboardingProgress(firebaseAuthUid: authManager.currentFirebaseUser?.uid ?? "")
-            progress.markCompleted()
-            modelContext.insert(progress)
             do {
-                try await withRetry(delay: .seconds(1)) {
-                    try modelContext.save()
-                }
-                authManager.resetNewUserFlag()
-                authManager.markOnboardingComplete()
+                try await authManager.completeOnboarding(in: modelContext, resetNewUserFlag: true)
                 Haptics.medium()
             } catch {
                 modelContext.rollback()
-                ErrorHandlerService.shared.handle(error, context: "CoachOnboarding.saveProgress", showAlert: false)
+                ErrorHandlerService.shared.handle(error, context: "CoachOnboarding.completeOnboarding", showAlert: false)
                 errorMessage = "Could not complete setup. Please try again."
                 showingError = true
                 isCompleting = false
@@ -98,6 +91,15 @@ private struct CoachWelcomePage: View {
     @State private var appeared = false
 
     var body: some View {
+        GeometryReader { proxy in
+            ScrollView(showsIndicators: false) {
+                pageContent
+                    .frame(minHeight: proxy.size.height)
+            }
+        }
+    }
+
+    @ViewBuilder private var pageContent: some View {
         VStack(spacing: 0) {
                 Spacer()
 
@@ -207,7 +209,7 @@ private struct CoachWelcomePage: View {
                             .font(.headline)
                             .fontWeight(.bold)
                     }
-                    .foregroundColor(.black)
+                    .foregroundColor(.white)
                     .frame(maxWidth: .infinity)
                     .frame(height: 56)
                     .background(
@@ -221,6 +223,9 @@ private struct CoachWelcomePage: View {
                     .shadow(color: .brandNavy.opacity(0.5), radius: 16, x: 0, y: 8)
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Get started")
+                .accessibilityHint("Learn how PlayerPath works for coaches")
+                .accessibilitySortPriority(1)
                 .padding(.horizontal, 24)
                 .padding(.bottom, 80)
                 .offset(y: appeared ? 0 : 20)
@@ -246,6 +251,15 @@ private struct CoachHowItWorksPage: View {
     ]
 
     var body: some View {
+        GeometryReader { proxy in
+            ScrollView(showsIndicators: false) {
+                pageContent
+                    .frame(minHeight: proxy.size.height)
+            }
+        }
+    }
+
+    @ViewBuilder private var pageContent: some View {
         VStack(spacing: 0) {
                 Spacer().frame(height: 60)
 
@@ -349,7 +363,7 @@ private struct CoachHowItWorksPage: View {
                             .font(.headline)
                             .fontWeight(.bold)
                     }
-                    .foregroundColor(.black)
+                    .foregroundColor(.white)
                     .frame(maxWidth: .infinity)
                     .frame(height: 56)
                     .background(
@@ -363,6 +377,9 @@ private struct CoachHowItWorksPage: View {
                     .shadow(color: .brandNavy.opacity(0.5), radius: 16, x: 0, y: 8)
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Continue")
+                .accessibilityHint("See next steps for your Dashboard")
+                .accessibilitySortPriority(1)
                 .padding(.horizontal, 24)
                 .padding(.bottom, 80)
                 .offset(y: appeared ? 0 : 16)
@@ -388,6 +405,15 @@ private struct CoachReadyPage: View {
     ]
 
     var body: some View {
+        GeometryReader { proxy in
+            ScrollView(showsIndicators: false) {
+                pageContent
+                    .frame(minHeight: proxy.size.height)
+            }
+        }
+    }
+
+    @ViewBuilder private var pageContent: some View {
         VStack(spacing: 0) {
                 Spacer()
 
@@ -488,7 +514,7 @@ private struct CoachReadyPage: View {
                             .font(.headline)
                             .fontWeight(.bold)
                     }
-                    .foregroundColor(.black)
+                    .foregroundColor(.white)
                     .frame(maxWidth: .infinity)
                     .frame(height: 56)
                     .background(
@@ -502,6 +528,9 @@ private struct CoachReadyPage: View {
                     .shadow(color: .brandNavy.opacity(0.5), radius: 16, x: 0, y: 8)
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Go to Dashboard")
+                .accessibilityHint("Finish setup and open your Dashboard")
+                .accessibilitySortPriority(1)
                 .padding(.horizontal, 24)
                 .padding(.bottom, 80)
                 .offset(y: appeared ? 0 : 16)

@@ -352,7 +352,12 @@ final class ClipPersistenceService {
                     context.insert(gameStats)
                 }
                 if let gameStats = game.gameStats {
-                    gameStats.addPlayResult(playResultType, pitchType: pitchType, pitchSpeed: pitchSpeed)
+                    // Manual-entry games are the stats source of truth — video tags
+                    // don't fold into counters. The playResult still lives on the
+                    // VideoClip itself, so a future mode switch can rebuild from it.
+                    if !gameStats.hasManualEntry {
+                        gameStats.addPlayResult(playResultType, pitchType: pitchType, pitchSpeed: pitchSpeed)
+                    }
                 }
             } else {
                 // For practice/standalone videos: Update athlete statistics directly

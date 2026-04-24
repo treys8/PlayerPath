@@ -322,7 +322,7 @@ struct StatisticsChartsView: View {
             games = games.filter { $0.season?.id == season.id }
         }
 
-        let completed = games.filter { $0.isComplete && $0.gameStats != nil }
+        let completed = games.filter { $0.countsTowardStats && $0.gameStats != nil }
 
         guard !completed.isEmpty else {
             // Fall back to career totals when no game data matches
@@ -413,46 +413,36 @@ struct StatisticsChartsView: View {
 
     /// Computes a single metric value for an active season by aggregating its completed game stats.
     private func liveSeasonValue(for season: Season, metric: StatMetric) -> Double? {
-        let completedGames = (season.games ?? []).filter { $0.isComplete && $0.gameStats != nil }
+        let completedGames = (season.games ?? []).filter { $0.countsTowardStats && $0.gameStats != nil }
         guard !completedGames.isEmpty else { return nil }
 
-        var atBats = 0, hits = 0, singles = 0, doubles = 0
-        var triples = 0, homeRuns = 0, walks = 0, runs = 0, rbis = 0, hitByPitches = 0
-
+        let running = AthleteStatistics()
         for game in completedGames {
-            guard let gs = game.gameStats else { continue }
-            atBats       += gs.atBats
-            hits         += gs.hits
-            singles      += gs.singles
-            doubles      += gs.doubles
-            triples      += gs.triples
-            homeRuns     += gs.homeRuns
-            walks        += gs.walks
-            runs         += gs.runs
-            rbis         += gs.rbis
-            hitByPitches += gs.hitByPitches
+            if let gs = game.gameStats { running.addCounts(from: gs) }
         }
 
+        return chartValue(from: running, for: metric)
+    }
+
+    /// Reads a rate or counting metric off an accumulator, preserving the
+    /// "nil when no denominator" semantics the chart relies on (so empty series
+    /// don't render a misleading .000 data point).
+    private func chartValue(from stats: some PlayResultAccumulator, for metric: StatMetric) -> Double? {
         switch metric {
         case .battingAverage:
-            return atBats > 0 ? Double(hits) / Double(atBats) : nil
+            return stats.atBats > 0 ? stats.battingAverage : nil
         case .onBasePercentage:
-            let pa = atBats + walks + hitByPitches
-            return pa > 0 ? Double(hits + walks + hitByPitches) / Double(pa) : nil
+            let pa = stats.atBats + stats.walks + stats.hitByPitches
+            return pa > 0 ? stats.onBasePercentage : nil
         case .sluggingPercentage:
-            let bases = singles + (doubles * 2) + (triples * 3) + (homeRuns * 4)
-            return atBats > 0 ? Double(bases) / Double(atBats) : nil
+            return stats.atBats > 0 ? stats.sluggingPercentage : nil
         case .ops:
-            let pa = atBats + walks + hitByPitches
-            guard atBats > 0, pa > 0 else { return nil }
-            let obp = Double(hits + walks + hitByPitches) / Double(pa)
-            let bases = singles + (doubles * 2) + (triples * 3) + (homeRuns * 4)
-            let slg = Double(bases) / Double(atBats)
-            return obp + slg
-        case .hits:     return Double(hits)
-        case .homeRuns: return Double(homeRuns)
-        case .rbis:     return Double(rbis)
-        case .runs:     return Double(runs)
+            let pa = stats.atBats + stats.walks + stats.hitByPitches
+            return (stats.atBats > 0 && pa > 0) ? stats.ops : nil
+        case .hits:     return Double(stats.hits)
+        case .homeRuns: return Double(stats.homeRuns)
+        case .rbis:     return Double(stats.rbis)
+        case .runs:     return Double(stats.runs)
         }
     }
 
@@ -471,47 +461,18 @@ struct StatisticsChartsView: View {
     /// Rate stats use running cumulative averages; counting stats use per-game values.
     private func buildGameChartData(from games: [Game]) -> [ChartDataPoint] {
         let sortedGames = games
-            .filter { $0.isComplete && $0.gameStats != nil }
+            .filter { $0.countsTowardStats && $0.gameStats != nil }
             .sorted { ($0.date ?? Date.distantPast) < ($1.date ?? Date.distantPast) }
 
         if selectedMetric.isRateStat {
-            var totalAB = 0, totalH = 0, totalSingles = 0, totalDoubles = 0
-            var totalTriples = 0, totalHR = 0, totalBB = 0, totalHBP = 0
+            let running = AthleteStatistics()
             var idx = 0
 
             return sortedGames.compactMap { game in
                 guard let gs = game.gameStats else { return nil }
-                totalAB      += gs.atBats
-                totalH       += gs.hits
-                totalSingles += gs.singles
-                totalDoubles += gs.doubles
-                totalTriples += gs.triples
-                totalHR      += gs.homeRuns
-                totalBB      += gs.walks
-                totalHBP     += gs.hitByPitches
+                running.addCounts(from: gs)
 
-                let value: Double?
-                switch selectedMetric {
-                case .battingAverage:
-                    value = totalAB > 0 ? Double(totalH) / Double(totalAB) : nil
-                case .onBasePercentage:
-                    let pa = totalAB + totalBB + totalHBP
-                    value = pa > 0 ? Double(totalH + totalBB + totalHBP) / Double(pa) : nil
-                case .sluggingPercentage:
-                    let bases = totalSingles + (totalDoubles * 2) + (totalTriples * 3) + (totalHR * 4)
-                    value = totalAB > 0 ? Double(bases) / Double(totalAB) : nil
-                case .ops:
-                    let pa = totalAB + totalBB + totalHBP
-                    guard totalAB > 0, pa > 0 else { return nil }
-                    let obp = Double(totalH + totalBB + totalHBP) / Double(pa)
-                    let bases = totalSingles + (totalDoubles * 2) + (totalTriples * 3) + (totalHR * 4)
-                    let slg = Double(bases) / Double(totalAB)
-                    value = obp + slg
-                default:
-                    value = nil
-                }
-
-                guard let v = value else { return nil }
+                guard let v = chartValue(from: running, for: selectedMetric) else { return nil }
                 idx += 1
                 return ChartDataPoint(date: game.date ?? Date(), value: v, label: game.opponent, index: idx)
             }
@@ -563,20 +524,7 @@ struct StatisticsChartsView: View {
         )
     }
 
-    private func getValue(from stats: AthleteStatistics, for metric: StatMetric) -> Double {
-        switch metric {
-        case .battingAverage: return stats.battingAverage
-        case .onBasePercentage: return stats.onBasePercentage
-        case .sluggingPercentage: return stats.sluggingPercentage
-        case .ops: return stats.ops
-        case .hits: return Double(stats.hits)
-        case .homeRuns: return Double(stats.homeRuns)
-        case .rbis: return Double(stats.rbis)
-        case .runs: return Double(stats.runs)
-        }
-    }
-
-    private func getValue(from stats: GameStatistics, for metric: StatMetric) -> Double {
+    private func getValue(from stats: some PlayResultAccumulator, for metric: StatMetric) -> Double {
         switch metric {
         case .battingAverage: return stats.battingAverage
         case .onBasePercentage: return stats.onBasePercentage

@@ -7,11 +7,10 @@
 
 import SwiftUI
 import SwiftData
-import FirebaseAuth
 
 struct AthleteOnboardingFlow: View {
-    let modelContext: ModelContext
-    @ObservedObject var authManager: ComprehensiveAuthManager
+    @Environment(\.modelContext) private var modelContext
+    @EnvironmentObject private var authManager: ComprehensiveAuthManager
     let user: User
     @State private var isCompleting = false
     @State private var errorMessage: String?
@@ -151,18 +150,12 @@ struct AthleteOnboardingFlow: View {
         isCompleting = true
 
         Task {
-            let progress = OnboardingProgress(firebaseAuthUid: authManager.currentFirebaseUser?.uid ?? "")
-            progress.markCompleted()
-            modelContext.insert(progress)
             do {
-                try await withRetry(delay: .seconds(1)) {
-                    try modelContext.save()
-                }
-                authManager.markOnboardingComplete()
+                try await authManager.completeOnboarding(in: modelContext, resetNewUserFlag: false)
                 Haptics.medium()
             } catch {
                 modelContext.rollback()
-                ErrorHandlerService.shared.handle(error, context: "AthleteOnboarding.saveProgress", showAlert: false)
+                ErrorHandlerService.shared.handle(error, context: "AthleteOnboarding.completeOnboarding", showAlert: false)
                 errorMessage = "Could not complete setup. Please try again."
                 showingError = true
                 isCompleting = false

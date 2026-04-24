@@ -119,7 +119,7 @@ struct ManualStatisticsEntryView: View {
                             Text("Current Batting Average")
                                 .fontWeight(.medium)
                             Spacer()
-                            Text(String(format: "%.3f", Double(stats.hits) / Double(stats.atBats)))
+                            Text(StatisticsService.shared.formatBattingAverage(Double(stats.hits) / Double(stats.atBats)))
                                 .fontWeight(.semibold)
                                 .foregroundColor(.green)
                         }
@@ -140,7 +140,7 @@ struct ManualStatisticsEntryView: View {
                                 Text("New Batting Average")
                                     .fontWeight(.semibold)
                                 Spacer()
-                                Text(String(format: "%.3f", Double(totalHits) / Double(totalAtBats)))
+                                Text(StatisticsService.shared.formatBattingAverage(Double(totalHits) / Double(totalAtBats)))
                                     .fontWeight(.bold)
                                     .foregroundColor(.green)
                                     .font(.headline)
@@ -205,6 +205,10 @@ struct ManualStatisticsEntryView: View {
 
         // Add the new statistics
         if let gameStats = stats {
+            // Flag this game as manual-entry before writing counters so the
+            // recalc guard protects them from video-sync events (sticky flag).
+            gameStats.hasManualEntry = true
+
             gameStats.addManualStatistic(
                 singles: newSingles,
                 doubles: newDoubles,

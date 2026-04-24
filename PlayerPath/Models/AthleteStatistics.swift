@@ -53,37 +53,6 @@ final class AthleteStatistics: PlayResultAccumulator {
         offspeedPitchCount = 0; offspeedSpeedTotal = 0
     }
 
-    var battingAverage: Double {
-        return atBats > 0 ? Double(hits) / Double(atBats) : 0.0
-    }
-
-    var onBasePercentage: Double {
-        // Fix Q: Include HBP in both numerator and denominator per official OBP formula:
-        // OBP = (H + BB + HBP) / (AB + BB + HBP)
-        let totalPlateAppearances = atBats + walks + hitByPitches
-        return totalPlateAppearances > 0 ? Double(hits + walks + hitByPitches) / Double(totalPlateAppearances) : 0.0
-    }
-
-    var sluggingPercentage: Double {
-        guard atBats > 0 else { return 0.0 }
-        let totalBases = singles + (doubles * 2) + (triples * 3) + (homeRuns * 4)
-        return Double(totalBases) / Double(atBats)
-    }
-
-    var ops: Double {
-        return onBasePercentage + sluggingPercentage
-    }
-
-    var averageFastballSpeed: Double {
-        guard fastballPitchCount > 0 else { return 0.0 }
-        return fastballSpeedTotal / Double(fastballPitchCount)
-    }
-
-    var averageOffspeedSpeed: Double {
-        guard offspeedPitchCount > 0 else { return 0.0 }
-        return offspeedSpeedTotal / Double(offspeedPitchCount)
-    }
-
     var hasPitchingData: Bool {
         totalPitches > 0
     }
@@ -106,24 +75,9 @@ final class AthleteStatistics: PlayResultAccumulator {
     func addManualStatistic(singles: Int = 0, doubles: Int = 0, triples: Int = 0, homeRuns: Int = 0,
                            runs: Int = 0, rbis: Int = 0, strikeouts: Int = 0, walks: Int = 0,
                            groundOuts: Int = 0, flyOuts: Int = 0, hitByPitches: Int = 0) {
-        // Add hits and at bats (HBP does not count as an at-bat)
-        let totalHits = singles + doubles + triples + homeRuns
-        let totalAtBats = singles + doubles + triples + homeRuns + strikeouts + groundOuts + flyOuts
-
-        self.singles += singles
-        self.doubles += doubles
-        self.triples += triples
-        self.homeRuns += homeRuns
-        self.hits += totalHits
-        self.atBats += totalAtBats
-        self.runs += runs
-        self.rbis += rbis
-        self.strikeouts += strikeouts
-        self.walks += walks
-        self.groundOuts += groundOuts
-        self.flyOuts += flyOuts
-        self.hitByPitches += hitByPitches
-
+        applyManualStatistic(singles: singles, doubles: doubles, triples: triples, homeRuns: homeRuns,
+                             runs: runs, rbis: rbis, strikeouts: strikeouts, walks: walks,
+                             groundOuts: groundOuts, flyOuts: flyOuts, hitByPitches: hitByPitches)
         self.updatedAt = Date()
     }
 }
@@ -158,6 +112,16 @@ final class GameStatistics: PlayResultAccumulator {
     var offspeedSpeedTotal: Double = 0
     var createdAt: Date?
 
+    /// Sticky flag: true when any counter value on this object came from
+    /// ManualStatisticsEntryView or QuickStatisticsEntryView (as opposed to
+    /// being derived from VideoClip.playResult tags).
+    ///
+    /// When true, `StatisticsService.recalculateGameStatistics` is a no-op
+    /// for this game — manual entries are the source of truth and video
+    /// tagging on the same game doesn't affect counters. This is the gate
+    /// that makes manual/quick-entered stats survive video sync events.
+    var hasManualEntry: Bool = false
+
     func resetAllCounts() {
         atBats = 0; hits = 0; singles = 0; doubles = 0; triples = 0
         homeRuns = 0; runs = 0; rbis = 0; strikeouts = 0; walks = 0
@@ -166,37 +130,6 @@ final class GameStatistics: PlayResultAccumulator {
         pitchingStrikeouts = 0; pitchingWalks = 0
         fastballPitchCount = 0; fastballSpeedTotal = 0
         offspeedPitchCount = 0; offspeedSpeedTotal = 0
-    }
-
-    var averageFastballSpeed: Double {
-        guard fastballPitchCount > 0 else { return 0.0 }
-        return fastballSpeedTotal / Double(fastballPitchCount)
-    }
-
-    var averageOffspeedSpeed: Double {
-        guard offspeedPitchCount > 0 else { return 0.0 }
-        return offspeedSpeedTotal / Double(offspeedPitchCount)
-    }
-
-    // MARK: - Computed Statistics
-
-    var battingAverage: Double {
-        return atBats > 0 ? Double(hits) / Double(atBats) : 0.0
-    }
-
-    var onBasePercentage: Double {
-        let totalPlateAppearances = atBats + walks + hitByPitches
-        return totalPlateAppearances > 0 ? Double(hits + walks + hitByPitches) / Double(totalPlateAppearances) : 0.0
-    }
-
-    var sluggingPercentage: Double {
-        guard atBats > 0 else { return 0.0 }
-        let totalBases = singles + (doubles * 2) + (triples * 3) + (homeRuns * 4)
-        return Double(totalBases) / Double(atBats)
-    }
-
-    var ops: Double {
-        return onBasePercentage + sluggingPercentage
     }
 
     init() {
@@ -211,22 +144,8 @@ final class GameStatistics: PlayResultAccumulator {
     func addManualStatistic(singles: Int = 0, doubles: Int = 0, triples: Int = 0, homeRuns: Int = 0,
                            runs: Int = 0, rbis: Int = 0, strikeouts: Int = 0, walks: Int = 0,
                            groundOuts: Int = 0, flyOuts: Int = 0, hitByPitches: Int = 0) {
-        // Add hits and at bats
-        let totalHits = singles + doubles + triples + homeRuns
-        let totalAtBats = singles + doubles + triples + homeRuns + strikeouts + groundOuts + flyOuts
-
-        self.singles += singles
-        self.doubles += doubles
-        self.triples += triples
-        self.homeRuns += homeRuns
-        self.hits += totalHits
-        self.atBats += totalAtBats
-        self.runs += runs
-        self.rbis += rbis
-        self.strikeouts += strikeouts
-        self.walks += walks
-        self.groundOuts += groundOuts
-        self.flyOuts += flyOuts
-        self.hitByPitches += hitByPitches
+        applyManualStatistic(singles: singles, doubles: doubles, triples: triples, homeRuns: homeRuns,
+                             runs: runs, rbis: rbis, strikeouts: strikeouts, walks: walks,
+                             groundOuts: groundOuts, flyOuts: flyOuts, hitByPitches: hitByPitches)
     }
 }

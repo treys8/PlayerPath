@@ -52,38 +52,17 @@ final class StatisticsService {
 
         stats.resetAllCounts()
 
-        // Get all completed games for this athlete
+        // Include completed games AND in-progress games with stats already recorded
+        // (quick-entered stats during a live game must roll up before the game ends).
         let games = athlete.games ?? []
-        let completedGames = games.filter { $0.isComplete }
+        let completedGames = games.filter { $0.countsTowardStats }
 
         stats.totalGames = completedGames.count
 
         // Aggregate stats from all completed games
         for game in completedGames {
             if let gameStats = game.gameStats {
-                stats.atBats += gameStats.atBats
-                stats.hits += gameStats.hits
-                stats.singles += gameStats.singles
-                stats.doubles += gameStats.doubles
-                stats.triples += gameStats.triples
-                stats.homeRuns += gameStats.homeRuns
-                stats.runs += gameStats.runs
-                stats.rbis += gameStats.rbis
-                stats.strikeouts += gameStats.strikeouts
-                stats.walks += gameStats.walks
-                stats.groundOuts += gameStats.groundOuts
-                stats.flyOuts += gameStats.flyOuts
-                stats.hitByPitches += gameStats.hitByPitches
-                stats.totalPitches += gameStats.totalPitches
-                stats.balls += gameStats.balls
-                stats.strikes += gameStats.strikes
-                stats.wildPitches += gameStats.wildPitches
-                stats.pitchingStrikeouts += gameStats.pitchingStrikeouts
-                stats.pitchingWalks += gameStats.pitchingWalks
-                stats.fastballPitchCount += gameStats.fastballPitchCount
-                stats.fastballSpeedTotal += gameStats.fastballSpeedTotal
-                stats.offspeedPitchCount += gameStats.offspeedPitchCount
-                stats.offspeedSpeedTotal += gameStats.offspeedSpeedTotal
+                stats.addCounts(from: gameStats)
             }
         }
 
@@ -152,38 +131,17 @@ final class StatisticsService {
 
         stats.resetAllCounts()
 
-        // Get all completed games for this season
+        // Get games for this season. Match career recalc: include in-progress
+        // games that already have stats so quick entry shows up immediately.
         let games = season.games ?? []
-        let completedGames = games.filter { $0.isComplete }
+        let completedGames = games.filter { $0.countsTowardStats }
 
         stats.totalGames = completedGames.count
 
         // Aggregate stats from all completed games in this season
         for game in completedGames {
             if let gameStats = game.gameStats {
-                stats.atBats += gameStats.atBats
-                stats.hits += gameStats.hits
-                stats.singles += gameStats.singles
-                stats.doubles += gameStats.doubles
-                stats.triples += gameStats.triples
-                stats.homeRuns += gameStats.homeRuns
-                stats.runs += gameStats.runs
-                stats.rbis += gameStats.rbis
-                stats.strikeouts += gameStats.strikeouts
-                stats.walks += gameStats.walks
-                stats.groundOuts += gameStats.groundOuts
-                stats.flyOuts += gameStats.flyOuts
-                stats.hitByPitches += gameStats.hitByPitches
-                stats.totalPitches += gameStats.totalPitches
-                stats.balls += gameStats.balls
-                stats.strikes += gameStats.strikes
-                stats.wildPitches += gameStats.wildPitches
-                stats.pitchingStrikeouts += gameStats.pitchingStrikeouts
-                stats.pitchingWalks += gameStats.pitchingWalks
-                stats.fastballPitchCount += gameStats.fastballPitchCount
-                stats.fastballSpeedTotal += gameStats.fastballSpeedTotal
-                stats.offspeedPitchCount += gameStats.offspeedPitchCount
-                stats.offspeedSpeedTotal += gameStats.offspeedSpeedTotal
+                stats.addCounts(from: gameStats)
             }
         }
 
@@ -221,6 +179,16 @@ final class StatisticsService {
         }
 
         guard let stats = game.gameStats else { return }
+
+        // Manual-entry games are the source of truth — video tagging on these
+        // games doesn't feed into counters. Without this guard, any video sync
+        // event (add / delete / retag) would wipe ManualStatisticsEntryView
+        // and QuickStatisticsEntryView input. Flag is sticky (set by those
+        // entry points, cleared only by explicit user action).
+        if stats.hasManualEntry {
+            statsLog.debug("Skipping recalc for manual-entry game '\(game.opponent)'")
+            return
+        }
 
         let oldHits = stats.hits
         let oldAtBats = stats.atBats

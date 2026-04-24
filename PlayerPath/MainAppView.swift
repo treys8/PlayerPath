@@ -125,9 +125,22 @@ struct PlayerPathMainView: View {
             // Honor analytics opt-out preference on launch
             AnalyticsService.shared.setCollection(enabled: prefs.enableAnalytics)
 
-            // Sync notification prefs from UserDefaults → SwiftData to prevent divergence
-            prefs.enableGameReminders = UserDefaults.standard.object(forKey: "notif_gameReminders") as? Bool ?? true
-            prefs.enableUploadNotifications = UserDefaults.standard.object(forKey: "notif_uploads") as? Bool ?? true
+            // One-time migration: copy notification prefs from UserDefaults → SwiftData
+            // for users upgrading from builds that used @AppStorage in
+            // NotificationSettingsView. After this runs, SwiftData is the single
+            // source of truth; the settings view writes only SwiftData, so re-running
+            // this seed on every launch would overwrite user changes.
+            let notifPrefsMigrationKey = "notif_prefs_migrated_to_swiftdata_v5"
+            if !UserDefaults.standard.bool(forKey: notifPrefsMigrationKey) {
+                prefs.enableGameReminders = UserDefaults.standard.object(forKey: "notif_gameReminders") as? Bool ?? true
+                prefs.enableUploadNotifications = UserDefaults.standard.object(forKey: "notif_uploads") as? Bool ?? true
+                prefs.gameReminderMinutes = UserDefaults.standard.object(forKey: "notif_gameReminderMinutes") as? Int ?? 30
+                UserDefaults.standard.set(true, forKey: notifPrefsMigrationKey)
+            }
+
+            // One-time V20 backfill: flag pre-upgrade manual/quick-entered stats
+            // so recalculateGameStatistics doesn't wipe them on the next video sync.
+            ManualStatsBackfill.runIfNeeded(context: modelContext)
 
             // Check for forced updates and What's New content
             await updateManager.checkOnLaunch()

@@ -6,16 +6,14 @@
 //
 
 import SwiftUI
+import SwiftData
 import TipKit
 
 extension View {
-    @ViewBuilder
-    func popoverTipIfEnabled<T: Tip>(_ tip: T, arrowEdge: Edge = .top, enabled: Bool) -> some View {
-        if enabled {
-            popoverTip(tip, arrowEdge: arrowEdge)
-        } else {
-            self
-        }
+    /// Attach `.popoverTip` gated on the user's `showOnboardingTips` preference.
+    /// `also` adds a caller-controlled gate (e.g. "only on the first cell").
+    func onboardingTip<T: Tip>(_ tip: T, arrowEdge: Edge = .top, also: Bool = true) -> some View {
+        modifier(OnboardingTipModifier(tip: tip, arrowEdge: arrowEdge, also: also))
     }
 
     func appCard(cornerRadius: CGFloat = 16) -> some View {
@@ -31,4 +29,23 @@ extension View {
             .shadow(color: .black.opacity(0.06), radius: 4, x: 0, y: 2)
     }
 
+}
+
+private struct OnboardingTipModifier<T: Tip>: ViewModifier {
+    let tip: T
+    let arrowEdge: Edge
+    let also: Bool
+    @Query private var prefs: [UserPreferences]
+
+    private var enabled: Bool {
+        (prefs.first?.showOnboardingTips ?? true) && also
+    }
+
+    func body(content: Content) -> some View {
+        if enabled {
+            content.popoverTip(tip, arrowEdge: arrowEdge)
+        } else {
+            content
+        }
+    }
 }

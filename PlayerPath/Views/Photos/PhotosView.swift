@@ -51,7 +51,7 @@ struct PhotosView: View {
     @State private var isSelecting = false
     @State private var selectedIDs: Set<UUID> = []
     @State private var showingBulkDeleteConfirm = false
-    @State private var tipsEnabled: Bool = true
+    private let photoOptionsTip = PhotoOptionsTip()
 
     private var hasActiveFilters: Bool {
         selectedDateRange != .allTime || selectedSeasonFilter != nil
@@ -85,7 +85,6 @@ struct PhotosView: View {
         .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search photos")
         .onAppear { AnalyticsService.shared.trackScreenView(screenName: "Photos", screenClass: "PhotosView") }
         .task {
-            loadTipsEnabled()
             updatePhotosCache()
         }
         .onChange(of: activeFilter) { _, _ in updatePhotosCache() }
@@ -293,7 +292,7 @@ struct PhotosView: View {
                                 }
                             }
                             .buttonStyle(.plain)
-                            .photoOptionsTip(isFirst: photo.id == cachedPhotos.first?.id, tipsEnabled: tipsEnabled)
+                            .onboardingTip(photoOptionsTip, arrowEdge: .top, also: photo.id == cachedPhotos.first?.id)
                         }
                     }
                 }
@@ -369,14 +368,6 @@ struct PhotosView: View {
             }
         }
         updatePhotosCache()
-    }
-
-    private func loadTipsEnabled() {
-        if let prefs = try? modelContext.fetch(FetchDescriptor<UserPreferences>()).first {
-            tipsEnabled = prefs.showOnboardingTips
-        } else {
-            tipsEnabled = true
-        }
     }
 
     private func updatePhotosCache() {

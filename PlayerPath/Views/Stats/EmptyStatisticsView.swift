@@ -12,7 +12,6 @@ struct EmptyStatisticsView: View {
     let isQuickEntryEnabled: Bool
     let showQuickEntry: () -> Void
     let showGameSelection: () -> Void
-    let tipsEnabled: Bool
     @Environment(\.dismiss) private var dismiss
 
     @State private var isAnimating = false
@@ -175,7 +174,7 @@ struct EmptyStatisticsView: View {
                 }
                 .opacity(isAnimating ? 1.0 : 0.0)
                 .offset(y: isAnimating ? 0 : 20)
-                .popoverTipIfEnabled(tip, arrowEdge: .top, enabled: tipsEnabled)
+                .onboardingTip(tip, arrowEdge: .top)
             }
             .padding(.horizontal, 40)
         }

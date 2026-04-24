@@ -71,7 +71,11 @@ final class PushNotificationService: NSObject, ObservableObject {
             intentIdentifiers: []
         ),
         
-        // Practice reminder category
+        // Practice reminder category — infrastructure is present (category, tap
+        // handler at "practice_reminder" type, and AppDelegate deep-link case),
+        // but no scheduler currently calls scheduleLocalNotification for this
+        // category. Wiring pending the v6.0 golf release (practice reminders
+        // will be the primary user of this pathway).
         UNNotificationCategory(
             identifier: "PRACTICE_REMINDER",
             actions: [
@@ -191,23 +195,31 @@ final class PushNotificationService: NSObject, ObservableObject {
             let granted = try await notificationCenter.requestAuthorization(
                 options: [.alert, .badge, .sound]
             )
-            
+
             await updateAuthorizationStatus()
-            
+
             if granted {
                 await registerForRemoteNotifications()
                 logger.info("Notification authorization granted")
             } else {
                 logger.warning("Notification authorization denied")
             }
-            
+
             return granted
         } catch {
             logger.error("Failed to request notification authorization: \(error.localizedDescription)")
             return false
         }
     }
-    
+
+    /// Prompts for notification permission only if the user hasn't yet decided.
+    /// Idempotent — becomes a no-op after the first prompt (iOS caches the answer).
+    func requestAuthorizationIfNeeded() async {
+        let settings = await notificationCenter.notificationSettings()
+        guard settings.authorizationStatus == .notDetermined else { return }
+        _ = await requestAuthorization()
+    }
+
     /// If notifications are denied, open Settings; otherwise, no-op. Returns true if Settings was opened.
     @discardableResult
     func openSettingsIfDenied() -> Bool {
@@ -285,6 +297,10 @@ final class PushNotificationService: NSObject, ObservableObject {
         trigger: UNNotificationTrigger?,
         attachments: [UNNotificationAttachment] = []
     ) async -> Bool {
+        guard canScheduleNotifications else {
+            logger.info("Skipped local notification \(identifier) — not authorized")
+            return false
+        }
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
@@ -779,7 +795,7 @@ extension PushNotificationService: UNUserNotificationCenterDelegate {
                 if let practiceId = userInfo["practiceId"] as? String {
                     NotificationCenter.default.post(name: .startRecordingForPractice, object: practiceId)
                 }
-            case "cloud_backup":
+            case "cloud_backup", "upload_failed", "storage_warning":
                 NotificationCenter.default.post(name: .navigateToCloudStorage, object: nil)
             case "weekly_summary":
                 // Fix AJ: route default tap to the same destination as the VIEW_SUMMARY action

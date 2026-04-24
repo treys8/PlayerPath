@@ -185,7 +185,15 @@ struct QuickStatisticsEntryView: View {
             gameStats = newGameStats
         }
 
+        // Flag this game as manual-entry before writing counters so the recalc
+        // guard protects them from video-sync events (sticky flag).
+        gameStats.hasManualEntry = true
+
         updateGameStatistics(gameStats, playResultType: playResultType, playCount: playCount)
+
+        // Flag game for Firestore sync — without this, quick-entered stats stay
+        // local-only until another mutation path triggers a sync.
+        game.needsSync = true
 
         // Recalculate career + season statistics from scratch so they
         // stay consistent with game stats (also repairs any prior corruption).
@@ -196,6 +204,16 @@ struct QuickStatisticsEntryView: View {
         do {
             try modelContext.save()
             showingSuccessToast = true
+
+            if let user = game.athlete?.user {
+                Task {
+                    do {
+                        try await SyncCoordinator.shared.syncGames(for: user)
+                    } catch {
+                        ErrorHandlerService.shared.handle(error, context: "QuickStatisticsEntryView.syncGames", showAlert: false)
+                    }
+                }
+            }
         } catch {
             alertMessage = "Failed to save statistics. Please try again."
             showingAlert = true

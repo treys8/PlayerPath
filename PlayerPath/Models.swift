@@ -123,6 +123,21 @@ final class Game {
         self.year = calendar.component(.year, from: date)
     }
 
+    /// Whether this game's stats should be rolled into career/season totals.
+    /// True when explicitly completed OR when the game is in progress and already
+    /// has stats recorded (so quick-entered stats during a live game show up
+    /// without requiring the user to end the game first).
+    ///
+    /// Activity checks every counter that can move independently: plate
+    /// appearances cover batter-side entries (including walks and HBP which
+    /// don't increment atBats), and totalPitches covers pitcher-side entries.
+    var countsTowardStats: Bool {
+        if isComplete { return true }
+        guard let gs = gameStats else { return false }
+        let plateAppearances = gs.atBats + gs.walks + gs.hitByPitches
+        return plateAppearances > 0 || gs.totalPitches > 0
+    }
+
     // MARK: - Firestore Conversion
 
     func toFirestoreData() -> [String: Any] {
@@ -145,6 +160,39 @@ final class Game {
         // Optional fields
         if let location = location { data["location"] = location }
         if let notes = notes { data["notes"] = notes }
+
+        // Inline GameStatistics counters onto the game doc ONLY when this game
+        // is in manual-entry mode. Video-derived stats are re-derivable on any
+        // device from synced VideoClip play results, so uploading them would
+        // just create a race: if Device A re-uploads game metadata with stale
+        // stats_* values, it could overwrite fresher video-derived counters on
+        // Device B. Manual-entry stats have no other transport, hence the gate.
+        if let gs = gameStats, gs.hasManualEntry {
+            data["stats_hasManualEntry"] = gs.hasManualEntry
+            data["stats_atBats"] = gs.atBats
+            data["stats_hits"] = gs.hits
+            data["stats_runs"] = gs.runs
+            data["stats_singles"] = gs.singles
+            data["stats_doubles"] = gs.doubles
+            data["stats_triples"] = gs.triples
+            data["stats_homeRuns"] = gs.homeRuns
+            data["stats_rbis"] = gs.rbis
+            data["stats_strikeouts"] = gs.strikeouts
+            data["stats_walks"] = gs.walks
+            data["stats_groundOuts"] = gs.groundOuts
+            data["stats_flyOuts"] = gs.flyOuts
+            data["stats_hitByPitches"] = gs.hitByPitches
+            data["stats_totalPitches"] = gs.totalPitches
+            data["stats_balls"] = gs.balls
+            data["stats_strikes"] = gs.strikes
+            data["stats_wildPitches"] = gs.wildPitches
+            data["stats_pitchingStrikeouts"] = gs.pitchingStrikeouts
+            data["stats_pitchingWalks"] = gs.pitchingWalks
+            data["stats_fastballPitchCount"] = gs.fastballPitchCount
+            data["stats_fastballSpeedTotal"] = gs.fastballSpeedTotal
+            data["stats_offspeedPitchCount"] = gs.offspeedPitchCount
+            data["stats_offspeedSpeedTotal"] = gs.offspeedSpeedTotal
+        }
         return data
     }
 }

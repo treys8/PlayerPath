@@ -9,6 +9,7 @@ import SwiftUI
 
 struct KeyStatsSection: View {
     let statistics: AthleteStatistics
+    var seasonLabel: String? = nil
 
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var isVisible = false
@@ -50,7 +51,7 @@ struct KeyStatsSection: View {
                     title: "Games Played",
                     value: "\(statistics.totalGames)",
                     color: .purple,
-                    subtitle: "Career"
+                    subtitle: seasonLabel ?? "Career"
                 )
             }
         }

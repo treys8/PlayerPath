@@ -395,6 +395,34 @@ struct FirestoreGame: Codable, Identifiable {
     let version: Int
     let isDeleted: Bool
 
+    // GameStatistics counters inlined onto the game doc. All optional so pre-V20
+    // docs (which lack these fields) decode cleanly — nil means "remote has no
+    // stats to apply; keep local as-is".
+    let statsHasManualEntry: Bool?
+    let statsAtBats: Int?
+    let statsHits: Int?
+    let statsRuns: Int?
+    let statsSingles: Int?
+    let statsDoubles: Int?
+    let statsTriples: Int?
+    let statsHomeRuns: Int?
+    let statsRbis: Int?
+    let statsStrikeouts: Int?
+    let statsWalks: Int?
+    let statsGroundOuts: Int?
+    let statsFlyOuts: Int?
+    let statsHitByPitches: Int?
+    let statsTotalPitches: Int?
+    let statsBalls: Int?
+    let statsStrikes: Int?
+    let statsWildPitches: Int?
+    let statsPitchingStrikeouts: Int?
+    let statsPitchingWalks: Int?
+    let statsFastballPitchCount: Int?
+    let statsFastballSpeedTotal: Double?
+    let statsOffspeedPitchCount: Int?
+    let statsOffspeedSpeedTotal: Double?
+
     enum CodingKeys: String, CodingKey {
         case swiftDataId = "id"  // Maps to "id" field in Firestore document
         case athleteId
@@ -411,6 +439,30 @@ struct FirestoreGame: Codable, Identifiable {
         case updatedAt
         case version
         case isDeleted
+        case statsHasManualEntry = "stats_hasManualEntry"
+        case statsAtBats = "stats_atBats"
+        case statsHits = "stats_hits"
+        case statsRuns = "stats_runs"
+        case statsSingles = "stats_singles"
+        case statsDoubles = "stats_doubles"
+        case statsTriples = "stats_triples"
+        case statsHomeRuns = "stats_homeRuns"
+        case statsRbis = "stats_rbis"
+        case statsStrikeouts = "stats_strikeouts"
+        case statsWalks = "stats_walks"
+        case statsGroundOuts = "stats_groundOuts"
+        case statsFlyOuts = "stats_flyOuts"
+        case statsHitByPitches = "stats_hitByPitches"
+        case statsTotalPitches = "stats_totalPitches"
+        case statsBalls = "stats_balls"
+        case statsStrikes = "stats_strikes"
+        case statsWildPitches = "stats_wildPitches"
+        case statsPitchingStrikeouts = "stats_pitchingStrikeouts"
+        case statsPitchingWalks = "stats_pitchingWalks"
+        case statsFastballPitchCount = "stats_fastballPitchCount"
+        case statsFastballSpeedTotal = "stats_fastballSpeedTotal"
+        case statsOffspeedPitchCount = "stats_offspeedPitchCount"
+        case statsOffspeedSpeedTotal = "stats_offspeedSpeedTotal"
     }
 }
 

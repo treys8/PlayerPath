@@ -37,7 +37,7 @@ struct AuthenticatedFlow: View {
                 // returning users always evaluate it as true and skip correctly.
                 if !hasCompletedOnboarding {
                     if authManager.userRole == .coach {
-                        CoachOnboardingFlow(modelContext: modelContext, authManager: authManager, user: user)
+                        CoachOnboardingFlow(user: user)
                     } else {
                         OnboardingFlow(user: user)
                     }
@@ -228,6 +228,14 @@ struct AuthenticatedFlow: View {
                         } catch {
                             ErrorHandlerService.shared.handle(error, context: "AuthenticatedFlow.initialSync", showAlert: false)
                         }
+                    }
+
+                    // Reschedule weekly summaries on launch. The scheduler uses a
+                    // one-shot UNCalendarNotificationTrigger for next Sunday 6pm —
+                    // if the app was killed before it fired, iOS won't re-enqueue
+                    // the next week's, so we must rebuild here.
+                    if let user = currentUser {
+                        await WeeklySummaryScheduler.scheduleAll(for: user)
                     }
                 }
             }

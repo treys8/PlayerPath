@@ -188,6 +188,7 @@ extension SyncCoordinator {
                     if local.location != remoteGame.location { local.location = remoteGame.location; changed = true }
                     if local.notes != remoteGame.notes { local.notes = remoteGame.notes; changed = true }
                     if local.version != remoteGame.version { local.version = remoteGame.version; changed = true }
+                    applyRemoteStats(remoteGame, to: local, context: context)
                     if changed {
                         local.lastSyncDate = Date()
                     }
@@ -212,6 +213,7 @@ extension SyncCoordinator {
                 newGame.athlete = athlete
                 newGame.season = parentSeason
                 context.insert(newGame)
+                applyRemoteStats(remoteGame, to: newGame, context: context)
             } else {
                 syncLog.warning("Dropped remote game '\(remoteGame.opponent)' (id: \(remoteGame.id ?? "nil")) — no matching athlete found for athleteId '\(remoteGame.athleteId)'")
             }
@@ -235,5 +237,55 @@ extension SyncCoordinator {
 
     func resolveGameConflicts(user: User, context: ModelContext) async throws {
         // For now, local changes win (already marked needsSync)
+    }
+
+    /// Applies GameStatistics counter fields from a remote game doc to the local
+    /// Game. Only fires for manual-entry games — video-derived stats are
+    /// re-derivable locally from synced VideoClips and shouldn't be crossed
+    /// over Firestore (would race with fresh local video data).
+    private func applyRemoteStats(_ remote: FirestoreGame, to local: Game, context: ModelContext) {
+        // Only apply when remote explicitly says these counters came from manual
+        // entry. Pre-V20 docs (nil) and video-derived docs (false) are ignored —
+        // local device will derive from its own VideoClips.
+        guard remote.statsHasManualEntry == true else { return }
+
+        // Ensure a local GameStatistics exists to receive the fields.
+        let stats: GameStatistics
+        if let existing = local.gameStats {
+            stats = existing
+        } else {
+            let fresh = GameStatistics()
+            fresh.game = local
+            local.gameStats = fresh
+            context.insert(fresh)
+            stats = fresh
+        }
+
+        // hasManualEntry is sticky: once true on either side, stays true.
+        stats.hasManualEntry = true
+
+        stats.atBats = remote.statsAtBats ?? stats.atBats
+        stats.hits = remote.statsHits ?? stats.hits
+        stats.runs = remote.statsRuns ?? stats.runs
+        stats.singles = remote.statsSingles ?? stats.singles
+        stats.doubles = remote.statsDoubles ?? stats.doubles
+        stats.triples = remote.statsTriples ?? stats.triples
+        stats.homeRuns = remote.statsHomeRuns ?? stats.homeRuns
+        stats.rbis = remote.statsRbis ?? stats.rbis
+        stats.strikeouts = remote.statsStrikeouts ?? stats.strikeouts
+        stats.walks = remote.statsWalks ?? stats.walks
+        stats.groundOuts = remote.statsGroundOuts ?? stats.groundOuts
+        stats.flyOuts = remote.statsFlyOuts ?? stats.flyOuts
+        stats.hitByPitches = remote.statsHitByPitches ?? stats.hitByPitches
+        stats.totalPitches = remote.statsTotalPitches ?? stats.totalPitches
+        stats.balls = remote.statsBalls ?? stats.balls
+        stats.strikes = remote.statsStrikes ?? stats.strikes
+        stats.wildPitches = remote.statsWildPitches ?? stats.wildPitches
+        stats.pitchingStrikeouts = remote.statsPitchingStrikeouts ?? stats.pitchingStrikeouts
+        stats.pitchingWalks = remote.statsPitchingWalks ?? stats.pitchingWalks
+        stats.fastballPitchCount = remote.statsFastballPitchCount ?? stats.fastballPitchCount
+        stats.fastballSpeedTotal = remote.statsFastballSpeedTotal ?? stats.fastballSpeedTotal
+        stats.offspeedPitchCount = remote.statsOffspeedPitchCount ?? stats.offspeedPitchCount
+        stats.offspeedSpeedTotal = remote.statsOffspeedSpeedTotal ?? stats.offspeedSpeedTotal
     }
 }

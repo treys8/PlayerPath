@@ -34,6 +34,17 @@ struct TelestrationToolbar: View {
     private var maxStrokes: Int { TelestrationConstants.maxStrokes }
     private var maxShapes: Int { TelestrationConstants.maxShapes }
 
+    private func colorName(_ color: Color) -> String {
+        switch color {
+        case .red:    return "Red"
+        case .blue:   return "Blue"
+        case .yellow: return "Yellow"
+        case .white:  return "White"
+        case .green:  return "Green"
+        default:      return "Color"
+        }
+    }
+
     var body: some View {
         VStack(spacing: 8) {
             // Stroke limit warning — only when near the element cap or the
@@ -108,9 +119,15 @@ struct TelestrationToolbar: View {
                                     .frame(width: 24, height: 24)
                                     .overlay(
                                         Circle()
-                                            .stroke(Color.white, lineWidth: selectedColor == color ? 2.5 : 0)
+                                            .stroke(
+                                                color == .white ? Color.black : Color.white,
+                                                lineWidth: selectedColor == color ? 2.5 : 0
+                                            )
                                     )
+                                    .frame(width: 36, height: 36)
+                                    .contentShape(Rectangle())
                             }
+                            .accessibilityLabel(colorName(color))
                         }
 
                         Divider()
@@ -125,7 +142,8 @@ struct TelestrationToolbar: View {
                                 Circle()
                                     .fill(lineWidth == item.value ? Color.white : Color.white.opacity(0.4))
                                     .frame(width: item.value * 2.5 + 6, height: item.value * 2.5 + 6)
-                                    .frame(minWidth: 28, minHeight: 28)
+                                    .frame(width: 36, height: 36)
+                                    .contentShape(Rectangle())
                             }
                             .accessibilityLabel("\(item.label) line")
                         }

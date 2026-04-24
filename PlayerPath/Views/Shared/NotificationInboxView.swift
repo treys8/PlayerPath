@@ -37,6 +37,10 @@ struct NotificationInboxView: View {
         }
         .navigationTitle("Notifications")
         .navigationBarTitleDisplayMode(.inline)
+        .task(id: authManager.userID) {
+            guard let userID = authManager.userID else { return }
+            await service.markAllRead(forUserID: userID)
+        }
         .toolbar {
             if service.unreadCount > 0, let userID = authManager.userID {
                 ToolbarItem(placement: .navigationBarTrailing) {

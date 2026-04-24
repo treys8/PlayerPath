@@ -272,7 +272,19 @@ extension FirestoreManager {
     ///   - data: Updated game data dictionary
     func updateGame(userId: String, gameId: String, data: [String: Any]) async throws {
 
-        let allowedFields: Set<String> = ["id", "athleteId", "seasonId", "tournamentId", "opponent", "date", "year", "isLive", "isComplete", "location", "notes", "version"]
+        let allowedFields: Set<String> = [
+            "id", "athleteId", "seasonId", "tournamentId", "opponent", "date",
+            "year", "isLive", "isComplete", "location", "notes", "version",
+            // GameStatistics counters (inlined for cross-device manual-entry sync)
+            "stats_hasManualEntry",
+            "stats_atBats", "stats_hits", "stats_runs", "stats_singles",
+            "stats_doubles", "stats_triples", "stats_homeRuns", "stats_rbis",
+            "stats_strikeouts", "stats_walks", "stats_groundOuts", "stats_flyOuts",
+            "stats_hitByPitches", "stats_totalPitches", "stats_balls", "stats_strikes",
+            "stats_wildPitches", "stats_pitchingStrikeouts", "stats_pitchingWalks",
+            "stats_fastballPitchCount", "stats_fastballSpeedTotal",
+            "stats_offspeedPitchCount", "stats_offspeedSpeedTotal"
+        ]
         var updateData = data.filter { allowedFields.contains($0.key) }
         updateData["updatedAt"] = FieldValue.serverTimestamp()
 

@@ -355,12 +355,29 @@ enum SchemaV19: VersionedSchema {
     static var models: [any PersistentModel.Type] { SchemaV1.models }
 }
 
+// MARK: - Schema V20 (2026-04-24 — Manual stats mode flag)
+//
+//  Changes from V19:
+//    • GameStatistics.hasManualEntry (Bool = false) added — sticky flag that
+//      marks games whose counters came from ManualStatisticsEntryView or
+//      QuickStatisticsEntryView. When true, recalculateGameStatistics is a
+//      no-op for that game, protecting manual entries from being overwritten
+//      by video-derived rollups. Paired with a one-time backfill at launch
+//      that sets the flag for existing games with stats but no tagged videos.
+//
+//  Default value of false → lightweight migration is sufficient.
+
+enum SchemaV20: VersionedSchema {
+    static var versionIdentifier = Schema.Version(20, 0, 0)
+    static var models: [any PersistentModel.Type] { SchemaV1.models }
+}
+
 // MARK: - Migration Plan
 
 enum PlayerPathMigrationPlan: SchemaMigrationPlan {
     /// All schema versions in chronological order (oldest first).
     static var schemas: [any VersionedSchema.Type] {
-        [SchemaV1.self, SchemaV2.self, SchemaV3.self, SchemaV4.self, SchemaV5.self, SchemaV6.self, SchemaV7.self, SchemaV8.self, SchemaV9.self, SchemaV10.self, SchemaV11.self, SchemaV12.self, SchemaV13.self, SchemaV14.self, SchemaV15.self, SchemaV16.self, SchemaV17.self, SchemaV18.self, SchemaV19.self]
+        [SchemaV1.self, SchemaV2.self, SchemaV3.self, SchemaV4.self, SchemaV5.self, SchemaV6.self, SchemaV7.self, SchemaV8.self, SchemaV9.self, SchemaV10.self, SchemaV11.self, SchemaV12.self, SchemaV13.self, SchemaV14.self, SchemaV15.self, SchemaV16.self, SchemaV17.self, SchemaV18.self, SchemaV19.self, SchemaV20.self]
     }
 
     /// Migration stages between consecutive versions.
@@ -383,7 +400,8 @@ enum PlayerPathMigrationPlan: SchemaMigrationPlan {
             .lightweight(fromVersion: SchemaV15.self, toVersion: SchemaV16.self),
             .lightweight(fromVersion: SchemaV16.self, toVersion: SchemaV17.self),
             .lightweight(fromVersion: SchemaV17.self, toVersion: SchemaV18.self),
-            .lightweight(fromVersion: SchemaV18.self, toVersion: SchemaV19.self)
+            .lightweight(fromVersion: SchemaV18.self, toVersion: SchemaV19.self),
+            .lightweight(fromVersion: SchemaV19.self, toVersion: SchemaV20.self)
         ]
     }
 }

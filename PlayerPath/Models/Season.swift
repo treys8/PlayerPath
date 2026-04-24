@@ -180,32 +180,16 @@ final class Season {
         // Reset before aggregating so re-archiving doesn't double-count
         stats.resetAllCounts()
 
-        // Aggregate all game stats into season stats
-        for game in (games ?? []) where game.isComplete {
+        // Aggregate all game stats into season stats. Matches stats recalc —
+        // include in-progress games with recorded stats so archiving doesn't
+        // silently drop quick-entered live-game numbers.
+        for game in (games ?? []) where game.countsTowardStats {
             if let gameStats = game.gameStats {
-                stats.singles += gameStats.singles
-                stats.doubles += gameStats.doubles
-                stats.triples += gameStats.triples
-                stats.homeRuns += gameStats.homeRuns
-                stats.runs += gameStats.runs
-                stats.rbis += gameStats.rbis
-                stats.walks += gameStats.walks
-                stats.strikeouts += gameStats.strikeouts
-                stats.atBats += gameStats.atBats
-                stats.hits += gameStats.hits
-                stats.hitByPitches += gameStats.hitByPitches
-                stats.groundOuts += gameStats.groundOuts
-                stats.flyOuts += gameStats.flyOuts
-                stats.totalPitches += gameStats.totalPitches
-                stats.balls += gameStats.balls
-                stats.strikes += gameStats.strikes
-                stats.wildPitches += gameStats.wildPitches
-                stats.pitchingStrikeouts += gameStats.pitchingStrikeouts
-                stats.pitchingWalks += gameStats.pitchingWalks
+                stats.addCounts(from: gameStats)
             }
         }
 
-        stats.totalGames = totalGames
+        stats.totalGames = (games ?? []).filter { $0.countsTowardStats }.count
         stats.updatedAt = Date()
     }
 

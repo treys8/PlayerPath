@@ -30,7 +30,6 @@ struct StatisticsView: View {
     @Environment(\.modelContext) private var modelContext
     @State private var activeSheet: ActiveSheet?
     @State private var selectedSeasonFilter: String? = nil // nil = All Seasons (Career)
-    @State private var tipsEnabled: Bool = true
 
     // Get all available seasons (active + archived)
     private var availableSeasons: [Season] {
@@ -321,7 +320,10 @@ struct StatisticsView: View {
                         }
                     } else {
                         // Specific season view - show season stats only
-                        KeyStatsSection(statistics: stats)
+                        let seasonName = selectedSeasonFilter
+                            .flatMap { id in availableSeasons.first(where: { $0.id.uuidString == id }) }?
+                            .displayName
+                        KeyStatsSection(statistics: stats, seasonLabel: seasonName)
                     }
 
                     // Batting Chart
@@ -346,11 +348,9 @@ struct StatisticsView: View {
                 showQuickEntry: {
                     if let game = currentLiveGame { activeSheet = .quickEntry(game) }
                 },
-                showGameSelection: { activeSheet = .gameSelection },
-                tipsEnabled: tipsEnabled
+                showGameSelection: { activeSheet = .gameSelection }
             )
             .task {
-                loadTipsEnabled()
                 EmptyStatsTip.hasGames = !(athlete?.games ?? []).isEmpty
             }
             .onChange(of: athlete?.games?.count) { _, _ in
@@ -359,13 +359,6 @@ struct StatisticsView: View {
         }
     }
 
-    private func loadTipsEnabled() {
-        if let prefs = try? modelContext.fetch(FetchDescriptor<UserPreferences>()).first {
-            tipsEnabled = prefs.showOnboardingTips
-        } else {
-            tipsEnabled = true
-        }
-    }
 }
 
 // MARK: - Notification
