@@ -179,6 +179,11 @@ extension SyncCoordinator {
                        local.primaryRole != role {
                         local.primaryRole = role; changed = true
                     }
+                    if let sportRaw = remoteData.sport,
+                       let sport = Sport(rawValue: sportRaw),
+                       local.sport != sport {
+                        local.sport = sport; changed = true
+                    }
                     if let remoteTrackStats = remoteData.trackStatsEnabled,
                        local.trackStatsEnabled != remoteTrackStats {
                         local.trackStatsEnabled = remoteTrackStats; changed = true
@@ -211,6 +216,10 @@ extension SyncCoordinator {
                 if let roleRaw = remoteData.primaryRole,
                    let role = AthleteRole(rawValue: roleRaw) {
                     newAthlete.primaryRole = role
+                }
+                if let sportRaw = remoteData.sport,
+                   let sport = Sport(rawValue: sportRaw) {
+                    newAthlete.sport = sport
                 }
                 newAthlete.user = user
 

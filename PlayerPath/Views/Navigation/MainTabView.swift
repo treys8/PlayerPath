@@ -393,7 +393,9 @@ struct MainTabView: View {
     
     @ViewBuilder
     private var tabViewContent: some View {
-        if #available(iOS 18.0, *), horizontalSizeClass == .regular {
+        if selectedAthlete.sport == .golf {
+            GolfPlaceholderView(athlete: selectedAthlete)
+        } else if #available(iOS 18.0, *), horizontalSizeClass == .regular {
             TabView(selection: $selectedTab) {
                 homeTab
                 gamesTab

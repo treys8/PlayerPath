@@ -40,13 +40,19 @@ struct AthleteCard: View {
                 }
 
                 VStack(spacing: 6) {
-                    Text(athlete.name)
-                        .font(.headingLarge)
-                        .foregroundColor(.primary)
-                        .multilineTextAlignment(.center)
-                        .lineLimit(2)
-                        .truncationMode(.tail)
-                        .minimumScaleFactor(0.8)
+                    HStack(spacing: 6) {
+                        Image(systemName: athlete.sport.icon)
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                            .accessibilityHidden(true)
+                        Text(athlete.name)
+                            .font(.headingLarge)
+                            .foregroundColor(.primary)
+                            .multilineTextAlignment(.center)
+                            .lineLimit(2)
+                            .truncationMode(.tail)
+                            .minimumScaleFactor(0.8)
+                    }
 
                     if let created = athlete.createdAt {
                         Text("Created \(created, format: .dateTime.day().month().year())")

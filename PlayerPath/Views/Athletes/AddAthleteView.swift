@@ -20,6 +20,7 @@ struct AddAthleteView: View {
     @Binding var selectedAthlete: Athlete?
     let isFirstAthlete: Bool
     @State private var athleteName = ""
+    @State private var selectedSport: Sport = .baseball
     @State private var trackStats = true
     @State private var showingSuccessAlert = false
     @State private var isCreatingAthlete = false
@@ -95,6 +96,20 @@ struct AddAthleteView: View {
                         }
 
                         VStack(spacing: 12) {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Sport")
+                                    .font(.subheadline)
+                                    .fontWeight(.medium)
+                                    .foregroundColor(.secondary)
+                                Picker("Sport", selection: $selectedSport) {
+                                    ForEach(Sport.allCases, id: \.self) { sport in
+                                        Text(sport.displayName).tag(sport)
+                                    }
+                                }
+                                .pickerStyle(.segmented)
+                            }
+                            .padding(.horizontal, 4)
+
                             TextField("Athlete Name", text: $athleteName)
                                 .textFieldStyle(RoundedBorderTextFieldStyle())
                                 .focused($isNameFieldFocused)
@@ -285,6 +300,7 @@ struct AddAthleteView: View {
             // Set up relationship BEFORE inserting
             athlete.user = user
 
+            athlete.sport = selectedSport
             athlete.trackStatsEnabled = trackStats
 
             // Mark for Firestore sync
@@ -351,8 +367,17 @@ struct AddAthleteView: View {
                         // Mark onboarding complete in auth manager (for session state)
                         authManager.markOnboardingComplete()
 
-                        // DON'T reset new user flag here - let season creation do it
-                        log.debug("First athlete created - user still flagged as new until season created")
+                        // Golf onboarding stops here — Season/OnboardingBackupView are
+                        // baseball/softball-flavored and the golf experience routes to
+                        // GolfPlaceholderView from MainTabView. For non-golf athletes,
+                        // OnboardingSeasonCreationView/OnboardingBackupView still own
+                        // the new-user flag reset.
+                        if selectedSport == .golf {
+                            authManager.resetNewUserFlag()
+                            log.debug("Golf athlete created - skipping season/backup onboarding steps")
+                        } else {
+                            log.debug("First athlete created - user still flagged as new until season created")
+                        }
                     }
                 }
 

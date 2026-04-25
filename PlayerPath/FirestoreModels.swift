@@ -351,6 +351,8 @@ struct FirestoreAthlete: Codable, Identifiable {
     let swiftDataId: String   // Original SwiftData UUID
     let name: String
     let primaryRole: String?
+    /// "baseball", "softball", or "golf". Optional so pre-V21 docs decode cleanly.
+    let sport: String?
     let userId: String
     let trackStatsEnabled: Bool?
     let createdAt: Date?
@@ -362,6 +364,7 @@ struct FirestoreAthlete: Codable, Identifiable {
         case swiftDataId = "id"  // Maps to "id" field in Firestore document
         case name
         case primaryRole
+        case sport
         case userId
         case trackStatsEnabled
         case createdAt

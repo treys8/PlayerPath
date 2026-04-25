@@ -22,6 +22,28 @@ enum AthleteRole: String, Codable, CaseIterable {
     }
 }
 
+enum Sport: String, Codable, CaseIterable {
+    case baseball
+    case softball
+    case golf
+
+    var displayName: String {
+        switch self {
+        case .baseball: return "Baseball"
+        case .softball: return "Softball"
+        case .golf:     return "Golf"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .baseball: return "figure.baseball"
+        case .softball: return "figure.softball"
+        case .golf:     return "figure.golf"
+        }
+    }
+}
+
 @Model
 final class Athlete {
     var id: UUID = UUID()
@@ -29,6 +51,7 @@ final class Athlete {
     var createdAt: Date?
     var user: User?
     var primaryRole: AthleteRole = AthleteRole.batter
+    var sport: Sport = Sport.baseball
     @Relationship(inverse: \Season.athlete) var seasons: [Season]?
     @Relationship(inverse: \Game.athlete) var games: [Game]?
     @Relationship(inverse: \Practice.athlete) var practices: [Practice]?
@@ -144,6 +167,7 @@ final class Athlete {
             "name": name,
             "userId": user?.id.uuidString ?? "",
             "primaryRole": primaryRole.rawValue,
+            "sport": sport.rawValue,
             "trackStatsEnabled": trackStatsEnabled,
             "createdAt": createdAt ?? Date(),
             "updatedAt": Date(),

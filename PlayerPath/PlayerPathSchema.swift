@@ -372,12 +372,26 @@ enum SchemaV20: VersionedSchema {
     static var models: [any PersistentModel.Type] { SchemaV1.models }
 }
 
+// MARK: - Schema V21 (2026-04-24 — Multi-sport athletes)
+//
+//  Changes from V20:
+//    • Athlete.sport (Sport = .baseball) added — categorizes the athlete
+//      as baseball, softball, or golf so the app can route per-sport
+//      experiences. Existing athletes default to baseball.
+//
+//  Default value of .baseball → lightweight migration is sufficient.
+
+enum SchemaV21: VersionedSchema {
+    static var versionIdentifier = Schema.Version(21, 0, 0)
+    static var models: [any PersistentModel.Type] { SchemaV1.models }
+}
+
 // MARK: - Migration Plan
 
 enum PlayerPathMigrationPlan: SchemaMigrationPlan {
     /// All schema versions in chronological order (oldest first).
     static var schemas: [any VersionedSchema.Type] {
-        [SchemaV1.self, SchemaV2.self, SchemaV3.self, SchemaV4.self, SchemaV5.self, SchemaV6.self, SchemaV7.self, SchemaV8.self, SchemaV9.self, SchemaV10.self, SchemaV11.self, SchemaV12.self, SchemaV13.self, SchemaV14.self, SchemaV15.self, SchemaV16.self, SchemaV17.self, SchemaV18.self, SchemaV19.self, SchemaV20.self]
+        [SchemaV1.self, SchemaV2.self, SchemaV3.self, SchemaV4.self, SchemaV5.self, SchemaV6.self, SchemaV7.self, SchemaV8.self, SchemaV9.self, SchemaV10.self, SchemaV11.self, SchemaV12.self, SchemaV13.self, SchemaV14.self, SchemaV15.self, SchemaV16.self, SchemaV17.self, SchemaV18.self, SchemaV19.self, SchemaV20.self, SchemaV21.self]
     }
 
     /// Migration stages between consecutive versions.
@@ -401,7 +415,8 @@ enum PlayerPathMigrationPlan: SchemaMigrationPlan {
             .lightweight(fromVersion: SchemaV16.self, toVersion: SchemaV17.self),
             .lightweight(fromVersion: SchemaV17.self, toVersion: SchemaV18.self),
             .lightweight(fromVersion: SchemaV18.self, toVersion: SchemaV19.self),
-            .lightweight(fromVersion: SchemaV19.self, toVersion: SchemaV20.self)
+            .lightweight(fromVersion: SchemaV19.self, toVersion: SchemaV20.self),
+            .lightweight(fromVersion: SchemaV20.self, toVersion: SchemaV21.self)
         ]
     }
 }
