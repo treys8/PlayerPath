@@ -12,10 +12,15 @@ import os
 
 private let dashboardLog = Logger(subsystem: "com.playerpath.app", category: "DashboardView")
 
+enum HomeDestination: Hashable {
+    case photos
+}
+
 struct DashboardView: View {
     let user: User
     let athlete: Athlete
     let authManager: ComprehensiveAuthManager
+    @Binding var homePath: NavigationPath
     @Environment(\.modelContext) private var modelContext
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -26,7 +31,6 @@ struct DashboardView: View {
     @State private var showingDirectCamera = false
     @State private var selectedVideoForPlayback: VideoClip?
     @State private var showingSeasons = false
-    @State private var showingPhotos = false
     @State private var isCheckingPermissions = false
     @State private var isEndingGame: Set<UUID> = []
     private let athletePickerTip = AthletePickerTip()
@@ -44,10 +48,11 @@ struct DashboardView: View {
     private let athleteID: UUID
     @Query private var liveGames: [Game]
 
-    init(user: User, athlete: Athlete, authManager: ComprehensiveAuthManager, modelContext: ModelContext) {
+    init(user: User, athlete: Athlete, authManager: ComprehensiveAuthManager, modelContext: ModelContext, homePath: Binding<NavigationPath>) {
         self.user = user
         self.athlete = athlete
         self.authManager = authManager
+        self._homePath = homePath
         self._viewModel = StateObject(wrappedValue: GamesDashboardViewModel(athlete: athlete, modelContext: modelContext))
         self.athleteID = athlete.id
         // Configure the query with a predicate bound to a stable value (athleteID)
@@ -174,9 +179,10 @@ struct DashboardView: View {
                 SeasonsView(athlete: athlete)
             }
         }
-        .sheet(isPresented: $showingPhotos) {
-            NavigationStack {
-                PhotosView(athlete: athlete)
+        .navigationDestination(for: HomeDestination.self) { destination in
+            switch destination {
+            case .photos:
+                PhotosView(athlete: athlete).id(athlete.id)
             }
         }
         .fullScreenCover(isPresented: $showingDirectCamera) {
@@ -366,7 +372,7 @@ struct DashboardView: View {
                     NotificationCenter.default.post(name: .navigateToMorePractice, object: nil)
                 }
                 DashboardFeatureCard(icon: "photo.on.rectangle.angled", title: "Photos", subtitle: "\(cachedPhotoCount) Photos", color: .brandNavy) {
-                    showingPhotos = true
+                    homePath.append(HomeDestination.photos)
                 }
                 DashboardPremiumFeatureCard(icon: "star.fill", title: "Highlights", subtitle: "\(viewModel.totalHighlights) Highlights", color: .brandGold, isPremium: authManager.currentTier >= .plus, badgeLabel: "PLUS") {
                     if authManager.currentTier >= .plus {

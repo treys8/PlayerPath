@@ -24,6 +24,8 @@ struct MainTabView: View {
 
     // More tab programmatic navigation
     @State private var morePath = NavigationPath()
+    // Home tab programmatic navigation
+    @State private var homePath = NavigationPath()
 
     // Onboarding milestone tracking
     @ObservedObject private var onboardingManager = OnboardingManager.shared
@@ -412,12 +414,13 @@ struct MainTabView: View {
     }
     
     private var homeTab: some View {
-        NavigationStack {
+        NavigationStack(path: $homePath) {
             DashboardView(
                 user: user,
                 athlete: selectedAthlete,
                 authManager: authManager,
-                modelContext: modelContext
+                modelContext: modelContext,
+                homePath: $homePath
             )
             .id(homeAthleteID ?? selectedAthlete.id)
         }
