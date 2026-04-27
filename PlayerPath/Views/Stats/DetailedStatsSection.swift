@@ -21,10 +21,6 @@ struct DetailedStatsSection: View {
             VStack(spacing: 0) {
                 DetailedStatRow(label: "At Bats", value: "\(statistics.atBats)")
                 DetailedStatRow(label: "Hits", value: "\(statistics.hits)")
-                DetailedStatRow(label: "Runs", value: "\(statistics.runs)")
-                DetailedStatRow(label: "RBIs", value: "\(statistics.rbis)")
-                DetailedStatRow(label: "Walks", value: "\(statistics.walks)")
-                DetailedStatRow(label: "Strikeouts", value: "\(statistics.strikeouts)")
                 DetailedStatRow(label: "Ground Outs", value: "\(statistics.groundOuts)")
                 DetailedStatRow(label: "Fly Outs", value: "\(statistics.flyOuts)", isLast: true)
             }

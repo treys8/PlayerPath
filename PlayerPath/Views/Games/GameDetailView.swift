@@ -85,7 +85,10 @@ struct GameDetailView: View {
                                     .background(Color.red)
                                     .cornerRadius(4)
                             case .completed:
-                                Text("COMPLETED")
+                                // Past-dated games that were never started/ended show
+                                // as PAST so the user can tell stats won't count until
+                                // they tap Mark Complete.
+                                Text(game.isComplete ? "COMPLETED" : "PAST")
                                     .foregroundColor(.white)
                                     .padding(.horizontal, 8)
                                     .padding(.vertical, 4)
@@ -116,34 +119,42 @@ struct GameDetailView: View {
                 .padding(.vertical, 5)
             }
 
-            // Quick Actions Section — state-dependent ordering:
-            //   New game:  Record → Start → Add Photo → Stats → Edit → Delete
-            //   Live:      Record → End → Add Photo → Stats → Edit
-            //   Completed: Upload → Add Photo → Stats → Edit → Restart → Delete
+            // Quick Actions Section — driven by `displayStatus` so the action
+            // set always agrees with the badge.
+            //   .scheduled:                 Record → Start → Photo → Stats → Edit → Delete
+            //   .live:                      Record → End   → Photo → Stats → Edit
+            //   .completed && isComplete:   Upload → Photo → Stats → Edit → Restart → Delete
+            //   .completed && !isComplete:  Upload → Mark Complete → Photo → Stats → Edit → Delete
             Section("Actions") {
-                if !game.isComplete {
-                    // Primary content action: live recording
+                switch game.displayStatus {
+                case .scheduled:
                     Button(action: { showingVideoRecorder = true }) {
                         Label("Record Video", systemImage: "video.badge.plus")
                     }
-
-                    // Primary state action at #2 — Start for a new game, End mid-game
-                    if game.isLive {
-                        Button(role: .destructive) {
-                            Haptics.warning()
-                            showingEndGame = true
-                        } label: {
-                            Label("End Game", systemImage: "stop.circle")
-                        }
-                    } else {
-                        Button(action: { startGame() }) {
-                            Label("Start Game", systemImage: "play.circle")
-                        }
+                    Button(action: { startGame() }) {
+                        Label("Start Game", systemImage: "play.circle")
                     }
-                } else {
-                    // Completed: primary content action is importing footage after the fact
+                case .live:
+                    Button(action: { showingVideoRecorder = true }) {
+                        Label("Record Video", systemImage: "video.badge.plus")
+                    }
+                    Button(role: .destructive) {
+                        Haptics.warning()
+                        showingEndGame = true
+                    } label: {
+                        Label("End Game", systemImage: "stop.circle")
+                    }
+                case .completed:
                     Button(action: { importTrigger = true }) {
                         Label("Upload Video", systemImage: "square.and.arrow.down.on.square")
+                    }
+                    // Past-dated journal games — surface the same affordance the
+                    // list's "Complete" swipe action has so users can opt in to
+                    // counting the game toward stats from detail view.
+                    if !game.isComplete {
+                        Button(action: { completeGame() }) {
+                            Label("Mark Complete", systemImage: "checkmark.circle")
+                        }
                     }
                 }
 
@@ -160,7 +171,8 @@ struct GameDetailView: View {
                     Label("Edit Game", systemImage: "pencil")
                 }
 
-                // Restart Game is rarely used — place near the bottom for completed games only.
+                // Restart only applies to games that were actually started and
+                // ended — a past-dated journal game has nothing to restart.
                 if game.isComplete {
                     Button(action: { restartGame() }) {
                         Label("Restart Game", systemImage: "arrow.counterclockwise")
@@ -283,24 +295,30 @@ struct GameDetailView: View {
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Menu {
-                    // Content group
-                    if !game.isComplete {
+                    // Content group — mirrors the in-list Actions section
+                    switch game.displayStatus {
+                    case .scheduled:
                         Button(action: { showingVideoRecorder = true }) {
                             Label("Record Video", systemImage: "video.badge.plus")
                         }
-
-                        if game.isLive {
-                            Button(action: { Haptics.warning(); showingEndGame = true }) {
-                                Label("End Game", systemImage: "stop.circle")
-                            }
-                        } else {
-                            Button(action: { startGame() }) {
-                                Label("Start Game", systemImage: "play.circle")
-                            }
+                        Button(action: { startGame() }) {
+                            Label("Start Game", systemImage: "play.circle")
                         }
-                    } else {
+                    case .live:
+                        Button(action: { showingVideoRecorder = true }) {
+                            Label("Record Video", systemImage: "video.badge.plus")
+                        }
+                        Button(action: { Haptics.warning(); showingEndGame = true }) {
+                            Label("End Game", systemImage: "stop.circle")
+                        }
+                    case .completed:
                         Button(action: { importTrigger = true }) {
                             Label("Upload Video", systemImage: "square.and.arrow.down.on.square")
+                        }
+                        if !game.isComplete {
+                            Button(action: { completeGame() }) {
+                                Label("Mark Complete", systemImage: "checkmark.circle")
+                            }
                         }
                     }
 
@@ -426,6 +444,11 @@ struct GameDetailView: View {
     @MainActor
     private func restartGame() {
         Task { await gameService?.restart(game) }
+    }
+
+    @MainActor
+    private func completeGame() {
+        Task { await gameService?.complete(game) }
     }
 
     @MainActor

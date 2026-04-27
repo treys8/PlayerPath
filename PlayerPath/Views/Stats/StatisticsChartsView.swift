@@ -134,7 +134,7 @@ struct StatisticsChartsView: View {
                 }
             }
 
-            if chartData.isEmpty {
+            if chartData.count < 2 {
                 emptyChartView
             } else {
                 Chart {
@@ -212,7 +212,7 @@ struct StatisticsChartsView: View {
                         if isGameLevelData {
                             AxisValueLabel {
                                 if let idx = value.as(Int.self) {
-                                    Text("G\(idx)")
+                                    Text("Game \(idx)")
                                 }
                             }
                         } else {
@@ -241,16 +241,17 @@ struct StatisticsChartsView: View {
     }
 
     private var emptyChartView: some View {
-        VStack(spacing: 16) {
+        let hasOneGame = chartData.count == 1
+        return VStack(spacing: 16) {
             Image(systemName: "chart.line.uptrend.xyaxis")
                 .font(.system(size: 60))
                 .foregroundColor(.secondary)
 
-            Text("No data available")
+            Text(hasOneGame ? "Not enough data yet" : "No data available")
                 .font(.headingLarge)
                 .foregroundColor(.secondary)
 
-            Text("Complete more games to see performance trends")
+            Text(hasOneGame ? "Play more games to see performance trends" : "Complete games to see performance trends")
                 .font(.bodySmall)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
@@ -279,10 +280,15 @@ struct StatisticsChartsView: View {
 
             LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: horizontalSizeClass == .regular ? 4 : 2), spacing: 12) {
                 if let stats = relevantStatistics {
-                    SummaryCard(title: "High", value: formatValue(stats.max, for: selectedMetric), color: .green)
-                    SummaryCard(title: "Low", value: formatValue(stats.min, for: selectedMetric), color: .orange)
-                    SummaryCard(title: "Average", value: formatValue(stats.average, for: selectedMetric), color: .blue)
-                    SummaryCard(title: "Games", value: "\(stats.gamesCount)", color: .purple)
+                    if stats.gamesCount >= 2 {
+                        SummaryCard(title: "High", value: formatValue(stats.max, for: selectedMetric), color: .green)
+                        SummaryCard(title: "Low", value: formatValue(stats.min, for: selectedMetric), color: .orange)
+                        SummaryCard(title: "Average", value: formatValue(stats.average, for: selectedMetric), color: .blue)
+                        SummaryCard(title: "Games", value: "\(stats.gamesCount)", color: .purple)
+                    } else {
+                        SummaryCard(title: "Current", value: formatValue(stats.average, for: selectedMetric), color: selectedMetric.color)
+                        SummaryCard(title: "Games", value: "\(stats.gamesCount)", color: .purple)
+                    }
                 } else if let careerStats = athlete.statistics {
                     let careerValue = getValue(from: careerStats, for: selectedMetric)
                     SummaryCard(title: "Career \(selectedMetric.shortName)", value: formatValue(careerValue, for: selectedMetric), color: selectedMetric.color)
