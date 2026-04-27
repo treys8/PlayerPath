@@ -63,9 +63,9 @@ struct BulkVideoImportSheet: View {
                         .foregroundStyle(Color.brandNavy)
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Ready to Import")
-                            .font(.headline)
+                            .font(.headingLarge)
                         Text("^[\(items.count) video](inflect: true) selected")
-                            .font(.subheadline)
+                            .font(.bodyMedium)
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -93,7 +93,7 @@ struct BulkVideoImportSheet: View {
                     Task { await startImport() }
                 } label: {
                     Text("Start Import")
-                        .fontWeight(.semibold)
+                        .font(.headingMedium)
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
@@ -121,8 +121,7 @@ struct BulkVideoImportSheet: View {
                 .foregroundStyle(Color.brandNavy)
 
             Text("Importing Videos")
-                .font(.title2)
-                .fontWeight(.bold)
+                .font(.displayMedium)
 
             if case .importing(let current, let total) = viewModel.status {
                 VStack(spacing: 12) {
@@ -130,7 +129,7 @@ struct BulkVideoImportSheet: View {
                         .tint(.brandNavy)
                         .padding(.horizontal, 40)
                     Text("\(current) of \(total)")
-                        .font(.subheadline)
+                        .font(.bodyMedium)
                         .foregroundStyle(.secondary)
                         .monospacedDigit()
                 }
@@ -143,7 +142,7 @@ struct BulkVideoImportSheet: View {
                     viewModel.cancel()
                 } label: {
                     Text("Cancel")
-                        .fontWeight(.semibold)
+                        .font(.headingMedium)
                         .frame(maxWidth: .infinity)
                         .frame(height: 50)
                 }

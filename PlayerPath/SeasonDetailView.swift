@@ -60,8 +60,7 @@ struct SeasonDetailView: View {
 
                     VStack(alignment: .leading, spacing: 4) {
                         Text(season.displayName)
-                            .font(.title2)
-                            .fontWeight(.bold)
+                            .font(.displayMedium)
 
                         if season.isActive {
                             Label("Active", systemImage: "checkmark.circle.fill")
@@ -321,7 +320,7 @@ struct SeasonDetailView: View {
                     }
                     if selectedFilter == .all && totalGames > 5 {
                         Button("See All \(totalGames) Games") { selectedFilter = .games }
-                            .font(.subheadline)
+                            .font(.labelLarge)
                             .foregroundColor(.brandNavy)
                     }
                 }
@@ -335,7 +334,7 @@ struct SeasonDetailView: View {
                     }
                     if selectedFilter == .all && filteredVideos.count > 5 {
                         Button("See All \(filteredVideos.count) Videos") { selectedFilter = .videos }
-                            .font(.subheadline)
+                            .font(.labelLarge)
                             .foregroundColor(.brandNavy)
                     }
                 }
@@ -349,7 +348,7 @@ struct SeasonDetailView: View {
                     }
                     if selectedFilter == .all && filteredHighlights.count > 5 {
                         Button("See All \(filteredHighlights.count) Highlights") { selectedFilter = .highlights }
-                            .font(.subheadline)
+                            .font(.labelLarge)
                             .foregroundColor(.brandNavy)
                     }
                 }
@@ -365,11 +364,10 @@ struct SeasonDetailView: View {
                                 .frame(width: 24)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Practice")
-                                    .font(.subheadline)
-                                    .fontWeight(.medium)
+                                    .font(.labelLarge)
                                 if let date = practice.date {
                                     Text(date.formatted(date: .abbreviated, time: .omitted))
-                                        .font(.caption)
+                                        .font(.bodySmall)
                                         .foregroundStyle(.secondary)
                                 }
                             }
@@ -377,7 +375,7 @@ struct SeasonDetailView: View {
                             let videoCount = practice.videoClips?.count ?? 0
                             if videoCount > 0 {
                                 Text("\(videoCount) videos")
-                                    .font(.caption)
+                                    .font(.bodySmall)
                                     .foregroundStyle(.secondary)
                             }
                         }
@@ -385,7 +383,7 @@ struct SeasonDetailView: View {
                     }
                     if selectedFilter == .all && filteredPractices.count > 5 {
                         Button("See All \(filteredPractices.count) Practices") { selectedFilter = .practices }
-                            .font(.subheadline)
+                            .font(.labelLarge)
                             .foregroundColor(.brandNavy)
                     }
                 }

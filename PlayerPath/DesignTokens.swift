@@ -52,24 +52,24 @@ extension CGSize {
 // MARK: - Typography
 
 extension Font {
-    /// Display fonts (use text styles for Dynamic Type support)
-    static let displayLarge = Font.system(.largeTitle, weight: .bold)
-    static let displayMedium = Font.system(.title, weight: .bold)
+    /// Display — Fraunces (serif)
+    static let displayLarge = Font.custom("Fraunces72pt-Bold", size: 34, relativeTo: .largeTitle)
+    static let displayMedium = Font.custom("Fraunces72pt-Bold", size: 28, relativeTo: .title)
 
-    /// Heading fonts
-    static let headingLarge = Font.system(.title2, weight: .semibold)
-    static let headingMedium = Font.system(.headline, weight: .semibold)
-    static let headingSmall = Font.system(.subheadline, weight: .semibold)
+    /// Headings — Fraunces (large/medium) + Inter (small)
+    static let headingLarge = Font.custom("Fraunces72pt-SemiBold", size: 22, relativeTo: .title2)
+    static let headingMedium = Font.custom("Inter18pt-SemiBold", size: 17, relativeTo: .headline)
+    static let headingSmall = Font.custom("Inter18pt-SemiBold", size: 15, relativeTo: .subheadline)
 
-    /// Body fonts
-    static let bodyLarge = Font.system(.body, weight: .regular)
-    static let bodyMedium = Font.system(.callout, weight: .regular)
-    static let bodySmall = Font.system(.footnote, weight: .regular)
+    /// Body — Inter
+    static let bodyLarge = Font.custom("Inter18pt-Regular", size: 17, relativeTo: .body)
+    static let bodyMedium = Font.custom("Inter18pt-Regular", size: 16, relativeTo: .callout)
+    static let bodySmall = Font.custom("Inter18pt-Regular", size: 13, relativeTo: .footnote)
 
-    /// Label fonts
-    static let labelLarge = Font.system(.callout, weight: .medium)
-    static let labelMedium = Font.system(.footnote, weight: .medium)
-    static let labelSmall = Font.system(.caption2, weight: .medium)
+    /// Labels — Inter Medium
+    static let labelLarge = Font.custom("Inter18pt-Medium", size: 16, relativeTo: .callout)
+    static let labelMedium = Font.custom("Inter18pt-Medium", size: 13, relativeTo: .footnote)
+    static let labelSmall = Font.custom("Inter18pt-Medium", size: 11, relativeTo: .caption2)
 }
 
 // MARK: - Colors (Semantic)

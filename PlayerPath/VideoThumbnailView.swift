@@ -12,11 +12,12 @@ struct VideoThumbnailView: View {
     let clip: VideoClip
     let size: CGSize
     let cornerRadius: CGFloat
-    let showPlayButton: Bool
     let showPlayResult: Bool
     let showHighlight: Bool
     let showSeason: Bool
     let showContext: Bool
+    let showDuration: Bool
+    let showOutcomeWithDuration: Bool
     let fillsContainer: Bool
 
     @State private var thumbnailImage: UIImage?
@@ -38,21 +39,23 @@ struct VideoThumbnailView: View {
         clip: VideoClip,
         size: CGSize = .thumbnailSmall,
         cornerRadius: CGFloat = 12,
-        showPlayButton: Bool = true,
         showPlayResult: Bool = true,
         showHighlight: Bool = true,
         showSeason: Bool = false,
         showContext: Bool = true,
+        showDuration: Bool = false,
+        showOutcomeWithDuration: Bool = false,
         fillsContainer: Bool = false
     ) {
         self.clip = clip
         self.size = size
         self.cornerRadius = cornerRadius
-        self.showPlayButton = showPlayButton
         self.showPlayResult = showPlayResult
         self.showHighlight = showHighlight
         self.showSeason = showSeason
         self.showContext = showContext
+        self.showDuration = showDuration
+        self.showOutcomeWithDuration = showOutcomeWithDuration
         self.fillsContainer = fillsContainer
     }
 
@@ -103,26 +106,18 @@ struct VideoThumbnailView: View {
             .animation(.easeIn(duration: 0.2), value: thumbnailImage == nil)
             .background(Color.black)
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
-            .overlay(playButtonOverlay)
 
-            // Play result badge (top-right) — or untagged dot when play result missing
-            if showPlayResult {
-                if let playResult = clip.playResult {
-                    VStack {
-                        HStack {
-                            Spacer()
-                            playResultBadge(for: playResult.type)
-                        }
+            // Top-right indicator: untagged dot when no play result.
+            // Tagged outcomes are communicated by the bottom overlay bar
+            // (`0:04 · Single`), so no top-right glyph for them — avoids
+            // duplicating the play result in two places on the same thumbnail.
+            if showPlayResult, clip.playResult == nil {
+                VStack {
+                    HStack {
                         Spacer()
+                        untaggedDot
                     }
-                } else {
-                    VStack {
-                        HStack {
-                            Spacer()
-                            untaggedDot
-                        }
-                        Spacer()
-                    }
+                    Spacer()
                 }
             }
 
@@ -145,12 +140,21 @@ struct VideoThumbnailView: View {
                 seasonBadge
             }
 
-            // Context label (bottom-left): game opponent or "Practice" — hidden for untagged clips
-            if showContext, contextLabel != nil {
+            // Bottom-left stack: duration (or duration·outcome merged bar) above context label
+            if (showContext && contextLabel != nil) || (showDuration && (clip.duration ?? 0) > 0) {
                 VStack {
                     Spacer()
                     HStack {
-                        contextBadge
+                        VStack(alignment: .leading, spacing: 3) {
+                            if showDuration, let duration = clip.duration, duration > 0 {
+                                durationBadge(seconds: duration)
+                            }
+                            if showContext, contextLabel != nil {
+                                contextBadgeContent
+                            }
+                        }
+                        .padding(.bottom, 8)
+                        .padding(.leading, 8)
                         Spacer()
                     }
                 }
@@ -240,49 +244,6 @@ struct VideoThumbnailView: View {
         else { return contextLabel ?? "No Preview" }
     }
 
-    @ViewBuilder
-    private var playButtonOverlay: some View {
-        if showPlayButton {
-            let circleSize = min(scaledValue(44), 44)
-            let iconSize = min(scaledValue(14), 15)
-            Circle()
-                .fill(.black.opacity(0.35))
-                .background(.ultraThinMaterial, in: Circle())
-                .frame(width: circleSize, height: circleSize)
-                .overlay(
-                    Image(systemName: "play.fill")
-                        .foregroundColor(.white)
-                        .font(.system(size: iconSize))
-                        .offset(x: 1)
-                        .accessibilityHidden(true)
-                )
-                .shadow(color: .black.opacity(0.3), radius: 8, x: 0, y: 4)
-        }
-    }
-
-    private func playResultBadge(for type: PlayResultType) -> some View {
-        HStack(spacing: 4) {
-            Circle()
-                .fill(type.color)
-                .frame(width: 8, height: 8)
-            Text(type.abbreviation)
-                .font(.system(size: 11, weight: .bold))
-                .foregroundColor(.white)
-        }
-        .padding(.horizontal, 7)
-        .padding(.vertical, 4)
-        .background {
-            ZStack {
-                RoundedRectangle(cornerRadius: 6).fill(.ultraThinMaterial)
-                RoundedRectangle(cornerRadius: 6).fill(.black.opacity(0.3))
-            }
-        }
-        .shadow(color: .black.opacity(0.25), radius: 4, x: 0, y: 2)
-        .padding(.top, 8)
-        .padding(.trailing, 8)
-        .accessibilityHidden(true)
-    }
-
     private var untaggedDot: some View {
         Circle()
             .fill(Color.orange)
@@ -295,9 +256,9 @@ struct VideoThumbnailView: View {
     }
 
     private var highlightIndicator: some View {
-        Image(systemName: "star.fill")
-            .font(.system(size: 12, weight: .bold))
-            .foregroundColor(.yellow)
+        Image(systemName: "bookmark.fill")
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundColor(.white)
             .padding(6)
             .background(.ultraThinMaterial, in: Circle())
             .shadow(color: .black.opacity(0.25), radius: 4, x: 0, y: 2)
@@ -325,8 +286,7 @@ struct VideoThumbnailView: View {
                 Spacer()
                 if let season = clip.season {
                     Text(season.displayName)
-                        .font(.system(size: min(scaledValue(8), 12)))
-                        .fontWeight(.semibold)
+                        .font(.custom("Inter18pt-SemiBold", size: min(scaledValue(8), 12)))
                         .foregroundColor(.white)
                         .padding(.horizontal, min(scaledSpacing(4), 6))
                         .padding(.vertical, min(scaledSpacing(2), 3))
@@ -362,7 +322,7 @@ struct VideoThumbnailView: View {
         return nil
     }
 
-    private var contextBadge: some View {
+    private var contextBadgeContent: some View {
         Text(contextLabel ?? "")
             .font(.system(size: min(scaledValue(9), 11), weight: .semibold))
             .foregroundColor(.white)
@@ -376,9 +336,27 @@ struct VideoThumbnailView: View {
                     RoundedRectangle(cornerRadius: 5).fill(.black.opacity(0.4))
                 }
             }
-            .padding(.bottom, 8)
-            .padding(.leading, 8)
             .accessibilityHidden(true)
+    }
+
+    private func durationBadge(seconds: Double) -> some View {
+        let mins = Int(seconds) / 60
+        let secs = Int(seconds) % 60
+        let timeLabel = String(format: "%d:%02d", mins, secs)
+        let outcomeLabel: String? = {
+            guard showOutcomeWithDuration, let result = clip.playResult else { return nil }
+            return result.type.displayName
+        }()
+        let label = outcomeLabel.map { "\(timeLabel) · \($0)" } ?? timeLabel
+        let a11yLabel = outcomeLabel.map { "\($0), \(mins) minutes \(secs) seconds" }
+            ?? "Duration \(mins) minutes \(secs) seconds"
+        return Text(label)
+            .font(.custom("Inter18pt-SemiBold", size: 11, relativeTo: .caption2))
+            .foregroundColor(.white)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(.ultraThinMaterial, in: Capsule())
+            .accessibilityLabel(a11yLabel)
     }
 
     // MARK: - Thumbnail Loading

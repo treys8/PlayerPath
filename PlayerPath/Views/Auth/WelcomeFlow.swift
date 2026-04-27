@@ -53,16 +53,12 @@ struct WelcomeFlow: View {
 
                         VStack(spacing: 8) {
                             Text("PlayerPath")
-                                .font(.largeTitle)
-                                .fontWeight(.bold)
-                                .fontDesign(.rounded)
+                                .font(.displayLarge)
                                 .foregroundColor(.primary)
                                 .accessibilityAddTraits(.isHeader)
 
                             Text("Your game film. Your stats.\nAutomatically.")
-                                .font(.title3)
-                                .fontWeight(.semibold)
-                                .fontDesign(.rounded)
+                                .font(.headingLarge)
                                 .foregroundColor(.primary)
                                 .multilineTextAlignment(.center)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -72,7 +68,7 @@ struct WelcomeFlow: View {
                     // Feature highlights
                     VStack(alignment: .leading, spacing: 10) {
                         Text("Tag each play as it happens. Stats build themselves.")
-                            .font(.subheadline)
+                            .font(.bodyMedium)
                             .foregroundColor(.secondary)
 
                         FeatureHighlight(
@@ -106,8 +102,7 @@ struct WelcomeFlow: View {
                                     .font(.title3)
                                     .fontWeight(.semibold)
                                 Text("Get Started")
-                                    .font(.title3)
-                                    .fontWeight(.bold)
+                                    .font(.headingLarge)
                             }
                             .frame(maxWidth: .infinity)
                             .frame(height: 58)
@@ -133,8 +128,7 @@ struct WelcomeFlow: View {
                                 Image(systemName: "arrow.right.circle.fill")
                                     .font(.title3)
                                 Text("Sign In")
-                                    .font(.title3)
-                                    .fontWeight(.semibold)
+                                    .font(.headingMedium)
                             }
                             .frame(maxWidth: .infinity)
                             .frame(height: 58)
@@ -162,10 +156,10 @@ struct WelcomeFlow: View {
 
                     HStack(spacing: 16) {
                         Button("Terms of Use (EULA)") { showingTerms = true }
-                            .font(.caption)
+                            .font(.bodySmall)
                             .foregroundStyle(.secondary)
                         Button("Privacy Policy") { showingPrivacyPolicy = true }
-                            .font(.caption)
+                            .font(.bodySmall)
                             .foregroundStyle(.secondary)
                     }
                     .padding(.bottom, 8)

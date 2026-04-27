@@ -30,7 +30,7 @@ struct StorageSettingsView: View {
                             Image(systemName: storageIcon(for: info.storageLevel))
                                 .foregroundColor(storageColor(for: info.storageLevel))
                             Text(storageLabel(for: info.storageLevel))
-                                .font(.headline)
+                                .font(.headingMedium)
                                 .foregroundColor(storageColor(for: info.storageLevel))
                         }
 
@@ -73,7 +73,7 @@ struct StorageSettingsView: View {
                                     .foregroundColor(.secondary)
                             }
                         }
-                        .font(.caption)
+                        .font(.bodySmall)
                     }
                 } else {
                     HStack {
@@ -116,7 +116,7 @@ struct StorageSettingsView: View {
                     } else {
                         Text(StorageManager.formatBytes(appVideosSize + appThumbnailsSize))
                             .foregroundColor(.brandNavy)
-                            .fontWeight(.semibold)
+                            .font(.headingMedium)
                     }
                 }
             }
@@ -129,11 +129,11 @@ struct StorageSettingsView: View {
                             Image(systemName: "exclamationmark.triangle.fill")
                                 .foregroundColor(.orange)
                             Text("\(orphanedFilesCount) orphaned file\(orphanedFilesCount == 1 ? "" : "s") found")
-                                .font(.subheadline)
+                                .font(.bodyMedium)
                         }
 
                         Text("These files are taking up space but are not linked to any videos in your library.")
-                            .font(.caption)
+                            .font(.bodySmall)
                             .foregroundColor(.secondary)
                     }
                     .padding(.vertical, 4)
@@ -164,7 +164,7 @@ struct StorageSettingsView: View {
 
                 if let message = cleanupMessage {
                     Text(message)
-                        .font(.caption)
+                        .font(.bodySmall)
                         .foregroundColor(.green)
                         .padding(.vertical, 4)
                 }
@@ -172,7 +172,7 @@ struct StorageSettingsView: View {
                 Text("Maintenance")
             } footer: {
                 Text("Orphaned files are videos that exist on disk but have no database entry. This can happen if app data is restored from backup.")
-                    .font(.caption)
+                    .font(.bodySmall)
             }
         }
         .navigationTitle("Storage")

@@ -39,10 +39,10 @@ struct LoadingView: View {
             
             VStack(spacing: 8) {
                 Text(title)
-                    .font(.headline)
-                
+                    .font(.headingLarge)
+
                 Text(subtitle)
-                    .font(.subheadline)
+                    .font(.bodyMedium)
                     .foregroundColor(.secondary)
             }
             .multilineTextAlignment(.center)

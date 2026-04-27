@@ -320,8 +320,8 @@ struct ModernCameraView: View {
 
     private var zoomBadge: some View {
         Text(String(format: "%.1f×", viewModel.currentZoom))
-            .font(.caption2)
-            .fontWeight(.semibold)
+            .font(.custom("Inter18pt-SemiBold", size: 11, relativeTo: .caption2))
+            .monospacedDigit()
             .foregroundColor(.white)
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
@@ -333,7 +333,7 @@ struct ModernCameraView: View {
 
     private var qualityText: some View {
         Text(viewModel.settings.settingsDescription)
-            .font(.caption2)
+            .font(.labelSmall)
             .foregroundColor(.white.opacity(0.6))
             .padding(.horizontal, 8)
             .padding(.vertical, 4)

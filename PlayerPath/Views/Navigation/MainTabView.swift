@@ -489,8 +489,7 @@ struct MainTabView: View {
                                 Text("Highlights")
                                 if authManager.currentTier < .plus {
                                     Text("PLUS")
-                                        .font(.caption2)
-                                        .fontWeight(.bold)
+                                        .font(.custom("Inter18pt-Bold", size: 11, relativeTo: .caption2))
                                         .foregroundColor(.orange)
                                         .padding(.horizontal, 5)
                                         .padding(.vertical, 2)
@@ -516,8 +515,7 @@ struct MainTabView: View {
                                 Text("Coaches")
                                 if authManager.currentTier != .pro {
                                     Text("PRO")
-                                        .font(.caption2)
-                                        .fontWeight(.bold)
+                                        .font(.custom("Inter18pt-Bold", size: 11, relativeTo: .caption2))
                                         .foregroundColor(.orange)
                                         .padding(.horizontal, 5)
                                         .padding(.vertical, 2)
@@ -535,8 +533,7 @@ struct MainTabView: View {
                                 Text("Shared Folders")
                                 if authManager.currentTier != .pro {
                                     Text("PRO")
-                                        .font(.caption2)
-                                        .fontWeight(.bold)
+                                        .font(.custom("Inter18pt-Bold", size: 11, relativeTo: .caption2))
                                         .foregroundColor(.orange)
                                         .padding(.horizontal, 5)
                                         .padding(.vertical, 2)
@@ -607,11 +604,11 @@ struct MainTabView: View {
                         .fill(Color.brandNavy.opacity(0.1))
                         .frame(width: 48, height: 48)
                     Text(String(user.username.prefix(1)).uppercased())
-                        .font(.title3).fontWeight(.bold).foregroundColor(.brandNavy)
+                        .font(.headingLarge).foregroundColor(.brandNavy)
                 }
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(user.username).font(.body).fontWeight(.semibold).foregroundColor(.primary)
-                    Text(tierDisplayText).font(.caption).fontWeight(.medium).foregroundColor(tierDisplayColor)
+                    Text(user.username).font(.headingMedium).foregroundColor(.primary)
+                    Text(tierDisplayText).font(.labelMedium).foregroundColor(tierDisplayColor)
                 }
                 Spacer()
             }
@@ -718,8 +715,7 @@ private struct SharedFoldersBadge: View {
     var body: some View {
         if totalUnread > 0 {
             Text("\(totalUnread)")
-                .font(.caption2)
-                .fontWeight(.bold)
+                .font(.custom("Inter18pt-Bold", size: 11, relativeTo: .caption2))
                 .foregroundColor(.white)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 2)

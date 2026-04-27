@@ -152,9 +152,9 @@ struct ComprehensiveSignInView: View {
             }
             VStack(spacing: 8) {
                 Text(isSignUpMode ? "Create Account" : "Welcome Back")
-                    .font(.title2).fontWeight(.bold)
+                    .font(.displayMedium)
                 Text(isSignUpMode ? (selectedRole == .athlete ? "Join PlayerPath to track your baseball journey" : "Join PlayerPath to coach your athletes") : "Sign in to continue to PlayerPath")
-                    .font(.subheadline).foregroundColor(.secondary).multilineTextAlignment(.center)
+                    .font(.bodyMedium).foregroundColor(.secondary).multilineTextAlignment(.center)
             }
         }
         .padding(.top, 8)
@@ -163,7 +163,7 @@ struct ComprehensiveSignInView: View {
     private var roleSelectionSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("I am a:")
-                .font(.subheadline).fontWeight(.semibold).foregroundColor(.secondary)
+                .font(.headingSmall).foregroundColor(.secondary)
             HStack(spacing: 12) {
                 RoleSelectionButton(role: .athlete, isSelected: selectedRole == .athlete, icon: "figure.baseball", title: "Athlete", description: "Track my progress") {
                     Haptics.light(); selectedRole = .athlete
@@ -216,7 +216,7 @@ struct ComprehensiveSignInView: View {
                     Image(systemName: confirmedAge ? "checkmark.square.fill" : "square")
                         .foregroundColor(confirmedAge ? .brandNavy : .gray).font(.title3)
                     Text("I confirm that I am at least 18 years old, or a parent/guardian creating this account on behalf of my child.")
-                        .font(.caption).foregroundColor(.secondary).multilineTextAlignment(.leading)
+                        .font(.bodySmall).foregroundColor(.secondary).multilineTextAlignment(.leading)
                 }
             }
             .buttonStyle(.plain)
@@ -225,11 +225,11 @@ struct ComprehensiveSignInView: View {
             .accessibilityValue(confirmedAge ? "Confirmed" : "Not confirmed")
 
             VStack(spacing: 6) {
-                Text("By creating an account, you agree to our").font(.caption).foregroundColor(.secondary)
+                Text("By creating an account, you agree to our").font(.bodySmall).foregroundColor(.secondary)
                 HStack(spacing: 4) {
-                    Button("Terms of Use (EULA)") { showingTerms = true }.font(.caption).foregroundColor(.brandNavy)
-                    Text("and").font(.caption).foregroundColor(.secondary)
-                    Button("Privacy Policy") { showingPrivacyPolicy = true }.font(.caption).foregroundColor(.brandNavy)
+                    Button("Terms of Use (EULA)") { showingTerms = true }.font(.bodySmall).foregroundColor(.brandNavy)
+                    Text("and").font(.bodySmall).foregroundColor(.secondary)
+                    Button("Privacy Policy") { showingPrivacyPolicy = true }.font(.bodySmall).foregroundColor(.brandNavy)
                 }
             }
             .multilineTextAlignment(.center)
@@ -248,7 +248,7 @@ struct ComprehensiveSignInView: View {
                         Image(systemName: isSignUpMode ? "arrow.right.circle.fill" : "arrow.forward.circle.fill").font(.title3)
                     }
                     Text(authManager.isLoading ? (isSignUpMode ? "Creating Account..." : "Signing In...") : (isSignUpMode ? "Create Account" : "Sign In"))
-                        .fontWeight(.semibold)
+                        .font(.headingMedium)
                 }
                 .frame(maxWidth: .infinity).frame(height: 54)
                 .background(
@@ -266,7 +266,7 @@ struct ComprehensiveSignInView: View {
             // Divider
             HStack {
                 Rectangle().frame(height: 1).foregroundColor(.secondary.opacity(0.3))
-                Text("or").font(.subheadline).foregroundColor(.secondary)
+                Text("or").font(.bodyMedium).foregroundColor(.secondary)
                 Rectangle().frame(height: 1).foregroundColor(.secondary.opacity(0.3))
             }
 
@@ -286,15 +286,15 @@ struct ComprehensiveSignInView: View {
 
             if !isSignUpMode {
                 Button { Haptics.light(); showingResetPasswordSheet = true } label: {
-                    Text("Forgot Password?").font(.subheadline).fontWeight(.medium).foregroundColor(.brandNavy)
+                    Text("Forgot Password?").font(.labelLarge).foregroundColor(.brandNavy)
                 }
             }
 
             if isSignUpMode {
                 HStack(spacing: 4) {
-                    Text("Already have an account?").font(.subheadline).foregroundColor(.secondary)
+                    Text("Already have an account?").font(.bodyMedium).foregroundColor(.secondary)
                     Button { Haptics.light(); dismiss(); onSwitchToSignIn?() } label: {
-                        Text("Sign in").font(.subheadline).fontWeight(.medium).foregroundColor(.brandNavy)
+                        Text("Sign in").font(.labelLarge).foregroundColor(.brandNavy)
                     }
                 }
             }
@@ -309,8 +309,8 @@ struct ComprehensiveSignInView: View {
             HStack(alignment: .top, spacing: 12) {
                 Image(systemName: "exclamationmark.triangle.fill").font(.title3).foregroundColor(.red)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Authentication Error").font(.subheadline).fontWeight(.semibold).foregroundColor(.red)
-                    Text(errorMessage).font(.caption).foregroundColor(.red.opacity(0.8)).fixedSize(horizontal: false, vertical: true)
+                    Text("Authentication Error").font(.headingSmall).foregroundColor(.red)
+                    Text(errorMessage).font(.bodySmall).foregroundColor(.red.opacity(0.8)).fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer()
                 Button {

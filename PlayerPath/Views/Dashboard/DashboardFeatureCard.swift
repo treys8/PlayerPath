@@ -31,8 +31,7 @@ struct DashboardFeatureCard: View {
 
                 VStack(spacing: 4) {
                     Text(title)
-                        .font(.subheadline)
-                        .fontWeight(.bold)
+                        .font(.headingMedium)
                         .foregroundColor(.primary)
                         .multilineTextAlignment(.center)
                         .lineLimit(1)
@@ -40,8 +39,7 @@ struct DashboardFeatureCard: View {
                         .minimumScaleFactor(0.9)
 
                     Text(subtitle)
-                        .font(.caption2)
-                        .fontWeight(.medium)
+                        .font(.labelSmall)
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
                         .lineLimit(1)

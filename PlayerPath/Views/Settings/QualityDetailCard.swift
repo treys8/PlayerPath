@@ -42,12 +42,11 @@ struct QualityDetailCard: View {
                 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(info.name)
-                        .font(.headline)
-                        .fontWeight(.semibold)
+                        .font(.headingMedium)
                         .foregroundStyle(.primary)
-                    
+
                     Text(info.resolution)
-                        .font(.subheadline)
+                        .font(.bodyMedium)
                         .foregroundStyle(.secondary)
                 }
                 
@@ -92,7 +91,7 @@ struct QualityDetailCard: View {
                     .foregroundStyle(info.color)
                 
                 Text(info.description)
-                    .font(.caption)
+                    .font(.bodySmall)
                     .foregroundStyle(.secondary)
                 
                 Spacer()

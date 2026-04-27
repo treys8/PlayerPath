@@ -18,9 +18,9 @@ struct WhatsNewView: View {
                     .font(.system(size: 36))
                     .foregroundColor(.brandNavy)
                 Text("What's New")
-                    .font(.title2).fontWeight(.bold)
+                    .font(.displayMedium)
                 Text("Version \(Bundle.main.appVersion)")
-                    .font(.caption).foregroundColor(.secondary)
+                    .font(.bodySmall).foregroundColor(.secondary)
             }
             .padding(.top, 24)
 
@@ -32,7 +32,7 @@ struct WhatsNewView: View {
                             .font(.title3)
                             .frame(width: 24)
                         Text(item)
-                            .font(.subheadline)
+                            .font(.bodyMedium)
                             .foregroundColor(.primary)
                         Spacer()
                     }
@@ -44,7 +44,7 @@ struct WhatsNewView: View {
 
             Button(action: onDismiss) {
                 Text("Continue")
-                    .fontWeight(.semibold)
+                    .font(.headingMedium)
                     .frame(maxWidth: .infinity).frame(height: 54)
                     .background(
                         LinearGradient(

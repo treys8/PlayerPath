@@ -56,12 +56,11 @@ struct OnboardingBackupView: View {
 
                         VStack(spacing: 12) {
                             Text("Back Up Your Videos")
-                                .font(.title)
-                                .fontWeight(.bold)
+                                .font(.displayLarge)
                                 .multilineTextAlignment(.center)
 
                             Text("Keep your videos safe in the cloud and access them from anywhere")
-                                .font(.body)
+                                .font(.bodyLarge)
                                 .foregroundColor(.secondary)
                                 .multilineTextAlignment(.center)
                                 .padding(.horizontal)
@@ -97,8 +96,7 @@ struct OnboardingBackupView: View {
                                     .fontWeight(.semibold)
                             }
                             Text(isSaving ? "Saving..." : "Continue")
-                                .font(.title3)
-                                .fontWeight(.bold)
+                                .font(.headingLarge)
                         }
                         .frame(maxWidth: .infinity)
                         .frame(height: 58)
@@ -118,7 +116,7 @@ struct OnboardingBackupView: View {
                     .padding(.horizontal)
 
                     Text("You can change this anytime in Settings")
-                        .font(.caption)
+                        .font(.bodySmall)
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
                         .padding(.bottom, 20)
@@ -188,8 +186,7 @@ private struct BackupOptionCard: View {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 6) {
                         Text(mode.displayName)
-                            .font(.headline)
-                            .fontWeight(.semibold)
+                            .font(.headingMedium)
                             .foregroundColor(.primary)
 
                         if mode == .wifiOnly {
@@ -200,7 +197,7 @@ private struct BackupOptionCard: View {
                     }
 
                     Text(modeDescription)
-                        .font(.subheadline)
+                        .font(.bodyMedium)
                         .foregroundColor(.secondary)
                         .lineLimit(2)
                 }

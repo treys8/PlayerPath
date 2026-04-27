@@ -40,11 +40,10 @@ struct AthleteSelectionView: View {
                             .foregroundColor(.brandNavy)
 
                         Text("Add Your First Athlete")
-                            .font(.title)
-                            .fontWeight(.bold)
+                            .font(.displayMedium)
 
                         Text("Create a profile to start tracking baseball performance")
-                            .font(.subheadline)
+                            .font(.bodyMedium)
                             .foregroundColor(.secondary)
                             .multilineTextAlignment(.center)
 
@@ -63,7 +62,7 @@ struct AthleteSelectionView: View {
                             Image(systemName: "icloud")
                                 .foregroundColor(.green)
                             Text("Videos will sync across devices")
-                                .font(.caption)
+                                .font(.bodySmall)
                                 .foregroundColor(.secondary)
                         }
                         .padding()
@@ -76,13 +75,12 @@ struct AthleteSelectionView: View {
                         // Header — adapts copy based on athlete count
                         VStack(spacing: 8) {
                             Text(hasMultipleAthletes ? "Select Athlete" : "Your Athlete")
-                                .font(.title)
-                                .fontWeight(.bold)
+                                .font(.displayMedium)
 
                             Text(hasMultipleAthletes
                                  ? "Choose which athlete's profile to view"
                                  : "Tap to open, or add another athlete")
-                                .font(.subheadline)
+                                .font(.bodyMedium)
                                 .foregroundColor(.secondary)
                         }
                         .padding(.top)

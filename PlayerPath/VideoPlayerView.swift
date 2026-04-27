@@ -214,17 +214,18 @@ struct VideoPlayerView: View {
                             .frame(width: 200)
                             .padding(.bottom, 8)
                         Text("Downloading from cloud...")
-                            .font(.headline)
+                            .font(.headingMedium)
                             .foregroundColor(.white)
                         Text("\(Int(downloadProgress * 100))%")
-                            .font(.caption)
+                            .font(.bodySmall)
+                            .monospacedDigit()
                             .foregroundColor(.white.opacity(0.8))
                     } else {
                         ProgressView()
                             .progressViewStyle(CircularProgressViewStyle(tint: .white))
                             .scaleEffect(1.5)
                         Text("Loading video...")
-                            .font(.headline)
+                            .font(.headingMedium)
                             .foregroundColor(.white)
                     }
                 }
@@ -325,10 +326,10 @@ struct VideoPlayerView: View {
                         .font(.largeTitle)
                         .foregroundColor(.yellow)
                     Text("Video Unavailable")
-                        .font(.headline)
+                        .font(.headingLarge)
                         .foregroundColor(.white)
                     Text(errorMessage)
-                        .font(.caption)
+                        .font(.bodySmall)
                         .foregroundColor(.white.opacity(0.8))
                         .multilineTextAlignment(.center)
                         .padding(.horizontal)
@@ -663,21 +664,20 @@ struct VideoClipInfoCard: View {
         HStack(spacing: 12) {
             if let playResult = clip.playResult {
                 Text(playResult.type.displayName)
-                    .font(.headline)
-                    .fontWeight(.bold)
+                    .font(.headingLarge)
             } else {
                 Text("Unrecorded")
-                    .font(.headline)
+                    .font(.headingLarge)
                     .foregroundColor(.secondary)
             }
 
             if let game = clip.game {
                 Text("vs \(game.opponent)")
-                    .font(.subheadline)
+                    .font(.bodyMedium)
                     .foregroundColor(.secondary)
             } else if clip.practice != nil {
                 Text("Practice")
-                    .font(.subheadline)
+                    .font(.bodyMedium)
                     .foregroundColor(.secondary)
             }
 
@@ -691,7 +691,7 @@ struct VideoClipInfoCard: View {
 
             if let createdAt = clip.createdAt {
                 Text(createdAt, format: .dateTime.month(.abbreviated).day())
-                    .font(.subheadline)
+                    .font(.bodyMedium)
                     .foregroundColor(.secondary)
             }
         }

@@ -48,8 +48,7 @@ private struct ToastModifier: ViewModifier {
             .overlay(alignment: .bottom) {
                 if isPresenting {
                     Label(message, systemImage: type.icon)
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
+                        .font(.headingMedium)
                         .foregroundStyle(.white)
                         .padding(.horizontal, .spacingLarge)
                         .padding(.vertical, 10)

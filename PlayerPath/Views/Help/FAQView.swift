@@ -139,7 +139,7 @@ struct FAQItem: View {
             Button(action: onTap) {
                 HStack {
                     Text(question)
-                        .font(.headline)
+                        .font(.headingMedium)
                         .foregroundColor(.primary)
                         .multilineTextAlignment(.leading)
 
@@ -154,7 +154,7 @@ struct FAQItem: View {
 
             if isExpanded {
                 Text(answer)
-                    .font(.body)
+                    .font(.bodyLarge)
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .transition(.opacity.combined(with: .move(edge: .top)))

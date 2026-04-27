@@ -19,17 +19,16 @@ struct PracticeVideoClipRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 14) {
-                // Square thumbnail — no overlays
                 Button(action: { onPlay?() }) {
                     VideoThumbnailView(
                         clip: clip,
                         size: CGSize(width: 72, height: 72),
                         cornerRadius: 10,
-                        showPlayButton: false,
-                        showPlayResult: false,
+                        showPlayResult: true,
                         showHighlight: false,
                         showSeason: false,
-                        showContext: false
+                        showContext: false,
+                        showDuration: true
                     )
                     .frame(width: 72, height: 72)
                 }
@@ -38,30 +37,18 @@ struct PracticeVideoClipRow: View {
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(clip.createdAt.map { Self.timeFormatter.string(from: $0) } ?? "Practice Clip")
-                        .font(.subheadline)
-                        .fontWeight(.medium)
+                        .font(.headingSmall)
                         .lineLimit(1)
                         .truncationMode(.tail)
 
                     if let playResult = clip.playResult {
                         Text(playResult.type.displayName)
-                            .font(.caption)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Color.brandNavy.opacity(0.1))
-                            .foregroundColor(.brandNavy)
-                            .cornerRadius(4)
+                            .font(.bodySmall)
+                            .foregroundStyle(.secondary)
                     }
                 }
 
                 Spacer()
-
-                if let duration = clip.duration {
-                    Text(Self.formatDuration(duration))
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
-                }
             }
 
             // Athlete note preview
@@ -74,7 +61,7 @@ struct PracticeVideoClipRow: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                         Text(note)
-                            .font(.caption)
+                            .font(.bodySmall)
                             .foregroundStyle(.secondary)
                             .lineLimit(2)
                             .truncationMode(.tail)
@@ -122,10 +109,4 @@ struct PracticeVideoClipRow: View {
 
     // "2:45 PM" — readable clip title derived from creation time
     private static let timeFormatter = DateFormatter.shortTime
-
-    // Static duration string — "0:24", "1:03", etc.
-    private static func formatDuration(_ seconds: Double) -> String {
-        let total = Int(seconds)
-        return String(format: "%d:%02d", total / 60, total % 60)
-    }
 }

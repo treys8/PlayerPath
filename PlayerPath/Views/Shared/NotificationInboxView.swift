@@ -48,7 +48,7 @@ struct NotificationInboxView: View {
                         Haptics.light()
                         Task { await service.markAllRead(forUserID: userID) }
                     }
-                    .font(.subheadline)
+                    .font(.bodyMedium)
                 }
             }
         }
@@ -89,8 +89,7 @@ private struct NotificationInboxRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(notification.displayTitle)
-                        .font(.subheadline)
-                        .fontWeight(notification.isRead ? .regular : .semibold)
+                        .font(notification.isRead ? .bodyMedium : .headingSmall)
                         .foregroundColor(.primary)
                         .lineLimit(2)
 
@@ -104,13 +103,13 @@ private struct NotificationInboxRow: View {
                 }
 
                 Text(notification.displayBody)
-                    .font(.caption)
+                    .font(.bodySmall)
                     .foregroundColor(.secondary)
                     .lineLimit(3)
 
                 if let createdAt = notification.createdAt {
                     Text(createdAt, style: .relative)
-                        .font(.caption2)
+                        .font(.labelSmall)
                         .foregroundColor(.secondary)
                 }
             }

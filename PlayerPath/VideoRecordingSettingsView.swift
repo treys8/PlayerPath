@@ -59,7 +59,7 @@ struct VideoRecordingSettingsView: View {
         .toolbar {
             ToolbarItem(placement: .status) {
                 Text("Settings auto-save")
-                    .font(.caption2)
+                    .font(.labelSmall)
                     .foregroundStyle(.secondary)
             }
         }
@@ -97,9 +97,9 @@ struct VideoRecordingSettingsView: View {
             HStack(spacing: 4) {
                 Image(systemName: "info.circle")
                     .foregroundStyle(.secondary)
-                    .font(.caption)
+                    .font(.bodySmall)
                 Text("Estimated: \(String(format: "%.0f", settings.estimatedFileSizePerMinute)) MB per minute")
-                    .font(.caption)
+                    .font(.bodySmall)
                     .foregroundStyle(.secondary)
             }
         }
@@ -162,10 +162,10 @@ struct VideoRecordingSettingsView: View {
                         .foregroundStyle(.purple)
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Slow-Motion Recording")
-                            .font(.body)
+                            .font(.bodyLarge)
                         
                         Text("Capture at high frame rate for smooth slow-motion playback")
-                            .font(.caption)
+                            .font(.bodySmall)
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -176,9 +176,9 @@ struct VideoRecordingSettingsView: View {
                 HStack {
                     Image(systemName: "info.circle.fill")
                         .foregroundColor(.brandNavy)
-                        .font(.caption)
+                        .font(.bodySmall)
                     Text("Videos will be recorded at \(settings.frameRate.displayName) and can be played back at slower speeds")
-                        .font(.caption)
+                        .font(.bodySmall)
                         .foregroundStyle(.secondary)
                 }
             }
@@ -243,7 +243,7 @@ struct VideoRecordingSettingsView: View {
 
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Max File Size: \(prefs.maxVideoFileSize) MB")
-                                .font(.subheadline)
+                                .font(.bodyMedium)
 
                             Slider(
                                 value: Binding(
@@ -256,11 +256,11 @@ struct VideoRecordingSettingsView: View {
 
                             HStack {
                                 Text("50 MB")
-                                    .font(.caption)
+                                    .font(.bodySmall)
                                     .foregroundStyle(.secondary)
                                 Spacer()
                                 Text("2 GB")
-                                    .font(.caption)
+                                    .font(.bodySmall)
                                     .foregroundStyle(.secondary)
                             }
                         }
@@ -296,7 +296,7 @@ struct VideoRecordingSettingsView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Allow Cellular Uploads")
                     Text("May use significant mobile data")
-                        .font(.caption)
+                        .font(.bodySmall)
                         .foregroundStyle(.secondary)
                 }
             }
@@ -332,9 +332,9 @@ struct VideoRecordingSettingsView: View {
                         .foregroundStyle(.orange)
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Always Show Trimmer")
-                            .font(.body)
+                            .font(.bodyLarge)
                         Text("Edit video length after recording")
-                            .font(.caption)
+                            .font(.bodySmall)
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -350,9 +350,9 @@ struct VideoRecordingSettingsView: View {
                             .foregroundColor(.brandNavy)
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Auto-Skip for Short Clips")
-                                .font(.body)
+                                .font(.bodyLarge)
                             Text("Skip trimmer for videos under 15 seconds")
-                                .font(.caption)
+                                .font(.bodySmall)
                                 .foregroundStyle(.secondary)
                         }
                     }
@@ -410,9 +410,9 @@ struct VideoRecordingSettingsView: View {
                         .foregroundStyle(.secondary)
                     Spacer()
                     Text("\(String(format: "%.0f", settings.estimatedFileSizePerMinute)) MB/min")
-                        .fontWeight(.semibold)
+                        .font(.headingMedium)
                 }
-                .font(.subheadline)
+                .font(.bodyMedium)
             }
             .padding(.vertical, 8)
         } header: {
@@ -482,15 +482,15 @@ struct QualityRow: View {
                 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(quality.displayName)
-                        .font(.body)
+                        .font(.bodyLarge)
                         .foregroundStyle(isSupported ? .primary : .secondary)
                     
                     Text(quality.description)
-                        .font(.caption)
+                        .font(.bodySmall)
                         .foregroundStyle(.secondary)
                     
                     Text("~\(String(format: "%.0f", quality.estimatedMBPerMinute)) MB/min")
-                        .font(.caption2)
+                        .font(.labelSmall)
                         .foregroundStyle(.tertiary)
                 }
                 
@@ -505,7 +505,7 @@ struct QualityRow: View {
                 if !isSupported {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .foregroundStyle(.orange)
-                        .font(.caption)
+                        .font(.bodySmall)
                 }
             }
             .contentShape(Rectangle())
@@ -531,10 +531,10 @@ struct FormatRow: View {
                 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(format.displayName)
-                        .font(.body)
+                        .font(.bodyLarge)
                     
                     Text(format.description)
-                        .font(.caption)
+                        .font(.bodySmall)
                         .foregroundStyle(.secondary)
                 }
                 
@@ -571,17 +571,17 @@ struct FrameRateRow: View {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 6) {
                         Text(frameRate.displayName)
-                            .font(.body)
+                            .font(.bodyLarge)
                         
                         if frameRate.supportsSlowMotion {
                             Image(systemName: "slowmo")
-                                .font(.caption)
+                                .font(.bodySmall)
                                 .foregroundStyle(.purple)
                         }
                     }
                     
                     Text(frameRate.description)
-                        .font(.caption)
+                        .font(.bodySmall)
                         .foregroundStyle(.secondary)
                 }
                 
@@ -589,7 +589,7 @@ struct FrameRateRow: View {
                 
                 if !isCompatible {
                     Text("Not available")
-                        .font(.caption)
+                        .font(.bodySmall)
                         .foregroundStyle(.secondary)
                 } else if isSelected {
                     Image(systemName: "checkmark.circle.fill")
@@ -622,9 +622,9 @@ struct SummaryRow: View {
             Spacer()
             
             Text(value)
-                .fontWeight(.medium)
+                .font(.labelLarge)
         }
-        .font(.subheadline)
+        .font(.bodyMedium)
     }
 }
 

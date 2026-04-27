@@ -49,12 +49,11 @@ struct RoleSelectionButton: View {
 
                 VStack(spacing: 4) {
                     Text(title)
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
+                        .font(.headingSmall)
                         .foregroundColor(isSelected ? .white : .primary)
 
                     Text(description)
-                        .font(.caption2)
+                        .font(.labelSmall)
                         .foregroundColor(isSelected ? .white.opacity(0.85) : .secondary)
                 }
             }

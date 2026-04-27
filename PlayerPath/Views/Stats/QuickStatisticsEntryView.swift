@@ -30,7 +30,7 @@ struct QuickStatisticsEntryView: View {
                 Section("Current Game") {
                     HStack {
                         Text("Opponent:")
-                            .fontWeight(.semibold)
+                            .font(.headingMedium)
                         Spacer()
                         Text(game.opponent)
                             .foregroundColor(.secondary)
@@ -42,8 +42,7 @@ struct QuickStatisticsEntryView: View {
                                 .foregroundColor(.red)
                                 .font(.caption)
                             Text("LIVE GAME")
-                                .font(.caption)
-                                .fontWeight(.bold)
+                                .font(.custom("Inter18pt-Bold", size: 12, relativeTo: .caption))
                                 .foregroundColor(.red)
                         }
                     }
@@ -66,7 +65,7 @@ struct QuickStatisticsEntryView: View {
 
                     HStack {
                         Text("Number of plays")
-                            .fontWeight(.medium)
+                            .font(.labelLarge)
                         TextField("1", text: $numberOfPlays)
                             .keyboardType(.numberPad)
                             .textFieldStyle(.roundedBorder)
@@ -80,7 +79,7 @@ struct QuickStatisticsEntryView: View {
                         Text("Result Type:")
                         Spacer()
                         Text(playResultType.displayName)
-                            .fontWeight(.semibold)
+                            .font(.headingMedium)
                             .foregroundColor(playResultType.isHit ? .green : .orange)
                     }
 
@@ -89,7 +88,8 @@ struct QuickStatisticsEntryView: View {
                             Text("Bases:")
                             Spacer()
                             Text("\(playResultType.bases)")
-                                .fontWeight(.semibold)
+                                .font(.ppStatSmall)
+                                .monospacedDigit()
                                 .foregroundColor(.blue)
                         }
 
@@ -98,7 +98,7 @@ struct QuickStatisticsEntryView: View {
                                 Image(systemName: "star.fill")
                                     .foregroundColor(.yellow)
                                 Text("This will be marked as a highlight")
-                                    .font(.caption)
+                                    .font(.bodySmall)
                                     .foregroundColor(.secondary)
                             }
                         }

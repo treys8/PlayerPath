@@ -71,7 +71,7 @@ struct GameCreationView: View {
                     if !opponent.isEmpty && !isValidOpponent {
                         Label {
                             Text("Opponent name must be 2-50 characters")
-                                .font(.caption)
+                                .font(.bodySmall)
                         } icon: {
                             Image(systemName: "exclamationmark.triangle.fill")
                                 .foregroundColor(.orange)
@@ -120,7 +120,7 @@ struct GameCreationView: View {
                     if makeGameLive {
                         Label {
                             Text("Game becomes active for recording")
-                                .font(.caption)
+                                .font(.bodySmall)
                         } icon: {
                             Image(systemName: "info.circle")
                                 .foregroundColor(.brandNavy)
@@ -128,7 +128,7 @@ struct GameCreationView: View {
                     } else if selectedSeason?.isActive == false {
                         Label {
                             Text("Live mode isn't available for past seasons.")
-                                .font(.caption)
+                                .font(.bodySmall)
                         } icon: {
                             Image(systemName: "info.circle")
                                 .foregroundColor(.secondary)
@@ -139,7 +139,7 @@ struct GameCreationView: View {
                 Section {
                     Label {
                         Text("Add stats and videos after creating the game")
-                            .font(.caption)
+                            .font(.bodySmall)
                             .foregroundColor(.secondary)
                     } icon: {
                         Image(systemName: "lightbulb.fill")

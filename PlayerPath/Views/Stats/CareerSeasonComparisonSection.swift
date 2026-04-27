@@ -82,8 +82,7 @@ struct ComparisonStatCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(title)
-                .font(.caption)
-                .fontWeight(.semibold)
+                .font(.labelMedium)
                 .foregroundColor(.secondary)
                 .textCase(.uppercase)
                 .tracking(0.5)
@@ -92,11 +91,10 @@ struct ComparisonStatCard: View {
                 // Career Stats
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Career")
-                        .font(.caption2)
-                        .fontWeight(.medium)
+                        .font(.labelSmall)
                         .foregroundColor(.secondary)
                     Text(careerValue)
-                        .font(.system(.title2, design: .rounded, weight: .bold))
+                        .font(.ppStatMedium)
                         .foregroundStyle(
                             LinearGradient(
                                 colors: [color.opacity(0.7), color.opacity(0.5)],
@@ -107,7 +105,7 @@ struct ComparisonStatCard: View {
                         .scaleEffect(isAnimating ? 1.0 : 0.8)
                         .opacity(isAnimating ? 1.0 : 0)
                     Text(careerSubtitle)
-                        .font(.caption2)
+                        .font(.labelSmall)
                         .foregroundColor(.secondary)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -118,8 +116,7 @@ struct ComparisonStatCard: View {
                         .fill(color.opacity(0.1))
                         .frame(width: 32, height: 32)
                     Text("vs")
-                        .font(.caption2)
-                        .fontWeight(.bold)
+                        .font(.custom("Inter18pt-Bold", size: 11, relativeTo: .caption2))
                         .foregroundColor(color)
                 }
 
@@ -129,12 +126,11 @@ struct ComparisonStatCard: View {
                         Image(systemName: "star.fill")
                             .font(.system(size: 8))
                         Text("This Season")
-                            .font(.caption2)
-                            .fontWeight(.medium)
+                            .font(.labelSmall)
                     }
                     .foregroundColor(.blue)
                     Text(seasonValue)
-                        .font(.system(size: 24, weight: .bold, design: .rounded))
+                        .font(.ppStat(24))
                         .foregroundStyle(
                             LinearGradient(
                                 colors: [color, color.opacity(0.7)],
@@ -145,7 +141,7 @@ struct ComparisonStatCard: View {
                         .scaleEffect(isAnimating ? 1.0 : 0.8)
                         .opacity(isAnimating ? 1.0 : 0)
                     Text(seasonSubtitle)
-                        .font(.caption2)
+                        .font(.labelSmall)
                         .foregroundColor(.secondary)
                 }
                 .frame(maxWidth: .infinity, alignment: .trailing)

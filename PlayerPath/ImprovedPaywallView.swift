@@ -102,10 +102,10 @@ struct ImprovedPaywallView: View {
                 .padding(.top, 8)
 
             Text("Unlock PlayerPath")
-                .font(.title2).fontWeight(.bold)
+                .font(.displayMedium)
 
             Text("Share film with your coach. Track every at-bat.")
-                .font(.subheadline)
+                .font(.bodyMedium)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
         }
@@ -138,11 +138,11 @@ struct ImprovedPaywallView: View {
         Button(action: action) {
             HStack(spacing: 4) {
                 Text(title)
-                    .font(.subheadline).fontWeight(selected ? .semibold : .regular)
+                    .font(selected ? .headingSmall : .bodyMedium)
                     .foregroundStyle(selected ? .white : .secondary)
                 if let percent = savingsPercent {
                     Text("Save \(percent)%")
-                        .font(.caption2).fontWeight(.bold)
+                        .font(.custom("Inter18pt-Bold", size: 11, relativeTo: .caption2))
                         .foregroundStyle(selected ? .white : .green)
                 }
             }
@@ -174,7 +174,7 @@ struct ImprovedPaywallView: View {
             // Price row
             tableRow(feature: "Price") {
                 Text("Free")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.bodySmall).foregroundStyle(.secondary)
             } plus: {
                 priceLabel(
                     monthly: storeManager.product(for: .plusMonthly)?.displayPrice,
@@ -190,19 +190,19 @@ struct ImprovedPaywallView: View {
             }
 
             tableRow(feature: "Athletes") {
-                Text("\(SubscriptionTier.free.athleteLimit)").font(.caption)
+                Text("\(SubscriptionTier.free.athleteLimit)").font(.ppStatSmall).monospacedDigit()
             } plus: {
-                Text("\(SubscriptionTier.plus.athleteLimit)").font(.caption)
+                Text("\(SubscriptionTier.plus.athleteLimit)").font(.ppStatSmall).monospacedDigit()
             } pro: {
-                Text("\(SubscriptionTier.pro.athleteLimit)").font(.caption).foregroundColor(.brandNavy)
+                Text("\(SubscriptionTier.pro.athleteLimit)").font(.ppStatSmall).monospacedDigit().foregroundColor(.brandNavy)
             }
 
             tableRow(feature: "Storage") {
-                Text("\(SubscriptionTier.free.storageLimitGB) GB").font(.caption).foregroundStyle(.secondary)
+                Text("\(SubscriptionTier.free.storageLimitGB) GB").font(.bodySmall).foregroundStyle(.secondary)
             } plus: {
-                Text("\(SubscriptionTier.plus.storageLimitGB) GB").font(.caption)
+                Text("\(SubscriptionTier.plus.storageLimitGB) GB").font(.labelMedium)
             } pro: {
-                Text("\(SubscriptionTier.pro.storageLimitGB) GB").font(.caption).foregroundColor(.brandNavy)
+                Text("\(SubscriptionTier.pro.storageLimitGB) GB").font(.labelMedium).foregroundColor(.brandNavy)
             }
 
             tableRow(feature: "Export Reports") {
@@ -248,7 +248,7 @@ struct ImprovedPaywallView: View {
             if tier != .free { withAnimation(.spring(response: 0.25)) { selectedTier = tier } }
         } label: {
             Text(title)
-                .font(.subheadline).fontWeight(.semibold)
+                .font(.headingMedium)
                 .foregroundStyle(isSelected ? .white : .primary)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 12)
@@ -275,7 +275,7 @@ struct ImprovedPaywallView: View {
             Divider()
             HStack(spacing: 0) {
                 Text(feature)
-                    .font(.caption)
+                    .font(.bodySmall)
                     .foregroundStyle(.primary)
                     .frame(width: 110, alignment: .leading)
                     .padding(.leading, 12)
@@ -310,7 +310,7 @@ struct ImprovedPaywallView: View {
         VStack(spacing: 1) {
             if let price = forAnnual ? annual : monthly {
                 Text(price)
-                    .font(.caption).fontWeight(.semibold)
+                    .font(.custom("Inter18pt-SemiBold", size: 12, relativeTo: .caption))
                 Text(forAnnual ? "per year" : "per month")
                     .font(.system(size: 9))
                     .foregroundStyle(.secondary)
@@ -328,7 +328,7 @@ struct ImprovedPaywallView: View {
             if selectedTier == .free {
                 Button { dismiss() } label: {
                     Text("Keep Free Plan")
-                        .font(.headline).fontWeight(.semibold)
+                        .font(.headingMedium)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 16)
                         .background(Color(.systemGray5))
@@ -340,7 +340,7 @@ struct ImprovedPaywallView: View {
                 HStack(spacing: 8) {
                     ProgressView()
                     Text("Loading plans...")
-                        .font(.headline).fontWeight(.semibold)
+                        .font(.headingMedium)
                         .foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity)
@@ -354,7 +354,7 @@ struct ImprovedPaywallView: View {
                     HStack(spacing: 8) {
                         Image(systemName: "arrow.clockwise")
                         Text("Unable to load plans. Tap to retry.")
-                            .font(.subheadline).fontWeight(.medium)
+                            .font(.labelLarge)
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 16)
@@ -369,7 +369,7 @@ struct ImprovedPaywallView: View {
                 } label: {
                     HStack(spacing: 8) {
                         Text(ctaButtonTitle)
-                            .font(.headline).fontWeight(.semibold)
+                            .font(.headingMedium)
                         if isPurchasing { ProgressView().tint(.white) }
                     }
                     .frame(maxWidth: .infinity)
@@ -413,7 +413,7 @@ struct ImprovedPaywallView: View {
             }
         } label: {
             Text("Restore Purchase")
-                .font(.subheadline)
+                .font(.bodyMedium)
                 .foregroundStyle(.secondary)
         }
         .disabled(isPurchasing)
@@ -423,18 +423,17 @@ struct ImprovedPaywallView: View {
         VStack(spacing: 6) {
             if selectedTier != .free, let product = selectedProduct {
                 Text("\(product.displayName) — \(product.displayPrice) / \(isAnnual ? "1 year" : "1 month")")
-                    .font(.caption)
-                    .fontWeight(.medium)
+                    .font(.labelMedium)
                     .foregroundStyle(.primary)
             }
             Text("Subscription automatically renews unless cancelled at least 24 hours before the end of the current period. Payment will be charged to your Apple ID account at confirmation of purchase. Manage or cancel anytime in Settings > Subscriptions.")
-                .font(.caption)
+                .font(.bodySmall)
                 .foregroundStyle(.secondary)
             HStack(spacing: 16) {
                 Button("Terms of Use (EULA)") { showingTerms = true }
-                    .font(.caption).foregroundColor(.brandNavy)
+                    .font(.bodySmall).foregroundColor(.brandNavy)
                 Button("Privacy Policy") { showingPrivacyPolicy = true }
-                    .font(.caption).foregroundColor(.brandNavy)
+                    .font(.bodySmall).foregroundColor(.brandNavy)
             }
         }
         .multilineTextAlignment(.center)

@@ -27,15 +27,13 @@ struct AthleteVideoRow: View {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text(video.displayTitle)
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
+                        .font(.headingMedium)
                         .foregroundColor(.primary)
                         .lineLimit(1)
 
                     if isUnread {
                         Text("New")
-                            .font(.caption2)
-                            .fontWeight(.bold)
+                            .font(.custom("Inter18pt-Bold", size: 11, relativeTo: .caption2))
                             .foregroundColor(.white)
                             .padding(.horizontal, 5)
                             .padding(.vertical, 1)
@@ -46,16 +44,16 @@ struct AthleteVideoRow: View {
 
                 HStack(spacing: 4) {
                     Text(video.uploadedByName)
-                        .font(.caption)
+                        .font(.bodySmall)
                         .foregroundColor(.secondary)
                         .lineLimit(1)
 
                     if let date = video.createdAt {
                         Text("\u{2022}")
-                            .font(.caption2)
+                            .font(.labelSmall)
                             .foregroundColor(.secondary)
                         Text(date, style: .date)
-                            .font(.caption2)
+                            .font(.labelSmall)
                             .foregroundColor(.secondary)
                     }
                 }

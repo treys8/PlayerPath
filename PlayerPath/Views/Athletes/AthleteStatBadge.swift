@@ -18,13 +18,13 @@ struct AthleteStatBadge: View {
                 Image(systemName: icon)
                     .font(.caption2)
                 Text("\(count)")
-                    .font(.caption)
-                    .fontWeight(.medium)
+                    .font(.ppStatSmall)
+                    .monospacedDigit()
             }
             .foregroundColor(.brandNavy)
 
             Text(label)
-                .font(.caption2)
+                .font(.labelSmall)
                 .foregroundColor(.secondary)
         }
     }

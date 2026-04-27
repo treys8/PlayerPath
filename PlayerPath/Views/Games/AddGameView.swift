@@ -52,7 +52,7 @@ struct AddGameView: View {
                     if !opponent.isEmpty && !isValidOpponent {
                         Label {
                             Text("Opponent name must be 2-50 characters")
-                                .font(.caption)
+                                .font(.bodySmall)
                         } icon: {
                             Image(systemName: "exclamationmark.triangle.fill")
                                 .foregroundColor(.orange)

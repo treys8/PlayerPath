@@ -99,14 +99,15 @@ struct PitchSpeedsView: View {
                                 HStack {
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text(String(format: "%.1f MPH", entry.speed))
-                                            .font(.headline)
+                                            .font(.ppStatSmall)
+                                            .monospacedDigit()
                                         Text(entry.context)
-                                            .font(.caption)
+                                            .font(.bodySmall)
                                             .foregroundStyle(.secondary)
                                     }
                                     Spacer()
                                     Text(entry.date, format: .dateTime.month(.abbreviated).day().year())
-                                        .font(.caption)
+                                        .font(.bodySmall)
                                         .foregroundStyle(.secondary)
                                 }
                             }
@@ -127,16 +128,16 @@ struct PitchSpeedsView: View {
     private func summaryCell(title: String, value: String, unit: String?) -> some View {
         VStack(spacing: 2) {
             Text(value)
-                .font(.title3)
-                .fontWeight(.semibold)
+                .font(.ppStatMedium)
+                .monospacedDigit()
                 .foregroundStyle(accentColor)
             if let unit {
                 Text(unit)
-                    .font(.caption2)
+                    .font(.labelSmall)
                     .foregroundStyle(.secondary)
             }
             Text(title)
-                .font(.caption)
+                .font(.bodySmall)
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)

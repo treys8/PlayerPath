@@ -60,12 +60,11 @@ struct EmptyStatisticsView: View {
 
                 VStack(spacing: 10) {
                     Text("No Statistics Yet")
-                        .font(.title3)
-                        .fontWeight(.bold)
+                        .font(.headingLarge)
                         .foregroundColor(.primary)
 
                     Text("Record plays to start\nbuilding your stats")
-                        .font(.subheadline)
+                        .font(.bodyMedium)
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
                         .fixedSize(horizontal: false, vertical: true)
@@ -84,8 +83,7 @@ struct EmptyStatisticsView: View {
                                 Image(systemName: "chart.bar.doc.horizontal.fill")
                                     .font(.body)
                                 Text("Record Live Game Stats")
-                                    .font(.subheadline)
-                                    .fontWeight(.semibold)
+                                    .font(.headingMedium)
                             }
                             .foregroundColor(.white)
                             .frame(maxWidth: 240)
@@ -110,8 +108,7 @@ struct EmptyStatisticsView: View {
                                 Image(systemName: "plus.circle.fill")
                                     .font(.body)
                                 Text("Add Past Game Statistics")
-                                    .font(.subheadline)
-                                    .fontWeight(.medium)
+                                    .font(.labelLarge)
                             }
                             .foregroundColor(Color.brandNavy)
                             .frame(maxWidth: 240)
@@ -132,8 +129,7 @@ struct EmptyStatisticsView: View {
                                 Image(systemName: "baseball.fill")
                                     .font(.body)
                                 Text("Go to Games")
-                                    .font(.subheadline)
-                                    .fontWeight(.semibold)
+                                    .font(.headingMedium)
                             }
                             .foregroundColor(.white)
                             .frame(maxWidth: 200)
@@ -158,8 +154,7 @@ struct EmptyStatisticsView: View {
                                 Image(systemName: "plus.circle.fill")
                                     .font(.body)
                                 Text("Add Past Game Statistics")
-                                    .font(.subheadline)
-                                    .fontWeight(.medium)
+                                    .font(.labelLarge)
                             }
                             .foregroundColor(Color.brandNavy)
                             .frame(maxWidth: 240)

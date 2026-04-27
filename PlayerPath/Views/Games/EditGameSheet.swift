@@ -51,7 +51,7 @@ struct EditGameSheet: View {
 
                     if !opponent.isEmpty && !isValidOpponent {
                         Label("Opponent name must be 2-50 characters", systemImage: "exclamationmark.triangle.fill")
-                            .font(.caption)
+                            .font(.bodySmall)
                             .foregroundColor(.orange)
                     }
 
@@ -77,13 +77,13 @@ struct EditGameSheet: View {
                     Section {
                         Label("This game is currently live", systemImage: "circle.fill")
                             .foregroundColor(.red)
-                            .font(.caption)
+                            .font(.bodySmall)
                     }
                 } else if game.isComplete {
                     Section {
                         Label("This game has been completed", systemImage: "checkmark.circle.fill")
                             .foregroundColor(.green)
-                            .font(.caption)
+                            .font(.bodySmall)
                     }
                 }
             }
@@ -94,7 +94,7 @@ struct EditGameSheet: View {
                 ToolbarItemGroup(placement: .keyboard) {
                     Spacer()
                     Button("Done") { focusedField = nil }
-                        .fontWeight(.semibold)
+                        .font(.headingMedium)
                 }
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {

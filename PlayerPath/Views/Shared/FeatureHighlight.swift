@@ -40,13 +40,12 @@ struct FeatureHighlight: View {
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
-                    .font(.body)
-                    .fontWeight(.semibold)
+                    .font(.headingMedium)
                     .foregroundColor(.primary)
                     .fixedSize(horizontal: false, vertical: true)
 
                 Text(description)
-                    .font(.subheadline)
+                    .font(.bodyMedium)
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .lineLimit(2)

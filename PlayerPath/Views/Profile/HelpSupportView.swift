@@ -23,16 +23,15 @@ struct AboutView: View {
 
             VStack(spacing: 10) {
                 Text("PlayerPath")
-                    .font(.title)
-                    .fontWeight(.bold)
+                    .font(.displayMedium)
 
                 Text("Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—")")
-                    .font(.subheadline)
+                    .font(.bodyMedium)
                     .foregroundColor(.secondary)
             }
 
             Text("The ultimate baseball journal for tracking your athletic journey. Record videos, track statistics, and relive your greatest moments.")
-                .font(.subheadline)
+                .font(.bodyMedium)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal)
@@ -40,7 +39,7 @@ struct AboutView: View {
             Spacer()
 
             Text("Made for baseball athletes")
-                .font(.caption)
+                .font(.bodySmall)
                 .foregroundColor(.secondary)
         }
         .padding()

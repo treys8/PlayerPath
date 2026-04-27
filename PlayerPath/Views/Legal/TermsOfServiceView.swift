@@ -12,11 +12,10 @@ struct TermsOfServiceView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 Text("Terms of Use (EULA)")
-                    .font(.largeTitle)
-                    .fontWeight(.bold)
+                    .font(.displayLarge)
 
                 Text("Last updated: January 25, 2026")
-                    .font(.subheadline)
+                    .font(.bodyMedium)
                     .foregroundColor(.secondary)
 
                 Divider()
@@ -222,11 +221,10 @@ struct TermsSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
-                .font(.title2)
-                .fontWeight(.semibold)
+                .font(.displayMedium)
 
             Text(content)
-                .font(.body)
+                .font(.bodyLarge)
                 .foregroundColor(.primary)
         }
     }

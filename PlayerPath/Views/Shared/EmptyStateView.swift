@@ -70,12 +70,11 @@ struct EmptyStateView: View {
 
                 VStack(spacing: 10) {
                     Text(title)
-                        .font(.title3)
-                        .fontWeight(.bold)
+                        .font(.headingLarge)
                         .foregroundColor(.primary)
 
                     Text(message)
-                        .font(.subheadline)
+                        .font(.bodyMedium)
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
                         .fixedSize(horizontal: false, vertical: true)
@@ -93,8 +92,7 @@ struct EmptyStateView: View {
                             Image(systemName: buttonIcon)
                                 .font(.body)
                             Text(actionTitle)
-                                .font(.subheadline)
-                                .fontWeight(.semibold)
+                                .font(.headingMedium)
                         }
                         .foregroundColor(.white)
                         .frame(maxWidth: 220)

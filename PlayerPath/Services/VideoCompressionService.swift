@@ -10,6 +10,15 @@ import os
 
 private let compressionLog = Logger(subsystem: "com.playerpath.app", category: "Compression")
 
+// AVAssetExportSession isn't Sendable, but `cancelExport()` is documented as
+// thread-safe. Wrap it so the Task cancellation handler closure compiles
+// cleanly under strict concurrency.
+private final class SessionBox: @unchecked Sendable {
+    nonisolated(unsafe) let session: AVAssetExportSession
+    init(_ session: AVAssetExportSession) { self.session = session }
+    nonisolated func cancel() { session.cancelExport() }
+}
+
 final class VideoCompressionService {
     static let shared = VideoCompressionService()
     private init() {}
@@ -50,7 +59,14 @@ final class VideoCompressionService {
         let originalSize = fileSize(at: sourceURL)
         compressionLog.info("Compressing video (\(preset)): \(self.formatBytes(originalSize)) at \(sourceURL.lastPathComponent)")
 
-        await session.export()
+        // If the caller's Task is cancelled mid-encode, stop the session so the
+        // HEVC encoder doesn't keep running for seconds after the user dismissed.
+        let box = SessionBox(session)
+        await withTaskCancellationHandler {
+            await session.export()
+        } onCancel: {
+            box.cancel()
+        }
 
         guard session.status == .completed else {
             compressionLog.error("Compression failed: \(session.error?.localizedDescription ?? "unknown")")

@@ -50,15 +50,13 @@ struct AthleteOnboardingFlow: View {
 
                     VStack(spacing: 16) {
                         Text("Welcome to PlayerPath!")
-                            .font(.largeTitle)
-                            .fontWeight(.bold)
-                            .fontDesign(.rounded)
+                            .font(.displayLarge)
                             .multilineTextAlignment(.center)
                             .minimumScaleFactor(0.8)
                             .accessibilityAddTraits(.isHeader)
 
                         Text("We'll get you set up in 3 quick steps")
-                            .font(.title3)
+                            .font(.bodyLarge)
                             .foregroundColor(.secondary)
                             .multilineTextAlignment(.center)
                             .padding(.horizontal)
@@ -68,8 +66,7 @@ struct AthleteOnboardingFlow: View {
                 // Setup steps preview
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Here's what's next:")
-                        .font(.headline)
-                        .fontWeight(.bold)
+                        .font(.headingLarge)
                         .padding(.bottom, 4)
                         .accessibilityAddTraits(.isHeader)
 
@@ -105,8 +102,7 @@ struct AthleteOnboardingFlow: View {
                                 .font(.title3)
                                 .fontWeight(.semibold)
                             Text("Let's Go")
-                                .font(.title3)
-                                .fontWeight(.bold)
+                                .font(.headingLarge)
                         }
                         .frame(maxWidth: .infinity)
                         .frame(height: 58)
@@ -128,7 +124,7 @@ struct AthleteOnboardingFlow: View {
                     .accessibilitySortPriority(1)
 
                     Text("Takes less than 2 minutes")
-                        .font(.caption)
+                        .font(.bodySmall)
                         .foregroundColor(.secondary)
                 }
                 .padding(.horizontal)

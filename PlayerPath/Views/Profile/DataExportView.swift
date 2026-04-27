@@ -33,13 +33,12 @@ struct DataExportView: View {
                         .foregroundColor(.brandNavy)
 
                     Text("Export Your Data")
-                        .font(.title2)
-                        .fontWeight(.bold)
+                        .font(.displayMedium)
 
                     Text(isCoach
                          ? "Download a complete copy of your coaching data in JSON format. This includes shared folders, video metadata, annotations, and comments."
                          : "Download a complete copy of all your PlayerPath data in JSON format. This includes athletes, seasons, games, statistics, and video metadata.")
-                        .font(.subheadline)
+                        .font(.bodyMedium)
                         .foregroundColor(.secondary)
                 }
                 .padding(.vertical, 8)
@@ -65,7 +64,7 @@ struct DataExportView: View {
 
             Section {
                 Text("Video files are not included in the export due to their large size. To backup videos, save them to your Photos app individually.")
-                    .font(.caption)
+                    .font(.bodySmall)
                     .foregroundColor(.secondary)
             }
 
@@ -479,11 +478,10 @@ struct ExportDataRow: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.body)
-                    .fontWeight(.medium)
+                    .font(.labelLarge)
 
                 Text(description)
-                    .font(.caption)
+                    .font(.bodySmall)
                     .foregroundColor(.secondary)
             }
         }

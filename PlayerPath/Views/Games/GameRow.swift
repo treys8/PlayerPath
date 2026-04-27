@@ -11,6 +11,7 @@ import SwiftData
 // MARK: - Game Row View
 struct GameRow: View {
     let game: Game
+    var isSeasonFiltered: Bool = false
 
     var body: some View {
         HStack(spacing: 0) {
@@ -20,13 +21,13 @@ struct GameRow: View {
                 .frame(width: 4)
                 .padding(.vertical, 4)
 
-            HStack(spacing: 12) {
-                GameInfoView(game: game, showSeason: !game.isLive)
+            HStack(spacing: 8) {
+                GameInfoView(game: game, showSeason: !game.isLive && !isSeasonFiltered)
                 Spacer()
                 RightStatusView(game: game)
             }
             .padding(.leading, 12)
-            .padding(.trailing, 16)
+            .padding(.trailing, 12)
             .padding(.vertical, 12)
         }
         .background(Color(.systemBackground))
@@ -58,40 +59,29 @@ struct GameRow: View {
         let game: Game
 
         var body: some View {
-            HStack(spacing: 12) {
+            HStack(spacing: 10) {
                 // Stats summary (if available)
                 if let stats = game.gameStats, stats.atBats > 0 {
                     VStack(alignment: .trailing, spacing: 2) {
                         Text("\(stats.hits)-\(stats.atBats)")
-                            .font(.subheadline)
-                            .fontWeight(.bold)
+                            .font(.ppStatSmall)
+                            .monospacedDigit()
                             .foregroundColor(.primary)
-                        Text(String(format: ".%03d", Int(Double(stats.hits) / Double(stats.atBats) * 1000)))
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
+                        HStack(spacing: 3) {
+                            Text(StatisticsService.shared.formatBattingAverage(Double(stats.hits) / Double(stats.atBats)))
+                                .font(.labelSmall)
+                                .monospacedDigit()
+                                .foregroundColor(.secondary)
+                            Text("AVG")
+                                .font(.labelSmall)
+                                .foregroundStyle(.tertiary)
+                        }
                     }
+                    .frame(width: 70, alignment: .trailing)
                 }
 
-                // Status badge
-                Group {
-                    switch game.displayStatus {
-                    case .live:
-                        LiveBadge()
-                    case .completed:
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.title3)
-                            .foregroundStyle(
-                                LinearGradient(
-                                    colors: [.green, .green.opacity(0.7)],
-                                    startPoint: .top,
-                                    endPoint: .bottom
-                                )
-                            )
-                    case .scheduled:
-                        Image(systemName: "chevron.right")
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
-                    }
+                if game.displayStatus == .live {
+                    LiveBadge()
                 }
             }
         }
@@ -105,8 +95,7 @@ struct GameRow: View {
             VStack(alignment: .leading, spacing: 6) {
                 // Opponent name
                 Text("vs \(game.opponent)")
-                    .font(.subheadline)
-                    .fontWeight(.semibold)
+                    .font(.headingMedium)
                     .foregroundColor(.primary)
                     .lineLimit(1)
 
@@ -117,7 +106,7 @@ struct GameRow: View {
                             Image(systemName: "calendar")
                                 .font(.caption2)
                             Text(date, format: .dateTime.month(.abbreviated).day().year())
-                                .font(.caption)
+                                .font(.bodySmall)
                                 .lineLimit(1)
                         }
                         .foregroundColor(.secondary)
@@ -125,8 +114,7 @@ struct GameRow: View {
 
                     if showSeason, let season = game.season {
                         Text(season.displayName)
-                            .font(.caption2)
-                            .fontWeight(.medium)
+                            .font(.labelSmall)
                             .foregroundColor(.white)
                             .badgeSmall()
                             .background(
@@ -160,8 +148,7 @@ struct LiveBadge: View {
                     .frame(width: 6, height: 6)
 
                 Text("LIVE")
-                    .font(.caption2)
-                    .fontWeight(.bold)
+                    .font(.custom("Inter18pt-Bold", size: 11, relativeTo: .caption2))
             }
             .foregroundColor(.white)
             .badgeMedium()

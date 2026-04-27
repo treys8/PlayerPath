@@ -167,11 +167,10 @@ struct AthleteFoldersListView: View {
                 .foregroundColor(.brandNavy)
             
             Text("No Shared Folders Yet")
-                .font(.title2)
-                .fontWeight(.bold)
-            
+                .font(.displayMedium)
+
             Text("Create a folder to share videos with your coach. They'll be able to upload videos and provide feedback.")
-                .font(.subheadline)
+                .font(.bodyMedium)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 32)
@@ -181,7 +180,7 @@ struct AthleteFoldersListView: View {
                 Haptics.light()
             } label: {
                 Label("Create Folder", systemImage: "plus.circle.fill")
-                    .font(.headline)
+                    .font(.headingMedium)
             }
             .buttonStyle(.borderedProminent)
         }
@@ -206,11 +205,10 @@ struct AthleteFoldersListView: View {
                                 .foregroundColor(.orange)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Coach Access Paused")
-                                    .font(.subheadline)
-                                    .fontWeight(.semibold)
+                                    .font(.headingSmall)
                                     .foregroundColor(.primary)
                                 Text("Your coaches can no longer view these folders. Upgrade to Pro to restore access.")
-                                    .font(.caption)
+                                    .font(.bodySmall)
                                     .foregroundColor(.secondary)
                             }
                         }
@@ -221,7 +219,7 @@ struct AthleteFoldersListView: View {
             Section {
                 if displayedFolders.isEmpty && unreadOnly {
                     Text("No folders with unread content.")
-                        .font(.subheadline)
+                        .font(.bodyMedium)
                         .foregroundColor(.secondary)
                 } else {
                     ForEach(displayedFolders) { folder in
@@ -235,7 +233,7 @@ struct AthleteFoldersListView: View {
                 Text("Your folders")
             } footer: {
                 Text("Folders are shared with your coaches. They can view and upload videos based on the permissions you set.")
-                    .font(.caption)
+                    .font(.bodySmall)
             }
         }
         .sheet(isPresented: $showingPaywall) {
@@ -380,7 +378,7 @@ struct FolderRow: View {
             // Folder info
             VStack(alignment: .leading, spacing: 4) {
                 Text(folder.name)
-                    .font(.headline)
+                    .font(.headingMedium)
 
                 HStack(spacing: 12) {
                     // Video count
@@ -399,7 +397,7 @@ struct FolderRow: View {
 
                 if let updatedLabel {
                     Text(updatedLabel)
-                        .font(.caption2)
+                        .font(.labelSmall)
                         .foregroundColor(.secondary)
                 }
             }
@@ -409,8 +407,7 @@ struct FolderRow: View {
             // Unread feedback badge
             if unreadCount > 0 {
                 Text("\(unreadCount)")
-                    .font(.caption2)
-                    .fontWeight(.bold)
+                    .font(.custom("Inter18pt-Bold", size: 11, relativeTo: .caption2))
                     .foregroundColor(.white)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
@@ -591,11 +588,11 @@ struct AthleteFolderDetailContent: View {
             let videoCount = folder.videoCount ?? 0
             if videoCount > 0 {
                 Text("\(videoCount) video\(videoCount == 1 ? "" : "s") from your coach")
-                    .font(.headline)
+                    .font(.headingLarge)
             }
 
             Text("Upgrade to Pro to view shared videos and collaborate with your coach.")
-                .font(.subheadline)
+                .font(.bodyMedium)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 32)
@@ -604,7 +601,7 @@ struct AthleteFolderDetailContent: View {
                 NotificationCenter.default.post(name: .showSubscriptionPaywall, object: nil)
             } label: {
                 Text("Upgrade to Pro")
-                    .font(.headline)
+                    .font(.headingMedium)
                     .frame(maxWidth: .infinity)
                     .frame(height: 50)
                     .background(Color.brandNavy)
@@ -790,15 +787,15 @@ struct CoachPermissionRow: View {
                 VStack(alignment: .leading, spacing: 2) {
                     if isLoadingName {
                         Text("Loading...")
-                            .font(.headline)
+                            .font(.headingMedium)
                             .foregroundColor(.secondary)
                     } else {
                         Text(coachName ?? "Unknown Coach")
-                            .font(.headline)
+                            .font(.headingMedium)
 
                         if let email = coachEmail {
                             Text(email)
-                                .font(.caption)
+                                .font(.bodySmall)
                                 .foregroundColor(.secondary)
                         }
                     }
@@ -834,7 +831,7 @@ struct CoachPermissionRow: View {
                     enabled: permissions.canDelete
                 )
             }
-            .font(.caption)
+            .font(.bodySmall)
         }
         .padding(.vertical, 4)
         .task {

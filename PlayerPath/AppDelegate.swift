@@ -6,6 +6,7 @@
 //
 
 import UIKit
+import SwiftUI
 import UserNotifications
 import FirebaseCore
 import FirebaseFirestore
@@ -19,7 +20,9 @@ private let appLog = Logger(subsystem: "com.playerpath.app", category: "AppDeleg
 class PlayerPathAppDelegate: NSObject, UIApplicationDelegate {
     
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-        
+
+        configureAppearance()
+
         // Configure App Check before Firebase — must be set before FirebaseApp.configure()
         #if DEBUG
         // Use debug provider for simulators and development builds
@@ -63,6 +66,46 @@ class PlayerPathAppDelegate: NSObject, UIApplicationDelegate {
         }
 
         return true
+    }
+
+    // MARK: - Global UIKit Appearance
+
+    private func configureAppearance() {
+        let navTitleFont = UIFontMetrics(forTextStyle: .headline)
+            .scaledFont(for: UIFont(name: "Fraunces72pt-SemiBold", size: 17) ?? .systemFont(ofSize: 17, weight: .semibold))
+        let navLargeTitleFont = UIFontMetrics(forTextStyle: .largeTitle)
+            .scaledFont(for: UIFont(name: "Fraunces72pt-Bold", size: 34) ?? .systemFont(ofSize: 34, weight: .bold))
+
+        let navAppearance = UINavigationBarAppearance()
+        navAppearance.configureWithDefaultBackground()
+        navAppearance.titleTextAttributes = [.font: navTitleFont]
+        navAppearance.largeTitleTextAttributes = [.font: navLargeTitleFont]
+
+        UINavigationBar.appearance().standardAppearance = navAppearance
+        UINavigationBar.appearance().scrollEdgeAppearance = navAppearance
+        UINavigationBar.appearance().compactAppearance = navAppearance
+
+        let tabLabelFont = UIFontMetrics(forTextStyle: .caption2)
+            .scaledFont(for: UIFont(name: "Inter18pt-Medium", size: 10) ?? .systemFont(ofSize: 10, weight: .medium))
+
+        let tabSelectedColor = UIColor(Color.brandNavy)
+        let tabNormalColor = UIColor.systemGray
+
+        let tabAppearance = UITabBarAppearance()
+        tabAppearance.configureWithDefaultBackground()
+        for itemAppearance in [tabAppearance.stackedLayoutAppearance,
+                               tabAppearance.inlineLayoutAppearance,
+                               tabAppearance.compactInlineLayoutAppearance] {
+            itemAppearance.normal.titleTextAttributes = [.font: tabLabelFont, .foregroundColor: tabNormalColor]
+            itemAppearance.selected.titleTextAttributes = [.font: tabLabelFont, .foregroundColor: tabSelectedColor]
+            itemAppearance.focused.titleTextAttributes = [.font: tabLabelFont, .foregroundColor: tabSelectedColor]
+            itemAppearance.normal.iconColor = tabNormalColor
+            itemAppearance.selected.iconColor = tabSelectedColor
+            itemAppearance.focused.iconColor = tabSelectedColor
+        }
+
+        UITabBar.appearance().standardAppearance = tabAppearance
+        UITabBar.appearance().scrollEdgeAppearance = tabAppearance
     }
     
     // MARK: - Orientation Support

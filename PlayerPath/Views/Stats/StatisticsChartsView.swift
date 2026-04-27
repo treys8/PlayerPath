@@ -56,7 +56,7 @@ struct StatisticsChartsView: View {
     private var metricSelectorView: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Metric")
-                .font(.headline)
+                .font(.headingMedium)
                 .foregroundColor(.secondary)
 
             ScrollView(.horizontal, showsIndicators: false) {
@@ -79,7 +79,7 @@ struct StatisticsChartsView: View {
     private var timeframeSelectorView: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("View By")
-                .font(.headline)
+                .font(.headingMedium)
                 .foregroundColor(.secondary)
 
             Picker("Timeframe", selection: $selectedTimeframe) {
@@ -96,7 +96,7 @@ struct StatisticsChartsView: View {
     private var seasonFilterView: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Season")
-                .font(.headline)
+                .font(.headingMedium)
                 .foregroundColor(.secondary)
 
             let seasons = athlete.seasons ?? []
@@ -111,7 +111,7 @@ struct StatisticsChartsView: View {
             } else {
                 Text("No seasons available")
                     .foregroundColor(.secondary)
-                    .font(.caption)
+                    .font(.bodySmall)
             }
         }
     }
@@ -122,14 +122,14 @@ struct StatisticsChartsView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Label(selectedMetric.displayName, systemImage: selectedMetric.icon)
-                    .font(.headline)
+                    .font(.headingLarge)
 
                 Spacer()
 
                 if let current = currentValue {
                     Text(formatValue(current, for: selectedMetric))
-                        .font(.title2)
-                        .fontWeight(.bold)
+                        .font(.ppStatMedium)
+                        .monospacedDigit()
                         .foregroundColor(.blue)
                 }
             }
@@ -247,11 +247,11 @@ struct StatisticsChartsView: View {
                 .foregroundColor(.secondary)
 
             Text("No data available")
-                .font(.headline)
+                .font(.headingLarge)
                 .foregroundColor(.secondary)
 
             Text("Complete more games to see performance trends")
-                .font(.caption)
+                .font(.bodySmall)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
         }
@@ -265,7 +265,7 @@ struct StatisticsChartsView: View {
                 .foregroundColor(trend.color)
 
             Text(trend.description)
-                .font(.caption)
+                .font(.bodySmall)
                 .foregroundColor(.secondary)
         }
     }
@@ -275,7 +275,7 @@ struct StatisticsChartsView: View {
     private var statisticsSummaryView: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Summary")
-                .font(.headline)
+                .font(.headingLarge)
 
             LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: horizontalSizeClass == .regular ? 4 : 2), spacing: 12) {
                 if let stats = relevantStatistics {
@@ -303,7 +303,7 @@ struct StatisticsChartsView: View {
     private var additionalChartsView: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Hit Distribution")
-                .font(.headline)
+                .font(.headingLarge)
 
             hitDistributionChart
         }
@@ -765,8 +765,7 @@ struct MetricChip: View {
                 Image(systemName: metric.icon)
                     .font(.caption)
                 Text(metric.shortName)
-                    .font(.subheadline)
-                    .fontWeight(.medium)
+                    .font(.labelLarge)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
@@ -785,12 +784,12 @@ struct SummaryCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
-                .font(.caption)
+                .font(.labelMedium)
                 .foregroundColor(.secondary)
 
             Text(value)
-                .font(.title2)
-                .fontWeight(.bold)
+                .font(.ppStatMedium)
+                .monospacedDigit()
                 .foregroundColor(color)
         }
         .frame(maxWidth: .infinity, alignment: .leading)

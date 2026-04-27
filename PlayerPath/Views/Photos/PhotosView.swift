@@ -211,7 +211,7 @@ struct PhotosView: View {
                         .frame(width: 160)
 
                         Text("Importing \(importProgress.current) of \(importProgress.total)")
-                            .font(.subheadline)
+                            .font(.bodyMedium)
                             .foregroundColor(.white)
                             .monospacedDigit()
 
@@ -219,8 +219,7 @@ struct PhotosView: View {
                             importTask?.cancel()
                         } label: {
                             Text("Cancel")
-                                .font(.subheadline)
-                                .fontWeight(.semibold)
+                                .font(.headingSmall)
                                 .foregroundColor(.white.opacity(0.9))
                         }
                     }
@@ -243,8 +242,7 @@ struct PhotosView: View {
                     }
                 } label: {
                     Text(filter.rawValue)
-                        .font(.subheadline)
-                        .fontWeight(activeFilter == filter ? .semibold : .regular)
+                        .font(activeFilter == filter ? .headingSmall : .bodyMedium)
                         .foregroundColor(activeFilter == filter ? .white : .secondary)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 7)

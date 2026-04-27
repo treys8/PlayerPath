@@ -33,11 +33,10 @@ struct AccountDeletionView: View {
                         .foregroundColor(.red)
 
                     Text("Delete Account")
-                        .font(.title2)
-                        .fontWeight(.bold)
+                        .font(.displayMedium)
 
                     Text("This action is permanent and cannot be undone. Please read carefully before proceeding.")
-                        .font(.subheadline)
+                        .font(.bodyMedium)
                         .foregroundColor(.secondary)
                 }
                 .padding(.vertical, 8)
@@ -60,17 +59,16 @@ struct AccountDeletionView: View {
 
                     VStack(alignment: .leading, spacing: 4) {
                         Text("All videos stored in PlayerPath's cloud will be permanently deleted.")
-                            .font(.caption)
+                            .font(.bodySmall)
                             .foregroundColor(.secondary)
 
                         Text("Videos saved directly to your Photos app will not be affected.")
-                            .font(.caption)
+                            .font(.bodySmall)
                             .foregroundColor(.secondary)
 
                         Text("To keep your videos, export them to Photos before deleting your account.")
-                            .font(.caption)
+                            .font(.labelMedium)
                             .foregroundColor(.secondary)
-                            .fontWeight(.medium)
                     }
                 }
             }
@@ -78,7 +76,7 @@ struct AccountDeletionView: View {
             Section("Before You Delete") {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("We recommend:")
-                        .font(.headline)
+                        .font(.headingLarge)
 
                     VStack(alignment: .leading, spacing: 8) {
                         NavigationLink(destination: DataExportView().environmentObject(authManager)) {
@@ -106,7 +104,7 @@ struct AccountDeletionView: View {
             Section {
                 Toggle(isOn: $userUnderstands) {
                     Text("I understand this action is permanent and cannot be undone")
-                        .font(.callout)
+                        .font(.bodyMedium)
                 }
             }
 
@@ -247,11 +245,10 @@ struct DeletionItem: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.body)
-                    .fontWeight(.medium)
+                    .font(.labelLarge)
 
                 Text(description)
-                    .font(.caption)
+                    .font(.bodySmall)
                     .foregroundColor(.secondary)
             }
         }
@@ -265,12 +262,12 @@ struct RecommendationRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
             Text("\(number).")
-                .font(.body)
+                .font(.bodyLarge)
                 .foregroundColor(.secondary)
                 .frame(width: 20, alignment: .leading)
 
             Text(text)
-                .font(.body)
+                .font(.bodyLarge)
         }
     }
 }
@@ -290,11 +287,10 @@ struct TimelineRow: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
-                    .font(.body)
-                    .fontWeight(.semibold)
+                    .font(.headingMedium)
 
                 Text(description)
-                    .font(.caption)
+                    .font(.bodySmall)
                     .foregroundColor(.secondary)
             }
 

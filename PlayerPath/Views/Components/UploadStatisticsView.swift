@@ -73,9 +73,9 @@ struct UploadStatisticsView: View {
 
                     VStack(spacing: 4) {
                         Text("\(uploadedCount)")
-                            .font(.system(size: 32, weight: .bold))
+                            .font(.ppStat(32))
                         Text("uploaded")
-                            .font(.caption)
+                            .font(.bodySmall)
                             .foregroundColor(.secondary)
                     }
                 }
@@ -156,7 +156,7 @@ struct UploadStatisticsView: View {
                     Button("Retry All") {
                         retryAllFailed()
                     }
-                    .font(.caption)
+                    .font(.labelMedium)
                     .buttonStyle(.bordered)
                 }
             }
@@ -182,9 +182,9 @@ struct UploadStatisticsView: View {
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Current Connection")
-                        .font(.subheadline)
+                        .font(.labelLarge)
                     Text(networkMonitor.networkStatusMessage)
-                        .font(.caption)
+                        .font(.bodySmall)
                         .foregroundColor(.secondary)
                 }
 
@@ -203,9 +203,9 @@ struct UploadStatisticsView: View {
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Upload Policy")
-                            .font(.subheadline)
+                            .font(.labelLarge)
                         Text(prefs.allowCellularUploads ? "WiFi & Cellular" : "WiFi Only")
-                            .font(.caption)
+                            .font(.bodySmall)
                             .foregroundColor(.secondary)
                     }
 
@@ -222,7 +222,7 @@ struct UploadStatisticsView: View {
         } footer: {
             if let prefs = preferences.first, prefs.allowCellularUploads {
                 Text("Cellular uploads may use significant mobile data.")
-                    .font(.caption)
+                    .font(.bodySmall)
             }
         }
     }
@@ -251,13 +251,13 @@ struct UploadStatisticsView: View {
 
                     VStack(alignment: .leading, spacing: 4) {
                         Text(video.fileName)
-                            .font(.subheadline)
+                            .font(.labelLarge)
                             .lineLimit(1)
                             .truncationMode(.tail)
 
                         if let syncDate = video.lastSyncDate {
                             Text(formatRelativeDate(syncDate))
-                                .font(.caption)
+                                .font(.bodySmall)
                                 .foregroundColor(.secondary)
                         }
                     }
@@ -270,7 +270,7 @@ struct UploadStatisticsView: View {
                             .font(.caption)
 
                         Text(formatBytes(fileSizeCache[video.resolvedFilePath] ?? 0))
-                            .font(.caption2)
+                            .font(.labelSmall)
                             .foregroundColor(.secondary)
                     }
                 }
@@ -284,7 +284,7 @@ struct UploadStatisticsView: View {
                             .font(.largeTitle)
                             .foregroundColor(.gray)
                         Text("No recent uploads")
-                            .font(.subheadline)
+                            .font(.bodyMedium)
                             .foregroundColor(.secondary)
                     }
                     .padding(.vertical, 32)
@@ -395,11 +395,10 @@ struct StatColumn: View {
                 .foregroundColor(color)
 
             Text(value)
-                .font(.headline)
-                .fontWeight(.semibold)
+                .font(.headingMedium)
 
             Text(title)
-                .font(.caption2)
+                .font(.labelSmall)
                 .foregroundColor(.secondary)
         }
     }
@@ -419,13 +418,13 @@ struct ActivityRow: View {
                 .symbolEffect(.bounce, options: .repeating, value: isAnimated)
 
             Text(label)
-                .font(.subheadline)
+                .font(.bodyMedium)
 
             Spacer()
 
             Text("\(count)")
-                .font(.subheadline)
-                .fontWeight(.semibold)
+                .font(.ppStatSmall)
+                .monospacedDigit()
                 .foregroundColor(color)
         }
     }

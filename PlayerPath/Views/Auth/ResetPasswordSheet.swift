@@ -57,11 +57,10 @@ struct ResetPasswordSheet: View {
 
                 VStack(spacing: 10) {
                     Text("Reset Password")
-                        .font(.title2)
-                        .fontWeight(.bold)
+                        .font(.displayMedium)
 
                     Text("Enter your email address and we'll send you a link to reset your password.")
-                        .font(.subheadline)
+                        .font(.bodyMedium)
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 8)
@@ -90,7 +89,7 @@ struct ResetPasswordSheet: View {
                             Image(systemName: "exclamationmark.triangle.fill")
                                 .foregroundColor(.red)
                             Text(errorMessage)
-                                .font(.caption)
+                                .font(.bodySmall)
                                 .foregroundColor(.red)
                         }
                     }
@@ -109,7 +108,7 @@ struct ResetPasswordSheet: View {
                                     .font(.body)
                             }
                             Text(isLoading ? "Sending..." : "Send Reset Link")
-                                .fontWeight(.semibold)
+                                .font(.headingMedium)
                         }
                         .frame(maxWidth: .infinity)
                         .frame(height: 54)

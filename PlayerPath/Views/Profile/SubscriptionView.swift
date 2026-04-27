@@ -43,12 +43,11 @@ struct SubscriptionView: View {
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text("\(authManager.currentTier.displayName) Plan")
-                        .font(.headline)
-                        .fontWeight(.bold)
+                        .font(.headingMedium)
                     Text(storeManager.isInBillingRetryPeriod
                          ? "There's an issue with your payment."
                          : "Thank you for your support!")
-                        .font(.subheadline)
+                        .font(.bodyMedium)
                         .foregroundColor(.secondary)
                 }
 
@@ -56,8 +55,7 @@ struct SubscriptionView: View {
 
                 if storeManager.isInBillingRetryPeriod {
                     Text("Payment Issue")
-                        .font(.caption)
-                        .fontWeight(.bold)
+                        .font(.custom("Inter18pt-Bold", size: 12, relativeTo: .caption))
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
                         .background(Color.orange)
@@ -66,8 +64,7 @@ struct SubscriptionView: View {
                         .accessibilityLabel("Payment Issue")
                 } else {
                     Text("Active")
-                        .font(.caption)
-                        .fontWeight(.bold)
+                        .font(.custom("Inter18pt-Bold", size: 12, relativeTo: .caption))
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
                         .background(Color.green)
@@ -112,11 +109,10 @@ struct SubscriptionView: View {
                     .foregroundColor(.yellow)
 
                 Text("Unlock Plus & Pro")
-                    .font(.title2)
-                    .fontWeight(.bold)
+                    .font(.displayMedium)
 
                 Text("More athletes, cloud storage, highlights, and coach sharing. See full plan details and current pricing below.")
-                    .font(.subheadline)
+                    .font(.bodyMedium)
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
             }
@@ -130,8 +126,7 @@ struct SubscriptionView: View {
             Button(action: { showingPaywall = true }) {
                 HStack {
                     Text("View Plans & Pricing")
-                        .font(.headline)
-                        .fontWeight(.semibold)
+                        .font(.headingMedium)
                         .foregroundColor(.white)
                     Spacer()
                     Image(systemName: "arrow.right")
@@ -161,11 +156,10 @@ struct SubscriptionFeatureRow: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.subheadline)
-                    .fontWeight(.medium)
+                    .font(.labelLarge)
 
                 Text(description)
-                    .font(.caption)
+                    .font(.bodySmall)
                     .foregroundColor(.secondary)
             }
 

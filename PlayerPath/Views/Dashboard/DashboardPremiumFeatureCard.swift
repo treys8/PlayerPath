@@ -25,11 +25,11 @@ struct DashboardPremiumFeatureCard: View {
                         .font(.system(size: 28, weight: .medium))
                         .foregroundColor(color)
                         .symbolRenderingMode(.hierarchical)
-                        .frame(maxWidth: .infinity, alignment: .center)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 36)
 
                     Text(title)
-                        .font(.headline)
-                        .fontWeight(.semibold)
+                        .font(.headingMedium)
                         .foregroundColor(.primary)
                         .multilineTextAlignment(.center)
                         .lineLimit(1)
@@ -37,7 +37,7 @@ struct DashboardPremiumFeatureCard: View {
                         .minimumScaleFactor(0.9)
 
                     Text(subtitle)
-                        .font(.caption)
+                        .font(.bodySmall)
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
                 }
@@ -47,8 +47,7 @@ struct DashboardPremiumFeatureCard: View {
 
                 if isPremium && notificationCount > 0 {
                     Text("\(notificationCount)")
-                        .font(.caption2)
-                        .fontWeight(.bold)
+                        .font(.custom("Inter18pt-Bold", size: 11, relativeTo: .caption2))
                         .foregroundColor(.white)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 3)
@@ -56,8 +55,7 @@ struct DashboardPremiumFeatureCard: View {
                         .offset(x: -8, y: 8)
                 } else if !isPremium {
                     Text(badgeLabel)
-                        .font(.caption2)
-                        .fontWeight(.bold)
+                        .font(.custom("Inter18pt-Bold", size: 11, relativeTo: .caption2))
                         .foregroundColor(.brandGold)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 3)

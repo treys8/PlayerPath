@@ -53,7 +53,7 @@ struct CreateSeasonView: View {
                     if seasonName.isEmpty {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Suggestions:")
-                                .font(.caption)
+                                .font(.bodySmall)
                                 .foregroundStyle(.secondary)
 
                             ScrollView(.horizontal, showsIndicators: false) {
@@ -63,7 +63,7 @@ struct CreateSeasonView: View {
                                             seasonName = suggestion
                                         } label: {
                                             Text(suggestion)
-                                                .font(.subheadline)
+                                                .font(.bodyMedium)
                                                 .padding(.horizontal, 12)
                                                 .padding(.vertical, 6)
                                                 .background(Color.brandNavy.opacity(0.1))

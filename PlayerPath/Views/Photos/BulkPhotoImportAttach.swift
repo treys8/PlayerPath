@@ -77,7 +77,7 @@ struct BulkPhotoImportAttach: ViewModifier {
                             .frame(width: 160)
 
                             Text("Importing \(importProgress.current) of \(importProgress.total)")
-                                .font(.subheadline)
+                                .font(.bodyMedium)
                                 .foregroundColor(.white)
                                 .monospacedDigit()
 
@@ -85,8 +85,7 @@ struct BulkPhotoImportAttach: ViewModifier {
                                 importTask?.cancel()
                             } label: {
                                 Text("Cancel")
-                                    .font(.subheadline)
-                                    .fontWeight(.semibold)
+                                    .font(.headingSmall)
                                     .foregroundColor(.white.opacity(0.9))
                             }
                         }
@@ -98,8 +97,7 @@ struct BulkPhotoImportAttach: ViewModifier {
             .overlay(alignment: .bottom) {
                 if let message = toastMessage {
                     Text(message)
-                        .font(.subheadline)
-                        .fontWeight(.medium)
+                        .font(.labelLarge)
                         .foregroundColor(.white)
                         .padding(.horizontal, 20)
                         .padding(.vertical, 12)

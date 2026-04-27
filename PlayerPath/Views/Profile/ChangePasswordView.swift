@@ -27,11 +27,10 @@ struct ChangePasswordView: View {
                         .foregroundColor(.brandNavy)
 
                     Text("Change Password")
-                        .font(.title2)
-                        .fontWeight(.bold)
+                        .font(.displayMedium)
 
                     Text("We'll send a password reset link to \(email). Follow the link to choose a new password.")
-                        .font(.subheadline)
+                        .font(.bodyMedium)
                         .foregroundColor(.secondary)
                 }
                 .padding(.vertical, 8)
@@ -45,9 +44,9 @@ struct ChangePasswordView: View {
                             .font(.title3)
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Email Sent")
-                                .font(.headline)
+                                .font(.headingMedium)
                             Text("Check your inbox at \(email) and follow the link to reset your password.")
-                                .font(.caption)
+                                .font(.bodySmall)
                                 .foregroundColor(.secondary)
                         }
                     }
@@ -65,7 +64,7 @@ struct ChangePasswordView: View {
                                     .padding(.trailing, 8)
                             }
                             Text(isSending ? "Sending…" : "Send Reset Email")
-                                .fontWeight(.semibold)
+                                .font(.headingMedium)
                             Spacer()
                         }
                     }

@@ -43,7 +43,7 @@ struct PracticeDetailView: View {
             Section("Practice Details") {
                 HStack {
                     Text("Date")
-                        .fontWeight(.semibold)
+                        .font(.headingMedium)
                     Spacer()
                     Text((practice.date ?? .distantPast).formatted(date: .abbreviated, time: .omitted))
                         .foregroundStyle(.secondary)
@@ -51,7 +51,7 @@ struct PracticeDetailView: View {
 
                 HStack {
                     Text("Type")
-                        .fontWeight(.semibold)
+                        .font(.headingMedium)
                     Spacer()
                     Menu {
                         ForEach(PracticeType.allCases) { type in
@@ -273,11 +273,11 @@ struct PracticeNoteRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
             Text(note.content)
-                .font(.subheadline)
+                .font(.bodyMedium)
 
             if let createdAt = note.createdAt {
                 Text(createdAt, formatter: DateFormatter.shortDateTime)
-                    .font(.caption)
+                    .font(.bodySmall)
                     .foregroundStyle(.secondary)
             }
         }

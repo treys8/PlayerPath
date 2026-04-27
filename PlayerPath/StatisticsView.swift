@@ -271,9 +271,9 @@ struct StatisticsView: View {
                 .foregroundColor(.brandNavy)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Stat tracking is off for \(athlete.name)")
-                    .font(.footnote.weight(.semibold))
+                    .font(.headingSmall)
                 Text("New clips won't add to stats.")
-                    .font(.caption)
+                    .font(.bodySmall)
                     .foregroundColor(.secondary)
             }
             Spacer(minLength: 8)
@@ -392,8 +392,7 @@ struct SectionHeader: View {
                     )
             }
             Text(title)
-                .font(.headline)
-                .fontWeight(.bold)
+                .font(.headingLarge)
         }
     }
 }

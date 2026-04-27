@@ -98,7 +98,7 @@ struct CreateFolderView: View {
 
             if !coachEmail.isEmpty && !coachEmail.isValidEmail {
                 Label("Please enter a valid email address", systemImage: "exclamationmark.triangle.fill")
-                    .font(.caption)
+                    .font(.bodySmall)
                     .foregroundColor(.orange)
             }
 
@@ -106,7 +106,7 @@ struct CreateFolderView: View {
             Text("Invite Coach")
         } footer: {
             Text("Your coach will receive an invitation email to access this folder.")
-                .font(.caption)
+                .font(.bodySmall)
         }
     }
 
@@ -116,7 +116,7 @@ struct CreateFolderView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Label("Can Upload Videos", systemImage: "arrow.up.circle.fill")
                     Text("Coach can add new videos to this folder")
-                        .font(.caption)
+                        .font(.bodySmall)
                         .foregroundColor(.secondary)
                 }
             }
@@ -125,7 +125,7 @@ struct CreateFolderView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Label("Can Add Comments", systemImage: "text.bubble.fill")
                     Text("Coach can annotate and provide feedback on videos")
-                        .font(.caption)
+                        .font(.bodySmall)
                         .foregroundColor(.secondary)
                 }
             }
@@ -134,7 +134,7 @@ struct CreateFolderView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Label("Can Delete Videos", systemImage: "trash.fill")
                     Text("Coach can remove videos from this folder")
-                        .font(.caption)
+                        .font(.bodySmall)
                         .foregroundColor(.secondary)
                 }
             }
@@ -143,7 +143,7 @@ struct CreateFolderView: View {
             Text("Coach Permissions")
         } footer: {
             Text("You can change these permissions later.")
-                .font(.caption)
+                .font(.bodySmall)
         }
     }
     
@@ -244,7 +244,7 @@ struct InviteCoachView: View {
                     Text("Coach Email")
                 } footer: {
                     Text("Invite a coach to access \"\(folder.name)\"")
-                        .font(.caption)
+                        .font(.bodySmall)
                 }
                 
                 Section {
@@ -252,7 +252,7 @@ struct InviteCoachView: View {
                         VStack(alignment: .leading, spacing: 4) {
                             Label("Can Upload Videos", systemImage: "arrow.up.circle.fill")
                             Text("Coach can add new videos")
-                                .font(.caption)
+                                .font(.bodySmall)
                                 .foregroundColor(.secondary)
                         }
                     }
@@ -261,7 +261,7 @@ struct InviteCoachView: View {
                         VStack(alignment: .leading, spacing: 4) {
                             Label("Can Add Comments", systemImage: "text.bubble.fill")
                             Text("Coach can annotate videos")
-                                .font(.caption)
+                                .font(.bodySmall)
                                 .foregroundColor(.secondary)
                         }
                     }
@@ -270,7 +270,7 @@ struct InviteCoachView: View {
                         VStack(alignment: .leading, spacing: 4) {
                             Label("Can Delete Videos", systemImage: "trash.fill")
                             Text("Coach can remove videos")
-                                .font(.caption)
+                                .font(.bodySmall)
                                 .foregroundColor(.secondary)
                         }
                     }

@@ -26,11 +26,10 @@ struct ContactSupportView: View {
                         .foregroundColor(.brandNavy)
 
                     Text("Get Help")
-                        .font(.title2)
-                        .fontWeight(.bold)
+                        .font(.displayMedium)
 
                     Text("We're here to help! Send us your questions, feedback, or bug reports.")
-                        .font(.subheadline)
+                        .font(.bodyMedium)
                         .foregroundColor(.secondary)
                 }
                 .padding(.vertical, 8)

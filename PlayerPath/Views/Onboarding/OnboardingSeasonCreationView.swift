@@ -72,13 +72,11 @@ struct OnboardingSeasonCreationView: View {
 
                         VStack(spacing: 16) {
                             Text("Set Up Your Season")
-                                .font(.largeTitle)
-                                .fontWeight(.bold)
-                                .fontDesign(.rounded)
+                                .font(.displayLarge)
                                 .multilineTextAlignment(.center)
 
                             Text("Organize your games and track progress over time")
-                                .font(.title3)
+                                .font(.bodyLarge)
                                 .foregroundColor(.secondary)
                                 .multilineTextAlignment(.center)
                                 .padding(.horizontal)
@@ -88,8 +86,7 @@ struct OnboardingSeasonCreationView: View {
                     // Feature highlights
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Why Seasons Matter:")
-                            .font(.headline)
-                            .fontWeight(.semibold)
+                            .font(.headingLarge)
                             .padding(.bottom, 2)
 
                         FeatureHighlight(
@@ -117,8 +114,7 @@ struct OnboardingSeasonCreationView: View {
                         // Season name field
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Season Name")
-                                .font(.subheadline)
-                                .fontWeight(.medium)
+                                .font(.labelLarge)
                                 .foregroundColor(.secondary)
 
                             ModernTextField(
@@ -146,7 +142,7 @@ struct OnboardingSeasonCreationView: View {
                                                 Haptics.light()
                                             } label: {
                                                 Text(suggestion)
-                                                    .font(.subheadline)
+                                                    .font(.bodyMedium)
                                                     .padding(.horizontal, 12)
                                                     .padding(.vertical, 6)
                                                     .background(Color.brandNavy.opacity(0.1))
@@ -162,8 +158,7 @@ struct OnboardingSeasonCreationView: View {
                         // Start date picker
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Start Date")
-                                .font(.subheadline)
-                                .fontWeight(.medium)
+                                .font(.labelLarge)
                                 .foregroundColor(.secondary)
 
                             DatePicker("", selection: $startDate, displayedComponents: .date)
@@ -174,8 +169,7 @@ struct OnboardingSeasonCreationView: View {
                         // Sport picker
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Sport")
-                                .font(.subheadline)
-                                .fontWeight(.medium)
+                                .font(.labelLarge)
                                 .foregroundColor(.secondary)
 
                             Picker("Sport", selection: $selectedSport) {
@@ -201,8 +195,7 @@ struct OnboardingSeasonCreationView: View {
                                     .fontWeight(.semibold)
                             }
                             Text(isCreating ? "Creating..." : "Create Season")
-                                .font(.title3)
-                                .fontWeight(.bold)
+                                .font(.headingLarge)
                         }
                         .frame(maxWidth: .infinity)
                         .frame(height: 58)
@@ -224,7 +217,7 @@ struct OnboardingSeasonCreationView: View {
 
                     Button(action: { skipSeasonCreation() }) {
                         Text("Skip for Now")
-                            .font(.subheadline)
+                            .font(.bodyMedium)
                             .foregroundColor(.secondary)
                     }
                     .padding(.bottom, 40)

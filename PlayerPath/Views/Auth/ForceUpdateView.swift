@@ -31,9 +31,9 @@ struct ForceUpdateView: View {
 
             VStack(spacing: 10) {
                 Text("Update Required")
-                    .font(.title2).fontWeight(.bold)
+                    .font(.displayMedium)
                 Text("A new version of PlayerPath is available with important updates. Please update to continue.")
-                    .font(.subheadline)
+                    .font(.bodyMedium)
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 32)
@@ -43,7 +43,7 @@ struct ForceUpdateView: View {
                 Link(destination: url) {
                     HStack(spacing: 10) {
                         Image(systemName: "arrow.up.circle.fill").font(.title3)
-                        Text("Update Now").fontWeight(.semibold)
+                        Text("Update Now").font(.headingMedium)
                     }
                     .frame(maxWidth: .infinity).frame(height: 54)
                     .background(
@@ -59,7 +59,7 @@ struct ForceUpdateView: View {
             }
 
             Text("Version \(Bundle.main.appVersion)")
-                .font(.caption)
+                .font(.bodySmall)
                 .foregroundColor(.secondary)
 
             Spacer()

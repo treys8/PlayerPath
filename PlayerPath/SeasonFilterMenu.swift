@@ -57,14 +57,10 @@ struct SeasonFilterMenu: View {
                 }
             }
         } label: {
-            HStack(spacing: 4) {
-                Image(systemName: "calendar")
-                if selectedSeasonID != nil {
-                    Image(systemName: "circle.fill")
-                        .font(.system(size: 6))
-                        .foregroundColor(.brandNavy)
-                }
-            }
+            Image(systemName: selectedSeasonID != nil
+                  ? "line.3.horizontal.decrease.circle.fill"
+                  : "line.3.horizontal.decrease.circle")
+                .foregroundColor(.brandNavy)
         }
         .accessibilityLabel("Filter by season")
         .accessibilityValue(selectedSeasonID == nil ? "All seasons" : selectedSeasonName)
@@ -96,8 +92,7 @@ struct SeasonBadge: View {
 
     var body: some View {
         Text(season.displayName)
-            .font(.system(size: fontSize))
-            .fontWeight(.semibold)
+            .font(.custom("Inter18pt-SemiBold", size: fontSize))
             .foregroundStyle(.white)
             .lineLimit(1)
             .fixedSize()
@@ -119,11 +114,10 @@ struct FilteredEmptyStateView: View {
                 .foregroundStyle(.gray)
 
             Text("No Results")
-                .font(.title2)
-                .fontWeight(.bold)
+                .font(.displayMedium)
 
             Text("No items match \(filterDescription)")
-                .font(.subheadline)
+                .font(.bodyMedium)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
 

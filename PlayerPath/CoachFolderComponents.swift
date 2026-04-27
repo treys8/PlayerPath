@@ -225,7 +225,6 @@ struct CoachVideoCard: View {
                 }
             }
             .aspectRatio(16/9, contentMode: .fit)
-            .clipShape(UnevenRoundedRectangle(topLeadingRadius: .cornerLarge, bottomLeadingRadius: 0, bottomTrailingRadius: 0, topTrailingRadius: .cornerLarge))
 
             // Info section
             VStack(alignment: .leading, spacing: 6) {

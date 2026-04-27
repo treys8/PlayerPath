@@ -262,8 +262,7 @@ struct DashboardView: View {
                             .animation(reduceMotion ? nil : .easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: pulseAnimation)
 
                         Text("Live Now")
-                            .font(.title3)
-                            .fontWeight(.bold)
+                            .font(.headingLarge)
                             .foregroundStyle(
                                 LinearGradient(
                                     colors: [.red, .red.opacity(0.8)],
@@ -276,8 +275,7 @@ struct DashboardView: View {
                     Spacer()
 
                     Text("\(liveGames.count)")
-                        .font(.caption)
-                        .fontWeight(.medium)
+                        .font(.labelMedium)
                         .foregroundColor(.secondary)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
@@ -349,8 +347,7 @@ struct DashboardView: View {
                     createNewGame()
                 } label: {
                     Text("+ New Game")
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
+                        .font(.headingSmall)
                         .foregroundColor(.brandGold)
                 }
             }
@@ -470,7 +467,7 @@ struct AthletePickerLabel: View {
                 .clipShape(Circle())
 
             Text(name)
-                .fontWeight(.semibold)
+                .font(.headingMedium)
                 .foregroundColor(.primary)
             Image(systemName: "chevron.down")
                 .font(.caption2)
@@ -500,9 +497,7 @@ struct DashboardSectionHeader: View {
                 .foregroundColor(color)
 
             Text(title)
-                .font(.title3)
-                .fontWeight(.bold)
-                .fontDesign(.rounded)
+                .font(.headingLarge)
                 .foregroundColor(.primary)
 
             Spacer()

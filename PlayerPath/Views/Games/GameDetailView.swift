@@ -41,7 +41,7 @@ struct GameDetailView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack {
                         Text("Opponent")
-                            .fontWeight(.semibold)
+                            .font(.headingMedium)
                         Spacer()
                         Text(game.opponent)
                             .foregroundColor(.secondary)
@@ -49,7 +49,7 @@ struct GameDetailView: View {
 
                     HStack {
                         Text("Date")
-                            .fontWeight(.semibold)
+                            .font(.headingMedium)
                         Spacer()
                         if let date = game.date {
                             Text(date, format: .dateTime.month().day().hour().minute())
@@ -63,7 +63,7 @@ struct GameDetailView: View {
                     if let location = game.location, !location.isEmpty {
                         HStack {
                             Text("Location")
-                                .fontWeight(.semibold)
+                                .font(.headingMedium)
                             Spacer()
                             Text(location)
                                 .foregroundColor(.secondary)
@@ -72,7 +72,7 @@ struct GameDetailView: View {
 
                     HStack {
                         Text("Status")
-                            .fontWeight(.semibold)
+                            .font(.headingMedium)
                         Spacer()
 
                         Group {
@@ -100,17 +100,16 @@ struct GameDetailView: View {
                                     .cornerRadius(4)
                             }
                         }
-                        .font(.caption)
-                        .fontWeight(.bold)
+                        .font(.custom("Inter18pt-Bold", size: 12, relativeTo: .caption))
                     }
 
                     if let notes = game.notes, !notes.isEmpty {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Notes")
-                                .fontWeight(.semibold)
+                                .font(.headingMedium)
                             Text(notes)
                                 .foregroundColor(.secondary)
-                                .font(.subheadline)
+                                .font(.bodyMedium)
                         }
                     }
                 }
@@ -184,7 +183,7 @@ struct GameDetailView: View {
                 if videoClips.isEmpty {
                     Text("No videos recorded yet")
                         .foregroundColor(.secondary)
-                        .font(.subheadline)
+                        .font(.bodyMedium)
                 } else {
                     ForEach(videoClips) { clip in
                         VideoClipRow(clip: clip, hasCoachingAccess: authManager.hasCoachingAccess)
@@ -197,7 +196,7 @@ struct GameDetailView: View {
                 if gamePhotos.isEmpty {
                     Text("No photos yet")
                         .foregroundColor(.secondary)
-                        .font(.subheadline)
+                        .font(.bodyMedium)
                 } else {
                     ForEach(gamePhotos) { photo in
                         NavigationLink {
@@ -218,52 +217,52 @@ struct GameDetailView: View {
                         Text("At Bats")
                         Spacer()
                         Text("\(stats.atBats)")
-                            .fontWeight(.semibold)
+                            .font(.headingMedium)
                     }
                     HStack {
                         Text("Hits")
                         Spacer()
                         Text("\(stats.hits)")
-                            .fontWeight(.semibold)
+                            .font(.headingMedium)
                     }
                     HStack {
                         Text("Runs")
                         Spacer()
                         Text("\(stats.runs)")
-                            .fontWeight(.semibold)
+                            .font(.headingMedium)
                     }
                     HStack {
                         Text("RBIs")
                         Spacer()
                         Text("\(stats.rbis)")
-                            .fontWeight(.semibold)
+                            .font(.headingMedium)
                     }
                     HStack {
                         Text("Strikeouts")
                         Spacer()
                         Text("\(stats.strikeouts)")
-                            .fontWeight(.semibold)
+                            .font(.headingMedium)
                             .foregroundColor(.red)
                     }
                     HStack {
                         Text("Ground Outs")
                         Spacer()
                         Text("\(stats.groundOuts)")
-                            .fontWeight(.semibold)
+                            .font(.headingMedium)
                             .foregroundColor(.red)
                     }
                     HStack {
                         Text("Fly Outs")
                         Spacer()
                         Text("\(stats.flyOuts)")
-                            .fontWeight(.semibold)
+                            .font(.headingMedium)
                             .foregroundColor(.red)
                     }
                     HStack {
                         Text("Walks")
                         Spacer()
                         Text("\(stats.walks)")
-                            .fontWeight(.semibold)
+                            .font(.headingMedium)
                     }
 
                     // Calculate and show batting average for this game
@@ -272,7 +271,7 @@ struct GameDetailView: View {
                             Text("Batting Average")
                             Spacer()
                             Text(String(format: "%.3f", Double(stats.hits) / Double(stats.atBats)))
-                                .fontWeight(.semibold)
+                                .font(.headingMedium)
                                 .foregroundColor(.brandNavy)
                         }
                     }
@@ -490,14 +489,13 @@ private struct GamePhotoRow: View {
             // Info
             VStack(alignment: .leading, spacing: 4) {
                 Text(photo.caption ?? "Photo")
-                    .font(.subheadline)
-                    .fontWeight(.semibold)
+                    .font(.headingMedium)
                     .foregroundColor(.primary)
                     .lineLimit(1)
 
                 if let date = photo.createdAt {
                     Text(date, style: .date)
-                        .font(.caption)
+                        .font(.bodySmall)
                         .foregroundColor(.secondary)
                 }
             }

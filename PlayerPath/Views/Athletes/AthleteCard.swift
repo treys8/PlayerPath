@@ -41,8 +41,7 @@ struct AthleteCard: View {
 
                 VStack(spacing: 6) {
                     Text(athlete.name)
-                        .font(.headline)
-                        .fontWeight(.semibold)
+                        .font(.headingLarge)
                         .foregroundColor(.primary)
                         .multilineTextAlignment(.center)
                         .lineLimit(2)
@@ -51,11 +50,11 @@ struct AthleteCard: View {
 
                     if let created = athlete.createdAt {
                         Text("Created \(created, format: .dateTime.day().month().year())")
-                            .font(.caption)
+                            .font(.bodySmall)
                             .foregroundColor(.secondary)
                     } else {
                         Text("Created —")
-                            .font(.caption)
+                            .font(.bodySmall)
                             .foregroundColor(.secondary)
                     }
                 }

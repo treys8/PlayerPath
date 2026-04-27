@@ -52,13 +52,13 @@ struct UploadStatusBanner: View {
                     .scaleEffect(0.8)
 
                 Text("Uploading \(uploadManager.activeUploads.count) video\(uploadManager.activeUploads.count == 1 ? "" : "s")...")
-                    .font(.subheadline)
-                    .fontWeight(.medium)
+                    .font(.labelLarge)
 
                 Spacer()
 
                 Text("\(Int(averageProgress * 100))%")
-                    .font(.caption)
+                    .font(.bodySmall)
+                    .monospacedDigit()
                     .foregroundColor(.secondary)
             }
 
@@ -95,17 +95,15 @@ struct UploadStatusBanner: View {
             VStack(alignment: .leading, spacing: 2) {
                 if !networkMonitor.isConnected {
                     Text("Uploads paused - No internet")
-                        .font(.subheadline)
-                        .fontWeight(.medium)
+                        .font(.labelLarge)
                     Text("Will resume when connection returns")
-                        .font(.caption)
+                        .font(.bodySmall)
                         .foregroundColor(.secondary)
                 } else if networkMonitor.connectionType == .cellular {
                     Text("Uploads paused - On cellular")
-                        .font(.subheadline)
-                        .fontWeight(.medium)
+                        .font(.labelLarge)
                     Text("Enable cellular uploads in settings or connect to WiFi")
-                        .font(.caption)
+                        .font(.bodySmall)
                         .foregroundColor(.secondary)
                 }
             }
@@ -123,13 +121,13 @@ struct UploadStatusBanner: View {
                 .foregroundColor(.brandNavy)
 
             Text("\(uploadManager.totalPendingCount) video\(uploadManager.totalPendingCount == 1 ? "" : "s") queued for upload")
-                .font(.subheadline)
+                .font(.bodyMedium)
                 .foregroundColor(.secondary)
 
             Spacer()
 
             Text("Waiting...")
-                .font(.caption)
+                .font(.bodySmall)
                 .foregroundColor(.brandNavy)
         }
         .padding()
@@ -144,12 +142,11 @@ struct UploadStatusBanner: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text("\(uploadManager.failedUploads.count) upload\(uploadManager.failedUploads.count == 1 ? "" : "s") failed")
-                    .font(.subheadline)
-                    .fontWeight(.medium)
+                    .font(.labelLarge)
 
                 if let firstFailed = uploadManager.failedUploads.first {
                     Text("Retried \(firstFailed.retryCount) times")
-                        .font(.caption)
+                        .font(.bodySmall)
                         .foregroundColor(.secondary)
                 }
             }
@@ -248,8 +245,8 @@ struct UploadBadge: View {
                 }
 
                 Text("\(totalUploadCount)")
-                    .font(.caption2)
-                    .fontWeight(.semibold)
+                    .font(.custom("Inter18pt-SemiBold", size: 11, relativeTo: .caption2))
+                    .monospacedDigit()
             }
             .badgeSmall()
             .background(badgeColor, in: Capsule())

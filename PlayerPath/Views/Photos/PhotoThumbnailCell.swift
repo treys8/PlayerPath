@@ -27,46 +27,70 @@ struct PhotoThumbnailCell: View {
             // aspectRatio(.fit) prevents the cell from overflowing its grid column
             // on larger device widths (which was silently happening with .fill).
             GeometryReader { geo in
-                Group {
-                    if let thumbnail {
-                        Image(uiImage: thumbnail)
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                            .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
-                            .clipped()
-                    } else if loadFailed {
-                        Rectangle()
-                            .fill(Color(.systemGray5))
-                            .frame(width: geo.size.width, height: geo.size.height)
-                            .overlay {
-                                VStack(spacing: 4) {
+                ZStack {
+                    Group {
+                        if let thumbnail {
+                            Image(uiImage: thumbnail)
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                                .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
+                                .clipped()
+                        } else if loadFailed {
+                            Rectangle()
+                                .fill(Color(.systemGray5))
+                                .frame(width: geo.size.width, height: geo.size.height)
+                                .overlay {
                                     Image(systemName: photo.cloudURL != nil ? "icloud.and.arrow.down" : "photo")
                                         .font(.title3)
                                         .foregroundColor(.secondary)
-                                    if photo.cloudURL != nil {
-                                        Text("Syncing…")
-                                            .font(.caption2)
-                                            .foregroundColor(.secondary)
-                                    }
                                 }
+                        } else {
+                            Rectangle()
+                                .fill(Color(.systemGray5))
+                                .frame(width: geo.size.width, height: geo.size.height)
+                                .overlay { ProgressView() }
+                        }
+                    }
+
+                    // Overlay badges
+                    if photo.caption?.isEmpty == false {
+                        VStack {
+                            HStack {
+                                captionIndicator
+                                Spacer()
                             }
-                    } else {
-                        Rectangle()
-                            .fill(Color(.systemGray5))
-                            .frame(width: geo.size.width, height: geo.size.height)
-                            .overlay { ProgressView() }
+                            Spacer()
+                        }
+                    }
+
+                    if let icon = syncIndicatorIcon {
+                        VStack {
+                            HStack {
+                                Spacer()
+                                syncBadge(icon: icon.name, color: icon.color)
+                            }
+                            Spacer()
+                        }
+                    }
+
+                    if photo.game == nil && photo.practice == nil {
+                        VStack {
+                            Spacer()
+                            HStack {
+                                Spacer()
+                                untaggedDot
+                            }
+                        }
                     }
                 }
             }
             .aspectRatio(3.0/4.0, contentMode: .fit)
-            .clipShape(UnevenRoundedRectangle(topLeadingRadius: 12, bottomLeadingRadius: 0, bottomTrailingRadius: 0, topTrailingRadius: 12))
 
             // Info section
             VStack(alignment: .leading, spacing: 4) {
                 if let caption = photo.caption, !caption.isEmpty {
                     Text(caption)
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
+                        .font(.headingMedium)
                         .foregroundColor(.primary)
                         .lineLimit(1)
                         .truncationMode(.tail)
@@ -75,13 +99,13 @@ struct PhotoThumbnailCell: View {
                 HStack(spacing: 4) {
                     if let game = photo.game {
                         Text("vs \(game.opponent)")
-                            .font(.caption)
+                            .font(.bodySmall)
                             .foregroundColor(.brandNavy)
                             .lineLimit(1)
                             .truncationMode(.tail)
                     } else if photo.practice != nil {
                         Text("Practice")
-                            .font(.caption)
+                            .font(.bodySmall)
                             .foregroundColor(.green)
                     }
 
@@ -89,7 +113,7 @@ struct PhotoThumbnailCell: View {
 
                     if let date = photo.createdAt {
                         Text(date, style: .date)
-                            .font(.caption2)
+                            .font(.labelSmall)
                             .foregroundColor(.secondary)
                     }
                 }
@@ -151,6 +175,48 @@ struct PhotoThumbnailCell: View {
         .task {
             await loadThumbnail()
         }
+    }
+
+    // MARK: - Overlay Subviews
+
+    private var captionIndicator: some View {
+        Image(systemName: "text.bubble.fill")
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundColor(.white)
+            .padding(5)
+            .background(.ultraThinMaterial, in: Circle())
+            .shadow(color: .black.opacity(0.25), radius: 3, x: 0, y: 1)
+            .padding(8)
+            .accessibilityLabel("Has caption")
+    }
+
+    private var untaggedDot: some View {
+        Circle()
+            .fill(Color.orange)
+            .frame(width: 10, height: 10)
+            .overlay(Circle().strokeBorder(Color.white, lineWidth: 2))
+            .shadow(color: .black.opacity(0.35), radius: 3, x: 0, y: 1)
+            .padding(8)
+            .accessibilityLabel("Untagged — not linked to a game or practice")
+    }
+
+    private func syncBadge(icon: String, color: Color) -> some View {
+        Image(systemName: icon)
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundColor(.white)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 4)
+            .background(color)
+            .cornerRadius(6)
+            .shadow(color: .black.opacity(0.3), radius: 2, x: 0, y: 1)
+            .padding(8)
+    }
+
+    private var syncIndicatorIcon: (name: String, color: Color)? {
+        // Hide when fully synced (the common case) to keep the grid clean.
+        if photo.cloudURL != nil && photo.firestoreId != nil { return nil }
+        if photo.cloudURL != nil { return ("exclamationmark.icloud.fill", .yellow) }
+        return ("iphone", Color.gray.opacity(0.7))
     }
 
     private func loadThumbnail() async {

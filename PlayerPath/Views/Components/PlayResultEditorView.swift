@@ -46,7 +46,7 @@ struct PlayResultEditorView: View {
                     // Current result
                     VStack(spacing: 12) {
                         Text("Current Play Result")
-                            .font(.headline)
+                            .font(.headingMedium)
                             .foregroundColor(.secondary)
 
                         if let currentResult = clip.playResult?.type {
@@ -55,8 +55,7 @@ struct PlayResultEditorView: View {
                                     .font(.title)
                                     .foregroundColor(currentResult.color)
                                 Text(currentResult.displayName)
-                                    .font(.title2)
-                                    .fontWeight(.bold)
+                                    .font(.displayMedium)
                             }
                             .padding()
                             .background(
@@ -65,7 +64,7 @@ struct PlayResultEditorView: View {
                             )
                         } else {
                             Text("No result recorded")
-                                .font(.title3)
+                                .font(.headingLarge)
                                 .foregroundColor(.secondary)
                                 .padding()
                                 .background(
@@ -81,7 +80,7 @@ struct PlayResultEditorView: View {
                     // New result selection
                     VStack(spacing: 16) {
                         Text(isTagging ? "Select Play Result" : "Select New Result")
-                            .font(.headline)
+                            .font(.headingLarge)
 
                         Picker("Mode", selection: $mode) {
                             Text("Batter").tag(AthleteRole.batter)
@@ -107,7 +106,7 @@ struct PlayResultEditorView: View {
                                     showingConfirmation = true
                                 } label: {
                                     Label("Remove Play Result", systemImage: "xmark.circle")
-                                        .font(.body.weight(.medium))
+                                        .font(.labelLarge)
                                         .frame(maxWidth: .infinity)
                                         .padding(.vertical, 14)
                                         .background(
@@ -126,7 +125,7 @@ struct PlayResultEditorView: View {
                             showingConfirmation = true
                         } label: {
                             Text(isTagging ? "Save" : "Save Changes")
-                                .font(.headline)
+                                .font(.headingMedium)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 16)
                                 .background(Color.brandNavy)
@@ -255,8 +254,7 @@ struct PlayResultEditorView: View {
 
     private func sectionHeader(_ title: String) -> some View {
         Text(title)
-            .font(.caption)
-            .fontWeight(.bold)
+            .font(.custom("Inter18pt-Bold", size: 12, relativeTo: .caption))
             .foregroundColor(.secondary)
             .padding(.horizontal, 4)
     }
@@ -347,8 +345,7 @@ struct PlayResultEditButton: View {
         Button(action: action) {
             HStack(spacing: 8) {
                 Text(result.displayName)
-                    .font(.subheadline)
-                    .fontWeight(.semibold)
+                    .font(.headingMedium)
                     .frame(maxWidth: .infinity, alignment: .center)
 
                 if isCurrent {

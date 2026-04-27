@@ -98,8 +98,7 @@ struct PlayResultOverlayView: View {
                                         .font(.caption)
                                         .foregroundColor(.white.opacity(0.8))
                                     Text("vs \(game.opponent)")
-                                        .font(.headline)
-                                        .fontWeight(.bold)
+                                        .font(.headingLarge)
                                         .foregroundColor(.white)
                                 }
                                 if let date = game.date {
@@ -108,12 +107,12 @@ struct PlayResultOverlayView: View {
                                             .font(.caption2)
                                             .foregroundColor(.white.opacity(0.6))
                                         Text(date, style: .date)
-                                            .font(.subheadline)
+                                            .font(.bodyMedium)
                                             .foregroundColor(.white.opacity(0.8))
                                     }
                                 } else {
                                     Text("No date")
-                                        .font(.subheadline)
+                                        .font(.bodyMedium)
                                         .foregroundColor(.white.opacity(0.6))
                                 }
                             } else if let practice = practice {
@@ -122,8 +121,7 @@ struct PlayResultOverlayView: View {
                                         .font(.caption)
                                         .foregroundColor(.white.opacity(0.8))
                                     Text("\(practice.type.displayName) Practice")
-                                        .font(.headline)
-                                        .fontWeight(.bold)
+                                        .font(.headingLarge)
                                         .foregroundColor(.white)
                                 }
                                 if let date = practice.date {
@@ -132,12 +130,12 @@ struct PlayResultOverlayView: View {
                                             .font(.caption2)
                                             .foregroundColor(.white.opacity(0.6))
                                         Text(date, style: .date)
-                                            .font(.subheadline)
+                                            .font(.bodyMedium)
                                             .foregroundColor(.white.opacity(0.8))
                                     }
                                 } else {
                                     Text("No date")
-                                        .font(.subheadline)
+                                        .font(.bodyMedium)
                                         .foregroundColor(.white.opacity(0.6))
                                 }
                             }
@@ -147,7 +145,7 @@ struct PlayResultOverlayView: View {
                                         .font(.caption2)
                                         .foregroundColor(.white.opacity(0.5))
                                     Text(athlete.name)
-                                        .font(.caption)
+                                        .font(.bodySmall)
                                         .foregroundColor(.white.opacity(0.7))
                                 }
                             }
@@ -188,7 +186,7 @@ struct PlayResultOverlayView: View {
                             Image(systemName: "chevron.left")
                                 .font(.body.weight(.semibold))
                             Text("Back")
-                                .font(.body)
+                                .font(.bodyLarge)
                         }
                         .foregroundColor(.white)
                         .padding(.horizontal, 12)
@@ -214,7 +212,7 @@ struct PlayResultOverlayView: View {
                         .scaleEffect(1.5)
                         .tint(.white)
                     Text("Saving...")
-                        .font(.headline)
+                        .font(.headingMedium)
                         .foregroundColor(.white)
                 }
                 .transition(.opacity)
@@ -291,13 +289,12 @@ struct PlayResultOverlayView: View {
             // Header
             VStack(spacing: 6) {
                 Text("Select Play Result")
-                    .font(.title3)
-                    .fontWeight(.bold)
+                    .font(.headingLarge)
                     .foregroundColor(.white)
                     .multilineTextAlignment(.center)
                     .accessibilityAddTraits(.isHeader)
                 Text(practice != nil ? "Add a result to track statistics" : "Choose what happened on this play")
-                    .font(.caption)
+                    .font(.bodySmall)
                     .foregroundColor(.white.opacity(0.7))
                     .multilineTextAlignment(.center)
             }
@@ -323,11 +320,10 @@ struct PlayResultOverlayView: View {
                         .keyboardType(.decimalPad)
                         .focused($pitchSpeedFocused)
                         .foregroundColor(.white)
-                        .font(.subheadline.weight(.semibold))
+                        .font(.headingMedium)
                         .frame(maxWidth: .infinity)
                     Text("MPH")
-                        .font(.caption)
-                        .fontWeight(.bold)
+                        .font(.custom("Inter18pt-Bold", size: 12, relativeTo: .caption))
                         .foregroundColor(.white.opacity(0.6))
 
                     if pitchSpeedFocused {
@@ -335,8 +331,7 @@ struct PlayResultOverlayView: View {
                             pitchSpeedFocused = false
                         } label: {
                             Text("Done")
-                                .font(.subheadline)
-                                .fontWeight(.semibold)
+                                .font(.headingMedium)
                                 .foregroundColor(.brandNavy)
                         }
                     }

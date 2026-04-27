@@ -22,8 +22,7 @@ struct QuickActionButton: View {
                     .symbolRenderingMode(.hierarchical)
 
                 Text(title)
-                    .font(.caption)
-                    .fontWeight(.semibold)
+                    .font(.headingSmall)
                     .foregroundColor(.white)
                     .multilineTextAlignment(.center)
             }

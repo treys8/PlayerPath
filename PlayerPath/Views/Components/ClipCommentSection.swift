@@ -28,7 +28,7 @@ struct ClipCommentSection: View {
                     ProgressView()
                         .scaleEffect(0.8)
                     Text("Loading comments...")
-                        .font(.caption)
+                        .font(.bodySmall)
                         .foregroundColor(.secondary)
                 }
                 .padding(.horizontal, 10)
@@ -39,7 +39,7 @@ struct ClipCommentSection: View {
                         .font(.caption)
                         .foregroundColor(.orange)
                     Text("Couldn't load comments")
-                        .font(.caption)
+                        .font(.bodySmall)
                         .foregroundColor(.secondary)
                 }
                 .padding(.horizontal, 10)
@@ -56,7 +56,7 @@ struct ClipCommentSection: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
                     Text("No coach feedback yet")
-                        .font(.caption)
+                        .font(.bodySmall)
                         .foregroundColor(.secondary)
                 }
                 .padding(.horizontal, 10)
@@ -118,12 +118,10 @@ private struct CoachCommentRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 4) {
                     Text(comment.authorName)
-                        .font(.caption)
-                        .fontWeight(.semibold)
+                        .font(.custom("Inter18pt-SemiBold", size: 12, relativeTo: .caption))
                         .foregroundColor(.primary)
                     Text("Coach")
-                        .font(.caption2)
-                        .fontWeight(.medium)
+                        .font(.labelSmall)
                         .foregroundColor(.white)
                         .padding(.horizontal, 5)
                         .padding(.vertical, 1)
@@ -131,12 +129,12 @@ private struct CoachCommentRow: View {
                         .cornerRadius(4)
                     if let date = comment.createdAt {
                         Text(date, style: .relative)
-                            .font(.caption2)
+                            .font(.labelSmall)
                             .foregroundColor(.secondary)
                     }
                 }
                 Text(comment.text)
-                    .font(.caption)
+                    .font(.bodySmall)
                     .foregroundColor(.secondary)
             }
         }

@@ -45,8 +45,7 @@ struct BattingChartSection: View {
                     .cornerRadius(4)
                     .annotation(position: .trailing) {
                         Text("\(data.count)")
-                            .font(.caption2)
-                            .fontWeight(.semibold)
+                            .font(.custom("Inter18pt-SemiBold", size: 11, relativeTo: .caption2))
                             .foregroundColor(.secondary)
                     }
                     .accessibilityLabel("\(data.type): \(data.count)")
@@ -69,7 +68,7 @@ struct BattingChartSection: View {
                         .font(.title2)
                         .foregroundColor(.secondary.opacity(0.5))
                     Text("No hits recorded yet")
-                        .font(.subheadline)
+                        .font(.bodyMedium)
                         .foregroundColor(.secondary)
                 }
                 .frame(height: horizontalSizeClass == .regular ? 140 : 100)

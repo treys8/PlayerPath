@@ -37,11 +37,11 @@ struct AthleteInvitationsBanner: View {
 
                         VStack(alignment: .leading, spacing: 2) {
                             Text("\(invitationManager.pendingCount) Coach Invitation\(invitationManager.pendingCount == 1 ? "" : "s")")
-                                .font(.headline)
+                                .font(.headingMedium)
                                 .foregroundColor(.primary)
 
                             Text("Tap to view and respond")
-                                .font(.caption)
+                                .font(.bodySmall)
                                 .foregroundColor(.secondary)
                         }
 
@@ -255,15 +255,15 @@ struct CoachInvitationCard: View {
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(invitation.coachName)
-                        .font(.headline)
+                        .font(.headingMedium)
 
                     Text(invitation.coachEmail)
-                        .font(.caption)
+                        .font(.bodySmall)
                         .foregroundColor(.secondary)
 
                     if let sentAt = invitation.sentAt {
                         Text("Sent \(sentAt.formatted(.relative(presentation: .named)))")
-                            .font(.caption2)
+                            .font(.labelSmall)
                             .foregroundColor(.secondary)
                     }
                 }
@@ -272,7 +272,7 @@ struct CoachInvitationCard: View {
             // Message if present
             if let message = invitation.message, !message.isEmpty {
                 Text(message)
-                    .font(.subheadline)
+                    .font(.bodyMedium)
                     .foregroundColor(.secondary)
                     .padding()
                     .background(Color(.systemGray6))
@@ -285,8 +285,7 @@ struct CoachInvitationCard: View {
                     Task { await onDecline() }
                 } label: {
                     Text("Decline")
-                        .font(.subheadline)
-                        .fontWeight(.medium)
+                        .font(.labelLarge)
                         .frame(maxWidth: .infinity)
                         .frame(height: 44)
                         .background(Color(.systemGray5))
@@ -307,8 +306,7 @@ struct CoachInvitationCard: View {
                             Text("Accept")
                         }
                     }
-                    .font(.subheadline)
-                    .fontWeight(.semibold)
+                    .font(.headingMedium)
                     .frame(maxWidth: .infinity)
                     .frame(height: 44)
                     .background(Color.green)

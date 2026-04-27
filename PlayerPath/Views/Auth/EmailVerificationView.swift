@@ -39,11 +39,11 @@ struct EmailVerificationView: View {
             // Heading
             VStack(spacing: 10) {
                 Text("Verify Your Email")
-                    .font(.title2).fontWeight(.bold)
+                    .font(.displayMedium)
                 Text("We sent a verification link to:")
-                    .font(.subheadline).foregroundColor(.secondary)
+                    .font(.bodyMedium).foregroundColor(.secondary)
                 Text(authManager.userEmail ?? "your email")
-                    .font(.subheadline).fontWeight(.semibold)
+                    .font(.headingSmall)
                     .foregroundColor(.brandNavy)
             }
 
@@ -61,7 +61,7 @@ struct EmailVerificationView: View {
                     Image(systemName: isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
                         .foregroundColor(isError ? .red : .green)
                     Text(statusMessage)
-                        .font(.caption)
+                        .font(.bodySmall)
                         .foregroundColor(isError ? .red : .green)
                 }
                 .padding(.horizontal, 16)
@@ -88,7 +88,7 @@ struct EmailVerificationView: View {
                             Image(systemName: "checkmark.circle.fill").font(.title3)
                         }
                         Text(isCheckingVerification ? "Checking..." : "I've Verified My Email")
-                            .fontWeight(.semibold)
+                            .font(.headingMedium)
                     }
                     .frame(maxWidth: .infinity).frame(height: 54)
                     .background(
@@ -114,9 +114,8 @@ struct EmailVerificationView: View {
                             Image(systemName: "arrow.counterclockwise")
                         }
                         Text(isResending ? "Sending..." : "Resend Verification Email")
-                            .fontWeight(.medium)
                     }
-                    .font(.subheadline)
+                    .font(.labelLarge)
                     .foregroundColor(.brandNavy)
                 }
                 .disabled(isCheckingVerification || isResending)
@@ -127,7 +126,7 @@ struct EmailVerificationView: View {
                     Task { await authManager.cancelEmailVerification() }
                 } label: {
                     Text("Use a Different Account")
-                        .font(.subheadline).fontWeight(.medium)
+                        .font(.labelLarge)
                         .foregroundColor(.secondary)
                 }
                 .disabled(isCheckingVerification || isResending)
@@ -149,7 +148,7 @@ struct EmailVerificationView: View {
                 .foregroundColor(.brandNavy)
                 .frame(width: 28)
             Text(text)
-                .font(.subheadline)
+                .font(.bodyMedium)
                 .foregroundColor(.primary)
             Spacer()
         }

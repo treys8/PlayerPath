@@ -173,7 +173,7 @@ struct CameraSettingsView: View {
                     .pickerStyle(.inline)
 
                     Text(viewModel.settings.quality.description)
-                        .font(.caption)
+                        .font(.bodySmall)
                         .foregroundColor(.secondary)
                 }
 
@@ -187,7 +187,7 @@ struct CameraSettingsView: View {
                     .pickerStyle(.segmented)
 
                     Text(viewModel.settings.frameRate.description)
-                        .font(.caption)
+                        .font(.bodySmall)
                         .foregroundColor(.secondary)
                 }
 
@@ -200,7 +200,7 @@ struct CameraSettingsView: View {
 
                     if !viewModel.settings.supportsSlowMotion {
                         Text("Requires 120fps or higher")
-                            .font(.caption)
+                            .font(.bodySmall)
                             .foregroundColor(.secondary)
                     }
 
@@ -213,7 +213,7 @@ struct CameraSettingsView: View {
                     }
 
                     Text(viewModel.settings.format.description)
-                        .font(.caption)
+                        .font(.bodySmall)
                         .foregroundColor(.secondary)
 
                     Picker("Stabilization", selection: $viewModel.settings.stabilizationMode) {

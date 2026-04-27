@@ -72,7 +72,7 @@ struct MoveClipSheet: View {
                         Haptics.warning()
                         showingConfirmation = true
                     }
-                    .fontWeight(.semibold)
+                    .font(.headingMedium)
                     .disabled(!canMove)
                 }
             }
@@ -102,7 +102,7 @@ struct MoveClipSheet: View {
                         VStack(spacing: 12) {
                             ProgressView()
                             Text("Moving clip...")
-                                .font(.subheadline)
+                                .font(.bodyMedium)
                                 .foregroundColor(.secondary)
                         }
                     }
@@ -120,9 +120,9 @@ struct MoveClipSheet: View {
                 .font(.system(size: 50))
                 .foregroundColor(.secondary)
             Text("No Other Athletes")
-                .font(.headline)
+                .font(.headingLarge)
             Text("Add another athlete profile to move clips between them.")
-                .font(.subheadline)
+                .font(.bodyMedium)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 32)
@@ -136,9 +136,9 @@ struct MoveClipSheet: View {
                 .font(.system(size: 50))
                 .foregroundColor(.orange)
             Text("Can't Move Right Now")
-                .font(.headline)
+                .font(.headingLarge)
             Text(blockReason ?? "Please try again later.")
-                .font(.subheadline)
+                .font(.bodyMedium)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 32)
@@ -159,11 +159,11 @@ struct MoveClipSheet: View {
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(athlete.name)
-                                    .font(.body)
+                                    .font(.bodyLarge)
                                     .foregroundColor(.primary)
                                 if let season = athlete.activeSeason {
                                     Text(season.displayName)
-                                        .font(.caption)
+                                        .font(.bodySmall)
                                         .foregroundColor(.secondary)
                                 }
                             }
@@ -207,11 +207,11 @@ struct MoveClipSheet: View {
                             HStack {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text("vs \(game.opponent)")
-                                        .font(.body)
+                                        .font(.bodyLarge)
                                         .foregroundColor(.primary)
                                     if let date = game.date {
                                         Text(date, style: .date)
-                                            .font(.caption)
+                                            .font(.bodySmall)
                                             .foregroundColor(.secondary)
                                     }
                                 }

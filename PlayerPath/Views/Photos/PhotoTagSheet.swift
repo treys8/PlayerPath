@@ -74,7 +74,7 @@ struct PhotoTagSheet: View {
                                         .foregroundColor(.primary)
                                     if let date = game.date {
                                         Text(date, style: .date)
-                                            .font(.caption)
+                                            .font(.bodySmall)
                                             .foregroundColor(.secondary)
                                     }
                                 }
@@ -119,7 +119,7 @@ struct PhotoTagSheet: View {
                                         .foregroundColor(.primary)
                                     if let date = practice.date {
                                         Text(date, style: .date)
-                                            .font(.caption)
+                                            .font(.bodySmall)
                                             .foregroundColor(.secondary)
                                     }
                                 }

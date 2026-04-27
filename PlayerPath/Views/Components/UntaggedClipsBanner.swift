@@ -11,7 +11,7 @@ struct UntaggedClipsBanner: View {
                     .font(.caption.weight(.semibold))
                     .foregroundColor(.orange)
                 Text("\(count) clip\(count == 1 ? "" : "s") need\(count == 1 ? "s" : "") tagging")
-                    .font(.subheadline.weight(.medium))
+                    .font(.labelLarge)
                     .foregroundColor(.primary)
                 Spacer()
                 Image(systemName: "chevron.right")

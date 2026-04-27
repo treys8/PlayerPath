@@ -27,12 +27,11 @@ struct ChartsPromptCard: View {
 
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Visualize Your Performance")
-                        .font(.headline)
-                        .fontWeight(.bold)
+                        .font(.headingLarge)
                         .foregroundColor(.primary)
 
                     Text("View interactive charts and trends")
-                        .font(.subheadline)
+                        .font(.bodyMedium)
                         .foregroundColor(.secondary)
                 }
 

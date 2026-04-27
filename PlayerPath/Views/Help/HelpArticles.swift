@@ -516,8 +516,7 @@ struct HelpArticleDetailView: View {
                         .cornerRadius(12)
 
                     Text(article.title)
-                        .font(.title)
-                        .fontWeight(.bold)
+                        .font(.displayLarge)
                 }
                 .padding(.top)
 
@@ -525,7 +524,7 @@ struct HelpArticleDetailView: View {
 
                 // Content
                 Text(article.content)
-                    .font(.body)
+                    .font(.bodyLarge)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .padding()

@@ -92,7 +92,7 @@ struct ModernTextField: View {
                         .textInputAutocapitalization(autocapitalization)
                 }
             }
-            .font(.body)
+            .font(.bodyLarge)
             .focused(focusedBinding ?? $internalFocus)
             .submitLabel(submitLabel)
             .disableAutocorrection(isSecure || keyboardType == .emailAddress)
@@ -185,8 +185,7 @@ struct PasswordStrengthIndicator: View {
 
             // Strength label
             Text(strength.text)
-                .font(.caption2)
-                .fontWeight(.medium)
+                .font(.labelSmall)
                 .foregroundColor(strength.color)
         }
         .animation(.easeInOut(duration: 0.2), value: strength.level)
@@ -216,7 +215,7 @@ struct PasswordRequirementsList: View {
                         .foregroundColor(isMet ? .green : Color(.systemGray3))
 
                     Text(requirement)
-                        .font(.caption)
+                        .font(.bodySmall)
                         .foregroundColor(isMet ? .primary : .secondary)
                 }
             }

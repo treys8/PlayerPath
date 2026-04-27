@@ -56,12 +56,11 @@ struct AddAthleteView: View {
 
                             VStack(spacing: 16) {
                                 Text(isFirstAthlete ? "Ready to Track!" : "New Athlete")
-                                    .font(.largeTitle)
-                                    .fontWeight(.bold)
+                                    .font(.displayLarge)
                                     .multilineTextAlignment(.center)
 
                                 Text(isFirstAthlete ? "Enter your athlete's name to get started." : "Add another athlete to track.")
-                                    .font(.title3)
+                                    .font(.bodyLarge)
                                     .foregroundColor(.secondary)
                                     .multilineTextAlignment(.center)
                                     .padding(.horizontal)
@@ -71,8 +70,7 @@ struct AddAthleteView: View {
                         if !isFirstAthlete {
                             VStack(alignment: .leading, spacing: 16) {
                                 Text("What You Can Track:")
-                                    .font(.headline)
-                                    .fontWeight(.semibold)
+                                    .font(.headingLarge)
                                     .padding(.bottom, 8)
 
                                 FeatureHighlight(
@@ -115,7 +113,7 @@ struct AddAthleteView: View {
                                 Toggle("Track statistics for this athlete", isOn: $trackStats)
                                     .tint(.brandNavy)
                                 Text("Turn off to record and review videos without play-result tagging. You can change this later in athlete settings.")
-                                    .font(.caption)
+                                    .font(.bodySmall)
                                     .foregroundColor(.secondary)
                             }
                             .padding(.horizontal, 4)
@@ -130,8 +128,7 @@ struct AddAthleteView: View {
                                         .font(.title3)
                                         .fontWeight(.semibold)
                                     Text(isFirstAthlete ? "Create First Athlete" : "Create Athlete")
-                                        .font(.title3)
-                                        .fontWeight(.bold)
+                                        .font(.headingLarge)
                                 }
                                 .frame(maxWidth: .infinity)
                                 .frame(height: 58)
@@ -156,7 +153,7 @@ struct AddAthleteView: View {
                         .padding(.top, 20)
 
                         Text("You can add more athletes later in your profile settings")
-                            .font(.caption)
+                            .font(.bodySmall)
                             .foregroundColor(.secondary)
                             .multilineTextAlignment(.center)
                             .padding(.bottom, 40)

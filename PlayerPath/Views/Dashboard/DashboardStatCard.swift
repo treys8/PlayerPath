@@ -23,7 +23,7 @@ struct DashboardStatCard: View {
                 .symbolRenderingMode(.hierarchical)
 
             Text(value)
-                .font(.system(size: 32, weight: .heavy, design: .rounded))
+                .font(.ppStat(32))
                 .foregroundStyle(
                     LinearGradient(
                         colors: [.primary, .primary.opacity(0.8)],
@@ -37,8 +37,7 @@ struct DashboardStatCard: View {
                 .opacity(isAnimating ? 1.0 : 0)
 
             Text(title)
-                .font(.caption2)
-                .fontWeight(.semibold)
+                .font(.custom("Inter18pt-SemiBold", size: 11, relativeTo: .caption2))
                 .foregroundColor(.secondary)
                 .textCase(.uppercase)
                 .tracking(0.5)

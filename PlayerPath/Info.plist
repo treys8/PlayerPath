@@ -13,6 +13,19 @@
 	</array>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>UIAppFonts</key>
+	<array>
+		<string>Inter_18pt-Regular.ttf</string>
+		<string>Inter_18pt-Medium.ttf</string>
+		<string>Inter_18pt-SemiBold.ttf</string>
+		<string>Inter_18pt-Bold.ttf</string>
+		<string>Fraunces_72pt-Regular.ttf</string>
+		<string>Fraunces_72pt-SemiBold.ttf</string>
+		<string>Fraunces_72pt-Bold.ttf</string>
+		<string>Archivo-Bold.ttf</string>
+		<string>Archivo_Condensed-Bold.ttf</string>
+		<string>Archivo_Condensed-Black.ttf</string>
+	</array>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>PlayerPath needs access to save videos to your Camera Roll.</string>
 	<key>UILaunchScreen</key>

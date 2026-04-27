@@ -14,11 +14,10 @@ struct GettingStartedView: View {
                 // Header
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Getting Started with PlayerPath")
-                        .font(.largeTitle)
-                        .fontWeight(.bold)
+                        .font(.displayLarge)
 
                     Text("Welcome! Let's get you set up to start tracking your baseball or softball performance.")
-                        .font(.body)
+                        .font(.bodyLarge)
                         .foregroundColor(.secondary)
                 }
 
@@ -116,8 +115,7 @@ struct GettingStartedView: View {
                 // Next Steps
                 VStack(alignment: .leading, spacing: 16) {
                     Text("Next Steps")
-                        .font(.title2)
-                        .fontWeight(.bold)
+                        .font(.displayMedium)
 
                     VStack(alignment: .leading, spacing: 12) {
                         NextStepRow(
@@ -146,8 +144,7 @@ struct GettingStartedView: View {
                 // Help Resources
                 VStack(alignment: .leading, spacing: 16) {
                     Text("Need More Help?")
-                        .font(.title2)
-                        .fontWeight(.bold)
+                        .font(.displayMedium)
 
                     VStack(spacing: 8) {
                         NavigationLink {
@@ -214,16 +211,16 @@ struct GettingStartedStep: View {
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Step \(number)")
-                        .font(.caption)
+                        .font(.bodySmall)
                         .foregroundColor(.secondary)
 
                     Text(title)
-                        .font(.headline)
+                        .font(.headingLarge)
                 }
             }
 
             Text(description)
-                .font(.body)
+                .font(.bodyLarge)
                 .foregroundColor(.secondary)
 
             // Steps
@@ -231,12 +228,12 @@ struct GettingStartedStep: View {
                 ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
                     HStack(alignment: .top, spacing: 8) {
                         Text("\(index + 1).")
-                            .font(.body)
+                            .font(.bodyLarge)
                             .foregroundColor(.secondary)
                             .frame(width: 20, alignment: .leading)
 
                         Text(step)
-                            .font(.body)
+                            .font(.bodyLarge)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
@@ -251,7 +248,7 @@ struct GettingStartedStep: View {
                         .font(.caption)
 
                     Text(tip)
-                        .font(.caption)
+                        .font(.bodySmall)
                         .foregroundColor(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -280,11 +277,10 @@ struct NextStepRow: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.body)
-                    .fontWeight(.medium)
+                    .font(.labelLarge)
 
                 Text(description)
-                    .font(.caption)
+                    .font(.bodySmall)
                     .foregroundColor(.secondary)
             }
         }

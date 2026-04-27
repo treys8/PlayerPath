@@ -48,10 +48,10 @@ struct SeasonManagementView: View {
                             .foregroundStyle(.secondary)
 
                         Text("No Active Season")
-                            .font(.headline)
+                            .font(.headingLarge)
 
                         Text("Start a new season to begin tracking games, practices, and videos.")
-                            .font(.subheadline)
+                            .font(.bodyMedium)
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
 
@@ -226,11 +226,11 @@ struct ActiveSeasonCard: View {
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(season.displayName)
-                        .font(.headline)
+                        .font(.headingMedium)
 
                     if let startDate = season.startDate {
                         Text("Started \(startDate.formatted(date: .abbreviated, time: .omitted))")
-                            .font(.caption)
+                            .font(.bodySmall)
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -284,10 +284,11 @@ struct SeasonStatBadge: View {
                 .foregroundStyle(.secondary)
 
             Text("\(value)")
-                .font(.headline)
+                .font(.ppStatSmall)
+                .monospacedDigit()
 
             Text(label)
-                .font(.caption2)
+                .font(.labelSmall)
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
@@ -309,7 +310,7 @@ struct SeasonHistoryRow: View {
                     .foregroundStyle(.secondary)
 
                 Text(season.displayName)
-                    .font(.headline)
+                    .font(.headingMedium)
 
                 Spacer()
 
@@ -324,14 +325,14 @@ struct SeasonHistoryRow: View {
             HStack {
                 if let start = season.startDate, let end = season.endDate {
                     Text("\(start.formatted(date: .abbreviated, time: .omitted)) - \(end.formatted(date: .abbreviated, time: .omitted))")
-                        .font(.caption)
+                        .font(.bodySmall)
                         .foregroundStyle(.secondary)
                 }
 
                 Spacer()
 
                 Text("\(completedGames) games • \(totalVideos) videos")
-                    .font(.caption)
+                    .font(.bodySmall)
                     .foregroundStyle(.secondary)
             }
         }

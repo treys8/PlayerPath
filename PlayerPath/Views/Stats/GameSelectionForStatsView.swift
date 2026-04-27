@@ -98,16 +98,15 @@ struct GameRowForStats: View {
         HStack {
             VStack(alignment: .leading, spacing: 4) {
                 Text("vs \(game.opponent)")
-                    .font(.headline)
-                    .fontWeight(.semibold)
+                    .font(.headingMedium)
 
                 if let date = game.date {
                     Text(date, style: .date)
-                        .font(.caption)
+                        .font(.bodySmall)
                         .foregroundColor(.secondary)
                 } else {
                     Text("No date")
-                        .font(.caption)
+                        .font(.bodySmall)
                         .foregroundColor(.secondary)
                 }
 
@@ -115,8 +114,7 @@ struct GameRowForStats: View {
                     switch game.displayStatus {
                     case .live:
                         Text("LIVE")
-                            .font(.caption)
-                            .fontWeight(.bold)
+                            .font(.custom("Inter18pt-Bold", size: 12, relativeTo: .caption))
                             .foregroundColor(.white)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
@@ -124,8 +122,7 @@ struct GameRowForStats: View {
                             .cornerRadius(4)
                     case .completed:
                         Text("COMPLETED")
-                            .font(.caption)
-                            .fontWeight(.bold)
+                            .font(.custom("Inter18pt-Bold", size: 12, relativeTo: .caption))
                             .foregroundColor(.white)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
@@ -133,8 +130,7 @@ struct GameRowForStats: View {
                             .cornerRadius(4)
                     case .scheduled:
                         Text("SCHEDULED")
-                            .font(.caption)
-                            .fontWeight(.bold)
+                            .font(.custom("Inter18pt-Bold", size: 12, relativeTo: .caption))
                             .foregroundColor(.white)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
@@ -151,18 +147,18 @@ struct GameRowForStats: View {
             VStack(alignment: .trailing) {
                 if let stats = game.gameStats {
                     Text("\(stats.hits)/\(stats.atBats)")
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
+                        .font(.ppStatSmall)
+                        .monospacedDigit()
                         .foregroundColor(.blue)
 
                     if stats.atBats > 0 {
                         Text(StatisticsService.shared.formatBattingAverage(Double(stats.hits) / Double(stats.atBats)))
-                            .font(.caption)
+                            .font(.bodySmall)
                             .foregroundColor(.secondary)
                     }
                 } else {
                     Text("No stats")
-                        .font(.caption)
+                        .font(.bodySmall)
                         .foregroundColor(.secondary)
                 }
 

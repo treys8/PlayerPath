@@ -31,14 +31,13 @@ struct ActivityNotificationBanner: View {
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text(notification.displayTitle)
-                            .font(.subheadline)
-                            .fontWeight(.semibold)
+                            .font(.headingSmall)
                             .foregroundColor(.primary)
                             .lineLimit(1)
                             .truncationMode(.tail)
 
                         Text(notification.displayBody)
-                            .font(.caption)
+                            .font(.bodySmall)
                             .foregroundColor(.secondary)
                             .lineLimit(2)
                             .truncationMode(.tail)

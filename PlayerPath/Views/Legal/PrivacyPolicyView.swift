@@ -12,11 +12,10 @@ struct PrivacyPolicyView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 Text("Privacy Policy")
-                    .font(.largeTitle)
-                    .fontWeight(.bold)
+                    .font(.displayLarge)
 
                 Text("Last updated: March 1, 2026")
-                    .font(.subheadline)
+                    .font(.bodyMedium)
                     .foregroundColor(.secondary)
 
                 Divider()
@@ -163,11 +162,10 @@ struct PolicySection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
-                .font(.title2)
-                .fontWeight(.semibold)
+                .font(.displayMedium)
 
             Text(content)
-                .font(.body)
+                .font(.bodyLarge)
                 .foregroundColor(.primary)
         }
     }

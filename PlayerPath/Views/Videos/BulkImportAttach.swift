@@ -86,8 +86,7 @@ struct BulkImportAttach: ViewModifier {
             .overlay(alignment: .bottom) {
                 if let message = toastMessage {
                     Text(message)
-                        .font(.subheadline)
-                        .fontWeight(.medium)
+                        .font(.labelLarge)
                         .foregroundColor(.white)
                         .padding(.horizontal, 20)
                         .padding(.vertical, 12)

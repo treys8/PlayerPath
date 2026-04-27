@@ -69,12 +69,12 @@ struct GameLinkerView: View {
                                             .foregroundColor(.primary)
                                         if let date = game.date {
                                             Text(date, format: .dateTime.month(.abbreviated).day().year())
-                                                .font(.caption)
+                                                .font(.bodySmall)
                                                 .foregroundColor(.secondary)
                                         }
                                         if let season = game.season {
                                             Text(season.displayName)
-                                                .font(.caption2)
+                                                .font(.labelSmall)
                                                 .foregroundColor(.brandNavy)
                                         }
                                     }

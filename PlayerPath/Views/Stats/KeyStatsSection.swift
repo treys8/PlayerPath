@@ -82,15 +82,14 @@ struct StatCard: View {
     var body: some View {
         VStack(spacing: 8) {
             Text(title)
-                .font(.caption)
-                .fontWeight(.medium)
+                .font(.labelMedium)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
                 .textCase(.uppercase)
                 .tracking(0.5)
 
             Text(value)
-                .font(.system(size: 28, weight: .bold, design: .rounded))
+                .font(.ppStatMedium)
                 .foregroundStyle(
                     LinearGradient(
                         colors: [color, color.opacity(0.7)],
@@ -106,7 +105,7 @@ struct StatCard: View {
 
             if let subtitle = subtitle {
                 Text(subtitle)
-                    .font(.caption2)
+                    .font(.labelSmall)
                     .foregroundColor(.secondary)
             }
         }

@@ -61,8 +61,7 @@ struct LiveGameCard: View {
                             .opacity(isPulsing ? 0.5 : 1.0)
 
                         Text("LIVE")
-                            .font(.caption2)
-                            .fontWeight(.black)
+                            .font(.custom("Inter18pt-Bold", size: 11, relativeTo: .caption2))
                             .foregroundColor(.red)
                     }
                     .padding(.horizontal, 6)
@@ -73,14 +72,12 @@ struct LiveGameCard: View {
                     )
 
                     Text("GAME")
-                        .font(.caption2)
-                        .fontWeight(.semibold)
+                        .font(.labelSmall)
                         .foregroundColor(.secondary)
                 }
 
                 Text("vs \(game.opponent.isEmpty ? "Unknown" : game.opponent)")
-                    .font(.body)
-                    .fontWeight(.semibold)
+                    .font(.headingMedium)
                     .foregroundColor(.primary)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -91,7 +88,7 @@ struct LiveGameCard: View {
                         Image(systemName: "chart.bar.fill")
                             .font(.caption2)
                         Text("\(stats.hits)-\(stats.atBats)")
-                            .font(.caption)
+                            .font(.bodySmall)
                             .monospacedDigit()
                     }
                     .foregroundColor(.secondary)
@@ -100,7 +97,7 @@ struct LiveGameCard: View {
                         Image(systemName: "clock.fill")
                             .font(.caption2)
                         Text(date, format: .dateTime.hour().minute())
-                            .font(.caption)
+                            .font(.bodySmall)
                     }
                     .foregroundColor(.secondary)
                 }
@@ -122,8 +119,7 @@ struct LiveGameCard: View {
                             Text("End")
                         }
                     }
-                    .font(.caption)
-                    .fontWeight(.bold)
+                    .font(.custom("Inter18pt-Bold", size: 13, relativeTo: .footnote))
                     .foregroundColor(.white)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 7)

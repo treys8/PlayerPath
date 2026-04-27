@@ -24,12 +24,11 @@ struct SeasonIndicatorView: View {
                 
                 if let activeSeason = athlete.activeSeason {
                     Text(activeSeason.displayName)
-                        .font(.subheadline)
-                        .fontWeight(.medium)
+                        .font(.labelLarge)
                         .foregroundStyle(.primary)
                 } else {
                     Text("No Active Season")
-                        .font(.subheadline)
+                        .font(.bodyMedium)
                         .foregroundStyle(.secondary)
                 }
                 
@@ -79,11 +78,10 @@ struct SeasonRecommendationBanner: View {
                 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(titleForRecommendation)
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
-                    
+                        .font(.headingSmall)
+
                     Text(message)
-                        .font(.caption)
+                        .font(.bodySmall)
                         .foregroundStyle(.secondary)
                 }
                 
@@ -93,8 +91,7 @@ struct SeasonRecommendationBanner: View {
                     showingSeasonManagement = true
                 } label: {
                     Text("Manage")
-                        .font(.caption)
-                        .fontWeight(.semibold)
+                        .font(.custom("Inter18pt-SemiBold", size: 12, relativeTo: .caption))
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
                         .background(colorForRecommendation.opacity(0.2))
@@ -176,11 +173,10 @@ struct CreateFirstSeasonPrompt: View {
             
             VStack(spacing: 8) {
                 Text("Start Your First Season")
-                    .font(.title)
-                    .fontWeight(.bold)
-                
+                    .font(.displayMedium)
+
                 Text("Organize your baseball journey by season. All games, practices, and videos will be saved in your active season.")
-                    .font(.body)
+                    .font(.bodyLarge)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal)
@@ -203,7 +199,7 @@ struct CreateFirstSeasonPrompt: View {
                 showingCreateSeason = true
             } label: {
                 Label("Create Season", systemImage: "plus.circle.fill")
-                    .font(.headline)
+                    .font(.headingMedium)
                     .frame(maxWidth: .infinity)
                     .padding()
                     .background(Color.brandNavy)
@@ -216,7 +212,7 @@ struct CreateFirstSeasonPrompt: View {
                 Haptics.light()
                 _ = SeasonManager.ensureActiveSeason(for: athlete, in: modelContext)
             }
-            .font(.subheadline)
+            .font(.bodyMedium)
             .foregroundStyle(.secondary)
         }
         .padding()
@@ -238,8 +234,8 @@ struct SeasonFeatureRow: View {
                 .frame(width: 30)
             
             Text(text)
-                .font(.subheadline)
-            
+                .font(.bodyMedium)
+
             Spacer()
         }
     }

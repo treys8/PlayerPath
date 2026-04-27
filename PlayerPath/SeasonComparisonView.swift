@@ -136,11 +136,10 @@ struct SeasonComparisonView: View {
                     .foregroundStyle(.blue)
 
                 Text("Compare Seasons")
-                    .font(.title2)
-                    .fontWeight(.bold)
+                    .font(.displayMedium)
 
                 Text("Select 2-4 seasons to compare statistics and trends")
-                    .font(.subheadline)
+                    .font(.bodyMedium)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal)
@@ -154,9 +153,9 @@ struct SeasonComparisonView: View {
                         .font(.system(size: 40))
                         .foregroundStyle(.secondary)
                     Text("No Seasons Yet")
-                        .font(.headline)
+                        .font(.headingLarge)
                     Text("Create at least two seasons with game data to start comparing.")
-                        .font(.subheadline)
+                        .font(.bodyMedium)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
                         .padding(.horizontal)
@@ -207,12 +206,11 @@ struct SeasonSelectionRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
                     Text(season.displayName)
-                        .font(.headline)
+                        .font(.headingMedium)
 
                     if season.isActive {
                         Text("ACTIVE")
-                            .font(.caption2)
-                            .fontWeight(.bold)
+                            .font(.custom("Inter18pt-Bold", size: 11, relativeTo: .caption2))
                             .foregroundStyle(.white)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
@@ -223,11 +221,11 @@ struct SeasonSelectionRow: View {
 
                 if let stats = season.seasonStatistics {
                     Text("\(stats.totalGames) games • \(stats.hits)/\(stats.atBats) • \(formatBattingAverage(stats.battingAverage))")
-                        .font(.caption)
+                        .font(.bodySmall)
                         .foregroundStyle(.secondary)
                 } else {
                     Text("No statistics yet")
-                        .font(.caption)
+                        .font(.bodySmall)
                         .foregroundStyle(.secondary)
                 }
             }
@@ -269,12 +267,11 @@ struct TrendChartSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(title)
-                .font(.headline)
-                .fontWeight(.bold)
+                .font(.headingLarge)
 
             if chartData.isEmpty {
                 Text("No data available")
-                    .font(.subheadline)
+                    .font(.bodyMedium)
                     .foregroundStyle(.secondary)
                     .frame(height: 200)
                     .frame(maxWidth: .infinity)
@@ -306,13 +303,13 @@ struct TrendChartSection: View {
                     ForEach(chartData) { dataPoint in
                         VStack(spacing: 4) {
                             Text(dataPoint.seasonName)
-                                .font(.caption)
+                                .font(.bodySmall)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
                                 .truncationMode(.tail)
                             Text(formatValue(dataPoint.value))
-                                .font(.title3)
-                                .fontWeight(.bold)
+                                .font(.ppStatMedium)
+                                .monospacedDigit()
                                 .foregroundStyle(.blue)
                         }
                         .frame(maxWidth: .infinity)
@@ -341,16 +338,14 @@ struct DetailedComparisonTable: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Detailed Statistics")
-                .font(.headline)
-                .fontWeight(.bold)
+                .font(.headingLarge)
 
             ScrollView(.horizontal, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
                     // Header row
                     HStack(spacing: 0) {
                         Text("Stat")
-                            .font(.caption)
-                            .fontWeight(.semibold)
+                            .font(.custom("Inter18pt-SemiBold", size: 12, relativeTo: .caption))
                             .frame(width: 100, alignment: .leading)
                             .padding(.horizontal, 8)
                             .padding(.vertical, 12)
@@ -358,8 +353,7 @@ struct DetailedComparisonTable: View {
 
                         ForEach(seasons) { season in
                             Text(season.displayName)
-                                .font(.caption)
-                                .fontWeight(.semibold)
+                                .font(.custom("Inter18pt-SemiBold", size: 12, relativeTo: .caption))
                                 .frame(width: 100, alignment: .center)
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 12)
@@ -387,8 +381,7 @@ struct DetailedComparisonTable: View {
                     if seasons.contains(where: { $0.seasonStatistics?.hasPitchingData == true }) {
                         HStack(spacing: 0) {
                             Text("Pitching")
-                                .font(.caption)
-                                .fontWeight(.semibold)
+                                .font(.custom("Inter18pt-SemiBold", size: 12, relativeTo: .caption))
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 10)
@@ -429,14 +422,15 @@ struct ComparisonRow<Value>: View {
     var body: some View {
         HStack(spacing: 0) {
             Text(label)
-                .font(.caption)
+                .font(.bodySmall)
                 .frame(width: 100, alignment: .leading)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 8)
 
             ForEach(seasons) { season in
                 Text(String(describing: getValue(season)))
-                    .font(.caption)
+                    .font(.bodySmall)
+                    .monospacedDigit()
                     .frame(width: 100, alignment: .center)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 8)
@@ -479,10 +473,9 @@ private struct LockedFeaturePlaceholder: View {
                 .font(.system(size: 56))
                 .foregroundStyle(.yellow)
             Text("Plus Feature")
-                .font(.title2)
-                .fontWeight(.semibold)
+                .font(.displayMedium)
             Text(message)
-                .font(.subheadline)
+                .font(.bodyMedium)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 32)

@@ -29,7 +29,7 @@ struct LoadingOverlay: View {
                 
                 if let message = message {
                     Text(message)
-                        .font(.subheadline)
+                        .font(.bodyMedium)
                         .foregroundColor(.white)
                         .id(message) // Proper identity for animation
                 }
@@ -55,7 +55,7 @@ struct InlineLoadingView: View {
                 .progressViewStyle(.circular)
             
             Text(message)
-                .font(.subheadline)
+                .font(.bodyMedium)
                 .foregroundColor(.secondary)
         }
         .frame(maxWidth: .infinity)

@@ -128,13 +128,12 @@ struct ErrorView: View {
 
             // Title
             Text(displayTitle)
-                .font(.title3)
-                .fontWeight(.bold)
+                .font(.headingLarge)
                 .multilineTextAlignment(.center)
 
             // Message
             Text(message)
-                .font(.subheadline)
+                .font(.bodyMedium)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 24)
@@ -146,7 +145,7 @@ struct ErrorView: View {
                         .font(.caption)
                         .foregroundColor(.yellow)
                     Text(suggestion)
-                        .font(.caption)
+                        .font(.bodySmall)
                         .foregroundColor(.secondary)
                 }
                 .padding(.horizontal, 16)
@@ -162,7 +161,7 @@ struct ErrorView: View {
                         Image(systemName: retryIconName)
                             .font(.subheadline.weight(.semibold))
                         Text(errorType.retryLabel)
-                            .fontWeight(.semibold)
+                            .font(.headingMedium)
                     }
                     .frame(minWidth: 180)
                     .padding(.vertical, 12)

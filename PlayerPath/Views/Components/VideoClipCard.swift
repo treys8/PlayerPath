@@ -40,11 +40,12 @@ struct VideoClipCard: View {
                         clip: video,
                         size: .thumbnailLarge,
                         cornerRadius: 0,
-                        showPlayButton: !isSelectionMode,
                         showPlayResult: true,
                         showHighlight: true,
                         showSeason: false,
                         showContext: false,
+                        showDuration: true,
+                        showOutcomeWithDuration: true,
                         fillsContainer: true
                     )
 
@@ -60,40 +61,8 @@ struct VideoClipCard: View {
                         .frame(height: 40)
                     }
 
-                    // Duration badge (bottom-left)
-                    VStack {
-                        Spacer()
-                        HStack {
-                            if let duration = video.duration, duration > 0 {
-                                Text(formatDuration(duration))
-                                    .font(.caption2)
-                                    .fontWeight(.semibold)
-                                    .foregroundColor(.white)
-                                    .badgeSmall()
-                                    .background(.ultraThinMaterial, in: Capsule())
-                                    .padding(8)
-                            }
-                            Spacer()
-                        }
-                    }
-
                     // Selection overlay
                     selectionOverlay
-
-                    // Backup status badge (top-left, moved from top-right to not conflict with play result).
-                    // Factored into its own View struct so SwiftUI scopes UploadQueueManager
-                    // observation to the badge — upload progress ticks (~4/sec) no longer
-                    // invalidate the entire card body across every visible cell.
-                    if !isSelectionMode {
-                        VStack {
-                            HStack {
-                                BackupStatusBadge(clip: video)
-                                    .padding(8)
-                                Spacer()
-                            }
-                            Spacer()
-                        }
-                    }
 
                     // Coach-feedback badges (top-right). Populated via sync from
                     // the Firestore videos/{id} doc, so clips not yet uploaded
@@ -117,41 +86,32 @@ struct VideoClipCard: View {
                     }
                 }
                 .aspectRatio(16/9, contentMode: .fit)
-                .clipShape(UnevenRoundedRectangle(topLeadingRadius: 12, bottomLeadingRadius: 0, bottomTrailingRadius: 0, topTrailingRadius: 12))
 
-                // Info section
-                VStack(alignment: .leading, spacing: 6) {
-                        // Headline: play result > fallback
-                        HStack {
-                            if let result = video.playResult {
-                                HStack(spacing: 6) {
-                                    Text(result.type.displayName)
-                                        .font(.subheadline)
-                                        .fontWeight(.bold)
-                                        .foregroundColor(.primary)
-                                        .lineLimit(1)
-                                        .truncationMode(.tail)
-                                    if let speed = video.pitchSpeed, speed > 0 {
-                                        Text("\(Int(speed)) MPH")
-                                            .font(.caption2)
-                                            .fontWeight(.semibold)
-                                            .foregroundColor(.white)
-                                            .lineLimit(1)
-                                            .fixedSize(horizontal: true, vertical: false)
-                                            .badgeMedium()
-                                            .background(.orange, in: Capsule())
-                                    }
-                                }
-                            } else {
-                                Text("Video Clip")
-                                    .font(.subheadline)
-                                    .fontWeight(.semibold)
-                                    .foregroundColor(.primary)
+                // Info section — two-row chrome.
+                // Row 1: primary label (game/practice/date) + pitch speed | sync + menu.
+                // Row 2: date (when row 1 shows context) + season badge.
+                VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 6) {
+                            primaryLabel
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                                .layoutPriority(1)
+
+                            if let speed = video.pitchSpeed, speed > 0 {
+                                Text("\(Int(speed)) MPH")
+                                    .font(.custom("Inter18pt-SemiBold", size: 11, relativeTo: .caption2))
+                                    .foregroundColor(.white)
+                                    .lineLimit(1)
+                                    .fixedSize(horizontal: true, vertical: false)
+                                    .badgeMedium()
+                                    .background(.orange, in: Capsule())
                             }
 
-                            Spacer()
+                            Spacer(minLength: 4)
 
                             if !isSelectionMode {
+                                BackupStatusBadge(clip: video)
+
                                 Menu {
                                     videoMenuItems
                                 } label: {
@@ -164,48 +124,24 @@ struct VideoClipCard: View {
                                 }
                             }
                         }
+                        .frame(minHeight: 28)
 
-                        // Secondary: game/practice context + season badge
-                        if let game = video.game {
+                        // Row 2 only renders when there's a date to show on it.
+                        // For orphan clips (no game / practice), the date already lives
+                        // in row 1, so we skip row 2 entirely — including the season
+                        // badge — to avoid an isolated badge floating mid-chrome.
+                        if hasContextLabel {
                             HStack(spacing: 6) {
-                                Text("vs \(game.opponent)")
-                                    .font(.caption)
-                                    .foregroundColor(.brandNavy)
+                                Text(displayDate, style: .date)
+                                    .font(.labelSmall)
+                                    .foregroundColor(.secondary)
                                     .lineLimit(1)
                                     .truncationMode(.tail)
-                                Spacer()
+                                Spacer(minLength: 4)
                                 if let season = video.season {
                                     SeasonBadge(season: season, fontSize: 8)
                                 }
                             }
-
-                            Text((game.date ?? Date()), style: .date)
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
-                        } else if video.practice != nil {
-                            HStack(spacing: 6) {
-                                Text("Practice")
-                                    .font(.caption)
-                                    .foregroundColor(.green)
-                                Spacer()
-                                if let season = video.season {
-                                    SeasonBadge(season: season, fontSize: 8)
-                                }
-                            }
-
-                            Text((video.createdAt ?? Date()), style: .date)
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
-                        } else {
-                            if let season = video.season {
-                                HStack(spacing: 6) {
-                                    Spacer()
-                                    SeasonBadge(season: season, fontSize: 8)
-                                }
-                            }
-                            Text((video.createdAt ?? Date()), style: .date)
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
                         }
                     }
                     .padding(.horizontal, 12)
@@ -258,7 +194,7 @@ struct VideoClipCard: View {
                     VStack(spacing: 10) {
                         ProgressView()
                         Text("Saving to Photos...")
-                            .font(.caption)
+                            .font(.bodySmall)
                             .foregroundColor(.secondary)
                     }
                     .padding()
@@ -429,6 +365,41 @@ struct VideoClipCard: View {
         }
     }
 
+    // MARK: - Chrome label helpers
+
+    private var hasContextLabel: Bool {
+        video.game != nil || video.practice != nil
+    }
+
+    /// Row-1 primary label: game/practice context when present, otherwise the
+    /// date itself (so row 1 never starts with empty space on the leading edge).
+    /// Uses an abbreviated month format ("Apr 14, 2026") because `style: .date`
+    /// produces "April 14, 2026" which truncates to "April 14, 20…" in the
+    /// row-1 width budget alongside the sync + menu cluster.
+    @ViewBuilder
+    private var primaryLabel: some View {
+        if let game = video.game {
+            Text("vs \(game.opponent)")
+                .font(.bodySmall)
+                .foregroundColor(.brandNavy)
+        } else if video.practice != nil {
+            Text("Practice")
+                .font(.bodySmall)
+                .foregroundColor(.green)
+        } else {
+            Text(displayDate, format: .dateTime.month(.abbreviated).day().year())
+                .font(.bodySmall)
+                .foregroundColor(.primary)
+        }
+    }
+
+    /// Falls back to `Date()` only as a safety net — `createdAt` is set at
+    /// insert time, so the fallback should never fire in practice. If it does,
+    /// "today" is wrong but at least non-crashing.
+    private var displayDate: Date {
+        video.game?.date ?? video.practice?.date ?? video.createdAt ?? Date()
+    }
+
     // MARK: - Selection Overlay
 
     @ViewBuilder
@@ -453,11 +424,6 @@ struct VideoClipCard: View {
         }
     }
 
-    private func formatDuration(_ seconds: Double) -> String {
-        let mins = Int(seconds) / 60
-        let secs = Int(seconds) % 60
-        return String(format: "%d:%02d", mins, secs)
-    }
 }
 
 // MARK: - Pressable Card Button Style
@@ -492,45 +458,31 @@ struct BackupStatusBadge: View {
         // badge instead of the whole card (and, transitively, the whole grid),
         // which was previously causing the post-upload "shutter" effect.
         if clip.isUploaded && clip.firestoreId != nil {
-            // Fully synced — Storage uploaded + Firestore metadata written (cross-device ready)
-            badge(icon: "checkmark.icloud.fill", iconSize: 12, background: .green, shadowOpacity: 0.3)
+            icon("checkmark.icloud.fill", color: .green)
         } else if clip.isUploaded && clip.firestoreId == nil {
-            // Storage upload done but Firestore metadata not yet written — not cross-device accessible yet
-            badge(icon: "exclamationmark.icloud.fill", iconSize: 12, background: .yellow, shadowOpacity: 0.3)
+            icon("exclamationmark.icloud.fill", color: .yellow)
         } else if let progress = uploadManager.activeUploads[clip.id] {
-            // Currently uploading — blue with percentage
             HStack(spacing: 3) {
                 ProgressView()
-                    .scaleEffect(0.7)
-                    .tint(.white)
+                    .scaleEffect(0.6)
+                    .tint(.brandNavy)
                 Text("\(Int(progress * 100))%")
                     .font(.system(size: 10, weight: .semibold))
+                    .foregroundColor(.brandNavy)
             }
-            .foregroundColor(.white)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 4)
-            .background(Color.brandNavy)
-            .cornerRadius(6)
-            .shadow(color: .black.opacity(0.3), radius: 2, x: 0, y: 1)
+            .frame(minHeight: 22)
         } else if uploadManager.pendingUploads.contains(where: { $0.clipId == clip.id }) {
-            // Queued for upload — orange clock
-            badge(icon: "clock.fill", iconSize: 12, background: .orange, shadowOpacity: 0.3)
-        } else {
-            // Local only — subtle gray device icon
-            badge(icon: "iphone", iconSize: 11, background: Color.gray.opacity(0.7), shadowOpacity: 0.2)
+            icon("clock.fill", color: .orange)
         }
+        // Local-only state renders nothing — absence of a badge implies "not yet
+        // uploaded". Showing icloud.slash on every unsynced clip is too loud
+        // since most clips spend time in this state before background upload.
     }
 
-    private func badge(icon: String, iconSize: CGFloat, background: Color, shadowOpacity: Double) -> some View {
-        HStack(spacing: 3) {
-            Image(systemName: icon)
-                .font(.system(size: iconSize))
-        }
-        .foregroundColor(.white)
-        .padding(.horizontal, 6)
-        .padding(.vertical, 4)
-        .background(background)
-        .cornerRadius(6)
-        .shadow(color: .black.opacity(shadowOpacity), radius: 2, x: 0, y: 1)
+    private func icon(_ name: String, color: Color) -> some View {
+        Image(systemName: name)
+            .font(.system(size: 14, weight: .semibold))
+            .foregroundColor(color)
+            .frame(width: 22, height: 22)
     }
 }

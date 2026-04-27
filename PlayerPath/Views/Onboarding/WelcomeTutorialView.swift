@@ -92,11 +92,9 @@ private struct WalkthroughCTA: View {
         Button(action: action) {
             HStack(spacing: 10) {
                 Text(title)
-                    .font(.headline)
-                    .fontWeight(.bold)
+                    .font(.headingLarge)
                 Image(systemName: icon)
-                    .font(.headline)
-                    .fontWeight(.bold)
+                    .font(.headingLarge)
             }
             .foregroundColor(.white)
             .frame(maxWidth: .infinity)
@@ -180,12 +178,12 @@ private struct ManagerPage: View {
 
             VStack(spacing: 10) {
                 Text("You're the Manager")
-                    .font(.system(size: 36, weight: .bold))
+                    .font(.custom("Fraunces72pt-Bold", size: 36, relativeTo: .largeTitle))
                     .foregroundColor(.primary)
                     .multilineTextAlignment(.center)
 
-                Text("You hold this account. \(Text(athleteName).fontWeight(.semibold)) is your player — you'll manage their games, videos, and stats.")
-                    .font(.body)
+                Text("You hold this account. \(Text(athleteName).font(.custom("Inter18pt-SemiBold", size: 17))) is your player — you'll manage their games, videos, and stats.")
+                    .font(.bodyLarge)
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
                     .lineSpacing(4)
@@ -200,7 +198,7 @@ private struct ManagerPage: View {
             // Account card
             HStack(spacing: 14) {
                 Image(systemName: "person.crop.circle.fill")
-                    .font(.title3)
+                    .font(.headingLarge)
                     .foregroundColor(.brandNavy)
                     .frame(width: 40, height: 40)
                     .background(Color.brandNavy.opacity(0.1))
@@ -208,11 +206,10 @@ private struct ManagerPage: View {
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Your Account")
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
+                        .font(.headingSmall)
                         .foregroundColor(.primary)
                     Text(userEmail)
-                        .font(.caption)
+                        .font(.bodySmall)
                         .foregroundColor(.secondary)
                         .lineLimit(1)
                         .truncationMode(.tail)
@@ -259,12 +256,12 @@ private struct PlayerReadyPage: View {
 
             VStack(spacing: 8) {
                 Text("Your Player Is Ready")
-                    .font(.system(size: 36, weight: .bold))
+                    .font(.custom("Fraunces72pt-Bold", size: 36, relativeTo: .largeTitle))
                     .foregroundColor(.primary)
                     .multilineTextAlignment(.center)
 
-                Text("\(Text(athleteName).fontWeight(.semibold))'s profile is set up and ready to go.")
-                    .font(.body)
+                Text("\(Text(athleteName).font(.custom("Inter18pt-SemiBold", size: 17)))'s profile is set up and ready to go.")
+                    .font(.bodyLarge)
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
                     .lineSpacing(4)
@@ -279,7 +276,7 @@ private struct PlayerReadyPage: View {
             // Athlete card
             HStack(spacing: 14) {
                 Image(systemName: "figure.baseball")
-                    .font(.title3)
+                    .font(.headingLarge)
                     .foregroundColor(.orange)
                     .frame(width: 40, height: 40)
                     .background(Color.orange.opacity(0.1))
@@ -287,11 +284,10 @@ private struct PlayerReadyPage: View {
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(athleteName)
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
+                        .font(.headingSmall)
                         .foregroundColor(.primary)
                     Text("Athlete Profile")
-                        .font(.caption)
+                        .font(.bodySmall)
                         .foregroundColor(.secondary)
                 }
                 Spacer()
@@ -312,7 +308,7 @@ private struct PlayerReadyPage: View {
                     .foregroundColor(.orange)
                     .font(.subheadline)
                 Text("Have more than one kid? You can add more athletes anytime from Settings.")
-                    .font(.caption)
+                    .font(.bodySmall)
                     .foregroundColor(.secondary)
                     .lineSpacing(2)
             }
@@ -365,12 +361,12 @@ private struct GameDayPage: View {
 
             VStack(spacing: 10) {
                 Text("On Game Day")
-                    .font(.system(size: 36, weight: .bold))
+                    .font(.custom("Fraunces72pt-Bold", size: 36, relativeTo: .largeTitle))
                     .foregroundColor(.primary)
                     .multilineTextAlignment(.center)
 
                 Text("Three steps to start tracking.")
-                    .font(.body)
+                    .font(.bodyLarge)
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
             }
@@ -403,11 +399,10 @@ private struct GameDayPage: View {
 
                         VStack(alignment: .leading, spacing: 3) {
                             Text(step.title)
-                                .font(.subheadline)
-                                .fontWeight(.semibold)
+                                .font(.headingSmall)
                                 .foregroundColor(.primary)
                             Text(step.detail)
-                                .font(.caption)
+                                .font(.bodySmall)
                                 .foregroundColor(.secondary)
                                 .lineSpacing(2)
                             if index < steps.count - 1 {
@@ -459,12 +454,12 @@ private struct RecordAtBatPage: View {
 
             VStack(spacing: 10) {
                 Text("Record Every At-Bat")
-                    .font(.system(size: 36, weight: .bold))
+                    .font(.custom("Fraunces72pt-Bold", size: 36, relativeTo: .largeTitle))
                     .foregroundColor(.primary)
                     .multilineTextAlignment(.center)
 
-                Text("Tap \(Text("Record").fontWeight(.semibold)) when your kid steps up to the plate. Hit \(Text("Stop").fontWeight(.semibold)) when the play is over.")
-                    .font(.body)
+                Text("Tap \(Text("Record").font(.custom("Inter18pt-SemiBold", size: 17))) when your kid steps up to the plate. Hit \(Text("Stop").font(.custom("Inter18pt-SemiBold", size: 17))) when the play is over.")
+                    .font(.bodyLarge)
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
                     .lineSpacing(4)
@@ -483,8 +478,7 @@ private struct RecordAtBatPage: View {
                     .foregroundColor(.red)
 
                 Text("Every clip you record becomes a play in their stats.")
-                    .font(.subheadline)
-                    .fontWeight(.medium)
+                    .font(.labelLarge)
                     .foregroundColor(.primary)
             }
             .padding(16)
@@ -533,12 +527,12 @@ private struct TagResultPage: View {
 
             VStack(spacing: 8) {
                 Text("Tag What Happened")
-                    .font(.system(size: 36, weight: .bold))
+                    .font(.custom("Fraunces72pt-Bold", size: 36, relativeTo: .largeTitle))
                     .foregroundColor(.primary)
                     .multilineTextAlignment(.center)
 
                 Text("After each clip, tap what happened. One tap — that's how the app tracks stats for you.")
-                    .font(.body)
+                    .font(.bodyLarge)
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
                     .lineSpacing(4)
@@ -573,7 +567,7 @@ private struct TagResultPage: View {
                     .foregroundColor(.green)
                     .font(.subheadline)
                 Text("No scorebook needed — your tags build the stats automatically.")
-                    .font(.caption)
+                    .font(.bodySmall)
                     .foregroundColor(.secondary)
                     .lineSpacing(2)
             }
@@ -601,8 +595,7 @@ private struct TagResultPage: View {
 
     private func tagPill(_ tag: (label: String, color: Color), index: Int) -> some View {
         Text(tag.label)
-            .font(.subheadline)
-            .fontWeight(.semibold)
+            .font(.headingSmall)
             .foregroundColor(tag.color)
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
@@ -647,12 +640,12 @@ private struct BetweenGamesPage: View {
 
             VStack(spacing: 10) {
                 Text("Between Games")
-                    .font(.system(size: 36, weight: .bold))
+                    .font(.custom("Fraunces72pt-Bold", size: 36, relativeTo: .largeTitle))
                     .foregroundColor(.primary)
                     .multilineTextAlignment(.center)
 
                 Text("Here's what you can do when there's no game on.")
-                    .font(.body)
+                    .font(.bodyLarge)
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
                     .lineSpacing(4)
@@ -677,11 +670,10 @@ private struct BetweenGamesPage: View {
 
                         VStack(alignment: .leading, spacing: 2) {
                             Text(feature.title)
-                                .font(.subheadline)
-                                .fontWeight(.semibold)
+                                .font(.headingSmall)
                                 .foregroundColor(.primary)
                             Text(feature.detail)
-                                .font(.caption)
+                                .font(.bodySmall)
                                 .foregroundColor(.secondary)
                                 .lineSpacing(2)
                         }

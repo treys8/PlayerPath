@@ -359,6 +359,10 @@ class CoachVideoPlayerViewModel {
 
     func startTimeObserver() {
         guard let player = player else { return }
+        // Guard against a double-add when SwiftUI fires .onAppear twice
+        // (e.g. sheet dismissal returning to a parent that re-renders this
+        // view). startFilmstripTimeObserver below uses the same pattern.
+        guard timeObserver == nil else { return }
 
         durationTask?.cancel()
         if let currentItem = player.currentItem {
@@ -385,6 +389,7 @@ class CoachVideoPlayerViewModel {
             }
         }
 
+        playingObservation?.invalidate()
         playingObservation = player.observe(\.timeControlStatus, options: [.initial, .new]) { [weak self] player, _ in
             let playing = player.timeControlStatus == .playing
             Task { @MainActor [weak self] in

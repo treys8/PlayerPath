@@ -113,11 +113,11 @@ struct VideoClipsView: View {
             ToolbarItem(placement: .principal) {
                 if selectedVideos.isEmpty {
                     Text("Tap videos to select")
-                        .font(.subheadline)
+                        .font(.bodyMedium)
                         .foregroundStyle(.secondary)
                 } else {
                     Text("\(selectedVideos.count) selected")
-                        .font(.headline)
+                        .font(.headingMedium)
                 }
             }
 
@@ -312,8 +312,7 @@ struct VideoClipsView: View {
         .overlay(alignment: .bottom) {
             if let message = bulkOperationMessage {
                 Text(message)
-                    .font(.subheadline)
-                    .fontWeight(.medium)
+                    .font(.labelLarge)
                     .foregroundColor(.white)
                     .padding(.horizontal, 20)
                     .padding(.vertical, 12)
@@ -505,8 +504,7 @@ struct VideoClipsView: View {
                                 .font(.caption)
 
                             Text(filter.rawValue)
-                                .font(.subheadline)
-                                .fontWeight(viewModel.selectedFilter == filter ? .semibold : .regular)
+                                .font(viewModel.selectedFilter == filter ? .headingSmall : .bodyMedium)
                         }
                         .padding(.horizontal, 12)
                         .padding(.vertical, 8)

@@ -197,9 +197,9 @@ struct HelpView: View {
             Section {
                 VStack(alignment: .center, spacing: 8) {
                     Text("PlayerPath")
-                        .font(.headline)
+                        .font(.headingMedium)
                     Text("Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—")")
-                        .font(.caption)
+                        .font(.bodySmall)
                         .foregroundColor(.secondary)
                 }
                 .frame(maxWidth: .infinity)
@@ -242,9 +242,9 @@ struct HelpCard<Content: View>: View {
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(title)
-                        .font(.headline)
+                        .font(.headingLarge)
                     Text(description)
-                        .font(.subheadline)
+                        .font(.bodyMedium)
                         .foregroundColor(.secondary)
                 }
             }
@@ -268,9 +268,9 @@ struct HelpRowLabel: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.body)
+                    .font(.bodyLarge)
                 Text(subtitle)
-                    .font(.caption)
+                    .font(.bodySmall)
                     .foregroundColor(.secondary)
             }
         }

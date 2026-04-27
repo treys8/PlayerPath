@@ -35,14 +35,13 @@ struct QualityComparisonRow: View {
                 .frame(width: 8, height: 8)
             
             Text(info.name)
-                .font(.caption)
+                .font(isSelected ? .labelMedium : .bodySmall)
                 .foregroundStyle(isSelected ? .primary : .secondary)
-                .fontWeight(isSelected ? .medium : .regular)
-            
+
             Spacer()
-            
+
             Text(info.size)
-                .font(.caption2)
+                .font(.labelSmall)
                 .foregroundStyle(.secondary)
                 .monospacedDigit()
         }

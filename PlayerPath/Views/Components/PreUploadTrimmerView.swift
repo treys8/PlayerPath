@@ -118,7 +118,7 @@ struct PreUploadTrimmerView: View {
                 Image(systemName: "chevron.left")
                     .font(.body.weight(.semibold))
                 Text("Back")
-                    .font(.body)
+                    .font(.bodyLarge)
             }
             .foregroundColor(.white)
             .padding(.horizontal, 12)
@@ -183,12 +183,11 @@ struct PreUploadTrimmerView: View {
             // Header
             VStack(spacing: 6) {
                 Text("Trim Video")
-                    .font(.title3)
-                    .fontWeight(.bold)
+                    .font(.headingLarge)
                     .foregroundColor(.white)
 
                 Text("Drag to set start and end points")
-                    .font(.caption)
+                    .font(.bodySmall)
                     .foregroundColor(.white.opacity(0.7))
             }
             .opacity(showContent ? 1 : 0)
@@ -259,7 +258,7 @@ struct PreUploadTrimmerView: View {
             if let error = exportError {
                 Text(error)
                     .foregroundColor(.red)
-                    .font(.caption)
+                    .font(.bodySmall)
                     .multilineTextAlignment(.center)
             }
 
@@ -273,12 +272,12 @@ struct PreUploadTrimmerView: View {
                             ProgressView()
                                 .progressViewStyle(CircularProgressViewStyle(tint: .white))
                             Text("Trimming...")
-                                .font(.body.weight(.semibold))
+                                .font(.headingMedium)
                         } else {
                             Image(systemName: "scissors")
                                 .font(.body.weight(.semibold))
                             Text("Save Trimmed")
-                                .font(.body.weight(.semibold))
+                                .font(.headingMedium)
                         }
                     }
                     .foregroundColor(.white)
@@ -306,7 +305,7 @@ struct PreUploadTrimmerView: View {
                             Image(systemName: "film")
                                 .font(.body.weight(.semibold))
                             Text("Use Full Video")
-                                .font(.body.weight(.semibold))
+                                .font(.headingMedium)
                         }
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
@@ -332,7 +331,7 @@ struct PreUploadTrimmerView: View {
                             Image(systemName: "trash")
                                 .font(.body.weight(.semibold))
                             Text("Discard")
-                                .font(.body.weight(.semibold))
+                                .font(.headingMedium)
                         }
                         .foregroundColor(.red)
                         .frame(maxWidth: .infinity)

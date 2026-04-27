@@ -20,12 +20,11 @@ struct QualityStatItem: View {
                 .foregroundStyle(color)
             
             Text(value)
-                .font(.subheadline)
-                .fontWeight(.semibold)
+                .font(.headingMedium)
                 .foregroundStyle(.primary)
-            
+
             Text(label)
-                .font(.caption2)
+                .font(.labelSmall)
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)

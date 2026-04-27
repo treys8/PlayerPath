@@ -485,13 +485,13 @@ struct ProfileView: View {
                         .foregroundColor(.yellow)
                         .font(.caption)
                     Text("Upgrade to Pro for up to 5 athletes")
-                        .font(.caption)
+                        .font(.bodySmall)
                         .foregroundColor(.secondary)
                 }
                 .padding(.vertical, 4)
             } else {
                 Text("\((user.athletes ?? []).count) of \(authManager.currentTier.athleteLimit) athlete\(authManager.currentTier.athleteLimit == 1 ? "" : "s") used")
-                    .font(.caption)
+                    .font(.bodySmall)
                     .foregroundColor(.secondary)
             }
         }
@@ -547,8 +547,7 @@ struct ProfileView: View {
                     Spacer()
                     if activityNotifService.unreadCount > 0 {
                         Text("\(activityNotifService.unreadCount)")
-                            .font(.caption)
-                            .fontWeight(.semibold)
+                            .font(.custom("Inter18pt-SemiBold", size: 12, relativeTo: .caption))
                             .foregroundColor(.white)
                             .padding(.horizontal, 8)
                             .padding(.vertical, 2)
@@ -585,10 +584,9 @@ struct ProfileView: View {
                         .foregroundStyle(.orange)
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Payment Failed")
-                            .font(.subheadline)
-                            .fontWeight(.semibold)
+                            .font(.headingSmall)
                         Text("Update your payment method to keep your subscription active.")
-                            .font(.caption)
+                            .font(.bodySmall)
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
@@ -716,16 +714,15 @@ struct UserProfileHeader: View {
 
             VStack(alignment: .leading, spacing: 5) {
                 Text(user.username)
-                    .font(.title2)
-                    .fontWeight(.bold)
+                    .font(.headingLarge)
 
                 Text(user.email)
-                    .font(.subheadline)
+                    .font(.bodyMedium)
                     .foregroundColor(.secondary)
 
                 if let created = user.createdAt {
                     Text("Member since \(created.formatted(.dateTime.year()))")
-                        .font(.caption)
+                        .font(.bodySmall)
                         .foregroundColor(.secondary)
                 }
             }
@@ -754,7 +751,7 @@ struct AthleteProfileRow: View {
 
                     VStack(alignment: .leading, spacing: 4) {
                         Text(athlete.name)
-                            .font(.headline)
+                            .font(.headingMedium)
                             .foregroundColor(.primary)
 
                         let gamesCount = (athlete.games ?? []).count
@@ -769,7 +766,7 @@ struct AthleteProfileRow: View {
                                     .foregroundColor(.orange)
                             }
                         }
-                        .font(.caption)
+                        .font(.bodySmall)
                         .foregroundColor(.secondary)
                     }
 

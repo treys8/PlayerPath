@@ -108,7 +108,7 @@ struct PhotoDetailView: View {
                         .font(.largeTitle)
                         .foregroundColor(.white.opacity(0.5))
                     Text(photo.cloudURL != nil ? "Photo not yet downloaded" : "Photo unavailable")
-                        .font(.subheadline)
+                        .font(.bodyMedium)
                         .foregroundColor(.white.opacity(0.5))
                 }
             } else {
@@ -219,7 +219,7 @@ struct PhotoDetailView: View {
         VStack(alignment: .leading, spacing: 6) {
             if let caption = photo.caption, !caption.isEmpty {
                 Text(caption)
-                    .font(.body)
+                    .font(.bodyLarge)
                     .foregroundColor(.white)
             }
 
@@ -234,7 +234,7 @@ struct PhotoDetailView: View {
                     Label("Practice", systemImage: "figure.run")
                 }
             }
-            .font(.caption)
+            .font(.bodySmall)
             .foregroundColor(.white.opacity(0.85))
         }
         .padding(.horizontal, 16)

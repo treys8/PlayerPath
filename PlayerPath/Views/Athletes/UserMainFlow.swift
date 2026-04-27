@@ -127,7 +127,7 @@ struct UserMainFlow: View {
                     ProgressView()
                         .scaleEffect(1.2)
                     Text("Syncing your data...")
-                        .font(.subheadline)
+                        .font(.bodyMedium)
                         .foregroundColor(.secondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -148,7 +148,7 @@ struct UserMainFlow: View {
             VStack(spacing: 8) {
                 if showCreationToast {
                     Text("Athlete created")
-                        .font(.subheadline).bold()
+                        .font(.headingMedium)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 8)
                         .background(.ultraThinMaterial, in: Capsule())

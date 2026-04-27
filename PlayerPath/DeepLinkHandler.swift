@@ -71,19 +71,19 @@ struct InvitationDetailView: View {
                         .font(.system(size: 60))
                         .foregroundColor(.brandNavy)
                     Text("You're Invited!")
-                        .font(.title).fontWeight(.bold)
+                        .font(.displayLarge)
                     Text("from \(invitation.athleteName)")
-                        .font(.title3).foregroundColor(.secondary)
+                        .font(.headingLarge).foregroundColor(.secondary)
                 }
                 .padding(.top)
 
                 if let folderName = invitation.folderName {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Folder")
-                            .font(.caption).foregroundColor(.secondary).textCase(.uppercase)
+                            .font(.labelSmall).foregroundColor(.secondary).textCase(.uppercase)
                         HStack {
                             Image(systemName: "folder.fill").foregroundColor(.brandNavy)
-                            Text(folderName).font(.headline)
+                            Text(folderName).font(.headingMedium)
                         }
                         .padding()
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -95,9 +95,9 @@ struct InvitationDetailView: View {
 
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Your Permissions")
-                        .font(.caption).foregroundColor(.secondary).textCase(.uppercase)
+                        .font(.labelSmall).foregroundColor(.secondary).textCase(.uppercase)
                     Text("As a coach, you'll be able to view and collaborate on videos in this folder.")
-                        .font(.subheadline).foregroundColor(.secondary)
+                        .font(.bodyMedium).foregroundColor(.secondary)
                 }
                 .padding(.horizontal)
 
@@ -118,20 +118,20 @@ struct InvitationDetailView: View {
                         .font(.system(size: 60))
                         .foregroundColor(.green)
                     Text("Coach Invitation")
-                        .font(.title).fontWeight(.bold)
+                        .font(.displayLarge)
                     Text("from \(invitation.coachName)")
-                        .font(.title3).foregroundColor(.secondary)
+                        .font(.headingLarge).foregroundColor(.secondary)
                 }
                 .padding(.top)
 
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Coach Info")
-                        .font(.caption).foregroundColor(.secondary).textCase(.uppercase)
+                        .font(.labelSmall).foregroundColor(.secondary).textCase(.uppercase)
                     HStack {
                         Image(systemName: "person.fill").foregroundColor(.green)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(invitation.coachName).font(.headline)
-                            Text(invitation.coachEmail).font(.caption).foregroundColor(.secondary)
+                            Text(invitation.coachName).font(.headingMedium)
+                            Text(invitation.coachEmail).font(.bodySmall).foregroundColor(.secondary)
                         }
                     }
                     .padding()
@@ -144,9 +144,9 @@ struct InvitationDetailView: View {
                 if let message = invitation.message, !message.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Message")
-                            .font(.caption).foregroundColor(.secondary).textCase(.uppercase)
+                            .font(.labelSmall).foregroundColor(.secondary).textCase(.uppercase)
                         Text(message)
-                            .font(.subheadline).foregroundColor(.secondary)
+                            .font(.bodyMedium).foregroundColor(.secondary)
                             .padding()
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .background(Color(.systemGray6))
@@ -156,7 +156,7 @@ struct InvitationDetailView: View {
                 }
 
                 Text("Accept to connect with this coach. If you have a Pro plan, a shared folder will be created automatically.")
-                    .font(.subheadline).foregroundColor(.secondary)
+                    .font(.bodyMedium).foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal)
 
@@ -191,9 +191,9 @@ struct InvitationDetailView: View {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.system(size: 60)).foregroundColor(.orange)
             Text("Error Loading Invitation")
-                .font(.title2).fontWeight(.bold)
+                .font(.displayMedium)
             Text(error)
-                .font(.subheadline).foregroundColor(.secondary)
+                .font(.bodyMedium).foregroundColor(.secondary)
                 .multilineTextAlignment(.center).padding(.horizontal)
             Button("Close") { dismiss() }
                 .buttonStyle(.borderedProminent)
@@ -206,9 +206,9 @@ struct InvitationDetailView: View {
             Image(systemName: "envelope.badge.fill")
                 .font(.system(size: 60)).foregroundColor(.brandNavy)
             Text("Invitation Not Found")
-                .font(.title2).fontWeight(.bold)
+                .font(.displayMedium)
             Text("This invitation may have expired or been removed.")
-                .font(.subheadline).foregroundColor(.secondary)
+                .font(.bodyMedium).foregroundColor(.secondary)
                 .multilineTextAlignment(.center).padding(.horizontal)
             Button("Close") { dismiss() }
                 .buttonStyle(.borderedProminent)

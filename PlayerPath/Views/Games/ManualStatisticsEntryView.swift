@@ -66,7 +66,7 @@ struct ManualStatisticsEntryView: View {
                 Section("Game Information") {
                     HStack {
                         Text("Opponent:")
-                            .fontWeight(.semibold)
+                            .font(.headingMedium)
                         Spacer()
                         Text(game.opponent)
                             .foregroundColor(.secondary)
@@ -74,7 +74,7 @@ struct ManualStatisticsEntryView: View {
 
                     HStack {
                         Text("Date:")
-                            .fontWeight(.semibold)
+                            .font(.headingMedium)
                         Spacer()
                         if let date = game.date {
                             Text(date, style: .date)
@@ -117,10 +117,10 @@ struct ManualStatisticsEntryView: View {
                     if let stats = existingGameStats, stats.atBats > 0 {
                         HStack {
                             Text("Current Batting Average")
-                                .fontWeight(.medium)
+                                .font(.labelLarge)
                             Spacer()
                             Text(StatisticsService.shared.formatBattingAverage(Double(stats.hits) / Double(stats.atBats)))
-                                .fontWeight(.semibold)
+                                .font(.headingMedium)
                                 .foregroundColor(.green)
                         }
                     }
@@ -138,12 +138,12 @@ struct ManualStatisticsEntryView: View {
                         if totalAtBats > 0 {
                             HStack {
                                 Text("New Batting Average")
-                                    .fontWeight(.semibold)
+                                    .font(.headingMedium)
                                 Spacer()
                                 Text(StatisticsService.shared.formatBattingAverage(Double(totalHits) / Double(totalAtBats)))
-                                    .fontWeight(.bold)
+                                    .font(.ppStatSmall)
+                                    .monospacedDigit()
                                     .foregroundColor(.green)
-                                    .font(.headline)
                             }
                             .padding(.vertical, 4)
                             .background(Color.green.opacity(0.1))
@@ -163,7 +163,7 @@ struct ManualStatisticsEntryView: View {
                     }
                     Spacer()
                     Button("Done") { focusedStatField = nil }
-                        .fontWeight(.semibold)
+                        .font(.headingMedium)
                 }
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
@@ -273,7 +273,7 @@ struct StatEntryRow: View {
                 .frame(width: 25)
 
             Text(title)
-                .fontWeight(.medium)
+                .font(.labelLarge)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             if let field, let focusedField {
@@ -302,10 +302,11 @@ struct CurrentStatRow: View {
     var body: some View {
         HStack {
             Text(title)
-                .fontWeight(.medium)
+                .font(.labelLarge)
             Spacer()
             Text("\(current)")
-                .fontWeight(.semibold)
+                .font(.ppStatSmall)
+                .monospacedDigit()
                 .foregroundColor(color)
         }
     }
@@ -320,17 +321,18 @@ struct PreviewStatRow: View {
     var body: some View {
         HStack {
             Text(title)
-                .fontWeight(.medium)
+                .font(.labelLarge)
 
             Spacer()
 
             if new > 0 {
                 Text("\(current) + \(new) = ")
-                    .font(.caption)
+                    .font(.bodySmall)
                     .foregroundColor(.secondary)
 
                 Text("\(total)")
-                    .fontWeight(.bold)
+                    .font(.ppStatSmall)
+                    .monospacedDigit()
                     .foregroundColor(.green)
             } else {
                 Text("\(current)")

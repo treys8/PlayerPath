@@ -77,11 +77,11 @@ struct RetrimSavedClipFlow: View {
                 .foregroundStyle(.white)
 
             Text("Trim this clip?")
-                .font(.title2.bold())
+                .font(.displayMedium)
                 .foregroundStyle(.white)
 
             Text("This will update the video for you and anyone you've shared it with. Notes and comments will be kept.")
-                .font(.body)
+                .font(.bodyLarge)
                 .foregroundStyle(.white.opacity(0.85))
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 32)
@@ -92,7 +92,7 @@ struct RetrimSavedClipFlow: View {
                     phase = .trimming
                 } label: {
                     Text("Continue")
-                        .font(.body.weight(.semibold))
+                        .font(.headingMedium)
                         .foregroundStyle(.white)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 14)
@@ -119,11 +119,11 @@ struct RetrimSavedClipFlow: View {
                 .scaleEffect(1.5)
 
             Text("Saving changes…")
-                .font(.headline)
+                .font(.headingLarge)
                 .foregroundStyle(.white)
 
             Text(currentStage.rawValue)
-                .font(.subheadline)
+                .font(.bodyMedium)
                 .foregroundStyle(.white.opacity(0.7))
 
             if currentStage == .uploadingVideo {
@@ -131,7 +131,8 @@ struct RetrimSavedClipFlow: View {
                     .tint(.white)
                     .frame(maxWidth: 220)
                 Text("\(Int(uploadPercent * 100))%")
-                    .font(.caption.monospacedDigit())
+                    .font(.bodySmall)
+                    .monospacedDigit()
                     .foregroundStyle(.white.opacity(0.7))
             }
         }
@@ -146,11 +147,11 @@ struct RetrimSavedClipFlow: View {
                 .font(.system(size: 44))
                 .foregroundStyle(.yellow)
             Text("Couldn't save the trim")
-                .font(.title3.bold())
+                .font(.headingLarge)
                 .foregroundStyle(.white)
             if let errorMessage {
                 Text(errorMessage)
-                    .font(.callout)
+                    .font(.bodyMedium)
                     .foregroundStyle(.white.opacity(0.85))
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 32)

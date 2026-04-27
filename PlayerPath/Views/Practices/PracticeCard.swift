@@ -33,8 +33,7 @@ struct PracticeCard: View {
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 6) {
                         Text((practice.date ?? .distantPast).formatted(date: .abbreviated, time: .omitted))
-                            .font(.headline)
-                            .fontWeight(.semibold)
+                            .font(.headingMedium)
                             .lineLimit(1)
 
                         if let season = practice.season {
@@ -43,7 +42,7 @@ struct PracticeCard: View {
                     }
 
                     Text(practiceType.displayName)
-                        .font(.subheadline)
+                        .font(.bodyMedium)
                         .foregroundStyle(.secondary)
                 }
 
@@ -58,7 +57,7 @@ struct PracticeCard: View {
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                             Text("\(videoCount)")
-                                .font(.caption2)
+                                .font(.labelSmall)
                                 .foregroundStyle(.secondary)
                                 .monospacedDigit()
                         }
@@ -71,7 +70,7 @@ struct PracticeCard: View {
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                             Text("\(noteCount)")
-                                .font(.caption2)
+                                .font(.labelSmall)
                                 .foregroundStyle(.secondary)
                                 .monospacedDigit()
                         }

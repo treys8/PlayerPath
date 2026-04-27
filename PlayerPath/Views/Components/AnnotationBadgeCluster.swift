@@ -79,7 +79,8 @@ struct AnnotationBadgeCluster: View {
                 Image(systemName: icon)
                     .font(.caption2)
                 Text("\(count)")
-                    .font(.caption2)
+                    .font(.labelSmall)
+                    .monospacedDigit()
             }
             .foregroundColor(.secondary)
         }

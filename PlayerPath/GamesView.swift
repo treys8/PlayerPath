@@ -46,6 +46,7 @@ struct GamesView: View {
     // Season filter
     @State private var selectedSeasonFilter: String? = nil // nil = All Seasons
     @State private var searchDebounceTask: Task<Void, Never>?
+    @State private var listEditMode: EditMode = .inactive
 
     final class ViewModelHolder: ObservableObject {
         @Published var viewModel: GamesViewModel?
@@ -194,17 +195,105 @@ struct GamesView: View {
             searchText = ""
         }
     }
+
+    private static let monthLabelFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "MMMM yyyy"
+        return f
+    }()
+
+    private var completedSections: [(label: String, games: [Game])] {
+        let games = cachedCompletedGames
+        guard games.count >= 10 else { return [("Completed", games)] }
+
+        let calendar = Calendar.current
+        var bucketsByKey: [String: [Game]] = [:]
+        var keyOrder: [String] = []
+        for game in games {
+            let key: String
+            if let date = game.date,
+               let monthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: date)) {
+                key = Self.monthLabelFormatter.string(from: monthStart)
+            } else {
+                key = "Undated"
+            }
+            if bucketsByKey[key] == nil {
+                bucketsByKey[key] = []
+                keyOrder.append(key)
+            }
+            bucketsByKey[key]?.append(game)
+        }
+        return keyOrder.map { ($0, bucketsByKey[$0] ?? []) }
+    }
+
+    private var gamesSummary: String? {
+        // Only show at scale — for 1–2 games, the row card already conveys everything.
+        guard cachedCompletedGames.count >= 3 else { return nil }
+        let withStats = cachedCompletedGames.compactMap { $0.gameStats }
+        guard !withStats.isEmpty else { return nil }
+
+        let totalAB = withStats.reduce(0) { $0 + $1.atBats }
+        let totalH  = withStats.reduce(0) { $0 + $1.hits }
+        let totalHR = withStats.reduce(0) { $0 + $1.homeRuns }
+        let totalRBI = withStats.reduce(0) { $0 + $1.rbis }
+        let totalPitches = withStats.reduce(0) { $0 + $1.totalPitches }
+        let totalK = withStats.reduce(0) { $0 + $1.pitchingStrikeouts }
+        let totalBB = withStats.reduce(0) { $0 + $1.pitchingWalks }
+
+        let n = cachedCompletedGames.count
+        let gameWord = n == 1 ? "game" : "games"
+
+        var parts: [String] = ["\(n) \(gameWord)"]
+
+        if totalAB > 0 {
+            let avg = StatisticsService.shared.formatBattingAverage(Double(totalH) / Double(totalAB))
+            parts.append(avg)
+            if totalHR > 0 { parts.append("\(totalHR) HR") }
+            if totalRBI > 0 { parts.append("\(totalRBI) RBI") }
+        } else if totalPitches > 0 {
+            parts.append("\(totalK) K")
+            parts.append("\(totalBB) BB")
+            parts.append("\(totalPitches) P")
+        }
+
+        if let seasonID = selectedSeasonFilter {
+            if seasonID == "no_season" {
+                parts.append("No Season")
+            } else if let s = cachedAvailableSeasons.first(where: { $0.id.uuidString == seasonID }) {
+                parts.append(s.displayName)
+            }
+        }
+
+        return parts.joined(separator: " · ")
+    }
     
     // MARK: - Sub-views
     
     @ViewBuilder
     private var gamesListContent: some View {
+        if let summary = gamesSummary {
+            HStack(spacing: 6) {
+                Image(systemName: "chart.bar.fill")
+                    .foregroundStyle(.green)
+                    .font(.caption)
+                Text(summary)
+                    .font(.bodySmall)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+                Spacer(minLength: 0)
+            }
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
+            .listRowInsets(EdgeInsets(top: 0, leading: 4, bottom: 0, trailing: 4))
+        }
+
         // Live Games Section
         if !cachedLiveGames.isEmpty {
             Section("Live") {
                 ForEach(cachedLiveGames) { game in
                     NavigationLink(destination: GameDetailView(game: game)) {
-                        GameRow(game: game)
+                        GameRow(game: game, isSeasonFiltered: selectedSeasonFilter != nil)
                     }
                     .swipeActions(edge: .trailing) {
                         Button("End") {
@@ -227,7 +316,7 @@ struct GamesView: View {
             Section("Upcoming") {
                 ForEach(cachedUpcomingGames) { game in
                     NavigationLink(destination: GameDetailView(game: game)) {
-                        GameRow(game: game)
+                        GameRow(game: game, isSeasonFiltered: selectedSeasonFilter != nil)
                     }
                     .swipeActions(edge: .trailing) {
                         Button("Start") {
@@ -258,7 +347,7 @@ struct GamesView: View {
             Section("Past Games") {
                 ForEach(cachedPastGames) { game in
                     NavigationLink(destination: GameDetailView(game: game)) {
-                        GameRow(game: game)
+                        GameRow(game: game, isSeasonFiltered: selectedSeasonFilter != nil)
                     }
                     .swipeActions(edge: .trailing) {
                         Button("Complete") {
@@ -284,33 +373,35 @@ struct GamesView: View {
             }
         }
         
-        // Completed Games Section
+        // Completed Games — single section under threshold, per-month sections at scale
         if !cachedCompletedGames.isEmpty {
-            Section("Completed") {
-                ForEach(cachedCompletedGames) { game in
-                    NavigationLink(destination: GameDetailView(game: game)) {
-                        GameRow(game: game)
+            ForEach(completedSections, id: \.label) { bucket in
+                Section(bucket.label) {
+                    ForEach(bucket.games) { game in
+                        NavigationLink(destination: GameDetailView(game: game)) {
+                            GameRow(game: game, isSeasonFiltered: selectedSeasonFilter != nil)
+                        }
+                        .swipeActions(edge: .leading) {
+                            Button(role: .destructive) {
+                                gameToDelete = game
+                                showingDeleteGameConfirmation = true
+                            } label: {
+                                Text("Delete")
+                            }
+                        }
+                        .onAppear {
+                            if game.id == cachedCompletedGames.last?.id,
+                               viewModelHolder.viewModel?.hasMoreCompleted == true {
+                                viewModelHolder.viewModel?.loadMoreCompleted()
+                                updateFilteredGames()
+                            }
+                        }
                     }
-                    .swipeActions(edge: .leading) {
-                        Button(role: .destructive) {
-                            gameToDelete = game
+                    .onDelete { indexSet in
+                        if let index = indexSet.first, index < bucket.games.count {
+                            gameToDelete = bucket.games[index]
                             showingDeleteGameConfirmation = true
-                        } label: {
-                            Text("Delete")
                         }
-                    }
-                    .onAppear {
-                        if game.id == cachedCompletedGames.last?.id,
-                           viewModelHolder.viewModel?.hasMoreCompleted == true {
-                            viewModelHolder.viewModel?.loadMoreCompleted()
-                            updateFilteredGames()
-                        }
-                    }
-                }
-                .onDelete { indexSet in
-                    if let index = indexSet.first, index < cachedCompletedGames.count {
-                        gameToDelete = cachedCompletedGames[index]
-                        showingDeleteGameConfirmation = true
                     }
                 }
             }
@@ -346,6 +437,7 @@ struct GamesView: View {
                 List {
                     gamesListContent
                 }
+                .environment(\.editMode, $listEditMode)
                 .refreshable {
                     Haptics.light()
                     refreshGames()
@@ -369,12 +461,23 @@ struct GamesView: View {
                 }
 
                 if hasGames {
-                    ToolbarItem(placement: .topBarLeading) {
-                        EditButton()
+                    ToolbarItem(placement: .topBarTrailing) {
+                        seasonFilterMenu
                     }
 
                     ToolbarItem(placement: .topBarTrailing) {
-                        seasonFilterMenu
+                        Menu {
+                            Button {
+                                withAnimation {
+                                    listEditMode = (listEditMode == .active) ? .inactive : .active
+                                }
+                            } label: {
+                                Label(listEditMode == .active ? "Done" : "Edit", systemImage: "pencil")
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
+                        }
+                        .accessibilityLabel("More options")
                     }
                 }
             }

@@ -118,7 +118,7 @@ struct PracticesView: View {
                             .font(.caption)
 
                         Text(viewModel.practicesSummary)
-                            .font(.caption)
+                            .font(.bodySmall)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                             .truncationMode(.tail)
@@ -150,7 +150,7 @@ struct PracticesView: View {
                             Text("Load More")
                             Image(systemName: "arrow.down.circle")
                         }
-                        .font(.subheadline).fontWeight(.medium)
+                        .font(.labelLarge)
                         .foregroundColor(.brandNavy)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)

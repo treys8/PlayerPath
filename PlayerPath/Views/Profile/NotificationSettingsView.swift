@@ -179,10 +179,9 @@ struct NotificationSettingsView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     Label("Notifications are turned off", systemImage: "bell.slash.fill")
                         .foregroundColor(.red)
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
+                        .font(.headingSmall)
                     Text("Your preferences are saved, but you won't receive any alerts until notifications are enabled in iOS Settings.")
-                        .font(.caption)
+                        .font(.bodySmall)
                         .foregroundColor(.secondary)
                     Button("Open iOS Settings") {
                         PushNotificationService.shared.openSettingsIfDenied()
@@ -198,10 +197,9 @@ struct NotificationSettingsView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     Label("Notifications not yet enabled", systemImage: "bell.badge.fill")
                         .foregroundColor(.orange)
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
+                        .font(.headingSmall)
                     Text("Enable notifications to receive game reminders, upload alerts, and weekly performance summaries.")
-                        .font(.caption)
+                        .font(.bodySmall)
                         .foregroundColor(.secondary)
                     Button("Enable Notifications") {
                         Task {

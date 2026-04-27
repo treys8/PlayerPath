@@ -98,6 +98,7 @@ struct PlayerPathMainView: View {
             }
         }
         .environmentObject(authManager)
+        .environment(\.font, .bodyLarge)
         .tint(Color.brandNavy)
         .preferredColorScheme(themeManager.colorScheme)
         .dynamicTypeSize(...DynamicTypeSize.accessibility5)

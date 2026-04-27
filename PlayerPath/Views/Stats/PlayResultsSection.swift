@@ -67,7 +67,7 @@ struct PlayResultCard: View {
     var body: some View {
         VStack(spacing: 6) {
             Text("\(data.count)")
-                .font(.system(size: 24, weight: .bold, design: .rounded))
+                .font(.ppStat(24))
                 .foregroundStyle(
                     LinearGradient(
                         colors: [data.color, data.color.opacity(0.7)],
@@ -79,8 +79,7 @@ struct PlayResultCard: View {
                 .opacity(isAnimating ? 1.0 : 0)
 
             Text(data.type)
-                .font(.caption2)
-                .fontWeight(.medium)
+                .font(.labelSmall)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
                 .lineLimit(2)

@@ -53,7 +53,7 @@ struct StatisticsExportView: View {
                     .pickerStyle(.inline)
 
                     Text(selectedReportType.description)
-                        .font(.caption)
+                        .font(.bodySmall)
                         .foregroundColor(.secondary)
                 }
 
@@ -86,7 +86,7 @@ struct StatisticsExportView: View {
                         Image(systemName: selectedFormat.icon)
                             .foregroundColor(.blue)
                         Text(selectedFormat.description)
-                            .font(.caption)
+                            .font(.bodySmall)
                             .foregroundColor(.secondary)
                     }
                 }
@@ -95,27 +95,25 @@ struct StatisticsExportView: View {
                 Section {
                     VStack(alignment: .leading, spacing: 12) {
                         Label("Export Preview", systemImage: "doc.text.magnifyingglass")
-                            .font(.headline)
+                            .font(.headingLarge)
 
                         HStack {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text("Athlete:")
-                                    .font(.caption)
+                                    .font(.labelSmall)
                                     .foregroundColor(.secondary)
                                 Text(selectedAthlete?.name ?? "")
-                                    .font(.body)
-                                    .fontWeight(.medium)
+                                    .font(.labelLarge)
                             }
 
                             Spacer()
 
                             VStack(alignment: .trailing, spacing: 4) {
                                 Text("Report:")
-                                    .font(.caption)
+                                    .font(.labelSmall)
                                     .foregroundColor(.secondary)
                                 Text(selectedReportType.shortName)
-                                    .font(.body)
-                                    .fontWeight(.medium)
+                                    .font(.labelLarge)
                             }
                         }
 
@@ -123,10 +121,10 @@ struct StatisticsExportView: View {
                             Divider()
                             HStack {
                                 Text("Season:")
-                                    .font(.caption)
+                                    .font(.labelSmall)
                                     .foregroundColor(.secondary)
                                 Text(season.displayName)
-                                    .font(.body)
+                                    .font(.bodyLarge)
                             }
                         }
 
@@ -134,11 +132,10 @@ struct StatisticsExportView: View {
 
                         HStack {
                             Text("Format:")
-                                .font(.caption)
+                                .font(.labelSmall)
                                 .foregroundColor(.secondary)
                             Text(selectedFormat.rawValue.uppercased())
-                                .font(.body)
-                                .fontWeight(.bold)
+                                .font(.custom("Inter18pt-Bold", size: 17, relativeTo: .body))
                                 .foregroundColor(selectedFormat == .pdf ? .red : .green)
                         }
                     }
@@ -174,11 +171,11 @@ struct StatisticsExportView: View {
                             .foregroundColor(.secondary)
 
                         Text("Select an athlete to generate reports")
-                            .font(.headline)
+                            .font(.headingLarge)
                             .foregroundColor(.secondary)
 
                         Text("Export statistics to CSV or PDF format for sharing with coaches, scouts, or for your records.")
-                            .font(.caption)
+                            .font(.bodySmall)
                             .foregroundColor(.secondary)
                             .multilineTextAlignment(.center)
                     }

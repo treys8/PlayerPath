@@ -234,13 +234,15 @@ struct EnhancedVideoPlayer: View {
 
             HStack {
                 Text(formatTime(currentTime))
-                    .font(.caption)
+                    .font(.bodySmall)
+                    .monospacedDigit()
                     .foregroundColor(.white)
 
                 Spacer()
 
                 Text("-\(formatTime(duration - currentTime))")
-                    .font(.caption)
+                    .font(.bodySmall)
+                    .monospacedDigit()
                     .foregroundColor(.white.opacity(0.7))
             }
         }
@@ -323,7 +325,7 @@ struct EnhancedVideoPlayer: View {
     private var speedControlsView: some View {
         HStack(spacing: 8) {
             Text("Speed:")
-                .font(.caption)
+                .font(.bodySmall)
                 .foregroundColor(.white.opacity(0.7))
 
             ForEach(PlaybackSpeed.allCases, id: \.self) { speed in
@@ -332,8 +334,7 @@ struct EnhancedVideoPlayer: View {
                     showControlsTemporarily()
                 } label: {
                     Text(speed.displayName)
-                        .font(.caption)
-                        .fontWeight(playbackSpeed == speed ? .bold : .regular)
+                        .font(playbackSpeed == speed ? .custom("Inter18pt-Bold", size: 12, relativeTo: .caption) : .bodySmall)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
                         .background(playbackSpeed == speed ? Color.brandNavy : Color.white.opacity(0.2))
@@ -353,8 +354,7 @@ struct EnhancedVideoPlayer: View {
             showControlsTemporarily()
         } label: {
             Text(playbackSpeed.displayName)
-                .font(.caption)
-                .fontWeight(.semibold)
+                .font(.custom("Inter18pt-SemiBold", size: 12, relativeTo: .caption))
                 .monospacedDigit()
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)

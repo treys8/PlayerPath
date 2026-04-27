@@ -188,8 +188,7 @@ struct AdvancedSearchView: View {
                     clearAllFilters()
                 } label: {
                     Text("Clear all")
-                        .font(.caption)
-                        .fontWeight(.medium)
+                        .font(.labelMedium)
                         .foregroundColor(.red)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
@@ -312,7 +311,7 @@ struct AdvancedSearchView: View {
     private func resultsHeaderView(count: Int) -> some View {
         HStack {
             Text("\(count) result\(count == 1 ? "" : "s")")
-                .font(.subheadline)
+                .font(.bodyMedium)
                 .foregroundColor(.secondary)
 
             Spacer()
@@ -322,8 +321,7 @@ struct AdvancedSearchView: View {
                     showingSaveSearch = true
                 } label: {
                     Label("Save Search", systemImage: "bookmark")
-                        .font(.caption)
-                        .fontWeight(.medium)
+                        .font(.labelMedium)
                 }
             }
         }
@@ -336,11 +334,11 @@ struct AdvancedSearchView: View {
                 .foregroundColor(.secondary)
 
             Text("No results found")
-                .font(.headline)
+                .font(.headingLarge)
                 .foregroundColor(.secondary)
 
             Text("Try adjusting your search or filters")
-                .font(.subheadline)
+                .font(.bodyMedium)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
 
@@ -349,7 +347,7 @@ struct AdvancedSearchView: View {
                     clearAllFilters()
                 } label: {
                     Text("Clear filters")
-                        .fontWeight(.medium)
+                        .font(.labelLarge)
                 }
                 .buttonStyle(.bordered)
             }
@@ -700,8 +698,7 @@ struct FilterChip: View {
     var body: some View {
         HStack(spacing: 4) {
             Text(text)
-                .font(.caption)
-                .fontWeight(.medium)
+                .font(.labelMedium)
 
             Button(action: onRemove) {
                 Image(systemName: "xmark.circle.fill")
@@ -760,8 +757,7 @@ struct VideoSearchResultCard: View {
             HStack {
                 if let result = video.playResult {
                     Text(result.type.displayName)
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
+                        .font(.headingMedium)
                 }
                 if video.isHighlight {
                     Image(systemName: "star.fill")
@@ -771,12 +767,12 @@ struct VideoSearchResultCard: View {
             }
             if let game = video.game {
                 Text("vs \(game.opponent)")
-                    .font(.caption)
+                    .font(.bodySmall)
                     .foregroundColor(.secondary)
             }
             if let createdAt = video.createdAt {
                 Text(createdAt.formatted(date: .abbreviated, time: .shortened))
-                    .font(.caption2)
+                    .font(.labelSmall)
                     .foregroundColor(.secondary)
             }
         }
@@ -790,15 +786,14 @@ struct GameSearchResultRow: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Text("vs \(game.opponent)")
-                    .font(.headline)
+                    .font(.headingLarge)
 
                 Spacer()
 
                 switch game.displayStatus {
                 case .live:
                     Text("LIVE")
-                        .font(.caption2)
-                        .fontWeight(.bold)
+                        .font(.custom("Inter18pt-Bold", size: 11, relativeTo: .caption2))
                         .foregroundColor(.white)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
@@ -814,13 +809,13 @@ struct GameSearchResultRow: View {
 
             if let date = game.date {
                 Text(date.formatted(date: .abbreviated, time: .omitted))
-                    .font(.caption)
+                    .font(.bodySmall)
                     .foregroundColor(.secondary)
             }
 
             if let stats = game.gameStats {
                 Text("\(stats.hits)-\(stats.atBats), \(StatisticsService.shared.formatBattingAverage(stats.battingAverage)) AVG")
-                    .font(.caption)
+                    .font(.bodySmall)
                     .foregroundColor(.secondary)
             }
         }
@@ -834,18 +829,18 @@ struct PracticeSearchResultRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("Practice")
-                .font(.headline)
+                .font(.headingLarge)
 
             if let date = practice.date {
                 Text(date.formatted(date: .abbreviated, time: .shortened))
-                    .font(.caption)
+                    .font(.bodySmall)
                     .foregroundColor(.secondary)
             }
 
             let notesCount = practice.notes?.count ?? 0
             if notesCount > 0 {
                 Text("\(notesCount) note\(notesCount == 1 ? "" : "s")")
-                    .font(.caption2)
+                    .font(.labelSmall)
                     .foregroundColor(.secondary)
             }
         }
@@ -860,23 +855,22 @@ struct PhotoSearchResultCard: View {
         SearchResultCard(thumbnailPath: photo.thumbnailPath, placeholderIcon: "photo") {
             if let caption = photo.caption, !caption.isEmpty {
                 Text(caption)
-                    .font(.subheadline)
-                    .fontWeight(.semibold)
+                    .font(.headingMedium)
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
             if let game = photo.game {
                 Text("vs \(game.opponent)")
-                    .font(.caption)
+                    .font(.bodySmall)
                     .foregroundColor(.secondary)
             } else if photo.practice != nil {
                 Text("Practice")
-                    .font(.caption)
+                    .font(.bodySmall)
                     .foregroundColor(.secondary)
             }
             if let createdAt = photo.createdAt {
                 Text(createdAt.formatted(date: .abbreviated, time: .shortened))
-                    .font(.caption2)
+                    .font(.labelSmall)
                     .foregroundColor(.secondary)
             }
         }

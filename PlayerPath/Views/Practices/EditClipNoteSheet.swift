@@ -29,7 +29,7 @@ struct EditClipNoteSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     Text("Your note is visible to your coach if you share this video.")
-                        .font(.caption)
+                        .font(.bodySmall)
                         .foregroundStyle(.secondary)
                         .padding(.horizontal)
                         .padding(.top, 4)
@@ -51,7 +51,7 @@ struct EditClipNoteSheet: View {
                 ToolbarItemGroup(placement: .keyboard) {
                     Spacer()
                     Button("Done") { isFocused = false }
-                        .fontWeight(.semibold)
+                        .font(.headingMedium)
                 }
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }

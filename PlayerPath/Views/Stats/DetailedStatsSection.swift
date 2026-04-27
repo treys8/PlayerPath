@@ -50,11 +50,11 @@ private struct LabelValueRow: View {
     var body: some View {
         HStack {
             Text(label)
-                .font(.subheadline)
+                .font(.bodyMedium)
             Spacer()
             Text(value)
-                .font(.subheadline)
-                .fontWeight(.semibold)
+                .font(.ppStatSmall)
+                .monospacedDigit()
                 .foregroundColor(.blue)
         }
         .padding(.horizontal)

@@ -60,7 +60,7 @@ struct AutoHighlightSettingsView: View {
 
                     if let result = scanResult {
                         Text(result)
-                            .font(.caption)
+                            .font(.bodySmall)
                             .foregroundStyle(.secondary)
                     }
                 } footer: {

@@ -34,8 +34,7 @@ struct PlayResultButton: View {
 
                 // Label
                 Text(result.displayName)
-                    .font(.subheadline)
-                    .fontWeight(.bold)
+                    .font(.headingMedium)
                     .foregroundColor(.white)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -225,8 +224,7 @@ struct PlayResultModePicker: View {
                         .font(.system(size: 14, weight: .semibold))
 
                     Text(title)
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
+                        .font(.headingMedium)
                 }
                 .foregroundColor(isSelected ? .white : .white.opacity(0.6))
                 .frame(maxWidth: .infinity)
@@ -256,8 +254,7 @@ struct PitchTypeButton: View {
     var body: some View {
         Button(action: action) {
             Text(title)
-                .font(.subheadline)
-                .fontWeight(.semibold)
+                .font(.headingMedium)
                 .foregroundColor(isSelected ? .white : .white.opacity(0.6))
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 10)
@@ -318,7 +315,7 @@ struct PlayResultActionButton: View {
                     .font(.body.weight(.semibold))
 
                 Text(title)
-                    .font(.body.weight(.semibold))
+                    .font(.headingMedium)
             }
             .foregroundColor(.white)
             .frame(maxWidth: .infinity)

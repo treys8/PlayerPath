@@ -63,7 +63,7 @@ struct SettingsView: View {
                     )
                     Spacer()
                     Text(user.email)
-                        .font(.caption)
+                        .font(.bodySmall)
                         .foregroundColor(.secondary)
                         .lineLimit(1)
                         .truncationMode(.tail)

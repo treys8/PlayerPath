@@ -88,11 +88,10 @@ struct DashboardNextStepCard: View {
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(step.title)
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
+                        .font(.headingSmall)
 
                     Text(step.message)
-                        .font(.caption)
+                        .font(.bodySmall)
                         .foregroundStyle(.secondary)
                 }
 
@@ -102,8 +101,7 @@ struct DashboardNextStepCard: View {
                     postSwitchTab(step.tab)
                 } label: {
                     Text(step.buttonLabel)
-                        .font(.caption)
-                        .fontWeight(.semibold)
+                        .font(.headingSmall)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
                         .background(step.color.opacity(0.2))

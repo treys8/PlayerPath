@@ -11,6 +11,15 @@ import SwiftUI
 import AVFoundation
 import UIKit
 
+// AVAssetImageGenerator isn't Sendable, but `cancelAllCGImageGeneration()` is
+// documented as thread-safe. Wrap so the Task cancellation handler closure
+// compiles cleanly under strict concurrency.
+private final class GeneratorBox: @unchecked Sendable {
+    nonisolated(unsafe) let generator: AVAssetImageGenerator
+    init(_ generator: AVAssetImageGenerator) { self.generator = generator }
+    nonisolated func cancel() { generator.cancelAllCGImageGeneration() }
+}
+
 struct PracticeVideoSaveView: View {
     let videoURL: URL
     let athlete: Athlete?
@@ -25,6 +34,7 @@ struct PracticeVideoSaveView: View {
     @State private var showContent = false
     @State private var isSaving = false
     @State private var thumbnail: UIImage?
+    @State private var thumbnailTask: Task<Void, Never>?
     @State private var bottomSafeArea: CGFloat = 0
     @State private var previousOrientationLock: UIInterfaceOrientationMask = .allButUpsideDown
     @FocusState private var noteIsFocused: Bool
@@ -50,6 +60,10 @@ struct PracticeVideoSaveView: View {
             .ignoresSafeArea()
             .overlay(Color.black.opacity(0.3))
             .onAppear { loadThumbnail() }
+            .onDisappear {
+                thumbnailTask?.cancel()
+                thumbnailTask = nil
+            }
 
             // Info header with Discard button
             VStack {
@@ -62,7 +76,7 @@ struct PracticeVideoSaveView: View {
                             Image(systemName: "chevron.left")
                                 .font(.body.weight(.semibold))
                             Text("Discard")
-                                .font(.body)
+                                .font(.bodyLarge)
                         }
                         .foregroundStyle(.white)
                         .padding(.horizontal, 12)
@@ -77,8 +91,7 @@ struct PracticeVideoSaveView: View {
                                 .font(.caption)
                                 .foregroundStyle(.white.opacity(0.8))
                             Text("\(practice?.type.displayName ?? "General") Practice")
-                                .font(.headline)
-                                .fontWeight(.bold)
+                                .font(.headingLarge)
                                 .foregroundStyle(.white)
                         }
                         if let date = practice?.date {
@@ -87,7 +100,7 @@ struct PracticeVideoSaveView: View {
                                     .font(.caption2)
                                     .foregroundStyle(.white.opacity(0.6))
                                 Text(date, style: .date)
-                                    .font(.subheadline)
+                                    .font(.bodyMedium)
                                     .foregroundStyle(.white.opacity(0.8))
                             }
                         }
@@ -97,7 +110,7 @@ struct PracticeVideoSaveView: View {
                                     .font(.caption2)
                                     .foregroundStyle(.white.opacity(0.5))
                                 Text(name)
-                                    .font(.caption)
+                                    .font(.bodySmall)
                                     .foregroundStyle(.white.opacity(0.7))
                             }
                         }
@@ -143,7 +156,7 @@ struct PracticeVideoSaveView: View {
                         .scaleEffect(1.5)
                         .tint(.white)
                     Text("Saving...")
-                        .font(.headline)
+                        .font(.headingMedium)
                         .foregroundStyle(.white)
                 }
                 .transition(.opacity)
@@ -169,12 +182,11 @@ struct PracticeVideoSaveView: View {
             // Header
             VStack(spacing: 6) {
                 Text("Practice Recording")
-                    .font(.title3)
-                    .fontWeight(.bold)
+                    .font(.headingLarge)
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.center)
                 Text("Add an optional note before saving")
-                    .font(.caption)
+                    .font(.bodySmall)
                     .foregroundStyle(.white.opacity(0.7))
                     .multilineTextAlignment(.center)
             }
@@ -185,7 +197,7 @@ struct PracticeVideoSaveView: View {
             ZStack(alignment: .topLeading) {
                 if noteText.isEmpty {
                     Text("What were you working on? (optional)")
-                        .font(.subheadline)
+                        .font(.bodyMedium)
                         .foregroundStyle(.white.opacity(0.6))
                         .padding(.horizontal, 4)
                         .padding(.top, 8)
@@ -193,7 +205,7 @@ struct PracticeVideoSaveView: View {
                 }
                 TextEditor(text: $noteText)
                     .focused($noteIsFocused)
-                    .font(.subheadline)
+                    .font(.bodyMedium)
                     .foregroundStyle(.white)
                     .frame(minHeight: 44, maxHeight: 60)
                     .scrollContentBackground(.hidden)
@@ -202,7 +214,7 @@ struct PracticeVideoSaveView: View {
                         ToolbarItemGroup(placement: .keyboard) {
                             Spacer()
                             Button("Done") { noteIsFocused = false }
-                                .fontWeight(.semibold)
+                                .font(.headingMedium)
                         }
                     }
             }
@@ -273,15 +285,25 @@ struct PracticeVideoSaveView: View {
         let maxSize: CGSize = clipOrientation.isLandscape
             ? CGSize(width: 640, height: 360)
             : CGSize(width: 360, height: 640)
-        Task {
+        thumbnailTask?.cancel()
+        thumbnailTask = Task {
             let asset = AVURLAsset(url: videoURL)
             let generator = AVAssetImageGenerator(asset: asset)
             generator.appliesPreferredTrackTransform = true
             generator.maximumSize = maxSize
-            if let cgImage = try? await generator.image(at: .zero).image {
-                await MainActor.run {
-                    thumbnail = UIImage(cgImage: cgImage)
-                }
+            // If the view dismisses while the frame is being decoded, tell the
+            // generator to cancel the in-flight request — it doesn't honor
+            // Task.isCancelled on its own.
+            let box = GeneratorBox(generator)
+            let cgImage = await withTaskCancellationHandler {
+                try? await box.generator.image(at: .zero).image
+            } onCancel: {
+                box.cancel()
+            }
+            guard !Task.isCancelled, let cgImage else { return }
+            let image = UIImage(cgImage: cgImage)
+            await MainActor.run {
+                thumbnail = image
             }
         }
     }

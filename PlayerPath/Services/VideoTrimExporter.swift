@@ -13,6 +13,15 @@ import os
 
 private let trimExportLog = Logger(subsystem: "com.playerpath.app", category: "VideoTrimExporter")
 
+// AVAssetExportSession isn't Sendable, but `cancelExport()` is documented as
+// thread-safe. Wrap it so the Task cancellation handler closure compiles
+// cleanly under strict concurrency.
+private final class SessionBox: @unchecked Sendable {
+    nonisolated(unsafe) let session: AVAssetExportSession
+    init(_ session: AVAssetExportSession) { self.session = session }
+    nonisolated func cancel() { session.cancelExport() }
+}
+
 enum VideoTrimExporter {
     enum ExportError: LocalizedError {
         case sessionCreationFailed
@@ -124,26 +133,37 @@ enum VideoTrimExporter {
             }
         }
 
-        if #available(iOS 18.0, *) {
-            do {
-                try await session.export(to: outputURL, as: .mp4)
-                return outputURL
-            } catch {
-                try? FileManager.default.removeItem(at: outputURL)
-                throw ExportError.exportFailed(error.localizedDescription)
+        // Honor task cancellation: if the caller's Task is cancelled mid-export
+        // (e.g. user backs out of the trim sheet), tell the session to stop so
+        // CPU/battery don't keep churning until the export finishes on its own.
+        let box = SessionBox(session)
+        return try await withTaskCancellationHandler {
+            if #available(iOS 18.0, *) {
+                do {
+                    try await session.export(to: outputURL, as: .mp4)
+                    return outputURL
+                } catch {
+                    try? FileManager.default.removeItem(at: outputURL)
+                    if Task.isCancelled {
+                        throw ExportError.cancelled
+                    }
+                    throw ExportError.exportFailed(error.localizedDescription)
+                }
+            } else {
+                await session.export()
+                switch session.status {
+                case .completed:
+                    return outputURL
+                case .cancelled:
+                    try? FileManager.default.removeItem(at: outputURL)
+                    throw ExportError.cancelled
+                default:
+                    try? FileManager.default.removeItem(at: outputURL)
+                    throw ExportError.exportFailed(session.error?.localizedDescription ?? "Export failed")
+                }
             }
-        } else {
-            await session.export()
-            switch session.status {
-            case .completed:
-                return outputURL
-            case .cancelled:
-                try? FileManager.default.removeItem(at: outputURL)
-                throw ExportError.cancelled
-            default:
-                try? FileManager.default.removeItem(at: outputURL)
-                throw ExportError.exportFailed(session.error?.localizedDescription ?? "Export failed")
-            }
+        } onCancel: {
+            box.cancel()
         }
     }
 }

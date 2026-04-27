@@ -55,12 +55,11 @@ struct EmptyGamesView: View {
 
                 VStack(spacing: 10) {
                     Text("No Games Yet")
-                        .font(.title3)
-                        .fontWeight(.bold)
+                        .font(.headingLarge)
                         .foregroundColor(.primary)
 
                     Text("Create your first game to record\nand track performance")
-                        .font(.subheadline)
+                        .font(.bodyMedium)
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
                         .fixedSize(horizontal: false, vertical: true)
@@ -77,8 +76,7 @@ struct EmptyGamesView: View {
                         Image(systemName: "plus.circle.fill")
                             .font(.body)
                         Text("Add Game")
-                            .font(.subheadline)
-                            .fontWeight(.semibold)
+                            .font(.headingMedium)
                     }
                     .foregroundColor(.white)
                     .frame(maxWidth: 200)

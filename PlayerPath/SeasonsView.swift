@@ -65,11 +65,10 @@ struct SeasonsView: View {
 
                     VStack(alignment: .leading, spacing: 4) {
                         Text("No Active Season")
-                            .font(.headline)
-                            .fontWeight(.semibold)
+                            .font(.headingMedium)
 
                         Text("Create or activate a season to track your progress")
-                            .font(.caption)
+                            .font(.bodySmall)
                             .foregroundStyle(.secondary)
                     }
 
@@ -100,13 +99,12 @@ struct SeasonsView: View {
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Active Season")
-                            .font(.caption)
+                            .font(.labelSmall)
                             .foregroundStyle(.secondary)
                             .textCase(.uppercase)
 
                         Text(activeSeason.displayName)
-                            .font(.title3)
-                            .fontWeight(.semibold)
+                            .font(.headingLarge)
                     }
 
                     Spacer()
@@ -160,8 +158,7 @@ struct SeasonsView: View {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
                     Text("All Seasons")
-                        .font(.headline)
-                        .fontWeight(.semibold)
+                        .font(.headingLarge)
                     Spacer()
                 }
                 .padding(.horizontal)
@@ -206,13 +203,11 @@ struct SeasonRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 8) {
                     Text(season.displayName)
-                        .font(.headline)
-                        .fontWeight(.semibold)
+                        .font(.headingMedium)
 
                     // Status Badge
                     Text(season.status.displayName.uppercased())
-                        .font(.caption2)
-                        .fontWeight(.bold)
+                        .font(.custom("Inter18pt-Bold", size: 11, relativeTo: .caption2))
                         .foregroundStyle(.white)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
@@ -293,16 +288,15 @@ struct SeasonVideoRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 if let playResult = video.playResult {
                     Text(playResult.type.displayName)
-                        .font(.subheadline)
-                        .fontWeight(.medium)
+                        .font(.labelLarge)
                 } else {
                     Text("Practice Video")
-                        .font(.subheadline)
+                        .font(.bodyMedium)
                 }
-                
+
                 if let created = video.createdAt {
                     Text(created.formatted(date: .abbreviated, time: .shortened))
-                        .font(.caption)
+                        .font(.bodySmall)
                         .foregroundStyle(.secondary)
                 }
             }
@@ -330,12 +324,11 @@ struct SeasonGameRow: View {
             
             VStack(alignment: .leading, spacing: 2) {
                 Text("vs \(game.opponent)")
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-                
+                    .font(.labelLarge)
+
                 if let date = game.date {
                     Text(date.formatted(date: .abbreviated, time: .omitted))
-                        .font(.caption)
+                        .font(.bodySmall)
                         .foregroundStyle(.secondary)
                 }
             }
