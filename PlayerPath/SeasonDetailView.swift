@@ -37,12 +37,6 @@ struct SeasonDetailView: View {
     @State private var videoUploadTrigger = false
     @State private var photoUploadTrigger = false
 
-    // Cached stats - updated via relationships
-    @State private var completedGames: Int = 0
-    @State private var totalVideos: Int = 0
-    @State private var highlights: Int = 0
-    @State private var practices: Int = 0
-
     // Cached filtered content arrays to avoid expensive recomputation on every render
     @State private var filteredGames: [Game] = []
     @State private var filteredVideos: [VideoClip] = []
@@ -127,16 +121,18 @@ struct SeasonDetailView: View {
             // Statistics - using computed values for live updates (shown for All filter)
             if selectedFilter == .all {
                 Section("Season Stats") {
-                    LabeledContent("Total Games", value: "\(completedGames)")
-                    LabeledContent("Total Videos", value: "\(totalVideos)")
-                    LabeledContent("Highlights", value: "\(highlights)")
-                    LabeledContent("Practices", value: "\(practices)")
+                    LabeledContent("Total Games", value: "\(season.completedGames)")
+                    LabeledContent("Total Videos", value: "\(season.totalVideos)")
+                    LabeledContent("Highlights", value: "\(season.highlights.count)")
+                    LabeledContent("Practices", value: "\(season.practicesCount)")
                 }
 
                 // Baseball Stats (if available)
                 if let stats = season.seasonStatistics, stats.atBats > 0 {
+                    let avg = stats.battingAverage
+                    let avgDisplay = avg >= 1.0 ? "1.000" : String(format: ".%03d", Int(avg * 1000))
                     Section("Batting Statistics") {
-                        LabeledContent("Batting Average", value: String(format: ".%03d", Int(stats.battingAverage * 1000)))
+                        LabeledContent("Batting Average", value: avgDisplay)
                         LabeledContent("At Bats", value: "\(stats.atBats)")
                         LabeledContent("Hits", value: "\(stats.hits)")
                         LabeledContent("Home Runs", value: "\(stats.homeRuns)")
@@ -287,22 +283,18 @@ struct SeasonDetailView: View {
         }
         .disabled(isProcessing)
         .task {
-            updateStats()
             updateFilteredContent()
         }
         .onChange(of: selectedFilter) { _, _ in
             updateFilteredContent()
         }
         .onChange(of: season.games) { _, _ in
-            updateStats()
             updateFilteredContent()
         }
         .onChange(of: season.videoClips) { _, _ in
-            updateStats()
             updateFilteredContent()
         }
         .onChange(of: season.practices) { _, _ in
-            updateStats()
             updateFilteredContent()
         }
     }
@@ -404,58 +396,17 @@ struct SeasonDetailView: View {
             .sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
     }
 
-    private func updateStats() {
-        completedGames = season.games?.filter { $0.isComplete }.count ?? 0
-        totalVideos = season.videoClips?.count ?? 0
-        highlights = season.videoClips?.filter { $0.isHighlight }.count ?? 0
-        practices = season.practices?.count ?? 0
-    }
-
     private func deleteSeason() {
         isProcessing = true
-
         Task {
-            // Delete from Firestore first — if this fails, don't delete locally
-            if let firestoreId = season.firestoreId,
-               let user = season.athlete?.user {
-                let userId = user.id.uuidString
-                do {
-                    try await withRetry {
-                        try await FirestoreManager.shared.deleteSeason(userId: userId, seasonId: firestoreId)
-                    }
-                } catch {
-                    isProcessing = false
-                    errorMessage = "Unable to delete season. Check your connection and try again."
-                    showingError = true
-                    ErrorHandlerService.shared.handle(error, context: "SeasonDetail.deleteFromFirestore", showAlert: false)
-                    return
-                }
-            }
-
-            // Delink relationships so games/practices/videos are not cascade-deleted
-            season.games = nil
-            season.practices = nil
-            season.videoClips = nil
-
-            modelContext.delete(season)
-
             do {
-                try modelContext.save()
+                try await SeasonService.deleteSeason(season, modelContext: modelContext)
                 isProcessing = false
                 Haptics.medium()
                 dismiss()
             } catch {
-                // Firestore is already deleted and is the source of truth. Don't
-                // re-insert locally — that would produce a permanent divergence
-                // (gone remotely, present locally). SyncCoordinator will
-                // reconcile the missing Firestore doc on the next pull.
-                ErrorHandlerService.shared.handle(
-                    error,
-                    context: "SeasonDetail.localSaveAfterFirestoreDelete",
-                    showAlert: false
-                )
                 isProcessing = false
-                errorMessage = "Deleted from cloud but local cleanup didn't finish. It'll clear on the next sync."
+                errorMessage = error.localizedDescription
                 showingError = true
             }
         }
@@ -463,37 +414,9 @@ struct SeasonDetailView: View {
 
     private func endSeason() {
         isProcessing = true
-
-        // Save state for rollback
-        let wasActive = season.isActive
-        let previousEndDate = season.endDate
-
-        // End the season
-        season.archive()
-
-        // Mark for Firestore sync (Phase 2)
-        season.needsSync = true
-
         Task {
             do {
-                try modelContext.save()
-
-                // Track season end analytics
-                let gameCount = season.games?.count ?? 0
-                AnalyticsService.shared.trackSeasonEnded(
-                    seasonID: season.id.uuidString,
-                    totalGames: gameCount
-                )
-
-                // Trigger immediate sync to Firestore
-                if let user = season.athlete?.user {
-                    do {
-                        try await SyncCoordinator.shared.syncSeasons(for: user)
-                    } catch {
-                        ErrorHandlerService.shared.handle(error, context: "SeasonManagement.syncSeasons", showAlert: false)
-                    }
-                }
-
+                try await SeasonService.endSeason(season, modelContext: modelContext)
                 withAnimation {
                     isProcessing = false
                 }
@@ -502,76 +425,31 @@ struct SeasonDetailView: View {
                 successMessage = "\(season.displayName) has been ended and archived."
                 showingSuccess = true
             } catch {
-                // Rollback on failure
-                if wasActive {
-                    season.activate()
-                }
-                season.endDate = previousEndDate
-
                 isProcessing = false
-                errorMessage = "Failed to end season: \(error.localizedDescription)"
+                errorMessage = error.localizedDescription
                 showingError = true
             }
         }
     }
 
     private func renameSeason(to newName: String) {
-        let trimmedName = newName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedName.isEmpty else { return }
-        guard trimmedName != season.name else { return }
+        let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != season.name else { return }
 
         isProcessing = true
-
-        // Save state for rollback
-        let oldName = season.name
-        let oldClipSeasonNames: [(VideoClip, String)] = (season.videoClips ?? []).map { ($0, $0.seasonName ?? "") }
-
-        // Update season name
-        season.name = trimmedName
-        season.needsSync = true
-
-        // Batch-update all VideoClips with the new season name
-        for clip in season.videoClips ?? [] {
-            clip.seasonName = season.displayName
-            if clip.firestoreId != nil {
-                clip.needsSync = true
-            }
-        }
-
         Task {
             do {
-                try modelContext.save()
-
-                // Trigger sync for both season and video metadata
-                if let user = season.athlete?.user {
-                    do {
-                        try await SyncCoordinator.shared.syncSeasons(for: user)
-                    } catch {
-                        ErrorHandlerService.shared.handle(error, context: "SeasonManagement.syncSeasons", showAlert: false)
-                    }
-                    do {
-                        try await SyncCoordinator.shared.syncVideos(for: user)
-                    } catch {
-                        ErrorHandlerService.shared.handle(error, context: "SeasonManagement.syncVideos", showAlert: false)
-                    }
-                }
-
+                try await SeasonService.renameSeason(season, to: trimmed, modelContext: modelContext)
                 withAnimation {
                     isProcessing = false
                 }
                 Haptics.medium()
                 successTitle = "Season Renamed"
-                successMessage = "Season renamed to \"\(trimmedName)\"."
+                successMessage = "Season renamed to \"\(trimmed)\"."
                 showingSuccess = true
             } catch {
-                // Rollback season name and clip seasonNames
-                season.name = oldName
-                for (clip, oldSeasonName) in oldClipSeasonNames {
-                    clip.seasonName = oldSeasonName
-                }
-
                 isProcessing = false
-                errorMessage = "Failed to rename season: \(error.localizedDescription)"
+                errorMessage = error.localizedDescription
                 showingError = true
             }
         }
@@ -579,40 +457,9 @@ struct SeasonDetailView: View {
 
     private func reactivateSeason() {
         isProcessing = true
-
-        // Capture before any mutations so rollback has the correct reference
-        let previousActive = athlete.activeSeason
-        let previousActiveWasActive = previousActive?.isActive ?? false
-        let previousActiveEndDate = previousActive?.endDate
-        let wasActive = season.isActive
-        let previousEndDate = season.endDate
-
-        // Archive current active season if exists
-        previousActive?.archive()
-
-        // Reactivate this season
-        season.activate()
-
-        // Mark for Firestore sync
-        season.needsSync = true
-        previousActive?.needsSync = true
-
         Task {
             do {
-                try modelContext.save()
-
-                // Track season reactivation analytics
-                AnalyticsService.shared.trackSeasonActivated(seasonID: season.id.uuidString)
-
-                // Trigger immediate sync to Firestore
-                if let user = season.athlete?.user {
-                    do {
-                        try await SyncCoordinator.shared.syncSeasons(for: user)
-                    } catch {
-                        ErrorHandlerService.shared.handle(error, context: "SeasonManagement.syncSeasons", showAlert: false)
-                    }
-                }
-
+                try await SeasonService.reactivateSeason(season, athlete: athlete, modelContext: modelContext)
                 withAnimation {
                     isProcessing = false
                 }
@@ -621,19 +468,8 @@ struct SeasonDetailView: View {
                 successMessage = "\(season.displayName) is now active."
                 showingSuccess = true
             } catch {
-                // Rollback on failure
-                if previousActiveWasActive {
-                    previousActive?.activate()
-                    previousActive?.endDate = previousActiveEndDate
-                }
-
-                if !wasActive {
-                    season.isActive = false
-                }
-                season.endDate = previousEndDate
-
                 isProcessing = false
-                errorMessage = "Failed to reactivate season: \(error.localizedDescription)"
+                errorMessage = error.localizedDescription
                 showingError = true
             }
         }

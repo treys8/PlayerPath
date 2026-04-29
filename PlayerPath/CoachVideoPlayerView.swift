@@ -27,6 +27,8 @@ struct CoachVideoPlayerView: View {
     @State private var markReviewedError: String?
     @State private var showingTelestration = false
     @State private var drillCards: [DrillCard] = []
+    /// Guard so the "athlete viewed this clip" write only fires once per open.
+    @State private var hasMarkedViewed = false
     private var templateService: CoachTemplateService { .shared }
     @Environment(\.modelContext) private var modelContext
     @Environment(\.verticalSizeClass) private var vSizeClass
@@ -243,6 +245,7 @@ struct CoachVideoPlayerView: View {
             }
             if let coachID = authManager.userID {
                 await templateService.loadQuickCues(coachID: coachID)
+                await templateService.loadDrillTemplates(coachID: coachID)
             }
 
             // Mark this video's notifications as read (athlete viewing coach feedback)
@@ -307,7 +310,11 @@ struct CoachVideoPlayerView: View {
                     viewModel.seekToTimestampPaused(timestamp)
                 },
                 isLoading: viewModel.isGeneratingFilmstrip,
-                isPlaying: viewModel.isPlaying
+                isPlaying: viewModel.isPlaying,
+                markers: viewModel.annotations.filter { $0.type == "drawing" },
+                onTapMarker: { annotation in
+                    viewModel.showDrawingOverlay(for: annotation)
+                }
             )
             .onAppear { viewModel.startFilmstripTimeObserver() }
             .onDisappear { viewModel.stopFilmstripTimeObserver() }
@@ -379,6 +386,7 @@ struct CoachVideoPlayerView: View {
                     .onAppear {
                         player.play()
                         viewModel.startTimeObserver()
+                        markViewedIfFolderOwnerAthlete()
                     }
                     .onDisappear {
                         player.pause()
@@ -557,59 +565,13 @@ struct CoachVideoPlayerView: View {
     /// current viewer is a folder coach (in which case it shows an "add" affordance).
     @ViewBuilder
     private var coachNoteCard: some View {
-        let hasNote = !(viewModel.coachNoteText ?? "").isEmpty
-        if hasNote || canEditCoachNote {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 6) {
-                    Image(systemName: "person.fill.checkmark")
-                        .font(.caption)
-                        .foregroundColor(.brandNavy)
-                    Text(viewModel.coachNoteAuthorName ?? "Coach")
-                        .font(.subheadline)
-                        .fontWeight(.medium)
-                        .foregroundColor(.brandNavy)
-                    Text("COACH")
-                        .font(.caption2)
-                        .fontWeight(.bold)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Color.brandNavy.opacity(0.2))
-                        .foregroundColor(.brandNavy)
-                        .cornerRadius(4)
-                    Spacer()
-                    if let date = viewModel.coachNoteUpdatedAt {
-                        Text(date.formatted(date: .abbreviated, time: .omitted))
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    if canEditCoachNote {
-                        Button {
-                            showingCoachNoteEditor = true
-                        } label: {
-                            Image(systemName: hasNote ? "pencil" : "plus.circle.fill")
-                                .font(.subheadline)
-                                .foregroundColor(.brandNavy)
-                        }
-                        .accessibilityLabel(hasNote ? "Edit coach note" : "Add coach note")
-                    }
-                }
-                if hasNote {
-                    Text(viewModel.coachNoteText ?? "")
-                        .font(.subheadline)
-                        .foregroundColor(.primary)
-                } else {
-                    Text("Tap + to leave a plain-text note for the athlete.")
-                        .font(.subheadline)
-                        .italic()
-                        .foregroundColor(.secondary)
-                }
-            }
-            .padding()
-            .background(Color.brandNavy.opacity(0.08))
-            .cornerRadius(10)
-            .padding(.horizontal)
-            .padding(.vertical, 6)
-        }
+        CoachNoteCard(
+            text: viewModel.coachNoteText ?? "",
+            authorName: viewModel.coachNoteAuthorName,
+            updatedAt: viewModel.coachNoteUpdatedAt,
+            canEdit: canEditCoachNote,
+            onEdit: { showingCoachNoteEditor = true }
+        )
     }
 
     /// Coaches with comment permission can author/edit the coach note.
@@ -645,6 +607,25 @@ struct CoachVideoPlayerView: View {
                 markReviewedError = error.localizedDescription
             }
             isMarkingReviewed = false
+        }
+    }
+
+    /// Writes the athlete's view receipt the first time they play a clip in
+    /// their own folder. Coaches reviewing their own uploads do not write —
+    /// the field tracks athlete-side viewership only.
+    private func markViewedIfFolderOwnerAthlete() {
+        guard !hasMarkedViewed else { return }
+        guard isFolderOwner, let athleteID = authManager.userID else { return }
+        hasMarkedViewed = true
+        Task {
+            do {
+                try await FirestoreManager.shared.markVideoViewedByAthlete(
+                    videoID: video.id,
+                    athleteID: athleteID
+                )
+            } catch {
+                ErrorHandlerService.shared.handle(error, context: "CoachVideoPlayer.markViewed", showAlert: false)
+            }
         }
     }
 

@@ -37,6 +37,9 @@ struct CoachFolderDetailView: View {
     @State private var reviewingClip: CoachVideoItem?
     @State private var isSharingAll = false
     @State private var shareProgress: (current: Int, total: Int)?
+    @State private var isSelectionMode = false
+    @State private var selectedClipIDs: Set<String> = []
+    @State private var showingDiscardConfirm = false
     @State private var showingQuickRecord = false
     @State private var showingActiveSessionAlert = false
     @State private var gamesFilter: GamesFolderFilter = .needsReview
@@ -363,36 +366,48 @@ struct CoachFolderDetailView: View {
             )
         } else {
             VStack(spacing: 0) {
-                if !isSharingAll {
+                if isSharingAll {
+                    HStack {
+                        ProgressView()
+                            .controlSize(.small)
+                        if let progress = shareProgress {
+                            Text("Working clip \(progress.current) of \(progress.total)...")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                        } else {
+                            Text("Working...")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    .padding(.vertical, 8)
+                } else if isSelectionMode {
+                    reviewSelectionToolbar(clips: clips)
+                } else {
                     HStack {
                         Text("\(clips.count) clip\(clips.count == 1 ? "" : "s") to review")
                             .font(.subheadline)
                             .foregroundColor(.secondary)
                         Spacer()
-                        Button {
-                            shareAllReviewClips()
+                        Menu {
+                            Button {
+                                isSelectionMode = true
+                                selectedClipIDs = []
+                            } label: {
+                                Label("Select Multiple", systemImage: "checkmark.circle")
+                            }
+                            Button {
+                                shareAllReviewClips()
+                            } label: {
+                                Label("Share All", systemImage: "paperplane.fill")
+                            }
                         } label: {
-                            Label("Share All", systemImage: "paperplane.fill")
+                            Label("Actions", systemImage: "ellipsis.circle")
                                 .font(.subheadline)
                                 .fontWeight(.semibold)
                         }
                     }
                     .padding(.horizontal)
-                    .padding(.vertical, 8)
-                } else {
-                    HStack {
-                        ProgressView()
-                            .controlSize(.small)
-                        if let progress = shareProgress {
-                            Text("Sharing clip \(progress.current) of \(progress.total)...")
-                                .font(.subheadline)
-                                .foregroundColor(.secondary)
-                        } else {
-                            Text("Sharing clips...")
-                                .font(.subheadline)
-                                .foregroundColor(.secondary)
-                        }
-                    }
                     .padding(.vertical, 8)
                 }
 
@@ -400,9 +415,23 @@ struct CoachFolderDetailView: View {
                     LazyVStack(spacing: 16) {
                         ForEach(clips) { clip in
                             Button {
-                                reviewingClip = clip
+                                if isSelectionMode {
+                                    toggleSelection(clip.id)
+                                } else {
+                                    reviewingClip = clip
+                                }
                             } label: {
-                                CoachVideoCard(video: clip)
+                                ZStack(alignment: .topLeading) {
+                                    CoachVideoCard(video: clip)
+                                        .opacity(isSelectionMode && !selectedClipIDs.contains(clip.id) ? 0.6 : 1.0)
+                                    if isSelectionMode {
+                                        Image(systemName: selectedClipIDs.contains(clip.id) ? "checkmark.circle.fill" : "circle")
+                                            .font(.title2)
+                                            .foregroundColor(selectedClipIDs.contains(clip.id) ? .brandNavy : .white)
+                                            .background(Circle().fill(.ultraThinMaterial))
+                                            .padding(10)
+                                    }
+                                }
                             }
                             .buttonStyle(PressableCardButtonStyle())
                         }
@@ -413,11 +442,82 @@ struct CoachFolderDetailView: View {
                     await viewModel.loadVideos()
                 }
             }
+            .alert("Discard \(selectedClipIDs.count) clip\(selectedClipIDs.count == 1 ? "" : "s")?",
+                   isPresented: $showingDiscardConfirm) {
+                Button("Cancel", role: .cancel) {}
+                Button("Discard", role: .destructive) {
+                    discardSelectedClips()
+                }
+            } message: {
+                Text("Selected clips and their drawings, comments, and drill cards will be permanently deleted.")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func reviewSelectionToolbar(clips: [CoachVideoItem]) -> some View {
+        HStack(spacing: 12) {
+            Button("Cancel") {
+                isSelectionMode = false
+                selectedClipIDs = []
+            }
+            .font(.subheadline)
+
+            Spacer()
+
+            Text("\(selectedClipIDs.count) selected")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+
+            Spacer()
+
+            Button {
+                publishSelectedClips()
+            } label: {
+                Label("Publish", systemImage: "paperplane.fill")
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+            }
+            .disabled(selectedClipIDs.isEmpty)
+
+            Button(role: .destructive) {
+                showingDiscardConfirm = true
+            } label: {
+                Label("Discard", systemImage: "trash")
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+            }
+            .disabled(selectedClipIDs.isEmpty)
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 8)
+    }
+
+    private func toggleSelection(_ clipID: String) {
+        if selectedClipIDs.contains(clipID) {
+            selectedClipIDs.remove(clipID)
+        } else {
+            selectedClipIDs.insert(clipID)
         }
     }
 
     private func shareAllReviewClips() {
-        let clips = viewModel.reviewVideos
+        publishClips(viewModel.reviewVideos, context: "shareAll")
+    }
+
+    private func publishSelectedClips() {
+        let selected = viewModel.reviewVideos.filter { selectedClipIDs.contains($0.id) }
+        publishClips(selected, context: "publishSelected")
+    }
+
+    /// Sequentially publishes the given clips, updating the progress bar.
+    /// publishPrivateVideo is idempotent (transaction-gated), so re-running on
+    /// already-shared clips is safe.
+    /// No bundled client notification — per-clip server CFs (onVideoPublished
+    /// for coach-authored clips transitioning private→shared) write one
+    /// notification per clip to the athlete. More informative than a single
+    /// "N clips" summary and avoids client/server duplication.
+    private func publishClips(_ clips: [CoachVideoItem], context: String) {
         guard !clips.isEmpty, let folderID = folder.id else { return }
         isSharingAll = true
         shareProgress = (current: 0, total: clips.count)
@@ -425,26 +525,54 @@ struct CoachFolderDetailView: View {
         Task {
             var sharedCount = 0
             for clip in clips {
-                let videoID = clip.id
                 do {
                     try await FirestoreManager.shared.publishPrivateVideo(
-                        videoID: videoID,
+                        videoID: clip.id,
                         sharedFolderID: folderID
                     )
                     sharedCount += 1
                 } catch {
-                    ErrorHandlerService.shared.handle(error, context: "CoachFolderDetail.shareAll", showAlert: false)
+                    ErrorHandlerService.shared.handle(error, context: "CoachFolderDetail.\(context)", showAlert: false)
                 }
                 shareProgress = (current: sharedCount, total: clips.count)
             }
 
-            // No bundled client notification — per-clip server CFs (onVideoPublished
-            // for coach-authored clips transitioning private→shared) write one
-            // notification per clip to the athlete. More informative than a single
-            // "N clips" summary and avoids client/server duplication.
             await viewModel.loadVideos()
             isSharingAll = false
             shareProgress = nil
+            isSelectionMode = false
+            selectedClipIDs = []
+            Haptics.success()
+        }
+    }
+
+    private func discardSelectedClips() {
+        let selected = viewModel.reviewVideos.filter { selectedClipIDs.contains($0.id) }
+        guard !selected.isEmpty, let folderID = folder.id else { return }
+        isSharingAll = true
+        shareProgress = (current: 0, total: selected.count)
+
+        Task {
+            var deleted = 0
+            for clip in selected {
+                do {
+                    try await FirestoreManager.shared.deleteCoachPrivateVideo(
+                        videoID: clip.id,
+                        sharedFolderID: folderID,
+                        fileName: clip.fileName
+                    )
+                    deleted += 1
+                } catch {
+                    ErrorHandlerService.shared.handle(error, context: "CoachFolderDetail.discardSelected", showAlert: false)
+                }
+                shareProgress = (current: deleted, total: selected.count)
+            }
+
+            await viewModel.loadVideos()
+            isSharingAll = false
+            shareProgress = nil
+            isSelectionMode = false
+            selectedClipIDs = []
             Haptics.success()
         }
     }

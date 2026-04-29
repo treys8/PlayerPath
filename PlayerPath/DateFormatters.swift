@@ -65,3 +65,24 @@ extension Double {
         return String(format: "%d:%02d", minutes, seconds)
     }
 }
+
+// MARK: - Duration Formatting
+
+extension TimeInterval {
+    /// Compact human-readable duration: "45s", "23m", or "1h 12m" depending on
+    /// magnitude. Negative or NaN values render as "0s".
+    var durationCompact: String {
+        guard isFinite, self >= 0 else { return "0s" }
+        let total = Int(self)
+        let hours = total / 3600
+        let minutes = (total % 3600) / 60
+        let seconds = total % 60
+        if hours > 0 {
+            return minutes > 0 ? "\(hours)h \(minutes)m" : "\(hours)h"
+        }
+        if minutes > 0 {
+            return "\(minutes)m"
+        }
+        return "\(seconds)s"
+    }
+}

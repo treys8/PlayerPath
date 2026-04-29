@@ -136,8 +136,8 @@ final class Season {
         }
     }
 
-    /// Total number of games played in this season
-    var totalGames: Int {
+    /// Number of completed games in this season
+    var completedGames: Int {
         (games ?? []).filter { $0.isComplete }.count
     }
 
@@ -149,6 +149,11 @@ final class Season {
     /// All highlight videos from this season
     var highlights: [VideoClip] {
         (videoClips ?? []).filter { $0.isHighlight }
+    }
+
+    /// Number of practices in this season
+    var practicesCount: Int {
+        (practices ?? []).count
     }
 
     enum SportType: String, Codable, CaseIterable {

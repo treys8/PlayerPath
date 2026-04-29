@@ -42,9 +42,11 @@ struct CoachDashboardView: View {
     }
 
     @State private var cachedRecentFolders: [SharedFolder] = []
-    @State private var cachedThisWeekSessionCount = 0
-    @State private var cachedThisWeekClipCount = 0
-    @State private var cachedThisWeekAthleteCount = 0
+    @State private var cachedThisMonthSessionCount = 0
+    @State private var cachedThisMonthDurationLabel = "0s"
+    @State private var cachedThisMonthAvgClipsLabel = "0"
+    @State private var cachedThisMonthSessions: [CoachSession] = []
+    @State private var showingCompletedSessions = false
     @State private var isOverAthleteLimit = false
     @State private var fullAthleteCount = 0
 
@@ -150,6 +152,11 @@ struct CoachDashboardView: View {
         }
         .sheet(isPresented: $showingInviteAthlete) {
             InviteAthleteSheet()
+        }
+        .sheet(isPresented: $showingCompletedSessions) {
+            CompletedSessionsListView(
+                sessions: sessionManager.sessions.filter { $0.status == .completed }
+            )
         }
         .sheet(isPresented: $showingStartSession) {
             StartSessionSheet(onInviteAthlete: {
@@ -692,31 +699,39 @@ struct CoachDashboardView: View {
         .cornerRadius(12)
     }
 
-    // MARK: - This Week
+    // MARK: - Lessons Summary (This Month)
 
     @ViewBuilder
     private var thisWeekSection: some View {
-        if !sessionManager.sessions.isEmpty {
+        if !cachedThisMonthSessions.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
-                DashboardSectionHeader(title: "This Week", icon: "calendar", color: .brandGold)
+                HStack {
+                    DashboardSectionHeader(title: "This Month", icon: "calendar", color: .brandGold)
+                    Spacer()
+                    Button("View all") {
+                        showingCompletedSessions = true
+                    }
+                    .font(.subheadline)
+                    .foregroundColor(.brandNavy)
+                }
 
                 HStack(spacing: 12) {
                     CoachSummaryCard(
                         icon: "video.badge.checkmark",
                         title: "Sessions",
-                        value: "\(cachedThisWeekSessionCount)"
+                        value: "\(cachedThisMonthSessionCount)"
+                    )
+
+                    CoachSummaryCard(
+                        icon: "clock.fill",
+                        title: "Duration",
+                        value: cachedThisMonthDurationLabel
                     )
 
                     CoachSummaryCard(
                         icon: "film.stack",
-                        title: "Clips",
-                        value: "\(cachedThisWeekClipCount)"
-                    )
-
-                    CoachSummaryCard(
-                        icon: "figure.baseball",
-                        title: "Athletes",
-                        value: "\(cachedThisWeekAthleteCount)"
+                        title: "Avg clips",
+                        value: cachedThisMonthAvgClipsLabel
                     )
                 }
             }
@@ -728,17 +743,22 @@ struct CoachDashboardView: View {
             .filter { !archiveManager.isArchived($0.id ?? "") }
             .sorted { ($0.updatedAt ?? .distantPast) > ($1.updatedAt ?? .distantPast) }
 
-        let weekAgo = Calendar.current.date(byAdding: .day, value: -7, to: Date()) ?? Date()
-        cachedThisWeekSessionCount = sessionManager.sessions.filter {
-            $0.status == .completed && ($0.startedAt ?? .distantPast) >= weekAgo
-        }.count
-        cachedThisWeekClipCount = sessionManager.sessions
-            .filter { ($0.startedAt ?? .distantPast) >= weekAgo }
-            .reduce(0) { $0 + $1.clipCount }
-        cachedThisWeekAthleteCount = Set(sessionManager.sessions
-            .filter { ($0.startedAt ?? .distantPast) >= weekAgo }
-            .flatMap(\.athleteIDs)
-        ).count
+        let monthAgo = Calendar.current.date(byAdding: .day, value: -30, to: Date()) ?? Date()
+        let monthSessions = sessionManager.sessions.filter {
+            $0.status == .completed && ($0.startedAt ?? .distantPast) >= monthAgo
+        }
+        cachedThisMonthSessions = monthSessions
+        cachedThisMonthSessionCount = monthSessions.count
+
+        let totalDuration: TimeInterval = monthSessions.reduce(0) { acc, session in
+            guard let start = session.startedAt, let end = session.endedAt else { return acc }
+            return acc + max(0, end.timeIntervalSince(start))
+        }
+        cachedThisMonthDurationLabel = totalDuration.durationCompact
+
+        let totalClips = monthSessions.reduce(0) { $0 + $1.clipCount }
+        let avg = monthSessions.isEmpty ? 0 : Int((Double(totalClips) / Double(monthSessions.count)).rounded())
+        cachedThisMonthAvgClipsLabel = "\(avg)"
     }
 
     private func refreshAthleteLimit(coachID: String) async {

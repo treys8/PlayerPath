@@ -315,6 +315,15 @@ service cloud.firestore {
                             && request.resource.data.drawingCount >= 0
                             && request.resource.data.drawingCount <= resource.data.get('drawingCount', 0) + 10));
 
+      // Folder owner athletes can record a view receipt on any clip in their
+      // folder (markVideoViewedByAthlete). Narrow allowlist: only the
+      // `viewedBy` map (dot-path updates show up as `viewedBy`) and `updatedAt`.
+      allow update: if isAuthenticated()
+                    && 'sharedFolderID' in resource.data
+                    && isFolderOwner(resource.data.sharedFolderID)
+                    && request.resource.data.diff(resource.data).affectedKeys()
+                         .hasOnly(['viewedBy', 'updatedAt']);
+
       // Delete: uploader can delete their own videos; folder members with delete permission
       allow delete: if isAuthenticated() && (
         resource.data.uploadedBy == request.auth.uid ||
@@ -519,6 +528,14 @@ service cloud.firestore {
 
     match /coachTemplates/{coachID}/quickCues/{cueID} {
       // Only the owning coach can read/write their quick cues
+      allow read:   if isAuthenticated() && isOwner(coachID);
+      allow create: if isAuthenticated() && isOwner(coachID);
+      allow update: if isAuthenticated() && isOwner(coachID);
+      allow delete: if isAuthenticated() && isOwner(coachID);
+    }
+
+    match /coachTemplates/{coachID}/drillCardTemplates/{templateID} {
+      // Only the owning coach can read/write their drill card templates.
       allow read:   if isAuthenticated() && isOwner(coachID);
       allow create: if isAuthenticated() && isOwner(coachID);
       allow update: if isAuthenticated() && isOwner(coachID);

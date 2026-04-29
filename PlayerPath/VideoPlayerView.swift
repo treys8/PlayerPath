@@ -43,6 +43,11 @@ struct VideoPlayerView: View {
     @State private var coachAnnotationsListener: ListenerRegistration?
     @State private var activeDrawingOverlay: ActiveDrawingOverlay?
     @State private var videoAspectRatio: CGFloat = 16.0 / 9.0
+    @State private var coachNoteText: String = ""
+    @State private var coachNoteAuthorName: String?
+    @State private var coachNoteUpdatedAt: Date?
+    /// Guard so the "athlete viewed this clip" write only fires once per open.
+    @State private var hasMarkedViewed = false
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.modelContext) private var modelContext
     @Environment(\.verticalSizeClass) private var vSizeClass
@@ -278,15 +283,44 @@ struct VideoPlayerView: View {
         )
     }
 
+    /// Writes the athlete's view receipt against the source coach video so
+    /// the coach folder grid can show a "Viewed" pill. Only runs for clips
+    /// derived from a coach folder (`sourceCoachVideoID` set), once per open.
+    private func markCoachClipViewedIfNeeded() {
+        guard !hasMarkedViewed,
+              let sourceID = clip.sourceCoachVideoID, !sourceID.isEmpty,
+              let athleteID = authManager.userID else { return }
+        hasMarkedViewed = true
+        Task {
+            do {
+                try await FirestoreManager.shared.markVideoViewedByAthlete(
+                    videoID: sourceID,
+                    athleteID: athleteID
+                )
+            } catch {
+                ErrorHandlerService.shared.handle(error, context: "VideoPlayer.markCoachClipViewed", showAlert: false)
+            }
+        }
+    }
+
     /// Loads coach-authored annotations for this clip from the original coach
     /// video doc (pointed at by `clip.sourceCoachVideoID`). Also attaches a
     /// live listener so new coach drawings appear without a refetch.
+    /// One-shot fetch of the source doc populates the plain coach note so the
+    /// athlete sees it below the player (matches CoachVideoPlayerView).
     private func loadCoachAnnotationsIfNeeded() {
         guard let sourceID = clip.sourceCoachVideoID, !sourceID.isEmpty else { return }
 
         Task {
             if let fetched = try? await FirestoreManager.shared.fetchAnnotations(forVideo: sourceID) {
                 await MainActor.run { coachAnnotations = fetched.sorted { $0.timestamp < $1.timestamp } }
+            }
+            if let video = try? await FirestoreManager.shared.fetchVideo(videoID: sourceID) {
+                await MainActor.run {
+                    coachNoteText = video.coachNote ?? ""
+                    coachNoteAuthorName = video.coachNoteAuthorName
+                    coachNoteUpdatedAt = video.coachNoteUpdatedAt
+                }
             }
         }
 
@@ -358,6 +392,13 @@ struct VideoPlayerView: View {
                         .background(Color.black)
 
                     if vSizeClass != .compact {
+                        if !coachNoteText.isEmpty {
+                            CoachNoteCard(
+                                text: coachNoteText,
+                                authorName: coachNoteAuthorName,
+                                updatedAt: coachNoteUpdatedAt
+                            )
+                        }
                         VideoClipInfoCard(clip: clip)
                             .padding(.bottom, 8)
                     }
@@ -391,6 +432,7 @@ struct VideoPlayerView: View {
             loadCoachAnnotationsIfNeeded()
             if clip.sourceCoachVideoID != nil {
                 await loadVideoAspectRatio()
+                markCoachClipViewedIfNeeded()
             }
         }
         .onDisappear {
@@ -661,7 +703,7 @@ struct VideoClipInfoCard: View {
     let clip: VideoClip
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
             if let playResult = clip.playResult {
                 Text(playResult.type.displayName)
                     .font(.headingLarge)
@@ -690,13 +732,13 @@ struct VideoClipInfoCard: View {
             }
 
             if let createdAt = clip.createdAt {
-                Text(createdAt, format: .dateTime.month(.abbreviated).day())
+                Text(createdAt, format: .dateTime.month(.abbreviated).day().year())
                     .font(.bodyMedium)
                     .foregroundColor(.secondary)
             }
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.vertical, 8)
         .background(Color(uiColor: .systemBackground))
     }
 }

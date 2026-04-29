@@ -125,6 +125,12 @@ struct OnboardingBackupView: View {
                 .padding(.top, 16)
             }
             .toolbar(.hidden, for: .navigationBar)
+            .safeAreaInset(edge: .top, spacing: 0) {
+                Rectangle()
+                    .fill(.ultraThinMaterial)
+                    .frame(height: 0)
+                    .ignoresSafeArea(edges: .top)
+            }
             .alert("Save Failed", isPresented: $showingError) {
                 Button("OK", role: .cancel) {}
             } message: {
@@ -249,11 +255,11 @@ private struct BackupOptionCard: View {
     private var modeDescription: String {
         switch mode {
         case .off:
-            return "Upload videos manually when you choose"
+            return "Upload manually when you choose"
         case .wifiOnly:
-            return "Automatically back up videos when connected to Wi-Fi"
+            return "Auto-backup over Wi-Fi"
         case .always:
-            return "Back up immediately using Wi-Fi or cellular data"
+            return "Backup over Wi-Fi or cellular"
         }
     }
 }

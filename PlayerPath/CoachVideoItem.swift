@@ -31,6 +31,7 @@ struct CoachVideoItem: Identifiable, Equatable {
     let coachNoteAuthorName: String?
     let coachNoteUpdatedAt: Date?
     let reviewedBy: [String: Date]?
+    let viewedBy: [String: Date]?
     let uploadedByType: UploadedByType?
     let annotationCount: Int?
     let drawingCount: Int?
@@ -42,6 +43,12 @@ struct CoachVideoItem: Identifiable, Equatable {
     /// auto-marked by saving a coachNote).
     func isReviewed(by coachID: String) -> Bool {
         reviewedBy?[coachID] != nil
+    }
+
+    /// True iff the given athlete (folder owner) has played this clip at
+    /// least once. Drives the "Viewed" pill on the coach folder grid.
+    func isViewed(by athleteID: String) -> Bool {
+        viewedBy?[athleteID] != nil
     }
 
     var contextLabel: String? {
@@ -88,6 +95,7 @@ struct CoachVideoItem: Identifiable, Equatable {
         self.coachNoteAuthorName = metadata.coachNoteAuthorName
         self.coachNoteUpdatedAt = metadata.coachNoteUpdatedAt
         self.reviewedBy = metadata.reviewedBy
+        self.viewedBy = metadata.viewedBy
         self.uploadedByType = metadata.uploadedByType
         self.annotationCount = metadata.annotationCount
         self.drawingCount = metadata.drawingCount

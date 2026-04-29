@@ -184,7 +184,7 @@ final class StatisticsExportService {
                         ("Season", season.displayName),
                         ("Sport", season.sport.displayName),
                         ("Start Date", season.startDate?.formatted(date: .long, time: .omitted) ?? "N/A"),
-                        ("Games", "\(season.totalGames)")
+                        ("Games", "\(season.completedGames)")
                     ],
                     yPosition: yPosition,
                     margin: margin,

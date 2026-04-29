@@ -32,6 +32,7 @@ enum FC {
     static let drillCards = "drillCards"
     static let coachTemplates = "coachTemplates"
     static let quickCues = "quickCues"
+    static let drillCardTemplates = "drillCardTemplates"
     static let notifications = "notifications"
     static let items = "items"
 }

@@ -223,6 +223,29 @@ struct CoachVideoCard: View {
                         Spacer()
                     }
                 }
+
+                // "Viewed" receipt — visible on coach-uploaded clips after the
+                // athlete has played them at least once. firestore.rules limits
+                // viewedBy writes to the folder owner, so any presence implies
+                // the athlete has watched.
+                if video.uploadedByType == .coach,
+                   let viewedBy = video.viewedBy, !viewedBy.isEmpty {
+                    VStack {
+                        Spacer()
+                        HStack {
+                            Spacer()
+                            Label("Viewed", systemImage: "eye.fill")
+                                .font(.caption2)
+                                .fontWeight(.semibold)
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 3)
+                                .background(.ultraThinMaterial)
+                                .clipShape(Capsule())
+                                .padding(8)
+                        }
+                    }
+                }
             }
             .aspectRatio(16/9, contentMode: .fit)
 

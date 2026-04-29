@@ -547,6 +547,17 @@ extension FirestoreManager {
         ])
     }
 
+    /// Records that an athlete has played a clip at least once. Idempotent —
+    /// repeat calls just refresh the timestamp. The folder owner is the only
+    /// athlete allowed to write this field (enforced in firestore.rules).
+    func markVideoViewedByAthlete(videoID: String, athleteID: String) async throws {
+        let videoRef = db.collection(FC.videos).document(videoID)
+        try await videoRef.updateData([
+            "viewedBy.\(athleteID)": FieldValue.serverTimestamp(),
+            "updatedAt": FieldValue.serverTimestamp()
+        ])
+    }
+
     /// Deletes a private coach video (Firestore doc + Storage file + thumbnail).
     func deleteCoachPrivateVideo(videoID: String, sharedFolderID: String, fileName: String) async throws {
         // Delete all subcollections (annotations, comments, drillCards)

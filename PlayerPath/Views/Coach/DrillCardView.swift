@@ -16,11 +16,23 @@ struct DrillCardView: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var selectedTemplate: DrillCardTemplate = .battingReview
+    @State private var selectedSavedTemplateID: String?
     @State private var categories: [DrillCardCategory] = []
     @State private var overallRating: Int?
     @State private var summary = ""
     @State private var isSaving = false
     @State private var saveErrorMessage: String?
+    @State private var showingSaveTemplateAlert = false
+    @State private var newTemplateName = ""
+    private let templateService = CoachTemplateService.shared
+
+    private var templatePickerLabel: String {
+        if let id = selectedSavedTemplateID,
+           let saved = templateService.drillTemplates.first(where: { $0.id == id }) {
+            return saved.name
+        }
+        return selectedTemplate.displayName
+    }
 
     var body: some View {
         NavigationStack {
@@ -28,14 +40,41 @@ struct DrillCardView: View {
                 // Template picker
                 if existingCard == nil {
                     Section("Template") {
-                        Picker("Type", selection: $selectedTemplate) {
+                        Menu {
+                            // Built-in templates
                             ForEach(DrillCardTemplate.allCases, id: \.self) { template in
-                                Text(template.displayName).tag(template)
+                                Button(template.displayName) {
+                                    applyBuiltInTemplate(template)
+                                }
+                            }
+                            if !templateService.drillTemplates.isEmpty {
+                                Divider()
+                                ForEach(templateService.drillTemplates) { saved in
+                                    Button(saved.name) {
+                                        applySavedTemplate(saved)
+                                    }
+                                }
+                            }
+                        } label: {
+                            HStack {
+                                Text("Type")
+                                    .foregroundColor(.primary)
+                                Spacer()
+                                Text(templatePickerLabel)
+                                    .foregroundColor(.secondary)
+                                Image(systemName: "chevron.up.chevron.down")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
                             }
                         }
-                        .onChange(of: selectedTemplate) { _, template in
-                            categories = template.defaultCategories.map {
-                                DrillCardCategory(name: $0, rating: 3)
+
+                        if !categories.isEmpty {
+                            Button {
+                                newTemplateName = templatePickerLabel
+                                showingSaveTemplateAlert = true
+                            } label: {
+                                Label("Save as template…", systemImage: "square.and.arrow.down")
+                                    .font(.subheadline)
                             }
                         }
                     }
@@ -99,6 +138,14 @@ struct DrillCardView: View {
             } message: {
                 Text(saveErrorMessage ?? "")
             }
+            .alert("Save as Template", isPresented: $showingSaveTemplateAlert) {
+                TextField("Template name", text: $newTemplateName)
+                Button("Cancel", role: .cancel) {}
+                Button("Save") { saveAsTemplate() }
+                    .disabled(newTemplateName.trimmingCharacters(in: .whitespaces).isEmpty)
+            } message: {
+                Text("Saved templates appear in the Type menu next time you create a drill card.")
+            }
             .onAppear {
                 if let card = existingCard {
                     selectedTemplate = DrillCardTemplate(rawValue: card.templateType) ?? .custom
@@ -112,6 +159,47 @@ struct DrillCardView: View {
                 }
             }
         }
+    }
+
+    private func applyBuiltInTemplate(_ template: DrillCardTemplate) {
+        selectedTemplate = template
+        selectedSavedTemplateID = nil
+        categories = template.defaultCategories.map {
+            DrillCardCategory(name: $0, rating: 3)
+        }
+    }
+
+    private func applySavedTemplate(_ saved: SavedDrillTemplate) {
+        selectedTemplate = DrillCardTemplate(rawValue: saved.templateType) ?? .custom
+        selectedSavedTemplateID = saved.id
+        categories = saved.categoryNames.map { DrillCardCategory(name: $0, rating: 3) }
+        if let pref = saved.defaultSummary, summary.isEmpty {
+            summary = pref
+        }
+        if let id = saved.id {
+            Task { await templateService.incrementDrillTemplateUsage(coachID: coachID, templateID: id) }
+        }
+    }
+
+    private func saveAsTemplate() {
+        let trimmed = newTemplateName.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty, !categories.isEmpty else { return }
+        let names = categories.map(\.name)
+        let pref: String? = summary.trimmingCharacters(in: .whitespaces).isEmpty ? nil : summary
+        Task {
+            do {
+                _ = try await templateService.saveDrillTemplate(
+                    coachID: coachID,
+                    name: trimmed,
+                    templateType: selectedTemplate.rawValue,
+                    categoryNames: names,
+                    defaultSummary: pref
+                )
+            } catch {
+                ErrorHandlerService.shared.handle(error, context: "DrillCardView.saveAsTemplate", showAlert: false)
+            }
+        }
+        newTemplateName = ""
     }
 
     private func save() {

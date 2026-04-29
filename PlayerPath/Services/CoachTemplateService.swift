@@ -17,6 +17,7 @@ class CoachTemplateService {
     static let shared = CoachTemplateService()
 
     var quickCues: [QuickCue] = []
+    var drillTemplates: [SavedDrillTemplate] = []
     var isLoading = false
 
     private let db = Firestore.firestore()
@@ -96,6 +97,95 @@ class CoachTemplateService {
             }
         } catch {
             templateLog.warning("Failed to increment cue usage: \(error.localizedDescription)")
+        }
+    }
+
+    // MARK: - Drill Card Templates
+
+    func loadDrillTemplates(coachID: String) async {
+        do {
+            let snapshot = try await db.collection(FC.coachTemplates)
+                .document(coachID)
+                .collection(FC.drillCardTemplates)
+                .order(by: "usageCount", descending: true)
+                .limit(to: 50)
+                .getDocuments()
+
+            drillTemplates = snapshot.documents.compactMap { doc in
+                do {
+                    var t = try doc.data(as: SavedDrillTemplate.self)
+                    t.id = doc.documentID
+                    return t
+                } catch {
+                    templateLog.warning("Failed to decode SavedDrillTemplate from doc \(doc.documentID): \(error.localizedDescription)")
+                    return nil
+                }
+            }
+        } catch {
+            templateLog.warning("Failed to load drill templates: \(error.localizedDescription)")
+        }
+    }
+
+    func saveDrillTemplate(
+        coachID: String,
+        name: String,
+        templateType: String,
+        categoryNames: [String],
+        defaultSummary: String?
+    ) async throws -> SavedDrillTemplate {
+        var data: [String: Any] = [
+            "name": name,
+            "templateType": templateType,
+            "categoryNames": categoryNames,
+            "usageCount": 0,
+            "createdAt": FieldValue.serverTimestamp()
+        ]
+        if let defaultSummary, !defaultSummary.isEmpty {
+            data["defaultSummary"] = defaultSummary
+        }
+
+        let docRef = try await db.collection(FC.coachTemplates)
+            .document(coachID)
+            .collection(FC.drillCardTemplates)
+            .addDocument(data: data)
+
+        var template = SavedDrillTemplate(
+            id: docRef.documentID,
+            name: name,
+            templateType: templateType,
+            categoryNames: categoryNames,
+            defaultSummary: defaultSummary?.isEmpty == true ? nil : defaultSummary,
+            usageCount: 0,
+            createdAt: Date()
+        )
+        template.id = docRef.documentID
+        drillTemplates.insert(template, at: 0)
+        return template
+    }
+
+    func deleteDrillTemplate(coachID: String, templateID: String) async throws {
+        try await db.collection(FC.coachTemplates)
+            .document(coachID)
+            .collection(FC.drillCardTemplates)
+            .document(templateID)
+            .delete()
+
+        drillTemplates.removeAll { $0.id == templateID }
+    }
+
+    func incrementDrillTemplateUsage(coachID: String, templateID: String) async {
+        do {
+            try await db.collection(FC.coachTemplates)
+                .document(coachID)
+                .collection(FC.drillCardTemplates)
+                .document(templateID)
+                .updateData(["usageCount": FieldValue.increment(Int64(1))])
+
+            if let index = drillTemplates.firstIndex(where: { $0.id == templateID }) {
+                drillTemplates[index].usageCount += 1
+            }
+        } catch {
+            templateLog.warning("Failed to increment drill template usage: \(error.localizedDescription)")
         }
     }
 

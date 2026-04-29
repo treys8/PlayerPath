@@ -57,7 +57,14 @@ struct SeasonRecommendationBanner: View {
     let recommendation: SeasonManager.SeasonRecommendation
     @State private var showingSeasonManagement = false
     @State private var dismissed = false
-    
+
+    /// Re-show a dismissed banner after this many seconds. The banner type encodes
+    /// season-specific state (`considerEnding_<uuid>`), so the same season won't
+    /// reappear before the window — but if the season hits a fresh threshold
+    /// (e.g. growing past 12 months while the 6-month banner sits dismissed),
+    /// the user gets nudged again.
+    private static let reShowAfter: TimeInterval = 30 * 24 * 60 * 60
+
     private var dismissedKey: String {
         let recType: String
         switch recommendation {
@@ -66,11 +73,18 @@ struct SeasonRecommendationBanner: View {
         case .considerEnding(let season): recType = "considerEnding_\(season.id.uuidString)"
         case .ok:              recType = "ok"
         }
-        return "seasonBanner_\(athlete.id.uuidString)_\(recType)"
+        // New key prefix so legacy Bool dismissals expire naturally.
+        return "seasonBanner_dismissedAt_\(athlete.id.uuidString)_\(recType)"
     }
-    
+
+    private var isCurrentlyDismissed: Bool {
+        let ts = UserDefaults.standard.double(forKey: dismissedKey)
+        guard ts > 0 else { return false }
+        return Date().timeIntervalSince1970 - ts < Self.reShowAfter
+    }
+
     var body: some View {
-        if !dismissed && !UserDefaults.standard.bool(forKey: dismissedKey), let message = recommendation.message {
+        if !dismissed && !isCurrentlyDismissed, let message = recommendation.message {
             HStack(spacing: 12) {
                 Image(systemName: iconForRecommendation)
                     .font(.title3)
@@ -102,7 +116,7 @@ struct SeasonRecommendationBanner: View {
                 Button {
                     withAnimation {
                         dismissed = true
-                        UserDefaults.standard.set(true, forKey: dismissedKey)
+                        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: dismissedKey)
                     }
                 } label: {
                     Image(systemName: "xmark")

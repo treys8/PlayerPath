@@ -115,7 +115,7 @@ struct SeasonsView: View {
 
                 HStack(spacing: 20) {
                     SeasonStatBadge(
-                        value: activeSeason.totalGames,
+                        value: activeSeason.completedGames,
                         label: "Games",
                         icon: "baseball.diamond.bases"
                     )
@@ -125,7 +125,7 @@ struct SeasonsView: View {
                         icon: "video"
                     )
                     SeasonStatBadge(
-                        value: (activeSeason.practices ?? []).count,
+                        value: activeSeason.practicesCount,
                         label: "Practices",
                         icon: "figure.run"
                     )
@@ -216,15 +216,15 @@ struct SeasonRow: View {
                 }
                 
                 HStack(spacing: 12) {
-                    Label("\(season.totalGames)", systemImage: "baseball.diamond.bases")
+                    Label("\(season.completedGames)", systemImage: "baseball.diamond.bases")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    
+
                     Label("\(season.totalVideos)", systemImage: "video")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    
-                    Label("\((season.practices ?? []).count)", systemImage: "figure.run")
+
+                    Label("\(season.practicesCount)", systemImage: "figure.run")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

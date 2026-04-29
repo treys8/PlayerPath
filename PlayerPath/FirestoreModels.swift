@@ -137,6 +137,11 @@ struct FirestoreVideoMetadata: Codable, Identifiable {
     // coach saves a coachNote, or explicitly via the Mark as Reviewed button.
     var reviewedBy: [String: Date]? = nil
 
+    // Per-athlete view receipts. Presence of an athlete UID in this map means
+    // "this athlete has played the clip at least once" — written on first
+    // playback so the coach folder grid can surface a "Viewed" pill.
+    var viewedBy: [String: Date]? = nil
+
     // Tags and categorization
     var tags: [String]? = nil
     var drillType: String? = nil

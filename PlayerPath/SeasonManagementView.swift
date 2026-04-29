@@ -155,30 +155,9 @@ struct SeasonManagementView: View {
     private func archiveSeason(_ season: Season) {
         isProcessing = true
 
-        // Save state for rollback
-        let wasActive = season.isActive
-        let previousEndDate = season.endDate
-
-        // Archive the season
-        season.archive()
-
-        // Mark for Firestore sync (Phase 2)
-        season.needsSync = true
-
         Task {
             do {
-                try modelContext.save()
-
-                // Trigger immediate sync to Firestore
-                if let user = season.athlete?.user {
-                    do {
-                        try await SyncCoordinator.shared.syncSeasons(for: user)
-                    } catch {
-                        ErrorHandlerService.shared.handle(error, context: "SeasonManagement.syncSeasons", showAlert: false)
-                    }
-                }
-
-                // Success - animate the change
+                try await SeasonService.endSeason(season, modelContext: modelContext)
                 withAnimation {
                     isProcessing = false
                 }
@@ -186,14 +165,8 @@ struct SeasonManagementView: View {
                 successMessage = "\(season.displayName) has been archived."
                 showingSuccess = true
             } catch {
-                // Rollback on failure
-                if wasActive {
-                    season.activate()
-                }
-                season.endDate = previousEndDate
-
                 isProcessing = false
-                errorMessage = "Failed to archive season: \(error.localizedDescription)"
+                errorMessage = error.localizedDescription
                 showingError = true
             }
         }
@@ -206,19 +179,8 @@ struct ActiveSeasonCard: View {
     let season: Season
     let athlete: Athlete
 
-    @State private var completedGames: Int = 0
-    @State private var totalVideos: Int = 0
-    @State private var highlights: Int = 0
-
-    // Use targeted queries with predicates instead of loading all records
-    init(season: Season, athlete: Athlete) {
-        self.season = season
-        self.athlete = athlete
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            // Header
             HStack {
                 Image(systemName: season.sport.icon)
                     .font(.title2)
@@ -242,11 +204,10 @@ struct ActiveSeasonCard: View {
                     .font(.caption)
             }
 
-            // Stats Grid - using computed values for live updates
             HStack(spacing: 20) {
-                SeasonStatBadge(value: completedGames, label: "Games", icon: "figure.baseball")
-                SeasonStatBadge(value: totalVideos, label: "Videos", icon: "video")
-                SeasonStatBadge(value: highlights, label: "Highlights", icon: "star.fill")
+                SeasonStatBadge(value: season.completedGames, label: "Games", icon: "figure.baseball")
+                SeasonStatBadge(value: season.totalVideos, label: "Videos", icon: "video")
+                SeasonStatBadge(value: season.highlights.count, label: "Highlights", icon: "star.fill")
             }
         }
         .padding()
@@ -254,21 +215,6 @@ struct ActiveSeasonCard: View {
             RoundedRectangle(cornerRadius: 12)
                 .fill(Color.brandNavy.opacity(0.1))
         }
-        .task {
-            updateStats()
-        }
-        .onChange(of: season.games) { _, _ in
-            updateStats()
-        }
-        .onChange(of: season.videoClips) { _, _ in
-            updateStats()
-        }
-    }
-
-    private func updateStats() {
-        completedGames = season.games?.filter { $0.isComplete }.count ?? 0
-        totalVideos = season.videoClips?.count ?? 0
-        highlights = season.videoClips?.filter { $0.isHighlight }.count ?? 0
     }
 }
 
@@ -300,9 +246,6 @@ struct SeasonStatBadge: View {
 struct SeasonHistoryRow: View {
     let season: Season
 
-    @State private var completedGames: Int = 0
-    @State private var totalVideos: Int = 0
-
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
@@ -321,7 +264,6 @@ struct SeasonHistoryRow: View {
                 }
             }
 
-            // Date range
             HStack {
                 if let start = season.startDate, let end = season.endDate {
                     Text("\(start.formatted(date: .abbreviated, time: .omitted)) - \(end.formatted(date: .abbreviated, time: .omitted))")
@@ -331,20 +273,12 @@ struct SeasonHistoryRow: View {
 
                 Spacer()
 
-                Text("\(completedGames) games • \(totalVideos) videos")
+                Text("\(season.completedGames) games • \(season.totalVideos) videos")
                     .font(.bodySmall)
                     .foregroundStyle(.secondary)
             }
         }
         .padding(.vertical, 4)
-        .task {
-            updateStats()
-        }
-    }
-
-    private func updateStats() {
-        completedGames = season.games?.filter { $0.isComplete }.count ?? 0
-        totalVideos = season.videoClips?.count ?? 0
     }
 }
 

@@ -100,7 +100,7 @@ struct SeasonManager {
 
         // Stats
         summary += "📊 Season Overview\n"
-        summary += "• Games Played: \(season.totalGames)\n"
+        summary += "• Games Played: \(season.completedGames)\n"
         summary += "• Practices: \((season.practices ?? []).count)\n"
         summary += "• Videos Recorded: \(season.totalVideos)\n"
         summary += "• Highlights: \(season.highlights.count)\n\n"

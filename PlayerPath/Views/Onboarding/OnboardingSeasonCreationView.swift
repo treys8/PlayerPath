@@ -226,6 +226,12 @@ struct OnboardingSeasonCreationView: View {
             }
             .scrollDismissesKeyboard(.interactively)
             .toolbar(.hidden, for: .navigationBar)
+            .safeAreaInset(edge: .top, spacing: 0) {
+                Rectangle()
+                    .fill(.ultraThinMaterial)
+                    .frame(height: 0)
+                    .ignoresSafeArea(edges: .top)
+            }
         }
         .alert("Unable to Create Season", isPresented: $showingError) {
             Button("OK", role: .cancel) { }
