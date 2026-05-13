@@ -56,6 +56,9 @@ struct DirectCameraRecorderView: View {
     // Cleanup task
     @State private var saveTask: Task<Void, Never>?
 
+    // Tagging-phase save lifecycle (drives PlayResultOverlayView spinner)
+    @State private var isSavingTaggedClip = false
+
     init(athlete: Athlete?, game: Game? = nil, practice: Practice? = nil) {
         self.athlete = athlete
         self.game = game
@@ -342,8 +345,17 @@ struct DirectCameraRecorderView: View {
                     game: game,
                     practice: practice,
                     clipOrientation: clipOrientation,
+                    isSaving: $isSavingTaggedClip,
                     onSave: { result, pitchSpeed, pitchType, role in
-                        saveVideoWithResult(videoURL: finalVideoURL, playResult: result, pitchSpeed: pitchSpeed, pitchType: pitchType, role: role) { dismiss() }
+                        isSavingTaggedClip = true
+                        saveVideoWithResult(
+                            videoURL: finalVideoURL,
+                            playResult: result,
+                            pitchSpeed: pitchSpeed,
+                            pitchType: pitchType,
+                            role: role,
+                            onError: { isSavingTaggedClip = false }
+                        ) { dismiss() }
                     },
                     onCancel: {
                         showingDiscardConfirmation = true

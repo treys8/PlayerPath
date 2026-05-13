@@ -42,6 +42,11 @@ struct CoachAthletesTab: View {
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 HStack(spacing: 12) {
+                    // Inbox bell — mirrors Dashboard placement so coaches who
+                    // spend most of their time on this tab can reach the
+                    // activity feed without backing out to Dashboard.
+                    NotificationBellToolbarButton()
+
                     if invitationManager.pendingInvitationsCount > 0 {
                         Button {
                             Haptics.light()

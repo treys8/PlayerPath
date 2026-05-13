@@ -20,6 +20,12 @@ struct NotificationSettingsView: View {
     @State private var authorizationStatus: UNAuthorizationStatus = .notDetermined
     @Environment(\.scenePhase) private var scenePhase
 
+    /// Coach context is signaled by a nil athleteId at the call site
+    /// (`CoachProfileView` passes `athleteId: nil`). Game Reminders and
+    /// Weekly Statistics are athlete-scoped and dead/no-op for coaches —
+    /// gated off below to avoid showing irrelevant or broken toggles.
+    private var isCoach: Bool { athleteId == nil }
+
     /// Canonical prefs accessor. @Query observes changes reactively; shared(in:)
     /// is a safety net if the singleton somehow isn't present yet (MainAppView
     /// ensures it is on every launch).
@@ -76,21 +82,23 @@ struct NotificationSettingsView: View {
             // Permission status
             permissionStatusSection
 
-            Section {
-                Toggle("Game Reminders", isOn: gameRemindersBinding)
+            if !isCoach {
+                Section {
+                    Toggle("Game Reminders", isOn: gameRemindersBinding)
 
-                if prefs.enableGameReminders {
-                    Picker("Remind Me", selection: gameReminderMinutesBinding) {
-                        Text("5 minutes before").tag(5)
-                        Text("15 minutes before").tag(15)
-                        Text("30 minutes before").tag(30)
-                        Text("1 hour before").tag(60)
+                    if prefs.enableGameReminders {
+                        Picker("Remind Me", selection: gameReminderMinutesBinding) {
+                            Text("5 minutes before").tag(5)
+                            Text("15 minutes before").tag(15)
+                            Text("30 minutes before").tag(30)
+                            Text("1 hour before").tag(60)
+                        }
                     }
+                } header: {
+                    Text("Game Notifications")
                 }
-            } header: {
-                Text("Game Notifications")
+                .disabled(authorizationStatus == .denied)
             }
-            .disabled(authorizationStatus == .denied)
 
             Section {
                 Toggle("Upload Notifications", isOn: uploadNotificationsBinding)
@@ -101,32 +109,34 @@ struct NotificationSettingsView: View {
             }
             .disabled(authorizationStatus == .denied)
 
-            Section {
-                Toggle("Weekly Statistics", isOn: $weeklyStats)
-                    .onChange(of: weeklyStats) { _, enabled in
-                        guard let athleteId else { return }
-                        if enabled {
-                            Task { @MainActor in
-                                if let athlete = findAthlete(id: athleteId) {
-                                    await WeeklySummaryScheduler.schedule(for: athlete)
+            if !isCoach {
+                Section {
+                    Toggle("Weekly Statistics", isOn: $weeklyStats)
+                        .onChange(of: weeklyStats) { _, enabled in
+                            guard let athleteId else { return }
+                            if enabled {
+                                Task { @MainActor in
+                                    if let athlete = findAthlete(id: athleteId) {
+                                        await WeeklySummaryScheduler.schedule(for: athlete)
+                                    }
+                                }
+                            } else {
+                                Task { @MainActor in
+                                    PushNotificationService.shared.cancelNotifications(
+                                        withIdentifiers: ["weekly_summary_\(athleteId)"]
+                                    )
                                 }
                             }
-                        } else {
-                            Task { @MainActor in
-                                PushNotificationService.shared.cancelNotifications(
-                                    withIdentifiers: ["weekly_summary_\(athleteId)"]
-                                )
-                            }
                         }
-                    }
-            } header: {
-                Text("Statistics")
-            } footer: {
-                Text("Weekly summary delivers every Sunday at 6 PM.")
+                } header: {
+                    Text("Statistics")
+                } footer: {
+                    Text("Weekly summary delivers every Sunday at 6 PM.")
+                }
+                .disabled(authorizationStatus == .denied)
             }
-            .disabled(authorizationStatus == .denied)
 
-            if athleteId == nil {
+            if isCoach {
                 Section {
                     NavigationLink {
                         CoachReviewReminderSettingsView()

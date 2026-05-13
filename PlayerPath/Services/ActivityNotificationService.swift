@@ -326,8 +326,16 @@ final class ActivityNotificationService: ObservableObject {
     /// moment so the next listener callback can decide whether a fresh
     /// notification should surface as an in-app banner (true) or be suppressed
     /// because the user already saw it as an FCM banner on the lock screen (false).
+    ///
+    /// Also revives the listener if it gave up after exhausting retries —
+    /// otherwise a transient network blip during sign-in or auth handoff
+    /// leaves unreadCount stale until the user kills the app.
     func noteAppDidBecomeActive() {
         lastForegroundAt = Date()
+        if listenerError != nil, let userID = currentUserID {
+            retryAttempt = 0
+            attachListener(forUserID: userID)
+        }
     }
 
     // MARK: - Mark Read

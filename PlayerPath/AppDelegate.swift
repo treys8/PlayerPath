@@ -54,10 +54,11 @@ class PlayerPathAppDelegate: NSObject, UIApplicationDelegate {
         // Prepare for future background processing (no-op for now)
         registerBackgroundTasks()
 
-        // Clean up stale temp files from prior sessions (exports, orphaned imports)
+        // Clean up stale temp files from prior sessions (exports, orphaned imports, daily reels)
         Task.detached(priority: .utility) {
             StorageManager.cleanupStaleExports()
             StorageManager.cleanupOrphanedImports()
+            TodaysReelCache.cleanupOlderThan(days: 7)
         }
 
         // Reschedule coach review reminder if enabled

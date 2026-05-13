@@ -70,6 +70,12 @@ class CoachVideoPlayerViewModel {
     var activeDrawingOverlay: ActiveDrawingOverlay?
     var videoNaturalSize: CGSize?
 
+    // Auto-show: drawings appear automatically as playback hits their timestamp.
+    // `shownDrawingIDs` tracks which annotations have already auto-popped this
+    // view session so re-scrubbing doesn't spam the same overlay.
+    private var shownDrawingIDs: Set<String> = []
+    private var hasTriggeredInitialAutoShow = false
+
     private var durationTask: Task<Void, Never>?
     private var filmstripTask: Task<Void, Never>?
     private var statusObservation: NSKeyValueObservation?
@@ -206,6 +212,10 @@ class CoachVideoPlayerViewModel {
         annotationsListener = FirestoreManager.shared.listenToAnnotations(forVideo: videoID) { [weak self] updated in
             guard let self else { return }
             self.annotations = updated.sorted { $0.timestamp < $1.timestamp }
+            // Idempotent retry — handles the case where the initial
+            // fetch returned empty but the listener delivered drawings
+            // after autoShowFirstDrawingIfReady already ran.
+            self.autoShowFirstDrawingIfReady()
         }
     }
 
@@ -378,13 +388,16 @@ class CoachVideoPlayerViewModel {
             }
         }
 
-        let interval = CMTime(seconds: 1.0, preferredTimescale: 600)
-        timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] _ in
+        let interval = CMTime(seconds: TelestrationConstants.timeObserverInterval, preferredTimescale: 600)
+        timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
             guard let self else { return }
             MainActor.assumeIsolated {
                 let currentRate = Float(self.playbackRate)
                 if player.timeControlStatus == .playing, player.rate != currentRate {
                     player.rate = currentRate
+                }
+                if player.timeControlStatus == .playing {
+                    self.checkAutoPauseForDrawing(currentTime: time.seconds)
                 }
             }
         }
@@ -525,7 +538,9 @@ class CoachVideoPlayerViewModel {
     // MARK: - Telestration
 
     /// Saves a PencilKit drawing as a "drawing" annotation at the given timestamp.
-    /// Returns `true` on success so the caller can dismiss the overlay.
+    /// Returns `true` on success so the caller can dismiss the overlay. The
+    /// live listener drives `annotations`, so no local append is needed.
+    /// Athlete push fires from the server-side `onNewAnnotation` CF.
     @discardableResult
     func addDrawingAnnotation(
         drawing: PKDrawing,
@@ -535,43 +550,20 @@ class CoachVideoPlayerViewModel {
         userID: String,
         userName: String
     ) async -> Bool {
-        // Enforce size limit (~200KB pre-encoding) before encoding to base64
-        let rawData = drawing.dataRepresentation()
-        guard rawData.count <= 200_000 else {
-            errorMessage = "Drawing is too complex. Try simplifying and saving again."
-            return false
-        }
-
-        let base64 = rawData.base64EncodedString()
-        let shapesJSON = TelestrationShapesCodec.encode(shapes)
-
         do {
-            let videoID = video.id
-            guard !videoID.isEmpty else { return false }
-
-            let annotation = try await FirestoreManager.shared.createAnnotation(
-                videoID: videoID,
-                text: "Drawing annotation",
+            _ = try await DrawingAnnotationSaver.save(
+                videoID: video.id,
+                drawing: drawing,
+                shapes: shapes,
                 timestamp: timestamp,
+                canvasSize: canvasSize,
                 userID: userID,
-                userName: userName,
-                isCoachComment: true,
-                type: "drawing",
-                drawingData: base64,
-                drawingCanvasWidth: canvasSize.width > 0 ? Double(canvasSize.width) : nil,
-                drawingCanvasHeight: canvasSize.height > 0 ? Double(canvasSize.height) : nil,
-                shapes: shapesJSON
+                userName: userName
             )
-
-            // Live listener drives `annotations` — skip local append to avoid flash.
-            _ = annotation
             Haptics.success()
-
-            // Athlete is notified by the server-side onNewAnnotation CF which
-            // fires on annotation subcollection creation (for drawings).
             return true
         } catch {
-            errorMessage = "Failed to save drawing: \(error.localizedDescription)"
+            errorMessage = error.localizedDescription
             ErrorHandlerService.shared.handle(error, context: "CoachVideoPlayerViewModel.addDrawingAnnotation", showAlert: false)
             return false
         }
@@ -595,9 +587,66 @@ class CoachVideoPlayerViewModel {
         )
     }
 
-    /// Dismisses the drawing overlay.
+    /// Dismisses the drawing overlay and resumes playback. Both auto-shown
+    /// and manually-tapped drawings are blocking pauses; dismissing should
+    /// continue the lesson without an extra play tap.
     func dismissDrawingOverlay() {
         activeDrawingOverlay = nil
+        player?.play()
+    }
+
+    /// Shows the earliest drawing on the clip the moment playback is ready.
+    /// Gated on aspect ratio (`videoNaturalSize`) being resolved so portrait
+    /// clips don't briefly render at 16:9. Idempotent — guarded against
+    /// double-fire if SwiftUI re-renders. No-op when there are no drawings.
+    /// Drawings with undecodable data are skipped silently — the next viable
+    /// drawing in timestamp order is shown instead.
+    func autoShowFirstDrawingIfReady() {
+        guard !hasTriggeredInitialAutoShow else { return }
+        guard videoNaturalSize != nil else { return }
+        let drawings = annotations
+            .filter { $0.isDrawing }
+            .sorted { $0.timestamp < $1.timestamp }
+        for drawing in drawings {
+            guard let id = drawing.id else { continue }
+            guard drawing.drawingPKData != nil else {
+                // Mark unviewable drawings as shown so the periodic observer
+                // doesn't keep retrying them, but don't lock the autoshow
+                // gate — fall through to the next viable drawing.
+                shownDrawingIDs.insert(id)
+                continue
+            }
+            hasTriggeredInitialAutoShow = true
+            shownDrawingIDs.insert(id)
+            showDrawingOverlay(for: drawing)
+            return
+        }
+    }
+
+    /// Called from inside the periodic time observer. If playback has crossed
+    /// an unshown drawing's timestamp and no overlay is currently up, shows
+    /// it. The 0.25s lookahead matches the 1s tick rate so we never miss a
+    /// drawing whose timestamp falls between ticks. Drawings with undecodable
+    /// data are skipped silently — they get marked shown to avoid retry spam.
+    fileprivate func checkAutoPauseForDrawing(currentTime: Double) {
+        guard activeDrawingOverlay == nil else { return }
+        let candidates = annotations
+            .filter { $0.isDrawing }
+            .filter { ann in
+                guard let id = ann.id else { return false }
+                return !shownDrawingIDs.contains(id) && ann.timestamp <= currentTime + TelestrationConstants.drawingLookahead
+            }
+            .sorted { $0.timestamp < $1.timestamp }
+        for drawing in candidates {
+            guard let id = drawing.id else { continue }
+            guard drawing.drawingPKData != nil else {
+                shownDrawingIDs.insert(id)
+                continue
+            }
+            shownDrawingIDs.insert(id)
+            showDrawingOverlay(for: drawing)
+            return
+        }
     }
 
     // MARK: - Save to Photos

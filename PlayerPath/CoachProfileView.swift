@@ -105,7 +105,7 @@ struct CoachProfileView: View {
                 }
 
                 // Stats Section
-                Section("Activity") {
+                Section("Overview") {
                     HStack {
                         Label("Shared Folders", systemImage: "folder.fill")
                         Spacer()

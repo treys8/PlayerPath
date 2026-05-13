@@ -12,6 +12,12 @@ import PencilKit
 
 struct TelestrationCanvasView: UIViewRepresentable {
     @Binding var drawing: PKDrawing
+    /// Monotonic counter bumped by the owner on explicit drawing resets
+    /// (undo / redo / clear / load-saved). Pencil input via the delegate must
+    /// NOT bump this — those updates flow back through the binding without a
+    /// canvas reset. Deep PKDrawing equality on every SwiftUI render was too
+    /// expensive on large drawings; the version compare replaces it.
+    let drawingVersion: Int
     let tool: PKTool
     let isEnabled: Bool
 
@@ -28,15 +34,14 @@ struct TelestrationCanvasView: UIViewRepresentable {
         canvas.maximumZoomScale = 1
         canvas.isUserInteractionEnabled = isEnabled
         canvas.overrideUserInterfaceStyle = .dark
+        context.coordinator.lastAppliedVersion = drawingVersion
         return canvas
     }
 
     func updateUIView(_ canvas: PKCanvasView, context: Context) {
-        // Only push drawing changes from SwiftUI → UIKit when the drawing
-        // was reset externally (e.g., undo/clear). Avoid feedback loops by
-        // checking if the coordinator is already updating.
-        if !context.coordinator.isUpdating && canvas.drawing != drawing {
+        if context.coordinator.lastAppliedVersion != drawingVersion {
             canvas.drawing = drawing
+            context.coordinator.lastAppliedVersion = drawingVersion
         }
         canvas.tool = tool
         canvas.isUserInteractionEnabled = isEnabled
@@ -48,16 +53,17 @@ struct TelestrationCanvasView: UIViewRepresentable {
 
     class Coordinator: NSObject, PKCanvasViewDelegate {
         @Binding var drawing: PKDrawing
-        var isUpdating = false
+        var lastAppliedVersion: Int = -1
 
         init(drawing: Binding<PKDrawing>) {
             _drawing = drawing
         }
 
         func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
-            isUpdating = true
+            // Pencil input — propagate to the binding without touching the
+            // version counter, so updateUIView won't push it back and clobber
+            // the in-flight stroke.
             drawing = canvasView.drawing
-            isUpdating = false
         }
     }
 }

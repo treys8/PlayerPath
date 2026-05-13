@@ -34,6 +34,13 @@ struct CoachTabView: View {
             guard !hasRunInitialSetup else { return }
             hasRunInitialSetup = true
 
+            // Request notification permission once per app launch. Without this,
+            // coaches who never visit Profile → Notifications stay .notDetermined,
+            // never register for APNs/FCM, and silently drop every server push.
+            if PushNotificationService.shared.authorizationStatus == .notDetermined {
+                _ = await PushNotificationService.shared.requestAuthorization()
+            }
+
             // Configure archive manager
             if let coachID = authManager.userID {
                 CoachFolderArchiveManager.shared.configure(coachUID: coachID)

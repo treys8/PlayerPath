@@ -872,12 +872,4 @@ struct NotificationSettings {
     }
 }
 
-// MARK: - Notification Names for Navigation
-
-extension Notification.Name {
-    static let navigateToCloudStorage = Notification.Name("navigateToCloudStorage")
-    static let navigateToWeeklySummary = Notification.Name("navigateToWeeklySummary")
-    static let startRecordingForGame = Notification.Name("startRecordingForGame")
-    static let startRecordingForPractice = Notification.Name("startRecordingForPractice")
-}
-
+// Notification.Name constants used for tap routing live in AppNotifications.swift.

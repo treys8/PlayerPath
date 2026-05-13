@@ -34,4 +34,13 @@ extension Notification.Name {
     static let showSubscriptionPaywall = Notification.Name("showSubscriptionPaywall")
     static let videoRecorded = Notification.Name("VideoRecorded")
     static let presentAddPractice = Notification.Name("presentAddPractice")
+    /// Posted by PushNotificationService when a cloud-backup / upload-failed /
+    /// storage-warning notification is tapped. Athlete navigates to More → Storage.
+    static let navigateToCloudStorage = Notification.Name("navigateToCloudStorage")
+    /// Posted when the weekly-summary local notification is tapped.
+    static let navigateToWeeklySummary = Notification.Name("navigateToWeeklySummary")
+    /// Posted by the GAME_REMINDER action / default tap with `object: gameId` (String).
+    static let startRecordingForGame = Notification.Name("startRecordingForGame")
+    /// Posted by the PRACTICE_REMINDER action / default tap with `object: practiceId` (String).
+    static let startRecordingForPractice = Notification.Name("startRecordingForPractice")
 }

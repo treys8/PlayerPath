@@ -98,6 +98,7 @@ struct AuthenticatedFlow: View {
             AthleteInvitationManager.shared.stopListening()
             CoachSessionManager.shared.stopListeningActiveSession()
             CoachInvitationManager.shared.stopListening()
+            ReviewQueueViewModel.shared.stopListening()
         }
         .onChange(of: authManager.isSignedIn) { oldValue, newValue in
             if oldValue == true && newValue == false {
@@ -108,6 +109,7 @@ struct AuthenticatedFlow: View {
                 AthleteInvitationManager.shared.stopListening()
                 CoachSessionManager.shared.stopListeningActiveSession()
                 CoachInvitationManager.shared.stopListening()
+                ReviewQueueViewModel.shared.stopListening()
             }
         }
         .onChange(of: authManager.userRole) { oldRole, newRole in
@@ -119,6 +121,7 @@ struct AuthenticatedFlow: View {
                 CoachInvitationManager.shared.stopListening()
                 CoachSessionManager.shared.stopListeningActiveSession()
                 SharedFolderManager.shared.stopCoachFoldersListener()
+                ReviewQueueViewModel.shared.stopListening()
             } else {
                 AthleteInvitationManager.shared.stopListening()
                 SharedFolderManager.shared.stopAthleteFoldersListener()
@@ -142,6 +145,7 @@ struct AuthenticatedFlow: View {
                 AthleteInvitationManager.shared.stopListening()
                 CoachSessionManager.shared.stopListeningActiveSession()
                 CoachInvitationManager.shared.stopListening()
+                ReviewQueueViewModel.shared.stopListening()
             case .active:
                 // Refresh data if user is authenticated
                 if let firebaseUID = authManager.currentFirebaseUser?.uid {
@@ -149,6 +153,7 @@ struct AuthenticatedFlow: View {
                     if authManager.userRole == .coach {
                         SharedFolderManager.shared.startCoachFoldersListener(coachID: firebaseUID)
                         CoachSessionManager.shared.startListeningActiveSession(coachID: firebaseUID)
+                        ReviewQueueViewModel.shared.startListening(coachUID: firebaseUID)
                         if let email = authManager.currentFirebaseUser?.email?.lowercased() {
                             CoachInvitationManager.shared.startListening(forEmail: email)
                         }

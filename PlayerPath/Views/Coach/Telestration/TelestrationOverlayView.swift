@@ -20,6 +20,10 @@ struct TelestrationOverlayView: View {
     var frameImage: UIImage? = nil
 
     @State private var drawing = PKDrawing()
+    /// Bumped only on explicit drawing resets (undo/redo/clear). Pencil input
+    /// reaches us via the canvas binding and must NOT bump this — see
+    /// `TelestrationCanvasView` for the loop-avoidance contract.
+    @State private var drawingVersion: Int = 0
     @State private var shapes: [TelestrationShape] = []
     @State private var toolMode: TelestrationToolMode = .freehand
     @State private var selectedColor: Color = .red
@@ -99,6 +103,7 @@ struct TelestrationOverlayView: View {
                         }
                         TelestrationCanvasView(
                             drawing: $drawing,
+                            drawingVersion: drawingVersion,
                             tool: currentTool,
                             // Ink canvas only accepts input when freehand is selected;
                             // shape tools route touches to the creation overlay above.
@@ -192,6 +197,7 @@ struct TelestrationOverlayView: View {
             var strokes = drawing.strokes
             strokes.removeLast()
             drawing = PKDrawing(strokes: strokes)
+            drawingVersion &+= 1
             redoStack.append(.stroke(popped))
         case .shape:
             guard let popped = shapes.last else { return }
@@ -210,6 +216,7 @@ struct TelestrationOverlayView: View {
             var strokes = drawing.strokes
             strokes.append(stroke)
             drawing = PKDrawing(strokes: strokes)
+            drawingVersion &+= 1
             undoLog.append(.stroke)
         case .shape(let shape):
             shapes.append(shape)
@@ -220,6 +227,7 @@ struct TelestrationOverlayView: View {
 
     private func clearAll() {
         drawing = PKDrawing()
+        drawingVersion &+= 1
         shapes = []
         undoLog.removeAll()
         redoStack.removeAll()

@@ -55,6 +55,12 @@ extension DateFormatter {
     }()
 }
 
+// MARK: - Date Helpers
+
+extension Date {
+    var isToday: Bool { Calendar.current.isDateInToday(self) }
+}
+
 // MARK: - Video Timestamp Formatting
 
 extension Double {

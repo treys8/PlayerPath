@@ -354,6 +354,7 @@ extension FirestoreManager {
         // revokeSet contains athleteUUIDs (new folders) or account UIDs (legacy). Match on either.
         let snapshot = try await db.collection(FC.sharedFolders)
             .whereField("sharedWithCoachIDs", arrayContains: coachID)
+            .limit(to: 2000)
             .getDocuments()
         let folders = snapshot.documents.compactMap { doc -> SharedFolder? in
             do {
@@ -419,6 +420,7 @@ extension FirestoreManager {
                 .whereField("type", isEqualTo: "coach_to_athlete")
                 .whereField("coachID", isEqualTo: coachID)
                 .whereField("status", isEqualTo: "accepted")
+                .limit(to: 2000)
                 .getDocuments()
 
             for doc in c2aSnapshot.documents {
@@ -443,6 +445,7 @@ extension FirestoreManager {
                 .whereField("type", isEqualTo: "athlete_to_coach")
                 .whereField("acceptedByCoachID", isEqualTo: coachID)
                 .whereField("status", isEqualTo: "accepted")
+                .limit(to: 2000)
                 .getDocuments()
 
             for doc in a2cSnapshot.documents {

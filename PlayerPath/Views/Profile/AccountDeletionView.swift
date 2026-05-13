@@ -24,6 +24,8 @@ struct AccountDeletionView: View {
     @State private var signInProvider: String = "password"
     @StateObject private var appleReAuthManager = AppleSignInManager()
 
+    private var isCoach: Bool { authManager.userRole == .coach }
+
     var body: some View {
         List {
             Section {
@@ -44,12 +46,22 @@ struct AccountDeletionView: View {
 
             Section("What Will Be Deleted") {
                 DeletionItem(icon: "person.fill.xmark", title: "Your Account", description: "Login credentials and profile")
-                DeletionItem(icon: "figure.baseball", title: "All Athletes", description: "All athlete profiles you created")
-                DeletionItem(icon: "calendar.badge.minus", title: "All Seasons", description: "Season data and settings")
-                DeletionItem(icon: "baseball.diamond.bases", title: "All Games", description: "Game records and live game data")
-                DeletionItem(icon: "chart.bar.xaxis", title: "All Statistics", description: "Batting averages and performance data")
-                DeletionItem(icon: "video.slash", title: "All Videos", description: "Cloud video files, tags, timestamps, and references")
-                DeletionItem(icon: "cloud.slash", title: "Cloud Sync Data", description: "All data synced to Firestore")
+                if isCoach {
+                    DeletionItem(icon: "folder.badge.minus", title: "Shared Folders", description: "All folders you created and the videos inside them")
+                    DeletionItem(icon: "pencil.and.outline", title: "Video Annotations", description: "Notes, comments, and telestration drawings you authored")
+                    DeletionItem(icon: "clipboard", title: "Drill Cards", description: "Drill cards you created across all videos")
+                    DeletionItem(icon: "record.circle", title: "Coach Sessions", description: "Recorded sessions and clips captured during them")
+                    DeletionItem(icon: "text.bubble.fill", title: "Quick-Cue Templates", description: "Saved quick-cue and drill templates")
+                    DeletionItem(icon: "envelope.badge", title: "Invitations", description: "Sent and received athlete-coach invitations")
+                    DeletionItem(icon: "cloud.slash", title: "Cloud Sync Data", description: "All data synced to Firestore")
+                } else {
+                    DeletionItem(icon: "figure.baseball", title: "All Athletes", description: "All athlete profiles you created")
+                    DeletionItem(icon: "calendar.badge.minus", title: "All Seasons", description: "Season data and settings")
+                    DeletionItem(icon: "baseball.diamond.bases", title: "All Games", description: "Game records and live game data")
+                    DeletionItem(icon: "chart.bar.xaxis", title: "All Statistics", description: "Batting averages and performance data")
+                    DeletionItem(icon: "video.slash", title: "All Videos", description: "Cloud video files, tags, timestamps, and references")
+                    DeletionItem(icon: "cloud.slash", title: "Cloud Sync Data", description: "All data synced to Firestore")
+                }
             }
 
             Section("What Happens to Videos") {
@@ -58,17 +70,31 @@ struct AccountDeletionView: View {
                         .foregroundColor(.brandNavy)
 
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("All videos stored in PlayerPath's cloud will be permanently deleted.")
-                            .font(.bodySmall)
-                            .foregroundColor(.secondary)
+                        if isCoach {
+                            Text("Videos in shared folders you own will be permanently deleted.")
+                                .font(.bodySmall)
+                                .foregroundColor(.secondary)
 
-                        Text("Videos saved directly to your Photos app will not be affected.")
-                            .font(.bodySmall)
-                            .foregroundColor(.secondary)
+                            Text("Athletes who saved clips to their own libraries keep their copies.")
+                                .font(.bodySmall)
+                                .foregroundColor(.secondary)
 
-                        Text("To keep your videos, export them to Photos before deleting your account.")
-                            .font(.labelMedium)
-                            .foregroundColor(.secondary)
+                            Text("Videos in folders shared with you stay with the folder owner.")
+                                .font(.labelMedium)
+                                .foregroundColor(.secondary)
+                        } else {
+                            Text("All videos stored in PlayerPath's cloud will be permanently deleted.")
+                                .font(.bodySmall)
+                                .foregroundColor(.secondary)
+
+                            Text("Videos saved directly to your Photos app will not be affected.")
+                                .font(.bodySmall)
+                                .foregroundColor(.secondary)
+
+                            Text("To keep your videos, export them to Photos before deleting your account.")
+                                .font(.labelMedium)
+                                .foregroundColor(.secondary)
+                        }
                     }
                 }
             }
@@ -88,8 +114,13 @@ struct AccountDeletionView: View {
                                 Spacer()
                             }
                         }
-                        RecommendationRow(number: 2, text: "Save important videos to Photos")
-                        RecommendationRow(number: 3, text: "Screenshot key statistics if needed")
+                        if isCoach {
+                            RecommendationRow(number: 2, text: "Notify your athletes that shared folders will be deleted")
+                            RecommendationRow(number: 3, text: "Save important annotations or drill cards externally")
+                        } else {
+                            RecommendationRow(number: 2, text: "Save important videos to Photos")
+                            RecommendationRow(number: 3, text: "Screenshot key statistics if needed")
+                        }
                     }
                 }
                 .padding(.vertical, 4)

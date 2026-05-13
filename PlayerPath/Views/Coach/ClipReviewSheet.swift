@@ -48,6 +48,11 @@ struct ClipReviewSheet: View {
     @State private var drillExpanded = false
     @State private var telestrationExpanded = false
 
+    /// Read-only overlay shown when the coach taps a saved drawing row.
+    /// Tapping the overlay clears it and leaves the player paused at the
+    /// seeked frame — no auto-resume (this is an editing surface).
+    @State private var activeDrawingOverlay: ActiveDrawingOverlay?
+
     private var currentPlaybackTime: Double {
         player?.currentTime().seconds ?? 0
     }
@@ -149,7 +154,8 @@ struct ClipReviewSheet: View {
                             isStartingTelestration: isPreparingTelestration,
                             canStart: player != nil && !isLoadingVideo,
                             isExpanded: $telestrationExpanded,
-                            onStartDrawing: { startTelestration() }
+                            onStartDrawing: { startTelestration() },
+                            onTapDrawing: { drawing in showDrawing(for: drawing) }
                         )
 
                         if video.createdAt != nil || (video.fileSize ?? 0) > 0 {
@@ -297,7 +303,26 @@ struct ClipReviewSheet: View {
                 }
                 .padding()
             } else if let player {
-                EnhancedVideoPlayer(player: player, preloadedDuration: video.duration)
+                EnhancedVideoPlayer(
+                    player: player,
+                    preloadedDuration: video.duration,
+                    alwaysShowControls: true
+                )
+                // Mirror `CoachVideoPlayerView` — block underlying player
+                // gestures (zoom/pan/tap-to-pause) while the read-only
+                // drawing overlay is up; only the overlay's own tap-to-
+                // dismiss should fire.
+                .allowsHitTesting(activeDrawingOverlay == nil)
+
+                if let overlay = activeDrawingOverlay {
+                    DrawingAnnotationOverlay(
+                        drawingData: overlay.data,
+                        videoAspectRatio: videoAspectRatio,
+                        canvasSize: overlay.canvasSize,
+                        shapes: overlay.shapes,
+                        onDismiss: { dismissDrawing() }
+                    )
+                }
             }
         }
         .aspectRatio(videoAspectRatio, contentMode: .fit)
@@ -380,10 +405,45 @@ struct ClipReviewSheet: View {
 
         do {
             let all = try await annotationsResult
-            drawingAnnotations = all.filter { $0.type == "drawing" }
+            drawingAnnotations = all.filter { $0.isDrawing }
         } catch {
             ErrorHandlerService.shared.handle(error, context: "ClipReviewSheet.loadDrafts.annotations", showAlert: false)
         }
+    }
+
+    // MARK: - Drawing Overlay (read-only)
+
+    /// Pause + seek to the drawing's timestamp and show it as an overlay.
+    /// Mirrors `CoachVideoPlayerViewModel.showDrawingOverlay(for:)` but lives
+    /// directly on the view because this sheet has no view-model.
+    @MainActor
+    private func showDrawing(for annotation: VideoAnnotation) {
+        guard let data = annotation.drawingPKData else { return }
+        let cmTime = CMTime(
+            seconds: annotation.timestamp,
+            preferredTimescale: CMTimeScale(NSEC_PER_SEC)
+        )
+        player?.pause()
+        player?.seek(to: cmTime, toleranceBefore: .zero, toleranceAfter: .zero)
+        let size: CGSize? = {
+            guard let w = annotation.drawingCanvasWidth,
+                  let h = annotation.drawingCanvasHeight,
+                  w > 0, h > 0 else { return nil }
+            return CGSize(width: w, height: h)
+        }()
+        activeDrawingOverlay = ActiveDrawingOverlay(
+            data: data,
+            canvasSize: size,
+            shapes: annotation.decodedShapes
+        )
+    }
+
+    /// Clear the overlay. Deliberately does NOT resume playback — the coach
+    /// is editing, not consuming a lesson, so we leave them paused at the
+    /// seeked frame, ready to draw again or scrub.
+    @MainActor
+    private func dismissDrawing() {
+        activeDrawingOverlay = nil
     }
 
     // MARK: - Telestration
@@ -396,6 +456,26 @@ struct ClipReviewSheet: View {
         let captureTime = player.currentTime()
         let asset = player.currentItem?.asset
         Task {
+            // Re-verify folder permission before letting the coach draw —
+            // shares can be revoked mid-session, and the server will reject
+            // the write anyway. Cleaner to surface here than on save.
+            if let coachID = authManager.userID,
+               coachID != folder.ownerAthleteID,
+               let folderID = folder.id {
+                do {
+                    let latest = try await SharedFolderManager.shared.verifyFolderAccess(folderID: folderID, coachID: coachID)
+                    guard latest.getPermissions(for: coachID)?.canComment ?? false else {
+                        errorMessage = "You no longer have permission to draw on this folder."
+                        isPreparingTelestration = false
+                        return
+                    }
+                } catch {
+                    errorMessage = "Unable to verify permissions. Please try again."
+                    isPreparingTelestration = false
+                    return
+                }
+            }
+
             let image = await captureFrame(from: asset, at: captureTime)
             telestrationFrameImage = image
             isPreparingTelestration = false
@@ -427,37 +507,22 @@ struct ClipReviewSheet: View {
         userID: String,
         userName: String
     ) async -> Bool {
-        let rawData = drawing.dataRepresentation()
-        guard rawData.count <= 200_000 else {
-            errorMessage = "Drawing is too complex. Try simplifying and saving again."
-            return false
-        }
-
-        let base64 = rawData.base64EncodedString()
-        let shapesJSON = TelestrationShapesCodec.encode(shapes)
-        let videoID = video.id
-        guard !videoID.isEmpty else { return false }
-
         do {
-            let annotation = try await FirestoreManager.shared.createAnnotation(
-                videoID: videoID,
-                text: "Drawing annotation",
+            let annotation = try await DrawingAnnotationSaver.save(
+                videoID: video.id,
+                drawing: drawing,
+                shapes: shapes,
                 timestamp: timestamp,
+                canvasSize: canvasSize,
                 userID: userID,
-                userName: userName,
-                isCoachComment: true,
-                type: "drawing",
-                drawingData: base64,
-                drawingCanvasWidth: canvasSize.width > 0 ? Double(canvasSize.width) : nil,
-                drawingCanvasHeight: canvasSize.height > 0 ? Double(canvasSize.height) : nil,
-                shapes: shapesJSON
+                userName: userName
             )
             drawingAnnotations.append(annotation)
             telestrationExpanded = true
             Haptics.success()
             return true
         } catch {
-            errorMessage = "Failed to save drawing: \(error.localizedDescription)"
+            errorMessage = error.localizedDescription
             ErrorHandlerService.shared.handle(error, context: "ClipReviewSheet.saveDrawing", showAlert: false)
             return false
         }

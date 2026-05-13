@@ -22,6 +22,12 @@ struct ActiveDrawingOverlay: Equatable {
         self.canvasSize = canvasSize
         self.shapes = shapes
     }
+
+    nonisolated static func == (lhs: ActiveDrawingOverlay, rhs: ActiveDrawingOverlay) -> Bool {
+        lhs.data == rhs.data
+            && lhs.canvasSize == rhs.canvasSize
+            && lhs.shapes == rhs.shapes
+    }
 }
 
 /// Timeline marker strip — one thin rectangle per annotation, positioned along
@@ -43,7 +49,7 @@ struct AnnotationMarkersOverlay: View {
                     let x = (CGFloat(annotation.timestamp) / CGFloat(duration)) * geometry.size.width
                     let color: Color = annotation.isCoachComment ? Color.brandNavy : Color.orange
 
-                    if let onTapDrawing, annotation.type == "drawing" {
+                    if let onTapDrawing, annotation.isDrawing {
                         // Interactive marker: expand hit region with a padded
                         // clear rect so 3pt-wide bars are actually tappable.
                         Button {

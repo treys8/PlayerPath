@@ -15,6 +15,7 @@ struct HighlightsView: View {
     let hasCoachingAccess: Bool
     @Environment(\.modelContext) private var modelContext
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.scenePhase) private var scenePhase
     @ObservedObject private var autoHighlightSettings = AutoHighlightSettings.shared
     @State private var selectedClip: VideoClip?
     @State private var showingVideoPlayer = false
@@ -22,6 +23,8 @@ struct HighlightsView: View {
     @State private var clipToDelete: VideoClip?
     @State private var editMode: EditMode = .inactive
     @State private var showingAutoHighlightSettings = false
+    @State private var stitchedReelURL: URL?
+    @State private var showingStitchedReel = false
 
     @State private var viewModel = HighlightsViewModel()
     @State private var selection = Set<VideoClip.ID>()
@@ -73,6 +76,11 @@ struct HighlightsView: View {
                 AutoHighlightSettingsView(athlete: athlete)
             }
         }
+        .fullScreenCover(isPresented: $showingStitchedReel) {
+            if let url = stitchedReelURL {
+                StitchedReelPlayerView(url: url)
+            }
+        }
         .task {
             migrateHitVideosToHighlights()
             viewModel.update(videoClips: athlete?.videoClips ?? [])
@@ -99,6 +107,11 @@ struct HighlightsView: View {
             }
         }
         .onChange(of: viewModel.sortOrder) { _, _ in recomputeAll() }
+        .onChange(of: scenePhase) { _, newPhase in
+            // Re-evaluate today's reel eligibility when the app returns from
+            // background — catches midnight rollover without a dedicated timer.
+            if newPhase == .active { recomputeAll() }
+        }
         .alert("Error", isPresented: $errorAlertShown) {
             Button("OK", role: .cancel) { }
         } message: {
@@ -207,6 +220,20 @@ struct HighlightsView: View {
 
     private var highlightGridView: some View {
         ScrollView {
+            if currentTier >= .plus,
+               let athlete = athlete,
+               viewModel.todaysHighlightClips.count >= 2 {
+                TodaysReelHeroCard(
+                    athleteId: athlete.id,
+                    clips: viewModel.todaysHighlightClips,
+                    onPlay: { url in
+                        stitchedReelURL = url
+                        showingStitchedReel = true
+                    }
+                )
+                .padding(.horizontal, horizontalSizeClass == .regular ? 32 : 16)
+                .padding(.top, 12)
+            }
             LazyVGrid(
                 columns: [
                     GridItem(.adaptive(minimum: horizontalSizeClass == .regular ? 200 : 160, maximum: horizontalSizeClass == .regular ? 280 : 220), spacing: 16, alignment: .top)

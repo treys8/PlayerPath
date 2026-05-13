@@ -197,16 +197,34 @@ struct VideoAnnotation: Codable, Identifiable {
     let isCoachComment: Bool
     var category: String? = nil
     var templateID: String? = nil
-    var type: String? = nil // "note" (default), "drill_card", "drawing"
+    var type: String? = nil // wire format; raw values map to AnnotationType
     var drawingData: String? = nil // base64-encoded PKDrawing data (telestration)
     var drawingCanvasWidth: Double? = nil // canvas size the drawing was captured on (points)
     var drawingCanvasHeight: Double? = nil
     var shapes: String? = nil // JSON-encoded [TelestrationShape] placed alongside ink strokes
+    // Forward-compat for moving drawing payloads to Firebase Storage. No writer
+    // sets this yet; reading code must continue to fall back to `drawingData`.
+    var drawingStoragePath: String? = nil
 
     var annotationCategory: AnnotationCategory? {
         guard let category else { return nil }
         return AnnotationCategory(rawValue: category)
     }
+
+    /// Typed view of `type`. Returns nil for legacy/unknown wire values so
+    /// future kinds can land without crashing decode on existing clients.
+    var annotationType: AnnotationType? {
+        guard let type else { return nil }
+        return AnnotationType(rawValue: type)
+    }
+}
+
+/// Typed discriminator for `VideoAnnotation.type`. Raw values must match the
+/// wire format exactly — Cloud Functions and Firestore rules read the string.
+enum AnnotationType: String, Codable {
+    case note
+    case drillCard = "drill_card"
+    case drawing
 }
 
 /// Coach invitation model

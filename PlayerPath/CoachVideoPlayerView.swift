@@ -26,6 +26,7 @@ struct CoachVideoPlayerView: View {
     @State private var isMarkingReviewed = false
     @State private var markReviewedError: String?
     @State private var showingTelestration = false
+    @State private var isVerifyingDrawPermission = false
     @State private var drillCards: [DrillCard] = []
     /// Guard so the "athlete viewed this clip" write only fires once per open.
     @State private var hasMarkedViewed = false
@@ -90,16 +91,23 @@ struct CoachVideoPlayerView: View {
                         .accessibilityLabel("Mark as reviewed")
                     }
 
-                    // Telestration draw button (coaches only)
+                    // Telestration draw button (coaches only). Re-verifies
+                    // comment permission before opening — folder shares can
+                    // be revoked mid-session, and the server will reject the
+                    // write anyway; this gives the coach a clean error
+                    // instead of an opaque Firestore failure.
                     if canEditCoachNote {
                         Button {
-                            viewModel.player?.pause()
-                            showingTelestration = true
+                            openTelestration()
                         } label: {
-                            Image(systemName: "pencil.tip")
-                                .foregroundColor(.brandNavy)
+                            if isVerifyingDrawPermission {
+                                ProgressView().scaleEffect(0.8)
+                            } else {
+                                Image(systemName: "pencil.tip")
+                                    .foregroundColor(.brandNavy)
+                            }
                         }
-                        .disabled(!viewModel.isPlayerReady)
+                        .disabled(!viewModel.isPlayerReady || isVerifyingDrawPermission)
                         .accessibilityLabel("Draw on video frame")
                     }
 
@@ -252,6 +260,12 @@ struct CoachVideoPlayerView: View {
             if let userID = authManager.userID {
                 await ActivityNotificationService.shared.markVideoRead(videoID: video.id, forUserID: userID)
             }
+
+            // Auto-show the earliest coach drawing once everything is loaded.
+            // Aspect ratio (videoNaturalSize) is set by loadVideoNaturalSize
+            // above; annotations populated by loadAnnotations. No-op when the
+            // clip has no drawings.
+            viewModel.autoShowFirstDrawingIfReady()
         }
         .onChange(of: scenePhase) { oldPhase, newPhase in
             handleScenePhaseChange(old: oldPhase, new: newPhase)
@@ -311,7 +325,7 @@ struct CoachVideoPlayerView: View {
                 },
                 isLoading: viewModel.isGeneratingFilmstrip,
                 isPlaying: viewModel.isPlaying,
-                markers: viewModel.annotations.filter { $0.type == "drawing" },
+                markers: viewModel.annotations.filter { $0.isDrawing },
                 onTapMarker: { annotation in
                     viewModel.showDrawingOverlay(for: annotation)
                 }
@@ -384,7 +398,15 @@ struct CoachVideoPlayerView: View {
                 VideoPlayer(player: player)
                     .allowsHitTesting(!showingTelestration && viewModel.activeDrawingOverlay == nil)
                     .onAppear {
-                        player.play()
+                        // Suppress auto-play when the clip has coach drawings.
+                        // The auto-show flow seeks to the first drawing's
+                        // timestamp + pauses; auto-playing from t=0 here would
+                        // cause a visible flash before the seek lands.
+                        // dismissDrawingOverlay() resumes playback after the
+                        // user dismisses each drawing.
+                        if (video.drawingCount ?? 0) == 0 {
+                            player.play()
+                        }
                         viewModel.startTimeObserver()
                         markViewedIfFolderOwnerAthlete()
                     }
@@ -597,6 +619,36 @@ struct CoachVideoPlayerView: View {
         return userID == folder.ownerAthleteID
     }
     
+    /// Re-verifies the current coach still has comment permission on this
+    /// folder, then opens the telestration overlay. Mirrors the recheck
+    /// performed in `addNote` before annotation writes.
+    private func openTelestration() {
+        guard let userID = authManager.userID else { return }
+        viewModel.player?.pause()
+
+        // Skip the network check for the folder owner (athlete) or pre-id
+        // folders — same shape as the `addNote` recheck.
+        guard userID != folder.ownerAthleteID, let folderID = folder.id else {
+            showingTelestration = true
+            return
+        }
+
+        isVerifyingDrawPermission = true
+        Task {
+            defer { isVerifyingDrawPermission = false }
+            do {
+                let latest = try await SharedFolderManager.shared.verifyFolderAccess(folderID: folderID, coachID: userID)
+                guard latest.getPermissions(for: userID)?.canComment ?? false else {
+                    viewModel.errorMessage = "You no longer have permission to draw on this folder."
+                    return
+                }
+                showingTelestration = true
+            } catch {
+                viewModel.errorMessage = "Unable to verify permissions. Please try again."
+            }
+        }
+    }
+
     private func markReviewed() {
         guard let coachID = authManager.userID else { return }
         isMarkingReviewed = true

@@ -30,6 +30,11 @@ final class HighlightsViewModel {
     private(set) var availableSeasons: [Season] = []
     private(set) var hasNoSeasonClips: Bool = false
 
+    /// Today-dated highlight clips for the "Today's Reel" hero card. Always
+    /// computed from the unfiltered source list so user-applied filters
+    /// (season/type/search) don't hide the card.
+    private(set) var todaysHighlightClips: [VideoClip] = []
+
     // MARK: - Private
     private var allVideoClips: [VideoClip] = []
     private var allFilteredHighlights: [VideoClip] = []
@@ -101,7 +106,15 @@ final class HighlightsViewModel {
         displayLimit = 50
         highlights = Array(sorted.prefix(displayLimit))
         rebuildHighlightsIndex()
+        recomputeTodaysHighlights()
         isLoading = false
+    }
+
+    private func recomputeTodaysHighlights() {
+        todaysHighlightClips = allVideoClips
+            .filter { $0.isHighlight }
+            .filter { $0.game?.date?.isToday == true }
+            .sorted { ($0.createdAt ?? .distantPast) < ($1.createdAt ?? .distantPast) }
     }
 
     func loadMore() {

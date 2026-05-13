@@ -21,54 +21,52 @@ struct UserPreferencesView: View {
     private var isCoach: Bool { authManager.userRole == .coach }
 
     var body: some View {
-        NavigationStack {
-            Group {
-                if viewModel.preferences != nil {
-                    Form {
-                        if !isCoach {
-                            videoRecordingSection()
-                        } else {
-                            generalSection()
-                        }
-                        uiPreferencesSection()
-                        if !isCoach {
-                            cloudSyncSection()
-                        }
-                        privacyAnalyticsSection()
+        Group {
+            if viewModel.preferences != nil {
+                Form {
+                    if !isCoach {
+                        videoRecordingSection()
+                    } else {
+                        generalSection()
                     }
-                } else {
-                    ProgressView("Loading preferences...")
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    uiPreferencesSection()
+                    if !isCoach {
+                        cloudSyncSection()
+                    }
+                    privacyAnalyticsSection()
                 }
+            } else {
+                ProgressView("Loading preferences...")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .navigationTitle("Settings")
-            .navigationBarTitleDisplayMode(.inline)
-            .task {
-                viewModel.attach(modelContext: modelContext)
-                await viewModel.load()
-            }
-            .toolbar {
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    if viewModel.hasUnsavedChanges {
-                        Button("Save") {
-                            Task {
-                                do {
-                                    try await viewModel.save()
-                                } catch {
-                                    ErrorHandlerService.shared.handle(error, context: "UserPreferences.save", showAlert: true)
-                                }
+        }
+        .navigationTitle("Settings")
+        .navigationBarTitleDisplayMode(.inline)
+        .task {
+            viewModel.attach(modelContext: modelContext)
+            await viewModel.load()
+        }
+        .toolbar {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                if viewModel.hasUnsavedChanges {
+                    Button("Save") {
+                        Task {
+                            do {
+                                try await viewModel.save()
+                            } catch {
+                                ErrorHandlerService.shared.handle(error, context: "UserPreferences.save", showAlert: true)
                             }
                         }
                     }
                 }
             }
-            .onDisappear {
-                // Auto-save on navigating away to prevent losing changes
-                if viewModel.hasUnsavedChanges {
-                    Task {
-                        do { try await viewModel.save() }
-                        catch { ErrorHandlerService.shared.handle(error, context: "UserPreferences.autoSave", showAlert: false) }
-                    }
+        }
+        .onDisappear {
+            // Auto-save on navigating away to prevent losing changes
+            if viewModel.hasUnsavedChanges {
+                Task {
+                    do { try await viewModel.save() }
+                    catch { ErrorHandlerService.shared.handle(error, context: "UserPreferences.autoSave", showAlert: false) }
                 }
             }
         }

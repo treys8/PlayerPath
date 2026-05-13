@@ -28,6 +28,17 @@ struct TelestrationShape: Codable, Identifiable, Equatable {
     let colorHex: String
     let lineWidth: Double
 
+    nonisolated static func == (lhs: TelestrationShape, rhs: TelestrationShape) -> Bool {
+        lhs.id == rhs.id
+            && lhs.kind == rhs.kind
+            && lhs.startX == rhs.startX
+            && lhs.startY == rhs.startY
+            && lhs.endX == rhs.endX
+            && lhs.endY == rhs.endY
+            && lhs.colorHex == rhs.colorHex
+            && lhs.lineWidth == rhs.lineWidth
+    }
+
     init(
         kind: TelestrationShapeKind,
         start: CGPoint,

@@ -16,6 +16,13 @@ struct ClipReviewTelestrationSection: View {
     let canStart: Bool
     @Binding var isExpanded: Bool
     let onStartDrawing: () -> Void
+    /// Tap on a saved drawing row → seek the player + overlay it on the video.
+    /// Wired from `ClipReviewSheet.showDrawing(for:)`.
+    let onTapDrawing: (VideoAnnotation) -> Void
+
+    private var sortedDrawings: [VideoAnnotation] {
+        drawings.sorted { $0.timestamp < $1.timestamp }
+    }
 
     var body: some View {
         DisclosureGroup(isExpanded: $isExpanded) {
@@ -34,10 +41,35 @@ struct ClipReviewTelestrationSection: View {
                         .foregroundColor(.secondary)
                         .padding(.top, 6)
                 } else {
-                    Text(timestampList)
-                        .font(.footnote)
-                        .foregroundColor(.secondary)
-                        .padding(.top, 6)
+                    VStack(spacing: 6) {
+                        ForEach(sortedDrawings) { drawing in
+                            Button {
+                                onTapDrawing(drawing)
+                            } label: {
+                                HStack(spacing: 10) {
+                                    Image(systemName: "pencil.tip")
+                                        .font(.subheadline)
+                                        .foregroundColor(.brandNavy)
+                                    Text(drawing.timestamp.formattedTimestamp)
+                                        .font(.subheadline)
+                                        .monospacedDigit()
+                                        .foregroundColor(.primary)
+                                    Spacer()
+                                    Image(systemName: "chevron.right")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                                .padding(.vertical, 8)
+                                .padding(.horizontal, 10)
+                                .background(Color(.tertiarySystemBackground))
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("View drawing at \(drawing.timestamp.formattedTimestamp)")
+                        }
+                    }
+                    .padding(.top, 6)
                 }
 
                 Button(action: onStartDrawing) {
@@ -79,16 +111,5 @@ struct ClipReviewTelestrationSection: View {
 
     private var headerTitle: String {
         drawings.isEmpty ? "Telestration" : "Telestration • \(drawings.count)"
-    }
-
-    private var timestampList: String {
-        let stamps = drawings
-            .sorted { $0.timestamp < $1.timestamp }
-            .map { $0.timestamp.formattedTimestamp }
-        if stamps.count <= 4 {
-            return "Drawings at \(stamps.joined(separator: ", "))"
-        }
-        let head = stamps.prefix(4).joined(separator: ", ")
-        return "Drawings at \(head), +\(stamps.count - 4) more"
     }
 }

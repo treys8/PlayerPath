@@ -166,7 +166,11 @@ async function sendPushNotification(
         payload: {
           aps: {
             sound: 'default',
-            badge: 1,
+            // Intentionally no `badge`. A hardcoded `1` lies when multiple
+            // notifications stack while backgrounded (displays "1" until the
+            // iOS listener attaches and resyncs via setBadgeCount, producing
+            // a visible "1 → real-count" flash). The in-app
+            // ActivityNotificationService is the sole badge authority.
             ...(category ? { category } : {}),
           },
         },

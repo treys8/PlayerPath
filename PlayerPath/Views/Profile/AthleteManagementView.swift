@@ -45,6 +45,15 @@ func performDeleteAthlete(_ athlete: Athlete, selectedAthlete: Binding<Athlete?>
         selectedAthlete.wrappedValue = nil
     }
 
+    // Cancel scheduled local notifications keyed by athlete UUID. Without this
+    // the Sunday 6 PM weekly summary keeps firing for a deleted athlete until
+    // the user reinstalls (WeeklySummaryScheduler.scheduleAll only adds, never
+    // sweeps stale identifiers).
+    let weeklySummaryNotifID = "weekly_summary_\(athleteID.uuidString)"
+    Task { @MainActor in
+        PushNotificationService.shared.cancelNotifications(withIdentifiers: [weeklySummaryNotifID])
+    }
+
     // Sync deletions to Firestore (fire-and-forget — local delete is already committed)
     Task {
         // Soft-delete child entities first, then parents, then the athlete

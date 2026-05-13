@@ -17,6 +17,7 @@ struct PlayResultOverlayView: View {
     let clipOrientation: VideoOrientation
     let onSave: (PlayResultType?, Double?, String?, AthleteRole) -> Void
     let onCancel: () -> Void
+    @Binding var isSaving: Bool
 
     @State private var selectedResult: PlayResultType?
     @State private var showingConfirmation = false
@@ -27,7 +28,6 @@ struct PlayResultOverlayView: View {
     @State private var metadataTask: Task<Void, Never>?
     @State private var thumbnailTask: Task<Void, Never>?
     @State private var showContent = false
-    @State private var isSaving = false
     @State private var pitchSpeedText = ""
     @State private var pitchType: String = "fastball"
     @FocusState private var pitchSpeedFocused: Bool
@@ -40,6 +40,7 @@ struct PlayResultOverlayView: View {
         game: Game?,
         practice: Practice?,
         clipOrientation: VideoOrientation,
+        isSaving: Binding<Bool>,
         onSave: @escaping (PlayResultType?, Double?, String?, AthleteRole) -> Void,
         onCancel: @escaping () -> Void
     ) {
@@ -48,6 +49,7 @@ struct PlayResultOverlayView: View {
         self.game = game
         self.practice = practice
         self.clipOrientation = clipOrientation
+        self._isSaving = isSaving
         self.onSave = onSave
         self.onCancel = onCancel
         self._recordingMode = State(initialValue: athlete?.primaryRole ?? .batter)
@@ -231,14 +233,8 @@ struct PlayResultOverlayView: View {
         ) {
             Button("Save", role: .none) {
                 guard let result = selectedResult else { return }
-                isSaving = true
                 onSave(result, parsedPitchSpeed, parsedPitchType, recordingMode)
                 selectedResult = nil
-                // Reset after a timeout in case the parent doesn't dismiss this overlay
-                Task {
-                    try? await Task.sleep(for: .seconds(3))
-                    isSaving = false
-                }
             }
             Button("Cancel", role: .cancel) {
                 selectedResult = nil
@@ -390,7 +386,6 @@ struct PlayResultOverlayView: View {
                     icon: "checkmark",
                     style: .primary
                 ) {
-                    isSaving = true
                     onSave(nil, parsedPitchSpeed, parsedPitchType, recordingMode)
                 }
                 .disabled(isSaving)
@@ -638,6 +633,7 @@ extension PlayResultOverlayView {
         game: nil,
         practice: nil,
         clipOrientation: .portrait,
+        isSaving: .constant(false),
         onSave: { _, _, _, _ in },
         onCancel: { }
     )

@@ -16,6 +16,10 @@ struct EnhancedVideoPlayer: View {
     var preloadedDuration: Double?
     /// Called when the user taps the close button (shown in landscape when the nav bar is hidden).
     var onClose: (() -> Void)?
+    /// When true, the controls bar stays visible during playback instead of
+    /// auto-hiding after 3s. Used by editing surfaces (e.g. ClipReviewSheet)
+    /// where the scrubber and frame-step must remain reachable.
+    var alwaysShowControls: Bool = false
     @State private var isPlaying = false
     @State private var currentTime: Double = 0
     @State private var duration: Double = 0
@@ -502,6 +506,7 @@ struct EnhancedVideoPlayer: View {
 
     private func scheduleControlsHide() {
         hideControlsTask?.cancel()
+        guard !alwaysShowControls else { return }
         hideControlsTask = Task {
             try? await Task.sleep(for: .seconds(3))
             if !Task.isCancelled && !isDragging && isPlaying {

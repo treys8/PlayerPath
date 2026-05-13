@@ -48,6 +48,12 @@ struct VideoPlayerView: View {
     @State private var coachNoteUpdatedAt: Date?
     /// Guard so the "athlete viewed this clip" write only fires once per open.
     @State private var hasMarkedViewed = false
+    /// Auto-show coach drawings: track which have already auto-popped this
+    /// view session so re-scrubbing doesn't spam the same overlay.
+    @State private var shownDrawingIDs: Set<String> = []
+    @State private var hasTriggeredInitialAutoShow = false
+    @State private var autoShowTimeObserver: Any?
+    @State private var videoAspectRatioResolved = false
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.modelContext) private var modelContext
     @Environment(\.verticalSizeClass) private var vSizeClass
@@ -254,14 +260,19 @@ struct VideoPlayerView: View {
                 )
             }
 
-            // Read-only drawing overlay — shown when user taps a drawing marker.
+            // Read-only drawing overlay — shown when user taps a drawing marker
+            // or when auto-show fires. Dismiss resumes playback so the lesson
+            // continues without an extra play tap.
             if let overlay = activeDrawingOverlay {
                 DrawingAnnotationOverlay(
                     drawingData: overlay.data,
                     videoAspectRatio: videoAspectRatio,
                     canvasSize: overlay.canvasSize,
                     shapes: overlay.shapes,
-                    onDismiss: { activeDrawingOverlay = nil }
+                    onDismiss: {
+                        activeDrawingOverlay = nil
+                        player.play()
+                    }
                 )
             }
         }
@@ -281,6 +292,73 @@ struct VideoPlayerView: View {
             canvasSize: size,
             shapes: annotation.decodedShapes
         )
+    }
+
+    /// Shows the earliest coach drawing on a saved clip the moment playback
+    /// is ready. Gated on aspect ratio resolution so portrait clips don't
+    /// briefly render at 16:9. Idempotent — guarded against double-fire.
+    /// No-op when the clip has no drawings. Drawings with undecodable data
+    /// are skipped silently — the next viable drawing is shown instead.
+    private func autoShowFirstDrawingIfReady() {
+        guard !hasTriggeredInitialAutoShow else { return }
+        guard videoAspectRatioResolved else { return }
+        let drawings = coachAnnotations
+            .filter { $0.isDrawing }
+            .sorted { $0.timestamp < $1.timestamp }
+        for drawing in drawings {
+            guard let id = drawing.id else { continue }
+            guard drawing.drawingPKData != nil else {
+                shownDrawingIDs.insert(id)
+                continue
+            }
+            hasTriggeredInitialAutoShow = true
+            shownDrawingIDs.insert(id)
+            showDrawing(for: drawing)
+            return
+        }
+    }
+
+    /// Starts a 1-second periodic observer that auto-pauses playback when
+    /// it crosses a not-yet-shown drawing's timestamp. The 0.25s lookahead
+    /// matches the tick rate so we never miss a drawing between ticks.
+    /// Drawings with undecodable data are skipped silently.
+    private func startAutoShowObserver() {
+        // Defensive teardown — the previous observer's token may be stale if
+        // setupPlayer replaced `self.player` (e.g., clip.version change or
+        // Try Again retry). Without this, the guard below would short-circuit
+        // and the new player would never get a fresh observer.
+        stopAutoShowObserver()
+        guard let player else { return }
+        let interval = CMTime(seconds: 1.0, preferredTimescale: 600)
+        autoShowTimeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { time in
+            guard player.timeControlStatus == .playing else { return }
+            guard activeDrawingOverlay == nil else { return }
+            let currentTime = time.seconds
+            let candidates = coachAnnotations
+                .filter { $0.isDrawing }
+                .filter { ann in
+                    guard let id = ann.id else { return false }
+                    return !shownDrawingIDs.contains(id) && ann.timestamp <= currentTime + 0.25
+                }
+                .sorted { $0.timestamp < $1.timestamp }
+            for drawing in candidates {
+                guard let id = drawing.id else { continue }
+                guard drawing.drawingPKData != nil else {
+                    shownDrawingIDs.insert(id)
+                    continue
+                }
+                shownDrawingIDs.insert(id)
+                showDrawing(for: drawing)
+                return
+            }
+        }
+    }
+
+    private func stopAutoShowObserver() {
+        if let observer = autoShowTimeObserver {
+            player?.removeTimeObserver(observer)
+            autoShowTimeObserver = nil
+        }
     }
 
     /// Writes the athlete's view receipt against the source coach video so
@@ -327,6 +405,10 @@ struct VideoPlayerView: View {
         coachAnnotationsListener?.remove()
         coachAnnotationsListener = FirestoreManager.shared.listenToAnnotations(forVideo: sourceID) { updated in
             coachAnnotations = updated.sorted { $0.timestamp < $1.timestamp }
+            // Idempotent retry — handles the race where annotations arrive
+            // after the .task block's autoshow already ran with an empty
+            // list. The hasTriggeredInitialAutoShow guard prevents re-fire.
+            autoShowFirstDrawingIfReady()
         }
     }
 
@@ -347,7 +429,10 @@ struct VideoPlayerView: View {
             let w = abs(rendered.width)
             let h = abs(rendered.height)
             if h > 0 {
-                await MainActor.run { videoAspectRatio = w / h }
+                await MainActor.run {
+                    videoAspectRatio = w / h
+                    videoAspectRatioResolved = true
+                }
             }
         }
     }
@@ -433,10 +518,17 @@ struct VideoPlayerView: View {
             if clip.sourceCoachVideoID != nil {
                 await loadVideoAspectRatio()
                 markCoachClipViewedIfNeeded()
+                // Auto-show the earliest coach drawing now that aspect ratio
+                // is resolved. Annotations may still be loading via the
+                // listener — the periodic observer will catch up to any that
+                // arrive after this point.
+                autoShowFirstDrawingIfReady()
+                startAutoShowObserver()
             }
         }
         .onDisappear {
             player?.pause()
+            stopAutoShowObserver()
             coachAnnotationsListener?.remove()
             coachAnnotationsListener = nil
         }
