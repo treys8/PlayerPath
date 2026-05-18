@@ -154,6 +154,11 @@ extension SyncCoordinator {
             return
         }
 
+        // Practices created from remote docs within this loop. Included in the
+        // multi-device dedup search so a fresh device downloading two duplicate
+        // Firestore docs doesn't create both locally.
+        var newPracticesThisPass: [Practice] = []
+
         for remoteData in remotePractices {
             // Find athlete by athleteId (matches local UUID or firestoreId).
             // Falls back to sole athlete for legacy data with stale local UUIDs.
@@ -167,8 +172,32 @@ extension SyncCoordinator {
             }
 
             // Find local practice by firestoreId
-            let localPractice = (athlete.practices ?? []).first {
+            var localPractice = (athlete.practices ?? []).first {
                 $0.firestoreId == remoteData.id
+            }
+
+            // Multi-device dedup: mirror downloadRemoteGames. Two devices on the same
+            // account creating a practice on the same day with the same type should
+            // converge to one local row instead of two after sync.
+            if localPractice == nil, let remoteDate = remoteData.date {
+                let calendar = Calendar.current
+                let practiceType = remoteData.practiceType ?? "general"
+                let matchesNaturalKey: (Practice) -> Bool = { practice in
+                    practice.practiceType == practiceType
+                        && (practice.date.map { calendar.isDate($0, inSameDayAs: remoteDate) } ?? false)
+                }
+                let candidates = (athlete.practices ?? []) + newPracticesThisPass.filter { $0.athlete?.id == athlete.id }
+                if let unsynced = candidates.first(where: { $0.firestoreId == nil && matchesNaturalKey($0) }) {
+                    // Link by firestoreId only — don't rewrite local UUID. Any video clip
+                    // already uploaded with this practice's local UUID as practiceId would
+                    // orphan if we changed it (see SyncCoordinator+Videos.swift:113,223).
+                    unsynced.firestoreId = remoteData.id
+                    localPractice = unsynced
+                    syncLog.info("Multi-device dedup: linked local practice (\(practiceType)) to remote \(remoteData.id ?? "nil")")
+                } else if candidates.contains(where: { $0.firestoreId != nil && $0.firestoreId != remoteData.id && matchesNaturalKey($0) }) {
+                    syncLog.info("Multi-device dedup: skipped duplicate remote practice (id: \(remoteData.id ?? "nil"))")
+                    continue
+                }
             }
 
             if let local = localPractice {
@@ -210,6 +239,7 @@ extension SyncCoordinator {
                 }
 
                 context.insert(newPractice)
+                newPracticesThisPass.append(newPractice)
             }
         }
 

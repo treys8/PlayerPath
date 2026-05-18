@@ -142,9 +142,16 @@ extension SyncCoordinator {
             }
         }
 
+        // Games created from remote docs within this loop. Included in the
+        // multi-device dedup search so a fresh device downloading two duplicate
+        // Firestore docs doesn't create both locally.
+        var newGamesThisPass: [Game] = []
+
         for remoteGame in remoteGames {
-            // Find local game by firestoreId
-            let localGame = allLocalGames.first {
+            // Find local game by firestoreId (search includes games just inserted
+            // in this loop so a second remote with the same firestoreId can't fire,
+            // which shouldn't happen but is defensive).
+            var localGame = (allLocalGames + newGamesThisPass).first {
                 $0.firestoreId == remoteGame.id
             }
 
@@ -164,6 +171,35 @@ extension SyncCoordinator {
                     return $0.id.uuidString == seasonId || $0.firestoreId == seasonId
                 }
                 return false
+            }
+
+            // Multi-device dedup: when two devices on the same account create the same
+            // game simultaneously (parents both adding "vs Tigers" at a tournament), the
+            // firestoreId-only match above misses the local twin and the other device's
+            // upload gets inserted as a brand-new game. Fall back to natural key
+            // (athlete + opponent + same day) — mirrors GameService creation-time dedup.
+            if localGame == nil,
+               let athlete = parentAthlete,
+               let remoteDate = remoteGame.date,
+               !remoteGame.opponent.trimmingCharacters(in: .whitespaces).isEmpty {
+                let calendar = Calendar.current
+                let matchesNaturalKey: (Game) -> Bool = { game in
+                    game.athlete?.id == athlete.id
+                        && game.opponent.localizedCaseInsensitiveCompare(remoteGame.opponent) == .orderedSame
+                        && (game.date.map { calendar.isDate($0, inSameDayAs: remoteDate) } ?? false)
+                }
+                let candidates = allLocalGames + newGamesThisPass
+                if let unsynced = candidates.first(where: { $0.firestoreId == nil && matchesNaturalKey($0) }) {
+                    // Link by firestoreId only — don't rewrite local UUID. Any video clip
+                    // already uploaded with this game's local UUID as gameId would orphan
+                    // if we changed it (see SyncCoordinator+Videos.swift:108).
+                    unsynced.firestoreId = remoteGame.id
+                    localGame = unsynced
+                    syncLog.info("Multi-device dedup: linked local game vs '\(remoteGame.opponent)' to remote \(remoteGame.id ?? "nil")")
+                } else if candidates.contains(where: { $0.firestoreId != nil && $0.firestoreId != remoteGame.id && matchesNaturalKey($0) }) {
+                    syncLog.info("Multi-device dedup: skipped duplicate remote game vs '\(remoteGame.opponent)' (id: \(remoteGame.id ?? "nil"))")
+                    continue
+                }
             }
 
             if let local = localGame {
@@ -213,6 +249,7 @@ extension SyncCoordinator {
                 newGame.athlete = athlete
                 newGame.season = parentSeason
                 context.insert(newGame)
+                newGamesThisPass.append(newGame)
                 applyRemoteStats(remoteGame, to: newGame, context: context)
             } else {
                 syncLog.warning("Dropped remote game '\(remoteGame.opponent)' (id: \(remoteGame.id ?? "nil")) — no matching athlete found for athleteId '\(remoteGame.athleteId)'")
