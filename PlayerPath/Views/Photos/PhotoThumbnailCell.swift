@@ -2,7 +2,7 @@
 //  PhotoThumbnailCell.swift
 //  PlayerPath
 //
-//  Card-style photo cell with thumbnail and info section.
+//  Card-style photo cell. Metadata (caption / game / date) lives in PhotoDetailView.
 //
 
 import SwiftUI
@@ -21,108 +21,65 @@ struct PhotoThumbnailCell: View {
     @Environment(\.modelContext) private var modelContext
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Thumbnail — GeometryReader gives a concrete bounded frame so that
-            // `alignment: .top` anchors the overflow to the same region we clip to.
-            // aspectRatio(.fit) prevents the cell from overflowing its grid column
-            // on larger device widths (which was silently happening with .fill).
-            GeometryReader { geo in
-                ZStack {
-                    Group {
-                        if let thumbnail {
-                            Image(uiImage: thumbnail)
-                                .resizable()
-                                .aspectRatio(contentMode: .fill)
-                                .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
-                                .clipped()
-                        } else if loadFailed {
-                            Rectangle()
-                                .fill(Color(.systemGray5))
-                                .frame(width: geo.size.width, height: geo.size.height)
-                                .overlay {
-                                    Image(systemName: photo.cloudURL != nil ? "icloud.and.arrow.down" : "photo")
-                                        .font(.title3)
-                                        .foregroundColor(.secondary)
-                                }
-                        } else {
-                            Rectangle()
-                                .fill(Color(.systemGray5))
-                                .frame(width: geo.size.width, height: geo.size.height)
-                                .overlay { ProgressView() }
-                        }
-                    }
-
-                    // Overlay badges
-                    if photo.caption?.isEmpty == false {
-                        VStack {
-                            HStack {
-                                captionIndicator
-                                Spacer()
+        GeometryReader { geo in
+            ZStack {
+                Group {
+                    if let thumbnail {
+                        Image(uiImage: thumbnail)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
+                            .clipped()
+                    } else if loadFailed {
+                        Rectangle()
+                            .fill(Color(.systemGray5))
+                            .frame(width: geo.size.width, height: geo.size.height)
+                            .overlay {
+                                Image(systemName: photo.cloudURL != nil ? "icloud.and.arrow.down" : "photo")
+                                    .font(.title3)
+                                    .foregroundColor(.secondary)
                             }
+                    } else {
+                        Rectangle()
+                            .fill(Color(.systemGray5))
+                            .frame(width: geo.size.width, height: geo.size.height)
+                            .overlay { ProgressView() }
+                    }
+                }
+
+                // Overlay badges
+                if photo.caption?.isEmpty == false {
+                    VStack {
+                        HStack {
+                            captionIndicator
                             Spacer()
                         }
+                        Spacer()
                     }
+                }
 
-                    if let icon = syncIndicatorIcon {
-                        VStack {
-                            HStack {
-                                Spacer()
-                                syncBadge(icon: icon.name, color: icon.color)
-                            }
+                if let icon = syncIndicatorIcon {
+                    VStack {
+                        HStack {
                             Spacer()
+                            syncBadge(icon: icon.name, color: icon.color)
                         }
+                        Spacer()
                     }
+                }
 
-                    if photo.game == nil && photo.practice == nil {
-                        VStack {
+                if photo.game == nil && photo.practice == nil {
+                    VStack {
+                        Spacer()
+                        HStack {
                             Spacer()
-                            HStack {
-                                Spacer()
-                                untaggedDot
-                            }
+                            untaggedDot
                         }
                     }
                 }
             }
-            .aspectRatio(3.0/4.0, contentMode: .fit)
-
-            // Info section
-            VStack(alignment: .leading, spacing: 4) {
-                if let caption = photo.caption, !caption.isEmpty {
-                    Text(caption)
-                        .font(.headingMedium)
-                        .foregroundColor(.primary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
-
-                HStack(spacing: 4) {
-                    if let game = photo.game {
-                        Text("vs \(game.opponent)")
-                            .font(.bodySmall)
-                            .foregroundColor(.brandNavy)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                    } else if photo.practice != nil {
-                        Text("Practice")
-                            .font(.bodySmall)
-                            .foregroundColor(.green)
-                    }
-
-                    Spacer()
-
-                    if let date = photo.createdAt {
-                        Text(date, style: .date)
-                            .font(.labelSmall)
-                            .foregroundColor(.secondary)
-                    }
-                }
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(.systemGray6))
         }
+        .aspectRatio(3.0/4.0, contentMode: .fit)
         .background(Color(.systemGray6))
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .shadow(color: .black.opacity(0.08), radius: 8, x: 0, y: 3)
