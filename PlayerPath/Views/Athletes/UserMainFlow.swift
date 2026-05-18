@@ -30,6 +30,11 @@ struct UserMainFlow: View {
     // Activity notification service (Firestore-backed in-app notifications)
     @ObservedObject private var activityNotifService = ActivityNotificationService.shared
 
+    // Suppress the in-app banner when the user has disabled that activity stream.
+    // Defaults true preserve the existing behavior for users who haven't opted out.
+    @AppStorage("notif_coachActivity") private var coachActivity = true
+    @AppStorage("notif_athleteActivity") private var athleteActivity = true
+
     // Quick Actions manager
     @ObservedObject private var quickActionsManager = QuickActionsManager.shared
 
@@ -156,7 +161,7 @@ struct UserMainFlow: View {
                         .transition(.move(edge: .top).combined(with: .opacity))
                         .animation(.spring(response: 0.4, dampingFraction: 0.8), value: showCreationToast)
                 }
-                if let banner = activityNotifService.incomingBanner {
+                if let banner = activityNotifService.incomingBanner, shouldShowBanner(banner) {
                     ActivityNotificationBanner(notification: banner, onDismiss: {
                         // Banner dismissal (tap, X, or auto-timeout) does NOT mark the
                         // notification as read. Read state flips only on inbox row tap
@@ -250,6 +255,18 @@ struct UserMainFlow: View {
     private func handleActivityNotificationTap(_ notification: ActivityNotification) {
         // Mark-read is handled by the banner's onDismiss closure; this only routes.
         ActivityNotificationRouter.route(notification, isCoach: authManager.userRole == .coach)
+    }
+
+    private func shouldShowBanner(_ banner: ActivityNotification) -> Bool {
+        let isCoach = authManager.userRole == .coach
+        switch banner.type {
+        case .newVideo:
+            return !isCoach || athleteActivity
+        case .coachComment:
+            return isCoach || coachActivity
+        default:
+            return true
+        }
     }
 
     // MARK: - NotificationCenter Management

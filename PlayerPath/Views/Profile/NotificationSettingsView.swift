@@ -14,6 +14,13 @@ struct NotificationSettingsView: View {
     // notif_weeklyStats is single-source (UserDefaults only; WeeklySummaryScheduler
     // reads directly from UserDefaults), so @AppStorage stays.
     @AppStorage("notif_weeklyStats") private var weeklyStats = true
+
+    // Toggles read directly by services without a ModelContext
+    // (GameAlertService, PushNotificationService, UserMainFlow banner gate).
+    @AppStorage("notif_staleGameReminders") private var staleGameReminders = true
+    @AppStorage("notif_coachActivity") private var coachActivity = true
+    @AppStorage("notif_athleteActivity") private var athleteActivity = true
+
     @Environment(\.modelContext) private var modelContext
     @Query private var allPrefs: [UserPreferences]
 
@@ -94,8 +101,46 @@ struct NotificationSettingsView: View {
                             Text("1 hour before").tag(60)
                         }
                     }
+
+                    Toggle("End-of-Game Reminder", isOn: $staleGameReminders)
+                        .onChange(of: staleGameReminders) { _, enabled in
+                            if !enabled {
+                                UNUserNotificationCenter.current().getPendingNotificationRequests { requests in
+                                    let staleIds = requests
+                                        .filter { $0.identifier.hasPrefix("stale-game-") }
+                                        .map { $0.identifier }
+                                    Task { @MainActor in
+                                        PushNotificationService.shared.cancelNotifications(withIdentifiers: staleIds)
+                                    }
+                                }
+                            }
+                        }
                 } header: {
                     Text("Game Notifications")
+                } footer: {
+                    Text("End-of-Game Reminder fires 3.5 hours after a game starts if it hasn't been ended.")
+                }
+                .disabled(authorizationStatus == .denied)
+            }
+
+            if !isCoach {
+                Section {
+                    Toggle("Coach Activity", isOn: $coachActivity)
+                } header: {
+                    Text("Coach Activity")
+                } footer: {
+                    Text("Notifications when your coach adds a comment or drill card.")
+                }
+                .disabled(authorizationStatus == .denied)
+            }
+
+            if isCoach {
+                Section {
+                    Toggle("Athlete Activity", isOn: $athleteActivity)
+                } header: {
+                    Text("Athlete Activity")
+                } footer: {
+                    Text("Notifications when an athlete uploads a new video to your folder.")
                 }
                 .disabled(authorizationStatus == .denied)
             }

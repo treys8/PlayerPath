@@ -704,6 +704,23 @@ extension PushNotificationService: UNUserNotificationCenterDelegate {
         // FCM still present normally.
         let userInfo = notification.request.content.userInfo
         let isActivityFCM = (userInfo["source"] as? String) == "activity"
+        let notifType = userInfo["type"] as? String
+
+        // User-preference suppression. Default true so existing users keep current behavior
+        // until they explicitly opt out.
+        if notifType == "coach_comment" || notifType == "drill_card" {
+            let coachActivity = UserDefaults.standard.object(forKey: "notif_coachActivity") as? Bool ?? true
+            if !coachActivity {
+                completionHandler([])
+                return
+            }
+        } else if notifType == "new_video" {
+            let athleteActivity = UserDefaults.standard.object(forKey: "notif_athleteActivity") as? Bool ?? true
+            if !athleteActivity {
+                completionHandler([])
+                return
+            }
+        }
 
         if isActive && isActivityFCM {
             completionHandler([])
