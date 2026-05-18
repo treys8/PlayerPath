@@ -2722,52 +2722,98 @@ const TIER_LIMITS: Record<string, number> = {
 };
 
 /**
- * Server-side storage quota enforcement.
- * Runs when a new file is uploaded to athlete_videos/. If the user exceeds
- * their tier limit, the file is deleted immediately to prevent abuse.
+ * Server-side storage quota enforcement + cross-device usage sync.
+ *
+ * Triggers on every upload to athlete_videos/ or athlete_photos/. Computes the
+ * authoritative per-user total (videos summed from Firestore docs, photos
+ * summed from bucket listing since FirestorePhoto has no fileSize field). If
+ * the total exceeds the user's tier limit, the just-uploaded file is deleted.
+ *
+ * In all cases the function writes the computed total back to
+ * users/{uid}.cloudStorageUsedBytes so other devices signed into the same
+ * account see the same usage on their next profile fetch — closes the
+ * multi-device quota gap (project_multi_device_todos.md #2).
  */
 export const enforceStorageQuota = functions.storage
   .object()
   .onFinalize(async (object) => {
     const filePath = object.name;
-    if (!filePath || !filePath.startsWith('athlete_videos/')) return;
+    if (!filePath) return;
 
-    const fileSize = parseInt(object.size, 10) || 0;
-    // Extract ownerUID from path: athlete_videos/{ownerUID}/{fileName}
+    const isVideo = filePath.startsWith('athlete_videos/');
+    const isPhoto = filePath.startsWith('athlete_photos/');
+    if (!isVideo && !isPhoto) return;
+
+    const newFileSize = parseInt(object.size, 10) || 0;
+    // Extract ownerUID from path: athlete_{videos|photos}/{ownerUID}/{fileName}
     const parts = filePath.split('/');
     if (parts.length < 3) return;
     const ownerUID = parts[1];
 
     const db = admin.firestore();
+    const bucket = admin.storage().bucket();
 
     // Look up the user's tier from their Firestore profile
     const userSnap = await db.collection('users').doc(ownerUID).get();
     const tier = userSnap.exists ? (userSnap.data()?.subscriptionTier || 'free') : 'free';
     const limitBytes = TIER_LIMITS[tier] || TIER_LIMITS['free'];
 
-    // Sum all non-deleted video sizes for this user from Firestore
-    // Video docs use "uploadedBy" as the owner UID field
+    // Sum non-deleted video sizes from Firestore (videos collection uses
+    // "uploadedBy" as the owner field; "fileSize" is written by the client).
     const videosSnap = await db.collection('videos')
       .where('uploadedBy', '==', ownerUID)
       .where('isDeleted', '!=', true)
       .get();
-
-    let totalBytes = 0;
+    let videosTotal = 0;
     videosSnap.forEach(doc => {
-      totalBytes += (doc.data().fileSize || 0);
+      videosTotal += (doc.data().fileSize || 0);
     });
 
-    // Include the file being uploaded (it may not have a Firestore doc yet)
-    totalBytes += fileSize;
+    // Sum photo sizes by listing the bucket prefix. FirestorePhoto has no
+    // fileSize field, so the bucket is the source of truth. Bounded by the
+    // user's photo count.
+    let photosTotal = 0;
+    try {
+      const [photoFiles] = await bucket.getFiles({ prefix: `athlete_photos/${ownerUID}/` });
+      for (const f of photoFiles) {
+        photosTotal += Number(f.metadata.size) || 0;
+      }
+    } catch (err) {
+      console.warn(`⚠️ Photo prefix listing failed for ${ownerUID}; quota may undercount photos:`, err);
+    }
+
+    // For videos: the metadata-first upload writes the Firestore doc before
+    // the file completes, so the new file's fileSize is already in videosTotal
+    // most of the time. Add object.size on top to stay conservative (matches
+    // pre-existing behavior — errs toward enforcing the cap).
+    //
+    // For photos: bucket listing happens AFTER onFinalize, so the new file is
+    // already counted in photosTotal. Don't add it again.
+    let totalBytes = videosTotal + photosTotal + (isVideo ? newFileSize : 0);
 
     if (totalBytes > limitBytes) {
-      console.warn(`⚠️ Storage quota exceeded: ${totalBytes} bytes > ${limitBytes} bytes (tier: ${tier}). Deleting uploaded file.`);
+      console.warn(`⚠️ Storage quota exceeded: ${totalBytes} bytes > ${limitBytes} bytes (tier: ${tier}). Deleting ${filePath}.`);
       try {
-        await admin.storage().bucket().file(filePath).delete();
+        await bucket.file(filePath).delete();
         console.log(`🗑️ Deleted over-quota file: ${filePath}`);
+        // Subtract the now-deleted file from the running total for the
+        // write-back so devices don't see an inflated number.
+        totalBytes = Math.max(0, totalBytes - newFileSize);
       } catch (err) {
         console.error(`❌ Failed to delete over-quota file ${filePath}:`, err);
       }
+    }
+
+    // Write authoritative total back to users/{uid} so other devices converge
+    // on the same value on their next profile fetch. Best-effort — never throw
+    // past the trigger boundary.
+    try {
+      await db.collection('users').doc(ownerUID).set(
+        { cloudStorageUsedBytes: totalBytes },
+        { merge: true }
+      );
+    } catch (err) {
+      console.error(`❌ Failed to write cloudStorageUsedBytes for ${ownerUID}:`, err);
     }
   });
 

@@ -329,6 +329,10 @@ struct UserProfile: Codable, Identifiable {
     let coachSubscriptionTier: String?
     let createdAt: Date?
     let updatedAt: Date?
+    /// Authoritative cloud storage usage, written by the enforceStorageQuota
+    /// Cloud Function. Used to reconcile local SwiftData User.cloudStorageUsedBytes
+    /// across devices signed into the same account.
+    let cloudStorageUsedBytes: Int64?
 
     // Role-specific profiles would be nested objects in Firestore
 

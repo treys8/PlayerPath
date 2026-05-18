@@ -39,7 +39,9 @@ extension FirestoreManager {
                 subscriptionTier: data["subscriptionTier"] as? String,
                 coachSubscriptionTier: data["coachSubscriptionTier"] as? String,
                 createdAt: (data["createdAt"] as? Timestamp)?.dateValue(),
-                updatedAt: (data["updatedAt"] as? Timestamp)?.dateValue()
+                updatedAt: (data["updatedAt"] as? Timestamp)?.dateValue(),
+                cloudStorageUsedBytes: (data["cloudStorageUsedBytes"] as? Int64)
+                    ?? (data["cloudStorageUsedBytes"] as? NSNumber)?.int64Value
             )
             return profile
         }

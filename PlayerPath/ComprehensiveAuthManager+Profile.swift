@@ -170,6 +170,10 @@ extension ComprehensiveAuthManager {
                     authLog.debug("Comped athlete tier applied from Firestore: \(profile.tier.displayName)")
                 }
 
+                // Reconcile server-tracked cloud storage usage so a second device
+                // sees the same total as device 1 before its first upload attempt.
+                reconcileCloudStorageFromProfile(profile)
+
                 // Sync Firebase Auth email to Firestore if they differ
                 // (e.g. after a verified email change via sendEmailVerification(beforeUpdatingEmail:))
                 if email.lowercased() != profile.email.lowercased() {
@@ -272,6 +276,8 @@ extension ComprehensiveAuthManager {
                         userRole = profile.userRole
                         authLog.debug("Updated role from Firestore for existing user: \(profile.userRole.rawValue)")
                     }
+
+                    reconcileCloudStorageFromProfile(profile)
 
                     authLog.debug("Loaded user profile on attempt \(attempt): \(profile.role) for \(email, privacy: .private)")
                     return

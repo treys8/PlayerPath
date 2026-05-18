@@ -169,8 +169,34 @@ extension ComprehensiveAuthManager {
                     currentCoachTier = max(firestoreCoachTier, StoreKitManager.shared.currentCoachTier)
                 }
             }
+            reconcileCloudStorageFromProfile(profile)
         } catch {
             authLog.warning("Failed to refresh tier from Firestore: \(error.localizedDescription)")
+        }
+    }
+
+    /// Reconciles the SwiftData User.cloudStorageUsedBytes with the
+    /// authoritative server total written by the enforceStorageQuota Cloud
+    /// Function. Closes the multi-device gap where each device only tracked
+    /// its own uploads (project_multi_device_todos.md #2).
+    ///
+    /// Uses max(local, remote) rather than direct assignment. Rationale:
+    /// - Local has already been incremented after successful uploads in this
+    ///   process; a pending-but-uncomplete upload may have reserved bytes
+    ///   that aren't yet reflected in the server total. Overwriting would
+    ///   erase the reservation and let a concurrent upload pass the gate.
+    /// - Local deletes aren't reflected server-side until the next upload
+    ///   re-triggers the function, so local can lag higher than reality —
+    ///   safe (stricter gate). Server remains the source of truth on
+    ///   overage rejection; this value is just a UX hint for pre-upload checks.
+    func reconcileCloudStorageFromProfile(_ profile: UserProfile) {
+        guard let remoteBytes = profile.cloudStorageUsedBytes, remoteBytes > 0 else { return }
+        guard let localUser, remoteBytes > localUser.cloudStorageUsedBytes else { return }
+        localUser.cloudStorageUsedBytes = remoteBytes
+        do {
+            try modelContext?.save()
+        } catch {
+            authLog.error("Failed to save reconciled cloudStorageUsedBytes: \(error.localizedDescription)")
         }
     }
 }
