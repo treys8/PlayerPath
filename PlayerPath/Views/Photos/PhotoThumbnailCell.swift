@@ -2,7 +2,8 @@
 //  PhotoThumbnailCell.swift
 //  PlayerPath
 //
-//  Card-style photo cell. Metadata (caption / game / date) lives in PhotoDetailView.
+//  Photo cell. Metadata (caption / game / date) lives in PhotoDetailView.
+//  Style.card → 3:4 with chrome (rounded + shadow). Style.dense → square, no chrome.
 //
 
 import SwiftUI
@@ -10,7 +11,13 @@ import SwiftData
 import ImageIO
 
 struct PhotoThumbnailCell: View {
+    enum Style {
+        case card
+        case dense
+    }
+
     @Bindable var photo: Photo
+    var style: Style = .card
     let onDelete: () -> Void
 
     @State private var thumbnail: UIImage?
@@ -79,11 +86,11 @@ struct PhotoThumbnailCell: View {
                 }
             }
         }
-        .aspectRatio(3.0/4.0, contentMode: .fit)
-        .background(Color(.systemGray6))
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .shadow(color: .black.opacity(0.08), radius: 8, x: 0, y: 3)
-        .shadow(color: .black.opacity(0.04), radius: 2, x: 0, y: 1)
+        .aspectRatio(style == .card ? 3.0/4.0 : 1.0, contentMode: .fit)
+        .background(style == .card ? Color(.systemGray6) : Color.clear)
+        .clipShape(RoundedRectangle(cornerRadius: style == .card ? 12 : 0, style: .continuous))
+        .shadow(color: .black.opacity(style == .card ? 0.08 : 0), radius: 8, x: 0, y: 3)
+        .shadow(color: .black.opacity(style == .card ? 0.04 : 0), radius: 2, x: 0, y: 1)
         .contextMenu {
             if photo.isAvailableOffline, let url = photo.fileURL {
                 ShareLink(
@@ -177,64 +184,10 @@ struct PhotoThumbnailCell: View {
     }
 
     private func loadThumbnail() async {
-        // Try the cached 600px aspect-preserving thumbnail first (avoids decoding
-        // the full-size JPEG on every scroll). Legacy 300x300 square crops are
-        // detected by aspect ratio and skipped so the full image is used instead.
-        if let thumbPath = photo.resolvedThumbnailPath,
-           FileManager.default.fileExists(atPath: thumbPath) {
-            let thumbURL = URL(fileURLWithPath: thumbPath) as CFURL
-            if let source = CGImageSourceCreateWithURL(thumbURL, nil),
-               let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
-               let pw = props[kCGImagePropertyPixelWidth] as? Int,
-               let ph = props[kCGImagePropertyPixelHeight] as? Int,
-               abs(Double(pw) / Double(max(ph, 1)) - 1.0) > 0.05 { // not square → new-style
-                let options: [CFString: Any] = [
-                    kCGImageSourceThumbnailMaxPixelSize: 600,
-                    kCGImageSourceCreateThumbnailFromImageAlways: true,
-                    kCGImageSourceCreateThumbnailWithTransform: true
-                ]
-                if let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) {
-                    thumbnail = UIImage(cgImage: cgImage)
-                    return
-                }
-            }
+        if let image = await PhotoThumbnailLoader.load(for: photo) {
+            thumbnail = image
+        } else {
+            loadFailed = true
         }
-
-        // Fall back to generating from the full-size photo (handles legacy
-        // square thumbnails and photos without a cached thumbnail).
-        let url = URL(fileURLWithPath: photo.resolvedFilePath) as CFURL
-        if let source = CGImageSourceCreateWithURL(url, nil) {
-            let options: [CFString: Any] = [
-                kCGImageSourceThumbnailMaxPixelSize: 600,
-                kCGImageSourceCreateThumbnailFromImageAlways: true,
-                kCGImageSourceCreateThumbnailWithTransform: true
-            ]
-            if let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) {
-                thumbnail = UIImage(cgImage: cgImage)
-                return
-            }
-        }
-
-        // No local file — try downloading from cloud
-        if let cloudURL = photo.cloudURL, !cloudURL.isEmpty {
-            do {
-                try await VideoCloudManager.shared.downloadPhoto(from: cloudURL, to: photo.resolvedFilePath)
-                let downloadedURL = URL(fileURLWithPath: photo.resolvedFilePath) as CFURL
-                if let source = CGImageSourceCreateWithURL(downloadedURL, nil) {
-                    let options: [CFString: Any] = [
-                        kCGImageSourceThumbnailMaxPixelSize: 600,
-                        kCGImageSourceCreateThumbnailFromImageAlways: true,
-                        kCGImageSourceCreateThumbnailWithTransform: true
-                    ]
-                    if let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) {
-                        thumbnail = UIImage(cgImage: cgImage)
-                        return
-                    }
-                }
-            } catch {
-                // Download failed
-            }
-        }
-        loadFailed = true
     }
 }

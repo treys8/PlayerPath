@@ -9,6 +9,7 @@
 import SwiftUI
 import SwiftData
 import PhotosUI
+import TipKit
 
 struct PhotosView: View {
     let athlete: Athlete
@@ -51,21 +52,56 @@ struct PhotosView: View {
     @State private var isSelecting = false
     @State private var selectedIDs: Set<UUID> = []
     @State private var showingBulkDeleteConfirm = false
+    @AppStorage("photos.layoutMode") private var layoutModeRaw: String = LayoutMode.card.rawValue
     private let photoOptionsTip = PhotoOptionsTip()
+    private let layoutModeTip = LayoutModeTip()
+
+    private var layoutMode: LayoutMode {
+        LayoutMode(rawValue: layoutModeRaw) ?? .card
+    }
 
     private var hasActiveFilters: Bool {
         selectedDateRange != .allTime || selectedSeasonFilter != nil
     }
 
+    private var shouldShowHero: Bool {
+        activeFilter == .all
+            && selectedDateRange == .allTime
+            && selectedSeasonFilter == nil
+            && searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !isSelecting
+            && layoutMode == .card
+            && cachedPhotos.count >= 4
+    }
+
+    private var gridPhotos: [Photo] {
+        shouldShowHero ? Array(cachedPhotos.dropFirst()) : cachedPhotos
+    }
+
+    private var gridSpacing: CGFloat {
+        layoutMode == .dense ? 1 : 10
+    }
+
     private var columns: [GridItem] {
-        let count = horizontalSizeClass == .regular ? 3 : 2
-        return Array(repeating: GridItem(.flexible(), spacing: 10), count: count)
+        let count: Int
+        switch layoutMode {
+        case .card:
+            count = horizontalSizeClass == .regular ? 3 : 2
+        case .dense:
+            count = horizontalSizeClass == .regular ? 5 : 3
+        }
+        return Array(repeating: GridItem(.flexible(), spacing: gridSpacing), count: count)
     }
 
     enum PhotoFilter: String, CaseIterable {
         case all = "All"
         case games = "Games"
         case practice = "Practice"
+    }
+
+    enum LayoutMode: String, CaseIterable {
+        case card
+        case dense
     }
 
     var body: some View {
@@ -127,6 +163,15 @@ struct PhotosView: View {
                     } label: {
                         Image(systemName: hasActiveFilters ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
                     }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        toggleLayoutMode()
+                    } label: {
+                        Image(systemName: layoutMode == .card ? "square.grid.3x3.fill" : "square.grid.2x2")
+                    }
+                    .accessibilityLabel(layoutMode == .card ? "Switch to dense grid" : "Switch to card grid")
+                    .popoverTip(layoutModeTip, arrowEdge: .top)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
@@ -262,42 +307,67 @@ struct PhotosView: View {
 
     private var photosGrid: some View {
         ScrollView {
-            LazyVGrid(columns: columns, spacing: 10) {
-                ForEach(cachedPhotos) { photo in
-                    Group {
-                        if isSelecting {
-                            Button {
-                                toggleSelection(photo.id)
-                            } label: {
-                                PhotoThumbnailCell(photo: photo) {
-                                    deletePhoto(photo)
+            VStack(spacing: 16) {
+                if shouldShowHero, let hero = cachedPhotos.first {
+                    NavigationLink {
+                        PhotoDetailView(photo: hero) {
+                            deletePhoto(hero)
+                        }
+                    } label: {
+                        PhotoHeroCell(photo: hero) {
+                            deletePhoto(hero)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, 10)
+                    .onboardingTip(photoOptionsTip, arrowEdge: .top)
+                }
+
+                LazyVGrid(columns: columns, spacing: gridSpacing) {
+                    ForEach(gridPhotos) { photo in
+                        Group {
+                            if isSelecting {
+                                Button {
+                                    toggleSelection(photo.id)
+                                } label: {
+                                    PhotoThumbnailCell(photo: photo, style: cellStyle) {
+                                        deletePhoto(photo)
+                                    }
+                                    .overlay(alignment: .topTrailing) {
+                                        selectionIndicator(isSelected: selectedIDs.contains(photo.id))
+                                            .padding(8)
+                                    }
+                                    .opacity(selectedIDs.contains(photo.id) ? 0.75 : 1.0)
                                 }
-                                .overlay(alignment: .topTrailing) {
-                                    selectionIndicator(isSelected: selectedIDs.contains(photo.id))
-                                        .padding(8)
+                                .buttonStyle(.plain)
+                            } else {
+                                NavigationLink {
+                                    PhotoDetailView(photo: photo) {
+                                        deletePhoto(photo)
+                                    }
+                                } label: {
+                                    PhotoThumbnailCell(photo: photo, style: cellStyle) {
+                                        deletePhoto(photo)
+                                    }
                                 }
-                                .opacity(selectedIDs.contains(photo.id) ? 0.75 : 1.0)
+                                .buttonStyle(.plain)
+                                .onboardingTip(photoOptionsTip, arrowEdge: .top, also: !shouldShowHero && photo.id == cachedPhotos.first?.id)
                             }
-                            .buttonStyle(.plain)
-                        } else {
-                            NavigationLink {
-                                PhotoDetailView(photo: photo) {
-                                    deletePhoto(photo)
-                                }
-                            } label: {
-                                PhotoThumbnailCell(photo: photo) {
-                                    deletePhoto(photo)
-                                }
-                            }
-                            .buttonStyle(.plain)
-                            .onboardingTip(photoOptionsTip, arrowEdge: .top, also: photo.id == cachedPhotos.first?.id)
                         }
                     }
                 }
+                .padding(.horizontal, layoutMode == .dense ? 0 : 10)
             }
-            .padding(.horizontal, 10)
         }
         .refreshable { await refreshPhotos() }
+    }
+
+    private var cellStyle: PhotoThumbnailCell.Style {
+        layoutMode == .dense ? .dense : .card
+    }
+
+    private func toggleLayoutMode() {
+        layoutModeRaw = (layoutMode == .card ? LayoutMode.dense : LayoutMode.card).rawValue
     }
 
     // MARK: - Empty State
