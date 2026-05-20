@@ -18,9 +18,14 @@ struct PitchingStatsSection: View {
     @State private var showingFastballSpeeds = false
     @State private var showingOffspeedSpeeds = false
 
-    private var columns: [GridItem] {
+    private var topCardColumns: [GridItem] {
         let count = horizontalSizeClass == .regular ? 3 : 2
         return Array(repeating: GridItem(.flexible()), count: count)
+    }
+
+    private var chipColumns: [GridItem] {
+        let count = horizontalSizeClass == .regular ? 4 : 2
+        return Array(repeating: GridItem(.flexible(), spacing: 12), count: count)
     }
 
     private var avgFBSubtitle: String {
@@ -41,7 +46,7 @@ struct PitchingStatsSection: View {
                 .opacity(isVisible ? 1 : 0)
                 .offset(y: isVisible ? 0 : 10)
 
-            LazyVGrid(columns: columns, spacing: 15) {
+            LazyVGrid(columns: topCardColumns, spacing: 15) {
                 StatCard(
                     title: "Total Pitches",
                     value: "\(statistics.totalPitches)",
@@ -84,19 +89,48 @@ struct PitchingStatsSection: View {
                 .disabled(athlete == nil)
             }
 
-            VStack(spacing: 0) {
-                DetailedStatRow(label: "Strikes", value: "\(statistics.strikes)")
-                DetailedStatRow(label: "Balls", value: "\(statistics.balls)")
-                DetailedStatRow(label: "Strikeouts", value: "\(statistics.pitchingStrikeouts)")
-                DetailedStatRow(label: "Walks", value: "\(statistics.pitchingWalks)")
-                DetailedStatRow(label: "Hit By Pitch", value: "\(statistics.hitByPitches)")
-                DetailedStatRow(label: "Wild Pitches", value: "\(statistics.wildPitches)", isLast: true)
-            }
-            .background(
-                RoundedRectangle(cornerRadius: .cornerXLarge, style: .continuous)
-                    .fill(Color(uiColor: .secondarySystemGroupedBackground))
+            PitchMixChartView(
+                fastballCount: statistics.fastballPitchCount,
+                offspeedCount: statistics.offspeedPitchCount
             )
-            .shadow(color: .black.opacity(0.04), radius: 8, x: 0, y: 2)
+
+            LazyVGrid(columns: chipColumns, spacing: 12) {
+                CompactStatChip(data: CompactStatData(
+                    label: "Strikes",
+                    value: "\(statistics.strikes)",
+                    color: .green
+                ))
+                CompactStatChip(data: CompactStatData(
+                    label: "Balls",
+                    value: "\(statistics.balls)",
+                    color: .orange
+                ))
+                CompactStatChip(data: CompactStatData(
+                    label: "Strikeouts",
+                    value: "\(statistics.pitchingStrikeouts)",
+                    color: .red
+                ))
+                CompactStatChip(data: CompactStatData(
+                    label: "Walks",
+                    value: "\(statistics.pitchingWalks)",
+                    color: .cyan
+                ))
+                CompactStatChip(data: CompactStatData(
+                    label: "Hit By Pitch",
+                    value: "\(statistics.hitByPitches)",
+                    color: .pink
+                ))
+                CompactStatChip(data: CompactStatData(
+                    label: "Wild Pitches",
+                    value: "\(statistics.wildPitches)",
+                    color: .yellow
+                ))
+                CompactStatChip(data: CompactStatData(
+                    label: "Strike %",
+                    value: StatisticsService.shared.formatPercentage(statistics.strikePercentage),
+                    color: .purple
+                ))
+            }
             .opacity(isVisible ? 1 : 0)
             .offset(y: isVisible ? 0 : 20)
         }

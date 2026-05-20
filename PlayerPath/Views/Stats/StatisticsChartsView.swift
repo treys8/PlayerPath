@@ -319,33 +319,20 @@ struct StatisticsChartsView: View {
         .shadow(color: Color.black.opacity(0.05), radius: 5, x: 0, y: 2)
     }
 
-    /// Hit counts filtered to match the currently selected timeframe/season.
+    /// Hit counts for the selected season (or career when no season is selected).
+    /// Pulls from the same statistics objects the Stats page renders, so practice-
+    /// clip play results are included — aggregating from game.gameStats alone
+    /// would silently drop them and show "No hit data" when the Stats page shows
+    /// hits.
     private var filteredHits: (singles: Int, doubles: Int, triples: Int, homeRuns: Int) {
-        var games = athlete.games ?? []
-
-        // In game view, honour the season filter if one is selected
+        let source: AthleteStatistics?
         if selectedTimeframe == .game, let season = selectedSeason {
-            games = games.filter { $0.season?.id == season.id }
+            source = season.seasonStatistics
+        } else {
+            source = athlete.statistics
         }
-
-        let completed = games.filter { $0.countsTowardStats && $0.gameStats != nil }
-
-        guard !completed.isEmpty else {
-            // Fall back to career totals when no game data matches
-            return (
-                athlete.statistics?.singles ?? 0,
-                athlete.statistics?.doubles ?? 0,
-                athlete.statistics?.triples ?? 0,
-                athlete.statistics?.homeRuns ?? 0
-            )
-        }
-
-        return (
-            completed.compactMap { $0.gameStats?.singles }.reduce(0, +),
-            completed.compactMap { $0.gameStats?.doubles }.reduce(0, +),
-            completed.compactMap { $0.gameStats?.triples }.reduce(0, +),
-            completed.compactMap { $0.gameStats?.homeRuns }.reduce(0, +)
-        )
+        guard let stats = source else { return (0, 0, 0, 0) }
+        return (stats.singles, stats.doubles, stats.triples, stats.homeRuns)
     }
 
     private var hitDistributionChart: some View {
@@ -521,6 +508,24 @@ struct StatisticsChartsView: View {
     private var relevantStatistics: StatsSummary? {
         guard !chartData.isEmpty else { return nil }
 
+        // Game-level rate stats: chartData holds running cumulative averages, so
+        // max/min/mean over those points is misleading. Worse, chartData is
+        // derived from game.gameStats only, while athlete.statistics also
+        // aggregates practice-clip play results — so the Stats page can show a
+        // higher BA than chartData.last reflects. Pull Average from the same
+        // source as the Stats page (via `currentValue`) and derive High/Low
+        // from per-game rates.
+        if isGameLevelData && selectedMetric.isRateStat {
+            let perGame = perGameRateValues
+            let trueAverage = currentValue ?? chartData.last?.value ?? 0
+            return StatsSummary(
+                max: perGame.max() ?? trueAverage,
+                min: perGame.min() ?? trueAverage,
+                average: trueAverage,
+                gamesCount: chartData.count
+            )
+        }
+
         let values = chartData.map { $0.value }
         return StatsSummary(
             max: values.max() ?? 0,
@@ -528,6 +533,23 @@ struct StatisticsChartsView: View {
             average: values.reduce(0, +) / Double(values.count),
             gamesCount: chartData.count
         )
+    }
+
+    /// Per-game rate values for the selected rate metric, matching whatever
+    /// games `chartData` was built from. Games without enough denominator
+    /// (e.g. 0 AB for BA) are skipped via `chartValue`'s nil-on-no-denominator
+    /// semantics so they don't drag Low down to zero.
+    private var perGameRateValues: [Double] {
+        let games: [Game]
+        if selectedTimeframe == .game, let season = selectedSeason {
+            games = (athlete.games ?? []).filter { $0.season?.id == season.id }
+        } else {
+            games = athlete.games ?? []
+        }
+        return games
+            .filter { $0.countsTowardStats }
+            .compactMap { $0.gameStats }
+            .compactMap { chartValue(from: $0, for: selectedMetric) }
     }
 
     private func getValue(from stats: some PlayResultAccumulator, for metric: StatMetric) -> Double {

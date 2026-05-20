@@ -37,11 +37,11 @@ struct NotificationBellToolbarButton: View {
                         .padding(.horizontal, 5)
                         .padding(.vertical, 1)
                         .background(Color.red, in: Capsule())
-                        .offset(x: 8, y: -6)
+                        .offset(x: 0, y: -6)
                         .transition(.scale.combined(with: .opacity))
                 }
             }
-            .frame(width: 40, height: 32)
+            .frame(width: 48, height: 32)
             .animation(.spring(response: 0.35, dampingFraction: 0.7), value: service.unreadCount)
         }
         .simultaneousGesture(TapGesture().onEnded { Haptics.light() })

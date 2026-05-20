@@ -704,6 +704,22 @@ service cloud.firestore {
     }
 
     // ========================================================================
+    // PENDING DELETIONS (server-side cleanup queue)
+    // ========================================================================
+    // Clients enqueue an entry here when a Storage delete fails locally so a
+    // server-side job can finish the cleanup. Read/delete is needed for the
+    // GDPR account-deletion path which clears the user's own entries.
+    match /pendingDeletions/{deletionID} {
+      allow create: if isAuthenticated()
+                    && request.resource.data.ownerUID == request.auth.uid
+                    && request.resource.data.keys().hasOnly(
+                         ['ownerUID', 'fileName', 'storagePath', 'type', 'createdAt']);
+      allow read, delete: if isAuthenticated()
+                          && resource.data.ownerUID == request.auth.uid;
+      allow update: if false;
+    }
+
+    // ========================================================================
     // DENY ALL OTHER COLLECTIONS
     // ========================================================================
 

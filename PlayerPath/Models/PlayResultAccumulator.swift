@@ -214,4 +214,23 @@ extension PlayResultAccumulator {
     var averageOffspeedSpeed: Double {
         offspeedPitchCount > 0 ? offspeedSpeedTotal / Double(offspeedPitchCount) : 0.0
     }
+
+    /// Isolated Power = SLG - BA. Extra-base power independent of singles.
+    var isolatedPower: Double {
+        guard atBats > 0 else { return 0.0 }
+        return sluggingPercentage - battingAverage
+    }
+
+    /// Contact% = (AB - K) / AB. AB already excludes walks/HBP via `countsAsAtBat`,
+    /// so this matches the MLB convention of "fraction of at-bats that avoided a K."
+    var contactPercentage: Double {
+        guard atBats > 0 else { return 0.0 }
+        return Double(atBats - strikeouts) / Double(atBats)
+    }
+
+    /// Strike % = strikes / total pitches.
+    var strikePercentage: Double {
+        guard totalPitches > 0 else { return 0.0 }
+        return Double(strikes) / Double(totalPitches)
+    }
 }

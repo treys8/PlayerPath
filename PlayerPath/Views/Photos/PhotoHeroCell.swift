@@ -3,18 +3,27 @@
 //  PlayerPath
 //
 //  Magazine-style "Most Recent" hero rendered above the grid in PhotosView when
-//  no filters are active. Fixed height per device, gradient scrim with caption,
-//  context menu parity with PhotoThumbnailCell.
+//  no filters are active. Sizes to the photo's aspect ratio (capped), gradient
+//  scrim with caption, context menu parity with PhotoThumbnailCell.
 //
 
 import SwiftUI
 import SwiftData
+
+private struct HeroWidthPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
 
 struct PhotoHeroCell: View {
     @Bindable var photo: Photo
     let onDelete: () -> Void
 
     @State private var thumbnail: UIImage?
+    @State private var imageAspectRatio: CGFloat?
+    @State private var containerWidth: CGFloat = 0
     @State private var loadFailed = false
     @State private var showingTagSheet = false
     @State private var showingCaptionSheet = false
@@ -22,8 +31,19 @@ struct PhotoHeroCell: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
-    private var heroHeight: CGFloat {
+    private var maxHeroHeight: CGFloat {
+        horizontalSizeClass == .regular ? 560 : 460
+    }
+
+    private var fallbackHeroHeight: CGFloat {
         horizontalSizeClass == .regular ? 380 : 240
+    }
+
+    private var heroHeight: CGFloat {
+        guard let imageAspectRatio, containerWidth > 0 else {
+            return fallbackHeroHeight
+        }
+        return min(containerWidth / imageAspectRatio, maxHeroHeight)
     }
 
     var body: some View {
@@ -45,6 +65,14 @@ struct PhotoHeroCell: View {
         }
         .frame(height: heroHeight)
         .frame(maxWidth: .infinity)
+        .animation(.easeOut(duration: 0.2), value: heroHeight)
+        .background(
+            GeometryReader { proxy in
+                Color.clear
+                    .preference(key: HeroWidthPreferenceKey.self, value: proxy.size.width)
+            }
+        )
+        .onPreferenceChange(HeroWidthPreferenceKey.self) { containerWidth = $0 }
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .shadow(color: .black.opacity(0.12), radius: 10, x: 0, y: 4)
         .contextMenu {
@@ -87,6 +115,9 @@ struct PhotoHeroCell: View {
         .task {
             if let image = await PhotoThumbnailLoader.load(for: photo, maxPixelSize: 1200) {
                 thumbnail = image
+                if image.size.height > 0 {
+                    imageAspectRatio = image.size.width / image.size.height
+                }
             } else {
                 loadFailed = true
             }

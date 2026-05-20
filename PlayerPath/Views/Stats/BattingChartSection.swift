@@ -30,29 +30,33 @@ struct BattingChartSection: View {
                 .offset(y: isVisible ? 0 : 10)
 
             if !chartData.isEmpty {
-                Chart(chartData, id: \.type) { data in
-                    BarMark(
-                        x: .value("Count", data.count),
-                        y: .value("Type", data.type)
-                    )
-                    .foregroundStyle(
-                        LinearGradient(
-                            colors: [data.color, data.color.opacity(0.7)],
-                            startPoint: .leading,
-                            endPoint: .trailing
+                VStack(spacing: 12) {
+                    Chart(chartData, id: \.type) { data in
+                        BarMark(
+                            x: .value("Count", data.count),
+                            y: .value("Type", data.type)
                         )
-                    )
-                    .cornerRadius(4)
-                    .annotation(position: .trailing) {
-                        Text("\(data.count)")
-                            .font(.custom("Inter18pt-SemiBold", size: 11, relativeTo: .caption2))
-                            .foregroundColor(.secondary)
+                        .foregroundStyle(
+                            LinearGradient(
+                                colors: [data.color, data.color.opacity(0.7)],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                        .cornerRadius(4)
+                        .annotation(position: .trailing) {
+                            Text("\(data.count)")
+                                .font(.custom("Inter18pt-SemiBold", size: 11, relativeTo: .caption2))
+                                .foregroundColor(.secondary)
+                        }
+                        .accessibilityLabel("\(data.type): \(data.count)")
                     }
-                    .accessibilityLabel("\(data.type): \(data.count)")
+                    .chartXScale(domain: 0...max(1, chartData.map(\.count).max() ?? 1))
+                    .chartXAxis(.hidden)
+                    .frame(height: horizontalSizeClass == .regular ? 220 : 140)
+
+                    ChartLegend(items: chartData.map { LegendItem(label: $0.type, color: $0.color) })
                 }
-                .chartXScale(domain: 0...max(1, chartData.map(\.count).max() ?? 1))
-                .chartXAxis(.hidden)
-                .frame(height: horizontalSizeClass == .regular ? 220 : 140)
                 .padding(.vertical, horizontalSizeClass == .regular ? 16 : 12)
                 .padding(.horizontal, horizontalSizeClass == .regular ? 24 : 16)
                 .background(

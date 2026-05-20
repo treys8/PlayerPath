@@ -10,7 +10,13 @@ import SwiftUI
 struct DetailedStatsSection: View {
     let statistics: AthleteStatistics
 
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var isVisible = false
+
+    private var columns: [GridItem] {
+        let count = horizontalSizeClass == .regular ? 3 : 2
+        return Array(repeating: GridItem(.flexible(), spacing: 12), count: count)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 15) {
@@ -18,63 +24,44 @@ struct DetailedStatsSection: View {
                 .opacity(isVisible ? 1 : 0)
                 .offset(y: isVisible ? 0 : 10)
 
-            VStack(spacing: 0) {
-                DetailedStatRow(label: "At Bats", value: "\(statistics.atBats)")
-                DetailedStatRow(label: "Hits", value: "\(statistics.hits)")
-                DetailedStatRow(label: "Ground Outs", value: "\(statistics.groundOuts)")
-                DetailedStatRow(label: "Fly Outs", value: "\(statistics.flyOuts)", isLast: true)
+            LazyVGrid(columns: columns, spacing: 12) {
+                CompactStatChip(data: CompactStatData(
+                    label: "At Bats",
+                    value: "\(statistics.atBats)",
+                    color: .blue
+                ))
+                CompactStatChip(data: CompactStatData(
+                    label: "Hits",
+                    value: "\(statistics.hits)",
+                    color: .green
+                ))
+                CompactStatChip(data: CompactStatData(
+                    label: "Ground Outs",
+                    value: "\(statistics.groundOuts)",
+                    color: .brown
+                ))
+                CompactStatChip(data: CompactStatData(
+                    label: "Fly Outs",
+                    value: "\(statistics.flyOuts)",
+                    color: .cyan
+                ))
+                CompactStatChip(data: CompactStatData(
+                    label: "ISO",
+                    value: StatisticsService.shared.formatPercentage(statistics.isolatedPower),
+                    color: .gold
+                ))
+                CompactStatChip(data: CompactStatData(
+                    label: "Contact %",
+                    value: StatisticsService.shared.formatPercentage(statistics.contactPercentage),
+                    color: .mint
+                ))
             }
-            .background(
-                RoundedRectangle(cornerRadius: .cornerXLarge, style: .continuous)
-                    .fill(Color(uiColor: .secondarySystemGroupedBackground))
-            )
-            .shadow(color: .black.opacity(0.04), radius: 8, x: 0, y: 2)
             .opacity(isVisible ? 1 : 0)
             .offset(y: isVisible ? 0 : 20)
         }
         .onAppear {
             withAnimation(.easeOut(duration: 0.4).delay(0.2)) {
                 isVisible = true
-            }
-        }
-    }
-}
-
-private struct LabelValueRow: View {
-    let label: String
-    let value: String
-    var body: some View {
-        HStack {
-            Text(label)
-                .font(.bodyMedium)
-            Spacer()
-            Text(value)
-                .font(.ppStatSmall)
-                .monospacedDigit()
-                .foregroundColor(.blue)
-        }
-        .padding(.horizontal)
-        .padding(.vertical, 12)
-    }
-}
-
-struct DetailedStatRow: View {
-    let label: String
-    let value: String
-    let isLast: Bool
-
-    init(label: String, value: String, isLast: Bool = false) {
-        self.label = label
-        self.value = value
-        self.isLast = isLast
-    }
-
-    var body: some View {
-        VStack(spacing: 0) {
-            LabelValueRow(label: label, value: value)
-            if !isLast {
-                Divider()
-                    .padding(.horizontal)
             }
         }
     }
