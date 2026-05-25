@@ -25,6 +25,7 @@ struct DirectCameraRecorderView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @Environment(\.verticalSizeClass) private var vSizeClass
+    @Environment(\.activeSport) private var activeSport
     private var isLandscape: Bool { vSizeClass == .compact }
 
     let athlete: Athlete?
@@ -33,6 +34,12 @@ struct DirectCameraRecorderView: View {
     let coachContext: CoachSessionContext?
 
     private var isCoachMode: Bool { coachContext != nil }
+
+    /// Sport context for this recording: prefer the explicit game/practice season,
+    /// fall back to the athlete's active sport for free recordings.
+    private var clipSport: Season.SportType {
+        game?.season?.sport ?? practice?.season?.sport ?? activeSport
+    }
 
     /// Phases of the Quick Record flow, rendered inline within a single fullScreenCover
     private enum RecordingPhase: Equatable {
@@ -345,15 +352,17 @@ struct DirectCameraRecorderView: View {
                     athlete: athlete,
                     game: game,
                     practice: practice,
+                    sport: clipSport,
                     clipOrientation: clipOrientation,
                     isSaving: $isSavingTaggedClip,
-                    onSave: { result, pitchSpeed, pitchType, role in
+                    onSave: { result, pitchSpeed, pitchType, role, club in
                         isSavingTaggedClip = true
                         saveVideoWithResult(
                             videoURL: finalVideoURL,
                             playResult: result,
                             pitchSpeed: pitchSpeed,
                             pitchType: pitchType,
+                            club: club,
                             role: role,
                             onError: { isSavingTaggedClip = false }
                         ) { dismiss() }
@@ -410,7 +419,7 @@ struct DirectCameraRecorderView: View {
         }
     }
 
-    private func saveVideoWithResult(videoURL: URL, playResult: PlayResultType?, pitchSpeed: Double? = nil, pitchType: String? = nil, role: AthleteRole = .batter, note: String? = nil, onError: (() -> Void)? = nil, onComplete: @escaping () -> Void) {
+    private func saveVideoWithResult(videoURL: URL, playResult: PlayResultType?, pitchSpeed: Double? = nil, pitchType: String? = nil, club: Club? = nil, role: AthleteRole = .batter, note: String? = nil, onError: (() -> Void)? = nil, onComplete: @escaping () -> Void) {
         guard let athlete = athlete else {
             Haptics.error()
             showingSaveError = true
@@ -430,6 +439,7 @@ struct DirectCameraRecorderView: View {
                     playResult: playResult,
                     pitchSpeed: pitchSpeed,
                     pitchType: pitchType,
+                    club: club,
                     role: role,
                     note: note,
                     context: modelContext,

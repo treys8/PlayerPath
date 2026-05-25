@@ -239,6 +239,7 @@ final class ClipPersistenceService {
         playResult: PlayResultType?,
         pitchSpeed: Double? = nil,
         pitchType: String? = nil,
+        club: Club? = nil,
         role: AthleteRole = .batter,
         note: String? = nil,
         context: ModelContext,
@@ -329,6 +330,7 @@ final class ClipPersistenceService {
         videoClip.duration = durationSeconds
         videoClip.pitchSpeed = pitchSpeed
         videoClip.pitchType = pitchType
+        videoClip.club = club
         videoClip.note = note
 
         // Create and link PlayResult model if provided

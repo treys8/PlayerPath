@@ -29,6 +29,7 @@ extension VideoCloudManager {
         let clipNote = videoClip.note
         let clipPitchSpeed = videoClip.pitchSpeed
         let clipPitchType = videoClip.pitchType
+        let clipClub = videoClip.club?.rawValue
         let playResultType = videoClip.playResult?.type
         let gameId = videoClip.game.map { $0.firestoreId ?? $0.id.uuidString }
         let gameOpponent = videoClip.gameOpponent ?? videoClip.game?.opponent
@@ -104,6 +105,9 @@ extension VideoCloudManager {
         if let pitchType = clipPitchType {
             data["pitchType"] = pitchType
         }
+        if let club = clipClub {
+            data["club"] = club
+        }
         if let sourceCoachVideoID {
             data["sourceCoachVideoID"] = sourceCoachVideoID
         }
@@ -146,6 +150,7 @@ extension VideoCloudManager {
         let clipNote = videoClip.note
         let clipPitchSpeed = videoClip.pitchSpeed
         let clipPitchType = videoClip.pitchType
+        let clipClub = videoClip.club?.rawValue
         let playResultType = videoClip.playResult?.type
         let gameId = videoClip.game.map { $0.firestoreId ?? $0.id.uuidString }
         let gameOpponent = videoClip.gameOpponent ?? videoClip.game?.opponent
@@ -219,6 +224,9 @@ extension VideoCloudManager {
         if let pitchType = clipPitchType {
             data["pitchType"] = pitchType
         }
+        if let club = clipClub {
+            data["club"] = club
+        }
         if let sourceCoachVideoID {
             data["sourceCoachVideoID"] = sourceCoachVideoID
         }
@@ -288,7 +296,7 @@ extension VideoCloudManager {
     }
 
     /// Updates mutable video metadata fields in Firestore (isHighlight, note).
-    func updateVideoMetadata(clipId: String, isHighlight: Bool, note: String?, playResultType: PlayResultType?, pitchSpeed: Double?, pitchType: String? = nil, gameId: String?, gameOpponent: String?, gameDate: Date?, seasonId: String?, seasonName: String?, practiceId: String?, practiceDate: Date? = nil) async throws {
+    func updateVideoMetadata(clipId: String, isHighlight: Bool, note: String?, playResultType: PlayResultType?, pitchSpeed: Double?, pitchType: String? = nil, club: String? = nil, gameId: String?, gameOpponent: String?, gameDate: Date?, seasonId: String?, seasonName: String?, practiceId: String?, practiceDate: Date? = nil) async throws {
         let db = Firestore.firestore()
         var data: [String: Any] = [
             "isHighlight": isHighlight,
@@ -304,6 +312,7 @@ extension VideoCloudManager {
         }
         data["pitchSpeed"] = pitchSpeed ?? NSNull()
         data["pitchType"] = pitchType ?? NSNull()
+        data["club"] = club ?? NSNull()
         data["gameId"] = gameId ?? NSNull()
         data["gameOpponent"] = gameOpponent ?? NSNull()
         data["gameDate"] = gameDate.map { Timestamp(date: $0) } ?? NSNull()

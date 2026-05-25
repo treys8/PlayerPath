@@ -796,8 +796,8 @@ struct VideoClipInfoCard: View {
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
-            if let playResult = clip.playResult {
-                Text(playResult.type.displayName)
+            if let tag = clip.displayTagName {
+                Text(tag)
                     .font(.headingLarge)
             } else {
                 Text("Unrecorded")

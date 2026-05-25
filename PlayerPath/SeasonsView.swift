@@ -286,8 +286,8 @@ struct SeasonVideoRow: View {
                 .frame(width: 24)
             
             VStack(alignment: .leading, spacing: 2) {
-                if let playResult = video.playResult {
-                    Text(playResult.type.displayName)
+                if let tag = video.displayTagName {
+                    Text(tag)
                         .font(.labelLarge)
                 } else {
                     Text("Practice Video")

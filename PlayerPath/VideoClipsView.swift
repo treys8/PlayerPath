@@ -249,7 +249,7 @@ struct VideoClipsView: View {
     }
 
     private var untaggedCount: Int {
-        videosForActiveSport.filter { $0.playResult == nil && !$0.isDeletedRemotely }.count
+        videosForActiveSport.filter { !$0.isTagged && !$0.isDeletedRemotely }.count
     }
 
     var body: some View {

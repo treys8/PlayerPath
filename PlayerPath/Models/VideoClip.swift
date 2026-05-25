@@ -22,6 +22,10 @@ final class VideoClip {
     var duration: Double?          // Video duration in seconds
     var pitchSpeed: Double?        // Pitch speed in MPH (optional, radar gun input)
     var pitchType: String?         // "fastball" or "offspeed" (optional, pitcher mode only)
+    /// Golf club tag (SchemaV23). Set at recording time for clips in a golf season;
+    /// nil for baseball/softball clips. A clip has either `playResult` or `club`,
+    /// never both — see `isTagged`.
+    var club: Club?
     @Relationship(inverse: \PlayResult.videoClip) var playResult: PlayResult?
     var isHighlight: Bool = false
     var note: String? = nil

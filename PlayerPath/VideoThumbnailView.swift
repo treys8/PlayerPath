@@ -107,11 +107,11 @@ struct VideoThumbnailView: View {
             .background(Color.black)
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
 
-            // Top-right indicator: untagged dot when no play result.
+            // Top-right indicator: untagged dot when no play result / club.
             // Tagged outcomes are communicated by the bottom overlay bar
-            // (`0:04 · Single`), so no top-right glyph for them — avoids
-            // duplicating the play result in two places on the same thumbnail.
-            if showPlayResult, clip.playResult == nil {
+            // (`0:04 · Single` or `0:04 · 7i`), so no top-right glyph for them
+            // — avoids duplicating the tag in two places on the same thumbnail.
+            if showPlayResult, !clip.isTagged {
                 VStack {
                     HStack {
                         Spacer()
@@ -182,8 +182,8 @@ struct VideoThumbnailView: View {
 
     private var accessibilityDescription: String {
         var description = "Video clip"
-        if let playResult = clip.playResult {
-            description += ", \(playResult.type.displayName)"
+        if let tag = clip.displayTagName {
+            description += ", \(tag)"
         } else {
             description += ", unrecorded play"
         }
@@ -231,10 +231,10 @@ struct VideoThumbnailView: View {
     }
 
     private var playResultGradient: [Color] {
-        guard let playResult = clip.playResult else {
+        guard clip.isTagged else {
             return [Color.gray.opacity(0.5), Color.gray.opacity(0.7)]
         }
-        let base = playResult.type.color
+        let base = clip.displayTagColor
         return [base.opacity(0.5), base.opacity(0.7)]
     }
 

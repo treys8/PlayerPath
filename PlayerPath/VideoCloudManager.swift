@@ -484,6 +484,7 @@ struct VideoClipMetadata {
     let practiceDate: Date?
     let pitchSpeed: Double?
     let pitchType: String?
+    let club: String?
     let duration: Double?
     let athleteName: String
     let fileSize: Int64
@@ -528,6 +529,7 @@ struct VideoClipMetadata {
         self.practiceDate = (data["practiceDate"] as? Timestamp)?.dateValue()
         self.pitchSpeed = data["pitchSpeed"] as? Double
         self.pitchType = data["pitchType"] as? String
+        self.club = data["club"] as? String
         self.duration = data["duration"] as? Double
         self.athleteName = athleteName
         self.fileSize = data["fileSize"] as? Int64 ?? 0

@@ -14,12 +14,14 @@ struct PlayResultOverlayView: View {
     let athlete: Athlete?
     let game: Game?
     let practice: Practice?
+    let sport: Season.SportType
     let clipOrientation: VideoOrientation
-    let onSave: (PlayResultType?, Double?, String?, AthleteRole) -> Void
+    let onSave: (PlayResultType?, Double?, String?, AthleteRole, Club?) -> Void
     let onCancel: () -> Void
     @Binding var isSaving: Bool
 
     @State private var selectedResult: PlayResultType?
+    @State private var selectedClub: Club?
     @State private var showingConfirmation = false
     @State private var recordingMode: AthleteRole
 
@@ -33,21 +35,24 @@ struct PlayResultOverlayView: View {
     @FocusState private var pitchSpeedFocused: Bool
 
     private var isLandscape: Bool { clipOrientation.isLandscape }
+    private var isGolf: Bool { sport == .golf }
 
     init(
         videoURL: URL,
         athlete: Athlete?,
         game: Game?,
         practice: Practice?,
+        sport: Season.SportType = .baseball,
         clipOrientation: VideoOrientation,
         isSaving: Binding<Bool>,
-        onSave: @escaping (PlayResultType?, Double?, String?, AthleteRole) -> Void,
+        onSave: @escaping (PlayResultType?, Double?, String?, AthleteRole, Club?) -> Void,
         onCancel: @escaping () -> Void
     ) {
         self.videoURL = videoURL
         self.athlete = athlete
         self.game = game
         self.practice = practice
+        self.sport = sport
         self.clipOrientation = clipOrientation
         self._isSaving = isSaving
         self.onSave = onSave
@@ -227,20 +232,31 @@ struct PlayResultOverlayView: View {
             }
         }
         .confirmationDialog(
-            "Confirm Play Result",
+            isGolf ? "Confirm Club" : "Confirm Play Result",
             isPresented: $showingConfirmation,
             titleVisibility: .visible
         ) {
             Button("Save", role: .none) {
-                guard let result = selectedResult else { return }
-                onSave(result, parsedPitchSpeed, parsedPitchType, recordingMode)
-                selectedResult = nil
+                if isGolf {
+                    guard let club = selectedClub else { return }
+                    onSave(nil, nil, nil, recordingMode, club)
+                    selectedClub = nil
+                } else {
+                    guard let result = selectedResult else { return }
+                    onSave(result, parsedPitchSpeed, parsedPitchType, recordingMode, nil)
+                    selectedResult = nil
+                }
             }
             Button("Cancel", role: .cancel) {
                 selectedResult = nil
+                selectedClub = nil
             }
         } message: {
-            Text("Save this play as a \(selectedResult?.displayName ?? "play")?")
+            if isGolf {
+                Text("Save this clip as a \(selectedClub?.displayName ?? "club")?")
+            } else {
+                Text("Save this play as a \(selectedResult?.displayName ?? "play")?")
+            }
         }
     }
 
@@ -284,12 +300,12 @@ struct PlayResultOverlayView: View {
         VStack(spacing: 18) {
             // Header
             VStack(spacing: 6) {
-                Text("Select Play Result")
+                Text(isGolf ? "Select Club" : "Select Play Result")
                     .font(.headingLarge)
                     .foregroundColor(.white)
                     .multilineTextAlignment(.center)
                     .accessibilityAddTraits(.isHeader)
-                Text(practice != nil ? "Add a result to track statistics" : "Choose what happened on this play")
+                Text(headerSubtitle)
                     .font(.bodySmall)
                     .foregroundColor(.white.opacity(0.7))
                     .multilineTextAlignment(.center)
@@ -297,17 +313,19 @@ struct PlayResultOverlayView: View {
             .opacity(showContent ? 1 : 0)
             .offset(y: showContent ? 0 : 20)
 
-            // Recording Mode Picker
-            PlayResultModePicker(selection: $recordingMode)
-                .opacity(showContent ? 1 : 0)
-                .offset(y: showContent ? 0 : 20)
-                .onChange(of: recordingMode) { _, _ in
-                    selectedResult = nil
-                    pitchSpeedFocused = false
-                }
+            // Recording Mode Picker — baseball/softball only
+            if !isGolf {
+                PlayResultModePicker(selection: $recordingMode)
+                    .opacity(showContent ? 1 : 0)
+                    .offset(y: showContent ? 0 : 20)
+                    .onChange(of: recordingMode) { _, _ in
+                        selectedResult = nil
+                        pitchSpeedFocused = false
+                    }
+            }
 
-            // Pitch Speed Input (pitcher mode only)
-            if recordingMode == .pitcher {
+            // Pitch Speed Input (pitcher mode only — baseball/softball)
+            if !isGolf && recordingMode == .pitcher {
                 HStack(spacing: 12) {
                     Image(systemName: "speedometer")
                         .font(.system(size: 16, weight: .semibold))
@@ -360,9 +378,11 @@ struct PlayResultOverlayView: View {
                 .offset(y: showContent ? 0 : 20)
             }
 
-            // Play Result Grid
+            // Play Result Grid (baseball/softball) or Club Picker (golf)
             VStack(spacing: 12) {
-                if recordingMode == .batter {
+                if isGolf {
+                    golfClubsSection
+                } else if recordingMode == .batter {
                     battingResultsSection
                 } else {
                     pitchingResultsSection
@@ -386,7 +406,7 @@ struct PlayResultOverlayView: View {
                     icon: "checkmark",
                     style: .primary
                 ) {
-                    onSave(nil, parsedPitchSpeed, parsedPitchType, recordingMode)
+                    onSave(nil, parsedPitchSpeed, parsedPitchType, recordingMode, nil)
                 }
                 .disabled(isSaving)
                 .accessibilityLabel(practice != nil ? "Save Video Only" : "Skip and Save")
@@ -418,6 +438,35 @@ struct PlayResultOverlayView: View {
                 )
         )
         .shadow(color: .black.opacity(0.4), radius: 30, x: 0, y: 15)
+    }
+
+    // MARK: - Header subtitle
+
+    private var headerSubtitle: String {
+        if isGolf {
+            return "Tap a club to tag this clip"
+        }
+        return practice != nil ? "Add a result to track statistics" : "Choose what happened on this play"
+    }
+
+    // MARK: - Golf Club Section
+
+    private var golfClubsSection: some View {
+        VStack(spacing: 14) {
+            ClubPickerSection(category: .wood, selected: selectedClub) { selectClub($0) }
+            PlayResultDivider()
+            ClubPickerSection(category: .iron, selected: selectedClub) { selectClub($0) }
+            PlayResultDivider()
+            ClubPickerSection(category: .wedge, selected: selectedClub) { selectClub($0) }
+            PlayResultDivider()
+            ClubPickerSection(category: .putter, selected: selectedClub) { selectClub($0) }
+        }
+    }
+
+    private func selectClub(_ club: Club) {
+        selectedClub = club
+        Haptics.medium()
+        showingConfirmation = true
     }
 
     // MARK: - Batting Results Section
@@ -634,7 +683,7 @@ extension PlayResultOverlayView {
         practice: nil,
         clipOrientation: .portrait,
         isSaving: .constant(false),
-        onSave: { _, _, _, _ in },
+        onSave: { _, _, _, _, _ in },
         onCancel: { }
     )
 }

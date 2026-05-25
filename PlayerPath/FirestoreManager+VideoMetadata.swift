@@ -42,6 +42,7 @@ extension FirestoreManager {
         playResult: String? = nil,
         pitchSpeed: Double? = nil,
         pitchType: String? = nil,
+        club: String? = nil,
         seasonName: String? = nil,
         athleteName: String? = nil,
         isHighlight: Bool? = nil
@@ -73,6 +74,9 @@ extension FirestoreManager {
         }
         if let pitchType {
             videoData["pitchType"] = pitchType
+        }
+        if let club {
+            videoData["club"] = club
         }
         if let seasonName {
             videoData["seasonName"] = seasonName

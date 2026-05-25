@@ -53,7 +53,7 @@ final class VideoClipsViewModel {
             videos = videos.filter { video in
                 switch selectedFilter {
                 case .all:      return true
-                case .untagged: return video.playResult == nil
+                case .untagged: return !video.isTagged
                 case .batter:   return video.playResult?.type.isBattingResult ?? false
                 case .pitcher:  return video.playResult?.type.isPitchingResult ?? false
                 }
@@ -65,7 +65,7 @@ final class VideoClipsViewModel {
         if !query.isEmpty {
             videos = videos.filter { video in
                 video.fileName.lowercased().contains(query) ||
-                (video.playResult?.type.displayName.lowercased().contains(query) ?? false) ||
+                (video.displayTagName?.lowercased().contains(query) ?? false) ||
                 (video.game?.opponent.lowercased().contains(query) ?? false) ||
                 (video.game?.location?.lowercased().contains(query) ?? false) ||
                 (video.game?.season?.displayName.lowercased().contains(query) ?? false) ||

@@ -33,9 +33,9 @@ struct VideoClipRow: View {
                     .frame(width: 72, height: 72)
 
                     VStack(alignment: .leading, spacing: 4) {
-                        if let playResult = clip.playResult {
+                        if let tag = clip.displayTagName {
                             HStack(spacing: 6) {
-                                Text(playResult.type.displayName)
+                                Text(tag)
                                     .font(.headingMedium)
                                     .foregroundColor(.primary)
                                 if let speed = clip.pitchSpeed, speed > 0 {
@@ -81,7 +81,7 @@ struct VideoClipRow: View {
             }
             .buttonStyle(PlainButtonStyle())
             .accessibilityElement(children: .combine)
-            .accessibilityLabel(clip.playResult?.type.displayName ?? "Unrecorded Play")
+            .accessibilityLabel(clip.displayTagName ?? "Unrecorded Play")
             .accessibilityHint("Opens the video")
 
             // Coach comment thread

@@ -506,7 +506,7 @@ struct AdvancedSearchView: View {
         if !searchText.isEmpty {
             videos = videos.filter {
                 $0.fileName.localizedCaseInsensitiveContains(searchText) ||
-                $0.playResult?.type.displayName.localizedCaseInsensitiveContains(searchText) == true ||
+                $0.displayTagName?.localizedCaseInsensitiveContains(searchText) == true ||
                 $0.game?.opponent.localizedCaseInsensitiveContains(searchText) == true
             }
         }
@@ -755,8 +755,8 @@ struct VideoSearchResultCard: View {
     var body: some View {
         SearchResultCard(thumbnailPath: video.thumbnailPath, placeholderIcon: "video.fill") {
             HStack {
-                if let result = video.playResult {
-                    Text(result.type.displayName)
+                if let tag = video.displayTagName {
+                    Text(tag)
                         .font(.headingMedium)
                 }
                 if video.isHighlight {

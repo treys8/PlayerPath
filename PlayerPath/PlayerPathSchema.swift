@@ -401,6 +401,21 @@ enum SchemaV22: VersionedSchema {
     static var models: [any PersistentModel.Type] { SchemaV1.models }
 }
 
+// MARK: - Schema V23 (2026-05-25 — Golf club tag on VideoClip)
+//
+//  Changes from V22:
+//    • VideoClip.club (Club?) added — golf club tag (Driver / 3W / 5W /
+//      3i…9i / PW / GW / SW / LW / Putter). Set at recording time by the
+//      sport-parameterized PlayResultOverlayView for clips in a golf season.
+//      Stored as a Codable enum (same pattern as Athlete.sport in V21).
+//
+//  Optional with nil default → lightweight migration is sufficient.
+
+enum SchemaV23: VersionedSchema {
+    static var versionIdentifier = Schema.Version(23, 0, 0)
+    static var models: [any PersistentModel.Type] { SchemaV1.models }
+}
+
 // MARK: - Migration Plan
 
 enum PlayerPathMigrationPlan: SchemaMigrationPlan {

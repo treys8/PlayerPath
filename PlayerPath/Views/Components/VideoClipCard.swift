@@ -175,7 +175,11 @@ struct VideoClipCard: View {
             MoveClipSheet(clip: video)
         }
         .sheet(isPresented: $showingTagSheet) {
-            PlayResultEditorView(clip: video, modelContext: modelContext)
+            if video.season?.sport == .golf {
+                ClubPickerEditorView(clip: video, modelContext: modelContext)
+            } else {
+                PlayResultEditorView(clip: video, modelContext: modelContext)
+            }
         }
         .sheet(isPresented: $showingGameLinker) {
             GameLinkerView(clip: video)
@@ -213,19 +217,21 @@ struct VideoClipCard: View {
 
     @ViewBuilder
     private var videoMenuItems: some View {
-        if video.playResult == nil {
+        let isGolfClip = video.season?.sport == .golf
+        let tagNoun = isGolfClip ? "Club" : "Play Result"
+        if !video.isTagged {
             Button {
                 Haptics.light()
                 showingTagSheet = true
             } label: {
-                Label("Tag Play Result", systemImage: "tag.fill")
+                Label("Tag \(tagNoun)", systemImage: "tag.fill")
             }
         } else {
             Button {
                 Haptics.light()
                 showingTagSheet = true
             } label: {
-                Label("Edit Play Result", systemImage: AppIcon.edit)
+                Label("Edit \(tagNoun)", systemImage: AppIcon.edit)
             }
         }
         Divider()

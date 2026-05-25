@@ -105,6 +105,7 @@ extension SyncCoordinator {
                     playResultType: clip.playResult?.type,
                     pitchSpeed: clip.pitchSpeed,
                     pitchType: clip.pitchType,
+                    club: clip.club?.rawValue,
                     gameId: clip.game.map { $0.firestoreId ?? $0.id.uuidString },
                     gameOpponent: clip.gameOpponent ?? clip.game?.opponent,
                     gameDate: clip.gameDate ?? clip.game?.date,
@@ -234,6 +235,9 @@ extension SyncCoordinator {
                 if let pitchType = remoteVideo.pitchType {
                     localClip.pitchType = pitchType
                 }
+                if let clubRaw = remoteVideo.club, let club = Club(rawValue: clubRaw) {
+                    localClip.club = club
+                }
                 if let duration = remoteVideo.duration {
                     localClip.duration = duration
                 }
@@ -278,6 +282,7 @@ extension SyncCoordinator {
                 newClip.note = remoteVideo.note
                 newClip.pitchSpeed = remoteVideo.pitchSpeed
                 newClip.pitchType = remoteVideo.pitchType
+                newClip.club = remoteVideo.club.flatMap(Club.init(rawValue:))
                 newClip.duration = remoteVideo.duration
                 newClip.firestoreId = remoteVideo.id.uuidString
                 newClip.sourceCoachVideoID = remoteVideo.sourceCoachVideoID
@@ -456,6 +461,9 @@ extension SyncCoordinator {
 
         let remotePitchType = data["pitchType"] as? String
         if remotePitchType != clip.pitchType { return false }
+
+        let remoteClub = data["club"] as? String
+        if remoteClub != clip.club?.rawValue { return false }
 
         let remoteGameId = data["gameId"] as? String
         let localGameId = clip.game.map { $0.firestoreId ?? $0.id.uuidString }

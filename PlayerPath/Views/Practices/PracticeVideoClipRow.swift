@@ -41,8 +41,8 @@ struct PracticeVideoClipRow: View {
                         .lineLimit(1)
                         .truncationMode(.tail)
 
-                    if let playResult = clip.playResult {
-                        Text(playResult.type.displayName)
+                    if let tag = clip.displayTagName {
+                        Text(tag)
                             .font(.bodySmall)
                             .foregroundStyle(.secondary)
                     }
